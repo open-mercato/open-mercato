@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { ImagePlus, Link2, Loader2, Paperclip, Trash2 } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -32,6 +33,7 @@ function resolvePreviewUrl(attachmentId: string | null | undefined, logoUrl: str
 }
 
 export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, error: externalError, onChange }: Props) {
+  const t = useT()
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const [uploading, setUploading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -63,7 +65,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
           body: formData,
         })
         if (!call.ok || !call.result?.item?.id) {
-          const message = call.result?.error || 'Failed to upload logo.'
+          const message = call.result?.error || t('checkout.logoUpload.errors.upload')
           throw new Error(message)
         }
         const nextAttachmentId = call.result.item.id
@@ -76,7 +78,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
           await deleteAttachment(previousAttachmentId)
         }
       } catch (uploadError) {
-        setError(uploadError instanceof Error ? uploadError.message : 'Failed to upload logo.')
+        setError(uploadError instanceof Error ? uploadError.message : t('checkout.logoUpload.errors.upload'))
       } finally {
         setUploading(false)
         if (inputRef.current) inputRef.current.value = ''
@@ -92,7 +94,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
         await deleteAttachment(attachmentId)
       }
     } catch (removeError) {
-      setError(removeError instanceof Error ? removeError.message : 'Failed to remove the uploaded logo.')
+      setError(removeError instanceof Error ? removeError.message : t('checkout.logoUpload.errors.remove'))
     }
     setPreviewUrl(resolvePreviewUrl(null, logoUrl))
     onChange({ logoAttachmentId: null, logoUrl: logoUrl ?? null })
@@ -104,10 +106,10 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
         <div className="space-y-1">
           <div className="flex items-center gap-2 text-sm font-medium">
             <ImagePlus className="h-4 w-4 text-muted-foreground" />
-            Logo
+            {t('checkout.logoUpload.title')}
           </div>
           <p className="text-xs text-muted-foreground">
-            Upload a logo to attachments or keep using an external URL.
+            {t('checkout.logoUpload.description')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -119,7 +121,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
             disabled={uploading}
           >
             {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Paperclip className="mr-2 h-4 w-4" />}
-            {uploading ? 'Uploading…' : 'Attach logo'}
+            {uploading ? t('checkout.logoUpload.actions.uploading') : t('checkout.logoUpload.actions.attach')}
           </Button>
           {attachmentId ? (
             <Button
@@ -129,7 +131,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
               onClick={() => void handleRemoveUpload()}
             >
               <Trash2 className="mr-2 h-4 w-4" />
-              Remove upload
+              {t('checkout.logoUpload.actions.removeUpload')}
             </Button>
           ) : null}
         </div>
@@ -145,11 +147,11 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
 
       <div className="rounded-lg border border-dashed border-border/70 bg-background px-4 py-6">
         {previewUrl ? (
-          <img src={previewUrl} alt="Checkout logo preview" className="max-h-24 w-auto object-contain" />
+          <img src={previewUrl} alt={t('checkout.logoUpload.previewAlt')} className="max-h-24 w-auto object-contain" />
         ) : (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <ImagePlus className="h-4 w-4" />
-            No logo selected yet.
+            {t('checkout.logoUpload.empty')}
           </div>
         )}
       </div>
@@ -157,7 +159,7 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
       <div className="space-y-2">
         <Label className="flex items-center gap-2">
           <Link2 className="h-4 w-4 text-muted-foreground" />
-          External logo URL
+          {t('checkout.logoUpload.externalUrl')}
         </Label>
         <Input
           value={logoUrl ?? ''}
@@ -168,13 +170,13 @@ export function LogoUploadField({ entityId, recordId, attachmentId, logoUrl, err
               logoUrl: event.target.value || null,
             })
           }}
-          placeholder="https://example.com/logo.png"
+          placeholder={t('checkout.logoUpload.externalUrlPlaceholder')}
         />
       </div>
 
       {attachmentId ? (
         <Notice compact>
-          The uploaded attachment is used first. Remove it if you want to fall back to the external URL.
+          {t('checkout.logoUpload.notices.attachmentWins')}
         </Notice>
       ) : null}
       {externalError ? <p className="text-xs text-destructive">{externalError}</p> : null}

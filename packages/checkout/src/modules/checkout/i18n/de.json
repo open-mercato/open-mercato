@@ -1,0 +1,41 @@
+{
+  "checkout": {
+    "payPage": {
+      "loading": "Zahlungslink wird geladen...",
+      "protectedTitle": "Geschutzter Zahlungslink",
+      "passwordPlaceholder": "Passwort",
+      "unavailable": "Dieser Zahlungslink ist nicht mehr verfugbar.",
+      "previewBanner": "Vorschaumodus. Zahlungen sind deaktiviert.",
+      "sections": {
+        "customerDetails": "Kundendaten",
+        "payment": "Zahlung"
+      },
+      "fields": {
+        "selectPlaceholder": "Auswaehlen..."
+      },
+      "legal": {
+        "acceptDocument": "Ich akzeptiere {document}.",
+        "defaultTermsTitle": "die Allgemeinen Geschaftsbedingungen",
+        "defaultPrivacyTitle": "die Datenschutzerklarung"
+      },
+      "summary": {
+        "amountDue": "Falliger Betrag"
+      },
+      "errors": {
+        "loadTitle": "Zahlungslink konnte nicht geladen werden",
+        "loadMessage": "Diese Zahlungsseite konnte nicht geladen werden. Bitte versuche es erneut.",
+        "password": "Das Passwort konnte nicht verifiziert werden. Bitte versuche es erneut.",
+        "submit": "Die Zahlung konnte nicht gestartet werden. Bitte versuche es erneut."
+      },
+      "actions": {
+        "retry": "Erneut versuchen",
+        "backToAdmin": "Zuruck zum Adminbereich",
+        "continue": "Weiter",
+        "verifying": "Wird verifiziert...",
+        "payNow": "Jetzt bezahlen",
+        "processingPayment": "Zahlung wird verarbeitet...",
+        "previewDisabled": "Nur Vorschau"
+      }
+    }
+  }
+}

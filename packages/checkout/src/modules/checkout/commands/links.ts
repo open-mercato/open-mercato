@@ -5,6 +5,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
 import { createLinkSchema, updateLinkSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
@@ -35,12 +36,12 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     let sourceValues = parsed
     let templateCustomFields: Record<string, unknown> = {}
     if (parsed.templateId) {
-      const template = await em.findOne(CheckoutLinkTemplate, {
+      const template = await findOneWithDecryption(em, CheckoutLinkTemplate, {
         id: parsed.templateId,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
         deletedAt: null,
-      })
+      }, undefined, scope)
       if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
       sourceValues = toTemplateOrLinkMutationInput(template, {
         ...parsed,
@@ -116,12 +117,12 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
     const scope = resolveCommandScope(ctx)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       id: parsed.id,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
     if (!link) throw new CrudHttpError(404, { error: 'Link not found' })
     if (link.isLocked) {
       throw new CrudHttpError(422, { error: 'This link has active transactions and cannot be edited' })
@@ -183,12 +184,12 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
     const linkId = readCommandId(rawInput, 'Link id is required')
     const scope = resolveCommandScope(ctx)
     const em = ctx.container.resolve('em') as EntityManager
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       id: linkId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
     if (!link) throw new CrudHttpError(404, { error: 'Link not found' })
     const activeCount = await em.count(CheckoutTransaction, {
       linkId: link.id,

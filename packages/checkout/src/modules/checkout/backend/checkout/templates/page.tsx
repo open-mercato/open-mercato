@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -32,6 +33,7 @@ function formatDate(value: string | null | undefined): string {
 }
 
 export default function CheckoutTemplatesPage() {
+  const t = useT()
   const [rows, setRows] = React.useState<TemplateRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [page, setPage] = React.useState(1)
@@ -43,15 +45,15 @@ export default function CheckoutTemplatesPage() {
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
       id: 'pricingMode',
-      label: 'Pricing mode',
+      label: t('checkout.admin.templates.filters.pricingMode'),
       type: 'select',
       options: [
-        { value: 'fixed', label: 'Fixed' },
-        { value: 'custom_amount', label: 'Custom amount' },
-        { value: 'price_list', label: 'Price list' },
+        { value: 'fixed', label: t('checkout.linkTemplateForm.pricing.modes.fixed') },
+        { value: 'custom_amount', label: t('checkout.linkTemplateForm.pricing.modes.customAmount') },
+        { value: 'price_list', label: t('checkout.linkTemplateForm.pricing.modes.priceList') },
       ],
     },
-  ], [])
+  ], [t])
 
   const loadRows = React.useCallback(async () => {
     setLoading(true)
@@ -73,36 +75,46 @@ export default function CheckoutTemplatesPage() {
   }, [loadRows])
 
   const columns = React.useMemo<ColumnDef<TemplateRow>[]>(() => [
-    { accessorKey: 'name', header: 'Name' },
-    { accessorKey: 'pricingMode', header: 'Pricing mode' },
+    { accessorKey: 'name', header: t('checkout.admin.templates.columns.name') },
+    {
+      accessorKey: 'pricingMode',
+      header: t('checkout.admin.templates.columns.pricingMode'),
+      cell: ({ row }) => {
+        const mode = row.original.pricingMode
+        if (mode === 'fixed') return t('checkout.linkTemplateForm.pricing.modes.fixed')
+        if (mode === 'custom_amount') return t('checkout.linkTemplateForm.pricing.modes.customAmount')
+        if (mode === 'price_list') return t('checkout.linkTemplateForm.pricing.modes.priceList')
+        return mode
+      },
+    },
     {
       accessorKey: 'gatewayProviderKey',
-      header: 'Gateway',
-      cell: ({ row }) => row.original.gatewayProviderKey ?? '—',
+      header: t('checkout.admin.templates.columns.gateway'),
+      cell: ({ row }) => row.original.gatewayProviderKey ?? t('checkout.common.emptyValue'),
     },
     {
       accessorKey: 'maxCompletions',
-      header: 'Max uses',
-      cell: ({ row }) => row.original.maxCompletions ?? 'Unlimited',
+      header: t('checkout.admin.templates.columns.maxUses'),
+      cell: ({ row }) => row.original.maxCompletions ?? t('checkout.admin.templates.unlimited'),
     },
     {
       accessorKey: 'createdAt',
-      header: 'Created',
+      header: t('checkout.admin.templates.columns.created'),
       cell: ({ row }) => formatDate(row.original.createdAt),
     },
-  ], [])
+  ], [t])
 
   return (
     <Page>
       <PageBody>
         <DataTable
-          title="Link Templates"
+          title={t('checkout.admin.templates.title')}
           columns={columns}
           data={rows}
           isLoading={loading}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
-          searchPlaceholder="Search templates…"
+          searchPlaceholder={t('checkout.admin.templates.searchPlaceholder')}
           filters={filterDefs}
           filterValues={filters}
           onFiltersApply={(next) => { setFilters(next); setPage(1) }}
@@ -113,18 +125,18 @@ export default function CheckoutTemplatesPage() {
             <Button asChild>
               <Link href="/backend/checkout/templates/create">
                 <Plus className="mr-2 h-4 w-4" />
-                Create Template
+                {t('checkout.admin.templates.actions.create')}
               </Link>
             </Button>
           )}
           rowActions={(row) => (
             <RowActions items={[
-              { id: 'edit', label: 'Edit', href: `/backend/checkout/templates/${encodeURIComponent(row.id)}` },
-              { id: 'preview', label: 'Preview', href: `/backend/checkout/templates/${encodeURIComponent(row.id)}/preview` },
-              { id: 'create-link', label: 'Create Link from Template', href: `/backend/checkout/pay-links/create?templateId=${encodeURIComponent(row.id)}` },
+              { id: 'edit', label: t('checkout.common.actions.edit'), href: `/backend/checkout/templates/${encodeURIComponent(row.id)}` },
+              { id: 'preview', label: t('checkout.common.actions.preview'), href: `/backend/checkout/templates/${encodeURIComponent(row.id)}/preview` },
+              { id: 'create-link', label: t('checkout.admin.templates.actions.createLinkFromTemplate'), href: `/backend/checkout/pay-links/create?templateId=${encodeURIComponent(row.id)}` },
               {
                 id: 'delete',
-                label: 'Delete',
+                label: t('checkout.common.actions.delete'),
                 onSelect: async () => {
                   await apiCallOrThrow(`/api/checkout/templates/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
                   void loadRows()

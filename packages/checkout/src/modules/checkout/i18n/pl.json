@@ -1,0 +1,41 @@
+{
+  "checkout": {
+    "payPage": {
+      "loading": "Ladowanie linku platnosci...",
+      "protectedTitle": "Chroniony link platnosci",
+      "passwordPlaceholder": "Haslo",
+      "unavailable": "Ten link platnosci nie jest juz dostepny.",
+      "previewBanner": "Tryb podgladu. Platnosci sa wylaczone.",
+      "sections": {
+        "customerDetails": "Dane klienta",
+        "payment": "Platnosc"
+      },
+      "fields": {
+        "selectPlaceholder": "Wybierz..."
+      },
+      "legal": {
+        "acceptDocument": "Akceptuje {document}.",
+        "defaultTermsTitle": "regulamin",
+        "defaultPrivacyTitle": "polityke prywatnosci"
+      },
+      "summary": {
+        "amountDue": "Kwota do zaplaty"
+      },
+      "errors": {
+        "loadTitle": "Nie mozna zaladowac linku platnosci",
+        "loadMessage": "Nie udalo sie zaladowac tej strony platnosci. Sprobuj ponownie.",
+        "password": "Nie udalo sie zweryfikowac hasla. Sprobuj ponownie.",
+        "submit": "Nie udalo sie rozpoczac platnosci. Sprobuj ponownie."
+      },
+      "actions": {
+        "retry": "Sprobuj ponownie",
+        "backToAdmin": "Wroc do panelu",
+        "continue": "Kontynuuj",
+        "verifying": "Trwa weryfikacja...",
+        "payNow": "Zaplac teraz",
+        "processingPayment": "Trwa przetwarzanie platnosci...",
+        "previewDisabled": "Tylko podglad"
+      }
+    }
+  }
+}

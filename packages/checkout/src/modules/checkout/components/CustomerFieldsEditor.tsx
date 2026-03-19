@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Plus, Settings2, Trash2 } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -39,6 +40,7 @@ function createField(index: number): CustomerFieldDefinitionInput {
 }
 
 export function CustomerFieldsEditor({ value, onChange }: Props) {
+  const t = useT()
   const fields = React.useMemo<CustomerFieldDefinitionInput[]>(
     () => (
       Array.isArray(value)
@@ -110,17 +112,17 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
   return (
     <div className="space-y-4">
       <Notice compact>
-        Default customer fields are only starting suggestions. You can rename, reorder, or remove them to keep the form compact.
+        {t('checkout.customerFieldsEditor.notices.defaultFields')}
       </Notice>
 
       <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
         <div className="hidden grid-cols-[1fr_1fr_1fr_180px_90px_110px] gap-3 border-b bg-muted/30 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground md:grid">
-          <div>Field key</div>
-          <div>Label</div>
-          <div>Placeholder</div>
-          <div>Type</div>
-          <div>Required</div>
-          <div className="text-right">Actions</div>
+          <div>{t('checkout.customerFieldsEditor.columns.fieldKey')}</div>
+          <div>{t('checkout.customerFieldsEditor.columns.label')}</div>
+          <div>{t('checkout.customerFieldsEditor.columns.placeholder')}</div>
+          <div>{t('checkout.customerFieldsEditor.columns.type')}</div>
+          <div>{t('checkout.customerFieldsEditor.columns.required')}</div>
+          <div className="text-right">{t('checkout.customerFieldsEditor.columns.actions')}</div>
         </div>
 
         {fields.length > 0 ? (
@@ -129,48 +131,48 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
               <div key={`${field.key}:${index}`} className="space-y-3 px-4 py-4">
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="space-y-1">
-                    <Label>Field key</Label>
+                    <Label>{t('checkout.customerFieldsEditor.columns.fieldKey')}</Label>
                     <Input
                       value={field.key}
                       onChange={(event) => updateField(index, { key: event.target.value })}
                       disabled={field.fixed}
-                      placeholder="referenceCode"
+                      placeholder={t('checkout.customerFieldsEditor.placeholders.fieldKey')}
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <Label>Label</Label>
+                    <Label>{t('checkout.customerFieldsEditor.columns.label')}</Label>
                     <Input
                       value={field.label}
                       onChange={(event) => updateField(index, { label: event.target.value })}
-                      placeholder="Reference code"
+                      placeholder={t('checkout.customerFieldsEditor.placeholders.label')}
                     />
                   </div>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-[1.2fr_180px_100px_110px] md:items-end">
                   <div className="space-y-1">
-                    <Label>Placeholder</Label>
+                    <Label>{t('checkout.customerFieldsEditor.columns.placeholder')}</Label>
                     <Input
                       value={field.placeholder ?? ''}
                       onChange={(event) => updateField(index, { placeholder: event.target.value })}
-                      placeholder="Shown inside the input"
+                      placeholder={t('checkout.customerFieldsEditor.placeholders.placeholder')}
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <Label>Type</Label>
+                    <Label>{t('checkout.customerFieldsEditor.columns.type')}</Label>
                     <select
                       className="w-full rounded-md border bg-background px-3 py-2 text-sm"
                       value={field.kind}
                       onChange={(event) => updateField(index, { kind: event.target.value as CustomerFieldDefinitionInput['kind'] })}
                       disabled={field.fixed}
                     >
-                      <option value="text">Text</option>
-                      <option value="multiline">Textarea</option>
-                      <option value="boolean">Checkbox</option>
-                      <option value="select">Select</option>
-                      <option value="radio">Radio</option>
+                      <option value="text">{t('checkout.customerFieldsEditor.types.text')}</option>
+                      <option value="multiline">{t('checkout.customerFieldsEditor.types.multiline')}</option>
+                      <option value="boolean">{t('checkout.customerFieldsEditor.types.boolean')}</option>
+                      <option value="select">{t('checkout.customerFieldsEditor.types.select')}</option>
+                      <option value="radio">{t('checkout.customerFieldsEditor.types.radio')}</option>
                     </select>
                   </div>
 
@@ -180,7 +182,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                       checked={field.required}
                       onChange={(event) => updateField(index, { required: event.target.checked })}
                     />
-                    Required
+                    {t('checkout.customerFieldsEditor.columns.required')}
                   </label>
 
                   <div className="flex justify-end gap-2">
@@ -192,11 +194,11 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                         onClick={() => removeField(index)}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Remove
+                        {t('checkout.common.actions.remove')}
                       </Button>
                     ) : (
                       <Button type="button" variant="outline" size="sm" disabled>
-                        Locked
+                        {t('checkout.customerFieldsEditor.locked')}
                       </Button>
                     )}
                   </div>
@@ -206,15 +208,15 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                   <div className="space-y-2 rounded-lg border border-dashed border-border/70 bg-muted/20 p-3">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Settings2 className="h-4 w-4 text-muted-foreground" />
-                      Options
+                      {t('checkout.customerFieldsEditor.options.title')}
                     </div>
                     <div className="overflow-hidden rounded-lg border border-border/70 bg-background">
                       <table className="w-full table-fixed">
                         <thead className="border-b bg-muted/30">
                           <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                            <th className="px-3 py-2 w-[40%]">Value</th>
-                            <th className="px-3 py-2">Label</th>
-                            <th className="px-3 py-2 w-[96px] text-right">Actions</th>
+                            <th className="px-3 py-2 w-[40%]">{t('checkout.customerFieldsEditor.options.value')}</th>
+                            <th className="px-3 py-2">{t('checkout.customerFieldsEditor.options.label')}</th>
+                            <th className="px-3 py-2 w-[96px] text-right">{t('checkout.customerFieldsEditor.columns.actions')}</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-border/70">
@@ -224,7 +226,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                                 <Input
                                   value={option.value}
                                   onChange={(event) => updateOption(index, optionIndex, { value: event.target.value })}
-                                  placeholder="starter"
+                                  placeholder={t('checkout.customerFieldsEditor.options.placeholders.value')}
                                   className="h-8"
                                 />
                               </td>
@@ -232,7 +234,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                                 <Input
                                   value={option.label}
                                   onChange={(event) => updateOption(index, optionIndex, { label: event.target.value })}
-                                  placeholder="Starter"
+                                  placeholder={t('checkout.customerFieldsEditor.options.placeholders.label')}
                                   className="h-8"
                                 />
                               </td>
@@ -253,7 +255,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={() => addOption(index)}>
                       <Plus className="mr-2 h-4 w-4" />
-                      Add option
+                      {t('checkout.customerFieldsEditor.options.add')}
                     </Button>
                   </div>
                 ) : null}
@@ -263,7 +265,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
         ) : (
           <div className="px-4 py-8">
             <Notice compact>
-              No customer fields configured yet. Add at least one field if you want to collect buyer details on the pay page.
+              {t('checkout.customerFieldsEditor.notices.empty')}
             </Notice>
           </div>
         )}
@@ -275,7 +277,7 @@ export function CustomerFieldsEditor({ value, onChange }: Props) {
         onClick={() => onChange(normalize([...fields, createField(fields.length)]))}
       >
         <Plus className="mr-2 h-4 w-4" />
-        Add customer field
+        {t('checkout.customerFieldsEditor.addField')}
       </Button>
     </div>
   )

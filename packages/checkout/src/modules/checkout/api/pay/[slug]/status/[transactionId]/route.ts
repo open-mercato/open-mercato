@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
@@ -27,7 +28,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     }
     const em = container.resolve('em')
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       slug: resolvedParams.slug,
       deletedAt: null,
     })
@@ -37,12 +38,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     if (link.passwordHash) {
       requireCheckoutPasswordSession(req, link.slug)
     }
-    let transaction = await em.findOne(CheckoutTransaction, {
+    let transaction = await findOneWithDecryption(em, CheckoutTransaction, {
       id: resolvedParams.transactionId,
       linkId: link.id,
       organizationId: link.organizationId,
       tenantId: link.tenantId,
-    })
+    }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
     if (!transaction) {
       return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
     }
@@ -51,12 +52,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
         organizationId: link.organizationId,
         tenantId: link.tenantId,
       }).catch(() => null)
-      transaction = await em.findOne(CheckoutTransaction, {
+      transaction = await findOneWithDecryption(em, CheckoutTransaction, {
         id: resolvedParams.transactionId,
         linkId: link.id,
         organizationId: link.organizationId,
         tenantId: link.tenantId,
-      })
+      }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
     }
     if (!transaction) {
       return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })

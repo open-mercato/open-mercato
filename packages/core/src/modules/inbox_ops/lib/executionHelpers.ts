@@ -24,6 +24,22 @@ export interface ExecutionHelperContext {
   entities?: CrossModuleEntities
 }
 
+type OperationLogEntryLike = {
+  id?: string | null
+  undoToken?: string | null
+  commandId?: string | null
+  actionLabel?: string | null
+  resourceKind?: string | null
+  resourceId?: string | null
+  createdAt?: Date | string | null
+}
+
+const LAST_OPERATION_LOG_ENTRY = Symbol('inboxOps:lastOperationLogEntry')
+
+type OperationLogCarrier = {
+  [LAST_OPERATION_LOG_ENTRY]?: OperationLogEntryLike | null
+}
+
 /**
  * Cast InboxActionExecutionContext (from shared) to the concrete helper context.
  * The inbox-actions.ts handlers receive InboxActionExecutionContext but helpers
@@ -31,6 +47,14 @@ export interface ExecutionHelperContext {
  */
 export function asHelperContext(ctx: InboxActionExecutionContext): ExecutionHelperContext {
   return ctx as unknown as ExecutionHelperContext
+}
+
+export function clearLatestCommandLogEntry(ctx: object) {
+  ;(ctx as OperationLogCarrier)[LAST_OPERATION_LOG_ENTRY] = null
+}
+
+export function readLatestCommandLogEntry(ctx: object): OperationLogEntryLike | null {
+  return (ctx as OperationLogCarrier)[LAST_OPERATION_LOG_ENTRY] ?? null
 }
 
 interface FeatureCheckingRbacService {
@@ -96,10 +120,14 @@ export async function executeCommand<TInput, TResult>(
     organizationIds: [ctx.organizationId],
   }
 
-  const { result } = await commandBus.execute<TInput, TResult>(commandId, {
+  const { result, logEntry } = await commandBus.execute<TInput, TResult>(commandId, {
     input,
     ctx: commandContext,
   })
+
+  if (logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+    ;(ctx as ExecutionHelperContext & OperationLogCarrier)[LAST_OPERATION_LOG_ENTRY] = logEntry
+  }
 
   return result
 }

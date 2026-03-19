@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { FilterQuery } from '@mikro-orm/postgresql'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLinkTemplate } from '../../data/entities'
 import { checkoutTag } from '../openapi'
 import { buildCommandRuntimeContext, handleCheckoutRouteError, requireAdminContext } from '../helpers'
@@ -33,11 +34,17 @@ export async function GET(req: Request) {
     }
     if (pricingMode === 'fixed' || pricingMode === 'custom_amount' || pricingMode === 'price_list') where.pricingMode = pricingMode
     if (gatewayProviderKey) where.gatewayProviderKey = gatewayProviderKey
-    const [items, total] = await em.findAndCount(CheckoutLinkTemplate, where, {
-      orderBy: { createdAt: 'desc' },
-      offset: (page - 1) * pageSize,
-      limit: pageSize,
-    })
+    const [items, total] = await findAndCountWithDecryption(
+      em,
+      CheckoutLinkTemplate,
+      where,
+      {
+        orderBy: { createdAt: 'desc' },
+        offset: (page - 1) * pageSize,
+        limit: pageSize,
+      },
+      { organizationId: auth.orgId, tenantId: auth.tenantId },
+    )
     return NextResponse.json({
       items: items.map((item) => serializeTemplateRecord(item)),
       total,

@@ -3,6 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import type { ColumnDef } from '@tanstack/react-table'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -39,23 +40,8 @@ function formatDate(value: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
 }
 
-function formatPricing(row: LinkRow): string {
-  if (row.pricingMode === 'fixed') {
-    return `Fixed ${row.fixedPriceAmount?.toFixed(2) ?? '0.00'} ${row.fixedPriceCurrencyCode ?? ''}`.trim()
-  }
-  if (row.pricingMode === 'custom_amount') {
-    return `Custom ${row.customAmountMin?.toFixed(2) ?? '0.00'}-${row.customAmountMax?.toFixed(2) ?? '0.00'} ${row.customAmountCurrencyCode ?? ''}`.trim()
-  }
-  return 'Price List'
-}
-
-function formatStatus(status: LinkRow['status']): string {
-  if (status === 'active') return 'Active'
-  if (status === 'inactive') return 'Inactive'
-  return 'Draft'
-}
-
 export default function CheckoutPayLinksPage() {
+  const t = useT()
   const [rows, setRows] = React.useState<LinkRow[]>([])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -67,25 +53,25 @@ export default function CheckoutPayLinksPage() {
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
       id: 'status',
-      label: 'Status',
+      label: t('checkout.admin.payLinks.filters.status'),
       type: 'select',
       options: [
-        { value: 'draft', label: 'Draft' },
-        { value: 'active', label: 'Active' },
-        { value: 'inactive', label: 'Inactive' },
+        { value: 'draft', label: t('checkout.common.status.draft') },
+        { value: 'active', label: t('checkout.common.status.active') },
+        { value: 'inactive', label: t('checkout.common.status.inactive') },
       ],
     },
     {
       id: 'pricingMode',
-      label: 'Pricing',
+      label: t('checkout.admin.payLinks.filters.pricing'),
       type: 'select',
       options: [
-        { value: 'fixed', label: 'Fixed' },
-        { value: 'custom_amount', label: 'Custom amount' },
-        { value: 'price_list', label: 'Price list' },
+        { value: 'fixed', label: t('checkout.linkTemplateForm.pricing.modes.fixed') },
+        { value: 'custom_amount', label: t('checkout.linkTemplateForm.pricing.modes.customAmount') },
+        { value: 'price_list', label: t('checkout.linkTemplateForm.pricing.modes.priceList') },
       ],
     },
-  ], [])
+  ], [t])
 
   const loadRows = React.useCallback(async () => {
     setLoading(true)
@@ -108,48 +94,63 @@ export default function CheckoutPayLinksPage() {
   }, [loadRows])
 
   const columns = React.useMemo<ColumnDef<LinkRow>[]>(() => [
-    { accessorKey: 'name', header: 'Name' },
+    { accessorKey: 'name', header: t('checkout.admin.payLinks.columns.name') },
     {
       accessorKey: 'slug',
-      header: 'Slug',
+      header: t('checkout.admin.payLinks.columns.slug'),
       cell: ({ row }) => <span className="font-mono text-xs">/pay/{row.original.slug}</span>,
     },
     {
       accessorKey: 'pricingMode',
-      header: 'Pricing',
-      cell: ({ row }) => formatPricing(row.original),
+      header: t('checkout.admin.payLinks.columns.pricing'),
+      cell: ({ row }) => {
+        if (row.original.pricingMode === 'fixed') {
+          return t('checkout.admin.payLinks.pricing.fixed', {
+            amount: row.original.fixedPriceAmount?.toFixed(2) ?? '0.00',
+            currency: row.original.fixedPriceCurrencyCode ?? '',
+          }).trim()
+        }
+        if (row.original.pricingMode === 'custom_amount') {
+          return t('checkout.admin.payLinks.pricing.customAmount', {
+            min: row.original.customAmountMin?.toFixed(2) ?? '0.00',
+            max: row.original.customAmountMax?.toFixed(2) ?? '0.00',
+            currency: row.original.customAmountCurrencyCode ?? '',
+          }).trim()
+        }
+        return t('checkout.linkTemplateForm.pricing.modes.priceList')
+      },
     },
     {
       accessorKey: 'status',
-      header: 'Status',
+      header: t('checkout.admin.payLinks.columns.status'),
       cell: ({ row }) => (
         <Badge variant={row.original.status === 'active' ? 'default' : 'secondary'}>
-          {formatStatus(row.original.status)}
+          {t(`checkout.common.status.${row.original.status}`)}
         </Badge>
       ),
     },
     {
       accessorKey: 'completionCount',
-      header: 'Uses',
+      header: t('checkout.admin.payLinks.columns.uses'),
       cell: ({ row }) => `${row.original.completionCount} / ${row.original.maxCompletions ?? '∞'}`,
     },
     {
       accessorKey: 'createdAt',
-      header: 'Created',
+      header: t('checkout.admin.payLinks.columns.created'),
       cell: ({ row }) => formatDate(row.original.createdAt),
     },
-  ], [])
+  ], [t])
 
   return (
     <Page>
       <PageBody>
         <DataTable
-          title="Pay Links"
+          title={t('checkout.admin.payLinks.title')}
           columns={columns}
           data={rows}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
-          searchPlaceholder="Search pay links…"
+          searchPlaceholder={t('checkout.admin.payLinks.searchPlaceholder')}
           filters={filterDefs}
           filterValues={filters}
           onFiltersApply={(next) => { setFilters(next); setPage(1) }}
@@ -161,29 +162,29 @@ export default function CheckoutPayLinksPage() {
             <Button asChild>
               <Link href="/backend/checkout/pay-links/create">
                 <Plus className="mr-2 h-4 w-4" />
-                Create Link
+                {t('checkout.admin.payLinks.actions.create')}
               </Link>
             </Button>
           )}
           rowActions={(row) => (
             <RowActions items={[
-              { id: 'edit', label: 'Edit', href: `/backend/checkout/pay-links/${encodeURIComponent(row.id)}` },
-              { id: 'preview', label: 'Preview', href: `/pay/${encodeURIComponent(row.slug)}?preview=true` },
+              { id: 'edit', label: t('checkout.common.actions.edit'), href: `/backend/checkout/pay-links/${encodeURIComponent(row.id)}` },
+              { id: 'preview', label: t('checkout.common.actions.preview'), href: `/pay/${encodeURIComponent(row.slug)}?preview=true` },
               ...(row.status === 'active'
-                ? [{ id: 'view', label: 'View Pay Page', href: `/pay/${encodeURIComponent(row.slug)}` }]
+                ? [{ id: 'view', label: t('checkout.admin.payLinks.actions.viewPayPage'), href: `/pay/${encodeURIComponent(row.slug)}` }]
                 : []),
               {
                 id: 'copy',
-                label: 'Copy Link URL',
+                label: t('checkout.admin.payLinks.actions.copyUrl'),
                 onSelect: async () => {
                   await navigator.clipboard.writeText(`${window.location.origin}/pay/${row.slug}`)
                 },
               },
-              { id: 'transactions', label: 'Show Transactions', href: `/backend/checkout/transactions?linkId=${encodeURIComponent(row.id)}` },
+              { id: 'transactions', label: t('checkout.admin.payLinks.actions.showTransactions'), href: `/backend/checkout/transactions?linkId=${encodeURIComponent(row.id)}` },
               ...(row.status !== 'active'
                 ? [{
                   id: 'publish',
-                  label: 'Publish',
+                  label: t('checkout.admin.payLinks.actions.publish'),
                   onSelect: async () => {
                     await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
                       method: 'PUT',
@@ -195,7 +196,7 @@ export default function CheckoutPayLinksPage() {
                 }]
                 : [{
                   id: 'deactivate',
-                  label: 'Deactivate',
+                  label: t('checkout.admin.payLinks.actions.deactivate'),
                   onSelect: async () => {
                     await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
                       method: 'PUT',
@@ -207,7 +208,7 @@ export default function CheckoutPayLinksPage() {
                 }]),
               {
                 id: 'delete',
-                label: 'Delete',
+                label: t('checkout.common.actions.delete'),
                 onSelect: async () => {
                   await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
                   void loadRows()

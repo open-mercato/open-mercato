@@ -1114,14 +1114,14 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
       </div>
 
       <div className="mt-3 pt-2 border-t flex flex-wrap items-center gap-4">
-        <span className="text-xs text-muted-foreground">Visibility:</span>
+        <span className="text-xs text-muted-foreground">{t('entities.customFields.fields.visibility', 'Visibility:')}</span>
         <label className="inline-flex items-center gap-2 text-xs">
           <input
             type="checkbox"
             checked={local.configJson?.listVisible !== false}
             onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), listVisible: event.target.checked } }, true) }}
           />
-          List
+          {t('entities.customFields.fields.listVisible', 'List')}
         </label>
         <label className="inline-flex items-center gap-2 text-xs">
           <input
@@ -1129,7 +1129,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             checked={!!local.configJson?.filterable}
             onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), filterable: event.target.checked } }, true) }}
           />
-          Filter
+          {t('entities.customFields.fields.filterable', 'Filter')}
         </label>
         <label className="inline-flex items-center gap-2 text-xs">
           <input
@@ -1137,7 +1137,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             checked={local.configJson?.formEditable !== false}
             onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), formEditable: event.target.checked } }, true) }}
           />
-          Form
+          {t('entities.customFields.fields.formEditable', 'Form')}
         </label>
         <label className="inline-flex items-center gap-2 text-xs">
           <input
@@ -1145,7 +1145,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             checked={!!local.configJson?.encrypted}
             onChange={(event) => { apply({ configJson: { ...(local.configJson || {}), encrypted: event.target.checked } }, true) }}
           />
-          {translate?.('entities.customFields.fields.encrypted', 'Encrypted') ?? 'Encrypted'}
+          {t('entities.customFields.fields.encrypted', 'Encrypted')}
         </label>
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   CircleDollarSign,
   Eye,
@@ -238,12 +239,43 @@ function normalizeFormValues(value: FormValues | null | undefined): FormValues {
   }
 }
 
-function SectionLabel({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function readError(errors: Record<string, string>, path: string): string | undefined {
+  if (!path) return undefined
+  if (errors[path]) return errors[path]
+  const prefix = `${path}.`
+  const nestedEntry = Object.entries(errors).find(([key]) => key.startsWith(prefix))
+  return nestedEntry?.[1]
+}
+
+function readAnyError(errors: Record<string, string>, ...paths: string[]): string | undefined {
+  for (const path of paths) {
+    const error = readError(errors, path)
+    if (error) return error
+  }
+  return undefined
+}
+
+function errorInputClassName(error?: string): string | undefined {
+  return error ? 'border-destructive focus-visible:ring-destructive/30' : undefined
+}
+
+function SectionLabel({
+  label,
+  hint,
+  error,
+  children,
+}: {
+  label: string
+  hint?: string
+  error?: string
+  children: React.ReactNode
+}) {
   return (
     <div className="space-y-2">
       <div className="space-y-1">
         <Label>{label}</Label>
         {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+        {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </div>
       {children}
     </div>
@@ -254,14 +286,16 @@ function ColorField({
   label,
   value,
   onChange,
+  error,
 }: {
   label: string
   value: string
   onChange: (next: string) => void
+  error?: string
 }) {
   const pickerValue = /^#([0-9a-fA-F]{6})$/.test(value) ? value : '#000000'
   return (
-    <SectionLabel label={label}>
+    <SectionLabel label={label} error={error}>
       <div className="flex items-center gap-3">
         <input
           type="color"
@@ -273,7 +307,8 @@ function ColorField({
           value={value}
           onChange={(event) => onChange(event.target.value.toUpperCase())}
           placeholder="#1E3A8A"
-          className="min-w-0"
+          className={error ? `min-w-0 ${errorInputClassName(error)}` : 'min-w-0'}
+          aria-invalid={Boolean(error)}
         />
       </div>
     </SectionLabel>
@@ -283,10 +318,13 @@ function ColorField({
 function PriceListEditor({
   value,
   onChange,
+  error,
 }: {
   value: PriceListItem[]
   onChange: (next: PriceListItem[]) => void
+  error?: string
 }) {
+  const t = useT()
   const items = Array.isArray(value) ? value : []
 
   const updateItem = React.useCallback(
@@ -311,8 +349,9 @@ function PriceListEditor({
   return (
     <div className="space-y-4">
       <Notice compact>
-        Keep all price-list items in the same currency. The first currency becomes the default for new rows.
+        {t('checkout.linkTemplateForm.priceList.notices.singleCurrency')}
       </Notice>
+      {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
       <div className="overflow-hidden rounded-xl border border-border/70 bg-background">
         {items.length > 0 ? (
@@ -320,11 +359,11 @@ function PriceListEditor({
             <table className="w-full min-w-[760px] table-fixed">
               <thead className="border-b bg-muted/30">
                 <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  <th className="px-3 py-2 w-[22%]">Item code</th>
-                  <th className="px-3 py-2">Description</th>
-                  <th className="px-3 py-2 w-[16%]">Amount</th>
-                  <th className="px-3 py-2 w-[24%]">Currency</th>
-                  <th className="px-3 py-2 w-[110px] text-right">Actions</th>
+                  <th className="px-3 py-2 w-[22%]">{t('checkout.linkTemplateForm.priceList.columns.itemCode')}</th>
+                  <th className="px-3 py-2">{t('checkout.linkTemplateForm.priceList.columns.description')}</th>
+                  <th className="px-3 py-2 w-[16%]">{t('checkout.linkTemplateForm.priceList.columns.amount')}</th>
+                  <th className="px-3 py-2 w-[24%]">{t('checkout.linkTemplateForm.priceList.columns.currency')}</th>
+                  <th className="px-3 py-2 w-[110px] text-right">{t('checkout.linkTemplateForm.priceList.columns.actions')}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/70">
@@ -334,8 +373,8 @@ function PriceListEditor({
                       <Input
                         value={item.id}
                         onChange={(event) => updateItem(index, { id: event.target.value })}
-                        placeholder="starter"
-                        aria-label={`Item code ${index + 1}`}
+                        placeholder={t('checkout.linkTemplateForm.priceList.placeholders.itemCode')}
+                        aria-label={t('checkout.linkTemplateForm.priceList.aria.itemCode', { index: index + 1 })}
                         className="h-8"
                       />
                     </td>
@@ -343,8 +382,8 @@ function PriceListEditor({
                       <Input
                         value={item.description}
                         onChange={(event) => updateItem(index, { description: event.target.value })}
-                        placeholder="Starter package"
-                        aria-label={`Description ${index + 1}`}
+                        placeholder={t('checkout.linkTemplateForm.priceList.placeholders.description')}
+                        aria-label={t('checkout.linkTemplateForm.priceList.aria.description', { index: index + 1 })}
                         className="h-8"
                       />
                     </td>
@@ -356,7 +395,7 @@ function PriceListEditor({
                         value={item.amount}
                         onChange={(event) => updateItem(index, { amount: Number(event.target.value) })}
                         placeholder="0.00"
-                        aria-label={`Amount ${index + 1}`}
+                        aria-label={t('checkout.linkTemplateForm.priceList.aria.amount', { index: index + 1 })}
                         className="h-8"
                       />
                     </td>
@@ -364,7 +403,7 @@ function PriceListEditor({
                       <CheckoutCurrencySelect
                         value={item.currencyCode}
                         onChange={(next) => updateItem(index, { currencyCode: next })}
-                        placeholder="Select currency"
+                        placeholder={t('checkout.currencySelect.placeholder')}
                       />
                     </td>
                     <td className="px-3 py-2 text-right">
@@ -375,7 +414,7 @@ function PriceListEditor({
                         onClick={() => onChange(items.filter((_, currentIndex) => currentIndex !== index))}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Remove
+                        {t('checkout.common.actions.remove')}
                       </Button>
                     </td>
                   </tr>
@@ -386,7 +425,7 @@ function PriceListEditor({
         ) : (
           <div className="px-4 py-8">
             <Notice compact>
-              No price-list items yet. Add at least one item to let customers pick from multiple price points.
+              {t('checkout.linkTemplateForm.priceList.notices.empty')}
             </Notice>
           </div>
         )}
@@ -394,22 +433,32 @@ function PriceListEditor({
 
       <Button type="button" variant="outline" size="sm" onClick={addItem}>
         <Plus className="mr-2 h-4 w-4" />
-        Add item
+        {t('checkout.linkTemplateForm.priceList.actions.addItem')}
       </Button>
     </div>
   )
 }
 
-function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
+function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+  const t = useT()
   const pricingMode = readString(values.pricingMode) || 'fixed'
+  const pricingModeError = readError(errors, 'pricingMode')
+  const fixedPriceAmountError = readError(errors, 'fixedPriceAmount')
+  const fixedPriceCurrencyError = readError(errors, 'fixedPriceCurrencyCode')
+  const fixedPriceOriginalAmountError = readError(errors, 'fixedPriceOriginalAmount')
+  const customAmountMinError = readError(errors, 'customAmountMin')
+  const customAmountMaxError = readError(errors, 'customAmountMax')
+  const customAmountCurrencyError = readError(errors, 'customAmountCurrencyCode')
+  const priceListItemsError = readError(errors, 'priceListItems')
 
   return (
     <div className="space-y-4">
+      {pricingModeError ? <p className="text-xs text-destructive">{pricingModeError}</p> : null}
       <div className="flex flex-wrap gap-2">
         {[
-          { id: 'fixed', label: 'Fixed price', icon: CircleDollarSign },
-          { id: 'custom_amount', label: 'Customer enters amount', icon: WalletCards },
-          { id: 'price_list', label: 'Price list', icon: FileText },
+          { id: 'fixed', label: t('checkout.linkTemplateForm.pricing.modes.fixed'), icon: CircleDollarSign },
+          { id: 'custom_amount', label: t('checkout.linkTemplateForm.pricing.modes.customAmount'), icon: WalletCards },
+          { id: 'price_list', label: t('checkout.linkTemplateForm.pricing.modes.priceList'), icon: FileText },
         ].map((mode) => {
           const Icon = mode.icon
           const active = pricingMode === mode.id
@@ -430,7 +479,7 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
 
       {pricingMode === 'fixed' ? (
         <div className="grid gap-4 md:grid-cols-2">
-          <SectionLabel label="Amount">
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.amount')} error={fixedPriceAmountError}>
             <Input
               type="number"
               min="0"
@@ -438,20 +487,23 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
               value={readNumberInputValue(values.fixedPriceAmount)}
               onChange={(event) => setValue('fixedPriceAmount', Number(event.target.value))}
               placeholder="150"
+              className={errorInputClassName(fixedPriceAmountError)}
+              aria-invalid={Boolean(fixedPriceAmountError)}
             />
           </SectionLabel>
 
-          <SectionLabel label="Currency">
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.currency')} error={fixedPriceCurrencyError}>
             <CheckoutCurrencySelect
               value={readString(values.fixedPriceCurrencyCode) || 'USD'}
               onChange={(next) => setValue('fixedPriceCurrencyCode', next)}
-              placeholder="Select currency"
+              placeholder={t('checkout.currencySelect.placeholder')}
             />
           </SectionLabel>
 
           <SectionLabel
-            label="Compare-at price"
-            hint="Optional crossed-out amount shown above the current price."
+            label={t('checkout.linkTemplateForm.pricing.fields.compareAtPrice')}
+            hint={t('checkout.linkTemplateForm.pricing.hints.compareAtPrice')}
+            error={fixedPriceOriginalAmountError}
           >
             <Input
               type="number"
@@ -460,6 +512,8 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
               value={readNumberInputValue(values.fixedPriceOriginalAmount)}
               onChange={(event) => setValue('fixedPriceOriginalAmount', Number(event.target.value))}
               placeholder="200"
+              className={errorInputClassName(fixedPriceOriginalAmountError)}
+              aria-invalid={Boolean(fixedPriceOriginalAmountError)}
             />
           </SectionLabel>
 
@@ -470,7 +524,7 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
                 checked={readBoolean(values.fixedPriceIncludesTax, true)}
                 onChange={(event) => setValue('fixedPriceIncludesTax', event.target.checked)}
               />
-              Price already includes tax
+              {t('checkout.linkTemplateForm.pricing.fields.includesTax')}
             </label>
           </div>
         </div>
@@ -478,7 +532,7 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
 
       {pricingMode === 'custom_amount' ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <SectionLabel label="Minimum amount">
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.minimumAmount')} error={customAmountMinError}>
             <Input
               type="number"
               min="0"
@@ -486,10 +540,12 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
               value={readNumberInputValue(values.customAmountMin)}
               onChange={(event) => setValue('customAmountMin', Number(event.target.value))}
               placeholder="10"
+              className={errorInputClassName(customAmountMinError)}
+              aria-invalid={Boolean(customAmountMinError)}
             />
           </SectionLabel>
 
-          <SectionLabel label="Maximum amount">
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.maximumAmount')} error={customAmountMaxError}>
             <Input
               type="number"
               min="0"
@@ -497,14 +553,16 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
               value={readNumberInputValue(values.customAmountMax)}
               onChange={(event) => setValue('customAmountMax', Number(event.target.value))}
               placeholder="500"
+              className={errorInputClassName(customAmountMaxError)}
+              aria-invalid={Boolean(customAmountMaxError)}
             />
           </SectionLabel>
 
-          <SectionLabel label="Currency">
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.currency')} error={customAmountCurrencyError}>
             <CheckoutCurrencySelect
               value={readString(values.customAmountCurrencyCode) || 'USD'}
               onChange={(next) => setValue('customAmountCurrencyCode', next)}
-              placeholder="Select currency"
+              placeholder={t('checkout.currencySelect.placeholder')}
             />
           </SectionLabel>
         </div>
@@ -514,13 +572,15 @@ function PricingSection({ values, setValue }: CrudFormGroupComponentProps) {
         <PriceListEditor
           value={normalizePriceListItems(values.priceListItems)}
           onChange={(next) => setValue('priceListItems', next)}
+          error={priceListItemsError}
         />
       ) : null}
     </div>
   )
 }
 
-function GeneralSection({ values, setValue, mode }: CrudFormGroupComponentProps & { mode: 'link' | 'template' }) {
+function GeneralSection({ values, setValue, errors, mode }: CrudFormGroupComponentProps & { mode: 'link' | 'template' }) {
+  const t = useT()
   const fallbackSlug = slugify(
     readString(values.title).trim().length > 0
       ? readString(values.title)
@@ -528,51 +588,64 @@ function GeneralSection({ values, setValue, mode }: CrudFormGroupComponentProps 
   ) || 'pay-link'
   const currentSlug = readString(values.slug)
   const resolvedSlug = currentSlug.trim() || fallbackSlug
+  const nameError = readError(errors, 'name')
+  const titleError = readError(errors, 'title')
+  const subtitleError = readError(errors, 'subtitle')
+  const descriptionError = readError(errors, 'description')
+  const slugError = readError(errors, 'slug')
 
   return (
     <div className="space-y-4">
-      <SectionLabel label="Name">
+      <SectionLabel label={t('checkout.linkTemplateForm.general.fields.name')} error={nameError}>
         <Input
           value={readString(values.name)}
           onChange={(event) => setValue('name', event.target.value)}
-          placeholder="January consulting session"
+          placeholder={t('checkout.linkTemplateForm.general.placeholders.name')}
+          className={errorInputClassName(nameError)}
+          aria-invalid={Boolean(nameError)}
         />
       </SectionLabel>
 
-      <SectionLabel label="Title">
+      <SectionLabel label={t('checkout.linkTemplateForm.general.fields.title')} error={titleError}>
         <Input
           value={readString(values.title)}
           onChange={(event) => setValue('title', event.target.value)}
-          placeholder="Consulting session payment"
+          placeholder={t('checkout.linkTemplateForm.general.placeholders.title')}
+          className={errorInputClassName(titleError)}
+          aria-invalid={Boolean(titleError)}
         />
       </SectionLabel>
 
-      <SectionLabel label="Subtitle">
+      <SectionLabel label={t('checkout.linkTemplateForm.general.fields.subtitle')} error={subtitleError}>
         <Input
           value={readString(values.subtitle)}
           onChange={(event) => setValue('subtitle', event.target.value)}
-          placeholder="One-hour strategy consultation"
+          placeholder={t('checkout.linkTemplateForm.general.placeholders.subtitle')}
+          className={errorInputClassName(subtitleError)}
+          aria-invalid={Boolean(subtitleError)}
         />
       </SectionLabel>
 
-      <SectionLabel label="Description" hint="Markdown is supported on the public page preview.">
+      <SectionLabel label={t('checkout.linkTemplateForm.general.fields.description')} hint={t('checkout.linkTemplateForm.general.hints.description')} error={descriptionError}>
         <SwitchableMarkdownInput
           value={readString(values.description)}
           onChange={(next) => setValue('description', next)}
           isMarkdownEnabled
           height={220}
-          placeholder={'# What is included\n- 60 minute strategy call\n- Summary after the call'}
+          placeholder={t('checkout.linkTemplateForm.general.placeholders.description')}
         />
       </SectionLabel>
 
       {mode === 'link' ? (
-        <SectionLabel label="Slug" hint="This becomes the public pay-link URL.">
+        <SectionLabel label={t('checkout.linkTemplateForm.general.fields.slug')} hint={t('checkout.linkTemplateForm.general.hints.slug')} error={slugError}>
           <div className="space-y-2">
             <div className="flex gap-2">
               <Input
                 value={currentSlug}
                 onChange={(event) => setValue('slug', event.target.value)}
-                placeholder="january-consulting"
+                placeholder={t('checkout.linkTemplateForm.general.placeholders.slug')}
+                className={errorInputClassName(slugError)}
+                aria-invalid={Boolean(slugError)}
               />
               <Button
                 type="button"
@@ -580,10 +653,10 @@ function GeneralSection({ values, setValue, mode }: CrudFormGroupComponentProps 
                 onClick={() => setValue('slug', fallbackSlug)}
               >
                 <Sparkles className="mr-2 h-4 w-4" />
-                Generate
+                {t('checkout.linkTemplateForm.general.actions.generateSlug')}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">Preview: `/pay/{resolvedSlug}`</p>
+            <p className="text-xs text-muted-foreground">{t('checkout.linkTemplateForm.general.slugPreview', { slug: resolvedSlug })}</p>
           </div>
         </SectionLabel>
       ) : null}
@@ -594,9 +667,18 @@ function GeneralSection({ values, setValue, mode }: CrudFormGroupComponentProps 
 function AppearanceSection({
   values,
   setValue,
+  errors,
   entityId,
   attachmentRecordId,
 }: CrudFormGroupComponentProps & { entityId: string; attachmentRecordId: string }) {
+  const t = useT()
+  const logoError = readAnyError(errors, 'logoAttachmentId', 'logoUrl')
+  const primaryColorError = readError(errors, 'primaryColor')
+  const secondaryColorError = readError(errors, 'secondaryColor')
+  const backgroundColorError = readError(errors, 'backgroundColor')
+  const themeModeError = readError(errors, 'themeMode')
+  const displayCustomFieldsError = readError(errors, 'displayCustomFieldsOnPage')
+
   return (
     <div className="space-y-4">
       <LogoUploadField
@@ -604,6 +686,7 @@ function AppearanceSection({
         recordId={attachmentRecordId}
         attachmentId={readString(values.logoAttachmentId) || null}
         logoUrl={readString(values.logoUrl) || null}
+        error={logoError}
         onChange={(next) => {
           setValue('logoAttachmentId', next.logoAttachmentId)
           setValue('logoUrl', next.logoUrl)
@@ -612,31 +695,37 @@ function AppearanceSection({
 
       <div className="space-y-4">
         <ColorField
-          label="Primary color"
+          label={t('checkout.linkTemplateForm.appearance.fields.primaryColor')}
           value={readString(values.primaryColor) || DEFAULT_COLORS.primaryColor}
           onChange={(next) => setValue('primaryColor', next)}
+          error={primaryColorError}
         />
         <ColorField
-          label="Secondary color"
+          label={t('checkout.linkTemplateForm.appearance.fields.secondaryColor')}
           value={readString(values.secondaryColor) || DEFAULT_COLORS.secondaryColor}
           onChange={(next) => setValue('secondaryColor', next)}
+          error={secondaryColorError}
         />
         <ColorField
-          label="Background color"
+          label={t('checkout.linkTemplateForm.appearance.fields.backgroundColor')}
           value={readString(values.backgroundColor) || DEFAULT_COLORS.backgroundColor}
           onChange={(next) => setValue('backgroundColor', next)}
+          error={backgroundColorError}
         />
       </div>
 
-      <SectionLabel label="Theme mode">
+      <SectionLabel label={t('checkout.linkTemplateForm.appearance.fields.themeMode')} error={themeModeError}>
         <select
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          className={themeModeError
+            ? `w-full rounded-md border bg-background px-3 py-2 text-sm ${errorInputClassName(themeModeError)}`
+            : 'w-full rounded-md border bg-background px-3 py-2 text-sm'}
           value={readString(values.themeMode) || 'auto'}
           onChange={(event) => setValue('themeMode', event.target.value)}
+          aria-invalid={Boolean(themeModeError)}
         >
-          <option value="auto">Auto</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
+          <option value="auto">{t('checkout.linkTemplateForm.appearance.themeModes.auto')}</option>
+          <option value="light">{t('checkout.linkTemplateForm.appearance.themeModes.light')}</option>
+          <option value="dark">{t('checkout.linkTemplateForm.appearance.themeModes.dark')}</option>
         </select>
       </SectionLabel>
 
@@ -646,22 +735,30 @@ function AppearanceSection({
           checked={readBoolean(values.displayCustomFieldsOnPage)}
           onChange={(event) => setValue('displayCustomFieldsOnPage', event.target.checked)}
         />
-        Show custom fields on the public page
+        {t('checkout.linkTemplateForm.appearance.fields.displayCustomFields')}
       </label>
+      {displayCustomFieldsError ? <p className="text-xs text-destructive">{displayCustomFieldsError}</p> : null}
     </div>
   )
 }
 
-function PaymentSection({ values, setValue, providers }: CrudFormGroupComponentProps & { providers: ProviderDescriptor[] }) {
+function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupComponentProps & { providers: ProviderDescriptor[] }) {
+  const t = useT()
+  const gatewayProviderError = readError(errors, 'gatewayProviderKey')
+  const gatewaySettingsError = readError(errors, 'gatewaySettings')
+
   return (
     <div className="space-y-4">
-      <SectionLabel label="Gateway provider">
+      <SectionLabel label={t('checkout.linkTemplateForm.payment.fields.gatewayProvider')} error={gatewayProviderError}>
         <select
-          className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          className={gatewayProviderError
+            ? `w-full rounded-md border bg-background px-3 py-2 text-sm ${errorInputClassName(gatewayProviderError)}`
+            : 'w-full rounded-md border bg-background px-3 py-2 text-sm'}
           value={readString(values.gatewayProviderKey)}
           onChange={(event) => setValue('gatewayProviderKey', event.target.value)}
+          aria-invalid={Boolean(gatewayProviderError)}
         >
-          <option value="">Select a provider…</option>
+          <option value="">{t('checkout.linkTemplateForm.payment.placeholders.provider')}</option>
           {providers.map((provider) => (
             <option key={provider.providerKey} value={provider.providerKey}>
               {provider.label}
@@ -675,12 +772,16 @@ function PaymentSection({ values, setValue, providers }: CrudFormGroupComponentP
         value={isRecord(values.gatewaySettings) ? values.gatewaySettings : {}}
         onChange={(next) => setValue('gatewaySettings', next)}
       />
+      {gatewaySettingsError ? <p className="text-xs text-destructive">{gatewaySettingsError}</p> : null}
     </div>
   )
 }
 
-function CustomerDetailsSection({ values, setValue }: CrudFormGroupComponentProps) {
+function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+  const t = useT()
   const collectCustomerDetails = readBoolean(values.collectCustomerDetails, true)
+  const collectCustomerDetailsError = readError(errors, 'collectCustomerDetails')
+  const customerFieldsError = readError(errors, 'customerFieldsSchema')
 
   return (
     <div className="space-y-4">
@@ -693,19 +794,21 @@ function CustomerDetailsSection({ values, setValue }: CrudFormGroupComponentProp
         <span className="space-y-1">
           <span className="flex items-center gap-2 font-medium">
             <IdCard className="h-4 w-4" />
-            Collect customer details
+            {t('checkout.linkTemplateForm.customerDetails.title')}
           </span>
           <span className="block text-muted-foreground">
-            Recommended: collect at least the customer email for receipts, fraud review, and payment dispute safety. It is not required.
+            {t('checkout.linkTemplateForm.customerDetails.description')}
           </span>
         </span>
       </label>
+      {collectCustomerDetailsError ? <p className="text-xs text-destructive">{collectCustomerDetailsError}</p> : null}
 
       {collectCustomerDetails ? (
         <>
           <Notice compact>
-            Turn this off to make the page a simple pay link with no customer form.
+            {t('checkout.linkTemplateForm.customerDetails.notices.simpleLink')}
           </Notice>
+          {customerFieldsError ? <p className="text-xs text-destructive">{customerFieldsError}</p> : null}
           <CustomerFieldsEditor
             value={normalizeCustomerFields(values.customerFieldsSchema)}
             onChange={(next) => setValue('customerFieldsSchema', next)}
@@ -713,16 +816,21 @@ function CustomerDetailsSection({ values, setValue }: CrudFormGroupComponentProp
         </>
       ) : (
         <Notice compact>
-          Customer details are disabled. Buyers will only see the payment section and any legal consent checkboxes.
+          {t('checkout.linkTemplateForm.customerDetails.notices.disabled')}
         </Notice>
       )}
     </div>
   )
 }
 
-function LegalSection({ values, setValue }: CrudFormGroupComponentProps) {
+function LegalSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+  const t = useT()
   const [tab, setTab] = React.useState<'terms' | 'privacyPolicy'>('terms')
   const legalDocuments = normalizeLegalDocuments(values.legalDocuments)
+  const termsTitleError = readAnyError(errors, 'legalDocuments.terms.title', 'legalDocuments.terms')
+  const termsMarkdownError = readAnyError(errors, 'legalDocuments.terms.markdown', 'legalDocuments.terms')
+  const privacyTitleError = readAnyError(errors, 'legalDocuments.privacyPolicy.title', 'legalDocuments.privacyPolicy')
+  const privacyMarkdownError = readAnyError(errors, 'legalDocuments.privacyPolicy.markdown', 'legalDocuments.privacyPolicy')
 
   const patchDocument = React.useCallback(
     (key: 'terms' | 'privacyPolicy', patch: Partial<LegalDocumentValue>) => {
@@ -740,36 +848,38 @@ function LegalSection({ values, setValue }: CrudFormGroupComponentProps) {
   return (
     <div className="space-y-4">
       <Notice compact>
-        These tabs are shown around the legal consent step on the pay page. Use markdown for headings, lists, and links.
+        {t('checkout.linkTemplateForm.legal.notice')}
       </Notice>
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'terms' | 'privacyPolicy')}>
         <TabsList className="w-full justify-start">
           <TabsTrigger value="terms">
             <Shield className="mr-2 h-4 w-4" />
-            Terms
+            {t('checkout.linkTemplateForm.legal.tabs.terms')}
           </TabsTrigger>
           <TabsTrigger value="privacyPolicy">
             <FileCheck2 className="mr-2 h-4 w-4" />
-            Privacy
+            {t('checkout.linkTemplateForm.legal.tabs.privacy')}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="terms" className="space-y-4">
-          <SectionLabel label="Terms title">
+          <SectionLabel label={t('checkout.linkTemplateForm.legal.fields.termsTitle')} error={termsTitleError}>
             <Input
               value={legalDocuments.terms.title}
               onChange={(event) => patchDocument('terms', { title: event.target.value })}
-              placeholder="Terms and conditions"
+              placeholder={t('checkout.linkTemplateForm.legal.placeholders.termsTitle')}
+              className={errorInputClassName(termsTitleError)}
+              aria-invalid={Boolean(termsTitleError)}
             />
           </SectionLabel>
-          <SectionLabel label="Terms body">
+          <SectionLabel label={t('checkout.linkTemplateForm.legal.fields.termsBody')} error={termsMarkdownError}>
             <SwitchableMarkdownInput
               value={legalDocuments.terms.markdown}
               onChange={(next) => patchDocument('terms', { markdown: next })}
               isMarkdownEnabled
               height={220}
-              placeholder={'# Terms\n\nDescribe the rules customers accept before paying.'}
+              placeholder={t('checkout.linkTemplateForm.legal.placeholders.termsBody')}
             />
           </SectionLabel>
           <label className="flex items-center gap-2 text-sm">
@@ -778,25 +888,27 @@ function LegalSection({ values, setValue }: CrudFormGroupComponentProps) {
               checked={legalDocuments.terms.required}
               onChange={(event) => patchDocument('terms', { required: event.target.checked })}
             />
-            Acceptance required
+            {t('checkout.linkTemplateForm.legal.fields.acceptanceRequired')}
           </label>
         </TabsContent>
 
         <TabsContent value="privacyPolicy" className="space-y-4">
-          <SectionLabel label="Privacy title">
+          <SectionLabel label={t('checkout.linkTemplateForm.legal.fields.privacyTitle')} error={privacyTitleError}>
             <Input
               value={legalDocuments.privacyPolicy.title}
               onChange={(event) => patchDocument('privacyPolicy', { title: event.target.value })}
-              placeholder="Privacy policy"
+              placeholder={t('checkout.linkTemplateForm.legal.placeholders.privacyTitle')}
+              className={errorInputClassName(privacyTitleError)}
+              aria-invalid={Boolean(privacyTitleError)}
             />
           </SectionLabel>
-          <SectionLabel label="Privacy body">
+          <SectionLabel label={t('checkout.linkTemplateForm.legal.fields.privacyBody')} error={privacyMarkdownError}>
             <SwitchableMarkdownInput
               value={legalDocuments.privacyPolicy.markdown}
               onChange={(next) => patchDocument('privacyPolicy', { markdown: next })}
               isMarkdownEnabled
               height={220}
-              placeholder={'# Privacy\n\nExplain what personal data you collect and why.'}
+              placeholder={t('checkout.linkTemplateForm.legal.placeholders.privacyBody')}
             />
           </SectionLabel>
           <label className="flex items-center gap-2 text-sm">
@@ -805,7 +917,7 @@ function LegalSection({ values, setValue }: CrudFormGroupComponentProps) {
               checked={legalDocuments.privacyPolicy.required}
               onChange={(event) => patchDocument('privacyPolicy', { required: event.target.checked })}
             />
-            Acceptance required
+            {t('checkout.linkTemplateForm.legal.fields.acceptanceRequired')}
           </label>
         </TabsContent>
       </Tabs>
@@ -813,37 +925,38 @@ function LegalSection({ values, setValue }: CrudFormGroupComponentProps) {
   )
 }
 
-function MessagesSection({ values, setValue }: CrudFormGroupComponentProps) {
+function MessagesSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+  const t = useT()
   const [tab, setTab] = React.useState<'success' | 'cancel' | 'error'>('success')
 
   const config = {
     success: {
       titleKey: 'successTitle',
       bodyKey: 'successMessage',
-      titlePlaceholder: 'Payment completed',
-      bodyPlaceholder: 'Thanks for your payment. We are processing it now.',
-      label: 'Success',
+      titlePlaceholder: t('checkout.linkTemplateForm.messages.placeholders.successTitle'),
+      bodyPlaceholder: t('checkout.linkTemplateForm.messages.placeholders.successBody'),
+      label: t('checkout.linkTemplateForm.messages.tabs.success'),
     },
     cancel: {
       titleKey: 'cancelTitle',
       bodyKey: 'cancelMessage',
-      titlePlaceholder: 'Payment cancelled',
-      bodyPlaceholder: 'The payment was cancelled before it was completed.',
-      label: 'Cancel',
+      titlePlaceholder: t('checkout.linkTemplateForm.messages.placeholders.cancelTitle'),
+      bodyPlaceholder: t('checkout.linkTemplateForm.messages.placeholders.cancelBody'),
+      label: t('checkout.linkTemplateForm.messages.tabs.cancel'),
     },
     error: {
       titleKey: 'errorTitle',
       bodyKey: 'errorMessage',
-      titlePlaceholder: 'Payment failed',
-      bodyPlaceholder: 'We could not complete the payment. Please try again.',
-      label: 'Error',
+      titlePlaceholder: t('checkout.linkTemplateForm.messages.placeholders.errorTitle'),
+      bodyPlaceholder: t('checkout.linkTemplateForm.messages.placeholders.errorBody'),
+      label: t('checkout.linkTemplateForm.messages.tabs.error'),
     },
   } as const
 
   return (
     <div className="space-y-4">
       <Notice compact>
-        These messages are shown on the public success, cancel, and error states. Markdown is supported in the body.
+        {t('checkout.linkTemplateForm.messages.notice')}
       </Notice>
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'success' | 'cancel' | 'error')}>
@@ -858,14 +971,16 @@ function MessagesSection({ values, setValue }: CrudFormGroupComponentProps) {
 
         {(['success', 'cancel', 'error'] as const).map((item) => (
           <TabsContent key={item} value={item} className="space-y-4">
-            <SectionLabel label={`${config[item].label} title`}>
+            <SectionLabel label={t('checkout.linkTemplateForm.messages.labels.title', { state: config[item].label })} error={readError(errors, config[item].titleKey)}>
               <Input
                 value={readString(values[config[item].titleKey])}
                 onChange={(event) => setValue(config[item].titleKey, event.target.value)}
                 placeholder={config[item].titlePlaceholder}
+                className={errorInputClassName(readError(errors, config[item].titleKey))}
+                aria-invalid={Boolean(readError(errors, config[item].titleKey))}
               />
             </SectionLabel>
-            <SectionLabel label={`${config[item].label} message`}>
+            <SectionLabel label={t('checkout.linkTemplateForm.messages.labels.body', { state: config[item].label })} error={readError(errors, config[item].bodyKey)}>
               <SwitchableMarkdownInput
                 value={readString(values[config[item].bodyKey])}
                 onChange={(next) => setValue(config[item].bodyKey, next)}
@@ -882,9 +997,12 @@ function MessagesSection({ values, setValue }: CrudFormGroupComponentProps) {
 }
 
 function VariableHint() {
+  const t = useT()
   const variables = ['{{firstName}}', '{{amount}}', '{{currencyCode}}', '{{linkTitle}}', '{{transactionId}}', '{{errorMessage}}']
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">{t('checkout.linkTemplateForm.emails.variableHint')}</p>
+      <div className="flex flex-wrap gap-2">
       {variables.map((variable) => (
         <span
           key={variable}
@@ -893,11 +1011,13 @@ function VariableHint() {
           {variable}
         </span>
       ))}
+      </div>
     </div>
   )
 }
 
-function EmailsSection({ values, setValue }: CrudFormGroupComponentProps) {
+function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+  const t = useT()
   const [tab, setTab] = React.useState<'start' | 'success' | 'error'>('start')
 
   const config = {
@@ -905,32 +1025,32 @@ function EmailsSection({ values, setValue }: CrudFormGroupComponentProps) {
       enabledKey: 'sendStartEmail',
       subjectKey: 'startEmailSubject',
       bodyKey: 'startEmailBody',
-      title: 'Started',
-      subjectPlaceholder: 'Payment started — {{linkTitle}}',
-      bodyPlaceholder: 'Hi {{firstName}}, we started processing your payment of **{{amount}} {{currencyCode}}**.',
+      title: t('checkout.linkTemplateForm.emails.tabs.start'),
+      subjectPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.startSubject'),
+      bodyPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.startBody'),
     },
     success: {
       enabledKey: 'sendSuccessEmail',
       subjectKey: 'successEmailSubject',
       bodyKey: 'successEmailBody',
-      title: 'Success',
-      subjectPlaceholder: 'Payment successful — {{linkTitle}}',
-      bodyPlaceholder: 'Hi {{firstName}}, your payment was successful. Reference: `{{transactionId}}`.',
+      title: t('checkout.linkTemplateForm.emails.tabs.success'),
+      subjectPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.successSubject'),
+      bodyPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.successBody'),
     },
     error: {
       enabledKey: 'sendErrorEmail',
       subjectKey: 'errorEmailSubject',
       bodyKey: 'errorEmailBody',
-      title: 'Error',
-      subjectPlaceholder: 'Payment failed — {{linkTitle}}',
-      bodyPlaceholder: 'Hi {{firstName}}, your payment could not be completed. {{errorMessage}}',
+      title: t('checkout.linkTemplateForm.emails.tabs.error'),
+      subjectPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.errorSubject'),
+      bodyPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.errorBody'),
     },
   } as const
 
   return (
     <div className="space-y-4">
       <Notice compact>
-        Email bodies support markdown and the variables below.
+        {t('checkout.linkTemplateForm.emails.notice')}
       </Notice>
       <VariableHint />
 
@@ -952,18 +1072,20 @@ function EmailsSection({ values, setValue }: CrudFormGroupComponentProps) {
                 checked={readBoolean(values[config[item].enabledKey], true)}
                 onChange={(event) => setValue(config[item].enabledKey, event.target.checked)}
               />
-              Send this email to the customer
+              {t('checkout.linkTemplateForm.emails.sendToCustomer')}
             </label>
 
-            <SectionLabel label={`${config[item].title} email subject`}>
+            <SectionLabel label={t('checkout.linkTemplateForm.emails.labels.subject', { state: config[item].title })} error={readError(errors, config[item].subjectKey)}>
               <Input
                 value={readString(values[config[item].subjectKey])}
                 onChange={(event) => setValue(config[item].subjectKey, event.target.value)}
                 placeholder={config[item].subjectPlaceholder}
+                className={errorInputClassName(readError(errors, config[item].subjectKey))}
+                aria-invalid={Boolean(readError(errors, config[item].subjectKey))}
               />
             </SectionLabel>
 
-            <SectionLabel label={`${config[item].title} email body`}>
+            <SectionLabel label={t('checkout.linkTemplateForm.emails.labels.body', { state: config[item].title })} error={readError(errors, config[item].bodyKey)}>
               <SwitchableMarkdownInput
                 value={readString(values[config[item].bodyKey])}
                 onChange={(next) => setValue(config[item].bodyKey, next)}
@@ -979,17 +1101,21 @@ function EmailsSection({ values, setValue }: CrudFormGroupComponentProps) {
   )
 }
 
-function SettingsSection({ values, setValue }: CrudFormGroupComponentProps) {
+function SettingsSection({ values, setValue, errors }: CrudFormGroupComponentProps) {
+  const t = useT()
   const status = readString(values.status) || 'draft'
+  const statusError = readError(errors, 'status')
+  const maxCompletionsError = readError(errors, 'maxCompletions')
+  const passwordError = readError(errors, 'password')
 
   return (
     <div className="space-y-4">
-      <SectionLabel label="Status">
+      <SectionLabel label={t('checkout.linkTemplateForm.settings.fields.status')} error={statusError}>
         <div className="flex flex-wrap gap-2">
           {[
-            { id: 'draft', label: 'Draft' },
-            { id: 'active', label: 'Active' },
-            { id: 'inactive', label: 'Inactive' },
+            { id: 'draft', label: t('checkout.common.status.draft') },
+            { id: 'active', label: t('checkout.common.status.active') },
+            { id: 'inactive', label: t('checkout.common.status.inactive') },
           ].map((option) => (
             <Button
               key={option.id}
@@ -1004,23 +1130,27 @@ function SettingsSection({ values, setValue }: CrudFormGroupComponentProps) {
         </div>
       </SectionLabel>
 
-      <SectionLabel label="Max completions" hint="Leave empty if the link should stay reusable forever.">
+      <SectionLabel label={t('checkout.linkTemplateForm.settings.fields.maxCompletions')} hint={t('checkout.linkTemplateForm.settings.hints.maxCompletions')} error={maxCompletionsError}>
         <Input
           type="number"
           min="1"
           step="1"
           value={readNumberInputValue(values.maxCompletions)}
           onChange={(event) => setValue('maxCompletions', event.target.value ? Number(event.target.value) : null)}
-          placeholder="Unlimited"
+          placeholder={t('checkout.linkTemplateForm.settings.placeholders.unlimited')}
+          className={errorInputClassName(maxCompletionsError)}
+          aria-invalid={Boolean(maxCompletionsError)}
         />
       </SectionLabel>
 
-      <SectionLabel label="Password" hint="Optional password required before the pay page can be opened.">
+      <SectionLabel label={t('checkout.linkTemplateForm.settings.fields.password')} hint={t('checkout.linkTemplateForm.settings.hints.password')} error={passwordError}>
         <Input
           type="password"
           value={readString(values.password)}
           onChange={(event) => setValue('password', event.target.value)}
-          placeholder="Leave blank to keep the page public"
+          placeholder={t('checkout.linkTemplateForm.settings.placeholders.password')}
+          className={errorInputClassName(passwordError)}
+          aria-invalid={Boolean(passwordError)}
         />
       </SectionLabel>
     </div>
@@ -1028,6 +1158,7 @@ function SettingsSection({ values, setValue }: CrudFormGroupComponentProps) {
 }
 
 export function LinkTemplateForm({ mode, recordId }: Props) {
+  const t = useT()
   const searchParams = useSearchParams()
   const entityId = mode === 'link' ? CHECKOUT_ENTITY_IDS.link : CHECKOUT_ENTITY_IDS.template
   const templateId = React.useMemo(() => {
@@ -1106,13 +1237,13 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'general',
-      title: 'General',
+      title: t('checkout.linkTemplateForm.groups.general'),
       column: 1,
       component: (ctx) => <GeneralSection {...ctx} mode={mode} />,
     },
     {
       id: 'appearance',
-      title: 'Appearance',
+      title: t('checkout.linkTemplateForm.groups.appearance'),
       column: 2,
       component: (ctx) => (
         <AppearanceSection
@@ -1124,55 +1255,57 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     },
     {
       id: 'pricing',
-      title: 'Pricing',
+      title: t('checkout.linkTemplateForm.groups.pricing'),
       column: 1,
       component: (ctx) => <PricingSection {...ctx} />,
     },
     {
       id: 'payment',
-      title: 'Payment',
+      title: t('checkout.linkTemplateForm.groups.payment'),
       column: 2,
       component: (ctx) => <PaymentSection {...ctx} providers={providers} />,
     },
     {
       id: 'customerFields',
-      title: 'Customer fields',
+      title: t('checkout.linkTemplateForm.groups.customerFields'),
       column: 1,
       component: (ctx) => <CustomerDetailsSection {...ctx} />,
     },
     {
       id: 'settings',
-      title: 'Settings',
+      title: t('checkout.linkTemplateForm.groups.settings'),
       column: 2,
       component: (ctx) => <SettingsSection {...ctx} />,
     },
     {
       id: 'legal',
-      title: 'Legal',
+      title: t('checkout.linkTemplateForm.groups.legal'),
       column: 1,
       component: (ctx) => <LegalSection {...ctx} />,
     },
     {
       id: 'messages',
-      title: 'Messages',
+      title: t('checkout.linkTemplateForm.groups.messages'),
       column: 1,
       component: (ctx) => <MessagesSection {...ctx} />,
     },
     {
       id: 'emails',
-      title: 'Emails',
+      title: t('checkout.linkTemplateForm.groups.emails'),
       column: 1,
       component: (ctx) => <EmailsSection {...ctx} />,
     },
-    { id: 'customFields', title: 'Custom fields', column: 2, kind: 'customFields' },
-  ], [attachmentDraftRecordId, entityId, mode, providers])
+    { id: 'customFields', title: t('checkout.linkTemplateForm.groups.customFields'), column: 2, kind: 'customFields' },
+  ], [attachmentDraftRecordId, entityId, mode, providers, t])
 
   return (
     <Page>
       <PageBody>
         {initialValues ? (
           <CrudForm<FormValues>
-            title={recordId ? `Edit ${mode === 'link' ? 'Pay Link' : 'Template'}` : `Create ${mode === 'link' ? 'Pay Link' : 'Template'}`}
+            title={recordId
+              ? t(mode === 'link' ? 'checkout.linkTemplateForm.titles.editLink' : 'checkout.linkTemplateForm.titles.editTemplate')
+              : t(mode === 'link' ? 'checkout.linkTemplateForm.titles.createLink' : 'checkout.linkTemplateForm.titles.createTemplate')}
             backHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             cancelHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             fields={fields}
@@ -1187,7 +1320,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                   rel={mode === 'link' ? 'noreferrer' : undefined}
                 >
                   <Eye className="mr-2 h-4 w-4" />
-                  Preview
+                  {t('checkout.common.actions.preview')}
                 </a>
               </Button>
             ) : null}
@@ -1222,14 +1355,14 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                 })
               }
               window.location.href = mode === 'link'
-                ? '/backend/checkout/pay-links?flash=Saved&type=success'
-                : '/backend/checkout/templates?flash=Saved&type=success'
+                ? `/backend/checkout/pay-links?flash=${encodeURIComponent(t('checkout.common.flash.saved'))}&type=success`
+                : `/backend/checkout/templates?flash=${encodeURIComponent(t('checkout.common.flash.saved'))}&type=success`
             }}
             onDelete={recordId ? async () => {
               await apiCallOrThrow(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`, { method: 'DELETE' })
               window.location.href = mode === 'link'
-                ? '/backend/checkout/pay-links?flash=Deleted&type=success'
-                : '/backend/checkout/templates?flash=Deleted&type=success'
+                ? `/backend/checkout/pay-links?flash=${encodeURIComponent(t('checkout.common.flash.deleted'))}&type=success`
+                : `/backend/checkout/templates?flash=${encodeURIComponent(t('checkout.common.flash.deleted'))}&type=success`
             } : undefined}
           />
         ) : null}

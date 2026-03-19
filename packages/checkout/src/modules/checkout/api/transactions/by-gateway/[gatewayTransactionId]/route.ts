@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink, CheckoutTransaction } from '../../../../data/entities'
 import { handleCheckoutRouteError, requireAdminContext } from '../../../helpers'
 import { checkoutTag } from '../../../openapi'
@@ -15,20 +16,20 @@ export async function GET(
   try {
     const { auth, em } = await requireAdminContext(req)
     const resolvedParams = await params
-    const transaction = await em.findOne(CheckoutTransaction, {
+    const transaction = await findOneWithDecryption(em, CheckoutTransaction, {
       gatewayTransactionId: resolvedParams.gatewayTransactionId,
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
-    })
+    }, undefined, { organizationId: auth.orgId, tenantId: auth.tenantId })
     if (!transaction) {
       return NextResponse.json({ transaction: null }, { status: 200 })
     }
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       id: transaction.linkId,
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
-    })
+    }, undefined, { organizationId: auth.orgId, tenantId: auth.tenantId })
     return NextResponse.json({
       transaction: {
         id: transaction.id,

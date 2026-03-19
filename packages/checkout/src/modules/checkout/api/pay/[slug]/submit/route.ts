@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
@@ -26,6 +27,15 @@ type CachedSubmitResponse = {
   transactionId: string
   redirectUrl?: string | null
   embeddedFormData?: Record<string, unknown> | null
+}
+
+type CheckoutLegalDocumentRequirement = {
+  required?: boolean
+}
+
+type CheckoutCustomerFieldRequirement = {
+  key: string
+  required?: boolean
 }
 
 function isIdempotencyConflict(error: unknown): boolean {
@@ -87,7 +97,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const em = container.resolve('em')
     const commandBus = container.resolve('commandBus') as CommandBus
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       slug: resolvedParams.slug,
       deletedAt: null,
     })
@@ -103,15 +113,21 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!link.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be used' })
     }
+    const legalDocuments = link.legalDocuments && typeof link.legalDocuments === 'object'
+      ? link.legalDocuments as Partial<Record<'terms' | 'privacyPolicy', CheckoutLegalDocumentRequirement>>
+      : {}
     for (const key of ['terms', 'privacyPolicy'] as const) {
-      const document = (link.legalDocuments ?? {})[key]
+      const document = legalDocuments[key]
       if (document?.required === true && body.acceptedLegalConsents?.[key] !== true) {
         throw new CrudHttpError(422, { error: `Acceptance is required for ${key}` })
       }
     }
     const collectedCustomerData = link.collectCustomerDetails === false ? {} : body.customerData
+    const customerFields = Array.isArray(link.customerFieldsSchema)
+      ? link.customerFieldsSchema as CheckoutCustomerFieldRequirement[]
+      : []
     if (link.collectCustomerDetails !== false) {
-      for (const field of link.customerFieldsSchema ?? []) {
+      for (const field of customerFields) {
         if (field.required !== true) continue
         const value = collectedCustomerData?.[field.key]
         if (value == null || `${value}`.trim().length === 0) {
@@ -121,12 +137,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
     const resolvedAmount = resolveSubmittedAmount(link, body)
     validateDescriptorCurrencies(link.gatewayProviderKey, [resolvedAmount.currencyCode])
-    const existingTransaction = await em.findOne(CheckoutTransaction, {
+    const existingTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
       linkId: link.id,
       idempotencyKey,
       organizationId: link.organizationId,
       tenantId: link.tenantId,
-    })
+    }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
     if (existingTransaction?.gatewayTransactionId) {
       return NextResponse.json(
         await buildSubmitResponse(em, existingTransaction, link.gatewayProviderKey),
@@ -170,12 +186,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         if (!isIdempotencyConflict(error)) {
           throw error
         }
-        const duplicated = await em.findOne(CheckoutTransaction, {
+        const duplicated = await findOneWithDecryption(em, CheckoutTransaction, {
           linkId: link.id,
           idempotencyKey,
           organizationId: link.organizationId,
           tenantId: link.tenantId,
-        })
+        }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
         if (!duplicated) {
           throw error
         }
@@ -188,11 +204,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const requestUrl = new URL(req.url)
     const successUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transactionId)}`
     const cancelUrl = `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transactionId)}`
-    const transaction = await em.findOne(CheckoutTransaction, {
+    const transaction = await findOneWithDecryption(em, CheckoutTransaction, {
       id: transactionId,
       organizationId: link.organizationId,
       tenantId: link.tenantId,
-    })
+    }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
     if (!transaction) {
       throw new CrudHttpError(404, { error: 'Transaction not found' })
     }

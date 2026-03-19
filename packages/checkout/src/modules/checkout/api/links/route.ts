@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { FilterQuery } from '@mikro-orm/postgresql'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink } from '../../data/entities'
 import { serializeLinkRecord } from '../../commands/links'
 import { buildCommandRuntimeContext, handleCheckoutRouteError, requireAdminContext } from '../helpers'
@@ -38,11 +39,17 @@ export async function GET(req: Request) {
     if (status === 'draft' || status === 'active' || status === 'inactive') where.status = status
     if (isLocked === 'true' || isLocked === 'false') where.isLocked = isLocked === 'true'
     if (pricingMode === 'fixed' || pricingMode === 'custom_amount' || pricingMode === 'price_list') where.pricingMode = pricingMode
-    const [items, total] = await em.findAndCount(CheckoutLink, where, {
-      orderBy: { createdAt: 'desc' },
-      offset: (page - 1) * pageSize,
-      limit: pageSize,
-    })
+    const [items, total] = await findAndCountWithDecryption(
+      em,
+      CheckoutLink,
+      where,
+      {
+        orderBy: { createdAt: 'desc' },
+        offset: (page - 1) * pageSize,
+        limit: pageSize,
+      },
+      { organizationId: auth.orgId, tenantId: auth.tenantId },
+    )
     return NextResponse.json({
       items: items.map((item) => serializeLinkRecord(item)),
       total,

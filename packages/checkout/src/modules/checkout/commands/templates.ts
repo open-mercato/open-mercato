@@ -4,6 +4,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLinkTemplate } from '../data/entities'
 import { createTemplateSchema, updateTemplateSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
@@ -63,12 +64,12 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
     validateDescriptorCurrencies(parsed.gatewayProviderKey ?? null, deriveConfiguredCurrencies(parsed))
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
-    const template = await em.findOne(CheckoutLinkTemplate, {
+    const template = await findOneWithDecryption(em, CheckoutLinkTemplate, {
       id: parsed.id,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
     if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
     const passwordHash = parsed.password !== undefined
       ? await hashCheckoutPassword(parsed.password)
@@ -105,12 +106,12 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
     const templateId = readCommandId(rawInput, 'Template id is required')
     const scope = resolveCommandScope(ctx)
     const em = ctx.container.resolve('em') as EntityManager
-    const template = await em.findOne(CheckoutLinkTemplate, {
+    const template = await findOneWithDecryption(em, CheckoutLinkTemplate, {
       id: templateId,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       deletedAt: null,
-    })
+    }, undefined, scope)
     if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
     template.deletedAt = new Date()
     await em.flush()

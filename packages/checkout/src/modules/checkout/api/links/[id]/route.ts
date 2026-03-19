@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink } from '../../../data/entities'
 import { serializeLinkRecord } from '../../../commands/links'
 import { CHECKOUT_ENTITY_IDS } from '../../../lib/constants'
@@ -17,12 +18,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   try {
     const { auth, em } = await requireAdminContext(req)
     const resolvedParams = await params
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       id: resolvedParams.id,
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
-    })
+    }, undefined, { organizationId: auth.orgId, tenantId: auth.tenantId })
     if (!link) {
       return NextResponse.json({ error: 'Link not found' }, { status: 404 })
     }

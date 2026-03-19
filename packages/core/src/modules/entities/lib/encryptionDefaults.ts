@@ -145,6 +145,18 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'checkout:checkout_link_template',
+    fields: [
+      { field: 'gateway_settings' },
+    ],
+  },
+  {
+    entityId: 'checkout:checkout_link',
+    fields: [
+      { field: 'gateway_settings' },
+    ],
+  },
+  {
     entityId: 'checkout:checkout_transaction',
     fields: [
       { field: 'customer_data' },

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -35,6 +36,7 @@ function normalizeCurrencyOptions(payload: CurrencyDictionaryPayload | null): Co
 }
 
 export function CheckoutCurrencySelect({ value, onChange, placeholder = 'Select currency' }: Props) {
+  const t = useT()
   const [options, setOptions] = React.useState<ComboboxOption[]>([])
   const [error, setError] = React.useState<string | null>(null)
 
@@ -43,15 +45,15 @@ export function CheckoutCurrencySelect({ value, onChange, placeholder = 'Select 
       const payload = await readApiResultOrThrow<CurrencyDictionaryPayload>(
         '/api/customers/dictionaries/currency',
         undefined,
-        { errorMessage: 'Failed to load currencies.' },
+        { errorMessage: t('checkout.currencySelect.errors.load') },
       )
       setOptions(normalizeCurrencyOptions(payload))
       setError(null)
     } catch (loadError) {
       setOptions([])
-      setError(loadError instanceof Error ? loadError.message : 'Failed to load currencies.')
+      setError(loadError instanceof Error ? loadError.message : t('checkout.currencySelect.errors.load'))
     }
-  }, [])
+  }, [t])
 
   React.useEffect(() => {
     void loadOptions()
@@ -62,7 +64,7 @@ export function CheckoutCurrencySelect({ value, onChange, placeholder = 'Select 
       <ComboboxInput
         value={value}
         onChange={(next) => onChange(next.trim().toUpperCase())}
-        placeholder={placeholder}
+        placeholder={placeholder || t('checkout.currencySelect.placeholder')}
         suggestions={options}
         loadSuggestions={async (query) => {
           const normalized = query?.trim().toLowerCase() ?? ''

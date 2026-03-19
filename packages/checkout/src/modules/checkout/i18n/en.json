@@ -1,0 +1,523 @@
+{
+  "checkout": {
+    "nav": {
+      "group": "Checkout",
+      "root": "Checkout",
+      "payLinks": "Pay Links",
+      "templates": "Templates",
+      "transactions": "Transactions"
+    },
+    "common": {
+      "enabled": "Enabled",
+      "emptyValue": "—",
+      "flash": {
+        "saved": "Saved",
+        "deleted": "Deleted"
+      },
+      "actions": {
+        "edit": "Edit",
+        "preview": "Preview",
+        "remove": "Remove",
+        "delete": "Delete"
+      },
+      "status": {
+        "draft": "Draft",
+        "active": "Active",
+        "inactive": "Inactive"
+      }
+    },
+    "currencySelect": {
+      "placeholder": "Select currency",
+      "errors": {
+        "load": "Failed to load currencies."
+      }
+    },
+    "customerFieldsEditor": {
+      "addField": "Add customer field",
+      "locked": "Locked",
+      "columns": {
+        "fieldKey": "Field key",
+        "label": "Label",
+        "placeholder": "Placeholder",
+        "type": "Type",
+        "required": "Required",
+        "actions": "Actions"
+      },
+      "types": {
+        "text": "Text",
+        "multiline": "Textarea",
+        "boolean": "Checkbox",
+        "select": "Select",
+        "radio": "Radio"
+      },
+      "placeholders": {
+        "fieldKey": "referenceCode",
+        "label": "Reference code",
+        "placeholder": "Shown inside the input"
+      },
+      "options": {
+        "title": "Options",
+        "add": "Add option",
+        "value": "Value",
+        "label": "Label",
+        "placeholders": {
+          "value": "starter",
+          "label": "Starter"
+        }
+      },
+      "notices": {
+        "defaultFields": "Default customer fields are only starting suggestions. You can rename, reorder, or remove them to keep the form compact.",
+        "empty": "No customer fields configured yet. Add at least one field if you want to collect buyer details on the pay page."
+      }
+    },
+    "gatewaySettings": {
+      "selectPlaceholder": "Select…",
+      "notices": {
+        "chooseProvider": "Choose a gateway provider to configure checkout session settings.",
+        "noSettings": "This provider does not expose additional session settings."
+      }
+    },
+    "logoUpload": {
+      "title": "Logo",
+      "description": "Upload a logo to attachments or keep using an external URL.",
+      "empty": "No logo selected yet.",
+      "externalUrl": "External logo URL",
+      "externalUrlPlaceholder": "https://example.com/logo.png",
+      "previewAlt": "Checkout logo preview",
+      "actions": {
+        "attach": "Attach logo",
+        "uploading": "Uploading…",
+        "removeUpload": "Remove upload"
+      },
+      "notices": {
+        "attachmentWins": "The uploaded attachment is used first. Remove it if you want to fall back to the external URL."
+      },
+      "errors": {
+        "upload": "Failed to upload logo.",
+        "remove": "Failed to remove the uploaded logo."
+      }
+    },
+    "linkTemplateForm": {
+      "titles": {
+        "createLink": "Create Pay Link",
+        "editLink": "Edit Pay Link",
+        "createTemplate": "Create Template",
+        "editTemplate": "Edit Template"
+      },
+      "groups": {
+        "general": "General",
+        "appearance": "Appearance",
+        "pricing": "Pricing",
+        "payment": "Payment",
+        "customerFields": "Customer fields",
+        "settings": "Settings",
+        "legal": "Legal",
+        "messages": "Messages",
+        "emails": "Emails",
+        "customFields": "Custom fields"
+      },
+      "general": {
+        "fields": {
+          "name": "Name",
+          "title": "Title",
+          "subtitle": "Subtitle",
+          "description": "Description",
+          "slug": "Slug"
+        },
+        "hints": {
+          "description": "Markdown is supported on the public page preview.",
+          "slug": "This becomes the public pay-link URL."
+        },
+        "placeholders": {
+          "name": "January consulting session",
+          "title": "Consulting session payment",
+          "subtitle": "One-hour strategy consultation",
+          "description": "# What is included\n- 60 minute strategy call\n- Summary after the call",
+          "slug": "january-consulting"
+        },
+        "actions": {
+          "generateSlug": "Generate"
+        },
+        "slugPreview": "Preview: `/pay/{slug}`"
+      },
+      "appearance": {
+        "fields": {
+          "primaryColor": "Primary color",
+          "secondaryColor": "Secondary color",
+          "backgroundColor": "Background color",
+          "themeMode": "Theme mode",
+          "displayCustomFields": "Show custom fields on the public page"
+        },
+        "themeModes": {
+          "auto": "Auto",
+          "light": "Light",
+          "dark": "Dark"
+        }
+      },
+      "pricing": {
+        "modes": {
+          "fixed": "Fixed price",
+          "customAmount": "Customer enters amount",
+          "priceList": "Price list"
+        },
+        "fields": {
+          "amount": "Amount",
+          "currency": "Currency",
+          "compareAtPrice": "Compare-at price",
+          "includesTax": "Price already includes tax",
+          "minimumAmount": "Minimum amount",
+          "maximumAmount": "Maximum amount"
+        },
+        "hints": {
+          "compareAtPrice": "Optional crossed-out amount shown above the current price."
+        }
+      },
+      "priceList": {
+        "columns": {
+          "itemCode": "Item code",
+          "description": "Description",
+          "amount": "Amount",
+          "currency": "Currency",
+          "actions": "Actions"
+        },
+        "placeholders": {
+          "itemCode": "starter",
+          "description": "Starter package"
+        },
+        "aria": {
+          "itemCode": "Item code {index}",
+          "description": "Description {index}",
+          "amount": "Amount {index}"
+        },
+        "actions": {
+          "addItem": "Add item"
+        },
+        "notices": {
+          "singleCurrency": "Keep all price-list items in the same currency. The first currency becomes the default for new rows.",
+          "empty": "No price-list items yet. Add at least one item to let customers pick from multiple price points."
+        }
+      },
+      "payment": {
+        "fields": {
+          "gatewayProvider": "Gateway provider"
+        },
+        "placeholders": {
+          "provider": "Select a provider…"
+        }
+      },
+      "customerDetails": {
+        "title": "Collect customer details",
+        "description": "Recommended: collect at least the customer email for receipts, fraud review, and payment dispute safety. It is not required.",
+        "notices": {
+          "simpleLink": "Turn this off to make the page a simple pay link with no customer form.",
+          "disabled": "Customer details are disabled. Buyers will only see the payment section and any legal consent checkboxes."
+        }
+      },
+      "legal": {
+        "notice": "These tabs are shown around the legal consent step on the pay page. Use markdown for headings, lists, and links.",
+        "tabs": {
+          "terms": "Terms",
+          "privacy": "Privacy"
+        },
+        "fields": {
+          "termsTitle": "Terms title",
+          "termsBody": "Terms body",
+          "privacyTitle": "Privacy title",
+          "privacyBody": "Privacy body",
+          "acceptanceRequired": "Acceptance required"
+        },
+        "placeholders": {
+          "termsTitle": "Terms and conditions",
+          "termsBody": "# Terms\n\nDescribe the rules customers accept before paying.",
+          "privacyTitle": "Privacy policy",
+          "privacyBody": "# Privacy\n\nExplain what personal data you collect and why."
+        }
+      },
+      "messages": {
+        "notice": "These messages are shown on the public success, cancel, and error states. Markdown is supported in the body.",
+        "tabs": {
+          "success": "Success",
+          "cancel": "Cancel",
+          "error": "Error"
+        },
+        "labels": {
+          "title": "{state} title",
+          "body": "{state} message"
+        },
+        "placeholders": {
+          "successTitle": "Payment completed",
+          "successBody": "Thanks for your payment. We are processing it now.",
+          "cancelTitle": "Payment cancelled",
+          "cancelBody": "The payment was cancelled before it was completed.",
+          "errorTitle": "Payment failed",
+          "errorBody": "We could not complete the payment. Please try again."
+        }
+      },
+      "emails": {
+        "notice": "Email bodies support markdown and the variables below.",
+        "variableHint": "Available variables:",
+        "sendToCustomer": "Send this email to the customer",
+        "tabs": {
+          "start": "Started",
+          "success": "Success",
+          "error": "Error"
+        },
+        "labels": {
+          "subject": "{state} email subject",
+          "body": "{state} email body"
+        },
+        "placeholders": {
+          "startSubject": "Payment started - {{linkTitle}}",
+          "startBody": "Hi {{firstName}}, we started processing your payment of **{{amount}} {{currencyCode}}**.",
+          "successSubject": "Payment successful - {{linkTitle}}",
+          "successBody": "Hi {{firstName}}, your payment was successful. Reference: `{{transactionId}}`.",
+          "errorSubject": "Payment failed - {{linkTitle}}",
+          "errorBody": "Hi {{firstName}}, your payment could not be completed. {{errorMessage}}"
+        }
+      },
+      "settings": {
+        "fields": {
+          "status": "Status",
+          "maxCompletions": "Max completions",
+          "password": "Password"
+        },
+        "hints": {
+          "maxCompletions": "Leave empty if the link should stay reusable forever.",
+          "password": "Optional password required before the pay page can be opened."
+        },
+        "placeholders": {
+          "unlimited": "Unlimited",
+          "password": "Leave blank to keep the page public"
+        }
+      }
+    },
+    "admin": {
+      "payLinks": {
+        "title": "Pay Links",
+        "searchPlaceholder": "Search pay links…",
+        "filters": {
+          "status": "Status",
+          "pricing": "Pricing"
+        },
+        "columns": {
+          "name": "Name",
+          "slug": "Slug",
+          "pricing": "Pricing",
+          "status": "Status",
+          "uses": "Uses",
+          "created": "Created"
+        },
+        "pricing": {
+          "fixed": "Fixed {amount} {currency}",
+          "customAmount": "Custom {min}-{max} {currency}"
+        },
+        "actions": {
+          "create": "Create Link",
+          "viewPayPage": "View pay page",
+          "copyUrl": "Copy link URL",
+          "showTransactions": "Show transactions",
+          "publish": "Publish",
+          "deactivate": "Deactivate"
+        }
+      },
+      "templates": {
+        "title": "Link Templates",
+        "searchPlaceholder": "Search templates…",
+        "unlimited": "Unlimited",
+        "filters": {
+          "pricingMode": "Pricing mode"
+        },
+        "columns": {
+          "name": "Name",
+          "pricingMode": "Pricing mode",
+          "gateway": "Gateway",
+          "maxUses": "Max uses",
+          "created": "Created"
+        },
+        "actions": {
+          "create": "Create Template",
+          "createLinkFromTemplate": "Create link from template"
+        }
+      },
+      "transactions": {
+        "title": "Transactions",
+        "searchPlaceholder": "Search transactions…",
+        "filters": {
+          "link": "Link",
+          "status": "Status"
+        },
+        "columns": {
+          "link": "Link",
+          "customer": "Customer",
+          "email": "Email",
+          "amount": "Amount",
+          "status": "Status",
+          "paymentStatus": "Payment status",
+          "date": "Date"
+        },
+        "actions": {
+          "viewDetail": "View detail"
+        },
+        "status": {
+          "pending": "Pending",
+          "processing": "Processing",
+          "completed": "Completed",
+          "failed": "Failed",
+          "cancelled": "Cancelled",
+          "expired": "Expired"
+        }
+      },
+      "transactionDetail": {
+        "title": "Transaction Detail",
+        "description": "Inspect the checkout transaction and related pay-link data.",
+        "sections": {
+          "payment": "Payment Details",
+          "link": "Link Details",
+          "customer": "Customer Information",
+          "gateway": "Gateway Transaction",
+          "customFields": "Custom Fields"
+        },
+        "fields": {
+          "amount": "Amount",
+          "status": "Status",
+          "paymentStatus": "Payment Status",
+          "transactionId": "Transaction ID",
+          "created": "Created",
+          "updated": "Updated",
+          "linkName": "Link Name",
+          "slug": "Slug",
+          "pricingMode": "Pricing Mode",
+          "firstName": "First Name",
+          "lastName": "Last Name",
+          "email": "Email",
+          "phone": "Phone",
+          "gatewayTransactionId": "Gateway Txn ID",
+          "selectedPriceItem": "Selected Price Item",
+          "checkoutTransaction": "Checkout Transaction"
+        },
+        "actions": {
+          "viewPayLink": "View pay link"
+        },
+        "emptyCustomFields": "No custom fields captured for this transaction."
+      }
+    },
+    "payPage": {
+      "loading": "Loading payment link...",
+      "protectedTitle": "Protected payment link",
+      "passwordPlaceholder": "Password",
+      "unavailable": "This payment link is no longer available.",
+      "previewBanner": "Preview mode. Payments are disabled.",
+      "sections": {
+        "customerDetails": "Customer details",
+        "payment": "Payment"
+      },
+      "fields": {
+        "selectPlaceholder": "Select..."
+      },
+      "legal": {
+        "acceptDocument": "I accept {document}.",
+        "defaultTermsTitle": "the terms and conditions",
+        "defaultPrivacyTitle": "the privacy policy"
+      },
+      "summary": {
+        "amountDue": "Amount due"
+      },
+      "errors": {
+        "loadTitle": "Unable to load payment link",
+        "loadMessage": "We couldn't load this payment page. Please try again.",
+        "password": "Unable to verify password. Please try again.",
+        "submit": "Unable to start the payment. Please try again."
+      },
+      "actions": {
+        "retry": "Retry",
+        "backToAdmin": "Back to admin",
+        "continue": "Continue",
+        "verifying": "Verifying...",
+        "payNow": "Pay now",
+        "processingPayment": "Processing payment...",
+        "previewDisabled": "Preview only"
+      }
+    },
+    "statusPage": {
+      "backToPayment": "Back to payment page",
+      "checking": "Checking payment status…",
+      "currentStatus": "Current status: {status}",
+      "success": {
+        "completed": "Payment completed",
+        "processing": "Payment processing"
+      },
+      "cancel": {
+        "failed": "Payment failed",
+        "cancelled": "Payment cancelled"
+      }
+    },
+    "validation": {
+      "fixedPriceAmount": {
+        "required": "Amount is required for fixed pricing."
+      },
+      "fixedPriceCurrencyCode": {
+        "required": "Currency is required for fixed pricing."
+      },
+      "customAmountMin": {
+        "required": "Minimum amount is required."
+      },
+      "customAmountMax": {
+        "required": "Maximum amount is required."
+      },
+      "customAmountCurrencyCode": {
+        "required": "Currency is required for custom amount pricing."
+      },
+      "customAmount": {
+        "range": "Maximum amount must be greater than or equal to the minimum amount."
+      },
+      "priceListItems": {
+        "required": "Add at least one price-list item.",
+        "singleCurrency": "All price-list items must use the same currency."
+      }
+    },
+    "notifications": {
+      "transaction": {
+        "completed": {
+          "title": "Payment completed",
+          "body": "{customerName} paid {amount} {currency}."
+        },
+        "failed": {
+          "title": "Payment failed",
+          "body": "A payment for {amount} {currency} failed."
+        }
+      },
+      "link": {
+        "usageLimitReached": {
+          "title": "Usage limit reached",
+          "body": "{linkName} reached its maximum number of completions."
+        }
+      },
+      "renderer": {
+        "viewTransaction": "View transaction",
+        "viewLink": "View pay link"
+      }
+    },
+    "link": {
+      "created": "Pay link created",
+      "updated": "Pay link updated",
+      "deleted": "Pay link deleted",
+      "published": "Pay link published",
+      "locked": "Pay link locked",
+      "usageLimitReached": "Pay link usage limit reached"
+    },
+    "template": {
+      "created": "Template created",
+      "updated": "Template updated",
+      "deleted": "Template deleted"
+    },
+    "transaction": {
+      "created": "Transaction created",
+      "sessionStarted": "Payment session started",
+      "completed": "Transaction completed",
+      "failed": "Transaction failed",
+      "cancelled": "Transaction cancelled",
+      "expired": "Transaction expired",
+      "customerDataCaptured": "Customer data captured"
+    }
+  }
+}

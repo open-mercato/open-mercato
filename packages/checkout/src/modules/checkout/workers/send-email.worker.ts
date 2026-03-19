@@ -121,12 +121,12 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
   const email = transaction.email
   if (!email) return
 
-  const link = await em.findOne(CheckoutLink, {
+  const link = await findOneWithDecryption(em, CheckoutLink, {
     id: transaction.linkId,
     organizationId: payload.organizationId,
     tenantId: payload.tenantId,
     deletedAt: null,
-  })
+  }, undefined, { organizationId: payload.organizationId, tenantId: payload.tenantId })
 
   const firstName = transaction.firstName ?? 'Customer'
   const linkTitle = link?.title ?? link?.name ?? 'Payment'

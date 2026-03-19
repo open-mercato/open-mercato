@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import Link from 'next/link'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -50,6 +51,7 @@ function formatAmount(amount: number | null | undefined, currencyCode: string): 
 }
 
 export default function CheckoutTransactionDetailPage({ params }: { params: Promise<{ id: string }> | { id: string } }) {
+  const t = useT()
   const [payload, setPayload] = React.useState<DetailPayload | null>(null)
   const [transactionId, setTransactionId] = React.useState('')
 
@@ -72,60 +74,60 @@ export default function CheckoutTransactionDetailPage({ params }: { params: Prom
 
   return (
     <Page>
-      <PageHeader title="Transaction Detail" description="Inspect the checkout transaction and related pay-link data." />
+      <PageHeader title={t('checkout.admin.transactionDetail.title')} description={t('checkout.admin.transactionDetail.description')} />
       <PageBody className="space-y-6">
         {payload ? (
           <>
             <Card>
-              <CardHeader><CardTitle className="flex items-center gap-2"><Badge>{payload.transaction.status}</Badge> Payment Details</CardTitle></CardHeader>
+              <CardHeader><CardTitle className="flex items-center gap-2"><Badge>{t(`checkout.admin.transactions.status.${payload.transaction.status}`, payload.transaction.status)}</Badge> {t('checkout.admin.transactionDetail.sections.payment')}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <DetailRow label="Amount" value={formatAmount(payload.transaction.amount, payload.transaction.currencyCode)} />
-                <DetailRow label="Status" value={payload.transaction.status} />
-                <DetailRow label="Payment Status" value={payload.transaction.paymentStatus ?? '—'} />
-                <DetailRow label="Transaction ID" value={payload.transaction.id} />
-                <DetailRow label="Created" value={payload.transaction.createdAt ?? '—'} />
-                <DetailRow label="Updated" value={payload.transaction.updatedAt ?? '—'} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.amount')} value={formatAmount(payload.transaction.amount, payload.transaction.currencyCode)} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.status')} value={payload.transaction.status} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.paymentStatus')} value={payload.transaction.paymentStatus ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.transactionId')} value={payload.transaction.id} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.created')} value={payload.transaction.createdAt ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.updated')} value={payload.transaction.updatedAt ?? t('checkout.common.emptyValue')} />
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Link Details</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{t('checkout.admin.transactionDetail.sections.link')}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <DetailRow label="Link Name" value={payload.link?.name ?? '—'} />
-                <DetailRow label="Slug" value={payload.link ? `/pay/${payload.link.slug}` : '—'} />
-                <DetailRow label="Pricing Mode" value={payload.link?.pricingMode ?? '—'} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.linkName')} value={payload.link?.name ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.slug')} value={payload.link ? `/pay/${payload.link.slug}` : t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.pricingMode')} value={payload.link?.pricingMode ?? t('checkout.common.emptyValue')} />
                 {payload.link ? (
                   <div className="pt-2">
-                    <Link className="text-sm underline" href={`/pay/${encodeURIComponent(payload.link.slug)}`}>View pay link</Link>
+                    <Link className="text-sm underline" href={`/pay/${encodeURIComponent(payload.link.slug)}`}>{t('checkout.admin.transactionDetail.actions.viewPayLink')}</Link>
                   </div>
                 ) : null}
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Customer Information</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{t('checkout.admin.transactionDetail.sections.customer')}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <DetailRow label="First Name" value={payload.transaction.firstName ?? '—'} />
-                <DetailRow label="Last Name" value={payload.transaction.lastName ?? '—'} />
-                <DetailRow label="Email" value={payload.transaction.email ?? '—'} />
-                <DetailRow label="Phone" value={payload.transaction.phone ?? '—'} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.firstName')} value={payload.transaction.firstName ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.lastName')} value={payload.transaction.lastName ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.email')} value={payload.transaction.email ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.phone')} value={payload.transaction.phone ?? t('checkout.common.emptyValue')} />
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Gateway Transaction</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{t('checkout.admin.transactionDetail.sections.gateway')}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
-                <DetailRow label="Gateway Txn ID" value={payload.transaction.gatewayTransactionId ?? '—'} />
-                <DetailRow label="Selected Price Item" value={payload.transaction.selectedPriceItemId ?? '—'} />
-                <DetailRow label="Checkout Transaction" value={transactionId || '—'} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.gatewayTransactionId')} value={payload.transaction.gatewayTransactionId ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.selectedPriceItem')} value={payload.transaction.selectedPriceItemId ?? t('checkout.common.emptyValue')} />
+                <DetailRow label={t('checkout.admin.transactionDetail.fields.checkoutTransaction')} value={transactionId || t('checkout.common.emptyValue')} />
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Custom Fields</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{t('checkout.admin.transactionDetail.sections.customFields')}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 {payload.transaction.customerData && Object.keys(payload.transaction.customerData).length > 0 ? (
                   Object.entries(payload.transaction.customerData).map(([key, value]) => (
                     <DetailRow key={key} label={key} value={typeof value === 'string' ? value : JSON.stringify(value)} />
                   ))
                 ) : (
-                  <div className="text-sm text-muted-foreground">No custom fields captured for this transaction.</div>
+                  <div className="text-sm text-muted-foreground">{t('checkout.admin.transactionDetail.emptyCustomFields')}</div>
                 )}
               </CardContent>
             </Card>

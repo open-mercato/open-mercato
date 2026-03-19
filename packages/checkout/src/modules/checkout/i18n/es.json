@@ -1,0 +1,41 @@
+{
+  "checkout": {
+    "payPage": {
+      "loading": "Cargando enlace de pago...",
+      "protectedTitle": "Enlace de pago protegido",
+      "passwordPlaceholder": "Contrasena",
+      "unavailable": "Este enlace de pago ya no esta disponible.",
+      "previewBanner": "Modo de vista previa. Los pagos estan deshabilitados.",
+      "sections": {
+        "customerDetails": "Datos del cliente",
+        "payment": "Pago"
+      },
+      "fields": {
+        "selectPlaceholder": "Seleccionar..."
+      },
+      "legal": {
+        "acceptDocument": "Acepto {document}.",
+        "defaultTermsTitle": "los terminos y condiciones",
+        "defaultPrivacyTitle": "la politica de privacidad"
+      },
+      "summary": {
+        "amountDue": "Importe pendiente"
+      },
+      "errors": {
+        "loadTitle": "No se pudo cargar el enlace de pago",
+        "loadMessage": "No pudimos cargar esta pagina de pago. Intentalo de nuevo.",
+        "password": "No se pudo verificar la contrasena. Intentalo de nuevo.",
+        "submit": "No se pudo iniciar el pago. Intentalo de nuevo."
+      },
+      "actions": {
+        "retry": "Reintentar",
+        "backToAdmin": "Volver al panel",
+        "continue": "Continuar",
+        "verifying": "Verificando...",
+        "payNow": "Pagar ahora",
+        "processingPayment": "Procesando pago...",
+        "previewDisabled": "Solo vista previa"
+      }
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { CheckoutLink } from '../../../data/entities'
@@ -37,7 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       }
     }
     const em = container.resolve('em')
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       slug: resolvedParams.slug,
       deletedAt: null,
     })

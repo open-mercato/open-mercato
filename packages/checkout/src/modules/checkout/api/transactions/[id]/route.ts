@@ -29,12 +29,12 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     if (!transaction) {
       return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
     }
-    const link = await em.findOne(CheckoutLink, {
+    const link = await findOneWithDecryption(em, CheckoutLink, {
       id: transaction.linkId,
       organizationId: auth.orgId,
       tenantId: auth.tenantId,
       deletedAt: null,
-    })
+    }, undefined, { organizationId: auth.orgId, tenantId: auth.tenantId })
     return NextResponse.json({
       transaction: serializeTransaction(transaction, link, canViewPii),
       link: link

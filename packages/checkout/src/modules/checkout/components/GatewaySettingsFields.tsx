@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -27,6 +28,7 @@ type Props = {
 }
 
 export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
+  const t = useT()
   const [descriptor, setDescriptor] = React.useState<Descriptor | null>(null)
 
   const toggleMultiselectValue = React.useCallback(
@@ -62,14 +64,14 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
   if (!providerKey) {
     return (
       <Notice compact>
-        Choose a gateway provider to configure checkout session settings.
+        {t('checkout.gatewaySettings.notices.chooseProvider')}
       </Notice>
     )
   }
   if (!fields.length) {
     return (
       <Notice compact>
-        This provider does not expose additional session settings.
+        {t('checkout.gatewaySettings.notices.noSettings')}
       </Notice>
     )
   }
@@ -87,7 +89,7 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
                 value={typeof currentValue === 'string' ? currentValue : ''}
                 onChange={(event) => onChange({ ...(value ?? {}), [field.key]: event.target.value })}
               >
-                <option value="">Select…</option>
+                <option value="">{t('checkout.gatewaySettings.selectPlaceholder')}</option>
                 {(field.options ?? []).map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
@@ -121,7 +123,7 @@ export function GatewaySettingsFields({ providerKey, value, onChange }: Props) {
                   checked={currentValue === true}
                   onChange={(event) => onChange({ ...(value ?? {}), [field.key]: event.target.checked })}
                 />
-                Enabled
+                {t('checkout.common.enabled')}
               </label>
             ) : field.type === 'textarea' ? (
               <Textarea

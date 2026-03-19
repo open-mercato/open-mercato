@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
 import { handleCheckoutRouteError, requireAdminContext, userHasCheckoutFeature } from '../helpers'
 import { checkoutTag } from '../openapi'
@@ -45,12 +45,12 @@ export async function GET(req: Request) {
     )
     const linkIds = Array.from(new Set(items.map((item) => item.linkId)))
     const links = linkIds.length
-      ? await em.find(CheckoutLink, {
+      ? await findWithDecryption(em, CheckoutLink, {
         id: { $in: linkIds },
         organizationId: auth.orgId,
         tenantId: auth.tenantId,
         deletedAt: null,
-      })
+      }, undefined, { organizationId: auth.orgId, tenantId: auth.tenantId })
       : []
     const linkMap = new Map(links.map((link) => [link.id, link]))
     return NextResponse.json({
