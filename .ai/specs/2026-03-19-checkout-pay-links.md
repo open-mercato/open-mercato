@@ -370,7 +370,7 @@ Reusable configuration for rapidly creating pay links. Templates define defaults
 | `start_email_body` | text | NULL | Markdown |
 | `password_hash` | varchar(255) | NULL | bcrypt hash (cost ≥ 10) |
 | `max_completions` | integer | NULL | `NULL` = unlimited, `1` = single-use |
-| `is_active` | boolean | DEFAULT `true` | |
+| `status` | varchar(20) | DEFAULT `'draft'` | `'draft'` \| `'active'` \| `'inactive'` |
 | `checkout_type` | varchar(20) | DEFAULT `'pay_link'` | `'pay_link'` \| `'simple_checkout'` (Phase B) |
 | `created_at` | timestamptz | NOT NULL | |
 | `updated_at` | timestamptz | NOT NULL | |
@@ -393,7 +393,7 @@ The actual pay link with a unique public URL slug. Shares all template columns p
 
 **Indexes:**
 - Partial unique index: `UNIQUE (organization_id, tenant_id, slug) WHERE deleted_at IS NULL`
-- Index: `(organization_id, tenant_id, is_active, deleted_at)`
+- Index: `(organization_id, tenant_id, status, deleted_at)`
 
 ### Entity: CheckoutTransaction
 
@@ -532,7 +532,7 @@ WHERE id = $1
   AND organization_id = $2
   AND tenant_id = $3
   AND deleted_at IS NULL
-  AND is_active = true
+  AND status = 'active'
   AND (
     max_completions IS NULL
     OR completion_count + active_reservation_count < max_completions
@@ -561,6 +561,7 @@ const events = [
   { id: 'checkout.link.created', label: 'Link Created', entity: 'link', category: 'crud' },
   { id: 'checkout.link.updated', label: 'Link Updated', entity: 'link', category: 'crud' },
   { id: 'checkout.link.deleted', label: 'Link Deleted', entity: 'link', category: 'crud' },
+  { id: 'checkout.link.published', label: 'Link Published', entity: 'link', category: 'lifecycle', clientBroadcast: true },
   { id: 'checkout.link.locked', label: 'Link Locked', entity: 'link', category: 'lifecycle', clientBroadcast: true },
 
   // Transaction lifecycle
@@ -648,9 +649,11 @@ const events = [
 - Features: `checkout.view`
 - Response: Full transaction including `customerData` (decrypted, requires `checkout.viewPii`), `paymentStatus`, link info
 
-### Public API (no auth required)
+### Public API (no auth required — except preview mode)
 
 `GET /api/checkout/pay/:slug` — Get public link data
+
+- Query param: `?preview=true` — requires valid admin session with `checkout.view` feature; returns full link data with `"preview": true` flag regardless of link status
 - Response (no password / password verified):
   ```json
   {
@@ -685,7 +688,7 @@ const events = [
   ```
 - If password-protected and not verified: `{ requiresPassword: true, title: "..." }` (minimal info)
 - If limit reached: `{ available: false, message: "..." }`
-- If inactive/deleted: `404`
+- If `draft`, `inactive`, or deleted (without `preview=true`): `404`
 - **MUST NOT** expose: `passwordHash`, `gatewaySettings`, admin-only fields, PII from other transactions
 
 `POST /api/checkout/pay/:slug/verify-password` — Verify password
@@ -764,11 +767,11 @@ export const features = [
 #### Pay Links List (`/backend/checkout/pay-links`)
 
 DataTable with `extensionTableId="checkout-links"`:
-- Columns: Name, Title, Slug, Pricing Mode, Status (Active/Inactive), Completions (`3 / 10` or `5 / ∞`), Created At
-- Row actions: Edit, View Pay Page (external link), Show Transactions (navigates to transactions filtered by `linkId`), Copy Link URL, Delete
-- Bulk actions: Activate, Deactivate, Delete
+- Columns: Name, Title, Slug, Pricing Mode, Status (Draft/Active/Inactive), Completions (`3 / 10` or `5 / ∞`), Created At
+- Row actions: Edit, Preview (opens pay page in preview mode), View Pay Page (external link — only for `active` links), Show Transactions, Copy Link URL, Publish (draft → active), Deactivate, Delete
+- Bulk actions: Publish, Deactivate, Delete
 - FilterBar with `FilterDef[]`:
-  - `status` (select: Active / Inactive)
+  - `status` (select: Draft / Active / Inactive)
   - `pricingMode` (select: Fixed / Custom Amount / Price List)
   - `isLocked` (checkbox)
   - `templateId` (select with `loadOptions` — async template lookup)
@@ -780,7 +783,7 @@ DataTable with `extensionTableId="checkout-links"`:
 
 DataTable with `extensionTableId="checkout-templates"`:
 - Columns: Name, Pricing Mode, Gateway Provider, Max Completions, Created At
-- Row actions: Edit, Create Link from Template, Delete
+- Row actions: Edit, Preview (renders a temporary pay page preview with template data), Create Link from Template, Delete
 
 **Wireframe:** See [Templates List wireframe](./2026-03-19-checkout-pay-links-wireframes.md#templates-list)
 
@@ -827,7 +830,7 @@ const groups: CrudFormGroup[] = [
   { id: 'payment', title: t('checkout.form.groups.payment'), column: 2, fields: ['gatewayProviderKey'], component: GatewaySettingsFields },
   { id: 'customerFields', title: t('checkout.form.groups.customerFields'), column: 1, component: CustomerFieldsEditor },
   { id: 'legal', title: t('checkout.form.groups.legal'), column: 1, fields: ['legalDocuments.terms.title', 'legalDocuments.terms.markdown', 'legalDocuments.terms.required', 'legalDocuments.privacyPolicy.title', 'legalDocuments.privacyPolicy.markdown', 'legalDocuments.privacyPolicy.required'] },
-  { id: 'settings', title: t('checkout.form.groups.settings'), column: 2, fields: ['maxCompletions', 'password', 'isActive'] },
+  { id: 'settings', title: t('checkout.form.groups.settings'), column: 2, fields: ['status', 'maxCompletions', 'password'] },
   { id: 'messages', title: t('checkout.form.groups.messages'), column: 1, fields: ['successTitle', 'successMessage', 'cancelTitle', 'cancelMessage', 'errorTitle', 'errorMessage'] },
   { id: 'emails', title: t('checkout.form.groups.emails'), column: 1, fields: ['startEmailSubject', 'startEmailBody', 'successEmailSubject', 'successEmailBody', 'errorEmailSubject', 'errorEmailBody'] },
   { id: 'customFields', title: t('checkout.form.groups.customFields'), column: 2, kind: 'customFields' },
@@ -891,9 +894,9 @@ const groups: CrudFormGroup[] = [
 - Dynamic gateway settings fields (loaded from the selected payment-gateway descriptor)
 
 **Settings** (`column: 2`)
+- Status (select: Draft / Active / Inactive) — new links default to `draft`
 - Max Completions (number input, empty = unlimited)
 - Password (password input — stored as bcrypt hash)
-- Is Active (toggle)
 - Checkout Type (select: Pay Link / Simple Checkout)
 
 **Custom Fields** (`column: 2`, `kind: 'customFields'`)
@@ -970,6 +973,58 @@ Full-page wireframe for the default fixed-price pay page with all layout section
   - replace them with their own implementation
   - copy/fork them into app code for deeper "eject-style" customization
 - There is no special runtime eject feature; exported defaults + replaceable handles are the supported customization path.
+
+### Preview & Draft Mode
+
+Links and templates support a **draft → active → inactive** lifecycle. New links are created in `draft` status by default, allowing admins to preview and verify the full pay page experience before publishing.
+
+**Link statuses:**
+
+| Status     | Public visibility          | Admin preview                           | Can edit                            | Can accept payments |
+|------------|----------------------------|-----------------------------------------|-------------------------------------|---------------------|
+| `draft`    | 404 (not found)            | Yes — full pay page with preview banner | Yes                                 | No                  |
+| `active`   | Visible, payments accepted | Yes                                     | No (locked after first transaction) | Yes                 |
+| `inactive` | 404 (not found)            | Yes — with "inactive" banner            | No (locked)                         | No                  |
+
+**Admin preview flow:**
+
+1. Admin clicks "Preview" on the DataTable row action or the CrudForm header button
+2. Opens `/pay/[slug]?preview=true` in a new tab
+3. The API detects `preview=true` query param and validates the admin session (`requireAuth`, `requireFeatures: ['checkout.view']`)
+4. The full pay page renders with all branding, pricing, customer fields, and gateway form — identical to the live page
+5. A sticky preview banner is shown at the top:
+   > "Preview Mode — This link is not published. Payments are disabled. [← Back to Admin] [Publish]"
+6. The submit button is replaced with a disabled "Pay" button showing "(Preview — payments disabled)"
+7. The gateway payment form section shows a placeholder instead of the real gateway form
+
+**Template preview:**
+
+Templates do not have slugs. Preview is accessed via a dedicated admin route:
+- URL: `/backend/checkout/templates/[id]/preview`
+- Renders the same pay page component using template field values
+- Generates a temporary preview slug (not persisted) for URL display
+- Same preview banner behavior as link preview
+
+**Publishing (draft → active):**
+
+- Admin clicks "Publish" in the CrudForm header, preview banner, or DataTable row action
+- Executes `checkout.link.update` command setting `status = 'active'`
+- Validates that `gatewayProviderKey` is set before allowing publish (returns validation error if missing)
+- Event `checkout.link.published` emitted (category: `lifecycle`, `clientBroadcast: true`)
+
+**Public API behavior by status:**
+
+- `GET /api/checkout/pay/:slug` — returns 404 for `draft` and `inactive` links (unless `preview=true` with valid admin session)
+- `POST /api/checkout/pay/:slug/submit` — returns 422 for non-`active` links: "This payment link is not currently accepting payments"
+
+**CrudForm header actions (link edit page):**
+
+| Status | Header actions |
+|--------|---------------|
+| `draft` | [Preview] [Publish] [Save] |
+| `active` (not locked) | [Preview] [Deactivate] [Save] |
+| `active` (locked) | [Preview] [Deactivate] — read-only form |
+| `inactive` | [Preview] [Reactivate] — read-only form |
 
 ### Success Page (`/pay/[slug]/success/[transactionId]`)
 
