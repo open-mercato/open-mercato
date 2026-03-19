@@ -750,33 +750,7 @@ DataTable with `extensionTableId="checkout-links"`:
   - `templateId` (select with `loadOptions` — async template lookup)
   - Custom field filters auto-merged via `useCustomFieldFilterDefs('checkout:link')`
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Pay Links                                                    [+ Create Link]  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  [🔍 Search pay links…                              ]  [⚙ Filters (2)]  [↗]  │
-│                                                                                 │
-│  Active filters:  [Status: Active ✕]  [Pricing: Fixed ✕]         [Clear all]  │
-├────┬──────────────┬──────────────┬──────────────┬────────┬────────┬────────┬───┤
-│ □  │ Name         │ Slug         │ Pricing      │ Status │ Uses   │ Created│   │
-├────┼──────────────┼──────────────┼──────────────┼────────┼────────┼────────┼───┤
-│ □  │ Jan Consult  │ /pay/jan-c.. │ Fixed $150   │ Active │ 1 / 1  │ Mar 15 │ ⋮ │
-│ □  │ Donation     │ /pay/donate  │ Custom $5-500│ Active │ 12 / ∞ │ Mar 10 │ ⋮ │
-│ □  │ Spring Gala  │ /pay/spring..│ Price List   │ Active │ 45/100 │ Mar 08 │ ⋮ │
-│ □  │ Workshop Fee │ /pay/works.. │ Fixed $75    │ Inact. │ 0 / ∞  │ Mar 01 │ ⋮ │
-├────┴──────────────┴──────────────┴──────────────┴────────┴────────┴────────┴───┤
-│  ⋮ row action menu:                                                            │
-│  ┌──────────────────────┐                                                      │
-│  │ ✏️  Edit              │                                                      │
-│  │ ↗  View Pay Page     │                                                      │
-│  │ 📋 Copy Link URL     │                                                      │
-│  │ 📊 Show Transactions │                                                      │
-│  │ ──────────────────── │                                                      │
-│  │ 🗑  Delete            │                                                      │
-│  └──────────────────────┘                                                      │
-│                                                     Page 1 of 3  [< 1 2 3 >]  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+**Wireframe:** See [Pay Links List wireframe](./2026-03-19-checkout-pay-links-wireframes.md#pay-links-list)
 
 #### Templates List (`/backend/checkout/templates`)
 
@@ -784,28 +758,7 @@ DataTable with `extensionTableId="checkout-templates"`:
 - Columns: Name, Pricing Mode, Gateway Provider, Max Completions, Created At
 - Row actions: Edit, Create Link from Template, Delete
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Link Templates                                                [+ Create]      │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│  [Search…]                                                                     │
-├────┬──────────────────┬──────────────┬──────────────┬───────────┬─────────┬────┤
-│ □  │ Name             │ Pricing Mode │ Gateway      │ Max Uses  │ Created │    │
-├────┼──────────────────┼──────────────┼──────────────┼───────────┼─────────┼────┤
-│ □  │ Consulting Fee   │ Fixed        │ Stripe       │ 1         │ Mar 12  │ ⋮  │
-│ □  │ Donation         │ Custom Amt   │ Stripe       │ Unlimited │ Mar 10  │ ⋮  │
-│ □  │ Event Ticket     │ Price List   │ PayU         │ 100       │ Mar 08  │ ⋮  │
-├────┴──────────────────┴──────────────┴──────────────┴───────────┴─────────┴────┤
-│  ⋮ row action menu:                                                            │
-│  ┌────────────────────────────┐                                                │
-│  │ ✏️  Edit                    │                                                │
-│  │ ➕ Create Link from Tmpl.  │                                                │
-│  │ ─────────────────────────  │                                                │
-│  │ 🗑  Delete                  │                                                │
-│  └────────────────────────────┘                                                │
-│                                                       Page 1 of 1  [< 1 >]    │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+**Wireframe:** See [Templates List wireframe](./2026-03-19-checkout-pay-links-wireframes.md#templates-list)
 
 #### Transactions List (`/backend/checkout/transactions`)
 
@@ -818,87 +771,19 @@ DataTable with `extensionTableId="checkout-transactions"`:
   - `date` (dateRange: from/to)
   - Custom field filters auto-merged via `useCustomFieldFilterDefs('checkout:transaction')`
 - **PII columns** (Customer, Email) only visible to users with `checkout.viewPii`
+- Export: `buildCrudExportUrl('checkout/transactions', currentParams, format)` with scopes `'view'` (filtered) and `'full'` (all). Formats: CSV, JSON. PII fields in exports respect `checkout.viewPii` — users without this feature get masked/excluded PII columns.
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│  Transactions                                                                           │
-├─────────────────────────────────────────────────────────────────────────────────────────┤
-│  [🔍 Search transactions…                           ]  [⚙ Filters (1)]  [↗]  │
-│                                                                                 │
-│  Active filters:  [Link: Spring Gala ✕]                              [Clear]   │
-├──────────────────┬──────────────┬────────────────┬─────────┬──────────┬────────┬────────┤
-│ Link             │ Customer*    │ Email*         │ Amount  │ Status   │ Pay.St │ Date   │
-├──────────────────┼──────────────┼────────────────┼─────────┼──────────┼────────┼────────┤
-│ Jan Consulting   │ John Smith   │ john@acme.com  │ $150.00 │ Compltd  │ Captrd │ Mar 18 │
-│ Donation         │ Alice Jones  │ alice@mail.co  │  $50.00 │ Compltd  │ Captrd │ Mar 17 │
-│ Spring Gala      │ Bob Wilson   │ bob@corp.io    │  $75.00 │ Process. │ Pendng │ Mar 17 │
-│ Donation         │ Eve Davis    │ eve@test.org   │  $25.00 │ Failed   │ Failed │ Mar 16 │
-├──────────────────┴──────────────┴────────────────┴─────────┴──────────┴────────┴────────┤
-│  * Customer and Email columns require checkout.viewPii permission.                      │
-│    Users without this permission see these columns hidden.                              │
-│                                                           Page 1 of 5  [< 1 2 3 4 5 >] │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-```
+**Wireframe:** See [Transactions List wireframe](./2026-03-19-checkout-pay-links-wireframes.md#transactions-list)
 
 #### Transaction Detail Page
 
 Accessed from the transactions list row action ("View Detail"). Shows full transaction information in read-only cards.
 
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│  ← Back to Transactions                                            │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │  ● Completed                                    Mar 18, 2026 │  │
-│  │  Transaction completed successfully.                         │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─ Payment Details ────────────────────────────────────────────┐  │
-│  │  Amount:          $150.00 USD                                │  │
-│  │  Status:          Completed                                  │  │
-│  │  Payment Status:  Captured                                   │  │
-│  │  Transaction ID:  a1b2c3d4-e5f6-7890-abcd-ef1234567890      │  │
-│  │  Created:         2026-03-18 14:32:05                        │  │
-│  │  Updated:         2026-03-18 14:33:12                        │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─ Link Details ───────────────────────────────────────────────┐  │
-│  │  Link Name:       January Consulting Session                 │  │
-│  │  Slug:            /pay/january-consulting                    │  │
-│  │  Pricing Mode:    Fixed                                      │  │
-│  │  [View Pay Link →]                                           │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─ Customer Information ───────────────────────────────────────┐  │
-│  │  * Requires checkout.viewPii permission                      │  │
-│  │                                                              │  │
-│  │  First Name:      John                                       │  │
-│  │  Last Name:       Smith                                      │  │
-│  │  Email:           john@acme.com                              │  │
-│  │  Phone:           +1 555-123-4567                            │  │
-│  │  Company:         Acme Corp                                  │  │
-│  │  Address:         123 Main St, Springfield                   │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─ Gateway Transaction ────────────────────────────────────────┐  │
-│  │  Gateway:         Stripe                                     │  │
-│  │  Gateway Txn ID:  gw_9f8e7d6c-5b4a-3210                     │  │
-│  │  [View Gateway Transaction →]                                │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-│  ┌─ Custom Fields ──────────────────────────────────────────────┐  │
-│  │  Reference Code:  INV-2026-0042                              │  │
-│  │  Priority:        High                                       │  │
-│  │  Internal Notes:  VIP client — fast-track processing         │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+**Wireframe:** See [Transaction Detail Page wireframe](./2026-03-19-checkout-pay-links-wireframes.md#transaction-detail-page)
 
 #### Link/Template Create/Edit (Shared `CrudForm`)
 
-The `LinkTemplateForm` component is shared between link and template creation/editing. It renders as a `CrudForm` with **tabs**:
+The `LinkTemplateForm` component is shared between link and template creation/editing. It renders as a `CrudForm` with a **scrollable 2-column layout** — column 1 (left, ~60% width) for main content and column 2 (right, ~40% width) for secondary/settings content.
 
 The form uses `CrudForm` with `entityId` prop to auto-handle entity custom fields:
 - Links: `entityId="checkout:link"` — custom fields from `ce.ts` auto-rendered
@@ -906,34 +791,21 @@ The form uses `CrudForm` with `entityId` prop to auto-handle entity custom field
 - Custom field values are collected via `collectCustomFieldValues()` on submit
 - Template-to-link creation copies custom field values via `loadCustomFieldValues` + `setCustomFieldsIfAny`
 
-Groups are defined with `CrudFormGroup[]` using responsive columns. The last group uses `kind: 'customFields'` to auto-render entity custom fields without manual wiring.
-
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│  Create Pay Link                                              [Save] [Cancel]  │
-├─────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                 │
-│  ┌─────────┬────────────┬─────────┬──────────────┬─────────┬──────────┐        │
-│  │ General │ Appearance │ Pricing │ Cust. Fields │ Payment │ Messages │ ...    │
-│  └─────────┴────────────┴─────────┴──────────────┴─────────┴──────────┘        │
-│            (active tab content rendered below)               Emails  Settings  │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Groups are defined with `CrudFormGroup[]` using `column: 1` and `column: 2` for responsive 2-column layout. The last group uses `kind: 'customFields'` to auto-render entity custom fields without manual wiring.
 
 CrudForm groups declaration pattern:
 
 ```typescript
 const groups: CrudFormGroup[] = [
-  { id: 'general', title: t('checkout.form.tabs.general'), fields: ['name', 'title', 'subtitle', 'description', 'slug'] },
-  { id: 'appearance', title: t('checkout.form.tabs.appearance'), fields: ['logoAttachmentId', 'logoUrl', 'primaryColor', 'secondaryColor', 'backgroundColor', 'themeMode', 'displayCustomFieldsOnPage'] },
-  { id: 'pricing', title: t('checkout.form.tabs.pricing'), fields: ['pricingMode', /* conditional fields */] },
-  { id: 'customerFields', title: t('checkout.form.tabs.customerFields'), component: CustomerFieldsEditor },
-  { id: 'payment', title: t('checkout.form.tabs.payment'), fields: ['gatewayProviderKey'], component: GatewaySettingsFields },
-  { id: 'messages', title: t('checkout.form.tabs.messages'), fields: ['successTitle', 'successMessage', 'cancelTitle', 'cancelMessage', 'errorTitle', 'errorMessage'] },
-  { id: 'emails', title: t('checkout.form.tabs.emails'), fields: ['startEmailSubject', 'startEmailBody', 'successEmailSubject', 'successEmailBody', 'errorEmailSubject', 'errorEmailBody'] },
-  { id: 'settings', title: t('checkout.form.tabs.settings'), fields: ['maxCompletions', 'password', 'isActive'] },
-  { id: 'customFields', title: t('checkout.form.tabs.customFields'), kind: 'customFields' },
+  { id: 'general', title: t('checkout.form.groups.general'), column: 1, fields: ['name', 'title', 'subtitle', 'description', 'slug'] },
+  { id: 'appearance', title: t('checkout.form.groups.appearance'), column: 2, fields: ['logoAttachmentId', 'logoUrl', 'primaryColor', 'secondaryColor', 'backgroundColor', 'themeMode', 'displayCustomFieldsOnPage'] },
+  { id: 'pricing', title: t('checkout.form.groups.pricing'), column: 1, fields: ['pricingMode', /* conditional fields */] },
+  { id: 'payment', title: t('checkout.form.groups.payment'), column: 2, fields: ['gatewayProviderKey'], component: GatewaySettingsFields },
+  { id: 'customerFields', title: t('checkout.form.groups.customerFields'), column: 1, component: CustomerFieldsEditor },
+  { id: 'settings', title: t('checkout.form.groups.settings'), column: 2, fields: ['maxCompletions', 'password', 'isActive'] },
+  { id: 'messages', title: t('checkout.form.groups.messages'), column: 1, fields: ['successTitle', 'successMessage', 'cancelTitle', 'cancelMessage', 'errorTitle', 'errorMessage'] },
+  { id: 'emails', title: t('checkout.form.groups.emails'), column: 1, fields: ['startEmailSubject', 'startEmailBody', 'successEmailSubject', 'successEmailBody', 'errorEmailSubject', 'errorEmailBody'] },
+  { id: 'customFields', title: t('checkout.form.groups.customFields'), column: 2, kind: 'customFields' },
 ]
 ```
 
