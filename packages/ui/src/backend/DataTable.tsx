@@ -818,6 +818,10 @@ export function DataTable<T>({
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
     [resolvedInjectionSpotId]
   )
+  const toolbarInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
+    [resolvedInjectionSpotId]
+  )
   const footerInjectionSpotId = React.useMemo(
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
     [resolvedInjectionSpotId]
@@ -1876,6 +1880,9 @@ export function DataTable<T>({
                     </Button>
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
+                  {toolbarInjectionSpotId ? (
+                    <InjectionSpot spotId={toolbarInjectionSpotId} context={resolvedInjectionContext} />
+                  ) : null}
                   {hasActions ? actions : null}
                 </div>
               ) : null}

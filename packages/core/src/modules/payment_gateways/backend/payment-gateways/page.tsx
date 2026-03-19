@@ -7,6 +7,7 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -646,6 +647,10 @@ export default function PaymentTransactionsPage() {
                         theme="dark"
                         maxHeight="24rem"
                         className="p-4"
+                      />
+                      <InjectionSpot
+                        spotId="admin.page:payment-gateways/transactions:after"
+                        context={{ selectedPaymentId: detail.transaction.paymentId }}
                       />
                     </div>
                   </div>
