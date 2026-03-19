@@ -396,6 +396,99 @@ export default function PaymentTransactionsPage() {
     setIsRefreshingStatus(false)
   }, [loadDetail, loadRows, selectedId, t])
 
+  const refreshTransactionData = React.useCallback(async (transactionId: string) => {
+    await Promise.all([
+      loadRows(),
+      loadDetail(transactionId),
+    ])
+  }, [loadDetail, loadRows])
+
+  const handleApplyAssignmentFilter = React.useCallback((assignment: TransactionAssignmentRef) => {
+    setFilterValues((current) => ({
+      ...current,
+      entityType: assignment.entityType,
+      entityId: assignment.entityId,
+    }))
+    setPage(1)
+  }, [])
+
+  const handleAssignTransaction = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedId) return
+
+    const entityType = assignmentDraft.entityType.trim()
+    const entityId = assignmentDraft.entityId.trim()
+    if (!entityType || !entityId) {
+      setAssignmentError(t('payment_gateways.transactions.assignments.validation', 'Entity type and entity id are required.'))
+      return
+    }
+
+    if (detail?.transaction.assignments.some((assignment) => buildAssignmentKey(assignment) === `${entityType}::${entityId}`)) {
+      setAssignmentError(t('payment_gateways.transactions.assignments.duplicate', 'This assignment already exists.'))
+      return
+    }
+
+    setAssignmentError(null)
+    setIsMutatingAssignment(true)
+    setAssignmentMutationKey(`${entityType}::${entityId}`)
+
+    const call = await apiCall(
+      `/api/payment_gateways/transactions/${encodeURIComponent(selectedId)}/assignments`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityType, entityId }),
+      },
+      { fallback: null },
+    )
+
+    if (!call.ok) {
+      setAssignmentError(t('payment_gateways.transactions.assignments.error.add', 'Failed to assign transaction.'))
+      flash(t('payment_gateways.transactions.assignments.error.add', 'Failed to assign transaction.'), 'error')
+      setIsMutatingAssignment(false)
+      setAssignmentMutationKey(null)
+      return
+    }
+
+    setAssignmentDraft({ entityType: '', entityId: '' })
+    await refreshTransactionData(selectedId)
+    flash(t('payment_gateways.transactions.assignments.success.add', 'Transaction assignment added.'), 'success')
+    setIsMutatingAssignment(false)
+    setAssignmentMutationKey(null)
+  }, [assignmentDraft.entityId, assignmentDraft.entityType, detail?.transaction.assignments, refreshTransactionData, selectedId, t])
+
+  const handleDeassignTransaction = React.useCallback(async (assignment: TransactionAssignmentRef) => {
+    if (!selectedId) return
+
+    const assignmentKey = buildAssignmentKey(assignment)
+    setAssignmentError(null)
+    setIsMutatingAssignment(true)
+    setAssignmentMutationKey(assignmentKey)
+
+    const call = await apiCall(
+      `/api/payment_gateways/transactions/${encodeURIComponent(selectedId)}/assignments`,
+      {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityType: assignment.entityType, entityId: assignment.entityId }),
+      },
+      { fallback: null },
+    )
+
+    if (!call.ok) {
+      setAssignmentError(t('payment_gateways.transactions.assignments.error.remove', 'Failed to remove transaction assignment.'))
+      flash(t('payment_gateways.transactions.assignments.error.remove', 'Failed to remove transaction assignment.'), 'error')
+      setIsMutatingAssignment(false)
+      setAssignmentMutationKey(null)
+      return
+    }
+
+    await refreshTransactionData(selectedId)
+    flash(t('payment_gateways.transactions.assignments.success.remove', 'Transaction assignment removed.'), 'success')
+    setIsMutatingAssignment(false)
+    setAssignmentMutationKey(null)
+  }, [refreshTransactionData, selectedId, t])
+
   const providerOptions = React.useMemo(() => {
     const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort()
     return values.map((value) => ({
@@ -494,12 +587,20 @@ export default function PaymentTransactionsPage() {
         return (
           <div className="space-y-1">
             {assignments.slice(0, 2).map((assignment) => (
-              <div key={assignment.id ?? `${assignment.entityType}:${assignment.entityId}`} className="space-y-0.5">
+              <button
+                key={assignment.id ?? buildAssignmentKey(assignment)}
+                type="button"
+                className="block rounded-md border border-transparent px-2 py-1 text-left transition hover:border-border hover:bg-muted/30"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  handleApplyAssignmentFilter(assignment)
+                }}
+              >
                 <div className="text-xs">{formatEntityTypeLabel(assignment.entityType)}</div>
                 <div className="font-mono text-[11px] text-muted-foreground">
                   {assignment.entityId.length > 18 ? `${assignment.entityId.slice(0, 18)}…` : assignment.entityId}
                 </div>
-              </div>
+              </button>
             ))}
             {assignments.length > 2 ? (
               <div className="text-[11px] text-muted-foreground">
@@ -525,7 +626,7 @@ export default function PaymentTransactionsPage() {
       header: t('payment_gateways.transactions.columns.updatedAt', 'Updated'),
       cell: ({ row }) => formatDateTime(row.original.updatedAt),
     },
-  ], [t])
+  ], [handleApplyAssignmentFilter, t])
 
   const selectedSummary = React.useMemo(
     () => rows.find((row) => row.id === selectedId) ?? null,
@@ -699,6 +800,83 @@ export default function PaymentTransactionsPage() {
                             ]}
                             compact
                           />
+                        </DetailSectionCard>
+                        <DetailSectionCard title={t('payment_gateways.transactions.columns.assignments', 'Assignments')} icon={<Plus className="h-4 w-4 text-muted-foreground" />}>
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              {detail.transaction.assignments.length > 0 ? (
+                                detail.transaction.assignments.map((assignment) => {
+                                  const assignmentKey = buildAssignmentKey(assignment)
+                                  const isBusy = isMutatingAssignment && assignmentMutationKey === assignmentKey
+                                  return (
+                                    <div key={assignment.id ?? assignmentKey} className="flex flex-col gap-3 rounded-lg border bg-muted/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                                      <div className="min-w-0">
+                                        <div className="text-sm font-medium">{formatEntityTypeLabel(assignment.entityType)}</div>
+                                        <div className="font-mono text-xs text-muted-foreground">{assignment.entityId}</div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={() => handleApplyAssignmentFilter(assignment)}
+                                        >
+                                          {t('payment_gateways.transactions.assignments.filter', 'Filter list')}
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => void handleDeassignTransaction(assignment)}
+                                          disabled={isMutatingAssignment}
+                                        >
+                                          {isBusy ? <Spinner className="mr-2 h-4 w-4" /> : <X className="mr-2 h-4 w-4" />}
+                                          {t('payment_gateways.transactions.assignments.remove', 'Remove')}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )
+                                })
+                              ) : (
+                                <p className="text-sm text-muted-foreground">{t('payment_gateways.transactions.assignments.empty', 'This transaction is not assigned to any documents yet.')}</p>
+                              )}
+                            </div>
+                            <form className="grid gap-3 border-t pt-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_auto]" onSubmit={handleAssignTransaction}>
+                              <div className="space-y-1">
+                                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  {t('payment_gateways.transactions.filters.entityType', 'Entity Type')}
+                                </div>
+                                <Input
+                                  value={assignmentDraft.entityType}
+                                  onChange={(event) => setAssignmentDraft((current) => ({ ...current, entityType: event.target.value }))}
+                                  placeholder={t('payment_gateways.transactions.assignments.entityTypePlaceholder', 'sales:sales_order')}
+                                  disabled={isMutatingAssignment}
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                  {t('payment_gateways.transactions.filters.entityId', 'Entity ID')}
+                                </div>
+                                <Input
+                                  value={assignmentDraft.entityId}
+                                  onChange={(event) => setAssignmentDraft((current) => ({ ...current, entityId: event.target.value }))}
+                                  placeholder={t('payment_gateways.transactions.assignments.entityIdPlaceholder', 'Document or record id')}
+                                  disabled={isMutatingAssignment}
+                                />
+                              </div>
+                              <div className="flex items-end">
+                                <Button type="submit" className="w-full lg:w-auto" disabled={isMutatingAssignment}>
+                                  {isMutatingAssignment && assignmentMutationKey === `${assignmentDraft.entityType.trim()}::${assignmentDraft.entityId.trim()}`
+                                    ? <Spinner className="mr-2 h-4 w-4" />
+                                    : <Plus className="mr-2 h-4 w-4" />}
+                                  {t('payment_gateways.transactions.assignments.add', 'Add assignment')}
+                                </Button>
+                              </div>
+                            </form>
+                            {assignmentError ? (
+                              <p className="text-sm text-destructive">{assignmentError}</p>
+                            ) : null}
+                          </div>
                         </DetailSectionCard>
                       </div>
                     </TabsContent>

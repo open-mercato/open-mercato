@@ -170,3 +170,37 @@ export async function getTransactionDetails(
   }
   return response.json()
 }
+
+export async function assignTransaction(
+  request: APIRequestContext,
+  token: string,
+  transactionId: string,
+  assignment: { entityType: string; entityId: string },
+): Promise<{ items: Array<{ entityType: string; entityId: string }> }> {
+  const response = await apiRequest(request, 'POST', `/api/payment_gateways/transactions/${transactionId}/assignments`, {
+    token,
+    data: assignment,
+  })
+  if (!response.ok()) {
+    const body = await response.text()
+    throw new Error(`Failed to assign transaction: ${response.status()} ${body}`)
+  }
+  return response.json()
+}
+
+export async function deassignTransaction(
+  request: APIRequestContext,
+  token: string,
+  transactionId: string,
+  assignment: { entityType: string; entityId: string },
+): Promise<{ items: Array<{ entityType: string; entityId: string }> }> {
+  const response = await apiRequest(request, 'DELETE', `/api/payment_gateways/transactions/${transactionId}/assignments`, {
+    token,
+    data: assignment,
+  })
+  if (!response.ok()) {
+    const body = await response.text()
+    throw new Error(`Failed to deassign transaction: ${response.status()} ${body}`)
+  }
+  return response.json()
+}

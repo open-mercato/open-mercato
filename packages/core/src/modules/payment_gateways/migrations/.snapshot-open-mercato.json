@@ -166,24 +166,6 @@
           "length": 6,
           "mappedType": "datetime"
         },
-        "document_type": {
-          "name": "document_type",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
-        "document_id": {
-          "name": "document_id",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "mappedType": "text"
-        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",
@@ -236,19 +218,6 @@
       "name": "gateway_transactions",
       "schema": "public",
       "indexes": [
-        {
-          "keyName": "gateway_transactions_document_type_document_id_org_b1ff6_index",
-          "columnNames": [
-            "document_type",
-            "document_id",
-            "organization_id",
-            "tenant_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
         {
           "keyName": "gateway_transactions_organization_id_tenant_id_uni_5a9b9_index",
           "columnNames": [
@@ -382,23 +351,6 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "gateway_transaction_assignments_unique",
-          "columnNames": [
-            "transaction_id",
-            "entity_type",
-            "entity_id",
-            "organization_id",
-            "tenant_id"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false,
-          "options": {
-            "unique": true
-          }
-        },
-        {
           "keyName": "gateway_transaction_assignments_entity_scope_idx",
           "columnNames": [
             "entity_type",
@@ -422,6 +374,20 @@
           "constraint": false,
           "primary": false,
           "unique": false
+        },
+        {
+          "keyName": "gateway_transaction_assignments_unique",
+          "columnNames": [
+            "transaction_id",
+            "entity_type",
+            "entity_id",
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
         },
         {
           "keyName": "gateway_transaction_assignments_pkey",
