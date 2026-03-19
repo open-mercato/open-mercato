@@ -157,7 +157,7 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
     }
   })
 
-  test('module add --mode source copies module source and omits package CSS entries', () => {
+  test('module add --eject copies module source and omits package CSS entries', () => {
     const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-standalone-source-'))
 
     try {
@@ -169,8 +169,7 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
           'module',
           'add',
           `@open-mercato/test-package@file:${fixtureModulePackage}`,
-          '--mode',
-          'source',
+          '--eject',
         ],
         appDir,
       )
@@ -186,7 +185,7 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
     }
   })
 
-  test('module enable and both eject entrypoints keep backward compatibility', () => {
+  test('module enable supports package-backed and ejected flows plus both eject entrypoints', () => {
     const appDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-standalone-eject-'))
 
     try {
@@ -203,6 +202,15 @@ test.describe('TC-INT-007: CLI official module install and eject flows', () => {
         "{ id: 'test_package', from: '@open-mercato/test-package' }",
       )
 
+      writeFile(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+      fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
+      runMercato(['module', 'enable', '@open-mercato/test-package', '--eject'], appDir)
+      expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("{ id: 'test_package', from: '@app' }")
+      expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
+      expect(readFile(path.join(appDir, '.mercato', 'generated', 'module-package-sources.css'))).toBe('')
+
+      writeFile(path.join(appDir, 'src', 'modules.ts'), "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n")
+      fs.rmSync(path.join(appDir, 'src', 'modules', 'test_package'), { recursive: true, force: true })
       runMercato(['module', 'eject', 'test_package'], appDir)
       expect(readFile(path.join(appDir, 'src', 'modules.ts'))).toContain("{ id: 'test_package', from: '@app' }")
 

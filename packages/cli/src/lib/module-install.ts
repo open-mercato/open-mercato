@@ -5,18 +5,16 @@ import { copyDirRecursive, rewriteCrossModuleImports } from './eject'
 import {
   parsePackageNameFromSpec,
   resolveInstalledOfficialModulePackage,
-  validateSourceModeBoundaries,
+  validateEjectBoundaries,
   type ValidatedOfficialModulePackage,
 } from './module-package'
 import { ensureModuleRegistration } from './modules-config'
 import type { PackageResolver } from './resolver'
 
-export type ModuleInstallMode = 'package' | 'source'
-
 type ModuleCommandResult = {
   moduleId: string
   packageName: string
-  mode: ModuleInstallMode
+  from: string
   registrationChanged: boolean
 }
 
@@ -135,47 +133,53 @@ function assertPackageName(packageName: string | null): asserts packageName is s
 function validateBeforeRegistration(
   modulePackage: ValidatedOfficialModulePackage,
   resolver: PackageResolver,
-  mode: ModuleInstallMode,
+  eject: boolean,
 ): string {
   const appModuleDir = path.join(resolver.getAppDir(), 'src', 'modules', modulePackage.metadata.moduleId)
 
-  if (mode === 'source' && fs.existsSync(appModuleDir)) {
-    throw new Error(`Destination directory already exists: ${appModuleDir}. Remove it first or choose package mode.`)
+  if (eject && fs.existsSync(appModuleDir)) {
+    throw new Error(`Destination directory already exists: ${appModuleDir}. Remove it first or rerun without --eject.`)
   }
 
   return appModuleDir
 }
 
-export async function addOfficialModule(
+function prepareRegistrationSource(
+  modulePackage: ValidatedOfficialModulePackage,
   resolver: PackageResolver,
-  packageSpec: string,
-  mode: ModuleInstallMode,
-  moduleId?: string,
-): Promise<ModuleCommandResult> {
-  const packageName = parsePackageNameFromSpec(packageSpec)
-  assertPackageName(packageName)
+  packageName: string,
+  eject: boolean,
+): string {
+  const appModuleDir = validateBeforeRegistration(modulePackage, resolver, eject)
 
-  await installPackageSpec(resolver, packageSpec)
-
-  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
-  const appModuleDir = validateBeforeRegistration(modulePackage, resolver, mode)
-
-  if (mode === 'source') {
-    if (!modulePackage.metadata.ejectable) {
-      throw new Error(`Package "${packageName}" is not ejectable. Source mode requires open-mercato.ejectable === true.`)
-    }
-
-    validateSourceModeBoundaries(modulePackage)
-    copyDirRecursive(modulePackage.sourceModuleDir, appModuleDir)
-    rewriteCrossModuleImports(
-      modulePackage.sourceModuleDir,
-      appModuleDir,
-      modulePackage.metadata.moduleId,
-      packageName,
-    )
+  if (!eject) {
+    return packageName
   }
 
-  const from = mode === 'source' ? '@app' : packageName
+  if (!modulePackage.metadata.ejectable) {
+    throw new Error(`Package "${packageName}" is not ejectable. --eject requires open-mercato.ejectable === true.`)
+  }
+
+  validateEjectBoundaries(modulePackage)
+  copyDirRecursive(modulePackage.sourceModuleDir, appModuleDir)
+  rewriteCrossModuleImports(
+    modulePackage.sourceModuleDir,
+    appModuleDir,
+    modulePackage.metadata.moduleId,
+    packageName,
+  )
+
+  return '@app'
+}
+
+async function registerResolvedOfficialModule(
+  resolver: PackageResolver,
+  modulePackage: ValidatedOfficialModulePackage,
+  packageName: string,
+  eject: boolean,
+): Promise<ModuleCommandResult> {
+  const from = prepareRegistrationSource(modulePackage, resolver, packageName, eject)
+
   const registration = ensureModuleRegistration(
     resolver.getModulesConfigPath(),
     {
@@ -195,42 +199,36 @@ export async function addOfficialModule(
   return {
     moduleId: modulePackage.metadata.moduleId,
     packageName,
-    mode,
+    from,
     registrationChanged: registration.changed,
   }
+}
+
+export async function addOfficialModule(
+  resolver: PackageResolver,
+  packageSpec: string,
+  eject: boolean,
+  moduleId?: string,
+): Promise<ModuleCommandResult> {
+  const packageName = parsePackageNameFromSpec(packageSpec)
+  assertPackageName(packageName)
+
+  await installPackageSpec(resolver, packageSpec)
+
+  const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
+  return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)
 }
 
 export async function enableOfficialModule(
   resolver: PackageResolver,
   packageName: string,
   moduleId?: string,
+  eject = false,
 ): Promise<ModuleCommandResult> {
   if (!packageName.startsWith('@open-mercato/')) {
     throw new Error('Only @open-mercato/* packages can be enabled with "mercato module enable".')
   }
 
   const modulePackage = resolveInstalledOfficialModulePackage(resolver, packageName, moduleId)
-
-  const registration = ensureModuleRegistration(
-    resolver.getModulesConfigPath(),
-    {
-      id: modulePackage.metadata.moduleId,
-      from: packageName,
-    },
-  )
-
-  if (!registration.changed) {
-    throw new Error(
-      `Module "${modulePackage.metadata.moduleId}" from "${packageName}" is already enabled in modules.ts.`,
-    )
-  }
-
-  await runGeneratorsWithRegistrationNotice(resolver, modulePackage.metadata.moduleId)
-
-  return {
-    moduleId: modulePackage.metadata.moduleId,
-    packageName,
-    mode: 'package',
-    registrationChanged: registration.changed,
-  }
+  return registerResolvedOfficialModule(resolver, modulePackage, packageName, eject)
 }

@@ -339,7 +339,7 @@ export function resolveInstalledOfficialModulePackage(
   return readOfficialModulePackageFromRoot(packageRoot, packageName, moduleId)
 }
 
-export function validateSourceModeBoundaries(modulePackage: ValidatedOfficialModulePackage): void {
+export function validateEjectBoundaries(modulePackage: ValidatedOfficialModulePackage): void {
   const violations = collectBoundaryViolations(modulePackage.sourceModuleDir)
   if (violations.length === 0) {
     return
@@ -347,7 +347,7 @@ export function validateSourceModeBoundaries(modulePackage: ValidatedOfficialMod
 
   throw new Error(
     [
-      `Package "${modulePackage.packageName}" cannot be installed in source mode because it imports files outside src/modules/${modulePackage.metadata.moduleId}.`,
+      `Package "${modulePackage.packageName}" cannot be added with --eject because it imports files outside src/modules/${modulePackage.metadata.moduleId}.`,
       'Invalid imports:',
       ...violations.map((violation) => `- ${violation}`),
     ].join('\n'),

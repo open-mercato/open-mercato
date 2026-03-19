@@ -4,7 +4,15 @@ import path from 'node:path'
 import type { PackageResolver } from '../resolver'
 import { enableOfficialModule } from '../module-install'
 
-function buildPackageFixture(packageRoot: string, moduleId: string): void {
+function buildPackageFixture(
+  packageRoot: string,
+  moduleId: string,
+  options?: {
+    ejectable?: boolean
+    extraSourceFiles?: Array<{ relativePath: string; content: string }>
+  },
+): void {
+  const ejectable = options?.ejectable ?? false
   for (const base of ['src', 'dist']) {
     fs.mkdirSync(path.join(packageRoot, base, 'modules', moduleId), { recursive: true })
   }
@@ -14,12 +22,18 @@ function buildPackageFixture(packageRoot: string, moduleId: string): void {
   )
   fs.writeFileSync(
     path.join(packageRoot, 'src', 'modules', moduleId, 'index.ts'),
-    `export const metadata = { title: 'Test', ejectable: false }\n`,
+    `export const metadata = { title: 'Test', ejectable: ${ejectable ? 'true' : 'false'} }\n`,
   )
   fs.writeFileSync(
     path.join(packageRoot, 'dist', 'modules', moduleId, 'index.js'),
     `exports.metadata = {};\n`,
   )
+
+  for (const file of options?.extraSourceFiles ?? []) {
+    const targetPath = path.join(packageRoot, 'src', 'modules', moduleId, file.relativePath)
+    fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+    fs.writeFileSync(targetPath, file.content)
+  }
 }
 
 function buildResolver(
@@ -148,5 +162,56 @@ describe('enableOfficialModule', () => {
       const message = error instanceof Error ? error.message : String(error)
       expect(message).not.toContain('already enabled in modules.ts')
     }
+  })
+
+  it('copies module source into the app when enabling with --eject', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package', {
+      ejectable: true,
+      extraSourceFiles: [
+        {
+          relativePath: path.join('backend', 'page.tsx'),
+          content: 'export default function TestPage() { return null }\n',
+        },
+      ],
+    })
+
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      "export const enabledModules = []\n",
+    )
+
+    await expect(
+      enableOfficialModule(
+        resolver,
+        '@open-mercato/test-package',
+        undefined,
+        true,
+      ),
+    ).rejects.toThrow('generated artifacts are stale')
+
+    expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
+    expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'backend', 'page.tsx'))).toBe(true)
+    expect(fs.readFileSync(path.join(appDir, 'src', 'modules.ts'), 'utf8')).toContain(
+      "{ id: 'test_package', from: '@app' }",
+    )
+  })
+
+  it('rejects enabling with --eject when the package is not ejectable', async () => {
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'test-package')
+    const appDir = path.join(tmpDir, 'app')
+    buildPackageFixture(packageRoot, 'test_package')
+
+    const resolver = buildResolver(
+      appDir,
+      packageRoot,
+      "export const enabledModules = []\n",
+    )
+
+    await expect(
+      enableOfficialModule(resolver, '@open-mercato/test-package', undefined, true),
+    ).rejects.toThrow('--eject requires open-mercato.ejectable === true')
   })
 })

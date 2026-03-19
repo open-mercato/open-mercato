@@ -11,6 +11,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { parseModuleInstallArgs } from './lib/module-install-args'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -63,57 +64,6 @@ function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): st
   throw new Error(
     `Could not find installed binary "${relativeBinPath}". Checked: ${Array.from(checked).join(', ')}`,
   )
-}
-
-function parseModuleInstallArgs(args: string[]): { packageSpec: string | null; mode: 'package' | 'source'; moduleId: string | null } {
-  let packageSpec: string | null = null
-  let mode: 'package' | 'source' = 'package'
-  let moduleId: string | null = null
-
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index]
-    if (!arg) continue
-
-    if (arg === '--mode') {
-      const next = args[index + 1]
-      if (next === 'package' || next === 'source') {
-        mode = next
-        index += 1
-        continue
-      }
-      throw new Error(`Unsupported module install mode: ${next ?? '(missing value)'}`)
-    }
-
-    if (arg.startsWith('--mode=')) {
-      const rawMode = arg.slice('--mode='.length)
-      if (rawMode === 'package' || rawMode === 'source') {
-        mode = rawMode
-        continue
-      }
-      throw new Error(`Unsupported module install mode: ${rawMode}`)
-    }
-
-    if (arg === '--module') {
-      const next = args[index + 1]
-      if (next && !next.startsWith('-')) {
-        moduleId = next
-        index += 1
-        continue
-      }
-      throw new Error(`--module requires a moduleId value`)
-    }
-
-    if (arg.startsWith('--module=')) {
-      moduleId = arg.slice('--module='.length) || null
-      continue
-    }
-
-    if (!arg.startsWith('-') && !packageSpec) {
-      packageSpec = arg
-    }
-  }
-
-  return { packageSpec, mode, moduleId }
 }
 
 async function handleDirectEjectCommand(args: string[]): Promise<number> {
@@ -628,8 +578,8 @@ export async function run(argv = process.argv) {
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
         console.log('Usage: yarn mercato module <add|enable|eject> ...')
-        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--mode package|source]')
-        console.log('  yarn mercato module enable <packageName> [--module <moduleId>]')
+        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
+        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
         console.log('  yarn mercato module eject <moduleId>')
         return 0
       }
@@ -637,15 +587,15 @@ export async function run(argv = process.argv) {
       if (subcommand === 'add') {
         const { createResolver } = await import('./lib/resolver')
         const { addOfficialModule } = await import('./lib/module-install')
-        const { packageSpec, mode, moduleId } = parseModuleInstallArgs(commandArgs)
+        const { packageSpec, eject, moduleId } = parseModuleInstallArgs(commandArgs)
 
         if (!packageSpec) {
-          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--mode package|source]')
+          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
           return 1
         }
 
-        const result = await addOfficialModule(createResolver(), packageSpec, mode, moduleId ?? undefined)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${mode === 'source' ? '@app' : result.packageName}.\n`)
+        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined)
+        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
         console.log('  2. Start dev:                         yarn dev')
@@ -655,15 +605,15 @@ export async function run(argv = process.argv) {
       if (subcommand === 'enable') {
         const packageName = commandArgs.find((arg) => !arg.startsWith('-'))
         if (!packageName) {
-          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>]')
+          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
           return 1
         }
 
         const { createResolver } = await import('./lib/resolver')
         const { enableOfficialModule } = await import('./lib/module-install')
-        const { moduleId } = parseModuleInstallArgs(commandArgs)
-        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.packageName}.\n`)
+        const { moduleId, eject } = parseModuleInstallArgs(commandArgs)
+        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject)
+        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
         console.log('  2. Start dev:                         yarn dev')

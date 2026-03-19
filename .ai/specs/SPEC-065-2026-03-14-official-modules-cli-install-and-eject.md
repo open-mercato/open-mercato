@@ -12,8 +12,8 @@
 
 **Key Points:**
 - Add first-class `mercato module` commands for installing official npm modules into a Mercato app and registering them in app-level `src/modules.ts`.
-- Support two installation outcomes: package-backed modules loaded from official npm packages and source-backed modules materialized under app `src/modules/<moduleId>` via an install-plus-eject flow.
-- In source mode, the original npm package remains installed as the origin package for provenance, diffing, and future lifecycle flows, while runtime/build ownership moves to the app module.
+- Support two installation outcomes: the default installed flow loads modules from official npm packages, while `--eject` materializes module source under app `src/modules/<moduleId>` via an install-plus-eject flow.
+- When `--eject` is used, the original npm package remains installed as the origin package for provenance, diffing, and future lifecycle flows, while runtime/build ownership moves to the app module.
 
 **Scope:**
 - CLI commands for module install, enable, and eject aliasing
@@ -53,9 +53,9 @@ Introduce a `mercato module` command namespace with a manifest-driven install fl
 Planned MVP command surface:
 
 - `yarn mercato module add <packageSpec>`
-- `yarn mercato module add <packageSpec> --mode package`
-- `yarn mercato module add <packageSpec> --mode source`
+- `yarn mercato module add <packageSpec> --eject`
 - `yarn mercato module enable <packageName>`
+- `yarn mercato module enable <packageName> --eject`
 - `yarn mercato module eject <moduleId>`
 
 High-level behavior:
@@ -66,7 +66,7 @@ High-level behavior:
 4. CLI updates app `src/modules.ts` with either package-backed or app-backed registration.
 5. CLI runs module generation and surfaces follow-up steps.
 
-For `--mode source`, the package is treated as a distribution vehicle plus retained origin package. The build continues from the main app after source is copied into app `src/modules/<moduleId>` and registered as `from: '@app'`.
+For `--eject`, the package is treated as a distribution vehicle plus retained origin package. The build continues from the main app after source is copied into app `src/modules/<moduleId>` and registered as `from: '@app'`.
 
 This spec explicitly defers:
 
@@ -85,7 +85,7 @@ This spec explicitly defers:
 | Resolver compatibility | Keep current `src/modules/<moduleId>` and `dist/modules/<moduleId>` contract |
 | App registration source of truth | Continue using app-level `src/modules.ts` |
 | Official package scope | Support only `@open-mercato/*` packages with explicit official module metadata |
-| Source-mode package retention | Keep package installed after extraction |
+| `--eject` package retention | Keep package installed after extraction |
 | Lifecycle state file | Deferred to SPEC-061 phase |
 
 ### Alternatives Considered
@@ -115,15 +115,16 @@ MVP commands:
 
 | Command | Purpose |
 |---------|---------|
-| `yarn mercato module add <packageSpec>` | Install and enable a module in package mode |
-| `yarn mercato module add <packageSpec> --mode source` | Install, extract source into app modules, and enable as `@app` |
-| `yarn mercato module enable <packageName>` | Enable a package that is already installed |
+| `yarn mercato module add <packageSpec> [--module <moduleId>]` | Install and enable a module using the default installed flow |
+| `yarn mercato module add <packageSpec> [--module <moduleId>] --eject` | Install, extract source into app modules, and enable as `@app` |
+| `yarn mercato module enable <packageName> [--module <moduleId>]` | Enable a package that is already installed |
+| `yarn mercato module enable <packageName> [--module <moduleId>] --eject` | Copy an already-installed package into app modules and enable as `@app` |
 | `yarn mercato module eject <moduleId>` | Alias to existing eject flow, preserving old top-level `yarn mercato eject <moduleId>` |
 
 Rules:
 
 - `module add` is a compound operation: install package, validate package, mutate app registration, run generators.
-- `module enable` is a registration-only operation and MUST NOT install dependencies.
+- `module enable` MUST NOT install dependencies; with `--eject`, it may also copy source into app `src/modules/`.
 - `module eject` is additive and MUST NOT remove or rename the existing top-level `eject` command.
 
 ### Official Package Eligibility
@@ -160,7 +161,7 @@ Official module packages MUST expose:
 Rules:
 
 - `moduleId` MUST be the source of truth for runtime registration; CLI MUST NOT derive it from the package name.
-- `ejectable` gates `--mode source` and `module eject`.
+- `ejectable` gates `--eject` and `module eject`.
 - module title and description come from the module `index.ts` metadata, not from `package.json`.
 
 ### Installation Target
@@ -186,13 +187,13 @@ App-level `src/modules.ts` remains the runtime source of truth.
 
 Registration writes:
 
-- package mode:
+- default install:
 
 ```ts
 { id: 'test_package', from: '@open-mercato/test-package' }
 ```
 
-- source mode:
+- with `--eject`:
 
 ```ts
 { id: 'test_package', from: '@app' }
@@ -203,11 +204,11 @@ Rules:
 - writes MUST be idempotent
 - CLI MUST update the `enabledModules` declaration without disturbing conditional feature toggles already present in the file
 - duplicate registration of the same module ID MUST fail with a clear error unless the operation is a no-op
-- a local app module directory already present at the target path MUST fail closed for source mode
+- a local app module directory already present at the target path MUST fail closed when `--eject` is used
 
-### Package Mode Flow
+### Default Install Flow
 
-`module add <packageSpec>` or `module add <packageSpec> --mode package` performs:
+`module add <packageSpec>` performs:
 
 1. install package into the app dependency graph
 2. resolve installed package directory
@@ -219,11 +220,11 @@ Rules:
 
 Runtime/build ownership remains package-backed.
 
-### Source Mode Flow
+### Eject Flag Flow
 
-`module add <packageSpec> --mode source` performs:
+`module add <packageSpec> --eject` performs:
 
-1. run the same install and validation flow as package mode
+1. run the same install and validation flow as the default install
 2. verify `open-mercato.ejectable === true`
 3. copy only `src/modules/<moduleId>` into app `src/modules/<moduleId>`
 4. rewrite cross-module relative imports using the existing eject behavior
@@ -235,7 +236,7 @@ Rules:
 - the origin package remains installed
 - the active runtime source becomes the app module, not the package
 - CLI MUST NOT copy package root files such as `package.json`, `build.mjs`, or `tsconfig.json`
-- ejectable packages MUST keep module-owned runtime code inside `src/modules/<moduleId>`; imports to sibling package files outside the module directory are invalid for source mode
+- ejectable packages MUST keep module-owned runtime code inside `src/modules/<moduleId>`; imports to sibling package files outside the module directory are invalid when `--eject` is used
 
 ### Eject Alias and Backward Compatibility
 
@@ -320,10 +321,12 @@ type OpenMercatoModulePackageMetadata = {
 }
 ```
 
-### `ModuleInstallMode`
+### `ModuleAddFlags`
 
 ```ts
-type ModuleInstallMode = 'package' | 'source'
+type ModuleAddFlags = {
+  eject?: boolean
+}
 ```
 
 ### Generated CSS Source File
@@ -343,10 +346,11 @@ This spec introduces CLI contracts, not HTTP APIs.
 
 ### `module add`
 
-- Usage: `yarn mercato module add <packageSpec> [--mode package|source]`
+- Usage: `yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]`
 - Input:
   - `packageSpec`: npm package spec such as `@open-mercato/test-package@preview`
-  - optional `--mode`, default `package`
+  - optional `--module <moduleId>` for multi-module packages
+  - optional `--eject`, default `false`
 - Validation:
   - package must resolve under `@open-mercato/*`
   - package must declare `open-mercato.kind === "module-package"`
@@ -359,14 +363,18 @@ This spec introduces CLI contracts, not HTTP APIs.
 
 ### `module enable`
 
-- Usage: `yarn mercato module enable <packageName>`
+- Usage: `yarn mercato module enable <packageName> [--module <moduleId>] [--eject]`
 - Input:
   - installed package name only
+  - optional `--module <moduleId>` for multi-module packages
+  - optional `--eject`, default `false`
 - Validation:
   - package must already be installed
   - package must satisfy the same official-module checks as `module add`
+  - `ejectable` is required when `--eject` is used
 - Side effects:
   - mutates `src/modules.ts`
+  - optionally copies source into app module tree
   - regenerates generated artifacts
 
 ### `module eject`
@@ -393,22 +401,24 @@ This is a CLI UX spec.
 
 Expected experience:
 
-- package mode is the default and simplest path
-- source mode is explicit and opt-in
+- the default installed flow is the simplest path
+- `--eject` is explicit and opt-in
 - manual `yarn add` followed by `module enable` is supported for registry testing and Verdaccio workflows
+- manual `yarn add` followed by `module enable --eject` is supported when the package is already present but local ownership is desired
 - CLI errors are fail-closed and explain the exact missing contract, for example:
   - missing `open-mercato.kind`
   - missing `src/modules/<moduleId>`
   - module already registered
-  - `ejectable` required for source mode
+  - `ejectable` required for `--eject`
 
 Sample flows:
 
 ```bash
 yarn mercato module add @open-mercato/test-package@preview
-yarn mercato module add @open-mercato/test-package@preview --mode source
+yarn mercato module add @open-mercato/test-package@preview --eject
 yarn add @open-mercato/test-package@preview
 yarn mercato module enable @open-mercato/test-package
+yarn mercato module enable @open-mercato/test-package --eject
 yarn mercato module eject test_package
 ```
 
@@ -420,8 +430,10 @@ The install flow reuses existing package-manager and registry configuration, inc
 
 ## Migration & Compatibility
 
-- This is an additive CLI feature.
+- This is now a breaking CLI contract change relative to the earlier module-add option shape.
 - Existing `yarn mercato eject <moduleId>` remains supported unchanged.
+- `module add` now exposes a single optional install-shape flag: `--eject`.
+- `module enable` also accepts the same optional `--eject` flag for already-installed packages.
 - No database migration is introduced.
 - No generated-file contract is removed; the CSS source file is additive.
 - `mercato.modules.json` is explicitly deferred to later lifecycle work in SPEC-061.
@@ -432,7 +444,7 @@ Compatibility rules:
 |---------|------|
 | CLI commands | Existing commands remain intact; new `module` commands are additive |
 | Package layout | Packages MUST ship both `src/modules/<moduleId>` and `dist/modules/<moduleId>` |
-| App module model | Source mode reuses existing `@app` module semantics |
+| App module model | `--eject` reuses existing `@app` module semantics |
 | Standalone template | Bootstrap changes in `apps/mercato/src/app/**` must be mirrored in `packages/create-app/template/src/app/**` |
 
 ## Implementation Plan
@@ -448,10 +460,10 @@ Compatibility rules:
 3. Add generated CSS source file support for package-backed modules.
 4. Update `apps/mercato/src/app/globals.css` and `packages/create-app/template/src/app/globals.css` to import the generated CSS include.
 
-### Phase 3 — Source Mode and Eject Alias
-1. Reuse and harden existing eject internals for `module add --mode source`.
+### Phase 3 — Eject Flag and Eject Alias
+1. Reuse and harden existing eject internals for `module add --eject`.
 2. Add `mercato module eject` alias while preserving `mercato eject`.
-3. Validate source-mode constraints around module-local file boundaries.
+3. Validate `--eject` constraints around module-local file boundaries.
 
 ### Phase 4 — Verification
 1. Add unit tests for manifest parsing, modules.ts mutation, and CSS source generation.
@@ -463,7 +475,7 @@ Compatibility rules:
 | File | Repo | Action | Purpose |
 |------|------|--------|---------|
 | `packages/cli/src/mercato.ts` | main repo | Modify | add `module` command namespace |
-| `packages/cli/src/lib/eject.ts` | main repo | Modify | share eject implementation with source mode |
+| `packages/cli/src/lib/eject.ts` | main repo | Modify | share eject implementation with `--eject` |
 | `packages/cli/src/lib/resolver.ts` | main repo | Modify | support install-target and package validation helpers |
 | `packages/cli/src/lib/generators/*` | main repo | Modify | generate package-source CSS include and related artifacts |
 | `apps/mercato/src/app/globals.css` | main repo | Modify | import generated package-source CSS |
@@ -479,10 +491,10 @@ Compatibility rules:
   - module ID resolution from installed package
   - idempotent `src/modules.ts` update
   - package-source CSS generation
-  - source-mode rejection when package is not ejectable
+  - `--eject` rejection when package is not ejectable
 - Integration tests:
   - `module add` installs and enables package-backed module in monorepo dev
-  - `module add --mode source` installs, copies source, and builds from app source
+  - `module add --eject` installs, copies source, and builds from app source
   - manual `yarn add` plus `module enable`
   - standalone app install against Verdaccio preview package
   - old `mercato eject` command remains valid
@@ -492,7 +504,7 @@ Compatibility rules:
 | Flow | Coverage Requirement |
 |------|----------------------|
 | package-backed install via CLI | Integration test |
-| source-backed install via CLI | Integration test |
+| `--eject` install via CLI | Integration test |
 | enable already installed official package | Integration test |
 | package-backed UI module CSS source generation | Integration test |
 | standalone app generate/build after install | Integration test |
@@ -518,11 +530,11 @@ Compatibility rules:
 
 ### Cascading Failures & Side Effects
 
-#### Hidden Runtime Dependency Leakage in Source Mode
+#### Hidden Runtime Dependency Leakage with `--eject`
 - **Scenario**: Ejected source compiles only because the origin package still happens to pull transitive dependencies into the install tree.
 - **Severity**: High
 - **Affected area**: Source-backed module portability and long-term maintainability
-- **Mitigation**: Ejectable packages must keep module-owned code inside `src/modules/<moduleId>` and MUST NOT rely on sibling package files; source mode validation blocks obviously invalid layouts.
+- **Mitigation**: Ejectable packages must keep module-owned code inside `src/modules/<moduleId>` and MUST NOT rely on sibling package files; `--eject` validation blocks obviously invalid layouts.
 - **Residual risk**: Some package-manager hoisting behaviors can still mask undeclared direct dependencies until a stricter environment is used.
 
 #### Broken Styling for Package-Backed UI Modules
@@ -614,10 +626,14 @@ None.
 ### 2026-03-14
 - Initial skeleton specification created
 - Resolved scope decisions:
-  - source mode keeps the origin package installed
+  - `--eject` keeps the origin package installed
   - MVP supports only official `@open-mercato/*` module packages
   - `mercato.modules.json` deferred to later lifecycle work
 - Expanded skeleton into full install/eject CLI specification
+
+### 2026-03-19
+- Replaced the documented `module add` mode selector with a single `--eject` flag.
+- Simplified `module add` to a single optional `--eject` flag.
 
 ### Review — 2026-03-14
 - **Reviewer**: Agent
@@ -634,7 +650,7 @@ None.
 |-------|--------|------|-------|
 | Phase 1 — Manifest and Registration Contract | Done | 2026-03-14 | Added manifest parsing/validation and AST-aware `src/modules.ts` mutation helpers |
 | Phase 2 — Package Mode Install | Done | 2026-03-14 | Added `mercato module add` / `mercato module enable`, install flow, package-source CSS generator, and app/template CSS imports |
-| Phase 3 — Source Mode and Eject Alias | Done | 2026-03-14 | Reused eject internals for source mode, added `mercato module eject`, preserved legacy `mercato eject`, and validated source-mode boundaries |
+| Phase 3 — Eject Flag and Eject Alias | Done | 2026-03-14 | Reused eject internals for `--eject`, added `mercato module eject`, preserved legacy `mercato eject`, and validated `--eject` boundaries |
 | Phase 4 — Verification | Done | 2026-03-14 | Added unit + integration coverage; standalone preview install is validated with self-contained package-spec fixtures in this repo while Verdaccio publish infrastructure remains covered by SPEC-063 |
 
 ### Phase 1 — Detailed Progress
@@ -649,9 +665,9 @@ None.
 - [x] Step 4: Update `apps/mercato/src/app/globals.css` and `packages/create-app/template/src/app/globals.css` to import the generated CSS include
 
 ### Phase 3 — Detailed Progress
-- [x] Step 1: Reuse and harden existing eject internals for `module add --mode source`
+- [x] Step 1: Reuse and harden existing eject internals for `module add --eject`
 - [x] Step 2: Add `mercato module eject` alias while preserving `mercato eject`
-- [x] Step 3: Validate source-mode constraints around module-local file boundaries
+- [x] Step 3: Validate `--eject` constraints around module-local file boundaries
 
 ### Phase 4 — Detailed Progress
 - [x] Step 1: Add unit tests for manifest parsing, `modules.ts` mutation, hoisted package resolution, and CSS source generation

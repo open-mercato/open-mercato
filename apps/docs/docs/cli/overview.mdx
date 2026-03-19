@@ -58,8 +58,9 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - [`mercato entities decrypt-database`](./entities-decrypt-database)
 - **Official Modules**
   - [`mercato module add <packageSpec>`](./module-add) – install and register an official `@open-mercato/*` module package.
-  - [`mercato module add <packageSpec> --mode source`](./module-add) – copy module source into `src/modules/` for local ownership.
+  - [`mercato module add <packageSpec> --eject`](./module-add) – copy module source into `src/modules/` for local ownership.
   - [`mercato module enable <packageName>`](./module-enable) – register an already-installed official module package (no dependency install).
+  - [`mercato module enable <packageName> --eject`](./module-enable) – copy an already-installed package into `src/modules/` and enable it as `@app`.
   - [`mercato module eject <moduleId>`](./eject) – alias for `mercato eject <moduleId>`.
 - **Module Ejection**
   - [`mercato eject --list`](./eject) – list modules available for ejection.

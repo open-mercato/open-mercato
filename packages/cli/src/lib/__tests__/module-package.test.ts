@@ -7,7 +7,7 @@ import {
   parsePackageNameFromSpec,
   readOfficialModulePackageFromRoot,
   resolveInstalledOfficialModulePackage,
-  validateSourceModeBoundaries,
+  validateEjectBoundaries,
 } from '../module-package'
 
 const fixturePackageRoot = path.resolve(
@@ -166,7 +166,7 @@ describe('module-package', () => {
     ).toThrow('contains multiple modules')
   })
 
-  it('rejects source mode when a module imports files outside its module directory', () => {
+  it('rejects --eject when a module imports files outside its module directory', () => {
     const invalidPackageRoot = path.join(tmpDir, 'invalid-package')
     copyDir(fixturePackageRoot, invalidPackageRoot)
 
@@ -184,13 +184,13 @@ describe('module-package', () => {
     )
 
     expect(() =>
-      validateSourceModeBoundaries(
+      validateEjectBoundaries(
         readOfficialModulePackageFromRoot(invalidPackageRoot, '@open-mercato/test-package'),
       ),
-    ).toThrow('cannot be installed in source mode')
+    ).toThrow('cannot be added with --eject')
   })
 
-  it('ignores AppleDouble metadata files when validating source mode boundaries', () => {
+  it('ignores AppleDouble metadata files when validating --eject boundaries', () => {
     const packageRoot = path.join(tmpDir, 'package-with-sidecars')
     copyDir(fixturePackageRoot, packageRoot)
 
@@ -207,7 +207,7 @@ describe('module-package', () => {
     )
 
     expect(() =>
-      validateSourceModeBoundaries(
+      validateEjectBoundaries(
         readOfficialModulePackageFromRoot(packageRoot, '@open-mercato/test-package'),
       ),
     ).not.toThrow()
