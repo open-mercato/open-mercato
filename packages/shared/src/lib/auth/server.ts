@@ -161,6 +161,24 @@ function extractApiKey(req: Request): string | null {
   return null
 }
 
+async function validateInteractiveAuthContext(auth: AuthContext): Promise<AuthContext> {
+  if (!auth || auth.isApiKey) return auth
+  if (typeof auth.sub !== 'string' || auth.sub.trim().length === 0) return null
+
+  try {
+    const [{ createRequestContainer }, { isAuthContextValid }] = await Promise.all([
+      import('@open-mercato/shared/lib/di/container'),
+      import('@open-mercato/core/modules/auth/lib/sessionIntegrity'),
+    ])
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const isValid = await isAuthContextValid(em, auth)
+    return isValid ? auth : null
+  } catch {
+    return null
+  }
+}
+
 export async function getAuthFromCookies(): Promise<AuthContext> {
   const cookieStore = await cookies()
   const token = cookieStore.get('auth_token')?.value
@@ -171,7 +189,7 @@ export async function getAuthFromCookies(): Promise<AuthContext> {
     if ((payload as any).type === 'customer') return null
     const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
     const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
-    return applySuperAdminScope(payload, tenantCookie, orgCookie)
+    return validateInteractiveAuthContext(applySuperAdminScope(payload, tenantCookie, orgCookie))
   } catch {
     return null
   }
@@ -192,7 +210,10 @@ export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
     try {
       const payload = verifyJwt(token) as AuthContext
       if (payload && (payload as any).type === 'customer') return null
-      if (payload) return applySuperAdminScope(payload, tenantCookie, orgCookie)
+      if (payload) {
+        const validatedAuth = await validateInteractiveAuthContext(applySuperAdminScope(payload, tenantCookie, orgCookie))
+        if (validatedAuth) return validatedAuth
+      }
     } catch {
       // fall back to API key detection
     }

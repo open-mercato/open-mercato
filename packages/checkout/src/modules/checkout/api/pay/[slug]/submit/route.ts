@@ -4,6 +4,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
 import { CheckoutLink, CheckoutTransaction } from '../../../../data/entities'
@@ -17,6 +19,7 @@ import {
   resolveSubmittedAmount,
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
+import { checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
 import { checkoutTag } from '../../../openapi'
 
 type CachedSubmitResponse = {
@@ -65,6 +68,15 @@ export const metadata = {
 
 export async function POST(req: Request, { params }: { params: Promise<{ slug: string }> | { slug: string } }) {
   try {
+    const container = await createRequestContainer()
+    try {
+      const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
+      const ip = getClientIp(req, 1) ?? 'unknown'
+      const rateLimitResponse = await checkRateLimit(rateLimiter, checkoutSubmitRateLimitConfig, `checkout-submit:${ip}`, 'Too many payment attempts. Please try again later.')
+      if (rateLimitResponse) return rateLimitResponse
+    } catch {
+      // Rate limiting is fail-open
+    }
     const resolvedParams = await params
     const idempotencyKey = req.headers.get('Idempotency-Key')?.trim()
     if (!idempotencyKey) {
@@ -72,7 +84,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
 
     const body = publicSubmitSchema.parse(await req.json().catch(() => ({})))
-    const container = await createRequestContainer()
     const em = container.resolve('em')
     const commandBus = container.resolve('commandBus') as CommandBus
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService

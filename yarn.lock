@@ -5604,6 +5604,7 @@ __metadata:
     "@mikro-orm/postgresql": "npm:^6.6.2"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
+    "@open-mercato/checkout": "workspace:*"
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/content": "workspace:*"
     "@open-mercato/core": "workspace:*"
@@ -5696,7 +5697,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@open-mercato/checkout@workspace:packages/checkout":
+"@open-mercato/checkout@workspace:*, @open-mercato/checkout@workspace:packages/checkout":
   version: 0.0.0-use.local
   resolution: "@open-mercato/checkout@workspace:packages/checkout"
   dependencies:
