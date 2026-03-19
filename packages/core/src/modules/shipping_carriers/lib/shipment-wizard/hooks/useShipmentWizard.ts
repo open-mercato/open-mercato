@@ -42,6 +42,12 @@ const isAddressValid = (addr: Address) =>
 const isPackageValid = (pkg: PackageDimension) =>
   pkg.weightKg > 0 && pkg.lengthCm > 0 && pkg.widthCm > 0 && pkg.heightCm > 0
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const PHONE_REGEX = /^[+\d][\d\s\-().]{6,}$/
+
+const isEmailValid = (email: string) => email === '' || EMAIL_REGEX.test(email)
+const isPhoneValid = (phone: string) => phone === '' || PHONE_REGEX.test(phone)
+
 export type ShipmentWizard = {
   step: WizardStep
   backHref: string
@@ -63,6 +69,8 @@ export type ShipmentWizard = {
   c2cSendingMethod: string
   isFetchingRates: boolean
   canProceedFromConfigure: boolean
+  senderContactErrors: { email: string | null; phone: string | null }
+  receiverContactErrors: { email: string | null; phone: string | null }
 
   // Drop-off point search
   dropOffPointQuery: string
@@ -244,7 +252,20 @@ export const useShipmentWizard = (): ShipmentWizard => {
     isAddressValid(origin) &&
     isAddressValid(destination) &&
     packages.length > 0 &&
-    packages.every(isPackageValid)
+    packages.every(isPackageValid) &&
+    isEmailValid(senderContact.email) &&
+    isPhoneValid(senderContact.phone) &&
+    isEmailValid(receiverContact.email) &&
+    isPhoneValid(receiverContact.phone)
+
+  const senderContactErrors = {
+    email: !isEmailValid(senderContact.email) ? t('shipping_carriers.create.error.invalidEmail', 'Invalid email address.') : null,
+    phone: !isPhoneValid(senderContact.phone) ? t('shipping_carriers.create.error.invalidPhone', 'Invalid phone number.') : null,
+  }
+  const receiverContactErrors = {
+    email: !isEmailValid(receiverContact.email) ? t('shipping_carriers.create.error.invalidEmail', 'Invalid email address.') : null,
+    phone: !isPhoneValid(receiverContact.phone) ? t('shipping_carriers.create.error.invalidPhone', 'Invalid phone number.') : null,
+  }
 
   return {
     step,
@@ -263,6 +284,8 @@ export const useShipmentWizard = (): ShipmentWizard => {
     c2cSendingMethod,
     isFetchingRates,
     canProceedFromConfigure,
+    senderContactErrors,
+    receiverContactErrors,
     dropOffPointQuery,
     dropOffPoints,
     isFetchingDropOffPoints,

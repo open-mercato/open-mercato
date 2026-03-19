@@ -45,6 +45,8 @@ const CreateCarrierShipmentPage = () => {
               c2cSendingMethod={wizard.c2cSendingMethod}
               isFetchingRates={wizard.isFetchingRates}
               canProceed={wizard.canProceedFromConfigure}
+              senderContactErrors={wizard.senderContactErrors}
+              receiverContactErrors={wizard.receiverContactErrors}
               dropOffPointQuery={wizard.dropOffPointQuery}
               dropOffPoints={wizard.dropOffPoints}
               isFetchingDropOffPoints={wizard.isFetchingDropOffPoints}

@@ -42,7 +42,14 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
 
   return (
     <section className="space-y-6">
-      {ratesError ? <ErrorMessage label={ratesError} /> : null}
+      {ratesError ? (
+        <div className="space-y-3">
+          <ErrorMessage label={ratesError} />
+          <Button type="button" variant="outline" size="sm" onClick={onBack}>
+            {t('shipping_carriers.create.action.editConfiguration', 'Edit configuration')}
+          </Button>
+        </div>
+      ) : null}
 
       {rates.length === 0 && !ratesError ? (
         <Card>

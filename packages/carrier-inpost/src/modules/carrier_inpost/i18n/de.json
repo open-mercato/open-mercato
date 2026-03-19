@@ -1,5 +1,9 @@
 {
+  "carrier_inpost.config.action.configureCredentials": "Anmeldedaten konfigurieren",
+  "carrier_inpost.config.credential.apiToken": "API-Token (Bearer) — aus InPost Manager → API → Tokens",
+  "carrier_inpost.config.credential.organizationId": "Organisations-ID — UUID, sichtbar in der InPost-Manager-URL nach /organizations/",
   "carrier_inpost.config.help": "Konfigurieren Sie Ihr InPost-API-Token und Ihre Organisations-ID in den Integrations-Anmeldedaten. Verfügbare Dienste: Paczkomat-Schließfächer (Standard und Express) und Kurierzustellung.",
+  "carrier_inpost.config.requiredCredentials": "Erforderliche Anmeldedaten:",
   "carrier_inpost.demo.action.cancelShipment": "Sendung stornieren",
   "carrier_inpost.demo.action.checkProvider": "Anbieter prüfen",
   "carrier_inpost.demo.action.createShipment": "Sendung erstellen",

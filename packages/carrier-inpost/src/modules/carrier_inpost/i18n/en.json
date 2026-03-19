@@ -1,5 +1,9 @@
 {
+  "carrier_inpost.config.action.configureCredentials": "Configure credentials",
+  "carrier_inpost.config.credential.apiToken": "API Token (Bearer) — from InPost Manager → API → Tokens",
+  "carrier_inpost.config.credential.organizationId": "Organization ID — UUID visible in the InPost Manager URL after /organizations/",
   "carrier_inpost.config.help": "Configure your InPost API token and organization ID in Integration credentials. Available services: Paczkomat lockers (standard & express) and courier delivery.",
+  "carrier_inpost.config.requiredCredentials": "Required credentials:",
   "carrier_inpost.demo.action.cancelShipment": "Cancel shipment",
   "carrier_inpost.demo.action.checkProvider": "Check provider",
   "carrier_inpost.demo.action.createShipment": "Create shipment",

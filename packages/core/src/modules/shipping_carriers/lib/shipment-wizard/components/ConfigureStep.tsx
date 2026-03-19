@@ -20,6 +20,8 @@ export type ConfigureStepProps = {
   c2cSendingMethod: string
   isFetchingRates: boolean
   canProceed: boolean
+  senderContactErrors: { email: string | null; phone: string | null }
+  receiverContactErrors: { email: string | null; phone: string | null }
   dropOffPointQuery: string
   dropOffPoints: DropOffPoint[]
   isFetchingDropOffPoints: boolean
@@ -44,6 +46,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
     origin, destination, packages, labelFormat,
     senderContact, receiverContact, targetPoint, c2cSendingMethod,
     isFetchingRates, canProceed,
+    senderContactErrors, receiverContactErrors,
     dropOffPointQuery, dropOffPoints, isFetchingDropOffPoints, dropOffPointsError,
     onOriginChange, onDestinationChange, onPackagesChange, onLabelFormatChange,
     onSenderContactChange, onReceiverContactChange, onTargetPointChange, onC2cSendingMethodChange,
@@ -104,26 +107,32 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                   {t('shipping_carriers.create.field.phone', 'Phone')}
                 </label>
                 <input
-                  className="w-full rounded border bg-background px-2 py-1.5 text-sm"
+                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${senderContactErrors.phone ? 'border-destructive' : ''}`}
                   type="tel"
                   value={senderContact.phone}
                   onChange={(e) => onSenderContactChange({ ...senderContact, phone: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. 500000000"
                 />
+                {senderContactErrors.phone ? (
+                  <p className="text-xs text-destructive">{senderContactErrors.phone}</p>
+                ) : null}
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
                 <input
-                  className="w-full rounded border bg-background px-2 py-1.5 text-sm"
+                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${senderContactErrors.email ? 'border-destructive' : ''}`}
                   type="email"
                   value={senderContact.email}
                   onChange={(e) => onSenderContactChange({ ...senderContact, email: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. sender@example.com"
                 />
+                {senderContactErrors.email ? (
+                  <p className="text-xs text-destructive">{senderContactErrors.email}</p>
+                ) : null}
               </div>
             </div>
           </CardContent>
@@ -142,26 +151,32 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
                   {t('shipping_carriers.create.field.phone', 'Phone')}
                 </label>
                 <input
-                  className="w-full rounded border bg-background px-2 py-1.5 text-sm"
+                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${receiverContactErrors.phone ? 'border-destructive' : ''}`}
                   type="tel"
                   value={receiverContact.phone}
                   onChange={(e) => onReceiverContactChange({ ...receiverContact, phone: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. 500000000"
                 />
+                {receiverContactErrors.phone ? (
+                  <p className="text-xs text-destructive">{receiverContactErrors.phone}</p>
+                ) : null}
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">
                   {t('shipping_carriers.create.field.email', 'Email')}
                 </label>
                 <input
-                  className="w-full rounded border bg-background px-2 py-1.5 text-sm"
+                  className={`w-full rounded border bg-background px-2 py-1.5 text-sm ${receiverContactErrors.email ? 'border-destructive' : ''}`}
                   type="email"
                   value={receiverContact.email}
                   onChange={(e) => onReceiverContactChange({ ...receiverContact, email: e.target.value })}
                   disabled={isFetchingRates}
                   placeholder="e.g. receiver@example.com"
                 />
+                {receiverContactErrors.email ? (
+                  <p className="text-xs text-destructive">{receiverContactErrors.email}</p>
+                ) : null}
               </div>
             </div>
           </CardContent>
@@ -185,9 +200,8 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
               onChange={(e) => onC2cSendingMethodChange(e.target.value)}
               disabled={isFetchingRates}
             >
-              <option value="">{t('shipping_carriers.create.c2cSendingMethod.default', 'Default (dispatch_order)')}</option>
+              <option value="">{t('shipping_carriers.create.c2cSendingMethod.default', 'Dispatch order (default)')}</option>
               <option value="parcel_locker">{t('shipping_carriers.create.c2cSendingMethod.parcel_locker', 'Parcel locker')}</option>
-              <option value="dispatch_order">{t('shipping_carriers.create.c2cSendingMethod.dispatch_order', 'Dispatch order')}</option>
               <option value="pop">{t('shipping_carriers.create.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</option>
               <option value="any_point">{t('shipping_carriers.create.c2cSendingMethod.any_point', 'Any point')}</option>
             </select>
