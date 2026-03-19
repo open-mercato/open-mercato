@@ -1093,6 +1093,7 @@ Sales module injects a widget into the simple_checkout admin detail page showing
 | Entity | Module | Usage |
 |--------|--------|-------|
 | `GatewayTransaction` | payment_gateways | Linked from SalesPayment |
+| `GatewayTransactionAssignment` | payment_gateways | N:M assignment bridge between gateway transactions and arbitrary document/entity records |
 | `IntegrationCredentials` | integrations | Wire transfer bank details, cash config |
 
 ---
@@ -1115,6 +1116,9 @@ Sales module injects a widget into the simple_checkout admin detail page showing
 - `POST /api/sales/payment-transactions/[id]/refund` — new
 - `POST /api/sales/payment-transactions/[id]/cancel` — new
 - `POST /api/payment-gateways/sessions` — UMES-aware create flow for the payment transaction dialog; participates in API interceptors and mutation guards
+- `GET /api/payment-gateways/transactions` — assignment-aware query-engine filtering (`entityType`, `entityId`) with deprecated `documentType`, `documentId` aliases
+- `GET /api/payment-gateways/transactions/[id]` — additive `assignments[]` detail payload
+- `GET /api/payment-gateways/transactions/entity-types` — distinct assignment entity types for filters
 
 ### Phase 3a (Wire Transfer)
 - `POST /api/payment-gateways/webhook/wire-transfer` — no-op (placeholder for consistency)
@@ -1233,6 +1237,10 @@ All tests must be self-contained and clean up created records.
 - New `SalesPaymentEvent` table — additive only.
 - New API endpoints — no existing endpoints changed.
 - New sidebar menu item gated behind existing `sales.payments.manage` feature.
+- `gateway_transaction_assignments` is additive-only and becomes the source of truth for transaction-to-document/entity links.
+- Existing `GatewayTransaction.documentType` and `GatewayTransaction.documentId` stay as deprecated bridge fields for at least one minor version; new writes mirror the primary assignment into those columns for backward compatibility.
+- Existing `/api/payment-gateways/transactions` request params `documentType` and `documentId` remain accepted as aliases to the new assignment filters.
+- Existing transaction list/detail responses keep `documentType` and `documentId` as deprecated additive bridge fields while exposing `assignments[]` as the canonical contract.
 
 ### Phase 3a
 - New npm package (`@open-mercato/gateway-wire-transfer`) — opt-in installation.
@@ -1298,6 +1306,7 @@ All tests must be self-contained and clean up created records.
 |---|---|
 | 2026-03-05 | Initial draft created for sales-native payment gateway refactor |
 | 2026-03-11 | Major expansion: added Pay Links (Phase 4), Wire Transfer Provider (Phase 3a), Cash Payment Provider (Phase 3b), Payment Transactions Hub (Phase 2), Unified Order Payment UX (Phase 5). Added UI designs, data models, API contracts, events, ACL features, 35 integration test cases. Restructured into 6 phases. |
+| 2026-03-19 | Refined gateway transaction linking to use additive `gateway_transaction_assignments` with N:M entity links, query-engine-backed assignment filtering, and deprecated bridge support for legacy `documentType`/`documentId`. |
 | 2026-03-12 | Documented the payment transaction UMES contract: CrudForm-based create dialog, stable create/payment-link spot IDs, transaction-centric event emission, and mutation-guard/interceptor coverage for `POST /api/payment-gateways/sessions`. |
 | 2026-03-12 | Clarified pay-link sales integration: `sales` owns the order-summary shell, provider modules own only the checkout surface. Added support note for embedded Stripe Elements vs redirect-capable online methods. |
 | 2026-03-17 | Split the hosted public `/pay/[token]` UI into the dedicated `payment_link_pages` module. Added page-level UMES surfaces (component replacement, injection spots, events, enrichers), JSON metadata support, and custom-field/fieldset-backed pay-link metadata capture in the transaction create dialog. |

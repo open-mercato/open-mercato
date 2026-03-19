@@ -9,6 +9,9 @@ export async function createPaymentSession(
     amount?: number
     currencyCode?: string
     captureMethod?: 'automatic' | 'manual'
+    assignments?: Array<{ entityType: string; entityId: string }>
+    documentType?: string
+    documentId?: string
     paymentLink?: {
       enabled: boolean
       title?: string
@@ -36,6 +39,9 @@ export async function createPaymentSession(
       currencyCode: overrides?.currencyCode ?? 'USD',
       captureMethod: overrides?.captureMethod ?? 'manual',
       description: `QA Test Payment ${Date.now()}`,
+      assignments: overrides?.assignments,
+      documentType: overrides?.documentType,
+      documentId: overrides?.documentId,
       paymentLink: overrides?.paymentLink,
     },
   })
@@ -115,8 +121,22 @@ export async function cancelPayment(
 export async function listTransactions(
   request: APIRequestContext,
   token: string,
+  query?: {
+    search?: string
+    providerKey?: string
+    status?: string
+    entityType?: string
+    entityId?: string
+  },
 ): Promise<{ items: Array<{ id: string; paymentId: string }>; total: number }> {
-  const response = await apiRequest(request, 'GET', '/api/payment_gateways/transactions', {
+  const params = new URLSearchParams()
+  if (query?.search) params.set('search', query.search)
+  if (query?.providerKey) params.set('providerKey', query.providerKey)
+  if (query?.status) params.set('status', query.status)
+  if (query?.entityType) params.set('entityType', query.entityType)
+  if (query?.entityId) params.set('entityId', query.entityId)
+  const search = params.toString()
+  const response = await apiRequest(request, 'GET', `/api/payment_gateways/transactions${search ? `?${search}` : ''}`, {
     token,
   })
   if (!response.ok()) {
@@ -131,7 +151,13 @@ export async function getTransactionDetails(
   token: string,
   transactionId: string,
 ): Promise<{
-  transaction: { id: string; paymentId: string; unifiedStatus: string; webhookLog?: unknown[] | null }
+  transaction: {
+    id: string
+    paymentId: string
+    unifiedStatus: string
+    webhookLog?: unknown[] | null
+    assignments?: Array<{ entityType: string; entityId: string }>
+  }
   paymentLink?: { id: string; url: string; passwordProtected: boolean } | null
   logs: Array<{ id: string; message: string }>
 }> {

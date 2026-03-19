@@ -1,4 +1,4 @@
-import { Entity, Index, OptionalProps, PrimaryKey, Property } from '@mikro-orm/core'
+import { Entity, Index, OptionalProps, PrimaryKey, Property, Unique } from '@mikro-orm/core'
 
 @Entity({ tableName: 'gateway_transactions' })
 @Index({ properties: ['paymentId', 'organizationId', 'tenantId'] })
@@ -84,10 +84,9 @@ export class GatewayTransaction {
 @Entity({ tableName: 'gateway_transaction_assignments' })
 @Index({ name: 'gateway_transaction_assignments_tx_scope_idx', properties: ['transactionId', 'organizationId', 'tenantId'] })
 @Index({ name: 'gateway_transaction_assignments_entity_scope_idx', properties: ['entityType', 'entityId', 'organizationId', 'tenantId'] })
-@Index({
+@Unique({
   name: 'gateway_transaction_assignments_unique',
   properties: ['transactionId', 'entityType', 'entityId', 'organizationId', 'tenantId'],
-  options: { unique: true },
 })
 export class GatewayTransactionAssignment {
   [OptionalProps]?: 'createdAt' | 'updatedAt'

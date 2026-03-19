@@ -1,7 +1,7 @@
 import type { ApiInterceptor, InterceptorAfterResult, InterceptorContext, InterceptorRequest, InterceptorResponse } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolvePaymentLinkTemplate, type PaymentLinkTemplateData } from '@open-mercato/shared/modules/payment_link_pages/runtime'
-import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
+import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { PaymentLink, PaymentLinkTransaction } from '../data/entities'
 import { paymentLinkInputSchema } from '../data/validators'
 import {
@@ -395,18 +395,15 @@ const sessionsInterceptor: ApiInterceptor = {
     await em.persistAndFlush(paymentLink)
 
     if (transactionId) {
-      const transaction = await findOneWithDecryption(
-        em,
-        GatewayTransaction,
-        { id: transactionId, organizationId: context.organizationId, tenantId: context.tenantId, deletedAt: null },
-        undefined,
+      const paymentGatewayService = context.container.resolve('paymentGatewayService') as PaymentGatewayService
+      await paymentGatewayService.assignTransaction(
+        transactionId,
+        {
+          entityType: 'payment_link_pages:gateway_payment_link',
+          entityId: paymentLink.id,
+        },
         { organizationId: context.organizationId, tenantId: context.tenantId },
       )
-      if (transaction) {
-        transaction.documentType = 'payment_link_pages:gateway_payment_link'
-        transaction.documentId = paymentLink.id
-        await em.flush()
-      }
     }
 
     return {

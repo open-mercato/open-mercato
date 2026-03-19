@@ -134,8 +134,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ token: 
       cancelUrl: sessionParams.cancelUrl ?? buildPaymentLinkReturnUrl(paymentLinkUrl, 'cancelled'),
       metadata: sessionParams.metadata,
       providerInput: sessionParams.providerInput,
-      documentType: 'payment_link_pages:gateway_payment_link',
-      documentId: link.id,
+      assignments: [
+        {
+          entityType: 'payment_link_pages:gateway_payment_link',
+          entityId: link.id,
+        },
+      ],
       organizationId: link.organizationId,
       tenantId: link.tenantId,
     })

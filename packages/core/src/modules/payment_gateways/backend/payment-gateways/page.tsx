@@ -20,6 +20,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primi
 import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { ChevronDown, ChevronRight, CreditCard, RefreshCw, Webhook } from 'lucide-react'
 
+type TransactionAssignmentRef = {
+  id?: string
+  entityType: string
+  entityId: string
+  createdAt?: string | null
+}
+
 type TransactionRow = {
   id: string
   paymentId: string
@@ -31,8 +38,7 @@ type TransactionRow = {
   gatewayStatus?: string | null
   amount: string
   currencyCode: string
-  documentType?: string | null
-  documentId?: string | null
+  assignments: TransactionAssignmentRef[]
   redirectUrl?: string | null
   lastWebhookAt?: string | null
   lastPolledAt?: string | null
@@ -67,8 +73,7 @@ type TransactionDetail = {
     amount: string
     currencyCode: string
     gatewayMetadata?: Record<string, unknown> | null
-    documentType?: string | null
-    documentId?: string | null
+    assignments: TransactionAssignmentRef[]
     webhookLog?: Array<{
       eventType: string
       receivedAt: string
@@ -140,6 +145,10 @@ function formatTypeLabel(value: string): string {
     .join(' ')
 }
 
+function formatEntityTypeLabel(value: string): string {
+  return formatTypeLabel(value.replace(/[:.]/g, ' '))
+}
+
 function formatLogDetailLabel(key: string): string {
   return key
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
@@ -172,6 +181,23 @@ function splitLogPayload(payload: Record<string, unknown> | null | undefined) {
     nestedEntries.push([key, value])
   })
   return { inlineEntries, nestedEntries }
+}
+
+function renderAssignments(assignments: TransactionAssignmentRef[], emptyLabel = '—') {
+  if (!Array.isArray(assignments) || assignments.length === 0) {
+    return <span className="text-muted-foreground">{emptyLabel}</span>
+  }
+
+  return (
+    <div className="space-y-1">
+      {assignments.map((assignment) => (
+        <div key={assignment.id ?? `${assignment.entityType}:${assignment.entityId}`} className="rounded-md border bg-muted/20 px-2 py-1">
+          <div className="text-xs font-medium">{formatEntityTypeLabel(assignment.entityType)}</div>
+          <div className="font-mono text-[11px] text-muted-foreground">{assignment.entityId}</div>
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function DetailStat({ label, value }: { label: string; value: React.ReactNode }) {
@@ -246,7 +272,7 @@ export default function PaymentTransactionsPage() {
   const [detailError, setDetailError] = React.useState<string | null>(null)
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
-  const [documentTypes, setDocumentTypes] = React.useState<string[]>([])
+  const [entityTypes, setEntityTypes] = React.useState<string[]>([])
   const noneLabel = t('common.none', 'None')
   const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
     if (value === null) return noneLabel
@@ -267,11 +293,11 @@ export default function PaymentTransactionsPage() {
     if (typeof filterValues.status === 'string' && filterValues.status) {
       params.set('status', filterValues.status)
     }
-    if (typeof filterValues.documentType === 'string' && filterValues.documentType) {
-      params.set('documentType', filterValues.documentType)
+    if (typeof filterValues.entityType === 'string' && filterValues.entityType) {
+      params.set('entityType', filterValues.entityType)
     }
-    if (typeof filterValues.documentId === 'string' && filterValues.documentId) {
-      params.set('documentId', filterValues.documentId)
+    if (typeof filterValues.entityId === 'string' && filterValues.entityId) {
+      params.set('entityId', filterValues.entityId)
     }
     const fallback: TransactionsResponse = { items: [], total: 0, page, pageSize: 20, totalPages: 1 }
     const call = await apiCall<TransactionsResponse>(`/api/payment_gateways/transactions?${params.toString()}`, undefined, { fallback })
@@ -286,7 +312,7 @@ export default function PaymentTransactionsPage() {
       setTotalPages(1)
     }
     setIsLoading(false)
-  }, [filterValues.providerKey, filterValues.status, filterValues.documentType, filterValues.documentId, page, search, t])
+  }, [filterValues.entityId, filterValues.entityType, filterValues.providerKey, filterValues.status, page, search, t])
 
   const loadDetail = React.useCallback(async (transactionId: string) => {
     setIsLoadingDetail(true)
@@ -307,13 +333,13 @@ export default function PaymentTransactionsPage() {
   }, [loadRows, scopeVersion])
 
   React.useEffect(() => {
-    async function loadDocumentTypes() {
-      const call = await apiCall<{ items: string[] }>('/api/payment_gateways/transactions/document-types', undefined, { fallback: { items: [] } })
+    async function loadEntityTypes() {
+      const call = await apiCall<{ items: string[] }>('/api/payment_gateways/transactions/entity-types', undefined, { fallback: { items: [] } })
       if (call.ok && call.result) {
-        setDocumentTypes(Array.isArray(call.result.items) ? call.result.items : [])
+        setEntityTypes(Array.isArray(call.result.items) ? call.result.items : [])
       }
     }
-    void loadDocumentTypes()
+    void loadEntityTypes()
   }, [scopeVersion])
 
   React.useEffect(() => {
@@ -396,16 +422,22 @@ export default function PaymentTransactionsPage() {
         { label: t('payment_gateways.status.unknown', 'Unknown'), value: 'unknown' },
       ],
     },
-    ...(documentTypes.length > 0 ? [{
-      id: 'documentType',
+    ...(entityTypes.length > 0 ? [{
+      id: 'entityType',
       type: 'select' as const,
-      label: t('payment_gateways.transactions.filters.documentType', 'Document Type'),
+      label: t('payment_gateways.transactions.filters.entityType', 'Entity Type'),
       options: [
-        { label: t('payment_gateways.transactions.filters.allDocumentTypes', 'All document types'), value: '' },
-        ...documentTypes.map((dt) => ({ label: formatTypeLabel(dt.replace(/:/g, ' ')), value: dt })),
+        { label: t('payment_gateways.transactions.filters.allEntityTypes', 'All entity types'), value: '' },
+        ...entityTypes.map((dt) => ({ label: formatEntityTypeLabel(dt), value: dt })),
       ],
     }] : []),
-  ], [providerOptions, documentTypes, t])
+    {
+      id: 'entityId',
+      type: 'text',
+      label: t('payment_gateways.transactions.filters.entityId', 'Entity ID'),
+      placeholder: t('payment_gateways.transactions.filters.entityIdPlaceholder', 'Filter by linked entity id'),
+    },
+  ], [entityTypes, providerOptions, t])
 
   const columns = React.useMemo<ColumnDef<TransactionRow>[]>(() => [
     {
@@ -444,15 +476,25 @@ export default function PaymentTransactionsPage() {
       cell: ({ row }) => formatAmount(row.original.amount, row.original.currencyCode),
     },
     {
-      accessorKey: 'documentType',
-      header: t('payment_gateways.transactions.columns.document', 'Document'),
+      accessorKey: 'assignments',
+      header: t('payment_gateways.transactions.columns.assignments', 'Assignments'),
       cell: ({ row }) => {
-        if (!row.original.documentType) return <span className="text-muted-foreground">—</span>
+        const assignments = row.original.assignments ?? []
+        if (assignments.length === 0) return <span className="text-muted-foreground">—</span>
         return (
-          <div className="space-y-0.5">
-            <div className="text-xs">{formatTypeLabel(row.original.documentType.replace(/:/g, ' '))}</div>
-            {row.original.documentId ? (
-              <div className="font-mono text-[11px] text-muted-foreground">{row.original.documentId.slice(0, 8)}…</div>
+          <div className="space-y-1">
+            {assignments.slice(0, 2).map((assignment) => (
+              <div key={assignment.id ?? `${assignment.entityType}:${assignment.entityId}`} className="space-y-0.5">
+                <div className="text-xs">{formatEntityTypeLabel(assignment.entityType)}</div>
+                <div className="font-mono text-[11px] text-muted-foreground">
+                  {assignment.entityId.length > 18 ? `${assignment.entityId.slice(0, 18)}…` : assignment.entityId}
+                </div>
+              </div>
+            ))}
+            {assignments.length > 2 ? (
+              <div className="text-[11px] text-muted-foreground">
+                {t('payment_gateways.transactions.columns.moreAssignments', '{count} more', { count: assignments.length - 2 })}
+              </div>
             ) : null}
           </div>
         )
@@ -626,8 +668,7 @@ export default function PaymentTransactionsPage() {
                               { label: t('payment_gateways.transactions.columns.gatewayPaymentId', 'Gateway payment ID'), value: detail.transaction.gatewayPaymentId ?? '—', mono: true },
                               { label: t('payment_gateways.transactions.columns.gatewayRefundId', 'Gateway refund ID'), value: detail.transaction.gatewayRefundId ?? '—', mono: true },
                               { label: t('payment_gateways.transactions.columns.redirectUrl', 'Redirect URL'), value: detail.transaction.redirectUrl ?? '—', mono: true },
-                              { label: t('payment_gateways.transactions.columns.documentType', 'Document type'), value: detail.transaction.documentType ? formatTypeLabel(detail.transaction.documentType.replace(/:/g, ' ')) : '—' },
-                              { label: t('payment_gateways.transactions.columns.documentId', 'Document ID'), value: detail.transaction.documentId ?? '—', mono: true },
+                              { label: t('payment_gateways.transactions.columns.assignments', 'Assignments'), value: renderAssignments(detail.transaction.assignments, noneLabel) },
                             ]}
                           />
                         </DetailSectionCard>

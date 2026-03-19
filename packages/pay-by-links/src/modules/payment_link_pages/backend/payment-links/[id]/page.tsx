@@ -199,8 +199,8 @@ function TransactionsPanel({
     async function load() {
       setLoading(true)
       const params = new URLSearchParams({
-        documentType: 'payment_link_pages:gateway_payment_link',
-        documentId: linkId,
+        entityType: 'payment_link_pages:gateway_payment_link',
+        entityId: linkId,
         pageSize: '20',
       })
       const call = await apiCall<{ items: TransactionRowBrief[]; total: number }>(
