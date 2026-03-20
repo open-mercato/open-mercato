@@ -124,7 +124,7 @@ export default function CreatePersonPage() {
             }
 
             flash(t('customers.people.form.success'), 'success')
-            if (newId) router.push(`/backend/customers/people/${newId}`)
+            if (newId) router.push(`/backend/customers/people-v2/${newId}`)
             else router.push('/backend/customers/people')
           }}
         />

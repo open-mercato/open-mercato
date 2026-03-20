@@ -8,13 +8,15 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
+import type { InteractionSummary, SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatDate, resolveTodoHref } from './utils'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
+import { useInteractions, type InteractionCreatePayload } from './hooks/useInteractions'
+import { mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
 
 type TasksSectionProps = {
   entityId: string | null
@@ -28,6 +30,8 @@ type TasksSectionProps = {
   entityName?: string | null
   dialogContextKey?: string
   dialogContextFallback?: string
+  /** When true, use the canonical interactions API instead of the legacy todos API. */
+  useCanonicalInteractions?: boolean
 }
 
 function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, unknown> | undefined {
@@ -61,26 +65,100 @@ export function TasksSection({
   entityName,
   dialogContextKey,
   dialogContextFallback,
+  useCanonicalInteractions = false,
 }: TasksSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
 
-  const {
-    tasks,
-    isInitialLoading,
-    isLoadingMore,
-    isMutating,
-    hasMore,
-    loadMore,
-    refresh,
-    createTask,
-    updateTask,
-    toggleTask,
-    unlinkTask,
-    pendingTaskId,
-    error,
-  } = usePersonTasks({ entityId, initialTasks })
+  // Legacy path: usePersonTasks (default)
+  const legacyResult = usePersonTasks({ entityId, initialTasks })
+
+  // Canonical path: useInteractions with planned-status filter
+  const canonicalResult = useInteractions({
+    entityId: useCanonicalInteractions ? entityId : null,
+    typeFilter: 'task',
+  })
+
+  // Map canonical interactions to the TodoLinkSummary shape used by the rendering below
+  const canonicalTasks = React.useMemo<TodoLinkSummary[]>(
+    () => (useCanonicalInteractions ? canonicalResult.interactions.map(mapInteractionRecordToTodoSummary) : []),
+    [useCanonicalInteractions, canonicalResult.interactions],
+  )
+
+  const canonicalCreateTask = React.useCallback(
+    async (payload: TaskFormPayload) => {
+      if (!entityId) throw new Error('Task creation requires an entity id')
+      const interactionPayload: InteractionCreatePayload = {
+        entityId,
+        interactionType: 'task',
+        title: payload.base.title,
+        status: payload.base.is_done ? 'done' : 'planned',
+        priority: typeof payload.custom.priority === 'number' ? payload.custom.priority : null,
+        body: typeof payload.custom.description === 'string' ? payload.custom.description : null,
+        scheduledAt:
+          typeof payload.custom.due_at === 'string'
+            ? payload.custom.due_at
+            : typeof payload.custom.dueAt === 'string'
+              ? (payload.custom.dueAt as string)
+              : null,
+      }
+      await canonicalResult.createInteraction(interactionPayload)
+    },
+    [canonicalResult, entityId],
+  )
+
+  const canonicalUpdateTask = React.useCallback(
+    async (task: TodoLinkSummary, payload: TaskFormPayload) => {
+      await canonicalResult.updateInteraction(task.todoId, {
+        title: payload.base.title,
+        status: payload.base.is_done ? 'done' : 'planned',
+        priority: typeof payload.custom.priority === 'number' ? payload.custom.priority : null,
+        body: typeof payload.custom.description === 'string' ? payload.custom.description : null,
+        scheduledAt:
+          typeof payload.custom.due_at === 'string'
+            ? payload.custom.due_at
+            : typeof payload.custom.dueAt === 'string'
+              ? (payload.custom.dueAt as string)
+              : null,
+      })
+    },
+    [canonicalResult],
+  )
+
+  const canonicalToggleTask = React.useCallback(
+    async (task: TodoLinkSummary, nextIsDone: boolean) => {
+      if (nextIsDone) {
+        await canonicalResult.completeInteraction(task.todoId)
+      } else {
+        // Reopen: set status back to planned via update
+        await canonicalResult.updateInteraction(task.todoId, { status: 'planned' })
+      }
+    },
+    [canonicalResult],
+  )
+
+  const canonicalUnlinkTask = React.useCallback(
+    async (task: TodoLinkSummary) => {
+      await canonicalResult.deleteInteraction(task.todoId)
+    },
+    [canonicalResult],
+  )
+
+  // Unified interface: pick the active data source based on the flag
+  const tasks = useCanonicalInteractions ? canonicalTasks : legacyResult.tasks
+  const isInitialLoading = useCanonicalInteractions ? canonicalResult.isInitialLoading : legacyResult.isInitialLoading
+  const isLoadingMore = useCanonicalInteractions ? canonicalResult.isLoadingMore : legacyResult.isLoadingMore
+  const isMutating = useCanonicalInteractions ? canonicalResult.isMutating : legacyResult.isMutating
+  const hasMore = useCanonicalInteractions ? canonicalResult.hasMore : legacyResult.hasMore
+  const loadMore = useCanonicalInteractions ? canonicalResult.loadMore : legacyResult.loadMore
+  const refresh = useCanonicalInteractions ? canonicalResult.refresh : legacyResult.refresh
+  const createTask = useCanonicalInteractions ? canonicalCreateTask : legacyResult.createTask
+  const updateTask = useCanonicalInteractions ? canonicalUpdateTask : legacyResult.updateTask
+  const toggleTask = useCanonicalInteractions ? canonicalToggleTask : legacyResult.toggleTask
+  const unlinkTask = useCanonicalInteractions ? canonicalUnlinkTask : legacyResult.unlinkTask
+  const pendingTaskId = useCanonicalInteractions ? canonicalResult.pendingId : legacyResult.pendingTaskId
+  const error = useCanonicalInteractions ? canonicalResult.error : legacyResult.error
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')

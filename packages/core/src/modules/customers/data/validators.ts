@@ -290,6 +290,58 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
   custom: z.record(z.string(), z.any()).optional(),
 })
 
+// --- Interaction schemas ---
+
+export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
+export type InteractionStatus = typeof interactionStatusValues[number]
+
+export const interactionCreateSchema = z.object({
+  id: z.string().uuid().optional(),
+  entityId: z.string().uuid(),
+  interactionType: z.string().trim().min(1).max(100),
+  title: z.string().trim().max(500).optional().nullable(),
+  body: z.string().trim().max(10000).optional().nullable(),
+  status: z.enum(interactionStatusValues).optional().default('planned'),
+  scheduledAt: z.coerce.date().optional().nullable(),
+  occurredAt: z.coerce.date().optional().nullable(),
+  priority: z.number().int().min(0).max(100).optional().nullable(),
+  authorUserId: z.string().uuid().optional().nullable(),
+  ownerUserId: z.string().uuid().optional().nullable(),
+  dealId: z.string().uuid().optional().nullable(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
+  source: z.string().trim().max(100).optional().nullable(),
+}).passthrough()
+
+export type InteractionCreateInput = z.infer<typeof interactionCreateSchema>
+
+export const interactionUpdateSchema = z.object({
+  id: z.string().uuid(),
+  interactionType: z.string().trim().min(1).max(100).optional(),
+  title: z.string().trim().max(500).optional().nullable(),
+  body: z.string().trim().max(10000).optional().nullable(),
+  status: z.enum(interactionStatusValues).optional(),
+  scheduledAt: z.coerce.date().optional().nullable(),
+  occurredAt: z.coerce.date().optional().nullable(),
+  priority: z.number().int().min(0).max(100).optional().nullable(),
+  authorUserId: z.string().uuid().optional().nullable(),
+  ownerUserId: z.string().uuid().optional().nullable(),
+  dealId: z.string().uuid().optional().nullable(),
+  appearanceIcon: z.string().trim().max(100).optional().nullable(),
+  appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
+}).passthrough()
+
+export type InteractionUpdateInput = z.infer<typeof interactionUpdateSchema>
+
+export const interactionCompleteSchema = z.object({
+  id: z.string().uuid(),
+  occurredAt: z.coerce.date().optional(),
+})
+
+export const interactionCancelSchema = z.object({
+  id: z.string().uuid(),
+})
+
 export const customerAddressFormatSchema = z.enum(['line_first', 'street_first'])
 
 export const customerSettingsUpsertSchema = scopedSchema.extend({
@@ -315,6 +367,8 @@ export type TodoLinkCreateInput = z.infer<typeof todoLinkCreateSchema>
 export type TodoLinkWithTodoCreateInput = z.infer<typeof todoLinkWithTodoCreateSchema>
 export type CustomerSettingsUpsertInput = z.infer<typeof customerSettingsUpsertSchema>
 export type CustomerAddressFormatInput = z.infer<typeof customerAddressFormatSchema>
+export type InteractionCompleteInput = z.infer<typeof interactionCompleteSchema>
+export type InteractionCancelInput = z.infer<typeof interactionCancelSchema>
 
 // --- Pipeline schemas ---
 

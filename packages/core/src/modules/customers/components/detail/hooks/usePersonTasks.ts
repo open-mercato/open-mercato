@@ -328,6 +328,7 @@ export function usePersonTasks({
       try {
         const body: Record<string, unknown> = {
           id: task.todoId,
+          linkId: task.id,
         }
         if (typeof base.title === 'string' && base.title.trim().length) {
           body.title = base.title.trim()

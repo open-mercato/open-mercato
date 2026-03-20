@@ -914,7 +914,7 @@ describe('executionEngine', () => {
       })
       mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
 
-      mockCommandBus.execute.mockResolvedValue({ result: { activityId: 'act-1' } })
+      mockCommandBus.execute.mockResolvedValue({ result: { interactionId: 'act-1' } })
 
       const action = makeAction({
         id: 'a-activity',
@@ -933,14 +933,15 @@ describe('executionEngine', () => {
 
       expect(result.success).toBe(true)
       expect(result.createdEntityId).toBe('act-1')
-      expect(result.createdEntityType).toBe('customer_activity')
+      expect(result.createdEntityType).toBe('customer_interaction')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.activities.create',
+        'customers.interactions.create',
         expect.objectContaining({
           input: expect.objectContaining({
             entityId: VALID_UUID,
-            activityType: 'note',
-            subject: 'Follow-up from email',
+            interactionType: 'note',
+            title: 'Follow-up from email',
+            status: 'done',
           }),
         }),
       )
@@ -966,7 +967,7 @@ describe('executionEngine', () => {
         .mockResolvedValueOnce(freshAction)
         .mockResolvedValueOnce({ id: 'resolved-contact-1', kind: 'person', displayName: 'Jane Doe' })
 
-      mockCommandBus.execute.mockResolvedValue({ result: { activityId: 'act-resolved' } })
+      mockCommandBus.execute.mockResolvedValue({ result: { interactionId: 'act-resolved' } })
 
       const action = makeAction({
         id: 'a-activity-resolve',
@@ -985,7 +986,7 @@ describe('executionEngine', () => {
       expect(result.success).toBe(true)
       expect(result.createdEntityId).toBe('act-resolved')
       expect(mockCommandBus.execute).toHaveBeenCalledWith(
-        'customers.activities.create',
+        'customers.interactions.create',
         expect.objectContaining({
           input: expect.objectContaining({ entityId: 'resolved-contact-1' }),
         }),

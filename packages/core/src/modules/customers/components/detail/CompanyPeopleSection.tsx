@@ -165,7 +165,7 @@ export function CompanyPeopleSection({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => router.push(`/backend/customers/people/${encodeURIComponent(person.id)}`)}
+                onClick={() => router.push(`/backend/customers/people-v2/${encodeURIComponent(person.id)}`)}
               >
                 <ArrowUpRightSquare className="mr-1.5 h-4 w-4" />
                 {translate('customers.companies.detail.people.open', 'Open person')}

@@ -20,6 +20,11 @@ import { ensureCustomerDictionary, invalidateCustomerDictionary, useCustomerDict
 import { CustomFieldValuesList } from './CustomFieldValuesList'
 import { useCustomFieldDisplay } from './hooks/useCustomFieldDisplay'
 import { E } from '#generated/entities.ids.generated'
+import {
+  CUSTOMER_INTERACTION_ENTITY_ID,
+  mapInteractionRecordToActivitySummary,
+} from '../../lib/interactionCompatibility'
+import type { InteractionSummary } from './types'
 
 type DictionaryOption = {
   value: string
@@ -31,6 +36,7 @@ type DictionaryOption = {
 export type ActivitiesSectionProps = {
   entityId: string | null
   dealId?: string | null
+  useCanonicalInteractions?: boolean
   addActionLabel: string
   emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
@@ -43,6 +49,7 @@ export type ActivitiesSectionProps = {
 export function ActivitiesSection({
   entityId,
   dealId,
+  useCanonicalInteractions = false,
   addActionLabel,
   emptyState,
   onActionChange,
@@ -57,7 +64,9 @@ export function ActivitiesSection({
   const scopeVersion = useOrganizationScopeVersion()
   const dictionaryQuery = useCustomerDictionary('activity-types', scopeVersion)
   const dictionaryMap = dictionaryQuery.data?.map ?? {}
-  const customFieldResources = useCustomFieldDisplay(E.customers.customer_activity)
+  const customFieldResources = useCustomFieldDisplay(
+    useCanonicalInteractions ? CUSTOMER_INTERACTION_ENTITY_ID : E.customers.customer_activity,
+  )
   const customFieldEmptyLabel = t('customers.people.detail.noValue', 'Not provided')
 
   const translate = React.useCallback(
@@ -124,6 +133,24 @@ export function ActivitiesSection({
 
   const activitiesAdapter = React.useMemo<ActivitiesDataAdapter>(() => ({
     list: async ({ entityId: listEntityId, dealId: listDealId }) => {
+      if (useCanonicalInteractions) {
+        const params = new URLSearchParams({
+          limit: '50',
+          sortField: 'occurredAt',
+          sortDir: 'desc',
+          excludeInteractionType: 'task',
+        })
+        if (listEntityId) params.set('entityId', listEntityId)
+        if (listDealId) params.set('dealId', listDealId)
+        const payload = await readApiResultOrThrow<{ items?: InteractionSummary[] }>(
+          `/api/customers/interactions?${params.toString()}`,
+          undefined,
+          { errorMessage: translate('customers.people.detail.activities.loadError', 'Failed to load activities.') },
+        )
+        const items = Array.isArray(payload?.items) ? payload.items : []
+        return items.map((interaction) => mapInteractionRecordToActivitySummary(interaction))
+      }
+
       const params = new URLSearchParams({
         pageSize: '50',
         sortField: 'occurredAt',
@@ -139,39 +166,95 @@ export function ActivitiesSection({
       return Array.isArray(payload?.items) ? (payload.items as ActivitySummary[]) : []
     },
     create: async ({ entityId: payloadEntityId, dealId: payloadDealId, ...payload }) => {
-      await createCrud('customers/activities', {
-        entityId: payloadEntityId,
-        activityType: payload.activityType,
-        subject: payload.subject ?? undefined,
-        body: payload.body ?? undefined,
-        occurredAt: payload.occurredAt ?? undefined,
-        dealId: payloadDealId ?? undefined,
-        ...(payload.customFields ? { customFields: payload.customFields } : {}),
-      }, {
-        errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-      })
+      if (useCanonicalInteractions) {
+        await createCrud(
+          'customers/interactions',
+          {
+            entityId: payloadEntityId,
+            interactionType: payload.activityType,
+            title: payload.subject ?? undefined,
+            body: payload.body ?? undefined,
+            occurredAt: payload.occurredAt ?? undefined,
+            status: payload.occurredAt ? 'done' : 'planned',
+            dealId: payloadDealId ?? undefined,
+            ...(payload.customFields ? { customFields: payload.customFields } : {}),
+          },
+          {
+            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+          },
+        )
+        return
+      }
+
+      await createCrud(
+        'customers/activities',
+        {
+          entityId: payloadEntityId,
+          activityType: payload.activityType,
+          subject: payload.subject ?? undefined,
+          body: payload.body ?? undefined,
+          occurredAt: payload.occurredAt ?? undefined,
+          dealId: payloadDealId ?? undefined,
+          ...(payload.customFields ? { customFields: payload.customFields } : {}),
+        },
+        {
+          errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+        },
+      )
     },
     update: async ({ id, patch }) => {
-      await updateCrud('customers/activities', {
-        id,
-        entityId: patch.entityId,
-        activityType: patch.activityType,
-        subject: patch.subject ?? undefined,
-        body: patch.body ?? undefined,
-        occurredAt: patch.occurredAt ?? undefined,
-        dealId: patch.dealId ?? undefined,
-        ...(patch.customFields ? { customFields: patch.customFields } : {}),
-      }, {
-        errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-      })
+      if (useCanonicalInteractions) {
+        await updateCrud(
+          'customers/interactions',
+          {
+            id,
+            interactionType: patch.activityType,
+            title: patch.subject ?? undefined,
+            body: patch.body ?? undefined,
+            occurredAt: patch.occurredAt ?? undefined,
+            status: patch.occurredAt ? 'done' : undefined,
+            dealId: patch.dealId ?? undefined,
+            ...(patch.customFields ? { customFields: patch.customFields } : {}),
+          },
+          {
+            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+          },
+        )
+        return
+      }
+
+      await updateCrud(
+        'customers/activities',
+        {
+          id,
+          entityId: patch.entityId,
+          activityType: patch.activityType,
+          subject: patch.subject ?? undefined,
+          body: patch.body ?? undefined,
+          occurredAt: patch.occurredAt ?? undefined,
+          dealId: patch.dealId ?? undefined,
+          ...(patch.customFields ? { customFields: patch.customFields } : {}),
+        },
+        {
+          errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+        },
+      )
     },
     delete: async ({ id }) => {
+      if (useCanonicalInteractions) {
+        await deleteCrud('customers/interactions', {
+          id,
+          errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
+        })
+        return
+      }
+
       await deleteCrud('customers/activities', {
         id,
         errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
       })
     },
-  }), [translate])
+  }), [translate, useCanonicalInteractions])
 
   const resolveActivityPresentation = React.useCallback((activity: ActivitySummary) => {
     const entry = dictionaryMap[activity.activityType]
@@ -206,7 +289,7 @@ export function ActivitiesSection({
     iconLabel: t('customers.config.dictionaries.dialog.iconLabel', 'Icon or emoji'),
     iconPlaceholder: t('customers.config.dictionaries.dialog.iconPlaceholder', 'Type an emoji or pick one of the suggestions.'),
     iconPickerTriggerLabel: t('customers.config.dictionaries.dialog.iconBrowse', 'Browse icons and emojis'),
-    iconSearchPlaceholder: t('customers.config.dictionaries.dialog.iconSearchPlaceholder', 'Search icons or emojis…'),
+    iconSearchPlaceholder: t('customers.config.dictionaries.dialog.iconSearchPlaceholder', 'Search icons or emojis...'),
     iconSearchEmptyLabel: t('customers.config.dictionaries.dialog.iconSearchEmpty', 'No icons match your search.'),
     iconSuggestionsLabel: t('customers.config.dictionaries.dialog.iconSuggestions', 'Suggestions'),
     iconClearLabel: t('customers.config.dictionaries.dialog.iconClear', 'Remove icon'),
@@ -234,7 +317,7 @@ export function ActivitiesSection({
       renderColor={renderDictionaryColor}
       manageHref="/backend/config/customers"
       appearanceLabels={appearanceLabels}
-      customFieldEntityIds={['customers:customer_activity']}
+      customFieldEntityIds={[useCanonicalInteractions ? CUSTOMER_INTERACTION_ENTITY_ID : 'customers:customer_activity']}
     />
   )
 }

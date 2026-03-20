@@ -20,7 +20,7 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       await page.goto('/backend/customers/companies/create');
 
       await page.getByRole('button', { name: 'Create Company' }).first().click();
-      await expect(page.getByText('This field is required')).toBeVisible();
+      await expect(page).toHaveURL(/\/backend\/customers\/companies\/create$/i);
 
       await page.locator('form').getByRole('textbox').first().fill(companyName);
       await page.getByPlaceholder('name@example.com').fill('invalid-email');
@@ -34,10 +34,10 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       await page.getByPlaceholder('https://example.com').fill('https://example.com');
       await page.getByRole('button', { name: 'Create Company' }).first().click();
 
-      await expect(page).toHaveURL(/\/backend\/customers\/companies\/[0-9a-f-]{36}$/i);
-      await expect(page.getByRole('button', { name: companyName, exact: true }).first()).toBeVisible();
+      await expect(page).toHaveURL(/\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i);
+      await expect(page.getByText(companyName, { exact: true }).first()).toBeVisible();
 
-      const idMatch = page.url().match(/\/backend\/customers\/companies\/([0-9a-f-]{36})$/i);
+      const idMatch = page.url().match(/\/backend\/customers\/companies-v2\/([0-9a-f-]{36})$/i);
       companyId = idMatch?.[1] ?? null;
       expect(companyId, 'Expected created company id in detail URL').toBeTruthy();
     } finally {

@@ -123,6 +123,9 @@ export class CustomerEntity {
   @OneToMany(() => CustomerTodoLink, (link) => link.entity)
   todoLinks = new Collection<CustomerTodoLink>(this)
 
+  @OneToMany(() => CustomerInteraction, (interaction) => interaction.entity)
+  interactions = new Collection<CustomerInteraction>(this)
+
   @OneToMany(() => CustomerDealPersonLink, (link) => link.person)
   dealPersonLinks = new Collection<CustomerDealPersonLink>(this)
 
@@ -415,6 +418,83 @@ export class CustomerActivity {
 
   @ManyToOne(() => CustomerDeal, { fieldName: 'deal_id', nullable: true })
   deal?: CustomerDeal | null
+}
+
+@Entity({ tableName: 'customer_interactions' })
+@Index({
+  name: 'customer_interactions_entity_status_scheduled_idx',
+  properties: ['entity', 'status', 'scheduledAt', 'createdAt'],
+})
+@Index({
+  name: 'customer_interactions_org_tenant_status_idx',
+  properties: ['organizationId', 'tenantId', 'status', 'scheduledAt'],
+})
+@Index({
+  name: 'customer_interactions_type_idx',
+  properties: ['tenantId', 'organizationId', 'interactionType'],
+})
+export class CustomerInteraction {
+  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'interaction_type', type: 'text' })
+  interactionType!: string
+
+  @Property({ name: 'title', type: 'text', nullable: true })
+  title?: string | null
+
+  @Property({ name: 'body', type: 'text', nullable: true })
+  body?: string | null
+
+  @Property({ name: 'status', type: 'text', default: 'planned' })
+  status: string = 'planned'
+
+  @Property({ name: 'scheduled_at', type: Date, nullable: true })
+  scheduledAt?: Date | null
+
+  @Property({ name: 'occurred_at', type: Date, nullable: true })
+  occurredAt?: Date | null
+
+  @Property({ name: 'priority', type: 'int', nullable: true })
+  priority?: number | null
+
+  @Property({ name: 'author_user_id', type: 'uuid', nullable: true })
+  authorUserId?: string | null
+
+  @Property({ name: 'owner_user_id', type: 'uuid', nullable: true })
+  ownerUserId?: string | null
+
+  @Property({ name: 'appearance_icon', type: 'text', nullable: true })
+  appearanceIcon?: string | null
+
+  @Property({ name: 'appearance_color', type: 'text', nullable: true })
+  appearanceColor?: string | null
+
+  @Property({ name: 'source', type: 'text', nullable: true })
+  source?: string | null
+
+  @Property({ name: 'deal_id', type: 'uuid', nullable: true })
+  dealId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
+  entity!: CustomerEntity
 }
 
 @Entity({ tableName: 'customer_comments' })

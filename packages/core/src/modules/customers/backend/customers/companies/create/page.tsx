@@ -114,7 +114,7 @@ export default function CreateCompanyPage() {
             }
 
             flash(t('customers.companies.form.success'), 'success')
-            if (newId) router.push(`/backend/customers/companies/${newId}`)
+            if (newId) router.push(`/backend/customers/companies-v2/${newId}`)
             else router.push('/backend/customers/companies')
           }}
         />
