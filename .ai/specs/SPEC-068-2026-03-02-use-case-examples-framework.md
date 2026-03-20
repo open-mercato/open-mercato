@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft |
+| **Status** | Active |
 | **Author** | Open Mercato Team & Partners |
 | **Created** | 2026-03-02 |
 | **Related** | SPEC-013 (setup.ts), SPEC-041 (UMES), SPEC-045 (registry pattern), SPEC-051 (Partnership Portal), SPEC-053 (B2B PRM) |
@@ -10,7 +10,7 @@
 ## TLDR
 **Key Points:**
 - Introduce a first-class "example" layer so engineers can bootstrap a polished use-case solution (like a B2B PRM or B2B Quotes system) with a single command instead of a blank tenant.
-- Examples are **not** part of the Open Mercato core repository. Official examples live in a **separate GitHub repository** `open-mercato/examples` (alongside `open-mercato/open-mercato`); community examples live in their own repos.
+- Examples are **not** part of the Open Mercato core repository. Official examples live in a **separate GitHub repository** `open-mercato/ready-apps` (alongside `open-mercato/open-mercato`); community examples live in their own repos.
 - Bootstrap via `create-mercato-app --example <name|url>`, adopting the same pattern as `create-next-app --example`.
 - Preserve UMES and module boundaries: all vertical behavior is delivered via app modules, setup hooks, widgets, enrichers, and events, built within the example's own `src/modules` structure.
 
@@ -48,7 +48,7 @@ The business goal is to turn repeated delivery patterns into reusable assets own
 Implement a Use-Case Examples framework with two tiers:
 
 1. **The Core Engine**: `open-mercato/core` and `create-mercato-app` remain agnostic and clean.
-2. **Official Examples**: Maintained by the Open Mercato team in a **separate GitHub repository** `open-mercato/examples` (sibling to `open-mercato/open-mercato`), each example as a subdirectory.
+2. **Official Examples**: Maintained by the Open Mercato team in a **separate GitHub repository** `open-mercato/ready-apps` (sibling to `open-mercato/open-mercato`), each example as a subdirectory.
 3. **Community Examples**: Maintained by partners/agencies in their own GitHub repositories.
 4. **The Bootstrap Flow**: `create-mercato-app --example <name|url>` fetches the example via GitHub API tarball and scaffolds a ready-to-run app.
 
@@ -56,7 +56,7 @@ Implement a Use-Case Examples framework with two tiers:
 | Decision | Rationale |
 |----------|-----------|
 | Examples live outside the core repository | Keeps core clean, reduces bloat, delegates domain ownership to partners/agencies. |
-| Official examples centralized in `open-mercato/examples` | Easier maintenance and discoverability, same pattern as `vercel/next.js/examples`. |
+| Official examples centralized in `open-mercato/ready-apps` | Easier maintenance and discoverability, same pattern as `vercel/next.js/examples`. |
 | Community examples in independent repos | Partners/agencies own their vertical solutions fully. |
 | `--example` flag on `create-mercato-app` | Industry-standard UX from `create-next-app`; single-command bootstrap. |
 | Each example is a complete, runnable app | No merge complexity; each example includes the full scaffold plus domain modules. |
@@ -91,7 +91,7 @@ Implement a Use-Case Examples framework with two tiers:
 New flag for `create-mercato-app`: `--example` (alias `-e`)
 
 ```bash
-# Official example — fetches from open-mercato/examples repo
+# Official example — fetches from open-mercato/ready-apps repo
 npx create-mercato-app my-prm --example b2b-prm
 
 # Community example — fetches from any public GitHub repo
@@ -102,14 +102,14 @@ npx create-mercato-app my-app
 ```
 
 Resolution logic:
-- Plain name (e.g., `b2b-prm`) → fetches the `b2b-prm/` subdirectory from `open-mercato/examples` GitHub repo
+- Plain name (e.g., `b2b-prm`) → fetches the `b2b-prm/` subdirectory from `open-mercato/ready-apps` GitHub repo
 - URL → fetches the full repo at that URL
 
 Backward compatibility: the no-flag invocation remains unchanged. `--example` is purely additive. Existing `--registry` and `--verdaccio` flags continue to work for npm package resolution.
 
 ### Repository Structure
 
-Official examples live in `open-mercato/examples`:
+Official examples live in `open-mercato/ready-apps`:
 
 ```text
 examples/
@@ -128,7 +128,7 @@ Each example subdirectory is a **complete, runnable app** — the full `create-m
 
 Uses GitHub API tarball download (same approach as `create-next-app`):
 
-- Official: `GET https://api.github.com/repos/open-mercato/examples/tarball/main` → extract subdirectory
+- Official: `GET https://api.github.com/repos/open-mercato/ready-apps/tarball/main` → extract subdirectory
 - Community: `GET https://api.github.com/repos/{owner}/{repo}/tarball/{branch}` → extract full repo
 - No git dependency required
 
@@ -137,7 +137,7 @@ Examples use the same `.template` file convention and placeholder set (`{{APP_NA
 ### Reference Flow
 ```text
 developer runs `npx create-mercato-app my-b2b-app --example b2b-prm` →
-create-mercato-app fetches b2b-prm/ from open-mercato/examples via GitHub API tarball →
+create-mercato-app fetches b2b-prm/ from open-mercato/ready-apps via GitHub API tarball →
 extracts to target directory, runs placeholder substitution →
 agentic setup wizard runs →
 developer runs `yarn install` → `yarn initialize` (setup.ts hooks run seedDefaults/seedExamples) →
@@ -176,7 +176,7 @@ Each example declares compatible core versions through `@open-mercato/*` depende
 ## Migration & Compatibility
 - Examples (being separate codebases) define their compatibility via `@open-mercato/*` dependency versions in `package.json`.
 - Core APIs guarantee semantic versioning, allowing example maintainers to update their apps accordingly.
-- The `open-mercato/examples` repo should have CI that validates each example still builds against current core versions.
+- The `open-mercato/ready-apps` repo should have CI that validates each example still builds against current core versions.
 - Backward compatible: `create-mercato-app` without `--example` continues to work exactly as before.
 
 ## Implementation Plan
@@ -188,7 +188,7 @@ Each example declares compatible core versions through `@open-mercato/*` depende
 4. Add error handling for missing examples, network failures, private repos.
 
 ### Phase 2 — Examples Repository
-1. Create `open-mercato/examples` repository.
+1. Create `open-mercato/ready-apps` repository.
 2. Add B2B PRM as first official example (`b2b-prm/`).
 3. Add CI to validate each example builds.
 4. Add README with index of available examples.
@@ -199,9 +199,9 @@ Each example declares compatible core versions through `@open-mercato/*` depende
 |------|------|--------|---------|
 | `packages/create-app/src/index.ts` | open-mercato | Modify | Add `--example` flag, fetch logic |
 | `packages/create-app/AGENTS.md` | open-mercato | Modify | Document `--example` flag |
-| `examples/b2b-prm/` | open-mercato/examples | Create | First official example |
-| `README.md` | open-mercato/examples | Create | Example index and usage docs |
-| `.github/workflows/ci.yml` | open-mercato/examples | Create | Validate examples build |
+| `examples/b2b-prm/` | open-mercato/ready-apps | Create | First official example |
+| `README.md` | open-mercato/ready-apps | Create | Example index and usage docs |
+| `.github/workflows/ci.yml` | open-mercato/ready-apps | Create | Validate examples build |
 
 ### Testing Strategy
 - Unit: URL parsing, name resolution, tarball extraction
@@ -246,7 +246,7 @@ Each example declares compatible core versions through `@open-mercato/*` depende
 
 | Rule Source | Rule | Status | Notes |
 |-------------|------|--------|-------|
-| root AGENTS.md | Starters/examples live outside core repository | Compliant | Examples in `open-mercato/examples`, not in core |
+| root AGENTS.md | Starters/examples live outside core repository | Compliant | Examples in `open-mercato/ready-apps`, not in core |
 | root AGENTS.md | No direct ORM relationships between modules | Compliant | N/A — framework spec, not entity spec |
 | packages/create-app/AGENTS.md | MUST NOT break the standalone app template | Compliant | `--example` is additive; bare scaffold unchanged |
 | packages/create-app/AGENTS.md | CLI commands are STABLE contract surface | Compliant | Additive flag, no breaking changes |
@@ -270,11 +270,16 @@ None.
 
 ## Changelog
 
+### 2026-03-20
+- Official examples repository changed from `open-mercato/examples` to `open-mercato/ready-apps` (decided after team evaluation).
+- Removed superseded SPEC-062 (Use-Case Starters Framework).
+- Status changed from Draft to Active.
+
 ### 2026-03-18
 - Renumbered from SPEC-062 to SPEC-068 to resolve numbering conflict with PR #1003 (Official Modules, SPEC-061–067).
 - Renamed concept from "starters" to "examples" to align with industry-standard terminology (`create-next-app --example`).
 - Added `--example` flag as the official bootstrap mechanism, replacing the manual two-step scaffold-then-copy flow.
-- Added `open-mercato/examples` centralized repository for official examples.
+- Added `open-mercato/ready-apps` centralized repository for official examples.
 - Added GitHub API tarball fetch mechanism.
 - Added error handling, versioning, and testing strategy.
 - Added compliance report.
