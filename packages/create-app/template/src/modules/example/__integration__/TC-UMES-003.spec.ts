@@ -615,9 +615,8 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await page.getByTestId('phase-d-run-probe').click()
 
       await expect(page.getByTestId('phase-d-status')).toContainText('ok')
+      await expect(page.getByTestId('phase-d-result')).toContainText(personId)
       await expect(page.getByTestId('phase-d-result')).toContainText('_example')
-      await expect(page.getByTestId('phase-d-result')).toContainText('selectedRecord')
-      await expect(page.getByTestId('phase-d-result')).toContainText('inspectedCount')
       await expect(page.getByTestId('phase-d-result')).toContainText('example.customer-todo-count')
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)

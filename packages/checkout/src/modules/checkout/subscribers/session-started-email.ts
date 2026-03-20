@@ -1,6 +1,4 @@
-import { createQueue } from '@open-mercato/queue'
-import { CHECKOUT_EMAIL_QUEUE } from '../workers/send-email.worker'
-import type { CheckoutEmailJob } from '../workers/send-email.worker'
+import { dispatchCheckoutEmailJob } from '../lib/emailQueue'
 
 export const metadata = {
   event: 'checkout.transaction.sessionStarted',
@@ -18,9 +16,7 @@ export default async function handle(payload: SessionStartedPayload) {
   if (!payload.transactionId || !payload.tenantId || !payload.organizationId) return
 
   try {
-    const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
-    const emailQueue = createQueue<CheckoutEmailJob>(CHECKOUT_EMAIL_QUEUE, strategy)
-    await emailQueue.enqueue({
+    await dispatchCheckoutEmailJob({
       type: 'start',
       transactionId: payload.transactionId,
       tenantId: payload.tenantId,

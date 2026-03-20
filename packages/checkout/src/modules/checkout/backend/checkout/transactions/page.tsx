@@ -238,6 +238,7 @@ export default function CheckoutTransactionsPage() {
           onFiltersClear={() => { setFilters({}); setPage(1) }}
           pagination={{ page, pageSize: 25, total, totalPages, onPageChange: setPage }}
           perspective={{ tableId: 'checkout-transactions' }}
+          rowClickActionIds={['view']}
           rowActions={(row) => <RowActions items={[{ id: 'view', label: t('checkout.admin.transactions.actions.viewDetail'), href: `/backend/checkout/transactions/${encodeURIComponent(row.id)}` }]} />}
         />
       </PageBody>

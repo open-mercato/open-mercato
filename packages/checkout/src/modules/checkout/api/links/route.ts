@@ -3,7 +3,12 @@ import type { FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink } from '../../data/entities'
 import { serializeLinkRecord } from '../../commands/links'
-import { buildCommandRuntimeContext, handleCheckoutRouteError, requireAdminContext } from '../helpers'
+import {
+  attachOperationMetadataHeader,
+  buildCommandRuntimeContext,
+  handleCheckoutRouteError,
+  requireAdminContext,
+} from '../helpers'
 import { checkoutTag } from '../openapi'
 
 export const metadata = {
@@ -66,11 +71,15 @@ export async function POST(req: Request) {
   try {
     const { auth, container, commandBus } = await requireAdminContext(req)
     const body = await req.json().catch(() => ({}))
-    const { result } = await commandBus.execute<Record<string, unknown>, { id: string; slug: string }>('checkout.link.create', {
+    const { result, logEntry } = await commandBus.execute<Record<string, unknown>, { id: string; slug: string }>('checkout.link.create', {
       input: body,
       ctx: buildCommandRuntimeContext(req, container, auth),
     })
-    return NextResponse.json(result, { status: 201 })
+    return attachOperationMetadataHeader(
+      NextResponse.json(result, { status: 201 }),
+      logEntry,
+      { resourceKind: 'checkout.link', resourceId: result.id },
+    )
   } catch (error) {
     return handleCheckoutRouteError(error)
   }

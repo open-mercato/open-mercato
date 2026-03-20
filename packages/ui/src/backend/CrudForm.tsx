@@ -161,6 +161,15 @@ export type CrudField = CrudBuiltinField | CrudCustomField
 
 type CrudFormValues<TValues extends Record<string, unknown>> = Partial<TValues> & Record<string, unknown>
 
+export type CrudFormSubmitContext = {
+  submitter?: {
+    id?: string
+    name?: string
+    value?: string
+    dataset: Record<string, string>
+  }
+}
+
 export type CrudFormProps<TValues extends Record<string, unknown>> = {
   schema?: z.ZodType<TValues>
   fields: CrudField[]
@@ -172,7 +181,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   cancelHref?: string
   successRedirect?: string
   deleteRedirect?: string
-  onSubmit?: (values: TValues) => Promise<void> | void
+  onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void> | void
   onDelete?: () => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
@@ -1675,6 +1684,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     setPending(true)
+
+    const nativeSubmitter = 'nativeEvent' in e ? (e.nativeEvent as SubmitEvent).submitter : null
+    const submitContext: CrudFormSubmitContext | undefined =
+      nativeSubmitter instanceof HTMLElement
+        ? {
+            submitter: {
+              id: nativeSubmitter.id || undefined,
+              name:
+                'name' in nativeSubmitter && typeof nativeSubmitter.name === 'string' && nativeSubmitter.name.trim().length > 0
+                  ? nativeSubmitter.name
+                  : undefined,
+              value:
+                'value' in nativeSubmitter && typeof nativeSubmitter.value === 'string' && nativeSubmitter.value.trim().length > 0
+                  ? nativeSubmitter.value
+                  : undefined,
+              dataset: Object.fromEntries(
+                Object.entries(nativeSubmitter.dataset).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+              ),
+            },
+          }
+        : undefined
     
     // Trigger onSave event for injection widgets
     if (resolvedInjectionSpotId) {
@@ -1691,10 +1721,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     try {
       if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
         await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
-          await onSubmit?.(coreSubmitValues)
+          await onSubmit?.(coreSubmitValues, submitContext)
         })
       } else {
-        await onSubmit?.(coreSubmitValues)
+        await onSubmit?.(coreSubmitValues, submitContext)
       }
       
       // Trigger onAfterSave event for injection widgets

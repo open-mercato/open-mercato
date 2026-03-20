@@ -4,6 +4,7 @@ import { CheckoutLink } from '../../data/entities'
 import {
   buildConsentProof,
   resolveSubmittedAmount,
+  serializeTemplateOrLink,
   signCheckoutAccessToken,
   validateDescriptorCurrencies,
   verifyCheckoutAccessToken,
@@ -121,5 +122,19 @@ describe('checkout utils', () => {
 
     expect(() => validateDescriptorCurrencies('stripe', ['PLN'])).toThrow(CrudHttpError)
     expect(() => validateDescriptorCurrencies('stripe', ['USD'])).not.toThrow()
+  })
+
+  it('keeps external logo url separate from attachment preview url when serializing', () => {
+    const link = createLink({
+      logoAttachmentId: '6e2ba1b0-3f1a-4104-a43a-123456789abc',
+      logoUrl: 'https://cdn.example.com/logo.png',
+    })
+
+    expect(serializeTemplateOrLink(link)).toMatchObject({
+      logoAttachmentId: '6e2ba1b0-3f1a-4104-a43a-123456789abc',
+      logoUrl: 'https://cdn.example.com/logo.png',
+      logoPreviewUrl:
+        '/api/attachments/image/6e2ba1b0-3f1a-4104-a43a-123456789abc?width=640&height=240&cropType=contain',
+    })
   })
 })

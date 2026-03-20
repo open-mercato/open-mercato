@@ -1,7 +1,10 @@
 import { headers } from 'next/headers'
 import { PayPage, type PayLinkPayload } from '../../../components/PayPage'
 
-async function loadInitialPayload(slug: string): Promise<{ payload: PayLinkPayload | null; error: string | null }> {
+async function loadInitialPayload(
+  slug: string,
+  options?: { preview?: boolean },
+): Promise<{ payload: PayLinkPayload | null; error: string | null }> {
   const requestHeaders = await headers()
   const host = requestHeaders.get('host')
   if (!host) {
@@ -9,8 +12,13 @@ async function loadInitialPayload(slug: string): Promise<{ payload: PayLinkPaylo
   }
   const protocol = requestHeaders.get('x-forwarded-proto') ?? 'http'
   const cookie = requestHeaders.get('cookie') ?? ''
+  const searchParams = new URLSearchParams()
+  if (options?.preview) {
+    searchParams.set('preview', 'true')
+  }
+  const requestUrl = `${protocol}://${host}/api/checkout/pay/${encodeURIComponent(slug)}${searchParams.size > 0 ? `?${searchParams.toString()}` : ''}`
   try {
-    const response = await fetch(`${protocol}://${host}/api/checkout/pay/${encodeURIComponent(slug)}`, {
+    const response = await fetch(requestUrl, {
       headers: cookie ? { cookie } : undefined,
       cache: 'no-store',
     })
@@ -29,8 +37,19 @@ async function loadInitialPayload(slug: string): Promise<{ payload: PayLinkPaylo
   }
 }
 
-export default async function CheckoutPublicPayPage({ params }: { params: Promise<{ slug: string }> | { slug: string } }) {
+export default async function CheckoutPublicPayPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }> | { slug: string }
+  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>
+}) {
   const resolvedParams = await params
-  const initial = await loadInitialPayload(resolvedParams.slug)
+  const resolvedSearchParams = searchParams ? await searchParams : undefined
+  const previewValue = resolvedSearchParams?.preview
+  const preview = Array.isArray(previewValue)
+    ? previewValue.includes('true')
+    : previewValue === 'true'
+  const initial = await loadInitialPayload(resolvedParams.slug, { preview })
   return <PayPage sourceId={resolvedParams.slug} initialPayload={initial.payload} initialLoadError={initial.error} />
 }

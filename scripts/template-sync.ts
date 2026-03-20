@@ -41,7 +41,11 @@ const SYNC_DEPENDENCY_KEYS = [
   '@stripe/react-stripe-js',
   '@stripe/stripe-js',
 ] as const
-const SYNC_INTERNAL_PACKAGE_KEYS = ['@open-mercato/gateway-stripe'] as const
+const SYNC_INTERNAL_PACKAGE_KEYS = [
+  '@open-mercato/checkout',
+  '@open-mercato/gateway-stripe',
+  '@open-mercato/sync-akeneo',
+] as const
 const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),

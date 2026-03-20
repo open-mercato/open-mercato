@@ -1,10 +1,8 @@
-import { createQueue } from '@open-mercato/queue'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { notificationTypes } from '../notifications'
-import { CHECKOUT_EMAIL_QUEUE } from '../workers/send-email.worker'
-import type { CheckoutEmailJob } from '../workers/send-email.worker'
+import { dispatchCheckoutEmailJob } from '../lib/emailQueue'
 
 export const metadata = {
   event: 'checkout.transaction.completed',
@@ -52,9 +50,7 @@ export default async function handle(payload: CompletedPayload) {
   }
 
   try {
-    const strategy = process.env.QUEUE_STRATEGY === 'async' ? 'async' : 'local'
-    const emailQueue = createQueue<CheckoutEmailJob>(CHECKOUT_EMAIL_QUEUE, strategy)
-    await emailQueue.enqueue({
+    await dispatchCheckoutEmailJob({
       type: 'success',
       transactionId: payload.transactionId,
       tenantId: payload.tenantId,

@@ -65,6 +65,15 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     return NextResponse.json({
       status: transaction.status,
       paymentStatus: transaction.paymentStatus ?? null,
+      link: {
+        title: link.title ?? link.name ?? null,
+        successTitle: link.successTitle ?? null,
+        successMessage: link.successMessage ?? null,
+        cancelTitle: link.cancelTitle ?? null,
+        cancelMessage: link.cancelMessage ?? null,
+        errorTitle: link.errorTitle ?? null,
+        errorMessage: link.errorMessage ?? null,
+      },
     })
   } catch (error) {
     return handleCheckoutRouteError(error)

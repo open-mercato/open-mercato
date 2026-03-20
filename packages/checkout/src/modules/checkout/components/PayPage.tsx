@@ -52,6 +52,7 @@ export type PayLinkPayload = {
   subtitle?: string | null
   description?: string | null
   logoUrl?: string | null
+  logoPreviewUrl?: string | null
   primaryColor?: string | null
   secondaryColor?: string | null
   backgroundColor?: string | null
@@ -120,6 +121,11 @@ export type PayPageThemeTokens = {
   shadow: string
   accentShadow: string
   heroBackground: string
+  errorText: string
+  errorBorder: string
+  errorSurface: string
+  errorSurfaceStrong: string
+  errorRing: string
 }
 
 type PayPageInjectionContext = {
@@ -388,6 +394,7 @@ function resolveThemeTokens(payload: PayLinkPayload | null, prefersDark: boolean
   const shellBackground = mixHexColors(background, mode === 'dark' ? '#020617' : '#FFFDF8', mode === 'dark' ? 0.82 : 0.64)
   const heroStart = withAlpha(accent, mode === 'dark' ? 0.26 : 0.16)
   const heroEnd = withAlpha(accentSecondary, mode === 'dark' ? 0.22 : 0.2)
+  const errorBase = mode === 'dark' ? '#F87171' : '#DC2626'
 
   return {
     mode,
@@ -412,6 +419,35 @@ function resolveThemeTokens(payload: PayLinkPayload | null, prefersDark: boolean
       : `0 28px 72px ${withAlpha(accent, 0.12)}`,
     accentShadow: `0 22px 48px ${withAlpha(accent, mode === 'dark' ? 0.3 : 0.22)}`,
     heroBackground: `linear-gradient(145deg, ${heroStart} 0%, ${heroEnd} 100%)`,
+    errorText: mode === 'dark' ? '#FCA5A5' : '#B91C1C',
+    errorBorder: errorBase,
+    errorSurface: withAlpha(errorBase, mode === 'dark' ? 0.14 : 0.08),
+    errorSurfaceStrong: withAlpha(errorBase, mode === 'dark' ? 0.2 : 0.12),
+    errorRing: withAlpha(errorBase, mode === 'dark' ? 0.28 : 0.18),
+  }
+}
+
+function buildValidationInputStyle(themeTokens: PayPageThemeTokens, hasError: boolean): React.CSSProperties | undefined {
+  if (!hasError) return undefined
+  return {
+    borderColor: themeTokens.errorBorder,
+    boxShadow: `0 0 0 3px ${themeTokens.errorRing}`,
+  }
+}
+
+function buildValidationMessageStyle(themeTokens: PayPageThemeTokens): React.CSSProperties {
+  return {
+    color: themeTokens.errorText,
+    fontWeight: 500,
+  }
+}
+
+function buildValidationNoticeStyle(themeTokens: PayPageThemeTokens): React.CSSProperties {
+  return {
+    borderColor: themeTokens.errorBorder,
+    background: themeTokens.errorSurface,
+    color: themeTokens.errorText,
+    boxShadow: `0 0 0 1px ${themeTokens.errorSurfaceStrong} inset`,
   }
 }
 
@@ -521,6 +557,7 @@ export function PayPageSurface({
 
 export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderProps) {
   const t = useT()
+  const resolvedLogoUrl = payload.logoPreviewUrl ?? payload.logoUrl ?? null
 
   return (
     <section
@@ -557,9 +594,9 @@ export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderPr
             ) : null}
           </div>
 
-          {payload.logoUrl ? (
+          {resolvedLogoUrl ? (
             <img
-              src={payload.logoUrl}
+              src={resolvedLogoUrl}
               alt={payload.title ?? payload.name}
               className="h-14 w-auto max-w-[180px] object-contain"
             />
@@ -706,7 +743,6 @@ export function PayPageCustomerForm({
           const fieldError = fieldErrors[fieldPath]
           const value = customerData[field.key]
           const containerClass = field.kind === 'multiline' ? 'space-y-2 sm:col-span-2' : 'space-y-2'
-          const inputClassName = fieldError ? 'border-destructive focus-visible:ring-destructive/20' : undefined
 
           return (
             <div key={field.key} className={containerClass}>
@@ -714,8 +750,11 @@ export function PayPageCustomerForm({
                 <label
                   className="flex items-start gap-3 rounded-[24px] border px-4 py-3 text-sm"
                   style={{
-                    background: withAlpha(themeTokens.shellBackground, 0.72),
-                    borderColor: fieldError ? withAlpha('#DC2626', 0.35) : themeTokens.border,
+                    background: fieldError
+                      ? themeTokens.errorSurface
+                      : withAlpha(themeTokens.shellBackground, 0.72),
+                    borderColor: fieldError ? themeTokens.errorBorder : themeTokens.border,
+                    boxShadow: fieldError ? `0 0 0 2px ${themeTokens.errorRing}` : undefined,
                   }}
                 >
                   <input
@@ -748,14 +787,15 @@ export function PayPageCustomerForm({
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
-                      className={inputClassName}
+                      style={buildValidationInputStyle(themeTokens, Boolean(fieldError))}
                     />
                   ) : field.kind === 'select' || field.kind === 'radio' ? (
                     <select
-                      className={`w-full rounded-xl border bg-background px-3 py-2.5 text-sm ${fieldError ? 'border-destructive' : 'border-input'}`}
+                      className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm"
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
+                      style={buildValidationInputStyle(themeTokens, Boolean(fieldError))}
                     >
                       <option value="">{t('checkout.payPage.fields.selectPlaceholder', 'Select...')}</option>
                       {(field.options ?? []).map((option) => (
@@ -768,13 +808,15 @@ export function PayPageCustomerForm({
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
-                      className={inputClassName}
+                      style={buildValidationInputStyle(themeTokens, Boolean(fieldError))}
                     />
                   )}
                 </>
               )}
               {fieldError ? (
-                <p className="text-sm text-destructive">{translateValidationMessage(fieldError, fieldPath)}</p>
+                <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
+                  {translateValidationMessage(fieldError, fieldPath)}
+                </p>
               ) : null}
             </div>
           )
@@ -832,10 +874,12 @@ export function PayPagePricing({
               payload.customAmountMin != null ? formatAmount(payload.customAmountMin, payload.customAmountCurrencyCode) : null,
               payload.customAmountMax != null ? formatAmount(payload.customAmountMax, payload.customAmountCurrencyCode) : null,
             ].filter(Boolean).join(' - ')}
-            className={fieldErrors.amount ? 'border-destructive focus-visible:ring-destructive/20' : undefined}
+            style={buildValidationInputStyle(themeTokens, Boolean(fieldErrors.amount))}
           />
           {fieldErrors.amount ? (
-            <p className="text-sm text-destructive">{translateValidationMessage(fieldErrors.amount, 'amount')}</p>
+            <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
+              {translateValidationMessage(fieldErrors.amount, 'amount')}
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -869,7 +913,7 @@ export function PayPagePricing({
             </label>
           ))}
           {fieldErrors.selectedPriceItemId ? (
-            <p className="text-sm text-destructive">
+            <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
               {translateValidationMessage(fieldErrors.selectedPriceItemId, 'selectedPriceItemId')}
             </p>
           ) : null}
@@ -972,7 +1016,7 @@ export function PayPageLegalConsent({
             </span>
           </label>
           {fieldErrors['acceptedLegalConsents.terms'] ? (
-            <p className="text-sm text-destructive">
+            <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
               {translateValidationMessage(fieldErrors['acceptedLegalConsents.terms'], 'acceptedLegalConsents.terms')}
             </p>
           ) : null}
@@ -999,7 +1043,7 @@ export function PayPageLegalConsent({
             </span>
           </label>
           {fieldErrors['acceptedLegalConsents.privacyPolicy'] ? (
-            <p className="text-sm text-destructive">
+            <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
               {translateValidationMessage(fieldErrors['acceptedLegalConsents.privacyPolicy'], 'acceptedLegalConsents.privacyPolicy')}
             </p>
           ) : null}
@@ -1031,7 +1075,7 @@ export function PayPagePaymentForm({
   return (
     <section className="space-y-4">
       {submissionError ? (
-        <div className="rounded-[22px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-[22px] border px-4 py-3 text-sm" style={buildValidationNoticeStyle(themeTokens)}>
           {submissionError}
         </div>
       ) : null}
@@ -1813,7 +1857,11 @@ export function PayPage({
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={t('checkout.payPage.passwordPlaceholder', 'Password')}
               />
-              {passwordError ? <p className="text-sm text-destructive">{passwordError}</p> : null}
+              {passwordError ? (
+                <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
+                  {passwordError}
+                </p>
+              ) : null}
               <Button
                 type="button"
                 disabled={isVerifyingPassword}

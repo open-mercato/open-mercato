@@ -4,14 +4,16 @@ import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import {
+  AlertTriangle,
+  BadgeCheck,
   CircleDollarSign,
   Eye,
   FileCheck2,
   FileText,
   IdCard,
-  Mail,
   MessageSquare,
   Plus,
+  Send,
   Shield,
   Sparkles,
   Trash2,
@@ -236,9 +238,16 @@ function normalizeLegalDocuments(value: unknown): LegalDocumentsValue {
 function normalizeFormValues(value: FormValues | null | undefined, t?: TranslateFn): FormValues {
   const defaults = createDefaultValues(t)
   const source = isRecord(value) ? value : {}
+  const customFields = isRecord(source.customFields) ? source.customFields : {}
+
+  const prefixedCustomFieldValues = Object.fromEntries(
+    Object.entries(customFields).map(([key, fieldValue]) => [`cf_${key}`, fieldValue]),
+  )
+
   return {
     ...defaults,
     ...source,
+    ...prefixedCustomFieldValues,
     logoAttachmentId: readString(source.logoAttachmentId).trim() || null,
     logoUrl: readString(source.logoUrl).trim() || null,
     primaryColor: readString(source.primaryColor).trim() || defaults.primaryColor,
@@ -1126,6 +1135,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
       subjectKey: 'startEmailSubject',
       bodyKey: 'startEmailBody',
       title: t('checkout.linkTemplateForm.emails.tabs.start'),
+      Icon: Send,
       subjectPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.startSubject'),
       bodyPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.startBody'),
     },
@@ -1134,6 +1144,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
       subjectKey: 'successEmailSubject',
       bodyKey: 'successEmailBody',
       title: t('checkout.linkTemplateForm.emails.tabs.success'),
+      Icon: BadgeCheck,
       subjectPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.successSubject'),
       bodyPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.successBody'),
     },
@@ -1142,6 +1153,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
       subjectKey: 'errorEmailSubject',
       bodyKey: 'errorEmailBody',
       title: t('checkout.linkTemplateForm.emails.tabs.error'),
+      Icon: AlertTriangle,
       subjectPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.errorSubject'),
       bodyPlaceholder: t('checkout.linkTemplateForm.emails.placeholders.errorBody'),
     },
@@ -1156,12 +1168,15 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'start' | 'success' | 'error')}>
         <TabsList className={SETTINGS_TABS_LIST_CLASS}>
-          {(['start', 'success', 'error'] as const).map((item) => (
-            <TabsTrigger key={item} value={item} className={SETTINGS_TABS_TRIGGER_CLASS}>
-              <Mail className="mr-2 h-4 w-4" />
-              {config[item].title}
-            </TabsTrigger>
-          ))}
+          {(['start', 'success', 'error'] as const).map((item) => {
+            const Icon = config[item].Icon
+            return (
+              <TabsTrigger key={item} value={item} className={SETTINGS_TABS_TRIGGER_CLASS}>
+                <Icon className="mr-2 h-4 w-4" />
+                {config[item].title}
+              </TabsTrigger>
+            )
+          })}
         </TabsList>
 
         {(['start', 'success', 'error'] as const).map((item) => (
@@ -1457,6 +1472,10 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   ], [applyTemplate, attachmentDraftRecordId, entityId, isApplyingTemplate, loadTemplateSuggestions, mode, providers, t, templateOptions])
 
   const isLocked = mode === 'link' && Boolean(recordId) && readBoolean(initialValues?.isLocked)
+  const formId = React.useMemo(
+    () => `checkout-${mode}-editor-${recordId ?? 'new'}`,
+    [mode, recordId],
+  )
   const lockedNotice = isLocked ? (
     <Notice
       variant="warning"
@@ -1483,6 +1502,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       <PageBody>
         {initialValues ? (
           <CrudForm<FormValues>
+            formId={formId}
             title={recordId
               ? t(mode === 'link' ? 'checkout.linkTemplateForm.titles.editLink' : 'checkout.linkTemplateForm.titles.editTemplate')
               : t(mode === 'link' ? 'checkout.linkTemplateForm.titles.createLink' : 'checkout.linkTemplateForm.titles.createTemplate')}
@@ -1491,18 +1511,44 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
             fields={fields}
             groups={groups}
             extraActions={recordId ? (
-              <Button asChild type="button" variant="outline">
-                <a
-                  href={mode === 'link'
-                    ? `/pay/${encodeURIComponent(readString(initialValues.slug))}?preview=true`
-                    : `/backend/checkout/templates/${encodeURIComponent(recordId)}/preview`}
-                  target={mode === 'link' ? '_blank' : undefined}
-                  rel={mode === 'link' ? 'noreferrer' : undefined}
-                >
-                  <Eye className="mr-2 h-4 w-4" />
-                  {t('checkout.common.actions.preview')}
-                </a>
-              </Button>
+              <>
+                {isLocked ? (
+                  <Button asChild type="button" variant="outline">
+                    <a
+                      href={mode === 'link'
+                        ? `/pay/${encodeURIComponent(readString(initialValues.slug))}?preview=true`
+                        : `/backend/checkout/templates/${encodeURIComponent(recordId)}/preview`}
+                      target={mode === 'link' ? '_blank' : undefined}
+                      rel={mode === 'link' ? 'noreferrer' : undefined}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      {t('checkout.common.actions.preview')}
+                    </a>
+                  </Button>
+                ) : (
+                  <Button
+                    type="submit"
+                    form={formId}
+                    variant="outline"
+                    name="submitIntent"
+                    value="preview"
+                  >
+                    <Eye className="mr-2 h-4 w-4" />
+                    {t('checkout.common.actions.preview')}
+                  </Button>
+                )}
+                {mode === 'link' && recordId && !isLocked ? (
+                  <Button
+                    type="submit"
+                    form={formId}
+                    name="submitIntent"
+                    value="publish"
+                  >
+                    <BadgeCheck className="mr-2 h-4 w-4" />
+                    {t('checkout.common.actions.saveAndPublish')}
+                  </Button>
+                ) : null}
+              </>
             ) : null}
             entityId={entityId}
             customFieldsetBindings={{ [entityId]: { valueKey: 'customFieldsetCode' } }}
@@ -1511,8 +1557,18 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
             readOnly={isLocked}
             readOnlyOverlay={lockedOverlay}
             deleteVisible={Boolean(recordId)}
-            onSubmit={async (values) => {
-              const payload = { ...values, customFields: collectCustomFieldValues(values) }
+            onSubmit={async (values, context) => {
+              const submitIntent = context?.submitter?.value === 'preview'
+                ? 'preview'
+                : context?.submitter?.value === 'publish'
+                  ? 'publish'
+                  : 'save'
+              const shouldOpenPreview = submitIntent === 'preview'
+              const payload = {
+                ...values,
+                status: submitIntent === 'publish' ? 'active' : values.status,
+                customFields: collectCustomFieldValues(values),
+              }
               const endpoint = `/api/checkout/${mode === 'link' ? 'links' : 'templates'}${recordId ? `/${encodeURIComponent(recordId)}` : ''}`
               const response = await readApiResultOrThrow<{ id?: string; slug?: string; ok?: boolean }>(endpoint, {
                 method: recordId ? 'PUT' : 'POST',
@@ -1538,8 +1594,24 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                   }),
                 })
               }
+              if (shouldOpenPreview) {
+                if (mode === 'link') {
+                  const savedSlug = typeof response?.slug === 'string' && response.slug.trim().length > 0
+                    ? response.slug.trim()
+                    : readString(values.slug).trim() || readString(initialValues.slug).trim()
+                  if (savedSlug) {
+                    window.open(`/pay/${encodeURIComponent(savedSlug)}?preview=true`, '_blank', 'noopener,noreferrer')
+                    return
+                  }
+                } else if (recordId) {
+                  window.location.href = `/backend/checkout/templates/${encodeURIComponent(recordId)}/preview`
+                  return
+                }
+              }
               window.location.href = mode === 'link'
-                ? `/backend/checkout/pay-links?flash=${encodeURIComponent(t('checkout.common.flash.saved'))}&type=success`
+                ? `/backend/checkout/pay-links?flash=${encodeURIComponent(
+                  t(submitIntent === 'publish' ? 'checkout.admin.payLinks.flash.published' : 'checkout.common.flash.saved'),
+                )}&type=success`
                 : `/backend/checkout/templates?flash=${encodeURIComponent(t('checkout.common.flash.saved'))}&type=success`
             }}
             onDelete={recordId ? async () => {

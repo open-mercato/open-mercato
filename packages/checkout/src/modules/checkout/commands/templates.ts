@@ -2,9 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLinkTemplate } from '../data/entities'
 import { createTemplateSchema, updateTemplateSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
@@ -17,7 +19,21 @@ import {
   toMoneyString,
   validateDescriptorCurrencies,
 } from '../lib/utils'
-import { readCommandId, resolveCommandScope } from './shared'
+import {
+  captureTemplateSnapshot,
+  createTemplateFromSnapshot,
+  extractUndoPayload,
+  readCommandId,
+  resolveCommandScope,
+  restoreTemplateFromSnapshot,
+  toCheckoutAuditSnapshot,
+  type CheckoutTemplateSnapshot,
+} from './shared'
+
+type CheckoutTemplateUndoPayload = {
+  before?: CheckoutTemplateSnapshot | null
+  after?: CheckoutTemplateSnapshot | null
+}
 
 const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: string }> = {
   id: 'checkout.template.create',
@@ -54,10 +70,80 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
     }).catch(() => undefined)
     return { id: template.id }
   },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const template = await em.findOne(CheckoutLinkTemplate, { id: result.id })
+    if (!template) return null
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.template,
+      recordId: template.id,
+      tenantId: template.tenantId,
+      organizationId: template.organizationId,
+    })
+    return captureTemplateSnapshot(template, custom)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
+    const after = snapshots.after as CheckoutTemplateSnapshot | null | undefined
+    return {
+      actionLabel: translate('checkout.audit.templates.create', 'Create pay-link template'),
+      resourceKind: 'checkout.template',
+      resourceId: result.id,
+      tenantId: after?.tenantId ?? null,
+      organizationId: after?.organizationId ?? null,
+      snapshotAfter: after ? toCheckoutAuditSnapshot(after) : null,
+      payload: {
+        undo: {
+          after: after ?? null,
+        } satisfies CheckoutTemplateUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const after = extractUndoPayload<CheckoutTemplateUndoPayload>(logEntry)?.after
+    if (!after) return
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    const reset = buildCustomFieldResetMap(undefined, after.custom)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.template,
+        recordId: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
+    const template = await em.findOne(CheckoutLinkTemplate, { id: after.id })
+    if (!template) return
+    template.deletedAt = new Date()
+    await em.flush()
+  },
 }
 
 const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true }> = {
   id: 'checkout.template.update',
+  async prepare(rawInput, ctx) {
+    const { parsed } = parseCheckoutInput(rawInput, updateTemplateSchema.parse)
+    const scope = resolveCommandScope(ctx)
+    const em = ctx.container.resolve('em') as EntityManager
+    const template = await findOneWithDecryption(em, CheckoutLinkTemplate, {
+      id: parsed.id,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    }, undefined, scope)
+    if (!template) return {}
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.template,
+      recordId: template.id,
+      tenantId: template.tenantId,
+      organizationId: template.organizationId,
+    })
+    return { before: captureTemplateSnapshot(template, custom) }
+  },
   async execute(rawInput, ctx) {
     const { parsed, customFields } = parseCheckoutInput(rawInput, updateTemplateSchema.parse)
     const scope = resolveCommandScope(ctx)
@@ -98,10 +184,86 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
     }).catch(() => undefined)
     return { ok: true }
   },
+  captureAfter: async (input, _result, ctx) => {
+    const { parsed } = parseCheckoutInput(input, updateTemplateSchema.parse)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const template = await em.findOne(CheckoutLinkTemplate, { id: parsed.id, deletedAt: null })
+    if (!template) return null
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.template,
+      recordId: template.id,
+      tenantId: template.tenantId,
+      organizationId: template.organizationId,
+    })
+    return captureTemplateSnapshot(template, custom)
+  },
+  buildLog: async ({ snapshots, input }) => {
+    const { translate } = await resolveTranslations()
+    const before = snapshots.before as CheckoutTemplateSnapshot | null | undefined
+    const after = snapshots.after as CheckoutTemplateSnapshot | null | undefined
+    return {
+      actionLabel: translate('checkout.audit.templates.update', 'Update pay-link template'),
+      resourceKind: 'checkout.template',
+      resourceId: after?.id ?? before?.id ?? readCommandId(input, 'Template id is required'),
+      tenantId: after?.tenantId ?? before?.tenantId ?? null,
+      organizationId: after?.organizationId ?? before?.organizationId ?? null,
+      snapshotBefore: before ? toCheckoutAuditSnapshot(before) : null,
+      snapshotAfter: after ? toCheckoutAuditSnapshot(after) : null,
+      payload: {
+        undo: {
+          before: before ?? null,
+          after: after ?? null,
+        } satisfies CheckoutTemplateUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const undo = extractUndoPayload<CheckoutTemplateUndoPayload>(logEntry)
+    const before = undo?.before
+    const after = undo?.after
+    if (!before) return
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    const template = await em.findOne(CheckoutLinkTemplate, { id: before.id, deletedAt: null })
+    if (!template) return
+    restoreTemplateFromSnapshot(template, before)
+    await em.flush()
+    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.template,
+        recordId: before.id,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
+  },
 }
 
 const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true }> = {
   id: 'checkout.template.delete',
+  async prepare(rawInput, ctx) {
+    const templateId = readCommandId(rawInput, 'Template id is required')
+    const scope = resolveCommandScope(ctx)
+    const em = ctx.container.resolve('em') as EntityManager
+    const template = await findOneWithDecryption(em, CheckoutLinkTemplate, {
+      id: templateId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    }, undefined, scope)
+    if (!template) return {}
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.template,
+      recordId: template.id,
+      tenantId: template.tenantId,
+      organizationId: template.organizationId,
+    })
+    return { before: captureTemplateSnapshot(template, custom) }
+  },
   async execute(rawInput, ctx) {
     const templateId = readCommandId(rawInput, 'Template id is required')
     const scope = resolveCommandScope(ctx)
@@ -121,6 +283,49 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       organizationId: scope.organizationId,
     }).catch(() => undefined)
     return { ok: true }
+  },
+  buildLog: async ({ snapshots, input }) => {
+    const { translate } = await resolveTranslations()
+    const before = snapshots.before as CheckoutTemplateSnapshot | null | undefined
+    return {
+      actionLabel: translate('checkout.audit.templates.delete', 'Delete pay-link template'),
+      resourceKind: 'checkout.template',
+      resourceId: before?.id ?? readCommandId(input, 'Template id is required'),
+      tenantId: before?.tenantId ?? null,
+      organizationId: before?.organizationId ?? null,
+      snapshotBefore: before ? toCheckoutAuditSnapshot(before) : null,
+      payload: {
+        undo: {
+          before: before ?? null,
+        } satisfies CheckoutTemplateUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const before = extractUndoPayload<CheckoutTemplateUndoPayload>(logEntry)?.before
+    if (!before) return
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    let template = await em.findOne(CheckoutLinkTemplate, { id: before.id })
+    if (template) {
+      restoreTemplateFromSnapshot(template, before)
+    } else {
+      template = em.create(CheckoutLinkTemplate, createTemplateFromSnapshot(before))
+      em.persist(template)
+    }
+    await em.flush()
+    const reset = buildCustomFieldResetMap(before.custom, undefined)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.template,
+        recordId: before.id,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
   },
 }
 

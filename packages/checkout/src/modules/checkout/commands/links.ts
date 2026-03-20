@@ -2,10 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
 import { createLinkSchema, updateLinkSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
@@ -21,9 +23,23 @@ import {
   toTemplateOrLinkMutationInput,
   validateDescriptorCurrencies,
 } from '../lib/utils'
-import { readCommandId, resolveCommandScope } from './shared'
+import {
+  captureLinkSnapshot,
+  createLinkFromSnapshot,
+  extractUndoPayload,
+  readCommandId,
+  resolveCommandScope,
+  restoreLinkFromSnapshot,
+  toCheckoutAuditSnapshot,
+  type CheckoutLinkSnapshot,
+} from './shared'
 
 const ACTIVE_TRANSACTION_STATUSES = ['pending', 'processing']
+
+type CheckoutLinkUndoPayload = {
+  before?: CheckoutLinkSnapshot | null
+  after?: CheckoutLinkSnapshot | null
+}
 
 const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; slug: string }> = {
   id: 'checkout.link.create',
@@ -108,10 +124,80 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     }
     return { id: link.id, slug: link.slug }
   },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const link = await em.findOne(CheckoutLink, { id: result.id })
+    if (!link) return null
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.link,
+      recordId: link.id,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
+    })
+    return captureLinkSnapshot(link, custom)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
+    const after = snapshots.after as CheckoutLinkSnapshot | null | undefined
+    return {
+      actionLabel: translate('checkout.audit.links.create', 'Create pay link'),
+      resourceKind: 'checkout.link',
+      resourceId: result.id,
+      tenantId: after?.tenantId ?? null,
+      organizationId: after?.organizationId ?? null,
+      snapshotAfter: after ? toCheckoutAuditSnapshot(after) : null,
+      payload: {
+        undo: {
+          after: after ?? null,
+        } satisfies CheckoutLinkUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const after = extractUndoPayload<CheckoutLinkUndoPayload>(logEntry)?.after
+    if (!after) return
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    const reset = buildCustomFieldResetMap(undefined, after.custom)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.link,
+        recordId: after.id,
+        tenantId: after.tenantId,
+        organizationId: after.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
+    const link = await em.findOne(CheckoutLink, { id: after.id })
+    if (!link) return
+    link.deletedAt = new Date()
+    await em.flush()
+  },
 }
 
-const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> = {
+const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slug: string }> = {
   id: 'checkout.link.update',
+  async prepare(rawInput, ctx) {
+    const { parsed } = parseCheckoutInput(rawInput, updateLinkSchema.parse)
+    const scope = resolveCommandScope(ctx)
+    const em = ctx.container.resolve('em') as EntityManager
+    const link = await findOneWithDecryption(em, CheckoutLink, {
+      id: parsed.id,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    }, undefined, scope)
+    if (!link) return {}
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.link,
+      recordId: link.id,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
+    })
+    return { before: captureLinkSnapshot(link, custom) }
+  },
   async execute(rawInput, ctx) {
     const { parsed, customFields } = parseCheckoutInput(rawInput, updateLinkSchema.parse)
     const scope = resolveCommandScope(ctx)
@@ -174,12 +260,88 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
         organizationId: scope.organizationId,
       }).catch(() => undefined)
     }
-    return { ok: true }
+    return { ok: true, slug: link.slug }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const link = await em.findOne(CheckoutLink, { slug: result.slug, deletedAt: null })
+    if (!link) return null
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.link,
+      recordId: link.id,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
+    })
+    return captureLinkSnapshot(link, custom)
+  },
+  buildLog: async ({ snapshots, result }) => {
+    const { translate } = await resolveTranslations()
+    const before = snapshots.before as CheckoutLinkSnapshot | null | undefined
+    const after = snapshots.after as CheckoutLinkSnapshot | null | undefined
+    return {
+      actionLabel: translate('checkout.audit.links.update', 'Update pay link'),
+      resourceKind: 'checkout.link',
+      resourceId: after?.id ?? before?.id ?? null,
+      tenantId: after?.tenantId ?? before?.tenantId ?? null,
+      organizationId: after?.organizationId ?? before?.organizationId ?? null,
+      snapshotBefore: before ? toCheckoutAuditSnapshot(before) : null,
+      snapshotAfter: after ? toCheckoutAuditSnapshot(after) : null,
+      payload: {
+        undo: {
+          before: before ?? null,
+          after: after ?? null,
+        } satisfies CheckoutLinkUndoPayload,
+      },
+      context: result.slug ? { slug: result.slug } : null,
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const undo = extractUndoPayload<CheckoutLinkUndoPayload>(logEntry)
+    const before = undo?.before
+    const after = undo?.after
+    if (!before) return
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    const link = await em.findOne(CheckoutLink, { id: before.id, deletedAt: null })
+    if (!link) return
+    restoreLinkFromSnapshot(link, before)
+    await em.flush()
+    const reset = buildCustomFieldResetMap(before.custom, after?.custom)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.link,
+        recordId: before.id,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
   },
 }
 
 const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> = {
   id: 'checkout.link.delete',
+  async prepare(rawInput, ctx) {
+    const linkId = readCommandId(rawInput, 'Link id is required')
+    const scope = resolveCommandScope(ctx)
+    const em = ctx.container.resolve('em') as EntityManager
+    const link = await findOneWithDecryption(em, CheckoutLink, {
+      id: linkId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    }, undefined, scope)
+    if (!link) return {}
+    const custom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.link,
+      recordId: link.id,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
+    })
+    return { before: captureLinkSnapshot(link, custom) }
+  },
   async execute(rawInput, ctx) {
     const linkId = readCommandId(rawInput, 'Link id is required')
     const scope = resolveCommandScope(ctx)
@@ -209,6 +371,49 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
       organizationId: scope.organizationId,
     }).catch(() => undefined)
     return { ok: true }
+  },
+  buildLog: async ({ snapshots, input }) => {
+    const { translate } = await resolveTranslations()
+    const before = snapshots.before as CheckoutLinkSnapshot | null | undefined
+    return {
+      actionLabel: translate('checkout.audit.links.delete', 'Delete pay link'),
+      resourceKind: 'checkout.link',
+      resourceId: before?.id ?? readCommandId(input, 'Link id is required'),
+      tenantId: before?.tenantId ?? null,
+      organizationId: before?.organizationId ?? null,
+      snapshotBefore: before ? toCheckoutAuditSnapshot(before) : null,
+      payload: {
+        undo: {
+          before: before ?? null,
+        } satisfies CheckoutLinkUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const before = extractUndoPayload<CheckoutLinkUndoPayload>(logEntry)?.before
+    if (!before) return
+    const em = ctx.container.resolve('em') as EntityManager
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    let link = await em.findOne(CheckoutLink, { id: before.id })
+    if (link) {
+      restoreLinkFromSnapshot(link, before)
+    } else {
+      link = em.create(CheckoutLink, createLinkFromSnapshot(before))
+      em.persist(link)
+    }
+    await em.flush()
+    const reset = buildCustomFieldResetMap(before.custom, undefined)
+    if (Object.keys(reset).length) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.link,
+        recordId: before.id,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        values: reset,
+        notify: false,
+      })
+    }
   },
 }
 

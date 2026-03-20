@@ -305,7 +305,7 @@ export function resolveSubmittedAmount(link: CheckoutLink, input: PublicSubmitIn
 }
 
 export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutLink) {
-  const logoUrl = buildCheckoutAttachmentPreviewUrl(record.logoAttachmentId) ?? record.logoUrl ?? null
+  const logoPreviewUrl = buildCheckoutAttachmentPreviewUrl(record.logoAttachmentId) ?? record.logoUrl ?? null
   return {
     id: record.id,
     name: record.name,
@@ -313,7 +313,8 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     subtitle: record.subtitle ?? null,
     description: record.description ?? null,
     logoAttachmentId: record.logoAttachmentId ?? null,
-    logoUrl,
+    logoUrl: record.logoUrl ?? null,
+    logoPreviewUrl,
     primaryColor: record.primaryColor ?? null,
     secondaryColor: record.secondaryColor ?? null,
     backgroundColor: record.backgroundColor ?? null,

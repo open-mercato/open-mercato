@@ -4,7 +4,12 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLinkTemplate } from '../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../lib/constants'
 import { serializeTemplateRecord } from '../../../commands/templates'
-import { buildCommandRuntimeContext, handleCheckoutRouteError, requireAdminContext } from '../../helpers'
+import {
+  attachOperationMetadataHeader,
+  buildCommandRuntimeContext,
+  handleCheckoutRouteError,
+  requireAdminContext,
+} from '../../helpers'
 import { checkoutTag } from '../../openapi'
 
 export const metadata = {
@@ -48,11 +53,15 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     const { auth, container, commandBus } = await requireAdminContext(req)
     const resolvedParams = await params
     const body = await req.json().catch(() => ({}))
-    const { result } = await commandBus.execute<Record<string, unknown>, { ok: true }>('checkout.template.update', {
+    const { result, logEntry } = await commandBus.execute<Record<string, unknown>, { ok: true }>('checkout.template.update', {
       input: { ...body, id: resolvedParams.id },
       ctx: buildCommandRuntimeContext(req, container, auth),
     })
-    return NextResponse.json(result)
+    return attachOperationMetadataHeader(
+      NextResponse.json(result),
+      logEntry,
+      { resourceKind: 'checkout.template', resourceId: resolvedParams.id },
+    )
   } catch (error) {
     return handleCheckoutRouteError(error)
   }
@@ -62,11 +71,15 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
   try {
     const { auth, container, commandBus } = await requireAdminContext(req)
     const resolvedParams = await params
-    const { result } = await commandBus.execute<Record<string, unknown>, { ok: true }>('checkout.template.delete', {
+    const { result, logEntry } = await commandBus.execute<Record<string, unknown>, { ok: true }>('checkout.template.delete', {
       input: { id: resolvedParams.id },
       ctx: buildCommandRuntimeContext(req, container, auth),
     })
-    return NextResponse.json(result)
+    return attachOperationMetadataHeader(
+      NextResponse.json(result),
+      logEntry,
+      { resourceKind: 'checkout.template', resourceId: resolvedParams.id },
+    )
   } catch (error) {
     return handleCheckoutRouteError(error)
   }

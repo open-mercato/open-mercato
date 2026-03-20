@@ -5,6 +5,7 @@ import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/a
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CHECKOUT_PASSWORD_COOKIE } from '../lib/constants'
@@ -116,4 +117,43 @@ export function handleCheckoutRouteError(error: unknown) {
   }
   const message = error instanceof Error ? error.message : 'Unexpected error'
   return NextResponse.json({ error: message }, { status: 500 })
+}
+
+type CheckoutOperationLogLike = {
+  id?: string | null
+  undoToken?: string | null
+  commandId?: string | null
+  actionLabel?: string | null
+  resourceKind?: string | null
+  resourceId?: string | null
+  createdAt?: Date | string | null
+}
+
+export function attachOperationMetadataHeader(
+  response: NextResponse,
+  logEntry: CheckoutOperationLogLike | null | undefined,
+  defaults: {
+    resourceKind: string
+    resourceId?: string | null
+  },
+): NextResponse {
+  if (!logEntry?.id || !logEntry.undoToken || !logEntry.commandId) return response
+  const executedAt = logEntry.createdAt instanceof Date
+    ? logEntry.createdAt.toISOString()
+    : typeof logEntry.createdAt === 'string' && logEntry.createdAt
+      ? logEntry.createdAt
+      : new Date().toISOString()
+  response.headers.set(
+    'x-om-operation',
+    serializeOperationMetadata({
+      id: logEntry.id,
+      undoToken: logEntry.undoToken,
+      commandId: logEntry.commandId,
+      actionLabel: logEntry.actionLabel ?? null,
+      resourceKind: logEntry.resourceKind ?? defaults.resourceKind,
+      resourceId: logEntry.resourceId ?? defaults.resourceId ?? null,
+      executedAt,
+    }),
+  )
+  return response
 }
