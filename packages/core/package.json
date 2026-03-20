@@ -25,6 +25,10 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./testing/integration": {
+      "types": "./src/testing/integration/index.ts",
+      "default": "./dist/testing/integration/index.js"
+    },
     "./modules/customers": {
       "types": "./src/modules/customers/index.ts",
       "default": "./dist/modules/customers/index.js"
