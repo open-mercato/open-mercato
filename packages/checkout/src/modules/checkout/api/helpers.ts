@@ -88,9 +88,13 @@ export function readCheckoutAccessCookie(req: Request): string | null {
   }
 }
 
-export function requireCheckoutPasswordSession(req: Request, slug: string): void {
+export function requireCheckoutPasswordSession(
+  req: Request,
+  slug: string,
+  options?: { linkId?: string | null; passwordHash?: string | null },
+): void {
   const token = readCheckoutAccessCookie(req)
-  if (!verifyCheckoutAccessToken(token, slug)) {
+  if (!verifyCheckoutAccessToken(token, slug, options)) {
     throw new CrudHttpError(401, { error: 'Password verification is required' })
   }
 }

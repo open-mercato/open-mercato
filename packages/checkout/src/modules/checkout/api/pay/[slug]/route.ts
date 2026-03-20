@@ -50,7 +50,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       ? true
       : (link.completionCount + link.activeReservationCount) < link.maxCompletions
     const token = readCheckoutAccessCookie(req)
-    const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutAccessToken(token, link.slug)
+    const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutAccessToken(token, link.slug, {
+      linkId: link.id,
+      passwordHash: link.passwordHash,
+    })
     if (!passwordVerified) {
       return NextResponse.json({
         requiresPassword: true,

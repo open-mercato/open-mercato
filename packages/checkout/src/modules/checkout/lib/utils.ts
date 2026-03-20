@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'crypto'
+import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -194,21 +194,35 @@ export async function verifyCheckoutPassword(password: string, passwordHash: str
 function getCheckoutAccessTokenSecret(): string {
   const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
   if (!secret) {
-    console.warn('[checkout] No AUTH_SECRET or NEXTAUTH_SECRET configured — checkout access tokens use a weak fallback. Set AUTH_SECRET for production.')
+    throw new Error('Checkout password sessions require AUTH_SECRET or NEXTAUTH_SECRET')
   }
-  return secret || process.env.NEXT_PUBLIC_APP_URL || 'open-mercato-checkout'
+  return secret
 }
 
-export function signCheckoutAccessToken(slug: string): string {
+function buildCheckoutPasswordSessionFingerprint(passwordHash: string | null | undefined): string | null {
+  if (!passwordHash) return null
+  return createHash('sha256').update(`${getCheckoutAccessTokenSecret()}:${passwordHash}`).digest('base64url')
+}
+
+export function signCheckoutAccessToken(
+  slug: string,
+  options?: { linkId?: string | null; passwordHash?: string | null },
+): string {
   const payload = Buffer.from(JSON.stringify({
     slug,
+    linkId: options?.linkId ?? null,
+    passwordFingerprint: buildCheckoutPasswordSessionFingerprint(options?.passwordHash),
     exp: Date.now() + (60 * 60 * 1000),
   }), 'utf-8').toString('base64url')
   const signature = createHmac('sha256', getCheckoutAccessTokenSecret()).update(payload).digest('base64url')
   return `${payload}.${signature}`
 }
 
-export function verifyCheckoutAccessToken(token: string | null | undefined, slug: string): boolean {
+export function verifyCheckoutAccessToken(
+  token: string | null | undefined,
+  slug: string,
+  options?: { linkId?: string | null; passwordHash?: string | null },
+): boolean {
   if (!token) return false
   const [payload, signature] = token.split('.')
   if (!payload || !signature) return false
@@ -216,8 +230,18 @@ export function verifyCheckoutAccessToken(token: string | null | undefined, slug
   const actual = Buffer.from(signature, 'base64url')
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false
   try {
-    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8')) as { slug?: string; exp?: number }
-    return parsed.slug === slug && typeof parsed.exp === 'number' && parsed.exp > Date.now()
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8')) as {
+      slug?: string
+      linkId?: string | null
+      passwordFingerprint?: string | null
+      exp?: number
+    }
+    if (parsed.slug !== slug || typeof parsed.exp !== 'number' || parsed.exp <= Date.now()) return false
+    if (options?.linkId && parsed.linkId !== options.linkId) return false
+    if (options?.passwordHash) {
+      return parsed.passwordFingerprint === buildCheckoutPasswordSessionFingerprint(options.passwordHash)
+    }
+    return true
   } catch {
     return false
   }
@@ -237,6 +261,22 @@ export function isTerminalCheckoutStatus(status: string | null | undefined): boo
 
 export function isCheckoutLinkPublic(status: CheckoutLinkStatus | string | null | undefined): boolean {
   return status === 'active'
+}
+
+export function applyTerminalTransactionState(
+  link: Pick<CheckoutLink, 'activeReservationCount' | 'completionCount' | 'isLocked' | 'maxCompletions'>,
+  status: CheckoutTransaction['status'],
+): { usageLimitReached: boolean } {
+  link.activeReservationCount = Math.max(0, link.activeReservationCount - 1)
+  if (status === 'completed') {
+    link.completionCount += 1
+  }
+  link.isLocked = link.activeReservationCount > 0
+  return {
+    usageLimitReached: status === 'completed'
+      && link.maxCompletions != null
+      && link.completionCount >= link.maxCompletions,
+  }
 }
 
 export function buildConsentProof(link: CheckoutLink, acceptedLegalConsents: PublicSubmitInput['acceptedLegalConsents']) {
@@ -385,7 +425,7 @@ export function serializeTransaction(record: CheckoutTransaction, link?: Checkou
     email: includePii ? (record.email ?? null) : null,
     phone: includePii ? (record.phone ?? null) : null,
     ipAddress: includePii ? (record.ipAddress ?? null) : null,
-    userAgent: record.userAgent ?? null,
+    userAgent: includePii ? (record.userAgent ?? null) : null,
     createdAt: toIsoString(record.createdAt),
     updatedAt: toIsoString(record.updatedAt),
   }

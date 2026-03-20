@@ -46,7 +46,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       return NextResponse.json({ error: 'checkout.payPage.errors.password' }, { status: 401 })
     }
     const response = NextResponse.json({ ok: true })
-    response.cookies.set(CHECKOUT_PASSWORD_COOKIE, signCheckoutAccessToken(link.slug), {
+    response.cookies.set(CHECKOUT_PASSWORD_COOKIE, signCheckoutAccessToken(link.slug, {
+      linkId: link.id,
+      passwordHash: link.passwordHash,
+    }), {
       httpOnly: true,
       secure: true,
       sameSite: 'strict',

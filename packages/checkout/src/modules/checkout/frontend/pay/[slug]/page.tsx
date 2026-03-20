@@ -1,22 +1,27 @@
 import { headers } from 'next/headers'
 import { PayPage, type PayLinkPayload } from '../../../components/PayPage'
 
+function resolveTrustedAppUrl(): string | null {
+  const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL
+  if (!appUrl || appUrl.trim().length === 0) return null
+  return appUrl.replace(/\/$/, '')
+}
+
 async function loadInitialPayload(
   slug: string,
   options?: { preview?: boolean },
 ): Promise<{ payload: PayLinkPayload | null; error: string | null }> {
-  const requestHeaders = await headers()
-  const host = requestHeaders.get('host')
-  if (!host) {
-    return { payload: null, error: 'Missing host header' }
+  const baseUrl = resolveTrustedAppUrl()
+  if (!baseUrl) {
+    return { payload: null, error: null }
   }
-  const protocol = requestHeaders.get('x-forwarded-proto') ?? 'http'
+  const requestHeaders = await headers()
   const cookie = requestHeaders.get('cookie') ?? ''
   const searchParams = new URLSearchParams()
   if (options?.preview) {
     searchParams.set('preview', 'true')
   }
-  const requestUrl = `${protocol}://${host}/api/checkout/pay/${encodeURIComponent(slug)}${searchParams.size > 0 ? `?${searchParams.toString()}` : ''}`
+  const requestUrl = `${baseUrl}/api/checkout/pay/${encodeURIComponent(slug)}${searchParams.size > 0 ? `?${searchParams.toString()}` : ''}`
   try {
     const response = await fetch(requestUrl, {
       headers: cookie ? { cookie } : undefined,

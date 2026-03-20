@@ -6,6 +6,7 @@ import { CheckoutLink, CheckoutTransaction } from '../data/entities'
 import { transactionCreateSchema, transactionUpdateStatusSchema } from '../data/validators'
 import { emitCheckoutEvent } from '../events'
 import {
+  applyTerminalTransactionState,
   isTerminalCheckoutStatus,
   mapGatewayStatusToCheckoutStatus,
   parseCheckoutInput,
@@ -160,16 +161,9 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
       await tx.flush()
 
       if (!previousTerminal && nextTerminal) {
-        link.activeReservationCount = Math.max(0, link.activeReservationCount - 1)
-        if (nextStatus === 'completed') {
-          link.completionCount += 1
-        }
+        const { usageLimitReached } = applyTerminalTransactionState(link, nextStatus)
         await tx.flush()
-        if (
-          nextStatus === 'completed'
-          && link.maxCompletions != null
-          && link.completionCount >= link.maxCompletions
-        ) {
+        if (usageLimitReached) {
           emitUsageLimitReached = true
           usageLimitReachedLinkId = link.id
           usageLimitReachedLinkSlug = link.slug

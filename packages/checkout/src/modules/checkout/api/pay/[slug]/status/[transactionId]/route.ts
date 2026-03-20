@@ -36,7 +36,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       return NextResponse.json({ error: 'Payment link not found' }, { status: 404 })
     }
     if (link.passwordHash) {
-      requireCheckoutPasswordSession(req, link.slug)
+      requireCheckoutPasswordSession(req, link.slug, {
+        linkId: link.id,
+        passwordHash: link.passwordHash,
+      })
     }
     let transaction = await findOneWithDecryption(em, CheckoutTransaction, {
       id: resolvedParams.transactionId,

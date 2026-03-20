@@ -160,7 +160,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       throw new CrudHttpError(422, { error: 'This payment link is not currently accepting payments' })
     }
     if (link.passwordHash) {
-      requireCheckoutPasswordSession(req, link.slug)
+      requireCheckoutPasswordSession(req, link.slug, {
+        linkId: link.id,
+        passwordHash: link.passwordHash,
+      })
     }
     if (!link.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be used' })
@@ -293,47 +296,86 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         || link.gatewaySettings?.presentationMode === 'auto'
         ? link.gatewaySettings.presentationMode
         : undefined
-      const sessionResult = await paymentGatewayService.createPaymentSession({
-        providerKey: link.gatewayProviderKey,
-        paymentId: transactionId,
-        amount: resolvedAmount.amount,
-        currencyCode: resolvedAmount.currencyCode,
-        paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
-        description: link.title ?? link.name,
-        successUrl,
-        cancelUrl,
-        metadata: {
-          checkoutLinkId: link.id,
-          checkoutSlug: link.slug,
-        },
-        presentation: rendererKey || rendererSettings || presentationMode
-          ? {
-              ...(presentationMode ? { mode: presentationMode } : {}),
-              ...(rendererKey ? { rendererKey } : {}),
-              ...(rendererSettings ? { rendererSettings } : {}),
-            }
-          : undefined,
+      try {
+        const sessionResult = await paymentGatewayService.createPaymentSession({
+          providerKey: link.gatewayProviderKey,
+          paymentId: transactionId,
+          amount: resolvedAmount.amount,
+          currencyCode: resolvedAmount.currencyCode,
+          paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
+          description: link.title ?? link.name,
+          successUrl,
+          cancelUrl,
+          metadata: {
+            checkoutLinkId: link.id,
+            checkoutSlug: link.slug,
+          },
+          presentation: rendererKey || rendererSettings || presentationMode
+            ? {
+                ...(presentationMode ? { mode: presentationMode } : {}),
+                ...(rendererKey ? { rendererKey } : {}),
+                ...(rendererSettings ? { rendererSettings } : {}),
+              }
+            : undefined,
+          organizationId: link.organizationId,
+          tenantId: link.tenantId,
+        })
+        await commandBus.execute('checkout.transaction.updateStatus', {
+          input: {
+            id: transaction.id,
+            status: mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus),
+            paymentStatus: sessionResult.transaction.unifiedStatus,
+            gatewayTransactionId: sessionResult.transaction.id,
+            organizationId: link.organizationId,
+            tenantId: link.tenantId,
+          },
+          ctx,
+        })
+      } catch (error) {
+        await commandBus.execute('checkout.transaction.updateStatus', {
+          input: {
+            id: transaction.id,
+            status: 'failed',
+            paymentStatus: transaction.paymentStatus ?? 'failed',
+            organizationId: link.organizationId,
+            tenantId: link.tenantId,
+          },
+          ctx,
+        }).catch(() => undefined)
+        console.error('[checkout] Failed to create payment session', {
+          linkId: link.id,
+          transactionId: transaction.id,
+          providerKey: link.gatewayProviderKey,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
+      }
+      const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
+        id: transaction.id,
         organizationId: link.organizationId,
         tenantId: link.tenantId,
-      })
-      transaction.gatewayTransactionId = sessionResult.transaction.id
-      transaction.paymentStatus = sessionResult.transaction.unifiedStatus
-      transaction.status = mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus)
-      await em.flush()
+      }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
+      if (!refreshedTransaction) {
+        throw new CrudHttpError(404, { error: 'Transaction not found' })
+      }
       await emitCheckoutEvent('checkout.transaction.sessionStarted', {
-        transactionId: transaction.id,
-        linkId: transaction.linkId,
+        transactionId: refreshedTransaction.id,
+        linkId: refreshedTransaction.linkId,
         slug: link.slug,
-        status: transaction.status,
-        paymentStatus: transaction.paymentStatus ?? null,
-        amount: Number(transaction.amount),
-        currency: transaction.currencyCode,
+        status: refreshedTransaction.status,
+        paymentStatus: refreshedTransaction.paymentStatus ?? null,
+        amount: Number(refreshedTransaction.amount),
+        currency: refreshedTransaction.currencyCode,
         gatewayProvider: link.gatewayProviderKey,
-        gatewayTransactionId: transaction.gatewayTransactionId,
+        gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
         occurredAt: new Date().toISOString(),
         tenantId: link.tenantId,
         organizationId: link.organizationId,
       }).catch(() => undefined)
+      return NextResponse.json(
+        await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),
+        { status: 201 },
+      )
     }
     return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
   } catch (error) {
