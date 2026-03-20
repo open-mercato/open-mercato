@@ -8,7 +8,7 @@
  * Spec reference: SPEC-041k — DevTools + Conflict Detection (TC-UMES-DT01)
  */
 import { test, expect } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 test.describe('TC-UMES-010: DevTools panel', () => {
   test.beforeEach(async ({ page }) => {

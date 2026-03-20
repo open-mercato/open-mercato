@@ -108,8 +108,9 @@ Do not hardcode entity IDs in routes, payloads, or assertions. Resolve entities 
 Metadata for conditional test enablement:
 
 - Helpers:
-  - Put shared helpers in a central reusable location (recommended: `packages/core/src/modules/core/__integration__/helpers/`).
+  - Put shared helpers in `packages/core/src/helpers/integration/` (importable as `@open-mercato/core/helpers/integration/*`).
   - Module-local `__integration__/helpers/` files should re-export central helpers where possible.
+  - Standalone app developers: import helpers from `@open-mercato/core/helpers/integration/*` (included in the npm package).
 
 - Folder-level metadata:
   - Add `meta.ts` or `index.ts` anywhere under `__integration__/`.
@@ -247,7 +248,7 @@ If the run fails, apply the shared failure-analysis section above.
 - MUST report failures in a per-test table that includes reason, evidence, and suggested owner
 - MUST apply the same failure-analysis and table-reporting rules when only running existing tests after implementation work
 - MUST place new tests in module-local `__integration__` directories; use legacy `.ai/qa/tests/` only when there is no module context
-- MUST keep helper utilities next to tests under `<module>/__integration__/helpers/` (avoid cross-module helper imports)
+- MUST keep module-specific helper utilities next to tests under `<module>/__integration__/helpers/`; for shared/cross-module helpers, import from `@open-mercato/core/helpers/integration/*`
 - MUST treat `packages/enterprise/modules/<module>/__integration__/` as an optional overlay and keep base code independent from enterprise
 - MUST use `meta.ts` or `index.ts` dependency metadata for module-gated folders and per-test `.meta.ts` (or in-file metadata) for individual gating
 - When deriving from a spec, focus on the happy path first, then add edge cases as separate test cases if they warrant it
