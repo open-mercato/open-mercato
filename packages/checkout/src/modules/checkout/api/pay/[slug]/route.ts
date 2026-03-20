@@ -27,7 +27,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const url = new URL(req.url)
     const previewRequested = url.searchParams.get('preview') === 'true'
     const container = await createRequestContainer()
-    const previewContext = previewRequested ? await requirePreviewContext(req) : null
+    if (previewRequested) await requirePreviewContext(req)
     if (!previewRequested) {
       try {
         const rateLimiter = container.resolve('rateLimiterService') as RateLimiterService
@@ -75,7 +75,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     })
     return NextResponse.json({
       ...serializeTemplateOrLink(link),
-      customFields: customValues[link.id] ?? {},
       publicCustomFields,
       available: previewRequested ? false : available,
       remainingUses: link.maxCompletions == null
@@ -83,7 +82,6 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
         : Math.max(0, link.maxCompletions - link.completionCount - link.activeReservationCount),
       requiresPassword: false,
       preview: previewRequested,
-      previewUserId: previewContext?.auth.sub ?? null,
       gatewaySettings: undefined,
     })
   } catch (error) {

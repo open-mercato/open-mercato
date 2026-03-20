@@ -192,10 +192,11 @@ export async function verifyCheckoutPassword(password: string, passwordHash: str
 }
 
 function getCheckoutAccessTokenSecret(): string {
-  return process.env.AUTH_SECRET
-    || process.env.NEXTAUTH_SECRET
-    || process.env.NEXT_PUBLIC_APP_URL
-    || 'open-mercato-checkout'
+  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
+  if (!secret) {
+    console.warn('[checkout] No AUTH_SECRET or NEXTAUTH_SECRET configured — checkout access tokens use a weak fallback. Set AUTH_SECRET for production.')
+  }
+  return secret || process.env.NEXT_PUBLIC_APP_URL || 'open-mercato-checkout'
 }
 
 export function signCheckoutAccessToken(slug: string): string {

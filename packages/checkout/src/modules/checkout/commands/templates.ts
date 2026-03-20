@@ -72,7 +72,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const template = await em.findOne(CheckoutLinkTemplate, { id: result.id })
+    const template = await findOneWithDecryption(em, CheckoutLinkTemplate, { id: result.id })
     if (!template) return null
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: CHECKOUT_ENTITY_IDS.template,
@@ -187,7 +187,7 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
   captureAfter: async (input, _result, ctx) => {
     const { parsed } = parseCheckoutInput(input, updateTemplateSchema.parse)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const template = await em.findOne(CheckoutLinkTemplate, { id: parsed.id, deletedAt: null })
+    const template = await findOneWithDecryption(em, CheckoutLinkTemplate, { id: parsed.id, deletedAt: null })
     if (!template) return null
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: CHECKOUT_ENTITY_IDS.template,

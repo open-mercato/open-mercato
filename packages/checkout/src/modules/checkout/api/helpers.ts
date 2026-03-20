@@ -115,8 +115,10 @@ export function handleCheckoutRouteError(error: unknown) {
       { status: 400 },
     )
   }
-  const message = error instanceof Error ? error.message : 'Unexpected error'
-  return NextResponse.json({ error: message }, { status: 500 })
+  if (error instanceof Error) {
+    console.error('[checkout] Unhandled route error:', error.message)
+  }
+  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
 }
 
 type CheckoutOperationLogLike = {

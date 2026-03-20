@@ -176,22 +176,25 @@ function validatePricingConsistency<T extends z.infer<typeof checkoutContentSche
 
 export const createTemplateSchema = checkoutContentSchema.superRefine(validatePricingConsistency)
 
+function applyPartialPricingConsistency(value: Record<string, unknown>, ctx: z.RefinementCtx) {
+  if (!value.pricingMode) return
+  validatePricingConsistency({
+    ...checkoutContentSchema.parse({
+      ...value,
+      name: value.name ?? 'placeholder',
+      pricingMode: value.pricingMode,
+      customerFieldsSchema: value.customerFieldsSchema ?? [...DEFAULT_CHECKOUT_CUSTOMER_FIELDS],
+    }),
+    ...value,
+  }, ctx)
+}
+
 export const updateTemplateSchema = checkoutContentSchema.partial().extend({
   id: z.string().uuid('checkout.validation.common.invalidUuid'),
   password: optionalTrimmedString,
   customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
 }).superRefine((value, ctx) => {
-  if (value.pricingMode) {
-    validatePricingConsistency({
-      ...checkoutContentSchema.parse({
-        ...value,
-        name: value.name ?? 'placeholder',
-        pricingMode: value.pricingMode,
-        customerFieldsSchema: value.customerFieldsSchema ?? [...DEFAULT_CHECKOUT_CUSTOMER_FIELDS],
-      }),
-      ...value,
-    }, ctx)
-  }
+  applyPartialPricingConsistency(value, ctx)
 })
 
 export const createLinkSchema = createTemplateSchema.safeExtend({
@@ -199,9 +202,14 @@ export const createLinkSchema = createTemplateSchema.safeExtend({
   slug: optionalTrimmedString,
 })
 
-export const updateLinkSchema = createLinkSchema.partial().safeExtend({
+export const updateLinkSchema = checkoutContentSchema.partial().safeExtend({
   id: z.string().uuid('checkout.validation.common.invalidUuid'),
+  templateId: z.string().uuid('checkout.validation.common.invalidUuid').optional().nullable(),
   slug: optionalTrimmedString,
+  password: optionalTrimmedString,
+  customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
+}).superRefine((value, ctx) => {
+  applyPartialPricingConsistency(value, ctx)
 })
 
 export const transactionStatusSchema = z.enum(['pending', 'processing', 'completed', 'failed', 'cancelled', 'expired'])

@@ -126,7 +126,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(CheckoutLink, { id: result.id })
+    const link = await findOneWithDecryption(em, CheckoutLink, { id: result.id })
     if (!link) return null
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: CHECKOUT_ENTITY_IDS.link,
@@ -264,7 +264,7 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(CheckoutLink, { slug: result.slug, deletedAt: null })
+    const link = await findOneWithDecryption(em, CheckoutLink, { slug: result.slug, deletedAt: null })
     if (!link) return null
     const custom = await loadCustomFieldSnapshot(em, {
       entityId: CHECKOUT_ENTITY_IDS.link,

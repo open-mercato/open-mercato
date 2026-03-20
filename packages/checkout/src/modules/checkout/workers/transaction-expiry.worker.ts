@@ -2,7 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
-import { CheckoutTransaction, CheckoutLink } from '../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CheckoutTransaction } from '../data/entities'
 
 export const CHECKOUT_EXPIRY_QUEUE = 'checkout-transaction-expiry'
 
@@ -28,7 +29,8 @@ export default async function handle(job: QueuedJob<CheckoutExpiryJob>, ctx: Han
   const batchSize = job.payload?.batchSize ?? 100
   const cutoff = new Date(Date.now() - EXPIRY_TIMEOUT_MS)
 
-  const staleTransactions = await em.find(
+  const staleTransactions = await findWithDecryption(
+    em,
     CheckoutTransaction,
     {
       status: 'processing',
