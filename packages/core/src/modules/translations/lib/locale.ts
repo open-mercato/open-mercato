@@ -1,4 +1,4 @@
-import { locales } from '@open-mercato/shared/lib/i18n/config'
+import { resolveLocaleFromAcceptLanguage } from '@open-mercato/shared/lib/i18n/locale'
 
 function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
   if (!header) return undefined
@@ -13,8 +13,7 @@ function readCookieFromHeader(header: string | null | undefined, name: string): 
 }
 
 function parseAcceptLanguage(accept: string): string | null {
-  const match = locales.find((l) => new RegExp(`(^|,)\\s*${l}(-|;|,|$)`, 'i').test(accept))
-  return match ?? null
+  return resolveLocaleFromAcceptLanguage(accept)
 }
 
 export function resolveLocaleFromRequest(request: Request): string | null {

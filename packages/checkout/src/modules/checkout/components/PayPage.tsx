@@ -5,7 +5,9 @@ import Link from 'next/link'
 import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import type { CustomFieldDisplayEntry } from '@open-mercato/shared/lib/crud/custom-fields'
+import { resolveLocaleFromCandidates } from '@open-mercato/shared/lib/i18n/locale'
 import { getPaymentGatewayRenderer } from '@open-mercato/shared/modules/payment_gateways/client'
 import type { PaymentGatewayRendererProps } from '@open-mercato/shared/modules/payment_gateways/client'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
@@ -488,6 +490,24 @@ function usePrefersDarkMode() {
   }, [])
 
   return prefersDark
+}
+
+function hasStoredLocalePreference() {
+  if (typeof document === 'undefined') return false
+
+  return document.cookie
+    .split(';')
+    .some((part) => part.trim().startsWith('locale='))
+}
+
+async function persistLocalePreference(locale: Locale) {
+  const response = await fetch('/api/auth/locale', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ locale }),
+  })
+
+  return response.ok
 }
 
 function buildPanelStyle(themeTokens: PayPageThemeTokens, variant: 'default' | 'muted' | 'hero' | 'accent' = 'default'): React.CSSProperties {
@@ -1257,6 +1277,58 @@ export function PayPageHelp({ payload, preview, themeTokens }: PayPageHelpProps)
 
 export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
   const t = useT()
+  const locale = useLocale()
+  const router = useRouter()
+  const selectId = React.useId()
+  const [pending, startTransition] = React.useTransition()
+
+  const languageLabels = React.useMemo<Record<Locale, string>>(() => ({
+    en: t('common.languages.english', 'English'),
+    pl: t('common.languages.polish', 'Polski'),
+    es: t('common.languages.spanish', 'Español'),
+    de: t('common.languages.german', 'Deutsch'),
+  }), [t])
+
+  const setLocale = React.useCallback(async (nextLocale: Locale) => {
+    if (nextLocale === locale) return
+
+    try {
+      const updated = await persistLocalePreference(nextLocale)
+      if (!updated) return
+
+      startTransition(() => router.refresh())
+    } catch {
+      // Keep the current locale when persistence fails.
+    }
+  }, [locale, router, startTransition])
+
+  React.useEffect(() => {
+    if (hasStoredLocalePreference() || typeof navigator === 'undefined') return
+
+    const preferredLocale = resolveLocaleFromCandidates([
+      ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+      navigator.language,
+    ])
+
+    if (!preferredLocale) return
+
+    let active = true
+
+    void (async () => {
+      try {
+        const updated = await persistLocalePreference(preferredLocale)
+        if (!updated || !active || preferredLocale === locale) return
+
+        startTransition(() => router.refresh())
+      } catch {
+        // Keep the current locale when auto-detection persistence fails.
+      }
+    })()
+
+    return () => {
+      active = false
+    }
+  }, [locale, router, startTransition])
 
   return (
     <footer
@@ -1272,8 +1344,40 @@ export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
           <div className="font-medium" style={{ color: themeTokens.text }}>{payload.title ?? payload.name}</div>
           <div>{t('checkout.payPage.footer.subtitle', 'Public payment page configured in checkout.')}</div>
         </div>
-        <div className="text-xs uppercase tracking-[0.22em]">
-          {payload.gatewayProviderKey ?? t('checkout.payPage.header.autoProvider', 'Configured in checkout')}
+        <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+          <div className="flex items-center gap-2 text-xs" style={{ color: themeTokens.mutedText }}>
+            <label htmlFor={selectId}>{t('common.language', 'Language')}</label>
+            <div className="relative">
+              <select
+                id={selectId}
+                className="appearance-none rounded-full border px-3 py-1.5 pr-8 text-xs font-medium shadow-sm outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                style={{
+                  background: withAlpha(themeTokens.surface, 0.92),
+                  borderColor: themeTokens.borderStrong,
+                  color: themeTokens.text,
+                }}
+                value={locale}
+                onChange={(event) => setLocale(event.target.value as Locale)}
+                disabled={pending}
+              >
+                {locales.map((entry) => (
+                  <option key={entry} value={entry}>
+                    {languageLabels[entry]}
+                  </option>
+                ))}
+              </select>
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px]"
+                style={{ color: themeTokens.mutedText }}
+              >
+                ▼
+              </span>
+            </div>
+          </div>
+          <div className="text-xs uppercase tracking-[0.22em]">
+            {payload.gatewayProviderKey ?? t('checkout.payPage.header.autoProvider', 'Configured in checkout')}
+          </div>
         </div>
       </div>
     </footer>
