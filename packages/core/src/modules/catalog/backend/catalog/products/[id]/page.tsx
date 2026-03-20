@@ -675,10 +675,11 @@ export default function EditCatalogProductPage({
   React.useEffect(() => {
     const hash = window.location.hash.replace('#', '')
     if (!hash) return
-    const timer = setTimeout(() => {
+    // Next.js client-side navigation does not scroll to hash targets; wait for paint then scroll
+    const frame = requestAnimationFrame(() => {
       document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 50)
-    return () => clearTimeout(timer)
+    })
+    return () => cancelAnimationFrame(frame)
   }, [])
 
   const handleVariantDeleted = React.useCallback((variantId: string) => {
