@@ -10,6 +10,7 @@ import {
 } from '@open-mercato/shared/modules/payment_gateways/client'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import type { StripePaymentElementSettings } from './lib/shared'
 
 type StripeRendererPayload = {
   clientSecret?: string
@@ -40,6 +41,27 @@ function resolveAppearanceVariables(): Record<string, string> {
     colorText: `hsl(${styles.getPropertyValue('--foreground').trim() || '222.2 84% 4.9%'})`,
     colorDanger: `hsl(${styles.getPropertyValue('--destructive').trim() || '0 84.2% 60.2%'})`,
     colorTextPlaceholder: `hsl(${styles.getPropertyValue('--muted-foreground').trim() || '215.4 16.3% 46.9%'})`,
+  }
+}
+
+function readRendererSettings(session: EmbeddedPaymentGatewayRendererProps['session']): StripePaymentElementSettings {
+  const settings = session.settings
+  const layout = settings?.layout === 'tabs' || settings?.layout === 'accordion'
+    ? settings.layout
+    : undefined
+  const billingDetails = settings?.billingDetails === 'auto'
+    || settings?.billingDetails === 'never'
+    || settings?.billingDetails === 'if_required'
+    ? settings.billingDetails
+    : undefined
+  const paymentMethodOrder = Array.isArray(settings?.paymentMethodOrder)
+    ? settings.paymentMethodOrder.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    : []
+
+  return {
+    ...(layout ? { layout } : {}),
+    ...(billingDetails ? { billingDetails } : {}),
+    ...(paymentMethodOrder.length > 0 ? { paymentMethodOrder } : {}),
   }
 }
 
@@ -85,25 +107,20 @@ function StripeEmbeddedPaymentForm({
   }, [elements, onComplete, onError, returnUrl, stripe, t])
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-2xl border bg-background px-4 py-4 shadow-sm">
-        <PaymentElement options={{ layout: 'tabs' }} />
-      </div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground">
-          {t('gateway_stripe.payments.helper', 'Use Stripe test mode cards or wallets configured for this account.')}
-        </p>
-        <Button
-          type="button"
-          disabled={disabled || isSubmitting || !stripe || !elements}
-          onClick={() => { void handleSubmit() }}
-        >
-          {isSubmitting ? <Spinner className="mr-2 size-4" /> : null}
-          {isSubmitting
-            ? t('gateway_stripe.payments.processing', 'Confirming payment...')
-            : t('gateway_stripe.payments.submit', 'Pay securely')}
-        </Button>
-      </div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs text-muted-foreground">
+        {t('gateway_stripe.payments.helper', 'Use Stripe test mode cards or wallets configured for this account.')}
+      </p>
+      <Button
+        type="button"
+        disabled={disabled || isSubmitting || !stripe || !elements}
+        onClick={() => { void handleSubmit() }}
+      >
+        {isSubmitting ? <Spinner className="mr-2 size-4" /> : null}
+        {isSubmitting
+          ? t('gateway_stripe.payments.processing', 'Confirming payment...')
+          : t('gateway_stripe.payments.submit', 'Pay securely')}
+      </Button>
     </div>
   )
 }
@@ -111,6 +128,7 @@ function StripeEmbeddedPaymentForm({
 function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProps) {
   const t = useT()
   const payload = readStripePayload(props.session.payload)
+  const rendererSettings = React.useMemo(() => readRendererSettings(props.session), [props.session])
   const onError = props.onError
   const stripePromise = React.useMemo(
     () => (payload.publishableKey ? loadStripe(payload.publishableKey) : null),
@@ -154,12 +172,36 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
           appearance,
         }}
       >
-        <StripeEmbeddedPaymentForm
-          returnUrl={payload.returnUrl}
-          disabled={props.disabled}
-          onComplete={props.onComplete}
-          onError={onError}
-        />
+        <div className="space-y-4">
+          <div className="rounded-2xl border bg-background px-4 py-4 shadow-sm">
+            <PaymentElement
+              options={{
+                ...(rendererSettings.layout ? { layout: rendererSettings.layout } : {}),
+                ...(rendererSettings.paymentMethodOrder
+                  ? { paymentMethodOrder: rendererSettings.paymentMethodOrder }
+                  : {}),
+                ...(rendererSettings.billingDetails
+                  ? {
+                      fields: {
+                        billingDetails: {
+                          name: rendererSettings.billingDetails,
+                          email: rendererSettings.billingDetails,
+                          phone: rendererSettings.billingDetails,
+                          address: rendererSettings.billingDetails,
+                        },
+                      },
+                    }
+                  : {}),
+              }}
+            />
+          </div>
+          <StripeEmbeddedPaymentForm
+            returnUrl={payload.returnUrl}
+            disabled={props.disabled}
+            onComplete={props.onComplete}
+            onError={onError}
+          />
+        </div>
       </Elements>
     </div>
   )

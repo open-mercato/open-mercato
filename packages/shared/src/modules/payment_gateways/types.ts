@@ -58,6 +58,23 @@ export interface PaymentGatewayDescriptorField {
   options?: Array<{ value: string; label: string }>
 }
 
+export type PaymentGatewayRendererType = 'embedded' | 'redirect'
+
+export interface PaymentGatewayRendererDescriptor {
+  key: string
+  label: string
+  type: PaymentGatewayRendererType
+  description?: string
+  supportedPaymentTypes?: '*' | string[]
+  settingsFields?: PaymentGatewayDescriptorField[]
+}
+
+export interface PaymentGatewayPresentationRequest {
+  mode?: 'auto' | PaymentGatewayRendererType
+  rendererKey?: string
+  rendererSettings?: Record<string, unknown>
+}
+
 export interface PaymentGatewayDescriptor {
   providerKey: string
   label: string
@@ -65,7 +82,15 @@ export interface PaymentGatewayDescriptor {
     fields?: PaymentGatewayDescriptorField[]
     supportedCurrencies?: '*' | string[]
     supportedPaymentTypes?: Array<{ value: string; label: string }>
+    defaultRendererKey?: string
+    renderers?: PaymentGatewayRendererDescriptor[]
+    /**
+     * @deprecated Use `renderers` and `defaultRendererKey`.
+     */
     presentation?: 'embedded' | 'redirect' | 'either'
+    /**
+     * @deprecated Use `renderers`.
+     */
     embeddedRenderers?: string[]
   }
 }
@@ -74,9 +99,18 @@ export interface EmbeddedPaymentGatewayClientSession {
   type: 'embedded'
   rendererKey: string
   payload?: Record<string, unknown>
+  settings?: Record<string, unknown>
 }
 
-export type PaymentGatewayClientSession = EmbeddedPaymentGatewayClientSession
+export interface RedirectPaymentGatewayClientSession {
+  type: 'redirect'
+  redirectUrl: string
+  target?: 'self' | 'top'
+}
+
+export type PaymentGatewayClientSession =
+  | EmbeddedPaymentGatewayClientSession
+  | RedirectPaymentGatewayClientSession
 
 // ── Input / Output Types ────────────────────────────────────────────────────
 
@@ -95,6 +129,7 @@ export interface CreateSessionInput {
   metadata?: Record<string, unknown>
   credentials: Record<string, unknown>
   lineItems?: SessionLineItem[]
+  presentation?: PaymentGatewayPresentationRequest
 }
 
 export interface SessionLineItem {

@@ -17,6 +17,22 @@ type PaymentGatewayDescriptorService = {
       }>
       supportedCurrencies?: '*' | string[]
       supportedPaymentTypes?: Array<{ value: string; label: string }>
+      defaultRendererKey?: string
+      renderers?: Array<{
+        key: string
+        label: string
+        type: 'embedded' | 'redirect'
+        description?: string
+        supportedPaymentTypes?: '*' | string[]
+        settingsFields?: Array<{
+          key: string
+          label: string
+          type: string
+          description?: string
+          required?: boolean
+          options?: Array<{ value: string; label: string }>
+        }>
+      }>
       presentation?: 'embedded' | 'redirect' | 'either'
     }
   }>

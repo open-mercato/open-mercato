@@ -54,14 +54,29 @@ function readClientSession(
 ): PaymentGatewayClientSession | null {
   const candidate = metadata?.clientSession
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null
-  if ((candidate as { type?: unknown }).type !== 'embedded') return null
+  const type = (candidate as { type?: unknown }).type
+  if (type === 'redirect') {
+    const redirectUrl = (candidate as { redirectUrl?: unknown }).redirectUrl
+    if (typeof redirectUrl !== 'string' || redirectUrl.trim().length === 0) return null
+    const target = (candidate as { target?: unknown }).target
+    return {
+      type: 'redirect',
+      redirectUrl,
+      target: target === 'top' ? 'top' : 'self',
+    }
+  }
+  if (type !== 'embedded') return null
   if (typeof (candidate as { rendererKey?: unknown }).rendererKey !== 'string') return null
   const payload = (candidate as { payload?: unknown }).payload
+  const settings = (candidate as { settings?: unknown }).settings
   return {
     type: 'embedded',
     rendererKey: (candidate as { rendererKey: string }).rendererKey,
     payload: payload && typeof payload === 'object' && !Array.isArray(payload)
       ? payload as Record<string, unknown>
+      : undefined,
+    settings: settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? settings as Record<string, unknown>
       : undefined,
   }
 }
@@ -88,11 +103,15 @@ async function buildSubmitResponse(
   const paymentSession = (clientSession && gatewayTransaction)
     ? {
         ...clientSession,
-        payload: {
-          ...(clientSession.payload ?? {}),
-          returnUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
-          cancelUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
-        },
+        ...(clientSession.type === 'embedded'
+          ? {
+              payload: {
+                ...(clientSession.payload ?? {}),
+                returnUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/success/${encodeURIComponent(transaction.id)}`,
+                cancelUrl: `${requestUrl.origin}/pay/${encodeURIComponent(link.slug)}/cancel/${encodeURIComponent(transaction.id)}`,
+              },
+            }
+          : {}),
         providerKey: providerKey ?? gatewayTransaction.providerKey ?? null,
         gatewayTransactionId: gatewayTransaction.id,
       }
@@ -261,6 +280,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
             (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
           )
         : []
+      const rendererKey = typeof link.gatewaySettings?.rendererKey === 'string' && link.gatewaySettings.rendererKey.trim().length > 0
+        ? link.gatewaySettings.rendererKey.trim()
+        : undefined
+      const rendererSettings = link.gatewaySettings?.rendererSettings
+        && typeof link.gatewaySettings.rendererSettings === 'object'
+        && !Array.isArray(link.gatewaySettings.rendererSettings)
+        ? link.gatewaySettings.rendererSettings as Record<string, unknown>
+        : undefined
+      const presentationMode = link.gatewaySettings?.presentationMode === 'embedded'
+        || link.gatewaySettings?.presentationMode === 'redirect'
+        || link.gatewaySettings?.presentationMode === 'auto'
+        ? link.gatewaySettings.presentationMode
+        : undefined
       const sessionResult = await paymentGatewayService.createPaymentSession({
         providerKey: link.gatewayProviderKey,
         paymentId: transactionId,
@@ -274,6 +306,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           checkoutLinkId: link.id,
           checkoutSlug: link.slug,
         },
+        presentation: rendererKey || rendererSettings || presentationMode
+          ? {
+              ...(presentationMode ? { mode: presentationMode } : {}),
+              ...(rendererKey ? { rendererKey } : {}),
+              ...(rendererSettings ? { rendererSettings } : {}),
+            }
+          : undefined,
         organizationId: link.organizationId,
         tenantId: link.tenantId,
       })

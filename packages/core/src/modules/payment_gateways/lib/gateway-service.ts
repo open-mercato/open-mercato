@@ -8,6 +8,7 @@ import {
   type RefundResult,
   type CancelResult,
   type GatewayPaymentStatus,
+  type PaymentGatewayPresentationRequest,
   type UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
@@ -36,6 +37,7 @@ export interface CreatePaymentSessionInput {
   successUrl?: string
   cancelUrl?: string
   metadata?: Record<string, unknown>
+  presentation?: PaymentGatewayPresentationRequest
   organizationId: string
   tenantId: string
 }
@@ -143,6 +145,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         successUrl: input.successUrl,
         cancelUrl: input.cancelUrl,
         metadata: input.metadata,
+        presentation: input.presentation,
         credentials,
       }
 
@@ -153,7 +156,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         providerKey: input.providerKey,
         providerSessionId: session.sessionId,
         unifiedStatus: session.status,
-        redirectUrl: session.redirectUrl ?? null,
+        redirectUrl: session.redirectUrl
+          ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null),
         clientSecret: session.clientSecret ?? null,
         amount: String(input.amount),
         currencyCode: input.currencyCode,

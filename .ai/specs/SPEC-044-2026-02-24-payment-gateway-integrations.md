@@ -253,6 +253,12 @@ interface CreateSessionInput {
   locale?: string
   /** Additional metadata passed to the gateway */
   metadata?: Record<string, string>
+  /** Optional rendering preference from the consumer UI */
+  presentation?: {
+    mode?: 'auto' | 'embedded' | 'redirect'
+    rendererKey?: string
+    rendererSettings?: Record<string, unknown>
+  }
 }
 
 interface SessionLineItem {
@@ -268,15 +274,22 @@ interface CreateSessionResult {
   /** URL to redirect customer to for payment when using a hosted flow */
   redirectUrl?: string
   /**
-   * Optional client-safe embedded session description.
-   * Consumer modules resolve the renderer through a shared registry using
-   * providerKey + rendererKey and never import provider UI directly.
+   * Optional client-safe payment presentation description.
+   * Consumer modules resolve provider-owned renderers through a shared registry
+   * using providerKey + rendererKey and never import provider UI directly.
    */
-  clientSession?: {
-    type: 'embedded'
-    rendererKey: string
-    payload?: Record<string, unknown>
-  }
+  clientSession?:
+    | {
+        type: 'embedded'
+        rendererKey: string
+        payload?: Record<string, unknown>
+        settings?: Record<string, unknown>
+      }
+    | {
+        type: 'redirect'
+        redirectUrl: string
+        target?: 'self' | 'top'
+      }
   /** Gateway's payment intent/order ID (may differ from session ID) */
   gatewayPaymentId?: string
   /** Raw gateway response stored in metadata */
@@ -363,7 +376,7 @@ type UnifiedPaymentStatus =
   | 'unknown'       // Unmapped gateway status (logged, not processed)
 ```
 
-### 5.1 Embedded Payment Renderer Contract
+### 5.1 Provider-Owned Payment Presentation Contract
 
 When a provider supports an inline payment UI, the provider package owns the browser component and publishes it through a generated client bootstrap import:
 
@@ -371,9 +384,28 @@ When a provider supports an inline payment UI, the provider package owns the bro
 - generator emits `payments.client.generated.ts`
 - app client bootstrap imports that file for side effects
 - consumer UIs receive `CreateSessionResult.clientSession`
-- consumer UIs ask the shared payment-renderer registry for `providerKey + rendererKey`
+- if `clientSession.type === 'embedded'`, consumer UIs ask the shared payment-renderer registry for `providerKey + rendererKey`
+- if `clientSession.type === 'redirect'`, consumer UIs follow the returned redirect URL without adding provider-specific branching
 
-This keeps checkout, portal, and future sales payment pages generic. The consumer module never imports Stripe, PayU, or Przelewy24 UI code directly.
+Providers can also publish a renderer catalog in their safe descriptor surface:
+
+```typescript
+sessionConfig?: {
+  supportedCurrencies?: '*' | string[]
+  supportedPaymentTypes?: Array<{ value: string; label: string }>
+  defaultRendererKey?: string
+  renderers?: Array<{
+    key: string
+    label: string
+    type: 'embedded' | 'redirect'
+    description?: string
+    supportedPaymentTypes?: '*' | string[]
+    settingsFields?: PaymentGatewayDescriptorField[]
+  }>
+}
+```
+
+This keeps checkout, portal, and future sales payment pages generic. The consumer module never imports Stripe, PayU, or Przelewy24 UI code directly, and it never hardcodes gateway-specific rendering options.
 
 ---
 
@@ -1895,3 +1927,4 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-02-24 | Added API versioning support: adapter registry is version-aware, gateway service resolves tenant's selected version, Stripe module restructured with `lib/shared.ts` + `lib/adapters/v*.ts` pattern, `integration.ts` declares `apiVersions` |
 | 2026-03-10 | Implementation: TC-PGWY-008..011 edge-case tests added (partial refund, double capture, webhook idempotency, malformed webhook). All tests use mock adapter. Stripe-specific integration tests requiring real API keys deferred to future. |
 | 2026-03-19 | Added the provider-owned embedded payment contract: `CreateSessionResult.clientSession`, generated `payments.client.ts(x)` bootstrap imports, and shared browser renderer registry lookup. |
+| 2026-03-20 | Generalized provider-owned payment presentation: renderer catalogs in descriptors, consumer `presentation` request, embedded renderer settings, and redirect sessions under the same gateway-agnostic contract. |

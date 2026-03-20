@@ -54,6 +54,51 @@ export function register(container: AppContainer) {
         { value: 'google_pay', label: 'Google Pay' },
         { value: 'link', label: 'Link' },
       ],
+      defaultRendererKey: 'stripe.payment_element',
+      renderers: [
+        {
+          key: 'stripe.payment_element',
+          label: 'Stripe Payment Element',
+          type: 'embedded',
+          description: 'Embeds Stripe Elements on the merchant page while Stripe handles payment method UX and required redirects.',
+          supportedPaymentTypes: ['card', 'apple_pay', 'google_pay', 'link'],
+          settingsFields: [
+            {
+              key: 'layout',
+              label: 'Layout',
+              type: 'select',
+              required: false,
+              options: [
+                { value: 'tabs', label: 'Tabs' },
+                { value: 'accordion', label: 'Accordion' },
+              ],
+            },
+            {
+              key: 'paymentMethodOrder',
+              label: 'Payment method order',
+              type: 'multiselect',
+              required: false,
+              options: [
+                { value: 'card', label: 'Card' },
+                { value: 'apple_pay', label: 'Apple Pay' },
+                { value: 'google_pay', label: 'Google Pay' },
+                { value: 'link', label: 'Link' },
+              ],
+            },
+            {
+              key: 'billingDetails',
+              label: 'Billing details collection',
+              type: 'select',
+              required: false,
+              options: [
+                { value: 'auto', label: 'Auto' },
+                { value: 'if_required', label: 'If required' },
+                { value: 'never', label: 'Never' },
+              ],
+            },
+          ],
+        },
+      ],
       presentation: 'either',
       embeddedRenderers: ['stripe.payment_element'],
     },

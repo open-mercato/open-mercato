@@ -171,6 +171,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       clientSession: {
         type: 'embedded',
         rendererKey: 'stripe.payment_element',
+        settings: input.presentation?.rendererSettings,
         payload: {
           clientSecret: paymentIntent.client_secret!,
           publishableKey: input.credentials.publishableKey,
@@ -241,6 +242,18 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   mapStatus: mapStripeStatus,  // Shared across versions
 }
 ```
+
+Stripe is the reference implementation for **renderer catalogs**:
+- the descriptor exposes `defaultRendererKey`
+- `renderers[]` declares supported presentations
+- each renderer can publish `settingsFields[]` so consumer modules persist renderer-specific options without learning Stripe semantics
+
+For `stripe.payment_element`, the first supported settings are:
+- `layout`
+- `paymentMethodOrder`
+- `billingDetails`
+
+Consumer modules pass them generically via `CreateSessionInput.presentation.rendererSettings`; the Stripe provider is solely responsible for mapping those values into `PaymentElement` options.
 
 ### 4.3 Status Mapping
 
@@ -614,6 +627,7 @@ export async function resolveStripeClient(
 |------|--------|--------|
 | Create payment intent | `createSession()` | PaymentIntent created in Stripe, sessionId + clientSecret returned |
 | Embedded renderer registration | `payments.client.tsx` | Registers `stripe.payment_element` in the shared client registry |
+| Renderer settings passthrough | `createSession()` + `payments.client.tsx` | `rendererSettings` persisted in `clientSession.settings` and applied to Stripe `PaymentElement` options |
 | Embedded confirmation flow | Public pay page + renderer | `PaymentElement` confirms the PaymentIntent without checkout importing Stripe UI directly |
 | Capture authorized payment | `capturePayment()` | Amount captured, status → `captured` |
 | Partial capture | `capturePayment()` with amount | Only specified amount captured |
@@ -676,3 +690,4 @@ When Stripe-specific tests are added in the future, they should:
 |------|--------|
 | 2026-03-10 | Added §13 Testing Strategy noting deferred Stripe-specific integration tests. Mock adapter tests validate the GatewayAdapter contract. Added `company` field to integration metadata. |
 | 2026-03-19 | Added provider-owned embedded payment renderer support: `payments.client.tsx`, `stripe.payment_element`, and `clientSession` returned from `createSession()`. |
+| 2026-03-20 | Extended Stripe to the generalized renderer-catalog contract: descriptor `renderers[]`, default renderer key, and `PaymentElement` renderer settings passed through the gateway layer. |

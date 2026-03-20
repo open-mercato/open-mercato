@@ -1354,6 +1354,15 @@ type PaymentGatewayDescriptor = {
     }>
     supportedCurrencies?: '*' | string[]
     supportedPaymentTypes?: Array<{ value: string; label: string }>
+    defaultRendererKey?: string
+    renderers?: Array<{
+      key: string
+      label: string
+      type: 'embedded' | 'redirect'
+      description?: string
+      supportedPaymentTypes?: '*' | string[]
+      settingsFields?: PaymentGatewayDescriptorField[]
+    }>
     presentation?: 'embedded' | 'redirect' | 'either'
     embeddedRenderers?: string[]
   }
@@ -1368,7 +1377,9 @@ The core `payment_gateways` module should expose this generically through a DI s
 
 Provider packages register descriptors next to their adapters. Core remains unaware of pay links; it only exposes generic provider capabilities.
 
-For embedded payments, provider packages also register their browser renderer through `payments.client.ts(x)`, discovered by the generator and imported by client bootstrap. Checkout receives `{ providerKey, rendererKey, payload }` from the session response and mounts the provider-owned component through the shared registry, keeping the pay page fully gateway-agnostic.
+For embedded payments, provider packages also register their browser renderer through `payments.client.ts(x)`, discovered by the generator and imported by client bootstrap. Checkout receives `{ providerKey, rendererKey, payload, settings }` from the session response and mounts the provider-owned component through the shared registry, keeping the pay page fully gateway-agnostic.
+
+If a provider does not render anything on the merchant page, the same generic contract can return `clientSession.type = 'redirect'` (with the existing `redirectUrl` preserved as a bridge). Checkout still remains provider-agnostic: it either mounts the provider-owned renderer or follows the redirect returned by the gateway layer.
 
 **Currency validation**
 
