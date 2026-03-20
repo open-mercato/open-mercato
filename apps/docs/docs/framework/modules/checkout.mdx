@@ -67,6 +67,8 @@ The public flow uses four endpoints:
 - `POST /api/checkout/pay/:slug/submit`
 - `GET /api/checkout/pay/:slug/status/:transactionId`
 
+Password-protected pay links sign a short-lived cookie-backed session. Set `AUTH_SECRET` or `NEXTAUTH_SECRET` in the app env when possible. If those are not configured, checkout falls back to `JWT_SECRET`, then `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`.
+
 The server remains authoritative for:
 
 - amount validation

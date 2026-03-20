@@ -48,7 +48,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const response = NextResponse.json({ ok: true })
     response.cookies.set(CHECKOUT_PASSWORD_COOKIE, signCheckoutAccessToken(link.slug, {
       linkId: link.id,
-      passwordHash: link.passwordHash,
+      sessionVersion: link.updatedAt,
     }), {
       httpOnly: true,
       secure: true,

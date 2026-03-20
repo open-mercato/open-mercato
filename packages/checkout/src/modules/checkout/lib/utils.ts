@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'crypto'
+import { createHmac, timingSafeEqual } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -214,26 +214,31 @@ export async function verifyCheckoutPassword(password: string, passwordHash: str
 }
 
 function getCheckoutAccessTokenSecret(): string {
-  const secret = process.env.AUTH_SECRET || process.env.NEXTAUTH_SECRET
+  const secret = process.env.AUTH_SECRET
+    || process.env.NEXTAUTH_SECRET
+    || process.env.JWT_SECRET
+    || process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
   if (!secret) {
-    throw new Error('Checkout password sessions require AUTH_SECRET or NEXTAUTH_SECRET')
+    throw new Error(
+      'Checkout password sessions require AUTH_SECRET, NEXTAUTH_SECRET, JWT_SECRET, or TENANT_DATA_ENCRYPTION_FALLBACK_KEY',
+    )
   }
   return secret
 }
 
-function buildCheckoutPasswordSessionFingerprint(passwordHash: string | null | undefined): string | null {
-  if (!passwordHash) return null
-  return createHash('sha256').update(`${getCheckoutAccessTokenSecret()}:${passwordHash}`).digest('base64url')
+function normalizeCheckoutAccessSessionVersion(value: Date | string | null | undefined): string | null {
+  if (!value) return null
+  return value instanceof Date ? value.toISOString() : value
 }
 
 export function signCheckoutAccessToken(
   slug: string,
-  options?: { linkId?: string | null; passwordHash?: string | null },
+  options?: { linkId?: string | null; sessionVersion?: Date | string | null },
 ): string {
   const payload = Buffer.from(JSON.stringify({
     slug,
     linkId: options?.linkId ?? null,
-    passwordFingerprint: buildCheckoutPasswordSessionFingerprint(options?.passwordHash),
+    sessionVersion: normalizeCheckoutAccessSessionVersion(options?.sessionVersion),
     exp: Date.now() + (60 * 60 * 1000),
   }), 'utf-8').toString('base64url')
   const signature = createHmac('sha256', getCheckoutAccessTokenSecret()).update(payload).digest('base64url')
@@ -243,7 +248,7 @@ export function signCheckoutAccessToken(
 export function verifyCheckoutAccessToken(
   token: string | null | undefined,
   slug: string,
-  options?: { linkId?: string | null; passwordHash?: string | null },
+  options?: { linkId?: string | null; sessionVersion?: Date | string | null },
 ): boolean {
   if (!token) return false
   const [payload, signature] = token.split('.')
@@ -255,13 +260,13 @@ export function verifyCheckoutAccessToken(
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf-8')) as {
       slug?: string
       linkId?: string | null
-      passwordFingerprint?: string | null
+      sessionVersion?: string | null
       exp?: number
     }
     if (parsed.slug !== slug || typeof parsed.exp !== 'number' || parsed.exp <= Date.now()) return false
     if (options?.linkId && parsed.linkId !== options.linkId) return false
-    if (options?.passwordHash) {
-      return parsed.passwordFingerprint === buildCheckoutPasswordSessionFingerprint(options.passwordHash)
+    if (options?.sessionVersion) {
+      return parsed.sessionVersion === normalizeCheckoutAccessSessionVersion(options.sessionVersion)
     }
     return true
   } catch {

@@ -32,18 +32,39 @@ function createLink(overrides: Partial<CheckoutLink> = {}): CheckoutLink {
 
 describe('checkout utils', () => {
   const originalAuthSecret = process.env.AUTH_SECRET
+  const originalNextAuthSecret = process.env.NEXTAUTH_SECRET
+  const originalJwtSecret = process.env.JWT_SECRET
+  const originalTenantEncryptionFallbackKey = process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
 
   beforeEach(() => {
     clearPaymentGatewayDescriptors()
     process.env.AUTH_SECRET = 'checkout-test-secret'
+    delete process.env.NEXTAUTH_SECRET
+    delete process.env.JWT_SECRET
+    delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
   })
 
   afterAll(() => {
     if (originalAuthSecret == null) {
       delete process.env.AUTH_SECRET
-      return
+    } else {
+      process.env.AUTH_SECRET = originalAuthSecret
     }
-    process.env.AUTH_SECRET = originalAuthSecret
+    if (originalNextAuthSecret == null) {
+      delete process.env.NEXTAUTH_SECRET
+    } else {
+      process.env.NEXTAUTH_SECRET = originalNextAuthSecret
+    }
+    if (originalJwtSecret == null) {
+      delete process.env.JWT_SECRET
+    } else {
+      process.env.JWT_SECRET = originalJwtSecret
+    }
+    if (originalTenantEncryptionFallbackKey == null) {
+      delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+    } else {
+      process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = originalTenantEncryptionFallbackKey
+    }
   })
 
   it('resolves fixed pricing from the server configuration', () => {
@@ -111,21 +132,52 @@ describe('checkout utils', () => {
   it('verifies password access tokens only for the matching slug', () => {
     const token = signCheckoutAccessToken('launch-offer', {
       linkId: 'link_1',
-      passwordHash: '$2b$10$initial-hash',
+      sessionVersion: '2026-03-20T10:00:00.000Z',
     })
 
     expect(verifyCheckoutAccessToken(token, 'launch-offer', {
       linkId: 'link_1',
-      passwordHash: '$2b$10$initial-hash',
+      sessionVersion: '2026-03-20T10:00:00.000Z',
     })).toBe(true)
     expect(verifyCheckoutAccessToken(token, 'other-link', {
       linkId: 'link_1',
-      passwordHash: '$2b$10$initial-hash',
+      sessionVersion: '2026-03-20T10:00:00.000Z',
     })).toBe(false)
     expect(verifyCheckoutAccessToken(token, 'launch-offer', {
       linkId: 'link_1',
-      passwordHash: '$2b$10$rotated-hash',
+      sessionVersion: '2026-03-20T10:05:00.000Z',
     })).toBe(false)
+  })
+
+  it('falls back to JWT_SECRET for checkout password sessions', () => {
+    delete process.env.AUTH_SECRET
+    process.env.JWT_SECRET = 'checkout-jwt-secret'
+
+    const token = signCheckoutAccessToken('launch-offer', {
+      linkId: 'link_1',
+      sessionVersion: '2026-03-20T10:00:00.000Z',
+    })
+
+    expect(verifyCheckoutAccessToken(token, 'launch-offer', {
+      linkId: 'link_1',
+      sessionVersion: '2026-03-20T10:00:00.000Z',
+    })).toBe(true)
+  })
+
+  it('falls back to TENANT_DATA_ENCRYPTION_FALLBACK_KEY when auth secrets are unset', () => {
+    delete process.env.AUTH_SECRET
+    delete process.env.JWT_SECRET
+    process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY = 'checkout-encryption-fallback-secret'
+
+    const token = signCheckoutAccessToken('launch-offer', {
+      linkId: 'link_1',
+      sessionVersion: '2026-03-20T10:00:00.000Z',
+    })
+
+    expect(verifyCheckoutAccessToken(token, 'launch-offer', {
+      linkId: 'link_1',
+      sessionVersion: '2026-03-20T10:00:00.000Z',
+    })).toBe(true)
   })
 
   it('releases the link lock when a reserved transaction reaches a terminal status', () => {

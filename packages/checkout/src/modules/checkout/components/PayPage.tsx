@@ -271,6 +271,14 @@ function readErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
+function readTranslatedErrorMessage(
+  error: unknown,
+  translate: (key: string, fallback: string) => string,
+  fallback: string,
+) {
+  return translate(readErrorMessage(error, fallback), fallback)
+}
+
 function parseNumericInput(value: string): number | null {
   const trimmed = value.trim()
   if (!trimmed) return null
@@ -1751,6 +1759,7 @@ export function PayPage({
           headers: {
             'Content-Type': 'application/json',
             'Idempotency-Key': crypto.randomUUID(),
+            'x-om-unauthorized-redirect': '0',
           },
           body: JSON.stringify(nextSubmitData),
         },
@@ -1906,12 +1915,19 @@ export function PayPage({
                   try {
                     await apiCallOrThrow(`/api/checkout/pay/${encodeURIComponent(slug)}/verify-password`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: {
+                        'Content-Type': 'application/json',
+                        'x-om-unauthorized-redirect': '0',
+                      },
                       body: JSON.stringify({ password }),
                     })
                     await loadPayload()
                   } catch (error) {
-                    setPasswordError(readErrorMessage(error, t('checkout.payPage.errors.password', 'Unable to verify password. Please try again.')))
+                    setPasswordError(readTranslatedErrorMessage(
+                      error,
+                      t,
+                      t('checkout.payPage.errors.password', 'Unable to verify password. Please try again.'),
+                    ))
                   } finally {
                     setIsVerifyingPassword(false)
                   }

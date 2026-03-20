@@ -43,6 +43,8 @@
 - `POST /api/checkout/pay/:slug/submit` validates server-authoritative pricing, legal consents, and idempotency before creating the gateway session.
 - `GET /api/checkout/pay/:slug/status/:transactionId` polls the linked checkout transaction without exposing cross-link data.
 
+Password-protected links need a signing secret. Configure `AUTH_SECRET` or `NEXTAUTH_SECRET` in the app env when possible. If they are unset, checkout falls back to `JWT_SECRET`, then `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`.
+
 ## Extensibility
 
 Checkout exposes stable UMES surfaces for customization:

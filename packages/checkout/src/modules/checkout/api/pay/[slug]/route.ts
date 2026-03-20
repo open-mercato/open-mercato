@@ -53,7 +53,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const token = readCheckoutAccessCookie(req)
     const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutAccessToken(token, link.slug, {
       linkId: link.id,
-      passwordHash: link.passwordHash,
+      sessionVersion: link.updatedAt,
     })
     if (!passwordVerified) {
       return NextResponse.json({

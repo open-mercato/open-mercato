@@ -91,7 +91,7 @@ export function readCheckoutAccessCookie(req: Request): string | null {
 export function requireCheckoutPasswordSession(
   req: Request,
   slug: string,
-  options?: { linkId?: string | null; passwordHash?: string | null },
+  options?: { linkId?: string | null; sessionVersion?: Date | string | null },
 ): void {
   const token = readCheckoutAccessCookie(req)
   if (!verifyCheckoutAccessToken(token, slug, options)) {

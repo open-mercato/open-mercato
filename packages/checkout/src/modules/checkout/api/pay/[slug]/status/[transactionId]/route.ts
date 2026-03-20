@@ -38,7 +38,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     if (link.passwordHash) {
       requireCheckoutPasswordSession(req, link.slug, {
         linkId: link.id,
-        passwordHash: link.passwordHash,
+        sessionVersion: link.updatedAt,
       })
     }
     let transaction = await findOneWithDecryption(em, CheckoutTransaction, {
