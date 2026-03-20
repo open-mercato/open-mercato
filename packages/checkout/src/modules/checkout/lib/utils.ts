@@ -41,6 +41,21 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+export function pickExplicitParsedOverrides<TInput extends Record<string, unknown>>(
+  rawInput: unknown,
+  parsed: TInput,
+): Partial<TInput> {
+  if (!isRecord(rawInput)) return {}
+
+  const overrides: Partial<TInput> = {}
+  for (const key of Object.keys(parsed) as Array<keyof TInput>) {
+    if (!Object.prototype.hasOwnProperty.call(rawInput, key)) continue
+    overrides[key] = parsed[key]
+  }
+
+  return overrides
+}
+
 export function requireCheckoutScope(input: { auth?: { orgId?: string | null; tenantId?: string | null } | null }): CheckoutScope {
   const organizationId = input.auth?.orgId ?? null
   const tenantId = input.auth?.tenantId ?? null

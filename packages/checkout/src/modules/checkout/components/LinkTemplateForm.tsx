@@ -1288,9 +1288,15 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const [providers, setProviders] = React.useState<ProviderDescriptor[]>([])
   const [templateOptions, setTemplateOptions] = React.useState<ComboboxOption[]>([])
   const [isApplyingTemplate, setIsApplyingTemplate] = React.useState(false)
+  const [formInstanceKey, setFormInstanceKey] = React.useState(0)
   const [initialValues, setInitialValues] = React.useState<FormValues | null>(
     recordId ? null : normalizeFormValues(createDefaultValues(t), t),
   )
+
+  const replaceInitialValues = React.useCallback((nextValues: FormValues) => {
+    setInitialValues(nextValues)
+    setFormInstanceKey((current) => current + 1)
+  }, [])
 
   React.useEffect(() => {
     initialLogoAttachmentIdRef.current = initialValues && typeof initialValues.logoAttachmentId === 'string'
@@ -1345,6 +1351,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const applyTemplate = React.useCallback(async (nextTemplateId: string | null) => {
     if (recordId || mode !== 'link') return
     if (!nextTemplateId) {
+      replaceInitialValues(normalizeFormValues(createDefaultValues(t), t))
       return
     }
     setIsApplyingTemplate(true)
@@ -1357,7 +1364,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
         gatewayProviderKey: readString(result.gatewayProviderKey) || null,
         pricingMode: readString(result.pricingMode) || null,
       }])
-      setInitialValues(
+      replaceInitialValues(
         normalizeFormValues({
           ...result,
           slug: '',
@@ -1367,7 +1374,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     } finally {
       setIsApplyingTemplate(false)
     }
-  }, [mode, recordId, rememberTemplateOptions, t])
+  }, [mode, recordId, rememberTemplateOptions, replaceInitialValues, t])
 
   React.useEffect(() => {
     if (mode !== 'link' || recordId) return
@@ -1381,20 +1388,44 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     void readApiResultOrThrow<FormValues>(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`)
       .then((result) => {
         if (!active) return
-        setInitialValues(normalizeFormValues(result, t))
+        replaceInitialValues(normalizeFormValues(result, t))
       })
       .catch(() => {
-        if (active) setInitialValues(normalizeFormValues({}, t))
+        if (active) replaceInitialValues(normalizeFormValues({}, t))
       })
     return () => {
       active = false
     }
-  }, [mode, recordId, t])
+  }, [mode, recordId, replaceInitialValues, t])
 
   React.useEffect(() => {
     if (recordId || mode !== 'link' || !templateId) return
     void applyTemplate(templateId).catch(() => null)
   }, [applyTemplate, mode, recordId, templateId])
+
+  React.useEffect(() => {
+    const currentTemplateId = readString(initialValues?.templateId).trim()
+    if (mode !== 'link' || !currentTemplateId) return
+    if (templateOptions.some((option) => option.value === currentTemplateId)) return
+
+    let active = true
+    void readApiResultOrThrow<FormValues>(`/api/checkout/templates/${encodeURIComponent(currentTemplateId)}`)
+      .then((result) => {
+        if (!active) return
+        rememberTemplateOptions([{
+          id: currentTemplateId,
+          name: readString(result.name),
+          title: readString(result.title) || null,
+          gatewayProviderKey: readString(result.gatewayProviderKey) || null,
+          pricingMode: readString(result.pricingMode) || null,
+        }])
+      })
+      .catch(() => null)
+
+    return () => {
+      active = false
+    }
+  }, [initialValues?.templateId, mode, rememberTemplateOptions, templateOptions])
 
   const fields = React.useMemo<CrudField[]>(() => [], [])
 
@@ -1502,6 +1533,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       <PageBody>
         {initialValues ? (
           <CrudForm<FormValues>
+            key={formInstanceKey}
             formId={formId}
             title={recordId
               ? t(mode === 'link' ? 'checkout.linkTemplateForm.titles.editLink' : 'checkout.linkTemplateForm.titles.editTemplate')
@@ -1518,8 +1550,8 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                       href={mode === 'link'
                         ? `/pay/${encodeURIComponent(readString(initialValues.slug))}?preview=true`
                         : `/backend/checkout/templates/${encodeURIComponent(recordId)}/preview`}
-                      target={mode === 'link' ? '_blank' : undefined}
-                      rel={mode === 'link' ? 'noreferrer' : undefined}
+                      target="_blank"
+                      rel="noreferrer"
                     >
                       <Eye className="mr-2 h-4 w-4" />
                       {t('checkout.common.actions.preview')}
@@ -1603,8 +1635,12 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                     window.open(`/pay/${encodeURIComponent(savedSlug)}?preview=true`, '_blank', 'noopener,noreferrer')
                     return
                   }
-                } else if (recordId) {
-                  window.location.href = `/backend/checkout/templates/${encodeURIComponent(recordId)}/preview`
+                } else if (targetId) {
+                  window.open(
+                    `/backend/checkout/templates/${encodeURIComponent(targetId)}/preview`,
+                    '_blank',
+                    'noopener,noreferrer',
+                  )
                   return
                 }
               }

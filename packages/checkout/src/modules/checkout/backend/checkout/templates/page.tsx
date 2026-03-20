@@ -132,7 +132,11 @@ export default function CheckoutTemplatesPage() {
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: t('checkout.common.actions.edit'), href: `/backend/checkout/templates/${encodeURIComponent(row.id)}` },
-              { id: 'preview', label: t('checkout.common.actions.preview'), href: `/backend/checkout/templates/${encodeURIComponent(row.id)}/preview` },
+              {
+                id: 'preview',
+                label: t('checkout.common.actions.preview'),
+                onSelect: () => window.open(`/backend/checkout/templates/${encodeURIComponent(row.id)}/preview`, '_blank', 'noopener,noreferrer'),
+              },
               { id: 'create-link', label: t('checkout.admin.templates.actions.createLinkFromTemplate'), href: `/backend/checkout/pay-links/create?templateId=${encodeURIComponent(row.id)}` },
               {
                 id: 'delete',

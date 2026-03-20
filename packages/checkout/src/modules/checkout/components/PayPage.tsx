@@ -17,6 +17,7 @@ import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/s
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent } from '@open-mercato/ui/primitives/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -427,11 +428,12 @@ function resolveThemeTokens(payload: PayLinkPayload | null, prefersDark: boolean
   }
 }
 
-function buildValidationInputStyle(themeTokens: PayPageThemeTokens, hasError: boolean): React.CSSProperties | undefined {
-  if (!hasError) return undefined
+function buildReadableInputStyle(themeTokens: PayPageThemeTokens, hasError: boolean): React.CSSProperties {
   return {
-    borderColor: themeTokens.errorBorder,
-    boxShadow: `0 0 0 3px ${themeTokens.errorRing}`,
+    background: 'rgba(255, 255, 255, 0.96)',
+    color: '#0F172A',
+    borderColor: hasError ? themeTokens.errorBorder : withAlpha('#0F172A', 0.12),
+    boxShadow: hasError ? `0 0 0 3px ${themeTokens.errorRing}` : undefined,
   }
 }
 
@@ -519,6 +521,8 @@ function buildButtonStyle(themeTokens: PayPageThemeTokens, variant: 'solid' | 'o
     boxShadow: themeTokens.accentShadow,
   }
 }
+
+const READABLE_INPUT_CLASSNAME = 'border bg-white/95 text-slate-900 placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60'
 
 export function PayPageSurface({
   previewBanner,
@@ -782,20 +786,21 @@ export function PayPageCustomerForm({
                     {field.required ? ' *' : ''}
                   </label>
                   {field.kind === 'multiline' ? (
-                    <Textarea
+                  <Textarea
+                      className={READABLE_INPUT_CLASSNAME}
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
-                      style={buildValidationInputStyle(themeTokens, Boolean(fieldError))}
+                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError))}
                     />
                   ) : field.kind === 'select' || field.kind === 'radio' ? (
                     <select
-                      className="w-full rounded-xl border bg-background px-3 py-2.5 text-sm"
+                      className={`w-full rounded-xl px-3 py-2.5 text-sm ${READABLE_INPUT_CLASSNAME}`}
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
-                      style={buildValidationInputStyle(themeTokens, Boolean(fieldError))}
+                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError))}
                     >
                       <option value="">{t('checkout.payPage.fields.selectPlaceholder', 'Select...')}</option>
                       {(field.options ?? []).map((option) => (
@@ -804,11 +809,12 @@ export function PayPageCustomerForm({
                     </select>
                   ) : (
                     <Input
+                      className={READABLE_INPUT_CLASSNAME}
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
-                      style={buildValidationInputStyle(themeTokens, Boolean(fieldError))}
+                      style={buildReadableInputStyle(themeTokens, Boolean(fieldError))}
                     />
                   )}
                 </>
@@ -850,7 +856,7 @@ export function PayPagePricing({
       </div>
 
       {payload.pricingMode === 'fixed' ? (
-        <div className="rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'muted')}>
+        <div className="rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'default')}>
           {typeof payload.fixedPriceOriginalAmount === 'number' ? (
             <div className="text-sm line-through" style={{ color: themeTokens.mutedText }}>
               {formatAmount(payload.fixedPriceOriginalAmount, payload.fixedPriceCurrencyCode)}
@@ -863,9 +869,10 @@ export function PayPagePricing({
       ) : null}
 
       {payload.pricingMode === 'custom_amount' ? (
-        <div className="space-y-2 rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'muted')}>
+        <div className="space-y-2 rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'default')}>
           <label className="text-sm font-medium">{t('checkout.payPage.fields.customAmount', 'Amount')}</label>
           <Input
+            className={READABLE_INPUT_CLASSNAME}
             type="number"
             value={amount ?? ''}
             disabled={inputsLocked}
@@ -874,7 +881,7 @@ export function PayPagePricing({
               payload.customAmountMin != null ? formatAmount(payload.customAmountMin, payload.customAmountCurrencyCode) : null,
               payload.customAmountMax != null ? formatAmount(payload.customAmountMax, payload.customAmountCurrencyCode) : null,
             ].filter(Boolean).join(' - ')}
-            style={buildValidationInputStyle(themeTokens, Boolean(fieldErrors.amount))}
+            style={buildReadableInputStyle(themeTokens, Boolean(fieldErrors.amount))}
           />
           {fieldErrors.amount ? (
             <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
@@ -982,74 +989,134 @@ export function PayPageLegalConsent({
   themeTokens,
 }: PayPageLegalConsentProps) {
   const t = useT()
+  const [activeDocument, setActiveDocument] = React.useState<'terms' | 'privacyPolicy' | null>(null)
   const hasTerms = Boolean(payload.legalDocuments?.terms?.markdown)
   const hasPrivacyPolicy = Boolean(payload.legalDocuments?.privacyPolicy?.markdown)
+  const activeDocumentPayload = activeDocument ? payload.legalDocuments?.[activeDocument] : null
 
   if (!hasTerms && !hasPrivacyPolicy) return null
 
   return (
-    <section className="space-y-4 rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'muted')}>
-      <div className="space-y-1">
-        <h3 className="text-base font-semibold">{t('checkout.payPage.sections.legal', 'Legal confirmations')}</h3>
-        <p className="text-sm" style={{ color: themeTokens.mutedText }}>
-          {t('checkout.payPage.help.legal', 'Required confirmations must be accepted before the payment step starts.')}
-        </p>
-      </div>
-
-      {hasTerms ? (
-        <div className="space-y-2">
-          <label className="flex items-start gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={acceptedLegalConsents.terms === true}
-              disabled={inputsLocked}
-              onChange={(event) => onConsentChange('terms', event.target.checked)}
-            />
-            <span>
-              {t(
-                'checkout.payPage.legal.acceptDocument',
-                'I accept {document}.',
-                {
-                  document: payload.legalDocuments?.terms?.title || t('checkout.payPage.legal.defaultTermsTitle', 'the terms and conditions'),
-                },
-              )}
-            </span>
-          </label>
-          {fieldErrors['acceptedLegalConsents.terms'] ? (
-            <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
-              {translateValidationMessage(fieldErrors['acceptedLegalConsents.terms'], 'acceptedLegalConsents.terms')}
-            </p>
-          ) : null}
+    <>
+      <section className="space-y-4 rounded-[26px] border p-5" style={buildPanelStyle(themeTokens, 'default')}>
+        <div className="space-y-1">
+          <h3 className="text-base font-semibold">{t('checkout.payPage.sections.legal', 'Legal confirmations')}</h3>
+          <p className="text-sm" style={{ color: themeTokens.mutedText }}>
+            {t('checkout.payPage.help.legal', 'Required confirmations must be accepted before the payment step starts.')}
+          </p>
         </div>
-      ) : null}
 
-      {hasPrivacyPolicy ? (
-        <div className="space-y-2">
-          <label className="flex items-start gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={acceptedLegalConsents.privacyPolicy === true}
-              disabled={inputsLocked}
-              onChange={(event) => onConsentChange('privacyPolicy', event.target.checked)}
-            />
-            <span>
-              {t(
-                'checkout.payPage.legal.acceptDocument',
-                'I accept {document}.',
-                {
-                  document: payload.legalDocuments?.privacyPolicy?.title || t('checkout.payPage.legal.defaultPrivacyTitle', 'the privacy policy'),
-                },
-              )}
-            </span>
-          </label>
-          {fieldErrors['acceptedLegalConsents.privacyPolicy'] ? (
-            <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
-              {translateValidationMessage(fieldErrors['acceptedLegalConsents.privacyPolicy'], 'acceptedLegalConsents.privacyPolicy')}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
+        {hasTerms ? (
+          <div className="space-y-2">
+            <div
+              className="rounded-[22px] border px-4 py-3"
+              style={{
+                background: withAlpha(themeTokens.shellBackground, 0.72),
+                borderColor: fieldErrors['acceptedLegalConsents.terms'] ? themeTokens.errorBorder : themeTokens.border,
+              }}
+            >
+              <label className="flex items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={acceptedLegalConsents.terms === true}
+                  disabled={inputsLocked}
+                  onChange={(event) => onConsentChange('terms', event.target.checked)}
+                />
+                <span className="space-y-2">
+                  <span className="block">
+                    {t(
+                      'checkout.payPage.legal.acceptDocument',
+                      'I accept {document}.',
+                      {
+                        document: payload.legalDocuments?.terms?.title || t('checkout.payPage.legal.defaultTermsTitle', 'the terms and conditions'),
+                      },
+                    )}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0 text-sm font-medium underline"
+                    style={{ color: themeTokens.text }}
+                    onClick={() => setActiveDocument('terms')}
+                  >
+                    {t('checkout.payPage.legal.readDocument', 'Read document')}
+                  </Button>
+                </span>
+              </label>
+            </div>
+            {fieldErrors['acceptedLegalConsents.terms'] ? (
+              <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
+                {translateValidationMessage(fieldErrors['acceptedLegalConsents.terms'], 'acceptedLegalConsents.terms')}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {hasPrivacyPolicy ? (
+          <div className="space-y-2">
+            <div
+              className="rounded-[22px] border px-4 py-3"
+              style={{
+                background: withAlpha(themeTokens.shellBackground, 0.72),
+                borderColor: fieldErrors['acceptedLegalConsents.privacyPolicy'] ? themeTokens.errorBorder : themeTokens.border,
+              }}
+            >
+              <label className="flex items-start gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  checked={acceptedLegalConsents.privacyPolicy === true}
+                  disabled={inputsLocked}
+                  onChange={(event) => onConsentChange('privacyPolicy', event.target.checked)}
+                />
+                <span className="space-y-2">
+                  <span className="block">
+                    {t(
+                      'checkout.payPage.legal.acceptDocument',
+                      'I accept {document}.',
+                      {
+                        document: payload.legalDocuments?.privacyPolicy?.title || t('checkout.payPage.legal.defaultPrivacyTitle', 'the privacy policy'),
+                      },
+                    )}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto p-0 text-sm font-medium underline"
+                    style={{ color: themeTokens.text }}
+                    onClick={() => setActiveDocument('privacyPolicy')}
+                  >
+                    {t('checkout.payPage.legal.readDocument', 'Read document')}
+                  </Button>
+                </span>
+              </label>
+            </div>
+            {fieldErrors['acceptedLegalConsents.privacyPolicy'] ? (
+              <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>
+                {translateValidationMessage(fieldErrors['acceptedLegalConsents.privacyPolicy'], 'acceptedLegalConsents.privacyPolicy')}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
+
+      <Dialog open={activeDocument !== null} onOpenChange={(open) => { if (!open) setActiveDocument(null) }}>
+        <DialogContent className="max-h-[80vh] overflow-hidden sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {activeDocumentPayload?.title
+                || (activeDocument === 'privacyPolicy'
+                  ? t('checkout.payPage.legal.defaultPrivacyTitle', 'the privacy policy')
+                  : t('checkout.payPage.legal.defaultTermsTitle', 'the terms and conditions'))}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto pr-2">
+            <div className="prose prose-sm max-w-none">
+              <MarkdownContent body={activeDocumentPayload?.markdown ?? ''} format="markdown" />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -1852,10 +1919,12 @@ export function PayPage({
                 <h1 className="text-2xl font-semibold">{payload.title ?? t('checkout.payPage.protectedTitle', 'Protected payment link')}</h1>
               </div>
               <Input
+                className={READABLE_INPUT_CLASSNAME}
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 placeholder={t('checkout.payPage.passwordPlaceholder', 'Password')}
+                style={buildReadableInputStyle(themeTokens, Boolean(passwordError))}
               />
               {passwordError ? (
                 <p className="text-sm" style={buildValidationMessageStyle(themeTokens)}>

@@ -4,6 +4,7 @@ import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
 import {
   applyTerminalTransactionState,
   buildConsentProof,
+  pickExplicitParsedOverrides,
   resolveSubmittedAmount,
   serializeTemplateOrLink,
   serializeTransaction,
@@ -177,6 +178,28 @@ describe('checkout utils', () => {
       logoUrl: 'https://cdn.example.com/logo.png',
       logoPreviewUrl:
         '/api/attachments/image/6e2ba1b0-3f1a-4104-a43a-123456789abc?width=640&height=240&cropType=contain',
+    })
+  })
+
+  it('keeps template values when create-link input only provides explicit overrides', () => {
+    expect(pickExplicitParsedOverrides(
+      {
+        templateId: 'template_1',
+        name: 'Community Donation',
+        title: 'Community donation',
+      },
+      {
+        templateId: 'template_1',
+        name: 'Community Donation',
+        title: 'Community donation',
+        collectCustomerDetails: true,
+        customerFieldsSchema: [{ key: 'email', label: 'Email', kind: 'text', required: true, fixed: true, sortOrder: 0 }],
+        displayCustomFieldsOnPage: false,
+      },
+    )).toEqual({
+      templateId: 'template_1',
+      name: 'Community Donation',
+      title: 'Community donation',
     })
   })
 

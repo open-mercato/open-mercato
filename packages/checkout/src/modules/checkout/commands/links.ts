@@ -18,6 +18,7 @@ import {
   hashCheckoutPassword,
   isCheckoutLinkPublic,
   parseCheckoutInput,
+  pickExplicitParsedOverrides,
   serializeTemplateOrLink,
   toMoneyString,
   toTemplateOrLinkMutationInput,
@@ -60,7 +61,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       }, undefined, scope)
       if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
       sourceValues = toTemplateOrLinkMutationInput(template, {
-        ...parsed,
+        ...pickExplicitParsedOverrides(rawInput, parsed),
         templateId: template.id,
       })
       const loaded = await loadCustomFieldValues({

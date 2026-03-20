@@ -208,9 +208,17 @@ export default function CheckoutPayLinksPage() {
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: t('checkout.common.actions.edit'), href: `/backend/checkout/pay-links/${encodeURIComponent(row.id)}` },
-              { id: 'preview', label: t('checkout.common.actions.preview'), href: `/pay/${encodeURIComponent(row.slug)}?preview=true` },
+              {
+                id: 'preview',
+                label: t('checkout.common.actions.preview'),
+                onSelect: () => window.open(`/pay/${encodeURIComponent(row.slug)}?preview=true`, '_blank', 'noopener,noreferrer'),
+              },
               ...(row.status === 'active'
-                ? [{ id: 'view', label: t('checkout.admin.payLinks.actions.viewPayPage'), href: `/pay/${encodeURIComponent(row.slug)}` }]
+                ? [{
+                  id: 'view',
+                  label: t('checkout.admin.payLinks.actions.viewPayPage'),
+                  onSelect: () => window.open(`/pay/${encodeURIComponent(row.slug)}`, '_blank', 'noopener,noreferrer'),
+                }]
                 : []),
               {
                 id: 'copy',
