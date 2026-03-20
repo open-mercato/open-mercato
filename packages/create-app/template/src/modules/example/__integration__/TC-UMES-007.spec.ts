@@ -12,7 +12,7 @@
  *   - .ai/qa/scenarios/TC-UMES-ML06-showcase-page-sync-probe.md
  */
 import { test, expect } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 test.describe('TC-UMES-007: Mutation Lifecycle — Showcase Page', () => {
   test.beforeEach(async ({ page }) => {

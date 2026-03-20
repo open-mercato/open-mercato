@@ -1,6 +1,6 @@
-export { getAuthToken, apiRequest, postForm } from './api'
-export { DEFAULT_CREDENTIALS, type Role } from './auth'
-export { createUserViaUi } from './authUi'
+export { getAuthToken, apiRequest, postForm } from '../../helpers/integration/api'
+export { DEFAULT_CREDENTIALS, type Role } from '../../helpers/integration/auth'
+export { createUserViaUi } from '../../helpers/integration/authUi'
 export {
   createCompanyFixture,
   createPersonFixture,
@@ -9,7 +9,7 @@ export {
   createPipelineStageFixture,
   deleteEntityByBody,
   deleteEntityIfExists,
-} from './crmFixtures'
+} from '../../helpers/integration/crmFixtures'
 export {
   readJsonSafe,
   getTokenContext,
@@ -17,6 +17,6 @@ export {
   expectId,
   deleteEntityByPathIfExists,
   deleteGeneralEntityIfExists,
-} from './generalFixtures'
-export { createDictionaryFixture } from './dictionariesFixtures'
-export { createRoleFixture, deleteRoleIfExists, createUserFixture, deleteUserIfExists } from './authFixtures'
+} from '../../helpers/integration/generalFixtures'
+export { createDictionaryFixture } from '../../helpers/integration/dictionariesFixtures'
+export { createRoleFixture, deleteRoleIfExists, createUserFixture, deleteUserIfExists } from '../../helpers/integration/authFixtures'

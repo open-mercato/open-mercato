@@ -6,9 +6,9 @@
  * - Reactive notification handlers dispatching without opening notification panel
  */
 import { test, expect } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 test.describe('TC-UMES-008: SPEC-042 + SPEC-043', () => {
   let adminToken = ''

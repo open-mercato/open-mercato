@@ -11,11 +11,11 @@ import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
   apiRequest,
-} from '@open-mercato/core/modules/core/__integration__/helpers/api'
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createPersonFixture,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+} from '@open-mercato/core/helpers/integration/crmFixtures'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 

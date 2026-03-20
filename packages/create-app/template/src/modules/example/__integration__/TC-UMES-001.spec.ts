@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 test.describe('TC-UMES-001: Foundation and Menu Injection', () => {
   test.beforeEach(async ({ page }) => {

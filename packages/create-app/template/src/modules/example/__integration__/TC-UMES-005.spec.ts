@@ -8,7 +8,7 @@
  *   L.4 Integration registry (registerIntegration, title lookup, fallback)
  */
 import { test, expect } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 const PAGE_URL = '/backend/umes-integrations'
 
