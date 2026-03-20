@@ -673,7 +673,9 @@ export default function EditCatalogProductPage({
   }, []);
 
   // Next.js client-side navigation does not scroll to hash targets.
-  // Poll until the target element is in the DOM, then scroll once.
+  // Runs without a dependency array intentionally: the target element is rendered
+  // asynchronously by CrudForm, so we need to retry until it exists in the DOM.
+  // The ref guard ensures scrollIntoView fires at most once.
   const hasScrolledToHash = React.useRef(false)
   React.useEffect(() => {
     if (hasScrolledToHash.current) return
