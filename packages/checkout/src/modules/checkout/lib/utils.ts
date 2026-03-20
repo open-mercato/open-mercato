@@ -191,27 +191,27 @@ export async function verifyCheckoutPassword(password: string, passwordHash: str
   return bcrypt.compare(password, passwordHash)
 }
 
-function getCheckoutCookieSecret(): string {
+function getCheckoutAccessTokenSecret(): string {
   return process.env.AUTH_SECRET
     || process.env.NEXTAUTH_SECRET
     || process.env.NEXT_PUBLIC_APP_URL
     || 'open-mercato-checkout'
 }
 
-export function signCheckoutPasswordAccess(slug: string): string {
+export function signCheckoutAccessToken(slug: string): string {
   const payload = Buffer.from(JSON.stringify({
     slug,
     exp: Date.now() + (60 * 60 * 1000),
   }), 'utf-8').toString('base64url')
-  const signature = createHmac('sha256', getCheckoutCookieSecret()).update(payload).digest('base64url')
+  const signature = createHmac('sha256', getCheckoutAccessTokenSecret()).update(payload).digest('base64url')
   return `${payload}.${signature}`
 }
 
-export function verifyCheckoutPasswordAccess(token: string | null | undefined, slug: string): boolean {
+export function verifyCheckoutAccessToken(token: string | null | undefined, slug: string): boolean {
   if (!token) return false
   const [payload, signature] = token.split('.')
   if (!payload || !signature) return false
-  const expected = createHmac('sha256', getCheckoutCookieSecret()).update(payload).digest()
+  const expected = createHmac('sha256', getCheckoutAccessTokenSecret()).update(payload).digest()
   const actual = Buffer.from(signature, 'base64url')
   if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return false
   try {

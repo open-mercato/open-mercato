@@ -357,6 +357,14 @@
           "showTransactions": "Pokaż transakcje",
           "publish": "Opublikuj",
           "deactivate": "Dezaktywuj"
+        },
+        "flash": {
+          "published": "Link płatności został opublikowany.",
+          "publishError": "Nie udało się opublikować linku płatności.",
+          "deactivated": "Link płatności został dezaktywowany.",
+          "deactivateError": "Nie udało się dezaktywować linku płatności.",
+          "deleted": "Link płatności został usunięty.",
+          "deleteError": "Nie udało się usunąć linku płatności."
         }
       },
       "templates": {
@@ -446,28 +454,65 @@
       "passwordPlaceholder": "Hasło",
       "unavailable": "Ten link płatności nie jest już dostępny.",
       "previewBanner": "Tryb podglądu. Płatności są wyłączone.",
+      "badges": {
+        "secure": "Bezpieczna płatność",
+        "preview": "Podgląd"
+      },
+      "header": {
+        "providerLabel": "Bramka",
+        "autoProvider": "Skonfigurowano w checkout",
+        "pageLabel": "Strona"
+      },
+      "description": {
+        "kicker": "Przegląd oferty"
+      },
       "sections": {
         "customerDetails": "Dane klienta",
+        "productDetails": "Szczegóły oferty",
         "payment": "Płatność",
         "legal": "Potwierdzenia prawne"
       },
+      "pricing": {
+        "kicker": "Konfiguracja płatności",
+        "title": "Wybierz sposób płatności"
+      },
       "fields": {
         "selectPlaceholder": "Wybierz...",
-        "customAmount": "Kwota"
+        "customAmount": "Kwota",
+        "booleanTrue": "Tak",
+        "booleanFalse": "Nie"
       },
       "help": {
         "customerDetails": "Uzupełnij dane kupującego, a potem przejdź do płatności.",
+        "productDetails": "Dodatkowe informacje o ofercie skonfigurowane dla tego linku płatności.",
         "payment": "Wybierz kwotę, sprawdź podsumowanie i przejdź do bezpiecznej płatności.",
-        "legal": "Wymagane zgody muszą być zaakceptowane przed rozpoczęciem płatności."
+        "legal": "Wymagane zgody muszą być zaakceptowane przed rozpoczęciem płatności.",
+        "previewHeadline": "To jest podgląd przepływu płatności.",
+        "liveHeadline": "Widget operatora płatności pojawi się w tym panelu po walidacji.",
+        "providerLine": "Operator: {provider}.",
+        "providerFallback": "Operator płatności jest skonfigurowany w ustawieniach checkout."
       },
       "legal": {
         "acceptDocument": "Akceptuję {document}.",
         "defaultTermsTitle": "regulamin",
         "defaultPrivacyTitle": "politykę prywatności"
       },
+      "payment": {
+        "kicker": "Panel płatności",
+        "previewState": "Bez obciążenia",
+        "liveState": "Gotowe",
+        "providerHint": "Płatność zostanie obsłużona przez {provider}."
+      },
       "summary": {
         "amountDue": "Kwota do zapłaty",
-        "awaitingSelection": "Wybierz kwotę"
+        "awaitingSelection": "Wybierz kwotę",
+        "previewState": "Podgląd",
+        "liveState": "Aktywne",
+        "checkoutLabel": "Checkout",
+        "providerLabel": "Operator"
+      },
+      "footer": {
+        "subtitle": "Publiczna strona płatności skonfigurowana w checkout."
       },
       "errors": {
         "loadTitle": "Nie udało się załadować linku płatności",
@@ -569,6 +614,30 @@
       }
     },
     "validation": {
+      "common": {
+        "required": "To pole jest wymagane.",
+        "invalidUrl": "Wpisz prawidłowy URL.",
+        "invalidUuid": "Wpisz prawidłowy identyfikator.",
+        "invalidColor": "Wpisz prawidłowy kolor hex w formacie #RRGGBB.",
+        "invalidCurrencyCode": "Wpisz prawidłowy 3-literowy kod waluty.",
+        "invalidFieldsetCode": "Wpisz prawidłowy kod zestawu pól.",
+        "invalidNumber": "Wpisz prawidłową liczbę.",
+        "nonNegativeNumber": "Wpisz liczbę większą lub równą 0.",
+        "integer": "Wpisz liczbę całkowitą.",
+        "nonNegativeInteger": "Wpisz liczbę całkowitą większą lub równą 0.",
+        "positiveInteger": "Wpisz liczbę całkowitą większą od 0."
+      },
+      "name": {
+        "required": "Nazwa jest wymagana."
+      },
+      "gatewayProviderKey": {
+        "required": "Dostawca bramki jest wymagany."
+      },
+      "customerFields": {
+        "key": {
+          "invalid": "Użyj camelCase zaczynającego się od litery."
+        }
+      },
       "fixedPriceAmount": {
         "required": "Kwota jest wymagana dla stałej ceny."
       },

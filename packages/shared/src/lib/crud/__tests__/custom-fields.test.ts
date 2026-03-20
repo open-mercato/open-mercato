@@ -42,7 +42,16 @@ describe('buildCustomFieldFiltersFromQuery', () => {
   })
 
   it('restricts filters to the requested fieldset code', async () => {
-    const em = mockEntityManager(definitions)
+    const em = mockEntityManager([
+      ...definitions,
+      {
+        id: 'def-shared-support',
+        key: 'support_contact',
+        kind: 'text',
+        entityId: 'catalog:product',
+        configJson: { fieldsets: ['fashion', 'giftable'] },
+      },
+    ])
     const filters = await buildCustomFieldFiltersFromQuery({
       entityIds: ['catalog:product'],
       query: { cf_color: 'blue' },
@@ -59,6 +68,14 @@ describe('buildCustomFieldFiltersFromQuery', () => {
       fieldset: 'tech',
     })
     expect(emptyFilters).toEqual({})
+    const sharedFilters = await buildCustomFieldFiltersFromQuery({
+      entityIds: ['catalog:product'],
+      query: { cf_support_contact: 'team@example.com' },
+      em: em as any,
+      tenantId: 'tenant-1',
+      fieldset: 'giftable',
+    })
+    expect(sharedFilters).toEqual({ 'cf:support_contact': 'team@example.com' })
   })
 })
 

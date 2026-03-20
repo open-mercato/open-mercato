@@ -8,7 +8,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CHECKOUT_PASSWORD_COOKIE } from '../lib/constants'
-import { verifyCheckoutPasswordAccess } from '../lib/utils'
+import { verifyCheckoutAccessToken } from '../lib/utils'
 
 export async function requireAdminContext(req: Request): Promise<{
   auth: Exclude<AuthContext, null>
@@ -76,7 +76,7 @@ export async function userHasCheckoutFeature(
   })
 }
 
-export function readCheckoutPasswordCookie(req: Request): string | null {
+export function readCheckoutAccessCookie(req: Request): string | null {
   const cookieHeader = req.headers.get('cookie') ?? ''
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${CHECKOUT_PASSWORD_COOKIE}=([^;]+)`))
   if (!match?.[1]) return null
@@ -88,8 +88,8 @@ export function readCheckoutPasswordCookie(req: Request): string | null {
 }
 
 export function requireCheckoutPasswordSession(req: Request, slug: string): void {
-  const token = readCheckoutPasswordCookie(req)
-  if (!verifyCheckoutPasswordAccess(token, slug)) {
+  const token = readCheckoutAccessCookie(req)
+  if (!verifyCheckoutAccessToken(token, slug)) {
     throw new CrudHttpError(401, { error: 'Password verification is required' })
   }
 }

@@ -221,9 +221,40 @@ async function ensureFieldsetConfig(
       updatedAt: now,
     })
   }
+  const currentConfig =
+    config.configJson && typeof config.configJson === 'object' && !Array.isArray(config.configJson)
+      ? { ...(config.configJson as Record<string, unknown>) }
+      : {}
+  const existingFieldsets = Array.isArray(currentConfig.fieldsets)
+    ? currentConfig.fieldsets
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
+    : []
+  const mergedFieldsetsByCode = new Map<string, Record<string, unknown>>()
+
+  for (const fieldset of existingFieldsets) {
+    const code = typeof fieldset.code === 'string' ? fieldset.code.trim() : ''
+    if (!code) continue
+    mergedFieldsetsByCode.set(code, { ...fieldset })
+  }
+
+  for (const fieldset of CHECKOUT_LINK_FIELDSETS) {
+    const existingFieldset = mergedFieldsetsByCode.get(fieldset.code) ?? {}
+    mergedFieldsetsByCode.set(fieldset.code, {
+      ...existingFieldset,
+      ...fieldset,
+      groups: Array.isArray(fieldset.groups)
+        ? fieldset.groups.map((group) => ({ ...group }))
+        : existingFieldset.groups,
+    })
+  }
+
   config.configJson = {
-    fieldsets: CHECKOUT_LINK_FIELDSETS,
-    singleFieldsetPerRecord: true,
+    ...currentConfig,
+    fieldsets: Array.from(mergedFieldsetsByCode.values()),
+    singleFieldsetPerRecord:
+      typeof currentConfig.singleFieldsetPerRecord === 'boolean'
+        ? currentConfig.singleFieldsetPerRecord
+        : true,
   }
   config.isActive = true
   config.updatedAt = now

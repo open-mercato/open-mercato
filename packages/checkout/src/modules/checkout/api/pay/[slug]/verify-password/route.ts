@@ -9,7 +9,7 @@ import { publicPasswordVerifySchema } from '../../../../data/validators'
 import { handleCheckoutRouteError } from '../../../helpers'
 import {
   isCheckoutLinkPublic,
-  signCheckoutPasswordAccess,
+  signCheckoutAccessToken,
   verifyCheckoutPassword,
 } from '../../../../lib/utils'
 import { checkoutPasswordRateLimitConfig } from '../../../../lib/rateLimiter'
@@ -39,14 +39,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       deletedAt: null,
     })
     if (!link || !isCheckoutLinkPublic(link.status) || !link.passwordHash) {
-      return NextResponse.json({ error: 'Invalid password' }, { status: 401 })
+      return NextResponse.json({ error: 'checkout.payPage.errors.password' }, { status: 401 })
     }
     const ok = await verifyCheckoutPassword(body.password, link.passwordHash)
     if (!ok) {
-      return NextResponse.json({ error: 'Invalid password' }, { status: 401 })
+      return NextResponse.json({ error: 'checkout.payPage.errors.password' }, { status: 401 })
     }
     const response = NextResponse.json({ ok: true })
-    response.cookies.set(CHECKOUT_PASSWORD_COOKIE, signCheckoutPasswordAccess(link.slug), {
+    response.cookies.set(CHECKOUT_PASSWORD_COOKIE, signCheckoutAccessToken(link.slug), {
       httpOnly: true,
       secure: true,
       sameSite: 'strict',

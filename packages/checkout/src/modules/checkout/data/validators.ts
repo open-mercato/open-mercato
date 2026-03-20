@@ -19,44 +19,58 @@ function normalizeOptionalDocument(value: unknown): unknown {
   return value
 }
 
-const hexColorSchema = z.string().regex(/^#([0-9a-fA-F]{6})$/)
-const currencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/)
+function requiredTrimmedString(message: string) {
+  return z.string().trim().min(1, { message })
+}
+
+const hexColorSchema = z.string().regex(/^#([0-9a-fA-F]{6})$/, {
+  message: 'checkout.validation.common.invalidColor',
+})
+const currencyCodeSchema = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, {
+  message: 'checkout.validation.common.invalidCurrencyCode',
+})
 const optionalTrimmedString = z.preprocess(
   normalizeBlankString,
-  z.string().trim().min(1).optional().nullable(),
+  z.string().trim().min(1, { message: 'checkout.validation.common.required' }).optional().nullable(),
 )
 const optionalUrlSchema = z.preprocess(
   normalizeBlankString,
-  z.string().url().optional().nullable(),
+  z.string().url('checkout.validation.common.invalidUrl').optional().nullable(),
 )
 const optionalFieldsetCodeSchema = z.preprocess(
   normalizeBlankString,
-  z.string().regex(fieldsetCodeRegex).optional().nullable(),
+  z.string().regex(fieldsetCodeRegex, {
+    message: 'checkout.validation.common.invalidFieldsetCode',
+  }).optional().nullable(),
 )
-const positiveMoneySchema = z.coerce.number().finite().nonnegative()
+const positiveMoneySchema = z.coerce.number().finite('checkout.validation.common.invalidNumber').nonnegative('checkout.validation.common.nonNegativeNumber')
 const linkStatusSchema = z.enum(CHECKOUT_LINK_STATUSES)
 
 export const customerFieldOptionSchema = z.object({
-  value: z.string().trim().min(1),
-  label: z.string().trim().min(1),
+  value: requiredTrimmedString('checkout.validation.common.required'),
+  label: requiredTrimmedString('checkout.validation.common.required'),
 })
 
 export const customerFieldDefinitionSchema = z.object({
-  key: z.string().regex(/^[a-z][A-Za-z0-9]*$/),
-  label: z.string().trim().min(1),
+  key: z.string().regex(/^[a-z][A-Za-z0-9]*$/, {
+    message: 'checkout.validation.customerFields.key.invalid',
+  }),
+  label: requiredTrimmedString('checkout.validation.common.required'),
   kind: z.enum(['text', 'multiline', 'boolean', 'select', 'radio']),
   required: z.boolean(),
   fixed: z.boolean(),
   placeholder: optionalTrimmedString,
   options: z.array(customerFieldOptionSchema).optional(),
-  sortOrder: z.coerce.number().int().min(0),
+  sortOrder: z.coerce.number().int('checkout.validation.common.integer').min(0, {
+    message: 'checkout.validation.common.nonNegativeInteger',
+  }),
 })
 
 export const legalDocumentSchema = z.preprocess(
   normalizeOptionalDocument,
   z.object({
-    title: z.string().trim().min(1),
-    markdown: z.string().trim().min(1),
+    title: requiredTrimmedString('checkout.validation.common.required'),
+    markdown: requiredTrimmedString('checkout.validation.common.required'),
     required: z.boolean().default(false),
   }).optional(),
 )
@@ -67,8 +81,8 @@ export const legalDocumentsSchema = z.object({
 }).optional()
 
 export const priceListItemSchema = z.object({
-  id: z.string().trim().min(1),
-  description: z.string().trim().min(1),
+  id: requiredTrimmedString('checkout.validation.common.required'),
+  description: requiredTrimmedString('checkout.validation.common.required'),
   amount: positiveMoneySchema,
   currencyCode: currencyCodeSchema,
 })
@@ -76,11 +90,11 @@ export const priceListItemSchema = z.object({
 export const gatewaySettingsSchema = z.record(z.string(), z.unknown()).optional()
 
 const checkoutContentSchema = z.object({
-  name: z.string().trim().min(1),
+  name: requiredTrimmedString('checkout.validation.name.required'),
   title: optionalTrimmedString,
   subtitle: optionalTrimmedString,
   description: z.string().optional().nullable(),
-  logoAttachmentId: z.string().uuid().optional().nullable(),
+  logoAttachmentId: z.string().uuid('checkout.validation.common.invalidUuid').optional().nullable(),
   logoUrl: optionalUrlSchema,
   primaryColor: hexColorSchema.optional().nullable(),
   secondaryColor: hexColorSchema.optional().nullable(),
@@ -95,7 +109,7 @@ const checkoutContentSchema = z.object({
   customAmountMax: positiveMoneySchema.optional().nullable(),
   customAmountCurrencyCode: currencyCodeSchema.optional().nullable(),
   priceListItems: z.array(priceListItemSchema).optional().nullable(),
-  gatewayProviderKey: optionalTrimmedString,
+  gatewayProviderKey: requiredTrimmedString('checkout.validation.gatewayProviderKey.required'),
   gatewaySettings: gatewaySettingsSchema,
   customFieldsetCode: optionalFieldsetCodeSchema,
   collectCustomerDetails: z.boolean().default(true),
@@ -118,7 +132,7 @@ const checkoutContentSchema = z.object({
   startEmailBody: z.string().optional().nullable(),
   sendStartEmail: z.boolean().default(true),
   password: optionalTrimmedString,
-  maxCompletions: z.coerce.number().int().positive().optional().nullable(),
+  maxCompletions: z.coerce.number().int('checkout.validation.common.integer').positive('checkout.validation.common.positiveInteger').optional().nullable(),
   status: linkStatusSchema.default('draft'),
   checkoutType: z.enum(['pay_link', 'simple_checkout']).default('pay_link'),
 })
@@ -163,7 +177,7 @@ function validatePricingConsistency<T extends z.infer<typeof checkoutContentSche
 export const createTemplateSchema = checkoutContentSchema.superRefine(validatePricingConsistency)
 
 export const updateTemplateSchema = checkoutContentSchema.partial().extend({
-  id: z.string().uuid(),
+  id: z.string().uuid('checkout.validation.common.invalidUuid'),
   password: optionalTrimmedString,
   customerFieldsSchema: z.array(customerFieldDefinitionSchema).optional(),
 }).superRefine((value, ctx) => {
@@ -181,48 +195,48 @@ export const updateTemplateSchema = checkoutContentSchema.partial().extend({
 })
 
 export const createLinkSchema = createTemplateSchema.safeExtend({
-  templateId: z.string().uuid().optional().nullable(),
+  templateId: z.string().uuid('checkout.validation.common.invalidUuid').optional().nullable(),
   slug: optionalTrimmedString,
 })
 
 export const updateLinkSchema = createLinkSchema.partial().safeExtend({
-  id: z.string().uuid(),
+  id: z.string().uuid('checkout.validation.common.invalidUuid'),
   slug: optionalTrimmedString,
 })
 
 export const transactionStatusSchema = z.enum(['pending', 'processing', 'completed', 'failed', 'cancelled', 'expired'])
 
 export const transactionCreateSchema = z.object({
-  linkId: z.string().uuid(),
+  linkId: z.string().uuid('checkout.validation.common.invalidUuid'),
   amount: positiveMoneySchema,
   currencyCode: currencyCodeSchema,
-  idempotencyKey: z.string().trim().min(1),
+  idempotencyKey: requiredTrimmedString('checkout.validation.common.required'),
   customerData: z.record(z.string(), z.unknown()).default({}),
   firstName: optionalTrimmedString,
   lastName: optionalTrimmedString,
   email: optionalTrimmedString,
   phone: optionalTrimmedString,
-  gatewayTransactionId: z.string().uuid().optional().nullable(),
+  gatewayTransactionId: z.string().uuid('checkout.validation.common.invalidUuid').optional().nullable(),
   paymentStatus: optionalTrimmedString,
   selectedPriceItemId: optionalTrimmedString,
   acceptedLegalConsents: z.record(z.string(), z.unknown()).optional().nullable(),
   ipAddress: optionalTrimmedString,
   userAgent: z.string().optional().nullable(),
-  tenantId: z.string().uuid(),
-  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid('checkout.validation.common.invalidUuid'),
+  organizationId: z.string().uuid('checkout.validation.common.invalidUuid'),
 })
 
 export const transactionUpdateStatusSchema = z.object({
-  id: z.string().uuid(),
+  id: z.string().uuid('checkout.validation.common.invalidUuid'),
   status: transactionStatusSchema,
   paymentStatus: optionalTrimmedString,
-  gatewayTransactionId: z.string().uuid().optional().nullable(),
-  tenantId: z.string().uuid(),
-  organizationId: z.string().uuid(),
+  gatewayTransactionId: z.string().uuid('checkout.validation.common.invalidUuid').optional().nullable(),
+  tenantId: z.string().uuid('checkout.validation.common.invalidUuid'),
+  organizationId: z.string().uuid('checkout.validation.common.invalidUuid'),
 })
 
 export const publicPasswordVerifySchema = z.object({
-  password: z.string().min(1),
+  password: z.string().min(1, { message: 'checkout.validation.common.required' }),
 })
 
 export const publicSubmitSchema = z.object({

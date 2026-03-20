@@ -67,6 +67,9 @@ const DEFAULT_COLORS = {
   backgroundColor: '#F8F4EE',
 } as const
 
+const SETTINGS_TABS_LIST_CLASS = 'h-auto w-full justify-start overflow-x-auto rounded-none border-b border-border bg-transparent p-0'
+const SETTINGS_TABS_TRIGGER_CLASS = 'mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0'
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
@@ -269,17 +272,22 @@ function SectionLabel({
   label,
   hint,
   error,
+  required,
   children,
 }: {
   label: string
   hint?: string
   error?: string
+  required?: boolean
   children: React.ReactNode
 }) {
   return (
     <div className="space-y-2">
       <div className="space-y-1">
-        <Label>{label}</Label>
+        <Label>
+          {label}
+          {required ? <span className="ml-1 text-destructive">*</span> : null}
+        </Label>
         {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
       </div>
@@ -485,7 +493,7 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
 
       {pricingMode === 'fixed' ? (
         <div className="grid gap-4 md:grid-cols-2">
-          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.amount')} error={fixedPriceAmountError}>
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.amount')} error={fixedPriceAmountError} required>
             <Input
               type="number"
               min="0"
@@ -498,7 +506,7 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
             />
           </SectionLabel>
 
-          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.currency')} error={fixedPriceCurrencyError}>
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.currency')} error={fixedPriceCurrencyError} required>
             <CheckoutCurrencySelect
               value={readString(values.fixedPriceCurrencyCode) || 'USD'}
               onChange={(next) => setValue('fixedPriceCurrencyCode', next)}
@@ -538,7 +546,7 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
 
       {pricingMode === 'custom_amount' ? (
         <div className="grid gap-4 md:grid-cols-3">
-          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.minimumAmount')} error={customAmountMinError}>
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.minimumAmount')} error={customAmountMinError} required>
             <Input
               type="number"
               min="0"
@@ -551,7 +559,7 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
             />
           </SectionLabel>
 
-          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.maximumAmount')} error={customAmountMaxError}>
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.maximumAmount')} error={customAmountMaxError} required>
             <Input
               type="number"
               min="0"
@@ -564,7 +572,7 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
             />
           </SectionLabel>
 
-          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.currency')} error={customAmountCurrencyError}>
+          <SectionLabel label={t('checkout.linkTemplateForm.pricing.fields.currency')} error={customAmountCurrencyError} required>
             <CheckoutCurrencySelect
               value={readString(values.customAmountCurrencyCode) || 'USD'}
               onChange={(next) => setValue('customAmountCurrencyCode', next)}
@@ -602,7 +610,7 @@ function GeneralSection({ values, setValue, errors, mode }: CrudFormGroupCompone
 
   return (
     <div className="space-y-4">
-      <SectionLabel label={t('checkout.linkTemplateForm.general.fields.name')} error={nameError}>
+      <SectionLabel label={t('checkout.linkTemplateForm.general.fields.name')} error={nameError} required>
         <Input
           value={readString(values.name)}
           onChange={(event) => setValue('name', event.target.value)}
@@ -755,7 +763,7 @@ function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupCo
 
   return (
     <div className="space-y-4">
-      <SectionLabel label={t('checkout.linkTemplateForm.payment.fields.gatewayProvider')} error={gatewayProviderError}>
+      <SectionLabel label={t('checkout.linkTemplateForm.payment.fields.gatewayProvider')} error={gatewayProviderError} required>
         <select
           className={gatewayProviderError
             ? `w-full rounded-md border bg-background px-3 py-2 text-sm ${errorInputClassName(gatewayProviderError)}`
@@ -858,12 +866,12 @@ function LegalSection({ values, setValue, errors }: CrudFormGroupComponentProps)
       </Notice>
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'terms' | 'privacyPolicy')}>
-        <TabsList className="w-full justify-start">
-          <TabsTrigger value="terms">
+        <TabsList className={SETTINGS_TABS_LIST_CLASS}>
+          <TabsTrigger value="terms" className={SETTINGS_TABS_TRIGGER_CLASS}>
             <Shield className="mr-2 h-4 w-4" />
             {t('checkout.linkTemplateForm.legal.tabs.terms')}
           </TabsTrigger>
-          <TabsTrigger value="privacyPolicy">
+          <TabsTrigger value="privacyPolicy" className={SETTINGS_TABS_TRIGGER_CLASS}>
             <FileCheck2 className="mr-2 h-4 w-4" />
             {t('checkout.linkTemplateForm.legal.tabs.privacy')}
           </TabsTrigger>
@@ -966,9 +974,9 @@ function MessagesSection({ values, setValue, errors }: CrudFormGroupComponentPro
       </Notice>
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'success' | 'cancel' | 'error')}>
-        <TabsList className="w-full justify-start">
+        <TabsList className={SETTINGS_TABS_LIST_CLASS}>
           {(['success', 'cancel', 'error'] as const).map((item) => (
-            <TabsTrigger key={item} value={item}>
+            <TabsTrigger key={item} value={item} className={SETTINGS_TABS_TRIGGER_CLASS}>
               <MessageSquare className="mr-2 h-4 w-4" />
               {config[item].label}
             </TabsTrigger>
@@ -1061,9 +1069,9 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
       <VariableHint />
 
       <Tabs value={tab} onValueChange={(next) => setTab(next as 'start' | 'success' | 'error')}>
-        <TabsList className="w-full justify-start">
+        <TabsList className={SETTINGS_TABS_LIST_CLASS}>
           {(['start', 'success', 'error'] as const).map((item) => (
-            <TabsTrigger key={item} value={item}>
+            <TabsTrigger key={item} value={item} className={SETTINGS_TABS_TRIGGER_CLASS}>
               <Mail className="mr-2 h-4 w-4" />
               {config[item].title}
             </TabsTrigger>

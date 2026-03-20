@@ -357,6 +357,14 @@
           "showTransactions": "Show transactions",
           "publish": "Publish",
           "deactivate": "Deactivate"
+        },
+        "flash": {
+          "published": "Pay link published.",
+          "publishError": "Failed to publish pay link.",
+          "deactivated": "Pay link deactivated.",
+          "deactivateError": "Failed to deactivate pay link.",
+          "deleted": "Pay link deleted.",
+          "deleteError": "Failed to delete pay link."
         }
       },
       "templates": {
@@ -446,28 +454,65 @@
       "passwordPlaceholder": "Password",
       "unavailable": "This payment link is no longer available.",
       "previewBanner": "Preview mode. Payments are disabled.",
+      "badges": {
+        "secure": "Secure checkout",
+        "preview": "Preview"
+      },
+      "header": {
+        "providerLabel": "Gateway",
+        "autoProvider": "Configured in checkout",
+        "pageLabel": "Page"
+      },
+      "description": {
+        "kicker": "Offer overview"
+      },
       "sections": {
         "customerDetails": "Customer details",
+        "productDetails": "Product details",
         "payment": "Payment",
         "legal": "Legal confirmations"
       },
+      "pricing": {
+        "kicker": "Payment setup",
+        "title": "Choose how you want to pay"
+      },
       "fields": {
         "selectPlaceholder": "Select...",
-        "customAmount": "Amount"
+        "customAmount": "Amount",
+        "booleanTrue": "Yes",
+        "booleanFalse": "No"
       },
       "help": {
         "customerDetails": "Add the buyer details once, then continue to payment.",
+        "productDetails": "Additional offer details configured for this payment link.",
         "payment": "Choose the amount, review the summary, then continue with the secure payment step.",
-        "legal": "Required confirmations must be accepted before the payment step starts."
+        "legal": "Required confirmations must be accepted before the payment step starts.",
+        "previewHeadline": "This is a preview of the payment flow.",
+        "liveHeadline": "The provider widget appears in this panel after validation.",
+        "providerLine": "Provider: {provider}.",
+        "providerFallback": "The payment provider is configured in the checkout settings."
       },
       "legal": {
         "acceptDocument": "I accept {document}.",
         "defaultTermsTitle": "the terms and conditions",
         "defaultPrivacyTitle": "the privacy policy"
       },
+      "payment": {
+        "kicker": "Payment rail",
+        "previewState": "No charge",
+        "liveState": "Ready",
+        "providerHint": "Your payment will be handled by {provider}."
+      },
       "summary": {
         "amountDue": "Amount due",
-        "awaitingSelection": "Select an amount"
+        "awaitingSelection": "Select an amount",
+        "previewState": "Preview",
+        "liveState": "Live",
+        "checkoutLabel": "Checkout",
+        "providerLabel": "Provider"
+      },
+      "footer": {
+        "subtitle": "Public payment page configured in checkout."
       },
       "errors": {
         "loadTitle": "Unable to load payment link",
@@ -569,6 +614,30 @@
       }
     },
     "validation": {
+      "common": {
+        "required": "This field is required.",
+        "invalidUrl": "Enter a valid URL.",
+        "invalidUuid": "Enter a valid identifier.",
+        "invalidColor": "Enter a valid hex color in the format #RRGGBB.",
+        "invalidCurrencyCode": "Enter a valid 3-letter currency code.",
+        "invalidFieldsetCode": "Enter a valid fieldset code.",
+        "invalidNumber": "Enter a valid number.",
+        "nonNegativeNumber": "Enter a number greater than or equal to 0.",
+        "integer": "Enter a whole number.",
+        "nonNegativeInteger": "Enter a whole number greater than or equal to 0.",
+        "positiveInteger": "Enter a whole number greater than 0."
+      },
+      "name": {
+        "required": "Name is required."
+      },
+      "gatewayProviderKey": {
+        "required": "Gateway provider is required."
+      },
+      "customerFields": {
+        "key": {
+          "invalid": "Use camelCase starting with a letter."
+        }
+      },
       "fixedPriceAmount": {
         "required": "Amount is required for fixed pricing."
       },

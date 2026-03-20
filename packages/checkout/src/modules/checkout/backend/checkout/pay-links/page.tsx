@@ -8,9 +8,12 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 type LinkRow = {
   id: string
@@ -49,6 +52,12 @@ export default function CheckoutPayLinksPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(true)
+  const { runMutation } = useGuardedMutation<{
+    entityType: string
+    entityId?: string
+  }>({
+    contextId: 'checkout:pay-links-list',
+  })
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
@@ -92,6 +101,36 @@ export default function CheckoutPayLinksPage() {
   React.useEffect(() => {
     void loadRows()
   }, [loadRows])
+
+  const runRowMutation = React.useCallback(async ({
+    row,
+    operation,
+    successMessage,
+    fallbackErrorMessage,
+    mutationPayload,
+  }: {
+    row: LinkRow
+    operation: () => Promise<void>
+    successMessage: string
+    fallbackErrorMessage: string
+    mutationPayload?: Record<string, unknown>
+  }) => {
+    try {
+      await runMutation({
+        operation,
+        mutationPayload,
+        context: {
+          entityType: 'checkout:checkout_link',
+          entityId: row.id,
+        },
+      })
+      flash(successMessage, 'success')
+      void loadRows()
+    } catch (error) {
+      const { message } = normalizeCrudServerError(error)
+      flash(message || fallbackErrorMessage, 'error')
+    }
+  }, [loadRows, runMutation])
 
   const columns = React.useMemo<ColumnDef<LinkRow>[]>(() => [
     { accessorKey: 'name', header: t('checkout.admin.payLinks.columns.name') },
@@ -186,32 +225,52 @@ export default function CheckoutPayLinksPage() {
                   id: 'publish',
                   label: t('checkout.admin.payLinks.actions.publish'),
                   onSelect: async () => {
-                    await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ status: 'active' }),
+                    await runRowMutation({
+                      row,
+                      successMessage: t('checkout.admin.payLinks.flash.published'),
+                      fallbackErrorMessage: t('checkout.admin.payLinks.flash.publishError'),
+                      mutationPayload: { status: 'active' },
+                      operation: async () => {
+                        await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'active' }),
+                        })
+                      },
                     })
-                    void loadRows()
                   },
                 }]
                 : [{
                   id: 'deactivate',
                   label: t('checkout.admin.payLinks.actions.deactivate'),
                   onSelect: async () => {
-                    await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ status: 'inactive' }),
+                    await runRowMutation({
+                      row,
+                      successMessage: t('checkout.admin.payLinks.flash.deactivated'),
+                      fallbackErrorMessage: t('checkout.admin.payLinks.flash.deactivateError'),
+                      mutationPayload: { status: 'inactive' },
+                      operation: async () => {
+                        await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'inactive' }),
+                        })
+                      },
                     })
-                    void loadRows()
                   },
                 }]),
               {
                 id: 'delete',
                 label: t('checkout.common.actions.delete'),
                 onSelect: async () => {
-                  await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-                  void loadRows()
+                  await runRowMutation({
+                    row,
+                    successMessage: t('checkout.admin.payLinks.flash.deleted'),
+                    fallbackErrorMessage: t('checkout.admin.payLinks.flash.deleteError'),
+                    operation: async () => {
+                      await apiCallOrThrow(`/api/checkout/links/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
+                    },
+                  })
                 },
               },
             ]} />

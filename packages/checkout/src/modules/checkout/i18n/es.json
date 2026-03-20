@@ -6,28 +6,65 @@
       "passwordPlaceholder": "Contrasena",
       "unavailable": "Este enlace de pago ya no esta disponible.",
       "previewBanner": "Modo de vista previa. Los pagos estan deshabilitados.",
+      "badges": {
+        "secure": "Pago seguro",
+        "preview": "Vista previa"
+      },
+      "header": {
+        "providerLabel": "Pasarela",
+        "autoProvider": "Configurado en checkout",
+        "pageLabel": "Pagina"
+      },
+      "description": {
+        "kicker": "Resumen de la oferta"
+      },
       "sections": {
         "customerDetails": "Datos del cliente",
+        "productDetails": "Detalles de la oferta",
         "payment": "Pago",
         "legal": "Confirmaciones legales"
       },
+      "pricing": {
+        "kicker": "Configuracion del pago",
+        "title": "Elige como quieres pagar"
+      },
       "fields": {
         "selectPlaceholder": "Seleccionar...",
-        "customAmount": "Importe"
+        "customAmount": "Importe",
+        "booleanTrue": "Si",
+        "booleanFalse": "No"
       },
       "help": {
         "customerDetails": "Completa los datos del comprador y luego continua al pago.",
+        "productDetails": "Informacion adicional de la oferta configurada para este enlace de pago.",
         "payment": "Elige el importe, revisa el resumen y continua con el paso de pago seguro.",
-        "legal": "Las confirmaciones obligatorias deben aceptarse antes de iniciar el pago."
+        "legal": "Las confirmaciones obligatorias deben aceptarse antes de iniciar el pago.",
+        "previewHeadline": "Esta es una vista previa del flujo de pago.",
+        "liveHeadline": "El widget del proveedor aparecera en este panel despues de la validacion.",
+        "providerLine": "Proveedor: {provider}.",
+        "providerFallback": "El proveedor de pago esta configurado en los ajustes de checkout."
       },
       "legal": {
         "acceptDocument": "Acepto {document}.",
         "defaultTermsTitle": "los terminos y condiciones",
         "defaultPrivacyTitle": "la politica de privacidad"
       },
+      "payment": {
+        "kicker": "Panel de pago",
+        "previewState": "Sin cargo",
+        "liveState": "Listo",
+        "providerHint": "Tu pago sera procesado por {provider}."
+      },
       "summary": {
         "amountDue": "Importe pendiente",
-        "awaitingSelection": "Selecciona un importe"
+        "awaitingSelection": "Selecciona un importe",
+        "previewState": "Vista previa",
+        "liveState": "Activo",
+        "checkoutLabel": "Checkout",
+        "providerLabel": "Proveedor"
+      },
+      "footer": {
+        "subtitle": "Pagina publica de pago configurada en checkout."
       },
       "errors": {
         "loadTitle": "No se pudo cargar el enlace de pago",
@@ -79,6 +116,66 @@
         "failed": "Fallido",
         "cancelled": "Cancelado",
         "expired": "Caducado"
+      }
+    },
+    "validation": {
+      "common": {
+        "required": "Este campo es obligatorio.",
+        "invalidUrl": "Introduce una URL valida.",
+        "invalidUuid": "Introduce un identificador valido.",
+        "invalidColor": "Introduce un color hex valido con el formato #RRGGBB.",
+        "invalidCurrencyCode": "Introduce un codigo de moneda valido de 3 letras.",
+        "invalidFieldsetCode": "Introduce un codigo de conjunto de campos valido.",
+        "invalidNumber": "Introduce un numero valido.",
+        "nonNegativeNumber": "Introduce un numero mayor o igual que 0.",
+        "integer": "Introduce un numero entero.",
+        "nonNegativeInteger": "Introduce un numero entero mayor o igual que 0.",
+        "positiveInteger": "Introduce un numero entero mayor que 0."
+      },
+      "name": {
+        "required": "El nombre es obligatorio."
+      },
+      "gatewayProviderKey": {
+        "required": "El proveedor de pasarela es obligatorio."
+      },
+      "customerFields": {
+        "key": {
+          "invalid": "Usa camelCase empezando por una letra."
+        }
+      },
+      "fixedPriceAmount": {
+        "required": "El importe es obligatorio para el precio fijo."
+      },
+      "fixedPriceCurrencyCode": {
+        "required": "La moneda es obligatoria para el precio fijo."
+      },
+      "customAmountMin": {
+        "required": "El importe minimo es obligatorio."
+      },
+      "customAmountMax": {
+        "required": "El importe maximo es obligatorio."
+      },
+      "customAmountCurrencyCode": {
+        "required": "La moneda es obligatoria para el importe personalizado."
+      },
+      "customAmount": {
+        "range": "El importe maximo debe ser mayor o igual que el minimo."
+      },
+      "priceListItems": {
+        "required": "Agrega al menos un elemento a la lista de precios.",
+        "singleCurrency": "Todos los elementos de la lista de precios deben usar la misma moneda."
+      }
+    },
+    "admin": {
+      "payLinks": {
+        "flash": {
+          "published": "El enlace de pago se publico correctamente.",
+          "publishError": "No se pudo publicar el enlace de pago.",
+          "deactivated": "El enlace de pago se desactivo correctamente.",
+          "deactivateError": "No se pudo desactivar el enlace de pago.",
+          "deleted": "El enlace de pago se elimino correctamente.",
+          "deleteError": "No se pudo eliminar el enlace de pago."
+        }
       }
     }
   }

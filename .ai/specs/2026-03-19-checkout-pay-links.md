@@ -1611,10 +1611,12 @@ export const entities: CustomEntitySpec[] = [
 
 **Template → Link custom field copy:** When creating a link from a template, the `checkout.link.create` command copies all custom field values from the template entity to the new link entity using `loadCustomFieldValues` + `setCustomFieldsIfAny`.
 
-**Seed custom fields:** The `seed/custom-fields.ts` file creates example custom fields for `checkout:link`:
-- `referenceCode` (text) — External reference
-- `internalNotes` (multiline) — Internal notes for the team
-- `priority` (select: low/medium/high) — Link priority level
+**Seed custom fields:** Checkout example entities ship with customer-safe fieldset-based custom fields for links and templates:
+- `service_package` fieldset — `service_deliverables`, `delivery_timeline`, `session_format`, `support_contact`
+- `donation_campaign` fieldset — `impact_summary`, `donation_usage`, `tax_receipt_note`, `support_contact`
+- `event_ticket` fieldset — `event_date`, `event_location`, `ticket_includes`, `support_contact`
+
+Only fieldsets explicitly selected on a link/template and enabled via `displayCustomFieldsOnPage` are exposed on the public pay page.
 
 ---
 
@@ -1640,7 +1642,7 @@ export const entities: CustomEntitySpec[] = [
 All examples are seeded **without** `gatewayProviderKey` set. The link form displays:
 > "To accept payments, you need to configure a payment integration first. [Set up integrations →](/backend/integrations)"
 
-Example custom field values are populated on seeded links.
+Example templates and links include prefilled success/cancel/error messages, transactional email subjects/bodies, and fieldset-specific public custom field values.
 
 ---
 
@@ -2013,3 +2015,5 @@ None identified.
 - Completed compliance review against all AGENTS.md rules
 - Updated public payment flow to return generic `paymentSession` descriptors instead of checkout-owned embedded form payloads
 - Added provider-owned client renderer registration via generated `payments.client.generated.ts`
+- Added fieldset-based, customer-safe example custom fields for checkout links/templates and public pay-page rendering
+- Seeded checkout examples with richer success/cancel/error messaging and transactional email templates

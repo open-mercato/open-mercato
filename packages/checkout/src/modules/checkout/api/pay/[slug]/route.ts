@@ -8,11 +8,11 @@ import { CheckoutLink } from '../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../lib/constants'
 import { resolveCheckoutPublicCustomFields } from '../../../lib/customFields'
 import { checkoutPublicViewRateLimitConfig } from '../../../lib/rateLimiter'
-import { handleCheckoutRouteError, readCheckoutPasswordCookie, requirePreviewContext } from '../../helpers'
+import { handleCheckoutRouteError, readCheckoutAccessCookie, requirePreviewContext } from '../../helpers'
 import {
   isCheckoutLinkPublic,
   serializeTemplateOrLink,
-  verifyCheckoutPasswordAccess,
+  verifyCheckoutAccessToken,
 } from '../../../lib/utils'
 import { checkoutTag } from '../../openapi'
 
@@ -49,8 +49,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     const available = link.maxCompletions == null
       ? true
       : (link.completionCount + link.activeReservationCount) < link.maxCompletions
-    const token = readCheckoutPasswordCookie(req)
-    const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutPasswordAccess(token, link.slug)
+    const token = readCheckoutAccessCookie(req)
+    const passwordVerified = previewRequested || !link.passwordHash || verifyCheckoutAccessToken(token, link.slug)
     if (!passwordVerified) {
       return NextResponse.json({
         requiresPassword: true,

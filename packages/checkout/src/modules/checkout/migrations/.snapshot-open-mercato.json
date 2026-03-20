@@ -233,6 +233,15 @@
           "nullable": true,
           "mappedType": "json"
         },
+        "custom_fieldset_code": {
+          "name": "custom_fieldset_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "collect_customer_details": {
           "name": "collect_customer_details",
           "type": "boolean",
@@ -811,6 +820,15 @@
           "primary": false,
           "nullable": true,
           "mappedType": "json"
+        },
+        "custom_fieldset_code": {
+          "name": "custom_fieldset_code",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
         },
         "collect_customer_details": {
           "name": "collect_customer_details",

@@ -4,9 +4,9 @@ import { CheckoutLink } from '../../data/entities'
 import {
   buildConsentProof,
   resolveSubmittedAmount,
-  signCheckoutPasswordAccess,
+  signCheckoutAccessToken,
   validateDescriptorCurrencies,
-  verifyCheckoutPasswordAccess,
+  verifyCheckoutAccessToken,
 } from '../utils'
 
 function createLink(overrides: Partial<CheckoutLink> = {}): CheckoutLink {
@@ -104,10 +104,10 @@ describe('checkout utils', () => {
   })
 
   it('verifies password access tokens only for the matching slug', () => {
-    const token = signCheckoutPasswordAccess('launch-offer')
+    const token = signCheckoutAccessToken('launch-offer')
 
-    expect(verifyCheckoutPasswordAccess(token, 'launch-offer')).toBe(true)
-    expect(verifyCheckoutPasswordAccess(token, 'other-link')).toBe(false)
+    expect(verifyCheckoutAccessToken(token, 'launch-offer')).toBe(true)
+    expect(verifyCheckoutAccessToken(token, 'other-link')).toBe(false)
   })
 
   it('rejects currencies not supported by the selected gateway descriptor', () => {

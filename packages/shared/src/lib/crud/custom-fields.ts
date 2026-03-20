@@ -142,9 +142,18 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
   const byKey: Record<string, { kind: string; multi?: boolean; entityId: string }> = {}
   for (const d of defs) {
     if (fieldsetFilter) {
+      const fieldsets = Array.isArray(d.configJson?.fieldsets)
+        ? d.configJson.fieldsets
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0)
+        : []
       const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
       const normalizedFieldset = rawFieldset.length ? rawFieldset : null
-      if (!fieldsetFilter.has(normalizedFieldset)) continue
+      const matches = fieldsets.length > 0
+        ? fieldsets.some((entry) => fieldsetFilter.has(entry))
+        : fieldsetFilter.has(normalizedFieldset)
+      if (!matches) continue
     }
     const key = d.key
     const entityId = String(d.entityId)

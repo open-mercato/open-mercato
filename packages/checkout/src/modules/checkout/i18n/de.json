@@ -6,28 +6,65 @@
       "passwordPlaceholder": "Passwort",
       "unavailable": "Dieser Zahlungslink ist nicht mehr verfugbar.",
       "previewBanner": "Vorschaumodus. Zahlungen sind deaktiviert.",
+      "badges": {
+        "secure": "Sichere Zahlung",
+        "preview": "Vorschau"
+      },
+      "header": {
+        "providerLabel": "Gateway",
+        "autoProvider": "Im Checkout konfiguriert",
+        "pageLabel": "Seite"
+      },
+      "description": {
+        "kicker": "Angebotsubersicht"
+      },
       "sections": {
         "customerDetails": "Kundendaten",
+        "productDetails": "Angebotsdetails",
         "payment": "Zahlung",
         "legal": "Rechtliche Bestatigungen"
       },
+      "pricing": {
+        "kicker": "Zahlungseinrichtung",
+        "title": "Waehle, wie du bezahlen moechtest"
+      },
       "fields": {
         "selectPlaceholder": "Auswaehlen...",
-        "customAmount": "Betrag"
+        "customAmount": "Betrag",
+        "booleanTrue": "Ja",
+        "booleanFalse": "Nein"
       },
       "help": {
         "customerDetails": "Erfasse die Kundendaten und gehe dann weiter zur Zahlung.",
+        "productDetails": "Zusatzinformationen zu diesem Zahlungslink.",
         "payment": "Waehle den Betrag, pruefe die Zusammenfassung und gehe dann zum sicheren Zahlungsschritt weiter.",
-        "legal": "Pflichtbestaetigungen muessen vor dem Zahlungsstart akzeptiert werden."
+        "legal": "Pflichtbestaetigungen muessen vor dem Zahlungsstart akzeptiert werden.",
+        "previewHeadline": "Dies ist eine Vorschau des Zahlungsablaufs.",
+        "liveHeadline": "Das Provider-Widget erscheint in diesem Bereich nach der Validierung.",
+        "providerLine": "Anbieter: {provider}.",
+        "providerFallback": "Der Zahlungsanbieter ist in den Checkout-Einstellungen konfiguriert."
       },
       "legal": {
         "acceptDocument": "Ich akzeptiere {document}.",
         "defaultTermsTitle": "die Allgemeinen Geschaeftsbedingungen",
         "defaultPrivacyTitle": "die Datenschutzerklaerung"
       },
+      "payment": {
+        "kicker": "Zahlungsbereich",
+        "previewState": "Keine Belastung",
+        "liveState": "Bereit",
+        "providerHint": "Deine Zahlung wird von {provider} verarbeitet."
+      },
       "summary": {
         "amountDue": "Faelliger Betrag",
-        "awaitingSelection": "Betrag auswaehlen"
+        "awaitingSelection": "Betrag auswaehlen",
+        "previewState": "Vorschau",
+        "liveState": "Live",
+        "checkoutLabel": "Checkout",
+        "providerLabel": "Anbieter"
+      },
+      "footer": {
+        "subtitle": "Oeffentliche Zahlungsseite, die im Checkout konfiguriert wurde."
       },
       "errors": {
         "loadTitle": "Zahlungslink konnte nicht geladen werden",
@@ -79,6 +116,66 @@
         "failed": "Fehlgeschlagen",
         "cancelled": "Abgebrochen",
         "expired": "Abgelaufen"
+      }
+    },
+    "validation": {
+      "common": {
+        "required": "Dieses Feld ist erforderlich.",
+        "invalidUrl": "Gib eine gueltige URL ein.",
+        "invalidUuid": "Gib eine gueltige Kennung ein.",
+        "invalidColor": "Gib eine gueltige Hex-Farbe im Format #RRGGBB ein.",
+        "invalidCurrencyCode": "Gib einen gueltigen 3-stelligen Waehrungscode ein.",
+        "invalidFieldsetCode": "Gib einen gueltigen Feldsatz-Code ein.",
+        "invalidNumber": "Gib eine gueltige Zahl ein.",
+        "nonNegativeNumber": "Gib eine Zahl groesser oder gleich 0 ein.",
+        "integer": "Gib eine ganze Zahl ein.",
+        "nonNegativeInteger": "Gib eine ganze Zahl groesser oder gleich 0 ein.",
+        "positiveInteger": "Gib eine ganze Zahl groesser als 0 ein."
+      },
+      "name": {
+        "required": "Name ist erforderlich."
+      },
+      "gatewayProviderKey": {
+        "required": "Gateway-Anbieter ist erforderlich."
+      },
+      "customerFields": {
+        "key": {
+          "invalid": "Verwende camelCase beginnend mit einem Buchstaben."
+        }
+      },
+      "fixedPriceAmount": {
+        "required": "Betrag ist fuer Festpreis erforderlich."
+      },
+      "fixedPriceCurrencyCode": {
+        "required": "Waehrung ist fuer Festpreis erforderlich."
+      },
+      "customAmountMin": {
+        "required": "Ein Mindestbetrag ist erforderlich."
+      },
+      "customAmountMax": {
+        "required": "Ein Hoechstbetrag ist erforderlich."
+      },
+      "customAmountCurrencyCode": {
+        "required": "Waehrung ist fuer benutzerdefinierte Betraege erforderlich."
+      },
+      "customAmount": {
+        "range": "Der Hoechstbetrag muss groesser oder gleich dem Mindestbetrag sein."
+      },
+      "priceListItems": {
+        "required": "Fuege mindestens einen Preislisten-Eintrag hinzu.",
+        "singleCurrency": "Alle Preislisten-Eintraege muessen dieselbe Waehrung verwenden."
+      }
+    },
+    "admin": {
+      "payLinks": {
+        "flash": {
+          "published": "Zahlungslink wurde veroeffentlicht.",
+          "publishError": "Zahlungslink konnte nicht veroeffentlicht werden.",
+          "deactivated": "Zahlungslink wurde deaktiviert.",
+          "deactivateError": "Zahlungslink konnte nicht deaktiviert werden.",
+          "deleted": "Zahlungslink wurde geloescht.",
+          "deleteError": "Zahlungslink konnte nicht geloescht werden."
+        }
       }
     }
   }
