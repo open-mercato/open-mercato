@@ -1,0 +1,135 @@
+---
+title: Extending MFA Providers
+description: How to register a custom MFA provider from an external module.
+---
+
+The security module exposes a registry that accepts additional MFA providers declared in other modules. No changes to the security module itself are required.
+
+## Registration file
+
+Declare providers in your module at:
+
+```text
+src/modules/<your-module>/security.mfa-providers.ts
+```
+
+The generator scans this filename and adds the export to the security bootstrap registry. Run `yarn generate` after creating the file.
+
+## Provider contract
+
+Each provider must satisfy the `MfaProviderSetup` interface and implement four lifecycle methods:
+
+| Method | Required | Description |
+| --- | --- | --- |
+| `setup` | Yes | Initiates enrollment. Returns a `setupId` and optional `clientData` for the UI. |
+| `confirmSetup` | Yes | Completes enrollment. Returns `metadata` to be stored with the method record. |
+| `prepareChallenge` | No | Sends or prepares a challenge before the user can respond (e.g. OTP delivery, push notification). Returns `clientData` for the challenge UI. |
+| `verify` | Yes | Validates the user's response during sign-in or sudo. Returns a boolean. |
+
+Additional required fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `type` | `string` | Unique, stable identifier for the provider (e.g. `sms`) |
+| `label` | `string` | Display name shown in setup and challenge screens |
+| `icon` | `string` | Lucide icon name |
+| `allowMultiple` | `boolean` | Whether a user can enroll more than one instance |
+| `setupSchema` | `ZodSchema` | Validates the payload passed to `setup` |
+| `verifySchema` | `ZodSchema` | Validates the payload passed to `verify` |
+
+## Minimal example
+
+```ts
+import { z } from 'zod'
+import type { MfaProviderSetup } from '@open-mercato/enterprise/modules/security'
+
+const smsSetupSchema = z.object({
+  phoneNumber: z.string().min(1),
+})
+
+const smsVerifySchema = z.object({
+  code: z.string().min(1),
+})
+
+export const mfaProviders = [
+  {
+    type: 'sms',
+    label: 'SMS code',
+    icon: 'MessageSquare',
+    allowMultiple: false,
+    setupSchema: smsSetupSchema,
+    verifySchema: smsVerifySchema,
+
+    async setup(userId, payload) {
+      const input = smsSetupSchema.parse(payload)
+      const setupId = await createSmsSetupSession(userId, input.phoneNumber)
+      return {
+        setupId,
+        clientData: { maskedPhone: maskPhoneNumber(input.phoneNumber) },
+      }
+    },
+
+    async confirmSetup(userId, setupId, payload) {
+      const input = smsVerifySchema.parse(payload)
+      await confirmSmsSetup(userId, setupId, input.code)
+      return { metadata: { label: 'SMS code' } }
+    },
+
+    async prepareChallenge(userId, method) {
+      await sendSmsChallenge(userId, method.id)
+      return { clientData: { delivery: 'sms' } }
+    },
+
+    async verify(userId, method, payload) {
+      const input = smsVerifySchema.parse(payload)
+      return verifySmsCode(userId, method.id, input.code)
+    },
+  },
+] satisfies MfaProviderSetup[]
+```
+
+## Custom UI components
+
+By default the security module renders a generic code-entry UI for setup and verification. This is sufficient for most code-based providers.
+
+To override any screen, add component handle IDs to the provider declaration:
+
+```ts
+components: {
+  setup:     'section:security.mfa.setup.provider:sms',
+  list:      'section:security.mfa.providers.list-item:sms',
+  details:   'section:security.mfa.provider.details:sms',
+  challenge: 'section:security.mfa.challenge.provider:sms',
+},
+```
+
+Then register replacement components in your module's `widgets/components.ts`:
+
+```ts
+import { z } from 'zod'
+import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import SmsChallengeVerify from './components/SmsChallengeVerify'
+
+const passthroughProps = z.object({}).passthrough()
+
+export const componentOverrides: ComponentOverride[] = [
+  {
+    target: { componentId: 'section:security.mfa.challenge.provider:sms' },
+    priority: 50,
+    replacement: SmsChallengeVerify,
+    propsSchema: passthroughProps,
+  },
+]
+```
+
+Custom components are appropriate when the generic code-entry flow is insufficient, for example: QR code setup, WebAuthn browser interactions, push approval with polling, or hardware token prompts.
+
+## Behavior after registration
+
+A registered provider is automatically available in:
+
+- the user's MFA setup page (`/backend/profile/security/mfa`)
+- the sign-in challenge panel, if the user has enrolled
+- sudo challenges when `challengeMethod` is `mfa` or `auto`
+
+The provider must handle both sign-in and sudo challenge contexts. Both use the same `prepareChallenge` and `verify` methods.

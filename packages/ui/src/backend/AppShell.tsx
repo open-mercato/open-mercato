@@ -249,6 +249,7 @@ function mergeSectionGroupsWithInjected(
         id: item.id,
         label,
         href: item.href,
+        icon: resolveInjectedIcon(item.icon) ?? undefined,
       }]
     })
     return {
@@ -267,7 +268,12 @@ function mergeSectionGroupsWithInjected(
     const items = sectionItems.flatMap((item) => {
       if (!item.href) return []
       const itemLabel = resolveInjectedMenuLabel(item, t)
-      return [{ id: item.id, label: itemLabel, href: item.href }]
+      return [{
+        id: item.id,
+        label: itemLabel,
+        href: item.href,
+        icon: resolveInjectedIcon(item.icon) ?? undefined,
+      }]
     })
     if (items.length === 0) continue
     nextSections.push({ id: sectionId, label, items })

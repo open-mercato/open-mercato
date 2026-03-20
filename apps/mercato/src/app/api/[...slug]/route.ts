@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
@@ -148,7 +148,7 @@ async function checkAuthorization(
             const guardContainer = await ensureContainer()
             await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
           } catch (error) {
-            if (error instanceof CrudHttpError) {
+            if (isCrudHttpError(error)) {
               return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
             }
             throw error

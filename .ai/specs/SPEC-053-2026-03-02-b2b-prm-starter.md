@@ -86,7 +86,7 @@ Out of scope in first release:
 | Extend customers/sales via UMES slots and enrichers | Preserves host-module ownership |
 | Manual tier assignment in MVP | Business control and lower automation risk |
 | Starter seeds for defaults and examples | Reliable "day-0" usability |
-| Example is a complete app in `open-mercato/examples` (per SPEC-068) | Keeps core clean; example modules live in app `src/modules/`; bootstrap via `create-mercato-app --example b2b-prm` + `yarn initialize` |
+| Example is a complete app in `open-mercato/ready-apps` (per SPEC-068) | Keeps core clean; example modules live in app `src/modules/`; bootstrap via `create-mercato-app --example b2b-prm` + `yarn initialize` |
 
 ## User Stories / Use Cases
 ### 1. Program Governance & KPI
@@ -335,9 +335,9 @@ Representative response listing result:
 ```
 
 ### Example Bootstrap (per SPEC-068)
-The PRM example is distributed as a complete app in the `open-mercato/examples` repository. Bootstrap flow:
+The PRM example is distributed as a complete app in the `open-mercato/ready-apps` repository. Bootstrap flow:
 
-1. `npx create-mercato-app my-prm --example b2b-prm` — fetches the B2B PRM example from `open-mercato/examples` via GitHub API tarball
+1. `npx create-mercato-app my-prm --example b2b-prm` — fetches the B2B PRM example from `open-mercato/ready-apps` via GitHub API tarball
 2. `yarn install` → `yarn initialize` — setup.ts hooks auto-discover PRM modules and run `seedDefaults` / `seedExamples`
 
 Seed profiles (e.g., `demo_agency`) are controlled via env vars or starter config file, not CLI flags.

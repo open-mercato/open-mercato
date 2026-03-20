@@ -97,6 +97,7 @@ Custom modules go in `src/modules/`. Each module can define:
 - Navigation entries
 
 Add new modules to `src/modules.ts` with `from: '@app'`.
+Install official package-backed modules with `yarn mercato module add @open-mercato/<package>`.
 
 ### Path Aliases
 

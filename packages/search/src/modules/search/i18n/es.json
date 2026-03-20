@@ -27,6 +27,7 @@
   "search.dialog.actions.search": "Buscar",
   "search.dialog.empty.hint": "Escribe al menos dos caracteres para buscar en los registros indexados.",
   "search.dialog.empty.none": "No se encontraron resultados.",
+  "search.dialog.errors.noPermission": "No tienes permiso para usar la búsqueda global.",
   "search.dialog.errors.searchFailed": "La búsqueda falló.",
   "search.dialog.input.placeholder": "Busca clientes, notas, oportunidades, tareas...",
   "search.dialog.instructions": "Escribe para buscar en los registros indexados. Usa las flechas para navegar por los resultados.",

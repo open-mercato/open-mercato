@@ -1,6 +1,8 @@
 import path from 'node:path'
 import fs from 'node:fs'
+import { setModuleRegistrationSource } from './modules-config'
 import type { PackageResolver, ModuleEntry } from './resolver'
+import { resolveInstalledOfficialModulePackage } from './module-package'
 
 type ModuleMetadata = {
   ejectable?: boolean
@@ -11,11 +13,15 @@ type ModuleMetadata = {
 const SKIP_DIRS = new Set(['__tests__', '__mocks__', 'node_modules'])
 const SOURCE_FILE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']
 
+function shouldSkipEntryName(name: string): boolean {
+  return SKIP_DIRS.has(name) || name === '.DS_Store' || name.startsWith('._')
+}
+
 function collectSourceFiles(dir: string): string[] {
   const files: string[] = []
   const entries = fs.readdirSync(dir, { withFileTypes: true })
   for (const entry of entries) {
-    if (SKIP_DIRS.has(entry.name)) continue
+    if (shouldSkipEntryName(entry.name)) continue
     const fullPath = path.join(dir, entry.name)
     if (entry.isDirectory()) {
       files.push(...collectSourceFiles(fullPath))
@@ -159,7 +165,7 @@ export function copyDirRecursive(src: string, dest: string): void {
 
   const entries = fs.readdirSync(src, { withFileTypes: true })
   for (const entry of entries) {
-    if (SKIP_DIRS.has(entry.name)) continue
+    if (shouldSkipEntryName(entry.name)) continue
 
     const srcPath = path.join(src, entry.name)
     const destPath = path.join(dest, entry.name)
@@ -173,51 +179,7 @@ export function copyDirRecursive(src: string, dest: string): void {
 }
 
 export function updateModulesTs(modulesPath: string, moduleId: string): void {
-  if (!fs.existsSync(modulesPath)) {
-    throw new Error(`modules.ts not found at ${modulesPath}`)
-  }
-
-  const source = fs.readFileSync(modulesPath, 'utf8')
-  const objectPattern = /\{[^{}]*\}/g
-
-  let match: RegExpExecArray | null
-  let updatedSource: string | null = null
-
-  while ((match = objectPattern.exec(source)) !== null) {
-    const objectLiteral = match[0]
-    const idMatch = objectLiteral.match(/\bid\s*:\s*(['"])([^'"]+)\1/)
-    if (!idMatch || idMatch[2] !== moduleId) {
-      continue
-    }
-
-    const updatedObject = upsertModuleSource(objectLiteral)
-    updatedSource =
-      source.slice(0, match.index) +
-      updatedObject +
-      source.slice(match.index + objectLiteral.length)
-    break
-  }
-
-  if (!updatedSource) {
-    throw new Error(
-      `Could not find module entry for "${moduleId}" in ${modulesPath}. ` +
-      `Expected a pattern like: { id: '${moduleId}', from: '...' } or { id: '${moduleId}' }`,
-    )
-  }
-
-  fs.writeFileSync(modulesPath, updatedSource)
-}
-
-function upsertModuleSource(objectLiteral: string): string {
-  if (/from\s*:\s*'[^']*'/.test(objectLiteral)) {
-    return objectLiteral.replace(/from\s*:\s*'[^']*'/, "from: '@app'")
-  }
-
-  if (/from\s*:\s*"[^"]*"/.test(objectLiteral)) {
-    return objectLiteral.replace(/from\s*:\s*"[^"]*"/, 'from: "@app"')
-  }
-
-  return objectLiteral.replace(/\}\s*$/, ", from: '@app' }")
+  setModuleRegistrationSource(modulesPath, moduleId, '@app')
 }
 
 export type EjectableModule = {
@@ -227,6 +189,39 @@ export type EjectableModule = {
   from: string
 }
 
+type ResolvedModuleSource = {
+  pkgBase: string
+  metadata: ModuleMetadata
+}
+
+function resolveModuleSource(
+  resolver: PackageResolver,
+  entry: ModuleEntry,
+): ResolvedModuleSource {
+  const { pkgBase } = resolver.getModulePaths(entry)
+  const fallbackMetadata = parseModuleMetadata(path.join(pkgBase, 'index.ts'))
+  const from = entry.from || '@open-mercato/core'
+
+  if (from === '@app' || from === '@open-mercato/core') {
+    return { pkgBase, metadata: fallbackMetadata }
+  }
+
+  try {
+    const modulePackage = resolveInstalledOfficialModulePackage(resolver, from, entry.id)
+
+    return {
+      pkgBase: modulePackage.sourceModuleDir,
+      metadata: {
+        ejectable: modulePackage.metadata.ejectable,
+        title: modulePackage.moduleInfo.title ?? modulePackage.metadata.moduleId,
+        description: modulePackage.moduleInfo.description,
+      },
+    }
+  } catch {
+    return { pkgBase, metadata: fallbackMetadata }
+  }
+}
+
 export function listEjectableModules(resolver: PackageResolver): EjectableModule[] {
   const modules = resolver.loadEnabledModules()
   const ejectable: EjectableModule[] = []
@@ -234,9 +229,7 @@ export function listEjectableModules(resolver: PackageResolver): EjectableModule
   for (const entry of modules) {
     if (entry.from === '@app') continue
 
-    const { pkgBase } = resolver.getModulePaths(entry)
-    const indexPath = path.join(pkgBase, 'index.ts')
-    const metadata = parseModuleMetadata(indexPath)
+    const { metadata } = resolveModuleSource(resolver, entry)
 
     if (metadata.ejectable) {
       ejectable.push({
@@ -268,7 +261,8 @@ export function ejectModule(resolver: PackageResolver, moduleId: string): void {
     )
   }
 
-  const { pkgBase, appBase } = resolver.getModulePaths(entry)
+  const { appBase } = resolver.getModulePaths(entry)
+  const { pkgBase, metadata } = resolveModuleSource(resolver, entry)
 
   if (!fs.existsSync(pkgBase)) {
     throw new Error(
@@ -277,13 +271,9 @@ export function ejectModule(resolver: PackageResolver, moduleId: string): void {
     )
   }
 
-  const indexPath = path.join(pkgBase, 'index.ts')
-  const metadata = parseModuleMetadata(indexPath)
-
   if (!metadata.ejectable) {
     throw new Error(
-      `Module "${moduleId}" is not marked as ejectable. ` +
-      `Only modules with \`ejectable: true\` in their metadata can be ejected.`,
+      `Module "${moduleId}" is not marked as ejectable. Only modules with \`ejectable: true\` in their metadata can be ejected.`,
     )
   }
 

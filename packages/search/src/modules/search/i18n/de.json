@@ -27,6 +27,7 @@
   "search.dialog.actions.search": "Suchen",
   "search.dialog.empty.hint": "Mindestens zwei Zeichen eingeben, um in indizierten Datensätzen zu suchen.",
   "search.dialog.empty.none": "Keine Ergebnisse gefunden.",
+  "search.dialog.errors.noPermission": "Sie haben keine Berechtigung, die globale Suche zu verwenden.",
   "search.dialog.errors.searchFailed": "Suche ist fehlgeschlagen.",
   "search.dialog.input.placeholder": "Suche nach Kunden, Notizen, Deals, Aufgaben...",
   "search.dialog.instructions": "Tippe, um in indizierten Datensätzen zu suchen. Verwende die Pfeiltasten, um Ergebnisse zu navigieren.",
