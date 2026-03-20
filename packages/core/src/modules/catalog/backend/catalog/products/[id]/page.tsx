@@ -672,15 +672,18 @@ export default function EditCatalogProductPage({
     };
   }, []);
 
+  // Next.js client-side navigation does not scroll to hash targets.
+  // Poll until the target element is in the DOM, then scroll once.
+  const hasScrolledToHash = React.useRef(false)
   React.useEffect(() => {
+    if (hasScrolledToHash.current) return
     const hash = window.location.hash.replace('#', '')
     if (!hash) return
-    // Next.js client-side navigation does not scroll to hash targets; wait for paint then scroll
-    const frame = requestAnimationFrame(() => {
-      document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [])
+    const el = document.getElementById(hash)
+    if (!el) return
+    hasScrolledToHash.current = true
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
 
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
