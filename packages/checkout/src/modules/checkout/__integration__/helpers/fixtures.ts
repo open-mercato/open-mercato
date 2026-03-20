@@ -1,9 +1,6 @@
 import { expect, type APIRequestContext, type APIResponse, type Page } from '@playwright/test'
-import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
-  getTokenContext,
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import type { PublicSubmitInput } from '../../data/validators'
@@ -76,6 +73,12 @@ export type CheckoutTransactionRecord = {
   phone?: string | null
   acceptedLegalConsents?: Record<string, unknown> | null
   customerData?: Record<string, unknown> | null
+}
+
+export type ExampleCapturedEvent = {
+  event: string
+  payload: Record<string, unknown>
+  capturedAt: string
 }
 
 function uniqueLabel(prefix: string): string {
@@ -403,8 +406,9 @@ export async function sendMockGatewayWebhook(
   providerSessionId: string,
   status: 'captured' | 'cancelled' | 'failed',
   amount: number,
+  options?: { providerKey?: string },
 ): Promise<APIResponse> {
-  return apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
+  return apiRequest(request, 'POST', `/api/payment_gateways/webhook/${encodeURIComponent(options?.providerKey ?? 'mock')}`, {
     token,
     data: {
       type: `payment.${status}`,
@@ -414,72 +418,6 @@ export async function sendMockGatewayWebhook(
         status,
         amount,
       },
-    },
-  })
-}
-
-export async function createProcessingCheckoutTransaction(
-  token: string,
-  input: {
-    linkId: string
-    amount: number
-    currencyCode: string
-    customerData?: Record<string, unknown>
-  },
-): Promise<string> {
-  const scope = getTokenContext(token)
-  const container = await createRequestContainer()
-  const commandBus = container.resolve('commandBus') as CommandBus
-  const result = await commandBus.execute<
-    Record<string, unknown>,
-    { id: string }
-  >('checkout.transaction.create', {
-    input: {
-      linkId: input.linkId,
-      amount: input.amount,
-      currencyCode: input.currencyCode,
-      idempotencyKey: uniqueLabel('direct-transaction'),
-      customerData: input.customerData ?? createCustomerData(),
-      firstName: 'Quinn',
-      lastName: 'Checkout',
-      email: 'direct-checkout@example.test',
-      phone: '+15550001111',
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-    },
-    ctx: {
-      container,
-      auth: null,
-      organizationScope: null,
-      selectedOrganizationId: scope.organizationId,
-      organizationIds: [scope.organizationId],
-    },
-  })
-  return result.result.id
-}
-
-export async function updateCheckoutTransactionStatus(
-  token: string,
-  transactionId: string,
-  status: 'completed' | 'failed' | 'cancelled' | 'expired',
-): Promise<void> {
-  const scope = getTokenContext(token)
-  const container = await createRequestContainer()
-  const commandBus = container.resolve('commandBus') as CommandBus
-  await commandBus.execute('checkout.transaction.updateStatus', {
-    input: {
-      id: transactionId,
-      status,
-      paymentStatus: status,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-    },
-    ctx: {
-      container,
-      auth: null,
-      organizationScope: null,
-      selectedOrganizationId: scope.organizationId,
-      organizationIds: [scope.organizationId],
     },
   })
 }
@@ -505,4 +443,44 @@ export async function loginToBackendAndOpen(page: Page, path: string): Promise<v
   await page.getByRole('button', { name: /sign in/i }).click()
   await page.waitForURL(/\/backend(?:\/.*)?$/)
   await page.goto(path)
+}
+
+export async function clearCapturedExampleEvents(
+  request: APIRequestContext,
+  token: string,
+): Promise<void> {
+  const response = await apiRequest(request, 'DELETE', '/api/example/qa-events', { token })
+  expect(response.ok(), `Failed to clear captured example events: ${response.status()}`).toBeTruthy()
+}
+
+export async function listCapturedExampleEvents(
+  request: APIRequestContext,
+  token: string,
+  options?: { event?: string; prefix?: string },
+): Promise<ExampleCapturedEvent[]> {
+  const query = new URLSearchParams()
+  if (options?.event) query.set('event', options.event)
+  if (options?.prefix) query.set('prefix', options.prefix)
+  const response = await apiRequest(request, 'GET', `/api/example/qa-events${query.size > 0 ? `?${query.toString()}` : ''}`, {
+    token,
+  })
+  expect(response.ok(), `Failed to list captured example events: ${response.status()}`).toBeTruthy()
+  const body = await readJsonSafe<{ items?: ExampleCapturedEvent[] }>(response)
+  return Array.isArray(body?.items) ? body.items : []
+}
+
+export async function waitForCapturedExampleEvents(
+  request: APIRequestContext,
+  token: string,
+  expectedEventNames: string[],
+): Promise<ExampleCapturedEvent[]> {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const events = await listCapturedExampleEvents(request, token)
+    const seenNames = new Set(events.map((event) => event.event))
+    if (expectedEventNames.every((eventName) => seenNames.has(eventName))) {
+      return events
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
+  return listCapturedExampleEvents(request, token)
 }

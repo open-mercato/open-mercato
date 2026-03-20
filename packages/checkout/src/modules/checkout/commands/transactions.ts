@@ -26,6 +26,7 @@ function resolveTransactionScope(input: { tenantId?: string | null; organization
 type CheckoutTerminalEventPayload = {
   transactionId: string
   linkId: string
+  templateId: string | null
   slug: string
   status: CheckoutTransaction['status']
   paymentStatus: string | null
@@ -46,6 +47,8 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
     const em = ctx.container.resolve('em') as EntityManager
     let lockedLinkId: string | null = null
     let lockedLinkSlug: string | null = null
+    let lockedLinkTemplateId: string | null = null
+    let lockedLinkGatewayProvider: string | null = null
     let shouldEmitLockedEvent = false
     const transaction = await em.transactional(async (tx) => {
       const currentLink = await tx.findOne(CheckoutLink, {
@@ -84,6 +87,8 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
       }
       lockedLinkId = currentLink.id
       lockedLinkSlug = currentLink.slug
+      lockedLinkTemplateId = currentLink.templateId ?? null
+      lockedLinkGatewayProvider = currentLink.gatewayProviderKey ?? null
       shouldEmitLockedEvent = !currentLink.isLocked
       const transaction = tx.create(CheckoutTransaction, {
         ...parsed,
@@ -116,7 +121,15 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
     await emitCheckoutEvent('checkout.transaction.customerDataCaptured', {
       transactionId: transaction.id,
       linkId: transaction.linkId,
+      templateId: lockedLinkTemplateId,
+      slug: lockedLinkSlug,
       status: transaction.status,
+      paymentStatus: transaction.paymentStatus ?? null,
+      amount: Number(transaction.amount),
+      currency: transaction.currencyCode,
+      gatewayProvider: lockedLinkGatewayProvider,
+      gatewayTransactionId: transaction.gatewayTransactionId ?? null,
+      occurredAt: new Date().toISOString(),
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       customerDataCaptured: true,
@@ -173,6 +186,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
         terminalEventPayload = {
           transactionId: transaction.id,
           linkId: transaction.linkId,
+          templateId: link.templateId ?? null,
           slug: link.slug,
           status: transaction.status,
           paymentStatus: transaction.paymentStatus ?? null,

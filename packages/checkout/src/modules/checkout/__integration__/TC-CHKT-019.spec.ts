@@ -45,6 +45,7 @@ test.describe('TC-CHKT-019: Gateway event updates checkout transaction status', 
         gatewayTransaction.providerSessionId!,
         'failed',
         49.99,
+        { providerKey: 'mock_processing' },
       )
       expect(webhookResponse.status()).toBe(202)
 

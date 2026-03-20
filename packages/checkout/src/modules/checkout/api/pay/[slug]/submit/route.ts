@@ -361,6 +361,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       await emitCheckoutEvent('checkout.transaction.sessionStarted', {
         transactionId: refreshedTransaction.id,
         linkId: refreshedTransaction.linkId,
+        templateId: link.templateId ?? null,
         slug: link.slug,
         status: refreshedTransaction.status,
         paymentStatus: refreshedTransaction.paymentStatus ?? null,

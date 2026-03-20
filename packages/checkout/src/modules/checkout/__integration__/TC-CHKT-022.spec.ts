@@ -9,12 +9,11 @@ import {
   readGatewayTransaction,
   sendMockGatewayWebhook,
   submitPayLink,
-  updateLink,
   waitForCheckoutStatus,
 } from './helpers/fixtures'
 
-test.describe('TC-CHKT-008: Attempt update on locked link, verify 422', () => {
-  test('rejects link edits after the first transaction locks the record', async ({ request }) => {
+test.describe('TC-CHKT-022: Link deletion blocked with active transactions', () => {
+  test('returns 422 while the link still has an in-flight payment reservation', async ({ request }) => {
     let token: string | null = null
     let linkId: string | null = null
     let transactionId: string | null = null
@@ -36,15 +35,19 @@ test.describe('TC-CHKT-008: Attempt update on locked link, verify 422', () => {
       })
       expect(submitResponse.status()).toBe(201)
       const submitBody = await submitResponse.json()
-      transactionId = typeof submitBody.transactionId === 'string' ? submitBody.transactionId : null
+      transactionId = submitBody.transactionId
 
-      const updateResponse = await updateLink(request, token, link.id, {
-        title: 'Should fail after lock',
+      const deleteResponse = await request.fetch(
+        `${process.env.BASE_URL || 'http://localhost:3000'}/api/checkout/links/${encodeURIComponent(link.id)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      )
+      expect(deleteResponse.status()).toBe(422)
+      expect(await deleteResponse.json()).toMatchObject({
+        error: expect.stringContaining('cannot be deleted'),
       })
-      expect(updateResponse.status()).toBe(422)
-
-      const body = await updateResponse.json()
-      expect(body.error).toContain('cannot be edited')
     } finally {
       if (token && transactionId) {
         const gatewayTransactionId = await findGatewayTransactionIdForCheckout(request, token, transactionId)
