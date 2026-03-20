@@ -144,14 +144,14 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
     if (fieldsetFilter) {
       const fieldsets = Array.isArray(d.configJson?.fieldsets)
         ? d.configJson.fieldsets
-            .filter((entry): entry is string => typeof entry === 'string')
-            .map((entry) => entry.trim())
-            .filter((entry) => entry.length > 0)
+            .filter((entry: unknown): entry is string => typeof entry === 'string')
+            .map((entry: string) => entry.trim())
+            .filter((entry: string) => entry.length > 0)
         : []
       const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
       const normalizedFieldset = rawFieldset.length ? rawFieldset : null
       const matches = fieldsets.length > 0
-        ? fieldsets.some((entry) => fieldsetFilter.has(entry))
+        ? fieldsets.some((entry: string) => fieldsetFilter.has(entry))
         : fieldsetFilter.has(normalizedFieldset)
       if (!matches) continue
     }
@@ -379,15 +379,15 @@ export async function loadCustomFieldDefinitionIndex(opts: {
       const config = normalizeDefinitionConfig((def as any).configJson)
       const fieldsets = Array.isArray(config.fieldsets)
         ? config.fieldsets
-            .filter((entry): entry is string => typeof entry === 'string')
-            .map((entry) => entry.trim())
-            .filter((entry) => entry.length > 0)
+            .filter((entry: unknown): entry is string => typeof entry === 'string')
+            .map((entry: string) => entry.trim())
+            .filter((entry: string) => entry.length > 0)
         : []
       const fieldset = typeof config.fieldset === 'string' && config.fieldset.trim().length > 0
         ? config.fieldset.trim()
         : null
       const matches = fieldsets.length > 0
-        ? fieldsets.some((entry) => fieldsetFilter.has(entry))
+        ? fieldsets.some((entry: string) => fieldsetFilter.has(entry))
         : fieldsetFilter.has(fieldset)
       if (!matches) return
     }

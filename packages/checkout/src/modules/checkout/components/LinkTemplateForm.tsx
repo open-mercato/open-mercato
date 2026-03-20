@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -46,6 +47,14 @@ type FormValues = Record<string, unknown>
 type ProviderDescriptor = {
   providerKey: string
   label: string
+}
+
+type TemplateSummary = {
+  id: string
+  name: string
+  title?: string | null
+  pricingMode?: string | null
+  gatewayProviderKey?: string | null
 }
 
 type LegalDocumentValue = {
@@ -125,6 +134,7 @@ function createDefaultValues(t?: TranslateFn): FormValues {
     priceListItems: [],
     gatewayProviderKey: '',
     gatewaySettings: {},
+    templateId: null,
     customFieldsetCode: null,
     collectCustomerDetails: true,
     customerFieldsSchema: cloneDefaultCustomerFields(t),
@@ -262,6 +272,17 @@ function readAnyError(errors: Record<string, string>, ...paths: string[]): strin
     if (error) return error
   }
   return undefined
+}
+
+function toTemplateOption(template: TemplateSummary): ComboboxOption {
+  const title = typeof template.title === 'string' ? template.title.trim() : ''
+  const provider = typeof template.gatewayProviderKey === 'string' ? template.gatewayProviderKey.trim() : ''
+  const parts = [title, provider].filter((part) => part.length > 0)
+  return {
+    value: template.id,
+    label: template.name,
+    description: parts.length > 0 ? parts.join(' • ') : null,
+  }
 }
 
 function errorInputClassName(error?: string): string | undefined {
@@ -593,7 +614,22 @@ function PricingSection({ values, setValue, errors }: CrudFormGroupComponentProp
   )
 }
 
-function GeneralSection({ values, setValue, errors, mode }: CrudFormGroupComponentProps & { mode: 'link' | 'template' }) {
+function GeneralSection({
+  values,
+  setValue,
+  errors,
+  mode,
+  templateOptions,
+  loadTemplateSuggestions,
+  applyTemplate,
+  isApplyingTemplate,
+}: CrudFormGroupComponentProps & {
+  mode: 'link' | 'template'
+  templateOptions: ComboboxOption[]
+  loadTemplateSuggestions: (query?: string) => Promise<ComboboxOption[]>
+  applyTemplate: (templateId: string | null) => Promise<void>
+  isApplyingTemplate: boolean
+}) {
   const t = useT()
   const fallbackSlug = slugify(
     readString(values.title).trim().length > 0
@@ -602,14 +638,64 @@ function GeneralSection({ values, setValue, errors, mode }: CrudFormGroupCompone
   ) || 'pay-link'
   const currentSlug = readString(values.slug)
   const resolvedSlug = currentSlug.trim() || fallbackSlug
+  const currentTemplateId = readString(values.templateId).trim()
   const nameError = readError(errors, 'name')
   const titleError = readError(errors, 'title')
   const subtitleError = readError(errors, 'subtitle')
   const descriptionError = readError(errors, 'description')
   const slugError = readError(errors, 'slug')
+  const templateError = readError(errors, 'templateId')
 
   return (
     <div className="space-y-4">
+      {mode === 'link' ? (
+        <SectionLabel
+          label={t('checkout.linkTemplateForm.general.fields.template')}
+          hint={t('checkout.linkTemplateForm.general.hints.template')}
+          error={templateError}
+        >
+          <div className="space-y-3">
+            <ComboboxInput
+              value={currentTemplateId}
+              suggestions={templateOptions}
+              loadSuggestions={loadTemplateSuggestions}
+              resolveLabel={(value) => templateOptions.find((option) => option.value === value)?.label ?? value}
+              resolveDescription={(value) => templateOptions.find((option) => option.value === value)?.description}
+              onChange={(nextValue) => {
+                const normalized = nextValue.trim()
+                setValue('templateId', normalized || null)
+                void applyTemplate(normalized || null)
+              }}
+              placeholder={t('checkout.linkTemplateForm.general.placeholders.template')}
+              disabled={isApplyingTemplate}
+              allowCustomValues={false}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isApplyingTemplate || currentTemplateId.length === 0}
+                onClick={() => {
+                  setValue('templateId', null)
+                  void applyTemplate(null)
+                }}
+              >
+                {t('checkout.linkTemplateForm.general.actions.clearTemplate')}
+              </Button>
+              {isApplyingTemplate ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('checkout.linkTemplateForm.general.status.applyingTemplate')}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {t('checkout.linkTemplateForm.general.notices.templateReplacement')}
+                </p>
+              )}
+            </div>
+          </div>
+        </SectionLabel>
+      ) : null}
+
       <SectionLabel label={t('checkout.linkTemplateForm.general.fields.name')} error={nameError} required>
         <Input
           value={readString(values.name)}
@@ -1185,6 +1271,8 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   )
   const initialLogoAttachmentIdRef = React.useRef<string | null>(null)
   const [providers, setProviders] = React.useState<ProviderDescriptor[]>([])
+  const [templateOptions, setTemplateOptions] = React.useState<ComboboxOption[]>([])
+  const [isApplyingTemplate, setIsApplyingTemplate] = React.useState(false)
   const [initialValues, setInitialValues] = React.useState<FormValues | null>(
     recordId ? null : normalizeFormValues(createDefaultValues(t), t),
   )
@@ -1210,6 +1298,68 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     }
   }, [])
 
+  const rememberTemplateOptions = React.useCallback((items: TemplateSummary[] | ComboboxOption[]) => {
+    setTemplateOptions((current) => {
+      const next = new Map(current.map((option) => [option.value, option]))
+      items.forEach((item) => {
+        if ('value' in item) {
+          next.set(item.value, item)
+          return
+        }
+        const option = toTemplateOption(item)
+        next.set(option.value, option)
+      })
+      return Array.from(next.values())
+    })
+  }, [])
+
+  const loadTemplateSuggestions = React.useCallback(async (query?: string): Promise<ComboboxOption[]> => {
+    const params = new URLSearchParams({
+      page: '1',
+      pageSize: '25',
+    })
+    if (query && query.trim().length > 0) {
+      params.set('search', query.trim())
+    }
+    const result = await readApiResultOrThrow<{ items: TemplateSummary[] }>(`/api/checkout/templates?${params.toString()}`)
+    const options = Array.isArray(result.items) ? result.items.map(toTemplateOption) : []
+    rememberTemplateOptions(options)
+    return options
+  }, [rememberTemplateOptions])
+
+  const applyTemplate = React.useCallback(async (nextTemplateId: string | null) => {
+    if (recordId || mode !== 'link') return
+    if (!nextTemplateId) {
+      return
+    }
+    setIsApplyingTemplate(true)
+    try {
+      const result = await readApiResultOrThrow<FormValues>(`/api/checkout/templates/${encodeURIComponent(nextTemplateId)}`)
+      rememberTemplateOptions([{
+        id: nextTemplateId,
+        name: readString(result.name),
+        title: readString(result.title) || null,
+        gatewayProviderKey: readString(result.gatewayProviderKey) || null,
+        pricingMode: readString(result.pricingMode) || null,
+      }])
+      setInitialValues(
+        normalizeFormValues({
+          ...result,
+          slug: '',
+          templateId: nextTemplateId,
+        }, t),
+      )
+    } finally {
+      setIsApplyingTemplate(false)
+    }
+  }, [mode, recordId, rememberTemplateOptions, t])
+
+  React.useEffect(() => {
+    if (mode !== 'link' || recordId) return
+    void loadTemplateSuggestions()
+      .catch(() => null)
+  }, [loadTemplateSuggestions, mode, recordId])
+
   React.useEffect(() => {
     if (!recordId) return
     let active = true
@@ -1228,23 +1378,8 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
 
   React.useEffect(() => {
     if (recordId || mode !== 'link' || !templateId) return
-    let active = true
-    void readApiResultOrThrow<FormValues>(`/api/checkout/templates/${encodeURIComponent(templateId)}`)
-      .then((result) => {
-        if (!active) return
-        setInitialValues(
-          normalizeFormValues({
-            ...result,
-            slug: '',
-            templateId,
-          }, t),
-        )
-      })
-      .catch(() => null)
-    return () => {
-      active = false
-    }
-  }, [mode, recordId, t, templateId])
+    void applyTemplate(templateId).catch(() => null)
+  }, [applyTemplate, mode, recordId, templateId])
 
   const fields = React.useMemo<CrudField[]>(() => [], [])
 
@@ -1253,7 +1388,16 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       id: 'general',
       title: t('checkout.linkTemplateForm.groups.general'),
       column: 1,
-      component: (ctx) => <GeneralSection {...ctx} mode={mode} />,
+      component: (ctx) => (
+        <GeneralSection
+          {...ctx}
+          mode={mode}
+          templateOptions={templateOptions}
+          loadTemplateSuggestions={loadTemplateSuggestions}
+          applyTemplate={applyTemplate}
+          isApplyingTemplate={isApplyingTemplate}
+        />
+      ),
     },
     {
       id: 'payment',
@@ -1310,7 +1454,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
       component: (ctx) => <EmailsSection {...ctx} />,
     },
     { id: 'customFields', title: t('checkout.linkTemplateForm.groups.customFields'), column: 2, kind: 'customFields' },
-  ], [attachmentDraftRecordId, entityId, mode, providers, t])
+  ], [applyTemplate, attachmentDraftRecordId, entityId, isApplyingTemplate, loadTemplateSuggestions, mode, providers, t, templateOptions])
 
   const isLocked = mode === 'link' && Boolean(recordId) && readBoolean(initialValues?.isLocked)
   const lockedNotice = isLocked ? (

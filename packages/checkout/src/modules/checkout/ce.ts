@@ -1,4 +1,7 @@
-import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
+import type {
+  CustomEntitySpec,
+  CustomFieldDefinition,
+} from '@open-mercato/shared/modules/entities'
 import { CHECKOUT_ENTITY_IDS } from './lib/constants'
 import { CHECKOUT_LINK_CUSTOM_FIELDS } from './lib/customFields'
 

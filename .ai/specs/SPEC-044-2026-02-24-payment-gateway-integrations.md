@@ -380,12 +380,13 @@ type UnifiedPaymentStatus =
 
 When a provider supports an inline payment UI, the provider package owns the browser component and publishes it through a generated client bootstrap import:
 
-- provider package exports `payments.client.ts(x)`
+- provider package exports `widgets/payments/client.ts(x)`
 - generator emits `payments.client.generated.ts`
 - app client bootstrap imports that file for side effects
 - consumer UIs receive `CreateSessionResult.clientSession`
 - if `clientSession.type === 'embedded'`, consumer UIs ask the shared payment-renderer registry for `providerKey + rendererKey`
 - if `clientSession.type === 'redirect'`, consumer UIs follow the returned redirect URL without adding provider-specific branching
+- host surfaces should expose renderer-local injection spots and a behavior/event spot so payment-specific UI and validation hooks stay within UMES instead of adding provider branches to checkout/sales
 
 Providers can also publish a renderer catalog in their safe descriptor surface:
 
@@ -1926,5 +1927,5 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-02-24 | Added §17 Integration Marketplace Alignment — credentials move to SPEC-045 `IntegrationCredentials`, provider modules declare `integration.ts` |
 | 2026-02-24 | Added API versioning support: adapter registry is version-aware, gateway service resolves tenant's selected version, Stripe module restructured with `lib/shared.ts` + `lib/adapters/v*.ts` pattern, `integration.ts` declares `apiVersions` |
 | 2026-03-10 | Implementation: TC-PGWY-008..011 edge-case tests added (partial refund, double capture, webhook idempotency, malformed webhook). All tests use mock adapter. Stripe-specific integration tests requiring real API keys deferred to future. |
-| 2026-03-19 | Added the provider-owned embedded payment contract: `CreateSessionResult.clientSession`, generated `payments.client.ts(x)` bootstrap imports, and shared browser renderer registry lookup. |
-| 2026-03-20 | Generalized provider-owned payment presentation: renderer catalogs in descriptors, consumer `presentation` request, embedded renderer settings, and redirect sessions under the same gateway-agnostic contract. |
+| 2026-03-19 | Added the provider-owned embedded payment contract: `CreateSessionResult.clientSession`, generated `payments.client.generated.ts` bootstrap imports, and shared browser renderer registry lookup. |
+| 2026-03-20 | Generalized provider-owned payment presentation: renderer catalogs in descriptors, consumer `presentation` request, embedded renderer settings, redirect sessions, and widget-aligned renderer bootstrap entrypoints under `widgets/payments/client.ts(x)`. |

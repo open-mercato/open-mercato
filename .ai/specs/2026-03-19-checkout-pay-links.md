@@ -847,6 +847,7 @@ const groups: CrudFormGroup[] = [
 - Subtitle (text)
 - Description (textarea, markdown editor)
 - Slug (text, auto-generated from title — link only, not on templates)
+- Template selector on link creation (searchable combobox; applying a template copies template values into the current link draft without leaving the form)
 
 **Pricing** (`column: 1`)
 - Pricing Mode (select: Fixed Price / Custom Amount / Price List)
@@ -1377,7 +1378,18 @@ The core `payment_gateways` module should expose this generically through a DI s
 
 Provider packages register descriptors next to their adapters. Core remains unaware of pay links; it only exposes generic provider capabilities.
 
-For embedded payments, provider packages also register their browser renderer through `payments.client.ts(x)`, discovered by the generator and imported by client bootstrap. Checkout receives `{ providerKey, rendererKey, payload, settings }` from the session response and mounts the provider-owned component through the shared registry, keeping the pay page fully gateway-agnostic.
+For embedded payments, provider packages register their browser renderer through `widgets/payments/client.ts(x)`, discovered by the generator and imported by client bootstrap. Checkout receives `{ providerKey, rendererKey, payload, settings }` from the session response and mounts the provider-owned component through the shared registry, keeping the pay page fully gateway-agnostic.
+
+The pay page host also exposes a UMES behavior spot at `checkout.pay-page:form` plus renderer-local visual spots:
+
+- `checkout.pay-page:gateway-widget:before`
+- `checkout.pay-page:gateway-widget:renderer:before`
+- `checkout.pay-page:gateway-widget:renderer:after`
+- `checkout.pay-page:gateway-widget:actions:before`
+- `checkout.pay-page:gateway-widget:actions:after`
+- `checkout.pay-page:gateway-widget:after`
+
+`checkout.pay-page:form` widgets may use `onFieldChange`, `transformValidation`, `transformFormData`, `onBeforeSave`, `onSave`, and `onAfterSave` so public payment flows stay aligned with UMES behavior contracts.
 
 If a provider does not render anything on the merchant page, the same generic contract can return `clientSession.type = 'redirect'` (with the existing `redirectUrl` preserved as a bridge). Checkout still remains provider-agnostic: it either mounts the provider-owned renderer or follows the redirect returned by the gateway layer.
 
@@ -2025,6 +2037,6 @@ None identified.
 - Defined 24 integration test cases
 - Completed compliance review against all AGENTS.md rules
 - Updated public payment flow to return generic `paymentSession` descriptors instead of checkout-owned embedded form payloads
-- Added provider-owned client renderer registration via generated `payments.client.generated.ts`
+- Added provider-owned client renderer registration via generated `payments.client.generated.ts` from module entrypoints under `widgets/payments/client.ts(x)`
 - Added fieldset-based, customer-safe example custom fields for checkout links/templates and public pay-page rendering
 - Seeded checkout examples with richer success/cancel/error messaging and transactional email templates

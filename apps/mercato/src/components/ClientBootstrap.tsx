@@ -15,7 +15,7 @@ import { registerNotificationHandlers } from '@open-mercato/shared/lib/notificat
 import '@/.mercato/generated/translations-fields.generated'
 // Side-effect: configures message UI component and object type registries on the client.
 import '@/.mercato/generated/messages.client.generated'
-// Side-effect: registers provider-owned embedded payment renderers on the client.
+// Side-effect: registers provider-owned payment renderer widgets on the client.
 import '@/.mercato/generated/payments.client.generated'
 
 let _clientBootstrapped = false

@@ -114,7 +114,7 @@ export function toTemplateOrLinkMutationInput(
     customAmountMax: toMoneyNumber(record.customAmountMax),
     customAmountCurrencyCode: record.customAmountCurrencyCode ?? null,
     priceListItems: record.priceListItems ?? null,
-    gatewayProviderKey: record.gatewayProviderKey ?? null,
+    gatewayProviderKey: record.gatewayProviderKey ?? '',
     gatewaySettings: record.gatewaySettings ?? {},
     customFieldsetCode: record.customFieldsetCode ?? null,
     collectCustomerDetails: record.collectCustomerDetails,

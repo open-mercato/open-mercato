@@ -82,7 +82,6 @@ packages/core/src/modules/gateway_stripe/
 ├── acl.ts                      # gateway_stripe.view, .configure
 ├── setup.ts                    # Register adapters, payment provider, webhook handler
 ├── di.ts                       # Stripe client, health check service
-├── payments.client.tsx         # Registers the public embedded Stripe payment renderer
 ├── lib/
 │   ├── shared.ts               # Common logic shared across API versions
 │   ├── client.ts               # Stripe SDK wrapper with credential resolution
@@ -97,6 +96,8 @@ packages/core/src/modules/gateway_stripe/
 ├── workers/
 │   └── webhook-processor.ts    # Async webhook event processing
 ├── widgets/
+│   ├── payments/
+│   │   └── client.tsx          # Registers the public Stripe payment renderer widget
 │   ├── injection-table.ts      # Inject config widget into integration detail page
 │   └── injection/
 │       └── stripe-config/
@@ -626,8 +627,8 @@ export async function resolveStripeClient(
 | Test | Method | Assert |
 |------|--------|--------|
 | Create payment intent | `createSession()` | PaymentIntent created in Stripe, sessionId + clientSecret returned |
-| Embedded renderer registration | `payments.client.tsx` | Registers `stripe.payment_element` in the shared client registry |
-| Renderer settings passthrough | `createSession()` + `payments.client.tsx` | `rendererSettings` persisted in `clientSession.settings` and applied to Stripe `PaymentElement` options |
+| Embedded renderer registration | `widgets/payments/client.tsx` | Registers `stripe.payment_element` in the shared client registry |
+| Renderer settings passthrough | `createSession()` + `widgets/payments/client.tsx` | `rendererSettings` persisted in `clientSession.settings` and applied to Stripe `PaymentElement` options |
 | Embedded confirmation flow | Public pay page + renderer | `PaymentElement` confirms the PaymentIntent without checkout importing Stripe UI directly |
 | Capture authorized payment | `capturePayment()` | Amount captured, status → `captured` |
 | Partial capture | `capturePayment()` with amount | Only specified amount captured |
@@ -689,5 +690,5 @@ When Stripe-specific tests are added in the future, they should:
 | Date | Change |
 |------|--------|
 | 2026-03-10 | Added §13 Testing Strategy noting deferred Stripe-specific integration tests. Mock adapter tests validate the GatewayAdapter contract. Added `company` field to integration metadata. |
-| 2026-03-19 | Added provider-owned embedded payment renderer support: `payments.client.tsx`, `stripe.payment_element`, and `clientSession` returned from `createSession()`. |
-| 2026-03-20 | Extended Stripe to the generalized renderer-catalog contract: descriptor `renderers[]`, default renderer key, and `PaymentElement` renderer settings passed through the gateway layer. |
+| 2026-03-19 | Added provider-owned embedded payment renderer support: `stripe.payment_element` and `clientSession` returned from `createSession()`. |
+| 2026-03-20 | Extended Stripe to the generalized renderer-catalog contract and aligned renderer bootstrap with module widgets: descriptor `renderers[]`, default renderer key, `PaymentElement` renderer settings, and `widgets/payments/client.tsx`. |

@@ -4,6 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLinkTemplate } from '../../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../../lib/constants'
 import { resolveCheckoutPublicCustomFields } from '../../../../lib/customFields'
+import { requireCheckoutScope } from '../../../../lib/utils'
 import { serializeTemplateRecord } from '../../../../commands/templates'
 import { handleCheckoutRouteError, requireAdminContext } from '../../../helpers'
 import { checkoutTag } from '../../../openapi'
@@ -16,13 +17,14 @@ export const metadata = {
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> | { id: string } }) {
   try {
     const { auth, em } = await requireAdminContext(req)
+    const scope = requireCheckoutScope({ auth })
     const resolvedParams = await params
     const template = await findOneWithDecryption(em, CheckoutLinkTemplate, {
       id: resolvedParams.id,
-      organizationId: auth.orgId,
-      tenantId: auth.tenantId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
       deletedAt: null,
-    }, undefined, { organizationId: auth.orgId, tenantId: auth.tenantId })
+    }, undefined, { organizationId: scope.organizationId, tenantId: scope.tenantId })
     if (!template) {
       return NextResponse.json({ error: 'Template not found' }, { status: 404 })
     }
@@ -30,14 +32,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       em,
       entityId: CHECKOUT_ENTITY_IDS.template,
       recordIds: [template.id],
-      tenantIdByRecord: { [template.id]: auth.tenantId },
-      organizationIdByRecord: { [template.id]: auth.orgId },
+      tenantIdByRecord: { [template.id]: scope.tenantId },
+      organizationIdByRecord: { [template.id]: scope.organizationId },
     })
     const publicCustomFields = await resolveCheckoutPublicCustomFields({
       em,
       entityId: CHECKOUT_ENTITY_IDS.template,
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
       customFieldsetCode: template.customFieldsetCode ?? null,
       customValues: customValues[template.id] ?? {},
       displayCustomFieldsOnPage: template.displayCustomFieldsOnPage,

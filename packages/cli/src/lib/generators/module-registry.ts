@@ -12,6 +12,7 @@ import {
 import {
   scanModuleDir,
   resolveModuleFile,
+  resolveFirstModuleFile,
   SCAN_CONFIGS,
   type ModuleRoots,
   type ModuleImports,
@@ -640,7 +641,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     })
 
     {
-      const resolved = resolveModuleFile(roots, imps, 'payments.client.ts')
+      const resolved = resolveFirstModuleFile(roots, imps, [
+        'widgets/payments/client.tsx',
+        'widgets/payments/client.ts',
+      ])
       if (resolved) {
         paymentsClientImports.push(`import '${resolved.importPath}'`)
       }

@@ -5839,6 +5839,9 @@ __metadata:
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@stripe/react-stripe-js": "npm:^3.9.0"
+    "@stripe/stripe-js": "npm:^7.9.0"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.25.2"
     glob: "npm:^11.0.3"
@@ -7680,7 +7683,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@stripe/stripe-js@npm:^7.8.0":
+"@stripe/stripe-js@npm:^7.8.0, @stripe/stripe-js@npm:^7.9.0":
   version: 7.9.0
   resolution: "@stripe/stripe-js@npm:7.9.0"
   checksum: 10/8d568df3cdaa6d5a9de69751388dd7363081634b8e23045c4580950b80af40cb75e72021e5e36b8aea3fc5df27369902f63255bf3a277dadafdae975d2347bbf

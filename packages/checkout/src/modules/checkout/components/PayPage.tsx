@@ -6,12 +6,13 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CustomFieldDisplayEntry } from '@open-mercato/shared/lib/crud/custom-fields'
-import { getEmbeddedPaymentGatewayRenderer } from '@open-mercato/shared/modules/payment_gateways/client'
+import { getPaymentGatewayRenderer } from '@open-mercato/shared/modules/payment_gateways/client'
+import type { PaymentGatewayRendererProps } from '@open-mercato/shared/modules/payment_gateways/client'
 import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/payment_gateways/types'
-import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { InjectionSpot, useInjectionSpotEvents, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown/MarkdownContent'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -95,6 +96,13 @@ type PayPageProps = {
 
 type FieldErrors = Record<string, string>
 
+type PayPageSubmitData = {
+  customerData: Record<string, unknown>
+  acceptedLegalConsents: Record<string, boolean>
+  amount: number | null
+  selectedPriceItemId: string | null
+}
+
 export type PayPageThemeTokens = {
   mode: 'light' | 'dark'
   accent: string
@@ -129,6 +137,14 @@ type PayPageInjectionContext = {
   transaction: { id: string } | null
   paymentView: 'idle' | 'embedded' | 'redirect'
   paymentSession: SubmitResponse['paymentSession']
+  paymentProviderKey: string | null
+  paymentRendererKey: string | null
+  fieldErrors: FieldErrors
+  submissionError: string | null
+  inputsLocked: boolean
+  isSubmitting: boolean
+  canSubmit: boolean
+  operation: 'create'
 }
 
 export type PayPageSurfaceProps = {
@@ -201,19 +217,12 @@ export type PayPagePaymentFormProps = {
   submissionError: string | null
   paymentSession: SubmitResponse['paymentSession']
   activeTransactionId: string | null
-  embeddedRenderer: React.ComponentType<{
-    providerKey: string
-    transactionId: string
-    gatewayTransactionId: string
-    session: SubmitResponse['paymentSession']
-    disabled?: boolean
-    onComplete?: () => void
-    onError?: (message: string) => void
-  }> | null
+  embeddedRenderer: React.ComponentType<PaymentGatewayRendererProps> | null | undefined
   onSubmit: () => Promise<void>
   onReset: () => void
   onComplete: () => void
   onError: (message: string) => void
+  injectionContext: PayPageInjectionContext
   themeTokens: PayPageThemeTokens
 }
 
@@ -260,6 +269,60 @@ function parseNumericInput(value: string): number | null {
   if (!trimmed) return null
   const parsed = Number(trimmed)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function setSubmitDataFieldValue(
+  data: PayPageSubmitData,
+  fieldPath: string,
+  value: unknown,
+): PayPageSubmitData {
+  if (fieldPath.startsWith('customerData.')) {
+    const fieldKey = fieldPath.slice('customerData.'.length)
+    return {
+      ...data,
+      customerData: {
+        ...data.customerData,
+        [fieldKey]: value,
+      },
+    }
+  }
+  if (fieldPath.startsWith('acceptedLegalConsents.')) {
+    const fieldKey = fieldPath.slice('acceptedLegalConsents.'.length)
+    if (fieldKey === 'terms' || fieldKey === 'privacyPolicy') {
+      return {
+        ...data,
+        acceptedLegalConsents: {
+          ...data.acceptedLegalConsents,
+          [fieldKey]: value === true,
+        },
+      }
+    }
+    return data
+  }
+  if (fieldPath === 'amount') {
+    return {
+      ...data,
+      amount: typeof value === 'number' && Number.isFinite(value) ? value : null,
+    }
+  }
+  if (fieldPath === 'selectedPriceItemId') {
+    return {
+      ...data,
+      selectedPriceItemId: typeof value === 'string' && value.trim().length > 0 ? value : null,
+    }
+  }
+  return data
+}
+
+function applySubmitDataSideEffects(
+  data: PayPageSubmitData,
+  sideEffects: Record<string, unknown> | undefined,
+): PayPageSubmitData {
+  if (!sideEffects) return data
+  return Object.entries(sideEffects).reduce(
+    (current, [fieldPath, value]) => setSubmitDataFieldValue(current, fieldPath, value),
+    data,
+  )
 }
 
 function normalizeHexColor(value: string | null | undefined, fallback: string) {
@@ -959,9 +1022,11 @@ export function PayPagePaymentForm({
   onReset,
   onComplete,
   onError,
+  injectionContext,
   themeTokens,
 }: PayPagePaymentFormProps) {
   const t = useT()
+  const embeddedPaymentSession = paymentSession?.type === 'embedded' ? paymentSession : null
 
   return (
     <section className="space-y-4">
@@ -971,32 +1036,44 @@ export function PayPagePaymentForm({
         </div>
       ) : null}
 
-      {paymentSession && embeddedRenderer ? React.createElement(embeddedRenderer, {
-        providerKey: paymentSession.providerKey ?? '',
-        transactionId: activeTransactionId ?? '',
-        gatewayTransactionId: paymentSession.gatewayTransactionId,
-        session: paymentSession,
-        disabled: preview,
-        onComplete,
-        onError,
-      }) : (
-        <Button
-          type="button"
-          className="h-12 w-full rounded-2xl text-base"
-          disabled={preview || isSubmitting}
-          style={buildButtonStyle(themeTokens)}
-          onClick={() => { void onSubmit() }}
-        >
-          <span className="flex items-center justify-center gap-2">
-            {isSubmitting ? <Spinner size="sm" /> : null}
-            {preview
-              ? t('checkout.payPage.actions.previewDisabled', 'Preview only')
-              : isSubmitting
-                ? t('checkout.payPage.actions.processingPayment', 'Processing payment...')
-                : t('checkout.payPage.actions.payNow', 'Pay now')}
-          </span>
-        </Button>
+      <InjectionSpot spotId="checkout.pay-page:gateway-widget:before" context={injectionContext} />
+      {embeddedPaymentSession && embeddedRenderer ? (
+        <>
+          <InjectionSpot spotId="checkout.pay-page:gateway-widget:renderer:before" context={injectionContext} />
+          {React.createElement(embeddedRenderer, {
+            providerKey: embeddedPaymentSession.providerKey ?? '',
+            transactionId: activeTransactionId ?? '',
+            gatewayTransactionId: embeddedPaymentSession.gatewayTransactionId,
+            session: embeddedPaymentSession,
+            disabled: preview,
+            onComplete,
+            onError,
+          })}
+          <InjectionSpot spotId="checkout.pay-page:gateway-widget:renderer:after" context={injectionContext} />
+        </>
+      ) : (
+        <>
+          <InjectionSpot spotId="checkout.pay-page:gateway-widget:actions:before" context={injectionContext} />
+          <Button
+            type="button"
+            className="h-12 w-full rounded-2xl text-base"
+            disabled={preview || isSubmitting}
+            style={buildButtonStyle(themeTokens)}
+            onClick={() => { void onSubmit() }}
+          >
+            <span className="flex items-center justify-center gap-2">
+              {isSubmitting ? <Spinner size="sm" /> : null}
+              {preview
+                ? t('checkout.payPage.actions.previewDisabled', 'Preview only')
+                : isSubmitting
+                  ? t('checkout.payPage.actions.processingPayment', 'Processing payment...')
+                  : t('checkout.payPage.actions.payNow', 'Pay now')}
+            </span>
+          </Button>
+          <InjectionSpot spotId="checkout.pay-page:gateway-widget:actions:after" context={injectionContext} />
+        </>
       )}
+      <InjectionSpot spotId="checkout.pay-page:gateway-widget:after" context={injectionContext} />
 
       {paymentSession ? (
         <Button
@@ -1228,6 +1305,12 @@ export function PayPage({
     ?? null
   const inputsLocked = isSubmitting || paymentSession != null
   const publicCustomFields = payload?.publicCustomFields ?? []
+  const submitData = React.useMemo<PayPageSubmitData>(() => ({
+    customerData,
+    acceptedLegalConsents,
+    amount: effectiveAmount ?? null,
+    selectedPriceItemId,
+  }), [acceptedLegalConsents, customerData, effectiveAmount, selectedPriceItemId])
 
   const resolveFieldLabel = React.useCallback((fieldPath: string): string => {
     if (!payload) return t('checkout.payPage.validation.thisField', 'this field')
@@ -1277,17 +1360,12 @@ export function PayPage({
     })
   }, [])
 
-  const updateCustomerField = React.useCallback((fieldKey: string, value: unknown) => {
-    setCustomerData((current) => ({ ...current, [fieldKey]: value }))
-    clearFieldError(`customerData.${fieldKey}`)
-    setSubmissionError(null)
-  }, [clearFieldError])
-
-  const updateConsent = React.useCallback((fieldKey: 'terms' | 'privacyPolicy', value: boolean) => {
-    setAcceptedLegalConsents((current) => ({ ...current, [fieldKey]: value }))
-    clearFieldError(`acceptedLegalConsents.${fieldKey}`)
-    setSubmissionError(null)
-  }, [clearFieldError])
+  const applySubmitDataToState = React.useCallback((nextData: PayPageSubmitData) => {
+    setCustomerData(nextData.customerData)
+    setAcceptedLegalConsents(nextData.acceptedLegalConsents)
+    setAmount(nextData.amount)
+    setSelectedPriceItemId(nextData.selectedPriceItemId)
+  }, [])
 
   const validateBeforeSubmit = React.useCallback((): FieldErrors => {
     if (!payload) return {}
@@ -1351,7 +1429,7 @@ export function PayPage({
   ])
 
   const embeddedRenderer = paymentSession?.type === 'embedded' && paymentSession.providerKey
-    ? getEmbeddedPaymentGatewayRenderer(paymentSession.providerKey, paymentSession.rendererKey)
+    ? getPaymentGatewayRenderer(paymentSession.providerKey, paymentSession.rendererKey)
     : null
 
   const paymentView: PayPageInjectionContext['paymentView'] = paymentSession == null
@@ -1377,6 +1455,14 @@ export function PayPage({
       transaction: activeTransactionId ? { id: activeTransactionId } : null,
       paymentView,
       paymentSession,
+      paymentProviderKey: paymentSession?.providerKey ?? payload.gatewayProviderKey ?? null,
+      paymentRendererKey: paymentSession?.type === 'embedded' ? paymentSession.rendererKey : null,
+      fieldErrors,
+      submissionError,
+      inputsLocked,
+      isSubmitting,
+      canSubmit: !isPreview && !inputsLocked,
+      operation: 'create',
     }
   }, [
     acceptedLegalConsents,
@@ -1385,11 +1471,113 @@ export function PayPage({
     effectiveAmount,
     effectiveCurrencyCode,
     isPreview,
+    isSubmitting,
+    inputsLocked,
     payload,
+    fieldErrors,
     paymentSession,
     paymentView,
+    submissionError,
     themeTokens,
   ])
+
+  const injectionContextRef = React.useRef<PayPageInjectionContext | null>(injectionContext)
+  const submitDataRef = React.useRef(submitData)
+
+  React.useEffect(() => {
+    injectionContextRef.current = injectionContext
+  }, [injectionContext])
+
+  React.useEffect(() => {
+    submitDataRef.current = submitData
+  }, [submitData])
+
+  const { widgets: payPageFormWidgets } = useInjectionWidgets<PayPageInjectionContext>(
+    injectionContext ? 'checkout.pay-page:form' : null,
+    {
+      context: injectionContext ?? undefined,
+      triggerOnLoad: true,
+    },
+  )
+  const { triggerEvent: triggerPayPageFormEvent } = useInjectionSpotEvents<PayPageInjectionContext, PayPageSubmitData>(
+    'checkout.pay-page:form',
+    payPageFormWidgets,
+  )
+
+  const transformValidationErrors = React.useCallback(async (nextErrors: FieldErrors): Promise<FieldErrors> => {
+    if (!injectionContextRef.current || !Object.keys(nextErrors).length) return nextErrors
+    try {
+      const result = await triggerPayPageFormEvent(
+        'transformValidation',
+        nextErrors as unknown as PayPageSubmitData,
+        injectionContextRef.current,
+        { originalData: submitDataRef.current },
+      )
+      const transformed = result.data
+      if (!transformed || typeof transformed !== 'object' || Array.isArray(transformed)) {
+        return nextErrors
+      }
+      return Object.fromEntries(
+        Object.entries(transformed as Record<string, unknown>).map(([fieldPath, value]) => [fieldPath, String(value)]),
+      )
+    } catch (error) {
+      console.error('[PayPage] Error in transformValidation:', error)
+      return nextErrors
+    }
+  }, [triggerPayPageFormEvent])
+
+  const dispatchFieldChange = React.useCallback((fieldPath: string, value: unknown, nextData: PayPageSubmitData) => {
+    if (!injectionContextRef.current) return
+    void (async () => {
+      try {
+        const result = await triggerPayPageFormEvent(
+          'onFieldChange',
+          nextData,
+          injectionContextRef.current as PayPageInjectionContext,
+          {
+            fieldId: fieldPath,
+            fieldValue: value,
+            originalData: submitDataRef.current,
+          },
+        )
+        const adjustedData = applySubmitDataSideEffects(
+          setSubmitDataFieldValue(
+            nextData,
+            fieldPath,
+            result.fieldChange?.value !== undefined ? result.fieldChange.value : value,
+          ),
+          result.fieldChange?.sideEffects,
+        )
+        if (adjustedData !== nextData) {
+          applySubmitDataToState(adjustedData)
+        }
+        const nextMessage = result.fieldChange?.messages?.find((message) => message.severity === 'error')?.text
+        if (nextMessage) {
+          setFieldErrors((current) => ({ ...current, [fieldPath]: nextMessage }))
+        }
+      } catch (error) {
+        console.error('[PayPage] Error in onFieldChange:', error)
+      }
+    })()
+  }, [applySubmitDataToState, triggerPayPageFormEvent])
+
+  const updateCustomerField = React.useCallback((fieldKey: string, value: unknown) => {
+    const fieldPath = `customerData.${fieldKey}`
+    const nextData = setSubmitDataFieldValue(submitDataRef.current, fieldPath, value)
+    applySubmitDataToState(nextData)
+    clearFieldError(fieldPath)
+    setSubmissionError(null)
+    dispatchFieldChange(fieldPath, value, nextData)
+  }, [applySubmitDataToState, clearFieldError, dispatchFieldChange])
+
+  const updateConsent = React.useCallback((fieldKey: 'terms' | 'privacyPolicy', value: boolean) => {
+    const fieldPath = `acceptedLegalConsents.${fieldKey}`
+    const nextData = setSubmitDataFieldValue(submitDataRef.current, fieldPath, value)
+    applySubmitDataToState(nextData)
+    clearFieldError(fieldPath)
+    setSubmissionError(null)
+    dispatchFieldChange(fieldPath, value, nextData)
+  }, [applySubmitDataToState, clearFieldError, dispatchFieldChange])
 
   const previewBanner = payload ? (
     isPreview ? (
@@ -1430,7 +1618,7 @@ export function PayPage({
 
   const submitPayment = React.useCallback(async () => {
     if (isPreview || !payload) return
-    const nextErrors = validateBeforeSubmit()
+    const nextErrors = await transformValidationErrors(validateBeforeSubmit())
     if (Object.keys(nextErrors).length > 0) {
       setFieldErrors(nextErrors)
       setSubmissionError(t('checkout.payPage.validation.fixErrors', 'Check the highlighted fields and try again.'))
@@ -1442,7 +1630,45 @@ export function PayPage({
     setFieldErrors({})
 
     try {
-      const result = await readApiResultOrThrow<SubmitResponse>(
+      let nextSubmitData = submitDataRef.current
+      if (injectionContextRef.current) {
+        try {
+          const transformed = await triggerPayPageFormEvent(
+            'transformFormData',
+            nextSubmitData,
+            injectionContextRef.current,
+          )
+          if (transformed.data) {
+            nextSubmitData = transformed.data
+            if (transformed.applyToForm) {
+              applySubmitDataToState(nextSubmitData)
+            }
+          }
+        } catch (error) {
+          console.error('[PayPage] Error in transformFormData:', error)
+        }
+      }
+
+      let injectionRequestHeaders: Record<string, string> | undefined
+      if (injectionContextRef.current) {
+        const guard = await triggerPayPageFormEvent('onBeforeSave', nextSubmitData, injectionContextRef.current)
+        if (!guard.ok) {
+          const transformedErrors = await transformValidationErrors(guard.fieldErrors ?? {})
+          if (Object.keys(transformedErrors).length > 0) {
+            setFieldErrors(transformedErrors)
+          }
+          setSubmissionError(
+            guard.message
+            || t('checkout.payPage.validation.fixErrors', 'Check the highlighted fields and try again.'),
+          )
+          setIsSubmitting(false)
+          return
+        }
+        injectionRequestHeaders = guard.requestHeaders
+        await triggerPayPageFormEvent('onSave', nextSubmitData, injectionContextRef.current)
+      }
+
+      const runSubmit = async () => readApiResultOrThrow<SubmitResponse>(
         `/api/checkout/pay/${encodeURIComponent(slug)}/submit`,
         {
           method: 'POST',
@@ -1450,28 +1676,33 @@ export function PayPage({
             'Content-Type': 'application/json',
             'Idempotency-Key': crypto.randomUUID(),
           },
-          body: JSON.stringify({
-            customerData,
-            acceptedLegalConsents,
-            amount: effectiveAmount,
-            selectedPriceItemId,
-          }),
+          body: JSON.stringify(nextSubmitData),
         },
       )
+
+      const result = injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0
+        ? await withScopedApiRequestHeaders(injectionRequestHeaders, runSubmit)
+        : await runSubmit()
 
       setActiveTransactionId(result.transactionId)
 
       if (result.paymentSession?.type === 'embedded') {
         const nextRenderer = result.paymentSession.providerKey
-          ? getEmbeddedPaymentGatewayRenderer(result.paymentSession.providerKey, result.paymentSession.rendererKey)
+          ? getPaymentGatewayRenderer(result.paymentSession.providerKey, result.paymentSession.rendererKey)
           : null
 
         if (nextRenderer) {
           setPaymentSession(result.paymentSession)
+          if (injectionContextRef.current) {
+            await triggerPayPageFormEvent('onAfterSave', nextSubmitData, injectionContextRef.current)
+          }
           return
         }
 
         if (result.redirectUrl) {
+          if (injectionContextRef.current) {
+            await triggerPayPageFormEvent('onAfterSave', nextSubmitData, injectionContextRef.current)
+          }
           window.location.href = result.redirectUrl
           return
         }
@@ -1484,19 +1715,25 @@ export function PayPage({
       }
 
       if (result.redirectUrl) {
+        if (injectionContextRef.current) {
+          await triggerPayPageFormEvent('onAfterSave', nextSubmitData, injectionContextRef.current)
+        }
         window.location.href = result.redirectUrl
         return
       }
 
+      if (injectionContextRef.current) {
+        await triggerPayPageFormEvent('onAfterSave', nextSubmitData, injectionContextRef.current)
+      }
       router.push(`/pay/${encodeURIComponent(slug)}/success/${encodeURIComponent(result.transactionId)}`)
     } catch (error) {
       const normalized = mapCrudServerErrorToFormErrors(error)
-      const nextFieldErrors = Object.fromEntries(
+      const nextFieldErrors = await transformValidationErrors(Object.fromEntries(
         Object.entries(normalized.fieldErrors ?? {}).map(([fieldPath, message]) => [
           fieldPath,
           translateValidationMessage(message, fieldPath),
         ]),
-      )
+      ))
       if (Object.keys(nextFieldErrors).length > 0) {
         setFieldErrors(nextFieldErrors)
       }
@@ -1509,6 +1746,7 @@ export function PayPage({
     }
   }, [
     acceptedLegalConsents,
+    applySubmitDataToState,
     customerData,
     effectiveAmount,
     isPreview,
@@ -1517,6 +1755,8 @@ export function PayPage({
     selectedPriceItemId,
     slug,
     t,
+    transformValidationErrors,
+    triggerPayPageFormEvent,
     translateValidationMessage,
     validateBeforeSubmit,
   ])
@@ -1670,15 +1910,23 @@ export function PayPage({
           inputsLocked={inputsLocked}
           formatAmount={formatAmount}
           onAmountChange={(value) => {
-            setAmount(parseNumericInput(value))
+            const nextAmount = parseNumericInput(value)
+            const nextData = setSubmitDataFieldValue(submitDataRef.current, 'amount', nextAmount)
+            applySubmitDataToState(nextData)
             clearFieldError('amount')
             setSubmissionError(null)
+            dispatchFieldChange('amount', nextAmount, nextData)
           }}
           onPriceItemSelect={(item) => {
-            setSelectedPriceItemId(item.id)
-            setAmount(item.amount)
+            const nextData = {
+              ...submitDataRef.current,
+              amount: item.amount,
+              selectedPriceItemId: item.id,
+            }
+            applySubmitDataToState(nextData)
             clearFieldError('selectedPriceItemId')
             setSubmissionError(null)
+            dispatchFieldChange('selectedPriceItemId', item.id, nextData)
           }}
           translateValidationMessage={translateValidationMessage}
           themeTokens={themeTokens}
@@ -1737,6 +1985,7 @@ export function PayPage({
           onError={(message) => {
             setSubmissionError(message)
           }}
+          injectionContext={injectionContext}
           themeTokens={themeTokens}
         />
       </div>

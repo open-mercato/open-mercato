@@ -50,6 +50,8 @@ Create a pay link directly or from a template. The link form supports:
 - max completion limits
 - gateway provider selection
 
+On the create-link form itself, users can also search and apply a template as a starting point without leaving the page.
+
 Links start in `draft`, can be previewed, and become public only after they are published.
 
 ### Transactions
@@ -98,6 +100,32 @@ Checkout exposes stable UMES surfaces for extension without forking the module.
 
 - `data-table:payment_gateways.transactions.list:toolbar`
 - `admin.page:payment-gateways/transactions:after`
+- `checkout.pay-page:header:before`
+- `checkout.pay-page:header:after`
+- `checkout.pay-page:description:after`
+- `checkout.pay-page:customer-fields:before`
+- `checkout.pay-page:customer-fields:after`
+- `checkout.pay-page:pricing:before`
+- `checkout.pay-page:pricing:after`
+- `checkout.pay-page:summary:before`
+- `checkout.pay-page:summary:after`
+- `checkout.pay-page:legal-consent:before`
+- `checkout.pay-page:legal-consent:after`
+- `checkout.pay-page:submit:before`
+- `checkout.pay-page:submit:after`
+- `checkout.pay-page:payment:before`
+- `checkout.pay-page:payment:after`
+- `checkout.pay-page:help:before`
+- `checkout.pay-page:help:after`
+- `checkout.pay-page:footer:before`
+- `checkout.pay-page:footer:after`
+- `checkout.pay-page:gateway-widget:before`
+- `checkout.pay-page:gateway-widget:renderer:before`
+- `checkout.pay-page:gateway-widget:renderer:after`
+- `checkout.pay-page:gateway-widget:actions:before`
+- `checkout.pay-page:gateway-widget:actions:after`
+- `checkout.pay-page:gateway-widget:after`
+- `checkout.pay-page:form` (behavior spot for `onFieldChange`, `transformValidation`, `transformFormData`, `onBeforeSave`, `onSave`, `onAfterSave`)
 
 ### Replacement handles
 
@@ -134,3 +162,5 @@ Checkout relies on the additive provider-descriptor surface from `payment_gatewa
 - presentation capabilities (`embedded`, `redirect`, `either`)
 
 Checkout reads these descriptors through the descriptor service and the safe provider endpoints in `payment_gateways`. Credentials stay owned by the gateway package and its integration records.
+
+Provider-owned browser payment UI is auto-discovered from `widgets/payments/client.tsx` in each gateway package. Checkout never imports Stripe, PayU, or other provider UI directly; it resolves provider widgets through the shared payment renderer registry using the `clientSession` returned by the payment gateway layer.

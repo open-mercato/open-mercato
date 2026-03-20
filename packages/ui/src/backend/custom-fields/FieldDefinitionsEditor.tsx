@@ -528,6 +528,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     () => (typeof local.configJson?.fieldset === 'string' ? local.configJson.fieldset : ''),
     [local.configJson?.fieldset],
   )
+  const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
   React.useEffect(() => { setLocal(definition) }, [definition.key])
   React.useEffect(() => {
     setOptionValueDraft('')

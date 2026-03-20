@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import { loadStripe } from '@stripe/stripe-js'
+import type { StripePaymentElementOptions } from '@stripe/stripe-js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   registerEmbeddedPaymentGatewayRenderer,
@@ -10,7 +11,7 @@ import {
 } from '@open-mercato/shared/modules/payment_gateways/client'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import type { StripePaymentElementSettings } from './lib/shared'
+import type { StripePaymentElementSettings } from '../../lib/shared'
 
 type StripeRendererPayload = {
   clientSecret?: string
@@ -63,6 +64,39 @@ function readRendererSettings(session: EmbeddedPaymentGatewayRendererProps['sess
     ...(billingDetails ? { billingDetails } : {}),
     ...(paymentMethodOrder.length > 0 ? { paymentMethodOrder } : {}),
   }
+}
+
+function buildPaymentElementOptions(
+  rendererSettings: StripePaymentElementSettings,
+): StripePaymentElementOptions {
+  const options: StripePaymentElementOptions = {}
+
+  if (rendererSettings.layout) {
+    options.layout = rendererSettings.layout
+  }
+
+  if (rendererSettings.paymentMethodOrder?.length) {
+    options.paymentMethodOrder = rendererSettings.paymentMethodOrder
+  }
+
+  if (rendererSettings.billingDetails === 'auto' || rendererSettings.billingDetails === 'never') {
+    options.fields = {
+      billingDetails: {
+        name: rendererSettings.billingDetails,
+        email: rendererSettings.billingDetails,
+        phone: rendererSettings.billingDetails,
+        address: rendererSettings.billingDetails,
+      },
+    }
+  } else if (rendererSettings.billingDetails === 'if_required') {
+    options.fields = {
+      billingDetails: {
+        address: 'if_required',
+      },
+    }
+  }
+
+  return options
 }
 
 function StripeEmbeddedPaymentForm({
@@ -129,6 +163,10 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
   const t = useT()
   const payload = readStripePayload(props.session.payload)
   const rendererSettings = React.useMemo(() => readRendererSettings(props.session), [props.session])
+  const paymentElementOptions = React.useMemo(
+    () => buildPaymentElementOptions(rendererSettings),
+    [rendererSettings],
+  )
   const onError = props.onError
   const stripePromise = React.useMemo(
     () => (payload.publishableKey ? loadStripe(payload.publishableKey) : null),
@@ -174,26 +212,7 @@ function StripeEmbeddedPaymentRenderer(props: EmbeddedPaymentGatewayRendererProp
       >
         <div className="space-y-4">
           <div className="rounded-2xl border bg-background px-4 py-4 shadow-sm">
-            <PaymentElement
-              options={{
-                ...(rendererSettings.layout ? { layout: rendererSettings.layout } : {}),
-                ...(rendererSettings.paymentMethodOrder
-                  ? { paymentMethodOrder: rendererSettings.paymentMethodOrder }
-                  : {}),
-                ...(rendererSettings.billingDetails
-                  ? {
-                      fields: {
-                        billingDetails: {
-                          name: rendererSettings.billingDetails,
-                          email: rendererSettings.billingDetails,
-                          phone: rendererSettings.billingDetails,
-                          address: rendererSettings.billingDetails,
-                        },
-                      },
-                    }
-                  : {}),
-              }}
-            />
+            <PaymentElement options={paymentElementOptions} />
           </div>
           <StripeEmbeddedPaymentForm
             returnUrl={payload.returnUrl}
