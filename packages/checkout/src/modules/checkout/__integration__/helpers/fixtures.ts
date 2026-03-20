@@ -41,11 +41,17 @@ export type CheckoutTemplateInput = {
   customFields?: Record<string, unknown>
 }
 
+export type CheckoutLinkInput = CheckoutTemplateInput & {
+  templateId?: string | null
+  slug?: string | null
+}
+
 export type CheckoutLinkRecord = {
   id: string
   slug: string
   name?: string
   title?: string | null
+  subtitle?: string | null
   status?: string
   templateId?: string | null
   completionCount?: number
@@ -85,7 +91,7 @@ function uniqueLabel(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-export function createFixedTemplateInput(overrides: Partial<CheckoutTemplateInput> = {}): CheckoutTemplateInput {
+export function createFixedTemplateInput(overrides: Partial<CheckoutLinkInput> = {}): CheckoutLinkInput {
   const label = uniqueLabel('checkout-fixed')
   return {
     name: `QA ${label}`,
@@ -105,7 +111,7 @@ export function createFixedTemplateInput(overrides: Partial<CheckoutTemplateInpu
   }
 }
 
-export function createCustomAmountTemplateInput(overrides: Partial<CheckoutTemplateInput> = {}): CheckoutTemplateInput {
+export function createCustomAmountTemplateInput(overrides: Partial<CheckoutLinkInput> = {}): CheckoutLinkInput {
   const label = uniqueLabel('checkout-custom')
   return {
     name: `QA ${label}`,
@@ -124,7 +130,7 @@ export function createCustomAmountTemplateInput(overrides: Partial<CheckoutTempl
   }
 }
 
-export function createPriceListTemplateInput(overrides: Partial<CheckoutTemplateInput> = {}): CheckoutTemplateInput {
+export function createPriceListTemplateInput(overrides: Partial<CheckoutLinkInput> = {}): CheckoutLinkInput {
   const label = uniqueLabel('checkout-price-list')
   return {
     name: `QA ${label}`,
@@ -173,7 +179,7 @@ export async function createTemplateFixture(
 export async function createLinkFixture(
   request: APIRequestContext,
   token: string,
-  input: CheckoutTemplateInput & { templateId?: string | null; slug?: string | null },
+  input: CheckoutLinkInput,
 ): Promise<{ id: string; slug: string }> {
   const response = await apiRequest(request, 'POST', '/api/checkout/links', {
     token,

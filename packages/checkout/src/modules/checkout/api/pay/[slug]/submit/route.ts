@@ -162,7 +162,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (link.passwordHash) {
       requireCheckoutPasswordSession(req, link.slug, {
         linkId: link.id,
-        sessionVersion: link.updatedAt,
+        sessionVersion: link.passwordHash,
       })
     }
     if (!link.gatewayProviderKey) {
