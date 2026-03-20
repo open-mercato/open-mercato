@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, resolveNotificationDeliveryConfig } from '@open-mercato/core/modules/notifications/lib/deliveryConfig'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -144,6 +145,11 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     transactionId: transaction.id,
     errorMessage: errorMessage ?? '',
   }
+  const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, {
+    defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+  })
+  const from = deliveryConfig.strategies.email.from
+  const replyTo = deliveryConfig.strategies.email.replyTo
 
   async function resolveEmailContent(
     subjectField: string | null | undefined,
@@ -169,6 +175,8 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     await sendEmail({
       to: email,
       subject,
+      from,
+      replyTo,
       react: PaymentStartEmail({
         firstName,
         amount,
@@ -194,6 +202,8 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     await sendEmail({
       to: email,
       subject,
+      from,
+      replyTo,
       react: PaymentSuccessEmail({
         firstName,
         amount,
@@ -221,6 +231,8 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
     await sendEmail({
       to: email,
       subject,
+      from,
+      replyTo,
       react: PaymentErrorEmail({
         firstName,
         linkTitle,

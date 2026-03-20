@@ -86,6 +86,14 @@ Checkout can send:
 - payment success emails
 - payment error emails
 
+Checkout email sender resolution follows the same precedence as the notifications system:
+
+1. `NOTIFICATIONS_EMAIL_FROM`
+2. `EMAIL_FROM`
+3. `ADMIN_EMAIL`
+
+If only `ADMIN_EMAIL` is configured, it is used as the sender fallback, so it must be a valid address accepted by your mail provider.
+
 It also emits in-app notifications for:
 
 - completed transactions

@@ -4,7 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLinkTemplate } from '../../../../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../../../../lib/constants'
 import { resolveCheckoutPublicCustomFields } from '../../../../lib/customFields'
-import { requireCheckoutScope } from '../../../../lib/utils'
+import { requireCheckoutScope, resolveLoadedCheckoutCustomFields } from '../../../../lib/utils'
 import { serializeTemplateRecord } from '../../../../commands/templates'
 import { handleCheckoutRouteError, requireAdminContext } from '../../../helpers'
 import { checkoutTag } from '../../../openapi'
@@ -35,19 +35,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       tenantIdByRecord: { [template.id]: scope.tenantId },
       organizationIdByRecord: { [template.id]: scope.organizationId },
     })
+    const normalizedCustomValues = resolveLoadedCheckoutCustomFields(customValues[template.id])
     const publicCustomFields = await resolveCheckoutPublicCustomFields({
       em,
       entityId: CHECKOUT_ENTITY_IDS.template,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       customFieldsetCode: template.customFieldsetCode ?? null,
-      customValues: customValues[template.id] ?? {},
+      customValues: normalizedCustomValues,
       displayCustomFieldsOnPage: template.displayCustomFieldsOnPage,
     })
     return NextResponse.json({
       ...serializeTemplateRecord(template),
       slug: `preview-${template.id.slice(0, 8)}`,
-      customFields: customValues[template.id] ?? {},
+      customFields: normalizedCustomValues,
       publicCustomFields,
       available: false,
       remainingUses: null,

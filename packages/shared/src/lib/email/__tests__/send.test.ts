@@ -115,6 +115,36 @@ describe('sendEmail', () => {
     )
   })
 
+  it('falls back to ADMIN_EMAIL when sender-specific env vars are not set', async () => {
+    delete process.env.EMAIL_FROM
+    delete process.env.NOTIFICATIONS_EMAIL_FROM
+    process.env.ADMIN_EMAIL = 'admin@example.com'
+
+    await sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })
+
+    expect(sendMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: 'admin@example.com',
+      })
+    )
+  })
+
+  it('throws a clear error when no sender address is configured', async () => {
+    delete process.env.EMAIL_FROM
+    delete process.env.NOTIFICATIONS_EMAIL_FROM
+    delete process.env.ADMIN_EMAIL
+
+    await expect(sendEmail({
+      to: 'user@example.com',
+      subject: 'Hello',
+      react: React.createElement('div', null, 'Hi'),
+    })).rejects.toThrow('EMAIL_FROM_NOT_CONFIGURED')
+  })
+
   it('skips external delivery in test mode when email delivery is disabled', async () => {
     process.env.OM_DISABLE_EMAIL_DELIVERY = '1'
     delete process.env.RESEND_API_KEY

@@ -2,6 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'crypto'
 import bcrypt from 'bcryptjs'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
@@ -73,6 +74,12 @@ export function parseCheckoutInput<TInput>(raw: unknown, parser: (value: unknown
     parsed: parser(source),
     customFields,
   }
+}
+
+export function resolveLoadedCheckoutCustomFields(
+  values: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  return normalizeCustomFieldResponse(values) ?? {}
 }
 
 export function toIsoString(value: unknown): string | null {

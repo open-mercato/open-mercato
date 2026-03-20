@@ -1,14 +1,12 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
-import { ensureCustomFieldDefinitions } from '@open-mercato/core/modules/entities/lib/field-definitions'
 import type { InitSetupContext } from '@open-mercato/shared/modules/setup'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
-import { CHECKOUT_LINK_CUSTOM_FIELDS, CHECKOUT_LINK_FIELDSETS } from '../lib/customFields'
 import { toMoneyString, toTemplateOrLinkMutationInput } from '../lib/utils'
+import { ensureCheckoutFieldsetsAndDefinitions } from './customFields'
 
 type TemplateSeed = {
   name: string
@@ -198,87 +196,6 @@ const LINK_SEEDS: LinkSeed[] = [
 
 function cloneCustomerFields() {
   return DEFAULT_CHECKOUT_CUSTOMER_FIELDS.map((field) => ({ ...field }))
-}
-
-async function ensureFieldsetConfig(
-  em: EntityManager,
-  scope: { tenantId: string; organizationId: string },
-  entityId: string,
-) {
-  const now = new Date()
-  let config = await em.findOne(CustomFieldEntityConfig, {
-    entityId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
-  if (!config) {
-    config = em.create(CustomFieldEntityConfig, {
-      entityId,
-      tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now,
-    })
-  }
-  const currentConfig =
-    config.configJson && typeof config.configJson === 'object' && !Array.isArray(config.configJson)
-      ? { ...(config.configJson as Record<string, unknown>) }
-      : {}
-  const existingFieldsets = Array.isArray(currentConfig.fieldsets)
-    ? currentConfig.fieldsets
-        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object' && !Array.isArray(entry))
-    : []
-  const mergedFieldsetsByCode = new Map<string, Record<string, unknown>>()
-
-  for (const fieldset of existingFieldsets) {
-    const code = typeof fieldset.code === 'string' ? fieldset.code.trim() : ''
-    if (!code) continue
-    mergedFieldsetsByCode.set(code, { ...fieldset })
-  }
-
-  for (const fieldset of CHECKOUT_LINK_FIELDSETS) {
-    const existingFieldset = mergedFieldsetsByCode.get(fieldset.code) ?? {}
-    mergedFieldsetsByCode.set(fieldset.code, {
-      ...existingFieldset,
-      ...fieldset,
-      groups: Array.isArray(fieldset.groups)
-        ? fieldset.groups.map((group) => ({ ...group }))
-        : existingFieldset.groups,
-    })
-  }
-
-  config.configJson = {
-    ...currentConfig,
-    fieldsets: Array.from(mergedFieldsetsByCode.values()),
-    singleFieldsetPerRecord:
-      typeof currentConfig.singleFieldsetPerRecord === 'boolean'
-        ? currentConfig.singleFieldsetPerRecord
-        : true,
-  }
-  config.isActive = true
-  config.updatedAt = now
-  em.persist(config)
-}
-
-async function ensureCheckoutFieldsetsAndDefinitions(
-  em: EntityManager,
-  scope: { tenantId: string; organizationId: string },
-) {
-  await ensureFieldsetConfig(em, scope, CHECKOUT_ENTITY_IDS.link)
-  await ensureFieldsetConfig(em, scope, CHECKOUT_ENTITY_IDS.template)
-  await ensureCustomFieldDefinitions(
-    em,
-    [
-      { entity: CHECKOUT_ENTITY_IDS.link, fields: CHECKOUT_LINK_CUSTOM_FIELDS },
-      { entity: CHECKOUT_ENTITY_IDS.template, fields: CHECKOUT_LINK_CUSTOM_FIELDS },
-    ],
-    {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-    },
-  )
-  await em.flush()
 }
 
 async function ensureTemplate(

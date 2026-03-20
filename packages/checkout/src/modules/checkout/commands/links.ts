@@ -19,6 +19,7 @@ import {
   isCheckoutLinkPublic,
   parseCheckoutInput,
   pickExplicitParsedOverrides,
+  resolveLoadedCheckoutCustomFields,
   serializeTemplateOrLink,
   toMoneyString,
   toTemplateOrLinkMutationInput,
@@ -71,7 +72,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
         tenantIdByRecord: { [template.id]: scope.tenantId },
         organizationIdByRecord: { [template.id]: scope.organizationId },
       })
-      templateCustomFields = loaded[template.id] ?? {}
+      templateCustomFields = resolveLoadedCheckoutCustomFields(loaded[template.id])
     }
 
     validateDescriptorCurrencies(sourceValues.gatewayProviderKey ?? null, deriveConfiguredCurrencies(sourceValues))

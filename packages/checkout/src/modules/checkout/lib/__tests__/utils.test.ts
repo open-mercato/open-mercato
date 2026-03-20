@@ -5,6 +5,7 @@ import {
   applyTerminalTransactionState,
   buildConsentProof,
   pickExplicitParsedOverrides,
+  resolveLoadedCheckoutCustomFields,
   resolveSubmittedAmount,
   serializeTemplateOrLink,
   serializeTransaction,
@@ -200,6 +201,16 @@ describe('checkout utils', () => {
       templateId: 'template_1',
       name: 'Community Donation',
       title: 'Community donation',
+    })
+  })
+
+  it('normalizes loaded checkout custom fields back to bare keys', () => {
+    expect(resolveLoadedCheckoutCustomFields({
+      cf_support_contact: 'team@example.com',
+      cf_impact_summary: 'Supports workshops',
+    })).toEqual({
+      support_contact: 'team@example.com',
+      impact_summary: 'Supports workshops',
     })
   })
 

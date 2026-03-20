@@ -11,6 +11,7 @@ import { checkoutPublicViewRateLimitConfig } from '../../../lib/rateLimiter'
 import { handleCheckoutRouteError, readCheckoutAccessCookie, requirePreviewContext } from '../../helpers'
 import {
   isCheckoutLinkPublic,
+  resolveLoadedCheckoutCustomFields,
   serializeTemplateOrLink,
   verifyCheckoutAccessToken,
 } from '../../../lib/utils'
@@ -67,13 +68,14 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       tenantIdByRecord: { [link.id]: link.tenantId },
       organizationIdByRecord: { [link.id]: link.organizationId },
     })
+    const normalizedCustomValues = resolveLoadedCheckoutCustomFields(customValues[link.id])
     const publicCustomFields = await resolveCheckoutPublicCustomFields({
       em,
       entityId: CHECKOUT_ENTITY_IDS.link,
       tenantId: link.tenantId,
       organizationId: link.organizationId,
       customFieldsetCode: link.customFieldsetCode ?? null,
-      customValues: customValues[link.id] ?? {},
+      customValues: normalizedCustomValues,
       displayCustomFieldsOnPage: link.displayCustomFieldsOnPage,
     })
     return NextResponse.json({

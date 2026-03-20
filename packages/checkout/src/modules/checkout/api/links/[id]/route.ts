@@ -4,6 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CheckoutLink } from '../../../data/entities'
 import { serializeLinkRecord } from '../../../commands/links'
 import { CHECKOUT_ENTITY_IDS } from '../../../lib/constants'
+import { resolveLoadedCheckoutCustomFields } from '../../../lib/utils'
 import {
   attachOperationMetadataHeader,
   buildCommandRuntimeContext,
@@ -41,7 +42,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     })
     return NextResponse.json({
       ...serializeLinkRecord(link),
-      customFields: customValues[link.id] ?? {},
+      customFields: resolveLoadedCheckoutCustomFields(customValues[link.id]),
     })
   } catch (error) {
     return handleCheckoutRouteError(error)

@@ -573,7 +573,7 @@ export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderPr
         className="pointer-events-none absolute right-[-4rem] top-[-3rem] h-40 w-40 rounded-full blur-3xl"
         style={{ background: withAlpha(themeTokens.accentSecondary, 0.22) }}
       />
-      <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+      <div className="relative flex flex-col gap-6">
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -615,27 +615,6 @@ export function PayPageHeader({ payload, preview, themeTokens }: PayPageHeaderPr
                 {payload.subtitle}
               </p>
             ) : null}
-          </div>
-        </div>
-
-        <div
-          className="grid gap-3 rounded-[28px] border p-4 sm:min-w-[280px] sm:grid-cols-2"
-          style={{
-            background: withAlpha(themeTokens.shellBackground, 0.72),
-            borderColor: themeTokens.border,
-          }}
-        >
-          <div className="space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em]" style={{ color: themeTokens.mutedText }}>
-              {t('checkout.payPage.header.providerLabel', 'Gateway')}
-            </div>
-            <div className="text-sm font-medium">{payload.gatewayProviderKey ?? t('checkout.payPage.header.autoProvider', 'Configured in checkout')}</div>
-          </div>
-          <div className="space-y-1">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.22em]" style={{ color: themeTokens.mutedText }}>
-              {t('checkout.payPage.header.pageLabel', 'Page')}
-            </div>
-            <div className="text-sm font-medium">{payload.slug ?? payload.id}</div>
           </div>
         </div>
       </div>
@@ -959,20 +938,6 @@ export function PayPageSummary({
           {preview
             ? t('checkout.payPage.summary.previewState', 'Preview')
             : t('checkout.payPage.summary.liveState', 'Live')}
-        </div>
-      </div>
-      <div className="mt-5 grid gap-3 text-sm sm:grid-cols-2">
-        <div className="rounded-[22px] border px-4 py-3" style={{ borderColor: withAlpha(themeTokens.accentContrast, 0.16) }}>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-current/70">
-            {t('checkout.payPage.summary.checkoutLabel', 'Checkout')}
-          </div>
-          <div className="mt-1 font-medium">{payload.title ?? payload.name}</div>
-        </div>
-        <div className="rounded-[22px] border px-4 py-3" style={{ borderColor: withAlpha(themeTokens.accentContrast, 0.16) }}>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-current/70">
-            {t('checkout.payPage.summary.providerLabel', 'Provider')}
-          </div>
-          <div className="mt-1 font-medium">{payload.gatewayProviderKey ?? t('checkout.payPage.header.autoProvider', 'Configured in checkout')}</div>
         </div>
       </div>
     </section>
