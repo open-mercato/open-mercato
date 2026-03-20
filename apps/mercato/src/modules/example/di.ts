@@ -26,7 +26,7 @@ export function register(container: AppContainer) {
       })
       return {
         ...result,
-        status: 'processing',
+        status: 'pending',
       }
     },
   })
@@ -75,7 +75,7 @@ export function register(container: AppContainer) {
   })
   registerPaymentGatewayDescriptor({
     providerKey: 'mock_processing',
-    label: 'Mock Gateway (processing state)',
+    label: 'Mock Gateway (pending state)',
     sessionConfig: {
       fields: [
         {
