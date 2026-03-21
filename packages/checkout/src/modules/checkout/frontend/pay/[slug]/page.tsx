@@ -1,10 +1,15 @@
 import { headers } from 'next/headers'
 import { PayPage, type PayLinkPayload } from '../../../components/PayPage'
 
-function resolveTrustedAppUrl(): string | null {
+function resolveTrustedAppUrl(requestHeaders: Headers): string | null {
   const appUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL
-  if (!appUrl || appUrl.trim().length === 0) return null
-  return appUrl.replace(/\/$/, '')
+  if (appUrl && appUrl.trim().length > 0) {
+    return appUrl.replace(/\/$/, '')
+  }
+  const host = requestHeaders.get('host')
+  if (!host || host.trim().length === 0) return null
+  const protocol = requestHeaders.get('x-forwarded-proto') ?? 'http'
+  return `${protocol}://${host}`.replace(/\/$/, '')
 }
 
 function buildInternalRequestHeaders(requestHeaders: Headers): HeadersInit | undefined {
@@ -17,18 +22,18 @@ function buildInternalRequestHeaders(requestHeaders: Headers): HeadersInit | und
   if (forwardedFor) forwardedHeaders.set('x-forwarded-for', forwardedFor)
   if (realIp) forwardedHeaders.set('x-real-ip', realIp)
 
-  return forwardedHeaders.size > 0 ? forwardedHeaders : undefined
+  return Array.from(forwardedHeaders.keys()).length > 0 ? forwardedHeaders : undefined
 }
 
 async function loadInitialPayload(
   slug: string,
   options?: { preview?: boolean },
 ): Promise<{ payload: PayLinkPayload | null; error: string | null }> {
-  const baseUrl = resolveTrustedAppUrl()
+  const requestHeaders = await headers()
+  const baseUrl = resolveTrustedAppUrl(requestHeaders)
   if (!baseUrl) {
     return { payload: null, error: null }
   }
-  const requestHeaders = await headers()
   const searchParams = new URLSearchParams()
   if (options?.preview) {
     searchParams.set('preview', 'true')

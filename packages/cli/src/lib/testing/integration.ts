@@ -1357,6 +1357,8 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
   return buildEnvironment({
     BASE_URL: baseUrl,
+    APP_URL: baseUrl,
+    NEXT_PUBLIC_APP_URL: baseUrl,
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
@@ -2573,6 +2575,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const commandEnvironment = buildEnvironment({
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
+      APP_URL: applicationBaseUrl,
+      NEXT_PUBLIC_APP_URL: applicationBaseUrl,
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',

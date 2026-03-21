@@ -9,6 +9,11 @@ import {
 
 test.describe('TC-CHKT-031 (wrappers): Pay page section wrapper/replacement handle can customize summary/help area without changing payment integrity', () => {
   test('renders the example summary/help wrappers and still completes a payment successfully', async ({ page, request }) => {
+    test.skip(
+      process.env.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED !== 'true',
+      'Example checkout wrapper overrides are disabled in this test environment.',
+    )
+
     let token: string | null = null
     let linkId: string | null = null
 

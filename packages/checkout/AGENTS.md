@@ -32,3 +32,5 @@ Use `packages/checkout/src/modules/checkout/` for all checkout module work.
 - Public routes must never expose gateway credentials, gateway settings, password hashes, or prior-customer data.
 - Password verification must remain slug-bound and cookie-backed.
 - Checkout transaction status updates must be idempotent because gateway events and status polling can race.
+- The public submit endpoint validates Origin/Referer headers against allowed origins. Extra origins can be added via `CHECKOUT_ALLOWED_ORIGINS` (comma-separated) for cross-domain pay pages.
+- Idempotency-Key must be 16–128 characters to prevent trivially guessable keys.

@@ -42,6 +42,100 @@ type CheckoutCustomerFieldRequirement = {
   required?: boolean
 }
 
+function normalizePort(url: URL): string {
+  if (url.port) return url.port
+  return url.protocol === 'https:' ? '443' : '80'
+}
+
+function normalizeConfiguredOrigin(candidate: string): string | null {
+  try {
+    return new URL(candidate).origin
+  } catch {
+    return null
+  }
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === '127.0.0.1' || hostname === 'localhost'
+}
+
+function splitHeaderValues(value: string | null): string[] {
+  if (!value) return []
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+}
+
+function isAllowedRequestOrigin(submittedOrigin: string, allowedOrigin: string): boolean {
+  if (submittedOrigin === allowedOrigin) return true
+  try {
+    const submittedUrl = new URL(submittedOrigin)
+    const allowedUrl = new URL(allowedOrigin)
+    return submittedUrl.protocol === allowedUrl.protocol
+      && normalizePort(submittedUrl) === normalizePort(allowedUrl)
+      && isLoopbackHostname(submittedUrl.hostname)
+      && isLoopbackHostname(allowedUrl.hostname)
+  } catch {
+    return false
+  }
+}
+
+const CONFIGURED_ALLOWED_ORIGINS: string[] = (process.env.CHECKOUT_ALLOWED_ORIGINS ?? '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter((origin) => origin.length > 0)
+
+function addAllowedOrigin(allowedOrigins: Set<string>, candidate: string) {
+  const normalized = normalizeConfiguredOrigin(candidate)
+  if (!normalized) return
+  allowedOrigins.add(normalized)
+  try {
+    const parsed = new URL(normalized)
+    if (!isLoopbackHostname(parsed.hostname)) return
+    for (const hostname of ['127.0.0.1', 'localhost']) {
+      for (const protocol of ['http:', 'https:']) {
+        const variant = new URL(normalized)
+        variant.hostname = hostname
+        variant.protocol = protocol
+        allowedOrigins.add(variant.origin)
+      }
+    }
+  } catch {
+    // Ignore invalid variants.
+  }
+}
+
+function buildAllowedOrigins(req: Request): string[] {
+  const requestUrl = new URL(req.url)
+  const allowedOrigins = new Set<string>()
+  addAllowedOrigin(allowedOrigins, requestUrl.origin)
+
+  for (const origin of CONFIGURED_ALLOWED_ORIGINS) {
+    addAllowedOrigin(allowedOrigins, origin)
+  }
+  for (const origin of [process.env.APP_URL, process.env.NEXT_PUBLIC_APP_URL]) {
+    if (origin) addAllowedOrigin(allowedOrigins, origin)
+  }
+
+  const hostCandidates = [
+    ...splitHeaderValues(req.headers.get('x-forwarded-host')),
+    ...splitHeaderValues(req.headers.get('host')),
+  ]
+  const protoCandidates = new Set<string>([
+    ...splitHeaderValues(req.headers.get('x-forwarded-proto')),
+    requestUrl.protocol.replace(/:$/, ''),
+  ])
+
+  for (const host of hostCandidates) {
+    for (const proto of protoCandidates) {
+      addAllowedOrigin(allowedOrigins, `${proto}://${host}`)
+    }
+  }
+
+  return Array.from(allowedOrigins)
+}
+
 function isIdempotencyConflict(error: unknown): boolean {
   const message = error instanceof Error ? error.message : ''
   return message.includes('checkout_transactions_organization_id_tenant_id_link_idempotency_key_index')
@@ -144,10 +238,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const origin = req.headers.get('origin')
     const referer = req.headers.get('referer')
     if (origin || referer) {
-      const requestUrl = new URL(req.url)
-      const allowedOrigin = requestUrl.origin
+      const allowedOrigins = buildAllowedOrigins(req)
       const submittedOrigin = origin ?? (referer ? new URL(referer).origin : null)
-      if (submittedOrigin && submittedOrigin !== allowedOrigin) {
+      if (submittedOrigin && !allowedOrigins.some((allowedOrigin) => isAllowedRequestOrigin(submittedOrigin, allowedOrigin))) {
         return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
       }
     }
