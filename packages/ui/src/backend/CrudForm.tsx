@@ -1104,11 +1104,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const allFields = React.useMemo(() => {
     const base = [...fields, ...injectedCrudFields]
+
+    if (groups) {
+      const provided = new Set(base.map(f => f.id))
+      for (const group of groups) {
+        if (!group.fields) continue
+        for (const entry of group.fields) {
+          if (typeof entry === 'string') continue
+          if (!provided.has(entry.id)) {
+            provided.add(entry.id)
+            base.push(entry)
+          }
+        }
+      }
+    }
     if (!cfFields.length) return base
     const provided = new Set(base.map(f => f.id))
     const extras = cfFields.filter(f => !provided.has(f.id))
     return [...base, ...extras]
-  }, [fields, injectedCrudFields, cfFields])
+  }, [fields, injectedCrudFields, cfFields, groups])
 
   const fieldById = React.useMemo(() => {
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
@@ -2985,12 +2999,12 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
           autoFocus={autoFocusField}
-          suggestions={options.map((opt) => opt.label)}
+          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {
                   const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => opt.label)
+                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
                 }
               : undefined
           }

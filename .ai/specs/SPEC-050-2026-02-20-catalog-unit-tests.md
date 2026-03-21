@@ -543,7 +543,7 @@ None.
 | Phase | Status | Date | Notes |
 | ----- | ------ | ---- | ----- |
 | Phase 1 — Pure Logic Unit Tests | Done | 2026-02-26 | 95 tests passing across 3 files |
-| Phase 2 — Component Interaction Unit Tests | Not Started | — | — |
+| Phase 2 — Component Interaction Unit Tests | Done | 2026-03-19 | 8 test files, ~96 tests passing |
 | Phase 3 — Integration Tests | Not Started | — | TC-CAT-013 and TC-CAT-014 already exist from prior work |
 | Phase 4 — Fixture Helpers | Not Started | — | — |
 
@@ -552,6 +552,17 @@ None.
 - [x] Step 1.1: `productForm.test.ts` — expanded with ~53 new test cases
 - [x] Step 1.2: `variantForm.test.ts` — created with ~23 test cases
 - [x] Step 1.3: `categoryTree.test.ts` — created with 5 test cases
+
+### Phase 2 — Detailed Progress
+
+- [x] Step 2.1: `MetadataEditor.test.tsx` — 18 tests (expand/collapse, add/remove/edit entries, type parsing, embedded mode)
+- [x] Step 2.2: `CategorySlugFieldSync.test.tsx` — 6 tests (auto-sync, manual override, clearing, null render)
+- [x] Step 2.3: `CategorySelect.test.tsx` — 11 tests (rendering, onChange, fetchOnMount, loading/error/disabled states)
+- [x] Step 2.4: `VariantBuilder.test.tsx` — 19 tests (BasicsSection, OptionValues, Dimensions, Prices, Media, full builder)
+- [x] Step 2.5: `ProductMediaManager.test.tsx` — 12 tests (empty state, grid, default badge, delete, upload trigger, file sizes)
+- [x] Step 2.6: `CategoriesDataTable.test.tsx` — 9 tests (rows, permissions, loading/empty, query key, create link)
+- [x] Step 2.7: `ProductCategorizeSection.test.tsx` — 9 tests (three TagsInput fields, onChange handlers, labels)
+- [x] Step 2.8: `PriceKindSettings.test.tsx` — 16 tests (CRUD dialog, validation, Cmd+Enter, delete confirm, API integration)
 
 ## Changelog
 

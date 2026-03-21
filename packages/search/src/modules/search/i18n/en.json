@@ -27,6 +27,7 @@
   "search.dialog.actions.search": "Search",
   "search.dialog.empty.hint": "Type at least two characters to search indexed records.",
   "search.dialog.empty.none": "No results found.",
+  "search.dialog.errors.noPermission": "You do not have permission to use global search.",
   "search.dialog.errors.searchFailed": "Search failed.",
   "search.dialog.input.placeholder": "Search customers, notes, deals, todos...",
   "search.dialog.instructions": "Type to search across indexed records. Use arrow keys to navigate results.",

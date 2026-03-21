@@ -25,10 +25,11 @@ export async function fetchRoleOptions(query?: string, params?: FetchRoleOptions
     const { items } = call.result
     return items
       .map((item) => {
+        const id = typeof item?.id === 'string' ? item.id.trim() : ''
         const name = typeof item?.name === 'string' ? item?.name.trim() : ''
-        if (!name) return null
+        if (!id || !name) return null
         if (name === 'superadmin') return null
-        return { value: name, label: name }
+        return { value: id, label: name }
       })
       .filter((opt): opt is CrudFieldOption => !!opt)
   } catch {

@@ -71,7 +71,12 @@ export async function fetchGlobalSearchResults(
     error?: string
   }>(
     `/api/search/search/global?${params.toString()}`,
-    { signal: opts.signal },
+    {
+      signal: opts.signal,
+      headers: {
+        'x-om-forbidden-redirect': '0',
+      },
+    },
     { errorMessage: 'Search failed', allowNullResult: true }
   )
 

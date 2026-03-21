@@ -262,13 +262,12 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 - [ ] No existing event payload fields removed (may add optional fields)
 - [ ] Deprecated events still emitted during bridge period alongside replacement
 
-## 22. Specs Numbering Hygiene
+## 22. Specs Filename Hygiene
 
-- [ ] No duplicate exact spec IDs in `.ai/specs` (for example `SPEC-041` vs `SPEC-041`)
-- [ ] No duplicate exact enterprise spec IDs in `.ai/specs/enterprise` (for example `SPEC-ENT-002` vs `SPEC-ENT-002`)
-- [ ] Staged spec variants are preserved (`SPEC-041a`, `SPEC-041b`, ... are valid and MUST NOT be treated as conflicts with each other or with `SPEC-041`)
-- [ ] If conflicts exist, only the newest conflicting spec is moved to the end of the list
-- [ ] Filename references/links and in-file spec ID references updated after renumbering
+- [ ] New or renamed spec files use `{YYYY-MM-DD}-{slug}.md`
+- [ ] Legacy numbered spec files are normalized instead of copied forward into new work
+- [ ] No two spec files in `.ai/specs` or `.ai/specs/enterprise` resolve to the same normalized `{YYYY-MM-DD}-{slug}.md` target
+- [ ] Filename references/links updated after any normalization
 
 ### Widget Injection Spot IDs
 - [ ] No existing spot ID renamed or removed

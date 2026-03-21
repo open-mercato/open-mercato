@@ -7,6 +7,7 @@ import { IconButton } from '../../primitives/icon-button'
 import type { SectionNavGroup, SectionNavItem } from './types'
 import { mergeMenuItems } from '../injection/mergeMenuItems'
 import { useInjectedMenuItems, type MenuSurfaceId } from '../injection/useInjectedMenuItems'
+import { resolveInjectedIcon } from '../injection/resolveInjectedIcon'
 
 const DefaultIcon = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -88,6 +89,7 @@ export function SectionNav({
         id: item.id,
         label: item.labelKey ? t(item.labelKey, item.label ?? item.id) : (item.label ?? item.id),
         href: item.href,
+        icon: resolveInjectedIcon(item.icon) ?? undefined,
       }]
     })
     const visibleItems = mergedItems.filter(hasRequiredFeatures)

@@ -25,6 +25,14 @@
   },
   "exports": {
     ".": "./dist/index.js",
+    "./testing/integration": {
+      "types": "./src/testing/integration/index.ts",
+      "default": "./dist/testing/integration/index.js"
+    },
+    "./helpers/integration/*": {
+      "types": "./src/helpers/integration/*.ts",
+      "default": "./dist/helpers/integration/*.js"
+    },
     "./modules/customers": {
       "types": "./src/modules/customers/index.ts",
       "default": "./dist/modules/customers/index.js"

@@ -1,4 +1,9 @@
+// Use Symbol.for so the marker survives module duplication across bundle boundaries
+// (same behaviour as globalThis-based registries used for DI registrars)
+const CRUD_HTTP_ERROR_MARKER = Symbol.for('@open-mercato/CrudHttpError')
+
 export class CrudHttpError extends Error {
+  readonly [CRUD_HTTP_ERROR_MARKER] = true
   status: number
   body: Record<string, any>
 
@@ -8,6 +13,15 @@ export class CrudHttpError extends Error {
     this.status = status
     this.body = normalizedBody
   }
+}
+
+/**
+ * Type-safe check for CrudHttpError that works across module/bundle boundaries.
+ * Prefer this over `instanceof CrudHttpError` whenever the error may originate
+ * from a different module bundle (e.g. enterprise packages, dynamic imports).
+ */
+export function isCrudHttpError(err: unknown): err is CrudHttpError {
+  return !!err && typeof err === 'object' && (err as Record<symbol, unknown>)[CRUD_HTTP_ERROR_MARKER] === true
 }
 
 export function badRequest(message: string): CrudHttpError {

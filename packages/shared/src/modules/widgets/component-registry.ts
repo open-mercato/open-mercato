@@ -40,6 +40,19 @@ type RuntimeState = {
 
 const GLOBAL_COMPONENT_REGISTRY_KEY = '__openMercatoComponentRegistry__'
 
+function isComponentOverride(value: unknown): value is ComponentOverride {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const target = (value as { target?: { componentId?: unknown } }).target
+  if (!target || typeof target !== 'object') {
+    return false
+  }
+
+  return typeof target.componentId === 'string' && target.componentId.length > 0
+}
+
 function getState(): RuntimeState {
   const globalValue = (globalThis as Record<string, unknown>)[GLOBAL_COMPONENT_REGISTRY_KEY]
   if (globalValue && typeof globalValue === 'object') {
@@ -63,7 +76,7 @@ export function registerComponent<TProps = unknown>(entry: ComponentRegistryEntr
 
 export function registerComponentOverrides(overrides: ComponentOverride[]) {
   const state = getState()
-  state.overrides = [...overrides]
+  state.overrides = overrides.filter(isComponentOverride)
 }
 
 export function getComponentEntry(componentId: string): ComponentRegistryEntry | null {
@@ -74,6 +87,7 @@ export function getComponentEntry(componentId: string): ComponentRegistryEntry |
 export function getComponentOverrides(componentId: string, userFeatures?: readonly string[]): ComponentOverride[] {
   const state = getState()
   const relevant = state.overrides.filter((override) => {
+    if (!isComponentOverride(override)) return false
     if (override.target.componentId !== componentId) return false
     if (override.features && override.features.length > 0) {
       if (!hasAllFeatures(userFeatures, override.features)) return false
