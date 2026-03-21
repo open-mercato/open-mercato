@@ -171,16 +171,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const legalDocuments = link.legalDocuments && typeof link.legalDocuments === 'object'
       ? link.legalDocuments as Partial<Record<'terms' | 'privacyPolicy', CheckoutLegalDocumentRequirement>>
       : {}
+    const legalConsentErrors: Record<string, string> = {}
     for (const key of ['terms', 'privacyPolicy'] as const) {
       const document = legalDocuments[key]
       if (document?.required === true && body.acceptedLegalConsents?.[key] !== true) {
-        throw new CrudHttpError(422, {
-          error: 'checkout.payPage.validation.fixErrors',
-          fieldErrors: {
-            [`acceptedLegalConsents.${key}`]: 'checkout.payPage.validation.documentRequired',
-          },
-        })
+        legalConsentErrors[`acceptedLegalConsents.${key}`] = 'checkout.payPage.validation.documentRequired'
       }
+    }
+    if (Object.keys(legalConsentErrors).length > 0) {
+      throw new CrudHttpError(422, {
+        error: 'checkout.payPage.validation.fixErrors',
+        fieldErrors: legalConsentErrors,
+      })
     }
     const collectedCustomerData = link.collectCustomerDetails === false ? {} : body.customerData
     const customerFields = Array.isArray(link.customerFieldsSchema)

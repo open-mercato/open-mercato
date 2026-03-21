@@ -161,7 +161,7 @@ export async function login(page: Page, role: Role = 'admin'): Promise<void> {
     if (cookies.length > 0) {
       await page.context().addCookies(cookies);
     }
-    await page.goto('/backend', { waitUntil: 'domcontentloaded' });
+    await page.goto('/backend', { waitUntil: 'commit' });
     if (await waitForBackend(8_000)) return;
   }
 

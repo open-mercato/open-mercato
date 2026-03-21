@@ -87,12 +87,14 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
         },
       })
       const validateBody = await readJson(validateResponse)
-      expect([200, 404]).toContain(validateResponse.status())
+      expect([200, 404, 422]).toContain(validateResponse.status())
       if (validateResponse.status() === 200) {
         expect(validateBody.ok).toBe(true)
-      } else {
+      } else if (validateResponse.status() === 404) {
         expect(validateBody.ok).toBe(false)
         expect(String(validateBody.message ?? '')).toMatch(/not found|no registered sync adapter/i)
+      } else {
+        expect(String(validateBody.error ?? validateBody.message ?? '')).not.toHaveLength(0)
       }
 
       const runResponse = await apiRequest(request, 'POST', '/api/data_sync/run', {

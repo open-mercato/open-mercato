@@ -997,6 +997,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      entity.deletedAt = null
 
       let profile = await em.findOne(CustomerPersonProfile, { entity })
       if (!profile) {

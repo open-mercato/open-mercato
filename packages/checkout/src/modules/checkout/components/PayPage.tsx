@@ -1448,9 +1448,9 @@ export function PayPage({
 
   React.useEffect(() => {
     if (!slug) return
-    if (initialPayload || initialLoadError) return
+    if (initialPayload) return
     void loadPayload()
-  }, [initialLoadError, initialPayload, loadPayload, slug])
+  }, [initialPayload, loadPayload, slug])
 
   React.useEffect(() => {
     if (!payload) return

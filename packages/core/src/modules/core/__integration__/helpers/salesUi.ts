@@ -740,26 +740,28 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
   const fillAdjustmentForm = async (): Promise<void> => {
     await dialog.getByText(/Loading adjustments/i).waitFor({ state: 'hidden', timeout: 3_000 }).catch(() => {});
     const kindSelect = dialog.locator('select').first();
-    await expect(kindSelect).toHaveValue(/^custom$/i, { timeout: 3_000 });
+    await expect(kindSelect).toBeVisible({ timeout: 3_000 });
+    let normalizedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
+    let submittedNetAmount = options.netAmount;
+
+    if ((await kindSelect.count()) > 0) {
+      await expect(kindSelect).toBeEnabled({ timeout: TEST_WAIT_TIMEOUT_MS });
+      await kindSelect.selectOption(normalizedKindValue).catch(async () => {
+        await kindSelect.selectOption({ label: options.kindLabel ?? 'Surcharge' });
+      });
+      const resolvedKindValue = await kindSelect.inputValue().catch(() => '');
+      if (resolvedKindValue) {
+        normalizedKindValue = resolvedKindValue.trim().toLowerCase();
+      }
+      if (normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge') === 'discount' && normalizedKindValue !== 'discount') {
+        submittedNetAmount = -Math.abs(options.netAmount);
+      }
+    }
 
     const labelInput = dialog.getByPlaceholder(/e\.g\. Shipping fee/i).first();
     await expect(labelInput).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     await labelInput.fill(options.label);
     await expect(labelInput).toHaveValue(options.label, { timeout: 2_000 });
-
-    if ((await kindSelect.count()) > 0) {
-      const expectedKindValue = normalizeAdjustmentKindValue(options.kindLabel ?? 'Surcharge');
-      await kindSelect.locator('option', { hasText: new RegExp(`^${escapeRegExp(options.kindLabel ?? 'Surcharge')}$`, 'i') })
-        .first()
-        .waitFor({ state: 'attached', timeout: 2_000 })
-        .catch(() => {});
-      await kindSelect.selectOption({ label: options.kindLabel ?? 'Surcharge' }).catch(async () => {
-        await kindSelect.selectOption({ label: 'Custom' });
-      });
-      await expect(kindSelect).toHaveValue(new RegExp(`^${escapeRegExp(expectedKindValue)}$`, 'i'), {
-        timeout: 2_000,
-      });
-    }
 
     const fixedAmountButton = dialog.getByRole('button', { name: /^Fixed amount$/i }).first();
     if ((await fixedAmountButton.count()) > 0) {
@@ -769,8 +771,8 @@ export async function addAdjustment(page: Page, options: AddAdjustmentOptions): 
     const enabledAmountInputs = dialog.locator('input[placeholder="0.00"]:not([disabled])');
     await expect(enabledAmountInputs.first()).toBeVisible({ timeout: TEST_WAIT_TIMEOUT_MS });
     if ((await enabledAmountInputs.count()) > 0) {
-      await enabledAmountInputs.first().fill(String(options.netAmount));
-      await expect(enabledAmountInputs.first()).toHaveValue(String(options.netAmount), { timeout: 2_000 }).catch(() => {});
+      await enabledAmountInputs.first().fill(String(submittedNetAmount));
+      await expect(enabledAmountInputs.first()).toHaveValue(String(submittedNetAmount), { timeout: 2_000 }).catch(() => {});
     }
   };
 

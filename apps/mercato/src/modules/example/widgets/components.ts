@@ -1,8 +1,14 @@
 import * as React from 'react'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 
-export const componentOverrides: ComponentOverride[] = [
+const exampleCheckoutTestInjectionsEnabled = parseBooleanWithDefault(
+  process.env.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED,
+  false,
+)
+
+const alwaysEnabledComponentOverrides: ComponentOverride[] = [
   {
     target: { componentId: ComponentReplacementHandles.section('ui.detail', 'NotesSection') },
     priority: 50,
@@ -21,6 +27,9 @@ export const componentOverrides: ComponentOverride[] = [
       return WrappedSection
     },
   },
+]
+
+const checkoutTestComponentOverrides: ComponentOverride[] = [
   {
     target: { componentId: ComponentReplacementHandles.section('checkout.pay-page', 'summary') },
     priority: 50,
@@ -58,5 +67,9 @@ export const componentOverrides: ComponentOverride[] = [
     },
   },
 ]
+
+export const componentOverrides: ComponentOverride[] = exampleCheckoutTestInjectionsEnabled
+  ? [...alwaysEnabledComponentOverrides, ...checkoutTestComponentOverrides]
+  : alwaysEnabledComponentOverrides
 
 export default componentOverrides

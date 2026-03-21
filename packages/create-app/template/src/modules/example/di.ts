@@ -8,6 +8,13 @@ import { registerShippingAdapter } from '@open-mercato/core/modules/shipping_car
 import { mockGatewayAdapter } from './lib/mock-gateway-adapter'
 import { mockShippingAdapter } from './lib/mock-shipping-adapter'
 
+function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
+  const data = payload?.data
+  if (!data || typeof data !== 'object') return null
+  const sessionId = (data as Record<string, unknown>).id
+  return typeof sessionId === 'string' && sessionId.trim().length > 0 ? sessionId.trim() : null
+}
+
 // Example DI registrar; modules can register their own services/components
 export function register(container: AppContainer) {
   // Register mock gateway adapter for payment testing (no real credentials needed)
@@ -30,9 +37,15 @@ export function register(container: AppContainer) {
       }
     },
   })
-  registerWebhookHandler('mock', mockGatewayAdapter.verifyWebhook)
-  registerWebhookHandler('mock_usd', mockGatewayAdapter.verifyWebhook)
-  registerWebhookHandler('mock_processing', mockGatewayAdapter.verifyWebhook)
+  registerWebhookHandler('mock', mockGatewayAdapter.verifyWebhook, {
+    readSessionIdHint: readMockWebhookSessionId,
+  })
+  registerWebhookHandler('mock_usd', mockGatewayAdapter.verifyWebhook, {
+    readSessionIdHint: readMockWebhookSessionId,
+  })
+  registerWebhookHandler('mock_processing', mockGatewayAdapter.verifyWebhook, {
+    readSessionIdHint: readMockWebhookSessionId,
+  })
   registerPaymentGatewayDescriptor({
     providerKey: 'mock',
     label: 'Mock Gateway',

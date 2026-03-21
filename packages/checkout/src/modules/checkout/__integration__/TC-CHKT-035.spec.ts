@@ -41,6 +41,8 @@ test.describe('TC-CHKT-035: Terms/privacy links open popup with sanitized markdo
       await expect(page.getByRole('heading', { name: 'Terms of Service' })).toBeVisible()
       await expect(page.getByText('Keep this safe')).toBeVisible()
       expect(await page.evaluate(() => (window as Window & { __checkoutTermsInjected?: boolean }).__checkoutTermsInjected ?? null)).toBeNull()
+      await page.getByRole('button', { name: /close/i }).click()
+      await expect(page.getByRole('dialog')).toBeHidden()
 
       await page.locator('input[type="checkbox"]').nth(0).check()
       await page.locator('input[type="checkbox"]').nth(1).check()

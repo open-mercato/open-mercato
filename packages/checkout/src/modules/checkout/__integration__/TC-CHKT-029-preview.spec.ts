@@ -27,7 +27,7 @@ test.describe('TC-CHKT-029 (preview): Admin preview of draft link renders pay pa
       await page.goto(`/pay/${encodeURIComponent(link.slug)}?preview=true`)
 
       await expect(page.getByText(/preview mode\. payments are disabled\./i)).toBeVisible()
-      await expect(page.getByText('QA preview link')).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'QA preview link' })).toBeVisible()
       await expect(page.getByRole('button', { name: /preview only/i })).toBeDisabled()
     } finally {
       await deleteCheckoutEntityIfExists(request, token, 'links', linkId)
