@@ -23,7 +23,11 @@ async function fillCombobox(
   const suggestion = page.getByRole('button', {
     name: new RegExp(escapeForRegex(value), 'i'),
   }).first()
-  if (await suggestion.isVisible().catch(() => false)) {
+  const suggestionVisible = await suggestion.waitFor({ state: 'visible', timeout: 2_000 }).then(
+    () => true,
+    () => false,
+  )
+  if (suggestionVisible) {
     await suggestion.click()
   } else {
     await input.press('Enter')
