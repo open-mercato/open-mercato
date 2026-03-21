@@ -63,7 +63,9 @@ export function parseExampleUrl(input: string): ExampleInfo {
 }
 
 function getGithubHeaders(token?: string): Record<string, string> {
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = {
+    'User-Agent': 'create-mercato-app',
+  }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
@@ -106,6 +108,7 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
     try {
       const response = await fetch(url, { headers })
       if (response.ok) return response
+      // 403 = rate limit — fail immediately, don't retry
       if (response.status === 403) {
         throw new Error('GitHub API rate limit reached. Set GITHUB_TOKEN environment variable for higher limits.')
       }
@@ -113,6 +116,8 @@ async function fetchWithRetry(url: string, headers: Record<string, string>, retr
         throw new Error(`Download failed (${response.status}) after ${retries} attempts`)
       }
     } catch (error) {
+      // Re-throw non-retryable errors (including 403) immediately
+      if (error instanceof Error && error.message.includes('rate limit')) throw error
       if (attempt === retries) throw error
     }
     await new Promise((r) => setTimeout(r, 1000 * attempt))
