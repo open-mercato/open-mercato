@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
-import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 type PriorityListResponse = {
   items?: Array<{ id: string; priority?: string }>
