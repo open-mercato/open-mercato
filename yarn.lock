@@ -5760,11 +5760,13 @@ __metadata:
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/jest-dom": "npm:^6.9.1"
     "@testing-library/react": "npm:^16.3.1"
+    "@types/chance": "npm:^1.1.7"
     "@types/html-to-text": "npm:^9.0.4"
     "@types/jest": "npm:^30.0.0"
     "@types/semver": "npm:^7.5.8"
     "@xyflow/react": "npm:^12.6.0"
     ai: "npm:^6.0.0"
+    chance: "npm:^1.1.13"
     date-fns: "npm:^4.1.0"
     date-fns-tz: "npm:^3.2.0"
     html-to-text: "npm:^9.0.5"
@@ -5772,6 +5774,7 @@ __metadata:
     jest-environment-jsdom: "npm:^30.2.0"
     semver: "npm:^7.6.3"
     ts-jest: "npm:^29.4.6"
+    ts-pattern: "npm:^5.0.0"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
   languageName: unknown
@@ -8215,6 +8218,13 @@ __metadata:
   dependencies:
     "@types/node": "npm:*"
   checksum: 10/e827570e097bd7d625a673c9c208af2d1a22fa3885c0a1646533cf24394c839c3e5f60ac1bc60c0ddcc69c0615078c9fb2c01b42596c7c582d895d974f2409ee
+  languageName: node
+  linkType: hard
+
+"@types/chance@npm:^1.1.7":
+  version: 1.1.7
+  resolution: "@types/chance@npm:1.1.7"
+  checksum: 10/5b3bf4ef0b7a2f6554f7767d7f081b4f613b45e74e74450d4da9c10cd12162420fc6ff5bb0abea143d6f7c43b62776b7a0e75d242cbe25c729fe020a1735e16f
   languageName: node
   linkType: hard
 
@@ -11098,6 +11108,13 @@ __metadata:
   version: 5.6.2
   resolution: "chalk@npm:5.6.2"
   checksum: 10/1b2f48f6fba1370670d5610f9cd54c391d6ede28f4b7062dd38244ea5768777af72e5be6b74fb6c6d54cb84c4a2dff3f3afa9b7cb5948f7f022cfd3d087989e0
+  languageName: node
+  linkType: hard
+
+"chance@npm:^1.1.13":
+  version: 1.1.13
+  resolution: "chance@npm:1.1.13"
+  checksum: 10/968e31ce9b8ce554c8a84fb66d85f6d06a33517bf21355ab760e347a0aaaece0652a23c791406826d4efe619b1aa4e7b66fb42acbd07859ba36ec2498a167b8c
   languageName: node
   linkType: hard
 
@@ -20449,6 +20466,7 @@ __metadata:
     tailwind-merge: "npm:^3.4.0"
     ts-jest: "npm:^29.4.6"
     ts-node: "npm:^10.9.2"
+    ts-pattern: "npm:^5.9.0"
     tsconfig-paths: "npm:^4.2.0"
     tsx: "npm:^4.21.0"
     turbo: "npm:^2.3.3"
@@ -25551,6 +25569,13 @@ __metadata:
     ts-node-transpile-only: dist/bin-transpile.js
     ts-script: dist/bin-script-deprecated.js
   checksum: 10/a91a15b3c9f76ac462f006fa88b6bfa528130dcfb849dd7ef7f9d640832ab681e235b8a2bc58ecde42f72851cc1d5d4e22c901b0c11aa51001ea1d395074b794
+  languageName: node
+  linkType: hard
+
+"ts-pattern@npm:^5.0.0, ts-pattern@npm:^5.9.0":
+  version: 5.9.0
+  resolution: "ts-pattern@npm:5.9.0"
+  checksum: 10/0df8cc63d731a596f3541a305eff10f055c9a761d1a8b3776781dc6d6430c6bd8be8cd333fac62138c5d88e1209b4d8dccf1f40041091b634e5018908281417b
   languageName: node
   linkType: hard
 
