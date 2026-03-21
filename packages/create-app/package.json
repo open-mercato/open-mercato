@@ -17,7 +17,8 @@
     "test": "jest --config jest.config.cjs"
   },
   "dependencies": {
-    "picocolors": "^1.1.0"
+    "picocolors": "^1.1.0",
+    "tar": "^7.5.7"
   },
   "devDependencies": {
     "@types/jest": "^29.5.0",
