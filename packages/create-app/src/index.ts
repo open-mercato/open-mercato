@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, copyFileSync, renameSync, unlinkSync, rmSync } from 'node:fs'
 import { join, dirname, basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import pc from 'picocolors'
 import { runAgenticSetup } from './setup/wizard.js'
+import { parseExampleUrl, checkExampleExists, downloadAndExtract } from './example.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -137,6 +138,44 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
   }
 }
 
+function processTemplateFiles(dir: string, placeholders: Record<string, string>): void {
+  const entries = readdirSync(dir)
+
+  for (const entry of entries) {
+    const fullPath = join(dir, entry)
+    const stat = statSync(fullPath)
+
+    if (stat.isDirectory()) {
+      processTemplateFiles(fullPath, placeholders)
+      const renamed = FILE_RENAMES[entry]
+      if (renamed) {
+        const renamedPath = join(dirname(fullPath), renamed)
+        renameSync(fullPath, renamedPath)
+      }
+      continue
+    }
+
+    const renamed = FILE_RENAMES[entry]
+    if (renamed) {
+      const renamedPath = join(dirname(fullPath), renamed)
+      renameSync(fullPath, renamedPath)
+    }
+
+    if (entry.endsWith('.template')) {
+      const finalName = entry.replace('.template', '')
+      const finalPath = join(dirname(fullPath), finalName)
+      let content = readFileSync(fullPath, 'utf-8')
+
+      for (const [key, value] of Object.entries(placeholders)) {
+        content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
+      }
+
+      writeFileSync(finalPath, content)
+      unlinkSync(fullPath)
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
   const { appName: appNameArg, options } = parseArgs(args)
@@ -173,7 +212,8 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  if (!existsSync(TEMPLATE_DIR)) {
+  // Template path guard (before try — matches existing behavior)
+  if (!options.example && !existsSync(TEMPLATE_DIR)) {
     console.error(pc.red('Error: Template directory not found'))
     console.error(`Expected: ${TEMPLATE_DIR}`)
     process.exit(1)
@@ -203,7 +243,22 @@ async function main(): Promise<void> {
   }
 
   try {
-    copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+    if (options.example) {
+      // Example path: fetch from GitHub
+      const token = process.env.GITHUB_TOKEN
+      const exampleInfo = parseExampleUrl(options.example)
+
+      console.log(pc.dim(`  Resolving example: ${options.example}`))
+
+      await checkExampleExists(exampleInfo, token)
+
+      mkdirSync(targetDir, { recursive: true })
+      await downloadAndExtract(exampleInfo, targetDir, token)
+      processTemplateFiles(targetDir, placeholders)
+    } else {
+      // Template path: copy built-in template
+      copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+    }
 
     // Create an empty placeholder so globals.css @import resolves before generators run
     const generatedDir = join(targetDir, '.mercato', 'generated')
@@ -237,7 +292,15 @@ async function main(): Promise<void> {
     console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
     console.log('')
   } catch (error) {
-    console.error(pc.red('Error creating app:'), error)
+    // Cleanup on failure if target dir was created
+    if (existsSync(targetDir) && options.example) {
+      try {
+        rmSync(targetDir, { recursive: true, force: true })
+      } catch {
+        // Best effort cleanup
+      }
+    }
+    console.error(pc.red('Error creating app:'), error instanceof Error ? error.message : error)
     process.exit(1)
   }
 }

@@ -1,4 +1,4 @@
-import { parseExampleUrl } from '../example.js'
+import { checkExampleExists, parseExampleUrl } from '../example.js'
 
 describe('parseExampleUrl', () => {
   describe('plain name resolution', () => {
@@ -85,5 +85,42 @@ describe('parseExampleUrl', () => {
     it('rejects names with special characters', () => {
       expect(() => parseExampleUrl('my_app')).toThrow('Invalid example')
     })
+  })
+})
+
+describe('checkExampleExists', () => {
+  const mockInfo = { owner: 'open-mercato', repo: 'ready-apps', branch: 'main', filePath: 'examples/prm' }
+  const originalFetch = global.fetch
+
+  afterEach(() => {
+    global.fetch = originalFetch
+  })
+
+  it('does not throw when example exists (200)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200 })
+    await expect(checkExampleExists(mockInfo)).resolves.toBeUndefined()
+  })
+
+  it('throws on 404 with descriptive message', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 })
+    await expect(checkExampleExists(mockInfo)).rejects.toThrow('Example not found')
+  })
+
+  it('throws on 403 with rate limit message', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 403 })
+    await expect(checkExampleExists(mockInfo)).rejects.toThrow('rate limit')
+  })
+
+  it('throws on 401 with private repo message', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 })
+    await expect(checkExampleExists(mockInfo)).rejects.toThrow('not accessible')
+  })
+
+  it('skips check when filePath is empty (full repo)', async () => {
+    const mockFetch = jest.fn()
+    global.fetch = mockFetch
+    const fullRepoInfo = { ...mockInfo, filePath: '' }
+    await checkExampleExists(fullRepoInfo)
+    expect(mockFetch).not.toHaveBeenCalled()
   })
 })
