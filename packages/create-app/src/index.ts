@@ -12,6 +12,7 @@ const TEMPLATE_DIR = join(__dirname, '..', 'template')
 
 interface Options {
   registry?: string
+  example?: string
   verdaccio: boolean
   help: boolean
   version: boolean
@@ -28,6 +29,7 @@ ${pc.bold('Arguments:')}
   app-name           Name of the application (will create folder with this name)
 
 ${pc.bold('Options:')}
+  --example, -e <name|url>  Use an example as the starting point
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -35,8 +37,9 @@ ${pc.bold('Options:')}
 
 ${pc.bold('Examples:')}
   npx create-mercato-app my-store
+  npx create-mercato-app my-prm --example prm
+  npx create-mercato-app my-app --example https://github.com/some-agency/their-app
   npx create-mercato-app my-store --verdaccio
-  npx create-mercato-app my-store --registry http://localhost:4873
 `)
 }
 
@@ -47,6 +50,7 @@ function showVersion(): void {
 function parseArgs(args: string[]): { appName: string | null; options: Options } {
   const options: Options = {
     registry: undefined,
+    example: undefined,
     verdaccio: false,
     help: false,
     version: false,
@@ -64,6 +68,8 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.verdaccio = true
     } else if (arg === '--registry') {
       options.registry = args[++i]
+    } else if (arg === '--example' || arg === '-e') {
+      options.example = args[++i]
     } else if (!arg.startsWith('-')) {
       appName = arg
     }
