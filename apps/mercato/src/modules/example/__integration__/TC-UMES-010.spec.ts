@@ -8,7 +8,7 @@
  * Spec reference: SPEC-041k — DevTools + Conflict Detection (TC-UMES-DT01)
  */
 import { test, expect } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 async function openDevToolsPanel(page: Parameters<typeof login>[0]) {
   const title = page.getByText('UMES DevTools')

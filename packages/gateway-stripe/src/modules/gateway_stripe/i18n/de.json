@@ -7,6 +7,7 @@
   "gateway_stripe.config.paymentTypes": "Payment Types",
   "gateway_stripe.config.statementDescriptor": "Statement Descriptor",
   "gateway_stripe.config.statementDescriptor.help": "What appears on the customer's bank statement (max 22 characters)",
+  "gateway_stripe.config.validation.captureMethod": "Capture method must be automatic or manual",
   "gateway_stripe.description": "Accept card payments, Apple Pay, Google Pay, and bank transfers via Stripe.",
   "gateway_stripe.feature.configure": "Configure Stripe settings",
   "gateway_stripe.feature.view": "View Stripe configuration",

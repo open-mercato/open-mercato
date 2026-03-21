@@ -46,14 +46,12 @@ export async function POST(req: Request) {
 
   const user = await customerUserService.findByEmail(email, tenantId)
   if (user) {
-    const token = await customerTokenService.createPasswordReset(user.id, tenantId)
-    // Token would be sent via email in production; emitting event for subscribers to handle
+    await customerTokenService.createPasswordReset(user.id, tenantId)
+    // Never include raw tokens in event payloads; email delivery should be handled by a dedicated service
     void import('@open-mercato/core/modules/customer_accounts/events').then(({ emitCustomerAccountsEvent }) =>
-      emitCustomerAccountsEvent('customer_accounts.password.reset', {
+      emitCustomerAccountsEvent('customer_accounts.password_reset.requested', {
         userId: user.id,
-        email: user.email,
         tenantId,
-        token,
       })
     ).catch(() => undefined)
   }

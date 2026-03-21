@@ -78,7 +78,6 @@ export class GatewayTransaction {
 @Index({
   name: 'gateway_webhook_events_idempotency_unique',
   properties: ['idempotencyKey', 'providerKey', 'organizationId', 'tenantId'],
-  options: { unique: true },
 })
 export class WebhookProcessedEvent {
   [OptionalProps]?: 'processedAt'

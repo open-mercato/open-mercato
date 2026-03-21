@@ -12,11 +12,22 @@ import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integrati
  * Each test uses a unique email to avoid cross-test compound key pollution.
  */
 test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
-  const rateLimitHeaders = { 'x-om-test-rate-limit': 'on' };
+  let forwardedIpSequence = Math.floor(Math.random() * 10_000);
   let authRateLimitingEnabled = true;
+
+  function createRateLimitHeaders(): Record<string, string> {
+    forwardedIpSequence += 1;
+    const thirdOctet = Math.floor(forwardedIpSequence / 250) % 250 + 1;
+    const fourthOctet = forwardedIpSequence % 250 + 1;
+    return {
+      'x-om-test-rate-limit': 'on',
+      'x-forwarded-for': `203.0.${thirdOctet}.${fourthOctet}`,
+    };
+  }
 
   test.beforeAll(async ({ request }) => {
     const email = `ratelimit-probe-${Date.now()}@test.invalid`;
+    const rateLimitHeaders = createRateLimitHeaders();
     let lastResponse;
 
     for (let i = 0; i < 6; i++) {
@@ -33,6 +44,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
     test.skip(!authRateLimitingEnabled, 'Auth rate limiting is disabled in this runtime');
 
     const email = `ratelimit-login-${Date.now()}@test.invalid`;
+    const rateLimitHeaders = createRateLimitHeaders();
     const attempts = 6; // compound limit is 5
     let lastResponse;
 
@@ -59,6 +71,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
 
     const emailA = `ratelimit-indep-a-${Date.now()}@test.invalid`;
     const emailB = `ratelimit-indep-b-${Date.now()}@test.invalid`;
+    const rateLimitHeaders = createRateLimitHeaders();
 
     // Exhaust 5 attempts for email-A (at the compound limit)
     for (let i = 0; i < 5; i++) {
@@ -82,6 +95,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
     test.skip(!authRateLimitingEnabled, 'Auth rate limiting is disabled in this runtime');
 
     const email = `ratelimit-reset-${Date.now()}@test.invalid`;
+    const rateLimitHeaders = createRateLimitHeaders();
     const attempts = 4; // compound limit is 3
     let lastResponse;
 
@@ -106,6 +120,7 @@ test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
     test.skip(!authRateLimitingEnabled, 'Auth rate limiting is disabled in this runtime');
 
     const { email, password } = DEFAULT_CREDENTIALS.admin;
+    const rateLimitHeaders = createRateLimitHeaders();
 
     // Send 4 failed attempts (under the compound limit of 5)
     for (let i = 0; i < 4; i++) {

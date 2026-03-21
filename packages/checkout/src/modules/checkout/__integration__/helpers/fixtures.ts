@@ -7,6 +7,8 @@ import type { PublicSubmitInput } from '../../data/validators'
 
 type JsonRecord = Record<string, unknown>
 
+let forwardedIpSequence = Math.floor(Math.random() * 10_000)
+
 export type CheckoutTemplateInput = {
   name: string
   title?: string | null
@@ -89,6 +91,23 @@ export type ExampleCapturedEvent = {
 
 function uniqueLabel(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function createUniqueForwardedIp(): string {
+  forwardedIpSequence += 1
+  const thirdOctet = Math.floor(forwardedIpSequence / 250) % 250 + 1
+  const fourthOctet = forwardedIpSequence % 250 + 1
+  return `198.51.${thirdOctet}.${fourthOctet}`
+}
+
+export function createCheckoutClientHeaders(overrides: Record<string, string> = {}): Record<string, string> {
+  if (overrides['x-forwarded-for'] || overrides['x-real-ip']) {
+    return overrides
+  }
+  return {
+    'x-forwarded-for': createUniqueForwardedIp(),
+    ...overrides,
+  }
 }
 
 export function createFixedTemplateInput(overrides: Partial<CheckoutLinkInput> = {}): CheckoutLinkInput {
@@ -286,7 +305,7 @@ export async function readPublicPayLink(
   const query = options?.preview ? '?preview=true' : ''
   return request.fetch(`${process.env.BASE_URL || 'http://localhost:3000'}/api/checkout/pay/${encodeURIComponent(slug)}${query}`, {
     method: 'GET',
-    headers: options?.headers,
+    headers: createCheckoutClientHeaders(options?.headers),
   })
 }
 
@@ -297,7 +316,7 @@ export async function verifyPayLinkPassword(
 ): Promise<APIResponse> {
   return request.fetch(`${process.env.BASE_URL || 'http://localhost:3000'}/api/checkout/pay/${encodeURIComponent(slug)}/verify-password`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: createCheckoutClientHeaders({ 'Content-Type': 'application/json' }),
     data: { password },
   })
 }
@@ -310,11 +329,11 @@ export async function submitPayLink(
 ): Promise<APIResponse> {
   return request.fetch(`${process.env.BASE_URL || 'http://localhost:3000'}/api/checkout/pay/${encodeURIComponent(slug)}/submit`, {
     method: 'POST',
-    headers: {
+    headers: createCheckoutClientHeaders({
       'Content-Type': 'application/json',
       'Idempotency-Key': options?.idempotencyKey ?? uniqueLabel('idempotency'),
       ...(options?.headers ?? {}),
-    },
+    }),
     data: input,
   })
 }
@@ -353,7 +372,7 @@ export async function readCheckoutStatus(
     `${process.env.BASE_URL || 'http://localhost:3000'}/api/checkout/pay/${encodeURIComponent(slug)}/status/${encodeURIComponent(transactionId)}`,
     {
       method: 'GET',
-      headers: options?.headers,
+      headers: createCheckoutClientHeaders(options?.headers),
     },
   )
 }

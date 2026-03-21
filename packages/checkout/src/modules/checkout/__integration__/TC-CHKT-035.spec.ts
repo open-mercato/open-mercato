@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
+  createCheckoutClientHeaders,
   createFixedTemplateInput,
   createLinkFixture,
   deleteCheckoutEntityIfExists,
@@ -34,6 +35,7 @@ test.describe('TC-CHKT-035: Terms/privacy links open popup with sanitized markdo
       })
       linkId = link.id
 
+      await page.context().setExtraHTTPHeaders(createCheckoutClientHeaders())
       await page.goto(`/pay/${encodeURIComponent(link.slug)}`)
       await page.getByRole('button', { name: /read document/i }).first().click()
 
