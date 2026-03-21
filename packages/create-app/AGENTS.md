@@ -41,6 +41,25 @@ my-app/
 └── package.json
 ```
 
+### `--example` Flag
+
+Bootstrap from a pre-built example instead of the bare scaffold template.
+
+```bash
+# Official example — fetches from open-mercato/ready-apps repo
+npx create-mercato-app my-prm --example prm
+
+# Community example — fetches from any public GitHub repo
+npx create-mercato-app my-app --example https://github.com/some-agency/their-app
+
+# With branch and subdirectory
+npx create-mercato-app my-app --example https://github.com/owner/repo/tree/main/examples/custom
+```
+
+- Uses `GITHUB_TOKEN` env var for private repos and to avoid rate limits
+- Examples must follow the same `.template` placeholder convention as the bare scaffold
+- Official examples live in `open-mercato/ready-apps` under `examples/`
+
 ## Testing with Verdaccio
 
 ### Initial Setup
