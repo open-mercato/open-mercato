@@ -7,6 +7,19 @@ function resolveTrustedAppUrl(): string | null {
   return appUrl.replace(/\/$/, '')
 }
 
+function buildInternalRequestHeaders(requestHeaders: Headers): HeadersInit | undefined {
+  const forwardedHeaders = new Headers()
+  const cookie = requestHeaders.get('cookie')
+  const forwardedFor = requestHeaders.get('x-forwarded-for')
+  const realIp = requestHeaders.get('x-real-ip')
+
+  if (cookie) forwardedHeaders.set('cookie', cookie)
+  if (forwardedFor) forwardedHeaders.set('x-forwarded-for', forwardedFor)
+  if (realIp) forwardedHeaders.set('x-real-ip', realIp)
+
+  return forwardedHeaders.size > 0 ? forwardedHeaders : undefined
+}
+
 async function loadInitialPayload(
   slug: string,
   options?: { preview?: boolean },
@@ -16,7 +29,6 @@ async function loadInitialPayload(
     return { payload: null, error: null }
   }
   const requestHeaders = await headers()
-  const cookie = requestHeaders.get('cookie') ?? ''
   const searchParams = new URLSearchParams()
   if (options?.preview) {
     searchParams.set('preview', 'true')
@@ -24,7 +36,7 @@ async function loadInitialPayload(
   const requestUrl = `${baseUrl}/api/checkout/pay/${encodeURIComponent(slug)}${searchParams.size > 0 ? `?${searchParams.toString()}` : ''}`
   try {
     const response = await fetch(requestUrl, {
-      headers: cookie ? { cookie } : undefined,
+      headers: buildInternalRequestHeaders(requestHeaders),
       cache: 'no-store',
     })
     const payload = await response.json().catch(() => null) as PayLinkPayload | { error?: string } | null

@@ -140,9 +140,24 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       // Rate limiting is fail-open
     }
     const resolvedParams = await params
+
+    const origin = req.headers.get('origin')
+    const referer = req.headers.get('referer')
+    if (origin || referer) {
+      const requestUrl = new URL(req.url)
+      const allowedOrigin = requestUrl.origin
+      const submittedOrigin = origin ?? (referer ? new URL(referer).origin : null)
+      if (submittedOrigin && submittedOrigin !== allowedOrigin) {
+        return NextResponse.json({ error: 'Invalid request origin' }, { status: 403 })
+      }
+    }
+
     const idempotencyKey = req.headers.get('Idempotency-Key')?.trim()
     if (!idempotencyKey) {
       return NextResponse.json({ error: 'Idempotency-Key header is required' }, { status: 400 })
+    }
+    if (idempotencyKey.length < 16 || idempotencyKey.length > 128) {
+      return NextResponse.json({ error: 'Idempotency-Key must be between 16 and 128 characters' }, { status: 400 })
     }
 
     const body = publicSubmitSchema.parse(await req.json().catch(() => ({})))

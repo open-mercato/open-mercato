@@ -1,4 +1,4 @@
-import { Entity, Index, OptionalProps, PrimaryKey, Property } from '@mikro-orm/core'
+import { Entity, Index, OptionalProps, PrimaryKey, Property, Unique } from '@mikro-orm/core'
 
 @Entity({ tableName: 'gateway_transactions' })
 @Index({ properties: ['paymentId', 'organizationId', 'tenantId'] })
@@ -75,7 +75,7 @@ export class GatewayTransaction {
 }
 
 @Entity({ tableName: 'gateway_webhook_events' })
-@Index({
+@Unique({
   name: 'gateway_webhook_events_idempotency_unique',
   properties: ['idempotencyKey', 'providerKey', 'organizationId', 'tenantId'],
 })

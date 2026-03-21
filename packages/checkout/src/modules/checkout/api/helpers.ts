@@ -114,7 +114,7 @@ export function handleCheckoutRouteError(error: unknown) {
       {
         error: 'Validation failed',
         fieldErrors,
-        details: error.issues,
+        details: error.issues.map(({ path, code, message }) => ({ path, code, message })),
       },
       { status: 400 },
     )
