@@ -6,14 +6,33 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 const ENTITY_TYPE = 'catalog:catalog_product'
 
-async function fillCombobox(page: import('@playwright/test').Page, placeholder: string, value: string) {
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function fillCombobox(
+  page: import('@playwright/test').Page,
+  placeholder: string,
+  value: string,
+  options?: { waitForEnabledPlaceholder?: string },
+) {
   const input = page.getByPlaceholder(placeholder)
   await expect(input).toBeEnabled({ timeout: 10_000 })
   await input.click()
   await input.fill(value)
-  await input.press('Enter')
+  const suggestion = page.getByRole('button', {
+    name: new RegExp(escapeForRegex(value), 'i'),
+  }).first()
+  if (await suggestion.isVisible().catch(() => false)) {
+    await suggestion.click()
+  } else {
+    await input.press('Enter')
+  }
   await input.press('Tab')
   await page.waitForTimeout(300)
+  if (options?.waitForEnabledPlaceholder) {
+    await expect(page.getByPlaceholder(options.waitForEnabledPlaceholder)).toBeEnabled({ timeout: 10_000 })
+  }
 }
 
 /**
@@ -36,7 +55,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
@@ -92,7 +111,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
