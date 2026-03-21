@@ -76,8 +76,8 @@ yarn dev
 
 ```bash
 ./scripts/release-snapshot.sh canary
-# Creates version like: 0.4.2-canary-abc1234567
-npx create-mercato-app@0.4.2-canary-abc1234567 my-test-app
+# Creates version like: 0.4.9-canary.1523.abc1234567
+npx create-mercato-app@0.4.9-canary.1523.abc1234567 my-test-app
 ```
 
 ### Cleanup
