@@ -254,7 +254,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
               }
 
               await updateCrud('customers/people', payload)
-              flash(t('customers.people.form.success'), 'success')
+              flash(t('customers.people.form.updateSuccess', 'Person updated.'), 'success')
               await loadData()
             }}
             onDelete={async () => {
@@ -301,7 +301,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     }}
                     onActionChange={handleSectionActionChange}
                     translator={detailTranslator}
-                    onLoadingChange={() => {}}
                     dataAdapter={notesAdapter}
                     renderIcon={renderDictionaryIcon}
                     renderColor={renderDictionaryColor}
@@ -322,7 +321,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       actionLabel: t('customers.people.detail.emptyState.activities.action', 'Log activity'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                   />
                 )
               }
@@ -337,7 +335,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       actionLabel: t('customers.people.detail.emptyState.deals.action', 'Create a deal'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                     translator={detailTranslator}
                   />
                 )
@@ -353,7 +350,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       actionLabel: t('customers.people.detail.emptyState.addresses.action', 'Add address'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                     translator={detailTranslator}
                   />
                 )
@@ -371,7 +367,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       actionLabel: t('customers.people.detail.emptyState.tasks.action', 'Create task'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                     translator={detailTranslator}
                     entityName={personName}
                     dialogContextKey="customers.people.detail.tasks.dialog.context"

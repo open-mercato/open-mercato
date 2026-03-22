@@ -464,7 +464,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return forbidden('Access denied')
     }
 
-    profile = await em.findOne(CustomerPersonProfile, { entity: person })
+    profile = await em.findOne(CustomerPersonProfile, { entity: person }, { populate: ['company'] })
     profiler.mark('profile_loaded', { found: !!profile })
 
     if (includeAddresses) {
@@ -810,6 +810,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
                 }).slice(0, 50)
           )
         : [],
+      company: profile?.company && typeof profile.company !== 'string'
+        ? { id: profile.company.id, displayName: profile.company.displayName }
+        : null,
       viewer: {
         userId: viewerUserIdFinal,
         name: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.name ?? null : null,

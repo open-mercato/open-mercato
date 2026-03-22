@@ -287,7 +287,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
               }
 
               await updateCrud('customers/companies', payload)
-              flash(t('customers.companies.form.success'), 'success')
+              flash(t('customers.companies.form.updateSuccess', 'Company updated.'), 'success')
               await loadData()
             }}
             onDelete={async () => {
@@ -334,7 +334,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     }}
                     onActionChange={handleSectionActionChange}
                     translator={translateCompanyDetail}
-                    onLoadingChange={() => {}}
                     dataAdapter={notesAdapter}
                     renderIcon={renderDictionaryIcon}
                     renderColor={renderDictionaryColor}
@@ -370,7 +369,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                       actionLabel: t('customers.companies.detail.emptyState.deals.action', 'Create a deal'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                     translator={detailTranslator}
                   />
                 )
@@ -387,7 +385,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                       actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                     translator={detailTranslator}
                     onPeopleChange={(next) => {
                       setData((prev) => (prev ? { ...prev, people: next } : prev))
@@ -406,7 +403,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                       actionLabel: t('customers.companies.detail.emptyState.addresses.action', 'Add address'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                     translator={detailTranslator}
                   />
                 )
@@ -424,7 +420,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                       actionLabel: t('customers.companies.detail.emptyState.tasks.action', 'Create task'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
                     translator={translateCompanyDetail}
                     entityName={companyName}
                     dialogContextKey="customers.companies.detail.tasks.dialog.context"
