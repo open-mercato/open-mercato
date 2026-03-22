@@ -1,14 +1,19 @@
 "use client"
 
 import * as React from 'react'
-import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+
+type CreateCustomerRoleFormValues = {
+  name: string
+  slug: string
+  description: string
+  isDefault: boolean
+  customerAssignable: boolean
+} & Record<string, unknown>
 
 function slugify(value: string): string {
   return value
@@ -19,184 +24,110 @@ function slugify(value: string): string {
 
 export default function CreateCustomerRolePage() {
   const t = useT()
-  const router = useRouter()
-  const [isSaving, setIsSaving] = React.useState(false)
 
-  const [name, setName] = React.useState('')
-  const [slug, setSlug] = React.useState('')
-  const [slugTouched, setSlugTouched] = React.useState(false)
-  const [description, setDescription] = React.useState('')
-  const [isDefault, setIsDefault] = React.useState(false)
-  const [customerAssignable, setCustomerAssignable] = React.useState(false)
-
-  const { runMutation, retryLastMutation } = useGuardedMutation<{
-    entityType: string
-  }>({
-    contextId: 'customer_accounts:role:create',
-  })
-
-  const runMutationWithContext = React.useCallback(
-    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
-      return runMutation({
-        operation,
-        mutationPayload,
-        context: { entityType: 'customer_accounts:role' },
-      })
+  const fields = React.useMemo<CrudField[]>(() => [
+    {
+      id: 'name',
+      label: t('customer_accounts.admin.roleCreate.fields.name', 'Name'),
+      type: 'text',
+      required: true,
+      placeholder: t('customer_accounts.admin.roleCreate.fields.namePlaceholder', 'e.g. Buyer'),
     },
-    [runMutation],
-  )
+    {
+      id: 'slug',
+      label: t('customer_accounts.admin.roleCreate.fields.slug', 'Slug'),
+      type: 'text',
+      required: true,
+      placeholder: t('customer_accounts.admin.roleCreate.fields.slugPlaceholder', 'e.g. buyer'),
+      description: t('customer_accounts.admin.roleCreate.fields.slugHint', 'Lowercase letters, numbers, hyphens, and underscores only.'),
+    },
+    {
+      id: 'description',
+      label: t('customer_accounts.admin.roleCreate.fields.description', 'Description'),
+      type: 'textarea',
+    },
+    {
+      id: 'isDefault',
+      label: t('customer_accounts.admin.roleCreate.fields.isDefault', 'Default role (auto-assigned to new users)'),
+      type: 'checkbox',
+    },
+    {
+      id: 'customerAssignable',
+      label: t('customer_accounts.admin.roleCreate.fields.customerAssignable', 'Customers can self-assign'),
+      type: 'checkbox',
+    },
+  ], [t])
 
-  const handleNameChange = React.useCallback((value: string) => {
-    setName(value)
-    if (!slugTouched) {
-      setSlug(slugify(value))
-    }
-  }, [slugTouched])
+  const groups = React.useMemo<CrudFormGroup[]>(() => [
+    {
+      id: 'details',
+      title: t('customer_accounts.admin.roleCreate.sections.details', 'Role Details'),
+      column: 1,
+      fields: ['name', 'slug', 'description'],
+    },
+    {
+      id: 'options',
+      title: t('customer_accounts.admin.roleCreate.sections.options', 'Options'),
+      column: 1,
+      fields: ['isDefault', 'customerAssignable'],
+    },
+  ], [t])
 
-  const handleSlugChange = React.useCallback((value: string) => {
-    setSlugTouched(true)
-    setSlug(value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))
-  }, [])
-
-  const handleSubmit = React.useCallback(async () => {
-    if (!name.trim() || !slug.trim()) {
-      flash(t('customer_accounts.admin.roleCreate.error.required', 'Name and slug are required'), 'error')
-      return
-    }
-    setIsSaving(true)
-    try {
-      await runMutationWithContext(async () => {
-        const call = await apiCall(
-          '/api/customer_accounts/admin/roles',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              name: name.trim(),
-              slug: slug.trim(),
-              description: description.trim() || undefined,
-              isDefault,
-              customerAssignable,
-            }),
-          },
-        )
-        if (!call.ok) {
-          const data = call.result as Record<string, unknown> | null
-          flash((data?.error as string) || t('customer_accounts.admin.roleCreate.error.save', 'Failed to create role'), 'error')
-          return
-        }
-        const data = call.result as Record<string, unknown> | null
-        flash(t('customer_accounts.admin.roleCreate.flash.created', 'Role created'), 'success')
-        const role = data?.role as Record<string, unknown> | undefined
-        if (role?.id) {
-          router.push(`/backend/customer_accounts/roles/${role.id}`)
-        } else {
-          router.push('/backend/customer_accounts/roles')
-        }
-      }, { name: name.trim(), slug: slug.trim(), isDefault, customerAssignable })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('customer_accounts.admin.roleCreate.error.save', 'Failed to create role')
-      flash(message, 'error')
-    } finally {
-      setIsSaving(false)
-    }
-  }, [customerAssignable, description, isDefault, name, router, runMutationWithContext, slug, t])
+  const initialValues = React.useMemo<Partial<CreateCustomerRoleFormValues>>(() => ({
+    name: '',
+    slug: '',
+    description: '',
+    isDefault: false,
+    customerAssignable: false,
+  }), [])
 
   return (
     <Page>
-      <PageBody className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">
-            {t('customer_accounts.admin.roleCreate.title', 'Create Customer Role')}
-          </h1>
-          <Button variant="outline" asChild>
-            <Link href="/backend/customer_accounts/roles">
-              {t('customer_accounts.admin.roleCreate.actions.cancel', 'Cancel')}
-            </Link>
-          </Button>
-        </div>
+      <PageBody>
+        <CrudForm<CreateCustomerRoleFormValues>
+          title={t('customer_accounts.admin.roleCreate.title', 'Create Customer Role')}
+          backHref="/backend/customer_accounts/roles"
+          fields={fields}
+          groups={groups}
+          initialValues={initialValues}
+          submitLabel={t('customer_accounts.admin.roleCreate.actions.create', 'Create Role')}
+          cancelHref="/backend/customer_accounts/roles"
+          successRedirect={`/backend/customer_accounts/roles?flash=${encodeURIComponent(t('customer_accounts.admin.roleCreate.flash.created', 'Role created'))}&type=success`}
+          onSubmit={async (values) => {
+            const name = typeof values.name === 'string' ? values.name.trim() : ''
+            const rawSlug = typeof values.slug === 'string' ? values.slug.trim() : ''
+            const slug = rawSlug || slugify(name)
 
-        <div className="rounded-lg border p-4 space-y-4">
-          <h2 className="text-sm font-semibold">
-            {t('customer_accounts.admin.roleCreate.sections.details', 'Role Details')}
-          </h2>
-          <div className="space-y-3">
-            <div>
-              <label className="text-sm font-medium" htmlFor="role-name">
-                {t('customer_accounts.admin.roleCreate.fields.name', 'Name')}
-              </label>
-              <input
-                id="role-name"
-                type="text"
-                value={name}
-                onChange={(event) => handleNameChange(event.target.value)}
-                className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
-                placeholder={t('customer_accounts.admin.roleCreate.fields.namePlaceholder', 'e.g. Buyer')}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium" htmlFor="role-slug">
-                {t('customer_accounts.admin.roleCreate.fields.slug', 'Slug')}
-              </label>
-              <input
-                id="role-slug"
-                type="text"
-                value={slug}
-                onChange={(event) => handleSlugChange(event.target.value)}
-                className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm font-mono"
-                placeholder={t('customer_accounts.admin.roleCreate.fields.slugPlaceholder', 'e.g. buyer')}
-              />
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('customer_accounts.admin.roleCreate.fields.slugHint', 'Lowercase letters, numbers, hyphens, and underscores only.')}
-              </p>
-            </div>
-            <div>
-              <label className="text-sm font-medium" htmlFor="role-description">
-                {t('customer_accounts.admin.roleCreate.fields.description', 'Description')}
-              </label>
-              <textarea
-                id="role-description"
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
-                rows={3}
-                className="mt-1 block w-full rounded border border-border bg-background px-3 py-2 text-sm"
-              />
-            </div>
-            <div className="flex items-center gap-6">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={isDefault}
-                  onChange={(event) => setIsDefault(event.target.checked)}
-                  className="rounded border-border"
-                />
-                {t('customer_accounts.admin.roleCreate.fields.isDefault', 'Default role (auto-assigned to new users)')}
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={customerAssignable}
-                  onChange={(event) => setCustomerAssignable(event.target.checked)}
-                  className="rounded border-border"
-                />
-                {t('customer_accounts.admin.roleCreate.fields.customerAssignable', 'Customers can self-assign')}
-              </label>
-            </div>
-          </div>
-        </div>
+            if (!name) {
+              throw createCrudFormError(
+                t('customer_accounts.admin.roleCreate.error.nameRequired', 'Name is required'),
+                { name: t('customer_accounts.admin.roleCreate.error.nameRequired', 'Name is required') },
+              )
+            }
 
-        <div className="flex gap-2">
-          <Button onClick={() => { void handleSubmit() }} disabled={isSaving}>
-            {isSaving
-              ? t('customer_accounts.admin.roleCreate.actions.saving', 'Creating...')
-              : t('customer_accounts.admin.roleCreate.actions.create', 'Create Role')}
-          </Button>
-          <Button variant="outline" asChild>
-            <Link href="/backend/customer_accounts/roles">
-              {t('customer_accounts.admin.roleCreate.actions.cancel', 'Cancel')}
-            </Link>
-          </Button>
-        </div>
+            if (!slug) {
+              throw createCrudFormError(
+                t('customer_accounts.admin.roleCreate.error.slugRequired', 'Slug is required'),
+                { slug: t('customer_accounts.admin.roleCreate.error.slugRequired', 'Slug is required') },
+              )
+            }
+
+            if (!/^[a-z0-9_-]+$/.test(slug)) {
+              const message = t('customer_accounts.admin.roleCreate.error.slugFormat', 'Slug must contain only lowercase letters, numbers, hyphens, and underscores')
+              throw createCrudFormError(message, { slug: message })
+            }
+
+            const description = typeof values.description === 'string' ? values.description.trim() : undefined
+
+            await createCrud('customer_accounts/admin/roles', {
+              name,
+              slug,
+              description: description || undefined,
+              isDefault: Boolean(values.isDefault),
+              customerAssignable: Boolean(values.customerAssignable),
+            })
+          }}
+        />
       </PageBody>
     </Page>
   )
