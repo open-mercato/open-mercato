@@ -8,7 +8,7 @@ describe('parseExampleUrl', () => {
         owner: 'open-mercato',
         repo: 'ready-apps',
         branch: 'main',
-        filePath: 'examples/prm',
+        filePath: 'apps/prm',
       })
     })
 
@@ -18,7 +18,7 @@ describe('parseExampleUrl', () => {
         owner: 'open-mercato',
         repo: 'ready-apps',
         branch: 'main',
-        filePath: 'examples/field-service',
+        filePath: 'apps/field-service',
       })
     })
   })

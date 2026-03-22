@@ -58,7 +58,7 @@ npx create-mercato-app my-app --example https://github.com/owner/repo/tree/main/
 
 - Uses `GITHUB_TOKEN` env var for private repos and to avoid rate limits
 - Examples must follow the same `.template` placeholder convention as the bare scaffold
-- Official examples live in `open-mercato/ready-apps` under `examples/`
+- Official examples live in `open-mercato/ready-apps` under `apps/`
 
 ## Testing with Verdaccio
 

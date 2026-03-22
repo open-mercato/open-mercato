@@ -7,13 +7,13 @@ export interface ExampleInfo {
   owner: string
   repo: string
   branch: string
-  filePath: string // subdirectory within the repo (e.g., "examples/prm")
+  filePath: string // subdirectory within the repo (e.g., "apps/prm")
 }
 
 const OFFICIAL_OWNER = 'open-mercato'
 const OFFICIAL_REPO = 'ready-apps'
 const OFFICIAL_BRANCH = 'main'
-const OFFICIAL_PREFIX = 'examples'
+const OFFICIAL_PREFIX = 'apps'
 
 /**
  * Parse an example identifier (plain name or GitHub URL) into fetch coordinates.
