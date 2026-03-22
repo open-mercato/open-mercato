@@ -176,9 +176,9 @@ export function PortalShell({
   const signupHref = orgSlug ? `/${orgSlug}/portal/signup` : '/portal/signup'
   const dashboardHref = orgSlug ? `/${orgSlug}/portal/dashboard` : '/portal/dashboard'
   const profileHref = orgSlug ? `/${orgSlug}/portal/profile` : '/portal/profile'
-  // Use orgSlug as immediate fallback to prevent "Customer Portal" → "Acme Corp" flash
-  // while tenant is loading. The slug is available synchronously from the URL.
-  const headerTitle = orgName || orgSlug || t('portal.title', 'Customer Portal')
+  // Always use the resolved organization name from the database.
+  // Fall back to the generic portal title — never display the raw slug.
+  const headerTitle = orgName || t('portal.title', 'Customer Portal')
 
   const closeMobile = useCallback(() => setMobileOpen(false), [])
 
