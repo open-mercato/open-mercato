@@ -2,7 +2,6 @@
 
 import * as React from 'react'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { InteractionSummary } from '../types'
 
@@ -214,12 +213,7 @@ export function useInteractions({
           },
           { errorMessage: t('customers.interactions.create.error', 'Failed to create interaction.') },
         )
-        flash(t('customers.interactions.create.success', 'Interaction created.'), 'success')
         await refresh()
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.interactions.create.error', 'Failed to create interaction.')
-        flash(message, 'error')
-        throw err
       } finally {
         setIsMutating(false)
       }
@@ -240,12 +234,7 @@ export function useInteractions({
           },
           { errorMessage: t('customers.interactions.update.error', 'Failed to update interaction.') },
         )
-        flash(t('customers.interactions.update.success', 'Interaction updated.'), 'success')
         await refresh()
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.interactions.update.error', 'Failed to update interaction.')
-        flash(message, 'error')
-        throw err
       } finally {
         setIsMutating(false)
       }
@@ -255,6 +244,7 @@ export function useInteractions({
 
   const completeInteraction = React.useCallback(
     async (id: string) => {
+      setIsMutating(true)
       setPendingId(id)
       try {
         await apiCallOrThrow(
@@ -266,14 +256,10 @@ export function useInteractions({
           },
           { errorMessage: t('customers.interactions.complete.error', 'Failed to complete interaction.') },
         )
-        flash(t('customers.interactions.complete.success', 'Interaction completed.'), 'success')
         await refresh()
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.interactions.complete.error', 'Failed to complete interaction.')
-        flash(message, 'error')
-        throw err
       } finally {
         setPendingId(null)
+        setIsMutating(false)
       }
     },
     [refresh, t],
@@ -281,6 +267,7 @@ export function useInteractions({
 
   const cancelInteraction = React.useCallback(
     async (id: string) => {
+      setIsMutating(true)
       setPendingId(id)
       try {
         await apiCallOrThrow(
@@ -292,14 +279,10 @@ export function useInteractions({
           },
           { errorMessage: t('customers.interactions.cancel.error', 'Failed to cancel interaction.') },
         )
-        flash(t('customers.interactions.cancel.success', 'Interaction canceled.'), 'success')
         await refresh()
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.interactions.cancel.error', 'Failed to cancel interaction.')
-        flash(message, 'error')
-        throw err
       } finally {
         setPendingId(null)
+        setIsMutating(false)
       }
     },
     [refresh, t],
@@ -316,12 +299,7 @@ export function useInteractions({
           },
           { errorMessage: t('customers.interactions.delete.error', 'Failed to delete interaction.') },
         )
-        flash(t('customers.interactions.delete.success', 'Interaction deleted.'), 'success')
         await refresh()
-      } catch (err) {
-        const message = err instanceof Error ? err.message : t('customers.interactions.delete.error', 'Failed to delete interaction.')
-        flash(message, 'error')
-        throw err
       } finally {
         setIsMutating(false)
       }

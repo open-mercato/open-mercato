@@ -496,6 +496,7 @@
   "customers.interactions.form.priority": "Priority",
   "customers.interactions.form.scheduledAt": "Scheduled for",
   "customers.interactions.form.title": "Title",
+  "customers.interactions.legacyAdapters.disabled": "This legacy adapter has been disabled. Use /api/customers/interactions instead.",
   "customers.interactions.list.title": "Interactions",
   "customers.interactions.load.error": "Failed to load interactions.",
   "customers.interactions.status.canceled": "Canceled",

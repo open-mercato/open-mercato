@@ -16,6 +16,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
@@ -70,6 +71,21 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
 
   const currentPersonId = data?.person?.id ?? null
+  const mutationContextId = React.useMemo(
+    () => (currentPersonId ? `customer-person:${currentPersonId}` : `customer-person:${id ?? 'pending'}`),
+    [currentPersonId, id],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    personId?: string | null
+    resourceKind: string
+    resourceId?: string
+    data: PersonOverview | null
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
   const personName =
     data?.person?.displayName && data.person.displayName.trim().length
       ? data.person.displayName
@@ -109,13 +125,24 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   // Zone 2: Injection widgets for custom tabs
   const injectionContext = React.useMemo(
     () => ({
-      formId: currentPersonId ? `customer-person:${currentPersonId}` : `customer-person:${id ?? 'pending'}`,
+      formId: mutationContextId,
       personId: currentPersonId,
       resourceKind: 'customers.person',
       resourceId: currentPersonId ?? (id ?? undefined),
       data,
+      retryLastMutation,
     }),
-    [currentPersonId, data, id],
+    [currentPersonId, data, id, mutationContextId, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: injectionContext,
+      })
+    },
+    [injectionContext, runMutation],
   )
 
   const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.person:tabs', {
@@ -315,6 +342,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                   <ActivitiesSection
                     entityId={personId}
                     useCanonicalInteractions={useCanonicalInteractions}
+                    runGuardedMutation={runMutationWithContext}
                     addActionLabel={t('customers.people.detail.activities.add', 'Log activity')}
                     emptyState={{
                       title: t('customers.people.detail.emptyState.activities.title', 'No activities logged yet'),
@@ -360,6 +388,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     entityId={personId}
                     initialTasks={data.todos}
                     useCanonicalInteractions={useCanonicalInteractions}
+                    runGuardedMutation={runMutationWithContext}
                     emptyLabel={t('customers.people.detail.empty.todos', 'No tasks linked to this person.')}
                     addActionLabel={t('customers.people.detail.tasks.add', 'Add task')}
                     emptyState={{

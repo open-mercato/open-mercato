@@ -53,6 +53,7 @@ const events = [
   { id: 'customers.interaction.updated', label: 'Interaction Updated', entity: 'interaction', category: 'crud' },
   { id: 'customers.interaction.completed', label: 'Interaction Completed', entity: 'interaction', category: 'lifecycle' },
   { id: 'customers.interaction.canceled', label: 'Interaction Canceled', entity: 'interaction', category: 'lifecycle' },
+  { id: 'customers.interaction.reverted', label: 'Interaction Reverted', entity: 'interaction', category: 'lifecycle' },
   { id: 'customers.interaction.deleted', label: 'Interaction Deleted', entity: 'interaction', category: 'crud' },
   { id: 'customers.next_interaction.updated', label: 'Next Interaction Updated', entity: 'interaction', category: 'lifecycle' },
 ] as const

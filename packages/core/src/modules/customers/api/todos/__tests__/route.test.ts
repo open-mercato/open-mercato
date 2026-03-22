@@ -64,6 +64,12 @@ jest.mock('../../../lib/interactionReadModel', () => ({
   loadCustomerSummaries: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback: string) => fallback,
+  })),
+}))
+
 jest.mock('../../../lib/todoCompatibility', () => ({
   resolveLegacyTodoDetails: jest.fn(),
   mapLegacyTodoLinkToRow: jest.fn(),
@@ -283,5 +289,44 @@ describe('customers todos adapter route', () => {
         input: { id: TODO_ID },
       }),
     )
+  })
+
+  it('returns 410 when legacy adapters are disabled', async () => {
+    const { resolveCustomerInteractionFeatureFlags } = jest.requireMock('../../../lib/interactionFeatureFlags')
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({
+      unified: true,
+      legacyAdapters: false,
+      externalSync: false,
+    })
+
+    const res = await GET(new Request(`http://localhost/api/customers/todos?entityId=${ENTITY_ID}`))
+
+    expect(res.status).toBe(410)
+    expect(res.headers.get('Deprecation')).toBe('true')
+    expect(mockEm.find).not.toHaveBeenCalled()
+  })
+
+  it('blocks writes when legacy adapters are disabled', async () => {
+    const { resolveCustomerInteractionFeatureFlags } = jest.requireMock('../../../lib/interactionFeatureFlags')
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({
+      unified: true,
+      legacyAdapters: false,
+      externalSync: false,
+    })
+
+    const res = await POST(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          entityId: ENTITY_ID,
+          title: 'Create adapter task',
+        }),
+      }),
+    )
+
+    expect(res.status).toBe(410)
+    expect(res.headers.get('Deprecation')).toBe('true')
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 })

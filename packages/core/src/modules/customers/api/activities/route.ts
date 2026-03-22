@@ -10,6 +10,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -110,6 +111,19 @@ function withAdapterHeaders(response: Response): Response {
     statusText: response.statusText,
     headers,
   })
+}
+
+async function legacyAdaptersDisabledResponse(): Promise<Response> {
+  const { translate } = await resolveTranslations()
+  return withAdapterHeaders(NextResponse.json(
+    {
+      error: translate(
+        'customers.interactions.legacyAdapters.disabled',
+        'This legacy adapter has been disabled. Use /api/customers/interactions instead.',
+      ),
+    },
+    { status: 410 },
+  ))
 }
 
 function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
@@ -419,6 +433,9 @@ export async function GET(request: Request): Promise<Response> {
       selectedOrganizationId,
     } = await resolveCustomersRequestContext(request)
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
 
     const sortDir = query.sortDir ?? 'desc'
 
@@ -492,6 +509,10 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const { commandContext, container, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
     const body = await readJsonSafe<Record<string, unknown>>(request, {})
     const parsed = activityCreateBodySchema.parse(body)
     const guardUserId = resolveGuardUserId(auth)
@@ -580,6 +601,10 @@ export async function POST(request: Request): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     const { commandContext, container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
     const body = await readJsonSafe<Record<string, unknown>>(request, {})
     const parsed = activityUpdateBodySchema.parse(body)
     const guardUserId = resolveGuardUserId(auth)
@@ -598,7 +623,6 @@ export async function PUT(request: Request): Promise<Response> {
       return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
     }
     const commandBus = container.resolve('commandBus') as CommandBus
-    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     const interactionId = flags.unified
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)
@@ -654,6 +678,10 @@ export async function PUT(request: Request): Promise<Response> {
 export async function DELETE(request: Request): Promise<Response> {
   try {
     const { commandContext, container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
     const body = await readJsonSafe<Record<string, unknown>>(request, {})
     const parsed = activityDeleteBodySchema.parse(body)
     const guardUserId = resolveGuardUserId(auth)
@@ -672,7 +700,6 @@ export async function DELETE(request: Request): Promise<Response> {
       return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
     }
     const commandBus = container.resolve('commandBus') as CommandBus
-    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     const interactionId = flags.unified
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)

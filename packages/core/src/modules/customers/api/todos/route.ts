@@ -9,6 +9,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -102,6 +103,19 @@ function withAdapterHeaders(response: Response): Response {
     statusText: response.statusText,
     headers,
   })
+}
+
+async function legacyAdaptersDisabledResponse(): Promise<Response> {
+  const { translate } = await resolveTranslations()
+  return withAdapterHeaders(NextResponse.json(
+    {
+      error: translate(
+        'customers.interactions.legacyAdapters.disabled',
+        'This legacy adapter has been disabled. Use /api/customers/interactions instead.',
+      ),
+    },
+    { status: 410 },
+  ))
 }
 
 function normalizeSearch(value: string | undefined): string | null {
@@ -374,6 +388,9 @@ export async function GET(request: Request): Promise<Response> {
       await resolveCustomersRequestContext(request)
     const query = querySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
     const queryEngine = container.resolve('queryEngine') as QueryEngine
     const exportAll = parseBooleanToken(query.all) === true
     const search = normalizeSearch(query.search)
@@ -439,6 +456,10 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const { commandContext, container, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
     const commandBus = container.resolve('commandBus') as CommandBus
     const body = todoCreateBodySchema.parse(await readJsonSafe<Record<string, unknown>>(request, {}))
     const guardUserId = resolveGuardUserId(auth)
@@ -533,6 +554,10 @@ export async function POST(request: Request): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     const { commandContext, container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
     const commandBus = container.resolve('commandBus') as CommandBus
     const queryEngine = container.resolve('queryEngine') as QueryEngine
     const body = todoUpdateBodySchema.parse(await readJsonSafe<Record<string, unknown>>(request, {}))
@@ -551,7 +576,6 @@ export async function PUT(request: Request): Promise<Response> {
     if (guardResult && !guardResult.ok) {
       return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
     }
-    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     const interactionId = flags.unified
       ? body.id
       : await resolveCanonicalTodoTargetId(
@@ -620,6 +644,10 @@ export async function PUT(request: Request): Promise<Response> {
 export async function DELETE(request: Request): Promise<Response> {
   try {
     const { commandContext, container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
     const commandBus = container.resolve('commandBus') as CommandBus
     const queryEngine = container.resolve('queryEngine') as QueryEngine
     const body = todoDeleteBodySchema.parse(await readJsonSafe<Record<string, unknown>>(request, {}))
@@ -638,8 +666,6 @@ export async function DELETE(request: Request): Promise<Response> {
     if (guardResult && !guardResult.ok) {
       return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
     }
-    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
-
     const interactionId = flags.unified
       ? body.todoId ?? body.id
       : await resolveCanonicalTodoTargetId(

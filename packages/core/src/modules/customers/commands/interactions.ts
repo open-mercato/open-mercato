@@ -159,6 +159,19 @@ async function emitLifecycleEvent(
     .catch(() => undefined)
 }
 
+async function emitInteractionRevertedEvent(
+  ctx: CommandRuntimeContext,
+  interaction: InteractionSnapshot['interaction'],
+): Promise<void> {
+  await emitLifecycleEvent(ctx, 'customers.interaction.reverted', {
+    id: interaction.id,
+    organizationId: interaction.organizationId,
+    tenantId: interaction.tenantId,
+    status: interaction.status,
+    occurredAt: interaction.occurredAt?.toISOString() ?? null,
+  })
+}
+
 type InteractionIdentifiers = {
   id: string
   organizationId: string
@@ -643,6 +656,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
+    await emitInteractionRevertedEvent(ctx, before.interaction)
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: before.interaction.entityId,
       nextInteractionId: result.nextInteractionId,
@@ -762,6 +776,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
+    await emitInteractionRevertedEvent(ctx, before.interaction)
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: before.interaction.entityId,
       nextInteractionId: result.nextInteractionId,

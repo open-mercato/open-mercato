@@ -479,7 +479,7 @@ export async function GET(req: Request) {
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('customers.interactions.load.error', 'Failed to load interactions.') },
-      { status: 400 },
+      { status: 500 },
     )
   }
 }

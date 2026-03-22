@@ -33,6 +33,11 @@ type DictionaryOption = {
   icon: string | null
 }
 
+type GuardedMutationRunner = <T>(
+  operation: () => Promise<T>,
+  mutationPayload?: Record<string, unknown>,
+) => Promise<T>
+
 export type ActivitiesSectionProps = {
   entityId: string | null
   dealId?: string | null
@@ -44,6 +49,7 @@ export type ActivitiesSectionProps = {
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
   defaultEntityId?: string | null
+  runGuardedMutation?: GuardedMutationRunner
 }
 
 export function ActivitiesSection({
@@ -57,6 +63,7 @@ export function ActivitiesSection({
   dealOptions,
   entityOptions,
   defaultEntityId,
+  runGuardedMutation,
 }: ActivitiesSectionProps) {
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
@@ -76,6 +83,15 @@ export function ActivitiesSection({
     },
     [t],
   )
+  const runWriteMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      if (!runGuardedMutation) {
+        return operation()
+      }
+      return runGuardedMutation(operation, mutationPayload)
+    },
+    [runGuardedMutation],
+  )
 
   const activityTypeLabels = React.useMemo(
     () => createDictionarySelectLabels('activity-types', translate),
@@ -94,41 +110,45 @@ export function ActivitiesSection({
 
   const createActivityOption = React.useCallback(
     async (input: { value: string; label?: string; color?: string | null; icon?: string | null }) => {
-      const response = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/customers/dictionaries/activity-types',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            value: input.value,
-            label: input.label ?? undefined,
-            color: input.color ?? undefined,
-            icon: input.icon ?? undefined,
-          }),
-        },
-        { errorMessage: translate('customers.people.form.dictionary.error', 'Failed to save option') },
+      const requestPayload = {
+        value: input.value,
+        label: input.label ?? undefined,
+        color: input.color ?? undefined,
+        icon: input.icon ?? undefined,
+      }
+      const response = await runWriteMutation(
+        () => apiCallOrThrow<Record<string, unknown>>(
+          '/api/customers/dictionaries/activity-types',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(requestPayload),
+          },
+          { errorMessage: translate('customers.people.form.dictionary.error', 'Failed to save option') },
+        ),
+        requestPayload,
       )
-      const payload = response.result ?? {}
+      const resultPayload = response.result ?? {}
       const valueCreated =
-        typeof payload.value === 'string' && payload.value.trim().length
-          ? payload.value.trim()
+        typeof resultPayload.value === 'string' && resultPayload.value.trim().length
+          ? resultPayload.value.trim()
           : input.value
       const label =
-        typeof payload.label === 'string' && payload.label.trim().length
-          ? payload.label.trim()
+        typeof resultPayload.label === 'string' && resultPayload.label.trim().length
+          ? resultPayload.label.trim()
           : valueCreated
       const color =
-        typeof payload.color === 'string' && payload.color.trim().startsWith('#')
-          ? payload.color.trim()
+        typeof resultPayload.color === 'string' && resultPayload.color.trim().startsWith('#')
+          ? resultPayload.color.trim()
           : input.color ?? null
       const icon =
-        typeof payload.icon === 'string' && payload.icon.trim().length
-          ? payload.icon.trim()
+        typeof resultPayload.icon === 'string' && resultPayload.icon.trim().length
+          ? resultPayload.icon.trim()
           : input.icon ?? null
       await invalidateCustomerDictionary(queryClient, 'activity-types')
       return { value: valueCreated, label, color, icon }
     },
-    [queryClient, translate],
+    [queryClient, runWriteMutation, translate],
   )
 
   const activitiesAdapter = React.useMemo<ActivitiesDataAdapter>(() => ({
@@ -167,94 +187,118 @@ export function ActivitiesSection({
     },
     create: async ({ entityId: payloadEntityId, dealId: payloadDealId, ...payload }) => {
       if (useCanonicalInteractions) {
-        await createCrud(
-          'customers/interactions',
-          {
-            entityId: payloadEntityId,
-            interactionType: payload.activityType,
-            title: payload.subject ?? undefined,
-            body: payload.body ?? undefined,
-            occurredAt: payload.occurredAt ?? undefined,
-            status: payload.occurredAt ? 'done' : 'planned',
-            dealId: payloadDealId ?? undefined,
-            ...(payload.customFields ? { customFields: payload.customFields } : {}),
-          },
-          {
-            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-          },
+        const interactionPayload = {
+          entityId: payloadEntityId,
+          interactionType: payload.activityType,
+          title: payload.subject ?? undefined,
+          body: payload.body ?? undefined,
+          occurredAt: payload.occurredAt ?? undefined,
+          status: payload.occurredAt ? 'done' : 'planned',
+          dealId: payloadDealId ?? undefined,
+          ...(payload.customFields ? { customFields: payload.customFields } : {}),
+        }
+        await runWriteMutation(
+          () => createCrud(
+            'customers/interactions',
+            interactionPayload,
+            {
+              errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+            },
+          ),
+          interactionPayload,
         )
         return
       }
 
-      await createCrud(
-        'customers/activities',
-        {
-          entityId: payloadEntityId,
-          activityType: payload.activityType,
-          subject: payload.subject ?? undefined,
-          body: payload.body ?? undefined,
-          occurredAt: payload.occurredAt ?? undefined,
-          dealId: payloadDealId ?? undefined,
-          ...(payload.customFields ? { customFields: payload.customFields } : {}),
-        },
-        {
-          errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-        },
+      const activityPayload = {
+        entityId: payloadEntityId,
+        activityType: payload.activityType,
+        subject: payload.subject ?? undefined,
+        body: payload.body ?? undefined,
+        occurredAt: payload.occurredAt ?? undefined,
+        dealId: payloadDealId ?? undefined,
+        ...(payload.customFields ? { customFields: payload.customFields } : {}),
+      }
+      await runWriteMutation(
+        () => createCrud(
+          'customers/activities',
+          activityPayload,
+          {
+            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+          },
+        ),
+        activityPayload,
       )
     },
     update: async ({ id, patch }) => {
       if (useCanonicalInteractions) {
-        await updateCrud(
-          'customers/interactions',
-          {
-            id,
-            interactionType: patch.activityType,
-            title: patch.subject ?? undefined,
-            body: patch.body ?? undefined,
-            occurredAt: patch.occurredAt ?? undefined,
-            status: patch.occurredAt ? 'done' : undefined,
-            dealId: patch.dealId ?? undefined,
-            ...(patch.customFields ? { customFields: patch.customFields } : {}),
-          },
-          {
-            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-          },
+        const interactionPatch = {
+          id,
+          interactionType: patch.activityType,
+          title: patch.subject ?? undefined,
+          body: patch.body ?? undefined,
+          occurredAt: patch.occurredAt ?? undefined,
+          status: patch.occurredAt ? 'done' : undefined,
+          dealId: patch.dealId ?? undefined,
+          ...(patch.customFields ? { customFields: patch.customFields } : {}),
+        }
+        await runWriteMutation(
+          () => updateCrud(
+            'customers/interactions',
+            interactionPatch,
+            {
+              errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+            },
+          ),
+          interactionPatch,
         )
         return
       }
 
-      await updateCrud(
-        'customers/activities',
-        {
-          id,
-          entityId: patch.entityId,
-          activityType: patch.activityType,
-          subject: patch.subject ?? undefined,
-          body: patch.body ?? undefined,
-          occurredAt: patch.occurredAt ?? undefined,
-          dealId: patch.dealId ?? undefined,
-          ...(patch.customFields ? { customFields: patch.customFields } : {}),
-        },
-        {
-          errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
-        },
+      const activityPatch = {
+        id,
+        entityId: patch.entityId,
+        activityType: patch.activityType,
+        subject: patch.subject ?? undefined,
+        body: patch.body ?? undefined,
+        occurredAt: patch.occurredAt ?? undefined,
+        dealId: patch.dealId ?? undefined,
+        ...(patch.customFields ? { customFields: patch.customFields } : {}),
+      }
+      await runWriteMutation(
+        () => updateCrud(
+          'customers/activities',
+          activityPatch,
+          {
+            errorMessage: translate('customers.people.detail.activities.error', 'Failed to save activity'),
+          },
+        ),
+        activityPatch,
       )
     },
     delete: async ({ id }) => {
       if (useCanonicalInteractions) {
-        await deleteCrud('customers/interactions', {
-          id,
-          errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
-        })
+        const deletePayload = { id }
+        await runWriteMutation(
+          () => deleteCrud('customers/interactions', {
+            id,
+            errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
+          }),
+          deletePayload,
+        )
         return
       }
 
-      await deleteCrud('customers/activities', {
-        id,
-        errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
-      })
+      const deletePayload = { id }
+      await runWriteMutation(
+        () => deleteCrud('customers/activities', {
+          id,
+          errorMessage: translate('customers.people.detail.activities.deleteError', 'Failed to delete activity.'),
+        }),
+        deletePayload,
+      )
     },
-  }), [translate, useCanonicalInteractions])
+  }), [runWriteMutation, translate, useCanonicalInteractions])
 
   const resolveActivityPresentation = React.useCallback((activity: ActivitySummary) => {
     const entry = dictionaryMap[activity.activityType]

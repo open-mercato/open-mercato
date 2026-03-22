@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -17,6 +18,11 @@ import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
 import { useInteractions, type InteractionCreatePayload } from './hooks/useInteractions'
 import { mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
+
+type GuardedMutationRunner = <T>(
+  operation: () => Promise<T>,
+  mutationPayload?: Record<string, unknown>,
+) => Promise<T>
 
 type TasksSectionProps = {
   entityId: string | null
@@ -32,6 +38,7 @@ type TasksSectionProps = {
   dialogContextFallback?: string
   /** When true, use the canonical interactions API instead of the legacy todos API. */
   useCanonicalInteractions?: boolean
+  runGuardedMutation?: GuardedMutationRunner
 }
 
 function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, unknown> | undefined {
@@ -66,10 +73,20 @@ export function TasksSection({
   dialogContextKey,
   dialogContextFallback,
   useCanonicalInteractions = false,
+  runGuardedMutation,
 }: TasksSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
+  const runWriteMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      if (!runGuardedMutation) {
+        return operation()
+      }
+      return runGuardedMutation(operation, mutationPayload)
+    },
+    [runGuardedMutation],
+  )
 
   // Legacy path: usePersonTasks (default)
   const legacyResult = usePersonTasks({ entityId, initialTasks })
@@ -231,7 +248,14 @@ export function TasksSection({
   const handleCreate = React.useCallback(
     async (payload: TaskFormPayload) => {
       try {
-        await createTask(payload)
+        await runWriteMutation(
+          () => createTask(payload),
+          {
+            entityId,
+            title: payload.base.title,
+            isDone: payload.base.is_done ?? undefined,
+          },
+        )
         flash(t('customers.people.detail.tasks.createSuccess', 'Task created'), 'success')
       } catch (err) {
         const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.error', 'Failed to create task')
@@ -239,13 +263,21 @@ export function TasksSection({
         throw err
       }
     },
-    [createTask, t],
+    [createTask, entityId, runWriteMutation, t],
   )
 
   const handleUpdate = React.useCallback(
     async (task: TodoLinkSummary, payload: TaskFormPayload) => {
       try {
-        await updateTask(task, payload)
+        await runWriteMutation(
+          () => updateTask(task, payload),
+          {
+            id: task.id,
+            todoId: task.todoId,
+            title: payload.base.title,
+            isDone: payload.base.is_done ?? undefined,
+          },
+        )
         flash(t('customers.people.detail.tasks.updateSuccess', 'Task updated'), 'success')
       } catch (err) {
         const message =
@@ -254,13 +286,20 @@ export function TasksSection({
         throw err
       }
     },
-    [t, updateTask],
+    [runWriteMutation, t, updateTask],
   )
 
   const handleToggle = React.useCallback(
     async (task: TodoLinkSummary, nextIsDone: boolean) => {
       try {
-        await toggleTask(task, nextIsDone)
+        await runWriteMutation(
+          () => toggleTask(task, nextIsDone),
+          {
+            id: task.id,
+            todoId: task.todoId,
+            isDone: nextIsDone,
+          },
+        )
         flash(
           nextIsDone
             ? t('customers.people.detail.tasks.completeSuccess', 'Task marked as done')
@@ -273,13 +312,19 @@ export function TasksSection({
         flash(message, 'error')
       }
     },
-    [t, toggleTask],
+    [runWriteMutation, t, toggleTask],
   )
 
   const handleDelete = React.useCallback(
     async (task: TodoLinkSummary) => {
       try {
-        await unlinkTask(task)
+        await runWriteMutation(
+          () => unlinkTask(task),
+          {
+            id: task.id,
+            todoId: task.todoId,
+          },
+        )
         flash(t('customers.people.detail.tasks.deleteSuccess', 'Task removed'), 'success')
         await refresh()
       } catch (err) {
@@ -288,7 +333,7 @@ export function TasksSection({
         flash(message, 'error')
       }
     },
-    [refresh, t, unlinkTask],
+    [refresh, runWriteMutation, t, unlinkTask],
   )
 
   const renderTaskMeta = React.useCallback(
@@ -392,28 +437,30 @@ export function TasksSection({
                       fallbackTimestampLabel={createdLabel}
                     />
                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <Button
+                      <IconButton
                         type="button"
                         variant="ghost"
-                        size="icon"
+                        size="sm"
                         onClick={() => openEditDialog(task)}
                         disabled={isMutating}
+                        aria-label={t('ui.actions.edit', 'Edit')}
                       >
                         {isMutating && editingTask?.id === task.id && dialogMode === 'edit' ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Pencil className="h-4 w-4" />
                         )}
-                      </Button>
-                      <Button
+                      </IconButton>
+                      <IconButton
                         type="button"
                         variant="ghost"
-                        size="icon"
+                        size="sm"
                         onClick={() => handleDelete(task)}
                         disabled={isMutating}
+                        aria-label={t('ui.actions.delete', 'Delete')}
                       >
                         {isMutating ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <Trash2 className="h-4 w-4" />}
-                      </Button>
+                      </IconButton>
                     </div>
                   </div>
                   {meta.length ? (
