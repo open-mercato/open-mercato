@@ -357,3 +357,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When changing module conventions that affect standalone app developers — entity/migration workflow, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+
+## Detail sections must route writes through page-level guarded mutations
+
+**Context**: Customer detail sections introduced canonical interaction writes in local hooks and components while the surrounding backend pages already had mutation-injection context for record locks and retry flows.
+
+**Problem**: Raw `apiCall` or CRUD-helper writes from detail sections bypass `useGuardedMutation`, so lock/conflict hooks never see those saves. Separately, showing flash messages in both the data hook and the section UI produces duplicate toasts for one mutation.
+
+**Rule**: In backend detail pages, the page owns `useGuardedMutation` and passes a guarded mutation runner into child sections. Data hooks should execute the network call and refresh state, while the section or presenter owns user-facing flash messages so each mutation emits one toast.
+
+**Applies to**: `packages/core/src/modules/customers/components/detail/**/*`, customer detail pages, and any future backend section that performs manual writes outside `CrudForm`.

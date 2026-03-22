@@ -44,6 +44,8 @@ import {
 
 type SectionKey = 'notes' | 'activities' | 'deals' | 'people' | 'addresses' | 'tasks' | string
 
+const stableNoopCallback = () => {}
+
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -382,7 +384,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                       actionLabel: t('customers.companies.detail.emptyState.activities.action', 'Log activity'),
                     }}
                     onActionChange={handleSectionActionChange}
-                    onLoadingChange={() => {}}
+                    onLoadingChange={stableNoopCallback}
                   />
                 )
               }

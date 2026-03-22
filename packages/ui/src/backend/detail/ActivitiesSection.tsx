@@ -765,22 +765,24 @@ function ActivitiesSectionImpl<C = unknown>({
   const [initialValues, setInitialValues] = React.useState<Partial<ActivityFormBaseValues & Record<string, unknown>> | undefined>(undefined)
   const [visibleCount, setVisibleCount] = React.useState(0)
   const pendingCounterRef = React.useRef(0)
+  const onLoadingChangeRef = React.useRef(onLoadingChange)
+  React.useEffect(() => { onLoadingChangeRef.current = onLoadingChange })
 
   const t = translate
 
   const pushLoading = React.useCallback(() => {
     pendingCounterRef.current += 1
     if (pendingCounterRef.current === 1) {
-      onLoadingChange?.(true)
+      onLoadingChangeRef.current?.(true)
     }
-  }, [onLoadingChange])
+  }, [])
 
   const popLoading = React.useCallback(() => {
     pendingCounterRef.current = Math.max(0, pendingCounterRef.current - 1)
     if (pendingCounterRef.current === 0) {
-      onLoadingChange?.(false)
+      onLoadingChangeRef.current?.(false)
     }
-  }, [onLoadingChange])
+  }, [])
 
   const updateVisibleCount = React.useCallback((length: number) => {
     if (!length) {
@@ -840,12 +842,12 @@ function ActivitiesSectionImpl<C = unknown>({
       setLoadError(null)
       setIsLoading(false)
       pendingCounterRef.current = 0
-      onLoadingChange?.(false)
+      onLoadingChangeRef.current?.(false)
       updateVisibleCount(0)
       return
     }
     loadActivities().catch(() => {})
-  }, [dealId, entityId, loadActivities, onLoadingChange, updateVisibleCount])
+  }, [dealId, entityId, loadActivities, updateVisibleCount])
 
   const openCreateDialog = React.useCallback(() => {
     setDialogMode('create')
