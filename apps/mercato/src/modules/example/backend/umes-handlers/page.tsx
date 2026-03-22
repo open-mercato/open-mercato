@@ -155,7 +155,7 @@ export default function UmesHandlersPage() {
       const params = new URLSearchParams()
       params.set('pageSize', '5')
       if (currentPersonId.length > 0) {
-        params.set('ids', currentPersonId)
+        params.set('id', currentPersonId)
       }
       const payload = await readApiResultOrThrow<CustomersResponse>(`/api/customers/people?${params.toString()}`)
       const items = readCustomerItems(payload)

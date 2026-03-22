@@ -9,6 +9,23 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+async function resolveRoleIdByName(
+  request: Parameters<typeof apiRequest>[0],
+  token: string,
+  roleName: string,
+): Promise<string> {
+  const response = await apiRequest(request, 'GET', `/api/auth/roles?pageSize=100&search=${encodeURIComponent(roleName)}`, {
+    token,
+  });
+  expect(response.ok()).toBeTruthy();
+  const body = await readJsonSafe<JsonRecord>(response);
+  const items = Array.isArray(body?.items) ? (body.items as JsonRecord[]) : [];
+  const match = items.find((item) => item?.name === roleName);
+  expect(match).toBeTruthy();
+  expect(typeof match?.id).toBe('string');
+  return String(match?.id);
+}
+
 /**
  * TC-CRM-027: Person Detail Company Highlight & Interaction ACL
  *
@@ -80,15 +97,17 @@ test.describe('TC-CRM-027: Person Detail & Interaction ACL', () => {
     let companyId: string | null = null;
     let interactionId: string | null = null;
     let originalFeatures: string[] | null = null;
-    const employeeRoleId = '5f80c4a0-8216-406b-a6e4-d783d2938a97';
+    let employeeRoleId: string | null = null;
 
     try {
       adminToken = await getAuthToken(request, 'admin');
       employeeToken = await getAuthToken(request, 'employee');
       companyId = await createCompanyFixture(request, adminToken, `QA CRM027 ACL ${Date.now()}`);
+      employeeRoleId = await resolveRoleIdByName(request, adminToken, 'employee');
 
       // Save original employee features
       const aclRes = await apiRequest(request, 'GET', `/api/auth/roles/acl?roleId=${employeeRoleId}`, { token: adminToken });
+      expect(aclRes.ok()).toBeTruthy();
       const aclBody = await readJsonSafe<JsonRecord>(aclRes);
       originalFeatures = Array.isArray(aclBody?.features) ? (aclBody!.features as string[]) : [];
 
@@ -96,10 +115,11 @@ test.describe('TC-CRM-027: Person Detail & Interaction ACL', () => {
       const viewOnlyFeatures = originalFeatures.filter(
         (f) => f !== 'customers.*' && f !== 'customers.interactions.manage',
       );
-      await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
+      const updateAclRes = await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
         token: adminToken,
         data: { roleId: employeeRoleId, features: viewOnlyFeatures },
       });
+      expect(updateAclRes.ok()).toBeTruthy();
 
       // Employee can list (view)
       const listRes = await apiRequest(request, 'GET', `/api/customers/interactions?entityId=${companyId}&limit=5`, { token: employeeToken });
@@ -146,7 +166,7 @@ test.describe('TC-CRM-027: Person Detail & Interaction ACL', () => {
       expect(deleteRes.status()).toBe(403);
     } finally {
       // Restore original employee features
-      if (adminToken && originalFeatures) {
+      if (adminToken && originalFeatures && employeeRoleId) {
         await apiRequest(request, 'PUT', '/api/auth/roles/acl', {
           token: adminToken,
           data: { roleId: employeeRoleId, features: originalFeatures },

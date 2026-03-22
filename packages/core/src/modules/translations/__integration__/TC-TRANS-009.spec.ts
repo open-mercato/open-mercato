@@ -16,6 +16,27 @@ async function fillCombobox(page: import('@playwright/test').Page, placeholder: 
   await page.waitForTimeout(300)
 }
 
+async function selectEntityForRecordPicker(
+  page: import('@playwright/test').Page,
+  entityType: string,
+) {
+  const recordInput = page.getByPlaceholder('Search records...')
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await fillCombobox(page, 'Select an entity', entityType)
+    const enabled = await expect
+      .poll(async () => !(await recordInput.isDisabled()), { timeout: 4_000 })
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false)
+    if (enabled) {
+      return
+    }
+  }
+
+  await expect(recordInput).toBeEnabled({ timeout: 10_000 })
+}
+
 /**
  * TC-TRANS-009: Translation Command Undo
  * Verifies undo for save (create & update) translation commands via UI.
@@ -36,7 +57,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
@@ -92,7 +113,7 @@ test.describe('TC-TRANS-009: Translation Command Undo', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await selectEntityForRecordPicker(page, ENTITY_TYPE)
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
