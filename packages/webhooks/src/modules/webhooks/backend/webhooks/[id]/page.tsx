@@ -9,6 +9,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -421,7 +422,11 @@ export default function WebhookDetailPage() {
           title={webhook.name}
           entityTypeLabel={t('webhooks.nav.title')}
           statusBadge={
-            <Badge variant={webhook.isActive ? 'default' : 'secondary'}>
+            <Badge
+              className={webhook.isActive
+                ? 'border-transparent bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                : 'border-transparent bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}
+            >
               {webhook.isActive ? t('webhooks.list.status.active') : t('webhooks.list.status.inactive')}
             </Badge>
           }
@@ -468,7 +473,20 @@ export default function WebhookDetailPage() {
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.secret')}:</span>
-              <span className="ml-2 font-mono text-xs">{webhook.maskedSecret}</span>
+              <span className="ml-2 inline-flex items-center gap-2">
+                <span className="font-mono text-xs">{webhook.maskedSecret}</span>
+                {access.canSecrets ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => { void handleRotateSecret() }}
+                  >
+                    {t('webhooks.detail.actions.rotateSecret')}
+                  </Button>
+                ) : null}
+              </span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.list.columns.lastDelivery')}:</span>

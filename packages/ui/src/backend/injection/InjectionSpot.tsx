@@ -9,7 +9,12 @@ import type {
   FieldChangeResult,
   NavigateGuardResult,
 } from '@open-mercato/shared/modules/widgets/injection'
-import { loadInjectionWidgetsForSpot, type LoadedInjectionWidget } from '@open-mercato/shared/modules/widgets/injection-loader'
+import {
+  getInjectionRegistryVersion,
+  loadInjectionWidgetsForSpot,
+  subscribeToInjectionRegistryChanges,
+  type LoadedInjectionWidget,
+} from '@open-mercato/shared/modules/widgets/injection-loader'
 import { getWidgetSharedState } from './WidgetSharedState'
 
 export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
@@ -69,7 +74,14 @@ export function useInjectionWidgets<TContext = unknown>(
   const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
   const loadedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    return subscribeToInjectionRegistryChanges(() => {
+      setRegistryVersion(getInjectionRegistryVersion())
+    })
+  }, [])
 
   React.useEffect(() => {
     if (!spotId) {
@@ -121,7 +133,7 @@ export function useInjectionWidgets<TContext = unknown>(
     return () => {
       mounted = false
     }
-  }, [spotId, options?.context, options?.triggerOnLoad, options?.onEvent])
+  }, [spotId, options?.context, options?.triggerOnLoad, options?.onEvent, registryVersion])
 
   return { widgets, loading, error }
 }
@@ -181,6 +193,13 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
  */
 export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spotId: InjectionSpotId, prefetchedWidgets?: LoadedWidget[]) {
   const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
+  const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
+
+  React.useEffect(() => {
+    return subscribeToInjectionRegistryChanges(() => {
+      setRegistryVersion(getInjectionRegistryVersion())
+    })
+  }, [])
 
   React.useEffect(() => {
     if (prefetchedWidgets && prefetchedWidgets.length) {
@@ -209,7 +228,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
     return () => {
       mounted = false
     }
-  }, [spotId, prefetchedWidgets])
+  }, [spotId, prefetchedWidgets, registryVersion])
 
   const triggerEvent = React.useCallback(
     async (

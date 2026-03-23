@@ -20,13 +20,10 @@ export function resolveIntegrationDetailWidgetSpotId(
 
 export function resolveRequestedIntegrationDetailTab(
   value: string | null | undefined,
-  hasVersions: boolean,
-  customTabIds: readonly string[],
+  visibleTabIds: readonly string[],
 ): string {
-  if (value && customTabIds.includes(value)) return value
-  if (value === 'health' || value === 'logs') return value
-  if (value === 'version' && hasVersions) return 'version'
-  return 'credentials'
+  if (value && visibleTabIds.includes(value)) return value
+  return visibleTabIds[0] ?? 'credentials'
 }
 
 export function filterIntegrationDetailWidgetsByKind(

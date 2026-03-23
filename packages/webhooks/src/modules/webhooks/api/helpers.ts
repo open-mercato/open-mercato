@@ -123,10 +123,14 @@ export function serializeWebhookDetail(item: WebhookEntity) {
   }
 }
 
-export function serializeDeliveryListItem(item: WebhookDeliveryEntity) {
+export function serializeDeliveryListItem(
+  item: WebhookDeliveryEntity,
+  options: { webhookName?: string | null } = {},
+) {
   return {
     id: item.id,
     webhookId: item.webhookId,
+    webhookName: options.webhookName ?? null,
     eventType: item.eventType,
     messageId: item.messageId,
     status: item.status,

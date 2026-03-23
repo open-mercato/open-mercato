@@ -72,6 +72,7 @@ const sidebars: SidebarsConfig = {
           label: "Integrations & Payments",
           items: [
             "user-guide/integrations",
+            "user-guide/webhooks",
             "user-guide/akeneo-pim",
             "user-guide/stripe-payments",
             "user-guide/payment-transactions",

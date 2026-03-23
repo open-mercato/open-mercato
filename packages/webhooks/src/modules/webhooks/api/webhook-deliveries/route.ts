@@ -3,7 +3,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import { WebhookDeliveryEntity } from '../../data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { WebhookDeliveryEntity, WebhookEntity } from '../../data/entities'
 import { webhookDeliveryQuerySchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeDeliveryListItem } from '../helpers'
@@ -18,6 +19,7 @@ function json(payload: unknown, init: ResponseInit = { status: 200 }) {
 const deliveryItemSchema = z.object({
   id: z.string(),
   webhookId: z.string(),
+  webhookName: z.string().nullable(),
   eventType: z.string(),
   messageId: z.string(),
   status: z.string(),
@@ -84,9 +86,26 @@ const crud = makeCrudRoute<never, never, z.infer<typeof webhookDeliveryQuerySche
       qb.orderBy({ createdAt: 'desc' })
       qb.limit(pageSize).offset((page - 1) * pageSize)
       const [items, total] = await qb.getResultAndCount()
+      const webhookIds = Array.from(new Set(items.map((item) => item.webhookId)))
+      const webhooks = webhookIds.length > 0
+        ? await findWithDecryption(
+          em,
+          WebhookEntity,
+          {
+            id: { $in: webhookIds },
+            tenantId: auth.tenantId,
+            deletedAt: null,
+          },
+          undefined,
+          { tenantId: auth.tenantId, organizationId: auth.orgId ?? '' },
+        )
+        : []
+      const webhookNames = new Map(webhooks.map((webhook) => [webhook.id, webhook.name]))
 
       const payload = {
-        items: items.map((item) => serializeDeliveryListItem(item)),
+        items: items.map((item) => serializeDeliveryListItem(item, {
+          webhookName: webhookNames.get(item.webhookId) ?? null,
+        })),
         total,
         page,
         pageSize,

@@ -7,6 +7,7 @@ import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERRO
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
+import { isWebhookIntegrationEnabled } from '../../../lib/integration-state'
 import { json } from '../../helpers'
 import { WebhookInboundReceiptEntity } from '../../../data/entities'
 
@@ -62,6 +63,17 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     return json({ error: 'Verification failed' }, { status: 400 })
   }
 
+  if (verified.tenantId && verified.organizationId) {
+    const integrationEnabled = await isWebhookIntegrationEnabled(em, {
+      tenantId: verified.tenantId,
+      organizationId: verified.organizationId,
+    })
+
+    if (!integrationEnabled) {
+      return json({ error: 'Custom Webhooks integration is disabled' }, { status: 503 })
+    }
+  }
+
   const messageId = headers['webhook-id'] ?? headers['svix-id'] ?? null
   if (messageId) {
     try {
@@ -108,6 +120,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Verification failed', schema: errorSchema },
         { status: 404, description: 'Endpoint not found', schema: errorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
+        { status: 503, description: 'Webhook integration disabled', schema: errorSchema },
       ],
     },
   },

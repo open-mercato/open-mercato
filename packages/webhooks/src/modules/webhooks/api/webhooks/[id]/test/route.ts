@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createWebhookDelivery, processWebhookDeliveryJob } from '../../../../lib/delivery'
+import { isWebhookIntegrationEnabled } from '../../../../lib/integration-state'
 import { findScopedWebhook, json, resolveWebhookRequestScope, serializeDeliveryDetail } from '../../../helpers'
 
 export const metadata = {
@@ -56,6 +57,14 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     return json({ error: 'Webhook not found' }, { status: 404 })
   }
 
+  const integrationEnabled = await isWebhookIntegrationEnabled(em, {
+    tenantId: webhook.tenantId,
+    organizationId: webhook.organizationId,
+  })
+  if (!integrationEnabled) {
+    return json({ error: 'Custom Webhooks integration is disabled' }, { status: 409 })
+  }
+
   const parsed = requestBodySchema.safeParse(await request.json().catch(() => ({})))
   if (!parsed.success) {
     return json({ error: 'Invalid request payload' }, { status: 400 })
@@ -102,6 +111,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [{ status: 200, description: 'Test delivery result', schema: testResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid request payload', schema: errorSchema },
+        { status: 409, description: 'Webhook integration disabled', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Webhook not found', schema: errorSchema },
       ],

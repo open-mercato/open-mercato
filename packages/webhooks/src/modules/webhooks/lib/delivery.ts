@@ -4,6 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
 import { getWebhookQueue } from './queue'
+import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
 
 export interface WebhookDeliveryJob {
   deliveryId: string
@@ -104,6 +105,19 @@ export async function processWebhookDeliveryJob(
   if (!webhook.isActive) {
     delivery.status = 'expired'
     delivery.errorMessage = 'Webhook is inactive'
+    delivery.nextRetryAt = null
+    await em.flush()
+    return { status: delivery.status, deliveryId: delivery.id }
+  }
+
+  const integrationEnabled = await isWebhookIntegrationEnabled(em, {
+    tenantId: webhook.tenantId,
+    organizationId: webhook.organizationId,
+  })
+
+  if (!integrationEnabled) {
+    delivery.status = 'expired'
+    delivery.errorMessage = WEBHOOK_INTEGRATION_DISABLED_MESSAGE
     delivery.nextRetryAt = null
     await em.flush()
     return { status: delivery.status, deliveryId: delivery.id }

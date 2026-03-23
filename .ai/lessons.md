@@ -377,3 +377,23 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: For `@Property(... default: ...)` on string/text columns, pass the plain value such as `'pending'` or `'POST'`. Use `defaultRaw` only when you intentionally need a database expression.
 
 **Applies to**: `packages/webhooks/src/modules/webhooks/data/entities.ts` and future MikroORM entities with string defaults.
+
+## Client injection hooks must tolerate late registry registration
+
+**Context**: The integrations detail page relied on provider-injected tabs for webhook settings and aggregated logs. In the browser, generated injection tables and widgets were present, but some pages could still render without injected content on the first client pass.
+
+**Problem**: `useInjectionWidgets()` and `useInjectionSpotEvents()` could read the injection registry before client bootstrap finished registering generated tables/widgets, cache an empty result, and never retry. That left valid widgets invisible until a hard refresh or unrelated rerender.
+
+**Rule**: Client-side injection hooks must react to registry registration changes. When bootstrap registers core injection widgets/tables, invalidate loader caches and notify hooks so they reload instead of permanently caching an empty registry snapshot.
+
+**Applies to**: `packages/shared/src/modules/widgets/injection-loader.ts`, `packages/ui/src/backend/injection/InjectionSpot.tsx`, and any future client hook that reads generated registries during hydration.
+
+## New shared deep import paths should get explicit export-map entries
+
+**Context**: A new shared utility under `@open-mercato/shared/lib/events/patterns` built correctly, but sibling workspace tests failed to resolve it through the package name.
+
+**Problem**: Generic wildcard export rules are not always enough for every tool in the workspace, especially test runners resolving package subpaths across linked workspaces. That turns a valid refactor into a package-resolution failure.
+
+**Rule**: When adding a new shared utility intended for cross-package imports, add an explicit `package.json` export entry for the new subpath instead of relying only on broad wildcard export patterns.
+
+**Applies to**: `packages/shared/package.json` and future cross-package utilities added under new `@open-mercato/shared/lib/*` paths.

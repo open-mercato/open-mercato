@@ -10,13 +10,28 @@ Shipments track fulfillment against orders. Each shipment can apply shipping cos
 
 ## Create a shipment
 
-1) Open the **Shipments** tab on an order; click **Add shipment**.  
-2) Set **shipping method** (from Sales settings) and **shipment status** (dictionary-driven).  
-3) Pick a **ship to** address or add a new one.  
-4) Select **items to ship** and quantities.  
-5) Optionally add a **shipping cost adjustment** so totals include carrier charges.  
-6) Add notes and tracking numbers.  
-7) Save with `Cmd/Ctrl + Enter`; `Escape` cancels.
+There are two common entry points:
+
+1. **Manual shipment entry**
+   Open the **Shipments** tab on an order and click **Add shipment**.
+2. **Carrier-driven shipment creation**
+   If a shipping carrier integration is installed, open **Sales → Orders**, open the row actions for a specific order, and use **Create shipment**.
+
+The carrier-driven flow is order-based. It does not require a shipping method to be selected on the order first, but it does require:
+
+- an existing order
+- at least one configured carrier integration
+- shipping-carrier management access
+
+When filling the shipment form:
+
+1. Set **shipping method** when you want the shipment recorded against one of your Sales settings methods.  
+2. Set **shipment status** (dictionary-driven).  
+3. Pick a **ship to** address or add a new one.  
+4. Select **items to ship** and quantities.  
+5. Optionally add a **shipping cost adjustment** so totals include carrier charges.  
+6. Add notes and tracking numbers.  
+7. Save with `Cmd/Ctrl + Enter`; `Escape` cancels.
 
 ![Shipments tab list](/screenshots/open-mercato-orders-order-shipments.png)
 
@@ -31,4 +46,4 @@ Shipments track fulfillment against orders. Each shipment can apply shipping cos
 - Keep **shipment statuses** tidy (pending, packed, shipped, delivered, returned) to mirror warehouse workflows.
 - Use notes for packing instructions; tracking supports multiple numbers (comma-separated).
 - Add shipping cost adjustments per shipment to keep margins accurate.
-
+- The standalone shipment wizard page is not meant to be opened from the sidebar directly. The supported carrier flow starts from a concrete order in **Sales → Orders**.

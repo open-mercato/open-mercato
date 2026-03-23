@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enqueueWebhookDelivery } from '../../../../lib/delivery'
+import { isWebhookIntegrationEnabled } from '../../../../lib/integration-state'
 import { findScopedDelivery, json, resolveWebhookRequestScope, serializeDeliveryDetail } from '../../../helpers'
 
 export const metadata = {
@@ -51,6 +52,14 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     return json({ error: 'Delivery not found' }, { status: 404 })
   }
 
+  const integrationEnabled = await isWebhookIntegrationEnabled(em, {
+    tenantId: delivery.tenantId,
+    organizationId: delivery.organizationId,
+  })
+  if (!integrationEnabled) {
+    return json({ error: 'Custom Webhooks integration is disabled' }, { status: 409 })
+  }
+
   delivery.status = 'pending'
   delivery.nextRetryAt = null
   delivery.errorMessage = null
@@ -78,6 +87,7 @@ export const openApi: OpenApiRouteDoc = {
       pathParams: z.object({ id: z.string().uuid() }),
       responses: [{ status: 200, description: 'Delivery re-enqueued', schema: retryResponseSchema }],
       errors: [
+        { status: 409, description: 'Webhook integration disabled', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Delivery not found', schema: errorSchema },
       ],

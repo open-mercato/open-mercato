@@ -1,7 +1,10 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { SubscriberContext } from '@open-mercato/events/types'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { createWebhookDelivery, enqueueWebhookDelivery } from '../lib/delivery'
+import { isWebhookIntegrationEnabled } from '../lib/integration-state'
 
 export const metadata = {
   event: '*',
@@ -11,9 +14,9 @@ export const metadata = {
 
 export default async function handler(
   payload: Record<string, unknown>,
-  ctx: { container: { resolve: <T = unknown>(name: string) => T }; eventId?: string },
+  ctx: (SubscriberContext & { eventId?: string }) | { container?: { resolve: <T = unknown>(name: string) => T }; eventId?: string; eventName?: string; resolve?: <T = unknown>(name: string) => T },
 ) {
-  const eventId = ctx.eventId ?? (payload.eventId as string) ?? (payload.type as string)
+  const eventId = ctx.eventId ?? ctx.eventName ?? (payload.eventId as string) ?? (payload.type as string)
   if (!eventId) return
 
   const tenantId = payload.tenantId as string | undefined
@@ -22,7 +25,15 @@ export default async function handler(
 
   if (eventId.startsWith('webhooks.')) return
 
-  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const resolve = ('resolve' in ctx && typeof ctx.resolve === 'function')
+    ? ctx.resolve
+    : ('container' in ctx && ctx.container && typeof ctx.container.resolve === 'function')
+      ? ctx.container.resolve.bind(ctx.container)
+      : null
+
+  if (!resolve) return
+
+  const em = (resolve('em') as EntityManager).fork()
 
   const webhooks = await findWithDecryption(
     em,
@@ -40,12 +51,19 @@ export default async function handler(
   if (!webhooks.length) return
 
   const matchingWebhooks = webhooks.filter((webhook) =>
-    webhook.subscribedEvents.some((pattern) => eventMatchesPattern(eventId, pattern)),
+    webhook.subscribedEvents.some((pattern) => matchEventPattern(eventId, pattern, { mode: 'prefix' })),
   )
 
   if (!matchingWebhooks.length) return
 
   for (const webhook of matchingWebhooks) {
+    const integrationEnabled = await isWebhookIntegrationEnabled(em, {
+      tenantId: webhook.tenantId,
+      organizationId: webhook.organizationId,
+    })
+
+    if (!integrationEnabled) continue
+
     let createdDeliveryId: string | null = null
     try {
       const delivery = await createWebhookDelivery({
@@ -80,18 +98,4 @@ export default async function handler(
       })
     }
   }
-}
-
-function eventMatchesPattern(eventId: string, pattern: string): boolean {
-  if (pattern === '*') return true
-  if (pattern === eventId) return true
-  if (pattern.endsWith('.*')) {
-    const prefix = pattern.slice(0, -2)
-    return eventId.startsWith(prefix + '.')
-  }
-  if (pattern.endsWith('*')) {
-    const prefix = pattern.slice(0, -1)
-    return eventId.startsWith(prefix)
-  }
-  return false
 }
