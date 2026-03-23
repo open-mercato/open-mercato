@@ -41,23 +41,40 @@ export class Migration20260215120000 extends Migration {
       end $$;
     `);
 
-    // Drop localized_content column from catalog_product_offers
-    this.addSql(`alter table "catalog_product_offers" drop column if exists "localized_content";`);
+    // Drop localized_content column from catalog_product_offers (guard: table may not exist in apps without catalog module)
+    this.addSql(`
+      do $$
+      begin
+        if exists (
+          select 1 from information_schema.tables
+          where table_schema = current_schema() and table_name = 'catalog_product_offers'
+        ) then
+          alter table "catalog_product_offers" drop column if exists "localized_content";
+        end if;
+      end $$;
+    `);
   }
 
   override async down(): Promise<void> {
-    // Re-add localized_content column
-    this.addSql(`alter table "catalog_product_offers" add column "localized_content" jsonb null;`);
-
-    // Migrate data back
+    // Re-add localized_content column (guard: table may not exist in apps without catalog module)
     this.addSql(`
-      update "catalog_product_offers" o
-      set "localized_content" = et."translations"
-      from "entity_translations" et
-      where et."entity_type" = 'catalog:catalog_offer'
-        and et."entity_id" = o."id"::text
-        and (et."organization_id" is not distinct from o."organization_id")
-        and (et."tenant_id" is not distinct from o."tenant_id")
+      do $$
+      begin
+        if exists (
+          select 1 from information_schema.tables
+          where table_schema = current_schema() and table_name = 'catalog_product_offers'
+        ) then
+          alter table "catalog_product_offers" add column if not exists "localized_content" jsonb null;
+
+          update "catalog_product_offers" o
+          set "localized_content" = et."translations"
+          from "entity_translations" et
+          where et."entity_type" = 'catalog:catalog_offer'
+            and et."entity_id" = o."id"::text
+            and (et."organization_id" is not distinct from o."organization_id")
+            and (et."tenant_id" is not distinct from o."tenant_id");
+        end if;
+      end $$;
     `);
 
     // Drop entity_translations table

@@ -15,6 +15,7 @@ export interface ProgressService {
   completeJob(jobId: string, input: CompleteJobInput | undefined, ctx: ProgressServiceContext): Promise<ProgressJob>
   failJob(jobId: string, input: FailJobInput, ctx: ProgressServiceContext): Promise<ProgressJob>
   cancelJob(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob>
+  markCancelled(jobId: string, ctx: ProgressServiceContext): Promise<ProgressJob>
   isCancellationRequested(jobId: string): Promise<boolean>
   getActiveJobs(ctx: ProgressServiceContext): Promise<ProgressJob[]>
   getRecentlyCompletedJobs(ctx: ProgressServiceContext, sinceSeconds?: number): Promise<ProgressJob[]>

@@ -11,8 +11,9 @@ Design and review specifications (SPECs) against Open Mercato's architecture, na
 
 1.  **Load Context**: Load initial context, take user provided context prompt, and load related files using the Task-Routing table from root `AGENTS.md`.
 2.  **Initialize**: Create an empty file with the correct naming convention for scope:
-    - OSS scope: `SPEC-{number}-{date}-{title}.md` in `.ai/specs/`
-    - Enterprise scope: `SPEC-ENT-{number}-{date}-{title}.md` in `.ai/specs/enterprise/`
+    - OSS scope: `{date}-{title}.md` in `.ai/specs/`
+    - Enterprise scope: `{date}-{title}.md` in `.ai/specs/enterprise/`
+    - Use `YYYY-MM-DD` for `date` and kebab-case for `title`
 3.  **Start Minimal**: Write a **Skeleton Spec** first (TLDR + 2-3 key sections). Do NOT write the full spec in one pass.
     - Before writing the skeleton, scan the brief for **critical unknowns** — decisions that block architecture, data model, or scope. These are questions where a wrong assumption would require rewriting large parts of the spec.
     - If critical unknowns exist, add a numbered **Open Questions** block (`Q1`, `Q2`, …) directly in the skeleton, immediately after the TLDR. One question per line. Keep each question short and answerable (binary or multiple-choice where possible).
@@ -41,7 +42,7 @@ When asked to write or draft a specification, use the [Specification Template](r
 When asked to review or audit a specification, produce the report using this structure:
 
 ```markdown
-# Architectural Review: {SPEC-0XX: Title}
+# Architectural Review: {Spec Title}
 
 ## Summary
 {1-3 sentences: what the spec proposes and overall architectural health}

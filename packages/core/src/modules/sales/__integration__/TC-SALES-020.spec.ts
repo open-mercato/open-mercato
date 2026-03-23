@@ -179,7 +179,8 @@ const WIDGET_LOAD_TIMEOUT = 10_000;
  * and that each Filters dropdown option correctly scopes visible entries.
  *
  * Fixtures created via API (no reliance on seeded demo data):
- *   - Order creation  → 'action' entry (sales.orders.create command log)
+ *   - Order creation  → 'status' entry (creation)
+ *   - Order update (comments only) → 'action' entry (no status change)
  *   - Note creation   → 'comment' entry (SalesNote, source: note)
  *   - Status update   → 'status' entry (command bus before/after snapshot diff)
  */
@@ -190,16 +191,22 @@ test.describe('TC-SALES-020b: Document History Widget', () => {
     let orderId: string | null = null;
 
     try {
-      // 1. Create order → logs an 'action' entry via sales.orders.create command
+      // 1. Create order → logs a 'status' entry (creation) via sales.orders.create command
       orderId = await createSalesOrderFixture(page.request, token);
 
-      // 2. Create a note → produces a 'comment' entry (SalesNote, source: 'note')
+      // 2. Update order without changing status → produces an 'action' entry (same status before/after)
+      await apiRequest(page.request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, comment: 'QA history action entry' },
+      });
+
+      // 3. Create a note → produces a 'comment' entry (SalesNote, source: 'note')
       await apiRequest(page.request, 'POST', '/api/sales/notes', {
         token,
         data: { contextType: 'order', contextId: orderId, body: 'QA test history comment' },
       });
 
-      // 3. Update order status → produces a 'status' entry via command-bus before/after snapshots
+      // 4. Update order status → produces a 'status' entry via command-bus before/after snapshots
       const statusListRes = await apiRequest(page.request, 'GET', '/api/sales/order-statuses?pageSize=5', { token });
       const statusList = statusListRes.ok()
         ? ((await statusListRes.json()) as { items?: Array<{ id: string }> })

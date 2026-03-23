@@ -6,6 +6,33 @@ sidebar_label: Stripe Payments
 
 This guide walks you through connecting Stripe to Open Mercato, running your first test payment, and preparing for production with webhooks.
 
+## Optional env preconfiguration
+
+If your deployment already knows the Stripe credentials, you can preconfigure the Stripe integration automatically instead of filling the credentials form manually after every fresh install.
+
+Use these env vars:
+
+```env
+OM_INTEGRATION_STRIPE_PUBLISHABLE_KEY=pk_test_...
+OM_INTEGRATION_STRIPE_SECRET_KEY=sk_test_...
+OM_INTEGRATION_STRIPE_WEBHOOK_SECRET=whsec_...
+OM_INTEGRATION_STRIPE_API_VERSION=2025-02-24.acacia
+OM_INTEGRATION_STRIPE_ENABLED=true
+OM_INTEGRATION_STRIPE_FORCE_PRECONFIGURE=false
+```
+
+Notes:
+
+- the three key values are required for preconfiguration
+- if `OM_INTEGRATION_STRIPE_API_VERSION` is omitted, Open Mercato pins Stripe's default supported version
+- legacy aliases `OPENMERCATO_STRIPE_*` and `STRIPE_*` are still accepted
+
+To rerun the preset for an existing tenant:
+
+```bash
+yarn mercato gateway_stripe configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
 ## Prerequisites
 
 - A Stripe account (test mode is fine for getting started).

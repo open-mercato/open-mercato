@@ -4,6 +4,7 @@ import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encrypt
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import type { Knex } from 'knex'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
+import { attachAggregateSearchField } from './document'
 
 type BuildDocParams = {
   entityType: string // '<module>:<entity>'
@@ -91,6 +92,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   } catch {}
 
   try {
+    doc = attachAggregateSearchField(doc)
     const encryption = resolveTenantEncryptionService(em as any)
     doc = await encryptIndexDocForStorage(
       params.entityType,

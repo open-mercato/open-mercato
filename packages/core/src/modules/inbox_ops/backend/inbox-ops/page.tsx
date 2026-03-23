@@ -17,12 +17,14 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Settings, Inbox, Copy } from 'lucide-react'
+import { CategoryBadge, useCategoryLabels } from '../../components/proposals/CategoryBadge'
 
 type ProposalRow = {
   id: string
   summary: string
   confidence: string
   status: string
+  category?: string | null
   inboxEmailId: string
   createdAt: string
   participants?: { name: string; email: string }[]
@@ -46,6 +48,7 @@ type StatusCounts = {
   partial: number
   accepted: number
   rejected: number
+  byCategory?: Record<string, number>
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -99,6 +102,7 @@ export default function InboxOpsProposalsPage() {
   const [copied, setCopied] = React.useState(false)
 
   const statusFilter = typeof filterValues.status === 'string' ? filterValues.status : undefined
+  const categoryFilter = typeof filterValues.category === 'string' ? filterValues.category : undefined
 
   const loadProposals = React.useCallback(async () => {
     setIsLoading(true)
@@ -107,6 +111,7 @@ export default function InboxOpsProposalsPage() {
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
     if (statusFilter) params.set('status', statusFilter)
+    if (categoryFilter) params.set('category', categoryFilter)
     if (search.trim()) params.set('search', search.trim())
 
     try {
@@ -121,7 +126,7 @@ export default function InboxOpsProposalsPage() {
       setError(t('inbox_ops.flash.load_failed', 'Failed to load proposals'))
     }
     setIsLoading(false)
-  }, [page, pageSize, statusFilter, search, scopeVersion, t])
+  }, [page, pageSize, statusFilter, categoryFilter, search, scopeVersion, t])
 
   const loadCounts = React.useCallback(async () => {
     const result = await apiCall<StatusCounts>('/api/inbox_ops/proposals/counts')
@@ -141,7 +146,7 @@ export default function InboxOpsProposalsPage() {
 
   React.useEffect(() => {
     if (initialLoadComplete) loadProposals()
-  }, [page, statusFilter, search, scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [page, statusFilter, categoryFilter, search, scopeVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCopyAddress = React.useCallback(() => {
     if (settings?.inboxAddress) {
@@ -189,6 +194,9 @@ export default function InboxOpsProposalsPage() {
     }
   }, [confirm, t, loadProposals, loadCounts, runMutation])
 
+  const categoryLabels = useCategoryLabels()
+  const byCategory = counts.byCategory || {}
+
   const filters = React.useMemo<FilterDef[]>(() => [
     {
       id: 'status',
@@ -201,7 +209,22 @@ export default function InboxOpsProposalsPage() {
         { value: 'rejected', label: `${t('inbox_ops.status.rejected', 'Rejected')} (${counts.rejected})` },
       ],
     },
-  ], [t, counts])
+    {
+      id: 'category',
+      label: t('inbox_ops.category', 'Category'),
+      type: 'select',
+      options: [
+        { value: 'rfq', label: `${categoryLabels.rfq} (${byCategory.rfq || 0})` },
+        { value: 'order', label: `${categoryLabels.order} (${byCategory.order || 0})` },
+        { value: 'order_update', label: `${categoryLabels.order_update} (${byCategory.order_update || 0})` },
+        { value: 'complaint', label: `${categoryLabels.complaint} (${byCategory.complaint || 0})` },
+        { value: 'shipping_update', label: `${categoryLabels.shipping_update} (${byCategory.shipping_update || 0})` },
+        { value: 'inquiry', label: `${categoryLabels.inquiry} (${byCategory.inquiry || 0})` },
+        { value: 'payment', label: `${categoryLabels.payment} (${byCategory.payment || 0})` },
+        { value: 'other', label: `${categoryLabels.other} (${byCategory.other || 0})` },
+      ],
+    },
+  ], [t, counts, categoryLabels, byCategory])
 
   const columns: ColumnDef<ProposalRow>[] = React.useMemo(() => [
     {
@@ -225,6 +248,11 @@ export default function InboxOpsProposalsPage() {
       accessorKey: 'status',
       header: t('inbox_ops.list.status', 'Status'),
       cell: ({ row }) => <StatusBadge status={row.original.status} />,
+    },
+    {
+      accessorKey: 'category',
+      header: t('inbox_ops.category', 'Category'),
+      cell: ({ row }) => <CategoryBadge category={row.original.category} />,
     },
     {
       id: 'actions_count',

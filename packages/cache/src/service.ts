@@ -306,6 +306,28 @@ function createStrategyForType(strategyType: CacheStrategyName, options?: CacheS
   }
 }
 
+function describeDependencyFailure(error: CacheDependencyUnavailableError): string {
+  const originalError = error.originalError
+  if (!(originalError instanceof Error)) {
+    return `missing dependency: ${error.dependency}`
+  }
+
+  const message = originalError.message.trim()
+  if (message.length === 0) {
+    return `missing dependency: ${error.dependency}`
+  }
+
+  if (message.includes('compiled against a different Node.js version') || message.includes('NODE_MODULE_VERSION')) {
+    return `${error.dependency} native module needs rebuild for the current Node.js version`
+  }
+
+  if (message.includes('Cannot find module')) {
+    return `missing dependency: ${error.dependency}`
+  }
+
+  return `${error.dependency} failed to load`
+}
+
 function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStrategyName, defaultTtl?: number): CacheStrategy {
   if (strategyType === 'memory') return strategy
 
@@ -319,7 +341,7 @@ function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStra
     }
     if (!warned) {
       const dependencyMessage = error.dependency
-        ? ` (missing dependency: ${error.dependency})`
+        ? ` (${describeDependencyFailure(error)})`
         : ''
       console.warn(`[cache] ${error.strategy} strategy unavailable${dependencyMessage}. Falling back to memory strategy.`)
       warned = true

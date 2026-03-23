@@ -16,6 +16,8 @@ The system uses a two-layer architecture:
 
 Providers plug into the Integration Marketplace for credentials management, health checks, and admin UI.
 
+If a provider needs browser-side payment UI, it registers that UI from `widgets/payments/client.tsx`. The app bootstrap imports all discovered payment renderer widgets through the generated `payments.client.generated.ts` entrypoint, and consumer modules resolve them by `providerKey + rendererKey`.
+
 ## GatewayAdapter interface
 
 Every provider implements this contract:
@@ -95,6 +97,18 @@ The practical flow is:
 5. Refresh status or wait for webhooks to synchronize the transaction.
 6. Capture, refund, or cancel by transaction ID through the payment hub API.
 7. Inspect the full lifecycle in **External systems -> Payment Transactions**.
+
+### Provider-owned renderer widgets
+
+Embedded payment UI is owned by the provider package, not by checkout or sales. The contract is:
+
+- gateway descriptor publishes `renderers[]` and `defaultRendererKey`
+- session creation may return `clientSession.type = 'embedded'` with `rendererKey`, `payload`, and `settings`
+- provider package registers the browser widget in `widgets/payments/client.tsx`
+- consumer modules resolve the widget through the shared renderer registry
+- redirect-only providers return `clientSession.type = 'redirect'` or `redirectUrl`
+
+Host pages should expose UMES injection spots around the payment-widget host and a behavior spot for validation/submit hooks, so provider-specific or app-specific payment extensions remain inside the widget system.
 
 ### 1. Configure Stripe in admin
 
@@ -448,6 +462,34 @@ Provider modules declare an `IntegrationDefinition` in `integration.ts` with `hu
 - Health check monitoring
 - Activity logging
 - API version selection
+
+### Provider-owned env preconfiguration
+
+Gateway providers can preconfigure themselves from deployment env without adding provider-specific logic to core.
+
+Recommended pattern:
+
+1. Read env vars in a provider-local helper such as `lib/preset.ts`.
+2. Apply them from the provider module's `setup.ts`.
+3. Expose a provider CLI command such as `configure-from-env` so operators can rerun the same logic later.
+4. Persist through the normal integration credential/state services.
+
+Stripe supports this today with:
+
+```env
+OM_INTEGRATION_STRIPE_PUBLISHABLE_KEY=pk_test_...
+OM_INTEGRATION_STRIPE_SECRET_KEY=sk_test_...
+OM_INTEGRATION_STRIPE_WEBHOOK_SECRET=whsec_...
+OM_INTEGRATION_STRIPE_API_VERSION=2025-02-24.acacia
+OM_INTEGRATION_STRIPE_ENABLED=true
+OM_INTEGRATION_STRIPE_FORCE_PRECONFIGURE=false
+```
+
+Rerun command:
+
+```bash
+yarn mercato gateway_stripe configure-from-env --tenant <tenantId> --org <organizationId>
+```
 
 ## Credential resolution
 

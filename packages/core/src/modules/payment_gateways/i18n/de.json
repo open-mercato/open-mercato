@@ -19,6 +19,7 @@
   "payment_gateways.status.pending": "Ausstehend",
   "payment_gateways.status.refunded": "Erstattet",
   "payment_gateways.status.unknown": "Unbekannt",
+  "payment_gateways.transactions.actions.capture": "Payment erfassen",
   "payment_gateways.transactions.actions.hideDetails": "Details ausblenden",
   "payment_gateways.transactions.actions.refreshStatus": "Status aktualisieren",
   "payment_gateways.transactions.actions.showDetails": "Details anzeigen",
@@ -54,6 +55,7 @@
   "payment_gateways.transactions.detail.title": "Transaktionsdetails",
   "payment_gateways.transactions.detail.webhooks": "Webhook-Aktivitaet",
   "payment_gateways.transactions.detail.webhooksEmpty": "Fuer diese Transaktion wurden noch keine Webhook-Ereignisse aufgezeichnet.",
+  "payment_gateways.transactions.error.capture": "Payment konnte nicht erfasst werden",
   "payment_gateways.transactions.error.load": "Zahlungstransaktionen konnten nicht geladen werden",
   "payment_gateways.transactions.error.loadDetail": "Transaktionsdetails konnten nicht geladen werden",
   "payment_gateways.transactions.error.refreshStatus": "Der Transaktionsstatus konnte nicht aktualisiert werden",
@@ -71,6 +73,7 @@
   "payment_gateways.transactions.log.runId": "Lauf-ID",
   "payment_gateways.transactions.log.time": "Zeit",
   "payment_gateways.transactions.searchPlaceholder": "Nach Zahlung, Transaktion, Sitzung oder Gateway-ID suchen",
+  "payment_gateways.transactions.success.capture": "Payment erfasst",
   "payment_gateways.transactions.success.refreshStatus": "Der Transaktionsstatus wurde aktualisiert",
   "payment_gateways.transactions.tableTitle": "Transaktionen",
   "payment_gateways.transactions.title": "Zahlungstransaktionen"

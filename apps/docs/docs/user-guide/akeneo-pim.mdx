@@ -1,0 +1,205 @@
+---
+title: Akeneo PIM Integration
+description: Connect Akeneo PIM to Open Mercato, map product attributes, import your catalog, and set up scheduled sync.
+sidebar_label: Akeneo PIM
+---
+
+This guide walks you through connecting your Akeneo PIM instance to Open Mercato, mapping product attributes, running your first import, and configuring ongoing synchronization.
+
+## Optional env preconfiguration
+
+If your deployment already knows the Akeneo credentials, you can preconfigure the integration automatically instead of filling the credentials form manually after every fresh install.
+
+Use these env vars:
+
+```env
+OM_INTEGRATION_AKENEO_API_URL=https://your-akeneo-instance.cloud.akeneo.com
+OM_INTEGRATION_AKENEO_CLIENT_ID=1_abc123...
+OM_INTEGRATION_AKENEO_CLIENT_SECRET=secret123...
+OM_INTEGRATION_AKENEO_USERNAME=admin
+OM_INTEGRATION_AKENEO_PASSWORD=yourpassword
+OM_INTEGRATION_AKENEO_ENABLED=true
+OM_INTEGRATION_AKENEO_FORCE_PRECONFIGURE=false
+```
+
+To rerun the preset for an existing tenant:
+
+```bash
+yarn mercato sync_akeneo configure-from-env --tenant <tenantId> --org <organizationId>
+```
+
+## Prerequisites
+
+- An Akeneo PIM instance (v5+ recommended) with API access enabled.
+- An API connection created in Akeneo (**System → Connections** or **Connect → Connection settings**) with at least read permissions on products, categories, attributes, and media.
+- The `integrations.credentials.manage` and `data_sync.manage` features enabled for your role in Open Mercato.
+
+## Step 1 — Enter Akeneo credentials
+
+1. Navigate to **External Systems → Integrations** and click **Configure** on the **Akeneo PIM** card.
+
+![Akeneo in the Integration Marketplace](/screenshots/open-mercato-akeneo-discover.png)
+
+2. Open the **Credentials** tab and fill in the connection details from your Akeneo instance.
+
+![Akeneo credentials form](/screenshots/open-mercato-akeneo-settings-credentials.png)
+
+| Field | Where to find it | Example |
+|-------|-----------------|---------|
+| **API URL** | Your Akeneo instance URL | `https://mycompany.cloud.akeneo.com` |
+| **Client ID** | Akeneo → Connect → Connection settings → Credentials | `1_abc123def456...` |
+| **Client Secret** | Same page as Client ID | `secret_xyz789...` |
+| **Username** | The Akeneo user associated with the connection | `openmercato_api` |
+| **Password** | Password for that Akeneo user | `••••••••` |
+
+3. Click **Save Credentials**.
+
+:::caution
+The Akeneo user must have read access to products, categories, attributes, families, and media files. Without these permissions the import will fail with authorization errors.
+:::
+
+## Step 2 — Verify health
+
+Switch to the **Health** tab and click **Run Check**. A **Healthy** result confirms Open Mercato can authenticate with your Akeneo instance using OAuth and reach the API.
+
+If the check fails, verify that:
+- The API URL is correct and reachable from your server (no trailing slash needed).
+- The Client ID and Secret match the connection in Akeneo.
+- The username and password are valid for the user linked to that connection.
+
+## Step 3 — Discover and map attributes
+
+Before importing products, Open Mercato needs to understand how your Akeneo attributes map to catalog fields. Navigate to the **Attributes Mapping** section on the Akeneo integration page.
+
+![Attribute mapping overview](/screenshots/open-mercato-akeneo-attributes-mapping.png)
+
+Open Mercato automatically discovers your Akeneo families and their attributes. For each attribute, you can choose how it maps:
+
+- **Standard field** — maps to a built-in Open Mercato product field (name, description, SKU, price, weight, etc.)
+- **Custom field** — creates a new custom field in your catalog to hold the data
+- **Skip** — ignores the attribute during import
+
+Click on any attribute row to open the attribute editor and configure the mapping in detail.
+
+![Attribute editor](/screenshots/open-mercato-akeneo-attribute-editor.png)
+
+:::tip
+Open Mercato infers sensible defaults for most attributes. Review the mapping before your first import, but you don't need to configure every attribute manually.
+:::
+
+## Step 4 — Run the first import
+
+Once credentials are verified and attributes are mapped, start the initial full import. Navigate to the import section and click **Start Import**.
+
+![First import](/screenshots/open-mercato-akeneo-first-import.png)
+
+The first import runs in three sequential steps:
+
+1. **Categories** — imports your Akeneo category tree, preserving the hierarchy.
+2. **Attributes** — creates option schemas and custom fields based on your attribute mapping.
+3. **Products** — imports simple products and product models (with variants), downloads media files, and applies pricing.
+
+Each step shows real-time progress. You can monitor the import from the **Ongoing Imports** view.
+
+![Ongoing imports with progress](/screenshots/open-mercato-akeneo-ongoing-imports.png)
+
+:::info
+The first import can take several minutes for large catalogs (10,000+ products). Open Mercato processes products in batches with rate limiting to avoid overloading your Akeneo instance. You can safely navigate away — the import continues in the background.
+:::
+
+## Step 5 — Review imported products
+
+After the import completes, navigate to **Catalog → Products** to verify your data. Here is what to expect:
+
+### Source product in Akeneo
+
+![Source product in Akeneo](/screenshots/open-mercato-akeneo-source-product.png)
+
+### Imported main product
+
+The main product appears with all mapped fields populated — name, description, images, and any custom fields from your attribute mapping.
+
+![Imported main product](/screenshots/open-mercato-akeneo-imported-main-product.png)
+
+### Variants
+
+Akeneo product models with variant axes are imported as Open Mercato product variants. Each variant inherits the parent product's shared attributes and adds its own axis values (e.g., size, color).
+
+![Imported variants](/screenshots/open-mercato-akeneo-imported-variants.png)
+
+### Families and attributes
+
+The Akeneo family structure is preserved through option schemas and custom field sets, keeping your product data organized.
+
+![Imported families and attributes](/screenshots/open-mercato-akeneo-imported-families-attributes.png)
+
+### Products with variants (Converse example)
+
+![Imported product with variants](/screenshots/open-mercato-akeneo-imported-converse.png)
+
+## Step 6 — Configure scheduled sync
+
+After the initial import, set up automatic synchronization to keep your catalog in sync with Akeneo. Open the **Scheduler** settings for the Akeneo integration.
+
+![Scheduler settings](/screenshots/open-mercato-akeneo-settings-scheduler.png)
+
+Configure the sync interval to match your needs. Incremental syncs are fast because they only fetch products updated since the last successful run.
+
+![Scheduled imports overview](/screenshots/open-mercato-akeneo-scheduled%20imports.png)
+
+| Setting | Recommendation |
+|---------|---------------|
+| **Sync interval** | Every 5–15 minutes for active catalogs, hourly for stable ones |
+| **Mode** | Incremental (default) — only fetches changes since last sync |
+
+:::tip
+Incremental syncs use Akeneo's `updated` timestamp filter, so only modified products are fetched. A sync of a 50,000-product catalog with 20 changes takes seconds, not minutes.
+:::
+
+## How variants work
+
+Akeneo uses a two-level hierarchy for configurable products:
+
+```
+Product Model (e.g., "Converse Chuck Taylor")
+  └── Variant (e.g., "Size 42, Black")
+  └── Variant (e.g., "Size 43, White")
+```
+
+Open Mercato flattens this into:
+
+```
+Product (e.g., "Converse Chuck Taylor")
+  ├── Variant: Size 42, Black
+  ├── Variant: Size 43, White
+  └── Option Schema: Size + Color (from family variant axes)
+```
+
+The family variant axes become option schemas automatically, so your storefront can render proper size/color selectors.
+
+## How media sync works
+
+During import, Open Mercato downloads product images and files from Akeneo using authenticated API requests and re-hosts them in the local attachment system. This means:
+
+- Images are served from your Open Mercato instance, not from Akeneo.
+- Media files are deduplicated using content hashes — re-importing the same image does not create duplicates.
+- Incremental syncs skip media that hasn't changed.
+
+## Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| Health check fails with "Unauthorized" | Verify Client ID, Secret, Username, and Password. Regenerate the connection credentials in Akeneo if needed. |
+| Health check fails with "Connection refused" | Check the API URL. Ensure your server can reach the Akeneo instance (firewall, DNS). |
+| Products imported without images | The Akeneo user may lack media read permissions. Check the connection's permission scope in Akeneo. |
+| Missing attributes on imported products | Review the attribute mapping — unmapped attributes are skipped by default. |
+| Variants not appearing | Ensure the source products are product models (not simple products) with family variants configured in Akeneo. |
+| Sync seems stuck | Check **Ongoing Imports** for error details. Large catalogs may take time on the first full import. |
+| Duplicate products after re-import | Open Mercato matches products by Akeneo identifier. If identifiers changed in Akeneo, duplicates can occur — use the deletion reconciliation to clean up. |
+
+## Next steps
+
+- [Integration Marketplace](./integrations) — manage all external service connections.
+- [Integrations & Data Sync REST API](/api/integrations-data-sync) — programmatic access to sync runs, credentials, and status.
+- [Products & Sales Channels](./products-and-sales-channels) — manage your imported catalog.
+- [Scheduler](./scheduler) — configure and monitor all scheduled tasks.

@@ -65,4 +65,39 @@ describe('data sync engine stale jobs', () => {
 
     warnSpy.mockRestore()
   })
+
+  it('skips cancelled import jobs and closes their progress job', async () => {
+    const syncRunService = {
+      getRun: jest.fn(async () => ({
+        id: 'run-1',
+        status: 'cancelled',
+        progressJobId: 'job-1',
+      })),
+    } as unknown as SyncRunService
+    const progressService = {
+      markCancelled: jest.fn(async () => undefined),
+    } as unknown as ProgressService
+
+    const engine = createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService,
+      integrationCredentialsService: {} as CredentialsService,
+      integrationLogService: {} as IntegrationLogService,
+      progressService,
+    })
+
+    await expect(
+      engine.runImport('run-1', 100, {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        userId: 'user-1',
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(progressService.markCancelled).toHaveBeenCalledWith('job-1', {
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      userId: 'user-1',
+    })
+  })
 })

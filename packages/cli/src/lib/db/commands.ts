@@ -10,7 +10,7 @@ import type { PackageResolver, ModuleEntry } from '../resolver'
 const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
 const PROGRESS_EMOJI = ''
 
-function formatResult(modId: string, message: string, emoji = '•') {
+function formatResult(modId: string, message: string, emoji = '\u2022') {
   return `${emoji} ${modId}: ${message}`
 }
 
@@ -84,6 +84,33 @@ export function validateTableName(tableName: string): void {
   }
 }
 
+export function makeConstraintDropsIdempotent(sql: string): string {
+  return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
+}
+
+let tsxLoaderRegistered = false
+
+async function importWithTypeScriptFile(filePath: string): Promise<any> {
+  const fileUrl = pathToFileURL(filePath).href
+  let tsImportFn: ((fileUrl: string, cwd: string) => Promise<any>) | undefined
+  try {
+    const { register, tsImport } = await import('tsx/esm/api')
+    if (!tsxLoaderRegistered) {
+      register()
+      tsxLoaderRegistered = true
+    }
+    tsImportFn = tsImport
+  } catch {
+    // Fallback to default import, in case tsx is unavailable in this environment.
+  }
+
+  if (tsImportFn) {
+    return await tsImportFn(fileUrl, pathToFileURL(process.cwd() + '/').href)
+  }
+
+  return import(fileUrl)
+}
+
 async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver): Promise<any[]> {
   const roots = resolver.getModulePaths(entry)
   const imps = resolver.getModuleImportBase(entry)
@@ -102,18 +129,21 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
         const fromApp = base.startsWith(roots.appBase)
-        // For @app modules, use file:// URL since @/ alias doesn't work in Node.js runtime
-        const importPath = (isAppModule && fromApp)
-          ? pathToFileURL(p.replace(/\.ts$/, '.js')).href
-          : `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+        const importPath = fromApp ? pathToFileURL(p).href : `${imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
         try {
-          const mod = await import(importPath)
+          const mod = isAppModule && fromApp
+            ? await importWithTypeScriptFile(p)
+            : await import(importPath)
           const entities = Object.values(mod).filter((v) => typeof v === 'function')
           if (entities.length) return entities as any[]
         } catch (err) {
-          // For @app modules with TypeScript files, they can't be directly imported
-          // Skip and let MikroORM handle entities through discovery
-          if (isAppModule) continue
+          // For @app modules we try a TS loader fallback; otherwise propagate errors
+          if (isAppModule) {
+            if (process.env.MERCATO_CLI_DEBUG_IMPORTS === '1') {
+              console.warn(`[db] failed to load app module entities from ${p}: ${(err as Error)?.message || String(err)}`)
+            }
+            continue
+          }
           throw err
         }
       }
@@ -161,7 +191,12 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const modId = entry.id
     const sanitizedModId = sanitizeModuleId(modId)
     const entities = await loadModuleEntities(entry, resolver)
-    if (!entities.length) continue
+    if (!entities.length) {
+      if (entry.from === '@app') {
+        results.push(formatResult(modId, 'no entities discovered', ''))
+      }
+      continue
+    }
 
     const migrationsPath = getMigrationsPath(entry, resolver)
     fs.mkdirSync(migrationsPath, { recursive: true })
@@ -212,6 +247,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         const newBase = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
         const newPath = path.join(dir, newBase)
         let content = fs.readFileSync(orig, 'utf8')
+        content = makeConstraintDropsIdempotent(content)
         // Rename class to ensure uniqueness as well
         content = content.replace(
           /export class (Migration\d+)/,

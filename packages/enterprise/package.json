@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.4.6",
+  "version": "0.4.8",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -66,7 +66,12 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "openid-client": "^6.3.3"
+    "@simplewebauthn/browser": "^11.0.0",
+    "@simplewebauthn/server": "^11.0.0",
+    "@types/qrcode": "^1.5.5",
+    "openid-client": "^6.3.3",
+    "otpauth": "9.4.1",
+    "qrcode": "^1.5.4"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*"

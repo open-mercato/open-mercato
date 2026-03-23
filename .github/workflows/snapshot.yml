@@ -2,7 +2,7 @@ name: Snapshot Release
 
 on:
   push:
-    branches: [develop, main]
+    branches: [develop]
   pull_request:
     branches: [develop, main]
 
@@ -15,6 +15,7 @@ jobs:
     name: Publish Snapshot
     outputs:
       snapshot_version: ${{ steps.release.outputs.version }}
+      publish_tag: ${{ steps.channel.outputs.publish_tag }}
     runs-on: ubuntu-latest
     # Skip PRs from forks (no access to secrets)
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
@@ -45,19 +46,24 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      - name: Determine release suffix
-        id: suffix
+      - name: Determine snapshot channel
+        id: channel
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "value=canary" >> $GITHUB_OUTPUT
-          else
-            echo "value=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
-          fi
+          CONFIG=$(node scripts/lib/snapshot-release.mjs config \
+            --event-name "${{ github.event_name }}" \
+            --ref-name "${{ github.ref_name }}")
+
+          echo "channel=$(echo "$CONFIG" | jq -r '.channel')" >> $GITHUB_OUTPUT
+          echo "publish_tag=$(echo "$CONFIG" | jq -r '.publishTag')" >> $GITHUB_OUTPUT
+          echo "moving_install_target=$(echo "$CONFIG" | jq -r '.movingInstallTarget')" >> $GITHUB_OUTPUT
+          echo "release_kind=$(echo "$CONFIG" | jq -r '.releaseKind')" >> $GITHUB_OUTPUT
 
       - name: Release snapshot
         id: release
         run: |
-          ./scripts/release-snapshot.sh "${{ steps.suffix.outputs.value }}"
+          ./scripts/release-snapshot.sh \
+            --channel "${{ steps.channel.outputs.channel }}" \
+            --tag "${{ steps.channel.outputs.publish_tag }}"
 
           # Extract published version for downstream jobs
           echo "version=$(jq -r '.version' packages/shared/package.json)" >> $GITHUB_OUTPUT
@@ -72,6 +78,48 @@ jobs:
 
           PACKAGE_COUNT=$(echo "$PACKAGES_JSON" | jq 'length')
           echo "package_count=$PACKAGE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Write workflow summary
+        if: steps.release.outputs.package_count != '0'
+        run: |
+          cat > /tmp/packages.json <<'EOF'
+          ${{ steps.release.outputs.packages_json }}
+          EOF
+
+          {
+            echo "## Snapshot Release"
+            echo ""
+            echo "- Release kind: \`${{ steps.channel.outputs.release_kind }}\`"
+            echo "- Dist-tag: \`${{ steps.channel.outputs.publish_tag }}\`"
+            echo "- Exact snapshot version: \`${{ steps.release.outputs.version }}\`"
+
+            if [ -n "${{ steps.channel.outputs.moving_install_target }}" ]; then
+              echo "- Moving install target: \`${{ steps.channel.outputs.moving_install_target }}\`"
+            fi
+
+            echo ""
+            echo "| Package | Version |"
+            echo "|---------|---------|"
+            jq -r '.[] | "| `\(.name)` | `\(.version)` |"' /tmp/packages.json
+            echo ""
+
+            if [ -n "${{ steps.channel.outputs.moving_install_target }}" ]; then
+              echo "### Moving Develop Channel"
+              echo ""
+              echo '```bash'
+              echo 'yarn add @open-mercato/core@develop'
+              echo 'npx create-mercato-app@develop my-app'
+              echo '```'
+              echo ""
+            fi
+
+            echo "### Exact Snapshot"
+            echo ""
+            echo '```bash'
+            echo "yarn add @open-mercato/core@${{ steps.release.outputs.version }}"
+            echo "npx create-mercato-app@${{ steps.release.outputs.version }} my-app"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Comment on PR
         if: github.event_name == 'pull_request' && steps.release.outputs.package_count != '0'
@@ -174,20 +222,11 @@ jobs:
       - name: Wait for npm registry propagation
         run: |
           VERSION="${{ needs.snapshot.outputs.snapshot_version }}"
-          PACKAGES=(
-            "@open-mercato/ai-assistant"
-            "@open-mercato/cache"
-            "@open-mercato/cli"
-            "@open-mercato/content"
-            "@open-mercato/core"
-            "@open-mercato/enterprise"
-            "@open-mercato/events"
-            "@open-mercato/onboarding"
-            "@open-mercato/queue"
-            "@open-mercato/scheduler"
-            "@open-mercato/search"
-            "@open-mercato/shared"
-            "@open-mercato/ui"
+          mapfile -t PACKAGES < <(
+            find packages -mindepth 2 -maxdepth 2 -name package.json -not -path "*/node_modules/*" -print | sort | \
+              while read -r manifest; do
+                jq -r 'select(.private != true) | .name' "$manifest"
+              done
           )
 
           echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
@@ -229,6 +268,7 @@ jobs:
           NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
           OM_ENABLE_ENTERPRISE_MODULES=true
           OM_ENABLE_ENTERPRISE_MODULES_SSO=true
+          OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
           CACHE_STRATEGY=memory
@@ -281,5 +321,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: standalone-integration-results
-          path: .ai/qa/test-results/
+          path: |
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
           if-no-files-found: ignore

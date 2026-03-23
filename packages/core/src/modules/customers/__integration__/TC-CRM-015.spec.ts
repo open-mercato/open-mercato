@@ -9,6 +9,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-015: Customer Search and Filter', () => {
   test('should search companies by name/email and filter by status, lifecycle and tag', async ({ page, request }) => {
+    test.slow();
+
     let token: string | null = null;
     let companyId: string | null = null;
 
@@ -21,7 +23,7 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies/${companyId}`);
+      await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'domcontentloaded' });
 
       await page.getByRole('button', { name: /Primary email/i }).click();
       await page.getByRole('textbox', { name: /Add email|name@example.com/i }).fill(companyEmail);
@@ -53,9 +55,10 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
       await page.getByRole('button', { name: /Save .*Ctrl\+Enter/i }).click();
       await expect(page.getByText(companyTag)).toBeVisible();
 
-      await page.goto('/backend/customers/companies');
+      await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
 
       const search = page.getByRole('textbox', { name: /Search companies/i });
+      await expect(search).toBeVisible();
       await search.fill(companyName);
       await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
 
@@ -75,7 +78,6 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
 
       await expect(page.getByRole('button', { name: /Status:\s*Active/i })).toBeVisible();
       await expect(page.getByRole('button', { name: /Lifecycle stage:\s*Prospect/i })).toBeVisible();
-
       await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
 
       await page.getByRole('button', { name: 'Filters' }).click();

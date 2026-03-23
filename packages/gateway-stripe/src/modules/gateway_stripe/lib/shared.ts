@@ -1,3 +1,5 @@
+import type { PaymentGatewayPresentationRequest } from '@open-mercato/shared/modules/payment_gateways/types'
+
 const ZERO_DECIMAL_CURRENCIES = new Set([
   'BIF',
   'CLP',
@@ -48,4 +50,53 @@ export function buildStripeMetadata(input: {
     meta.orderId = input.orderId
   }
   return meta
+}
+
+const STRIPE_PAYMENT_METHOD_ORDER = new Set([
+  'card',
+  'apple_pay',
+  'google_pay',
+  'link',
+])
+
+export type StripePaymentElementSettings = {
+  layout?: 'tabs' | 'accordion'
+  paymentMethodOrder?: string[]
+  billingDetails?: 'auto' | 'never' | 'if_required'
+}
+
+export function resolveStripeRendererKey(request?: PaymentGatewayPresentationRequest): string {
+  return request?.rendererKey === 'stripe.payment_element'
+    ? request.rendererKey
+    : 'stripe.payment_element'
+}
+
+export function normalizeStripePaymentElementSettings(
+  settings: Record<string, unknown> | null | undefined,
+): StripePaymentElementSettings | undefined {
+  if (!settings) return undefined
+
+  const layout = settings.layout === 'tabs' || settings.layout === 'accordion'
+    ? settings.layout
+    : undefined
+  const billingDetails = settings.billingDetails === 'auto'
+    || settings.billingDetails === 'never'
+    || settings.billingDetails === 'if_required'
+    ? settings.billingDetails
+    : undefined
+  const paymentMethodOrder = Array.isArray(settings.paymentMethodOrder)
+    ? settings.paymentMethodOrder.filter(
+        (value): value is string => typeof value === 'string' && STRIPE_PAYMENT_METHOD_ORDER.has(value),
+      )
+    : []
+
+  if (!layout && !billingDetails && paymentMethodOrder.length === 0) {
+    return undefined
+  }
+
+  return {
+    ...(layout ? { layout } : {}),
+    ...(billingDetails ? { billingDetails } : {}),
+    ...(paymentMethodOrder.length > 0 ? { paymentMethodOrder } : {}),
+  }
 }

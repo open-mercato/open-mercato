@@ -561,14 +561,41 @@ export class HybridQueryEngine implements QueryEngine {
     }
 
     for (const filter of baseFilters) {
-      const baseField = resolveBaseColumn(String(filter.field))
-      if (!baseField) continue
+      const fieldName = String(filter.field)
+      const baseField = resolveBaseColumn(fieldName)
+      if (!baseField) {
+        builder = this.applyIndexDocFilterFromAlias(
+          knex,
+          builder,
+          'ei',
+          entity,
+          fieldName,
+          filter.op,
+          filter.value,
+          'b.id',
+          searchRuntime,
+        )
+        if (optimizedCountBuilder) {
+          optimizedCountBuilder = this.applyIndexDocFilterFromAlias(
+            knex,
+            optimizedCountBuilder,
+            'ei',
+            entity,
+            fieldName,
+            filter.op,
+            filter.value,
+            'b.id',
+            searchRuntime,
+          )
+        }
+        continue
+      }
       const column = qualify(baseField)
       builder = this.applyColumnFilter(builder, column, filter, {
         ...searchRuntime,
         knex,
         entity,
-        field: String(filter.field),
+        field: fieldName,
         recordIdColumn: 'b.id',
       })
       if (optimizedCountBuilder) {
@@ -576,7 +603,7 @@ export class HybridQueryEngine implements QueryEngine {
           ...searchRuntime,
           knex,
           entity,
-          field: String(filter.field),
+          field: fieldName,
           recordIdColumn: 'b.id',
         })
       }
@@ -1121,6 +1148,79 @@ export class HybridQueryEngine implements QueryEngine {
         const vals = this.toArray(value) as readonly Knex.Value[]
         return q.whereNotIn(text as any, vals as any)
       }
+      case 'like':
+        return q.where(text, 'like', value as Knex.Value)
+      case 'ilike':
+        return q.where(text, 'ilike', value as Knex.Value)
+      case 'exists':
+        return value
+          ? q.whereRaw(`${text.toString()} is not null`)
+          : q.whereRaw(`${text.toString()} is null`)
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': {
+        const operator = op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<='
+        return q.where(text, operator, value as Knex.Value)
+      }
+      default:
+        return q
+    }
+  }
+
+  private applyIndexDocFilterFromAlias(
+    knex: Knex,
+    q: ResultBuilder,
+    alias: string,
+    entityType: string,
+    key: string,
+    op: FilterOp,
+    value: unknown,
+    recordIdColumn: string,
+    search?: SearchRuntime,
+  ): ResultBuilder {
+    const text = knex.raw(`(${alias}.doc ->> ?)`, [key])
+    if ((op === 'like' || op === 'ilike') && search?.enabled && typeof value === 'string') {
+      const tokens = tokenizeText(String(value), search.config)
+      const hashes = tokens.hashes
+      if (hashes.length) {
+        const applied = this.applySearchTokens(q, {
+          knex,
+          entity: entityType,
+          field: key,
+          hashes,
+          recordIdColumn,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope ?? null,
+        })
+        this.logSearchDebug('search:index-doc-filter', {
+          entity: entityType,
+          field: key,
+          tokens: tokens.tokens,
+          hashes,
+          applied,
+          tenantId: search.tenantId ?? null,
+          organizationScope: search.organizationScope,
+        })
+        if (applied) return q
+      } else {
+        this.logSearchDebug('search:index-doc-skip-empty-hashes', {
+          entity: entityType,
+          field: key,
+          value,
+        })
+      }
+      return q
+    }
+    switch (op) {
+      case 'eq':
+        return q.where(text, '=', value as Knex.Value)
+      case 'ne':
+        return q.where(text, '!=', value as Knex.Value)
+      case 'in':
+        return q.whereIn(text as any, this.toArray(value) as readonly Knex.Value[])
+      case 'nin':
+        return q.whereNotIn(text as any, this.toArray(value) as readonly Knex.Value[])
       case 'like':
         return q.where(text, 'like', value as Knex.Value)
       case 'ilike':

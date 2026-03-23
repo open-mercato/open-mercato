@@ -68,7 +68,9 @@ import {
   sanitizeProductWeight,
   updateDimensionValue,
   updateWeightValue,
+  isConfigurableProductType,
 } from "@open-mercato/core/modules/catalog/components/products/productForm";
+import { CATALOG_PRODUCT_TYPES } from "@open-mercato/core/modules/catalog/data/types";
 import {
   buildAttachmentImageUrl,
   slugifyAttachmentFileName,
@@ -131,6 +133,8 @@ const STEP_FIELD_MATCHERS: Record<
 > = {
   general: [
     matchField("title"),
+    matchField("sku"),
+    matchField("productType"),
     matchField("description"),
     matchField("mediaItems"),
     matchField("mediaDraftId"),
@@ -520,9 +524,13 @@ export default function CreateCatalogProductPage() {
               subtitle: formValues.subtitle?.trim() || undefined,
               description,
               handle,
+              sku: formValues.sku?.trim() || undefined,
+              productType: formValues.productType || "simple",
               taxRateId: formValues.taxRateId ?? null,
               taxRate: productTaxRate ?? null,
-              isConfigurable: Boolean(formValues.hasVariants),
+              isConfigurable: isConfigurableProductType(
+                formValues.productType || "simple",
+              ),
               defaultMediaId: defaultMediaId ?? undefined,
               defaultMediaUrl: defaultMediaUrl ?? undefined,
               dimensions,
@@ -1438,9 +1446,25 @@ function ProductBuilder({
               type="checkbox"
               className="h-4 w-4 rounded border"
               checked={values.hasVariants}
-              onChange={(event) =>
-                setValue("hasVariants", event.target.checked)
-              }
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setValue("hasVariants", checked);
+                if (
+                  checked &&
+                  !isConfigurableProductType(
+                    values.productType || "simple",
+                  )
+                ) {
+                  setValue("productType", "configurable");
+                } else if (
+                  !checked &&
+                  isConfigurableProductType(
+                    values.productType || "simple",
+                  )
+                ) {
+                  setValue("productType", "simple");
+                }
+              }}
             />
             {t(
               "catalog.products.create.variantsBuilder.toggle",
@@ -1911,6 +1935,77 @@ function ProductMetaSection({
         </p>
         {errors.handle ? (
           <p className="text-xs text-red-600">{errors.handle}</p>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <Label>{t("catalog.products.form.sku", "SKU")}</Label>
+        <Input
+          value={values.sku}
+          onChange={(event) => setValue("sku", event.target.value)}
+          placeholder={t(
+            "catalog.products.create.placeholders.sku",
+            "e.g., PROD-001",
+          )}
+          className="font-mono"
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "catalog.products.create.skuHelp",
+            "Unique product identifier. Letters, numbers, hyphens, underscores, periods.",
+          )}
+        </p>
+        {errors.sku ? (
+          <p className="text-xs text-red-600">{errors.sku}</p>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <Label>
+          {t("catalog.products.form.productType", "Product type")}
+        </Label>
+        <select
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          value={values.productType || "simple"}
+          onChange={(event) => {
+            const nextType = event.target.value;
+            setValue("productType", nextType);
+            const nextIsConfigurable =
+              isConfigurableProductType(nextType);
+            if (nextIsConfigurable && !values.hasVariants) {
+              setValue("hasVariants", true);
+            } else if (
+              !nextIsConfigurable &&
+              values.hasVariants
+            ) {
+              setValue("hasVariants", false);
+            }
+          }}
+        >
+          {CATALOG_PRODUCT_TYPES.map((type) => {
+            const isDisabled =
+              type === "bundle" || type === "grouped";
+            return (
+              <option
+                key={type}
+                value={type}
+                disabled={isDisabled}
+              >
+                {t(
+                  `catalog.products.types.${type}`,
+                  type,
+                )}
+                {isDisabled
+                  ? ` (${t("common.comingSoon", "Coming soon")})`
+                  : ""}
+              </option>
+            );
+          })}
+        </select>
+        {errors.productType ? (
+          <p className="text-xs text-red-600">
+            {errors.productType}
+          </p>
         ) : null}
       </div>
 

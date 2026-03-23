@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Open Mercato Team |
 | **Created** | 2026-03-02 |
-| **Related** | SPEC-052 (Use-Case Starters Framework), SPEC-053a (Matching Data Foundation), SPEC-053b (B2B PRM Operations), SPEC-041 (UMES), SPEC-013 (setup.ts) |
+| **Related** | SPEC-068 (Use-Case Examples Framework), SPEC-053a (Matching Data Foundation), SPEC-053b (B2B PRM Operations), SPEC-041 (UMES), SPEC-013 (setup.ts), SPEC-065 (Official Modules CLI Install and Eject) |
 
 ## TLDR
 **Key Points:**
@@ -86,7 +86,7 @@ Out of scope in first release:
 | Extend customers/sales via UMES slots and enrichers | Preserves host-module ownership |
 | Manual tier assignment in MVP | Business control and lower automation risk |
 | Starter seeds for defaults and examples | Reliable "day-0" usability |
-| CLI-first starter activation (`mercato init`) | Fits current developer workflow and avoids premature UI scope |
+| Example is a complete app in `open-mercato/ready-apps` (per SPEC-068) | Keeps core clean; example modules live in app `src/modules/`; bootstrap via `create-mercato-app --example b2b-prm` + `yarn initialize` |
 
 ## User Stories / Use Cases
 ### 1. Program Governance & KPI
@@ -101,7 +101,7 @@ Out of scope in first release:
 - An onboarded Agency Business Developer wants to answer RFPs in one place so delivery capabilities can be compared consistently.
 
 ### 4. Rollout
-- An Engineer wants to bootstrap this use case with a single CLI command so local pilot setup is repeatable.
+- An Engineer wants to scaffold a PRM app with `create-mercato-app --example b2b-prm` and run `yarn initialize` to get a demo-ready system in minutes.
 - A Maintainer wants to re-apply or upgrade starter baseline safely across tenants.
 
 ## Architecture
@@ -334,10 +334,14 @@ Representative response listing result:
 }
 ```
 
-### Starter Bootstrap (CLI Contract)
-- `mercato init --starter b2b_prm`
-- `mercato init --starter b2b_prm --starter-profile <profile_id>`
-- `mercato init --starter b2b_prm --no-examples` (uses structural defaults only)
+### Example Bootstrap (per SPEC-068)
+The PRM example is distributed as a complete app in the `open-mercato/ready-apps` repository. Bootstrap flow:
+
+1. `npx create-mercato-app my-prm --example b2b-prm` — fetches the B2B PRM example from `open-mercato/ready-apps` via GitHub API tarball
+2. `yarn install` → `yarn initialize` — setup.ts hooks auto-discover PRM modules and run `seedDefaults` / `seedExamples`
+
+Seed profiles (e.g., `demo_agency`) are controlled via env vars or starter config file, not CLI flags.
+To skip demo data: set `OM_SEED_EXAMPLES=false` or equivalent starter config before running `yarn initialize`.
 
 All routes require zod validation and `openApi` exports.
 
@@ -377,10 +381,9 @@ Starter UI surfaces:
 - `PARTNERSHIP_WIC_UI_REFRESH_ENABLED=false` (POC default)
 - `PARTNERSHIP_WIC_REFRESH_COOLDOWN_MINUTES=30`
 - `PARTNERSHIP_WIC_REFRESH_DAILY_LIMIT=6`
-- Starter CLI flags:
-  - `--starter b2b_prm`
-  - `--starter-profile <profile_id>`
-  - existing `--no-examples`
+- Starter seed profile config:
+  - `OM_PRM_SEED_PROFILE=demo_agency` (optional, controls which demo fixtures are seeded)
+  - `OM_SEED_EXAMPLES=false` (skip demo data during `yarn initialize`)
 
 ## Migration & Compatibility
 Compatibility commitments:
@@ -393,7 +396,7 @@ Compatibility commitments:
 ### POC
 1. Implement `partnerships` module with agency, tier, KPI entities.
 2. Implement self-onboarding and KPI import APIs, plus manager-only MIN attribution workflow for license records.
-3. Add CLI starter profile wiring in `mercato init` for `b2b_prm` and profile-specific seeds.
+3. Wire PRM `setup.ts` hooks (`seedDefaults`, `seedExamples`) for auto-discovery by `yarn initialize`.
 4. Seed dictionaries and custom entities for company profile + case study data.
 
 ### MVP
@@ -414,7 +417,7 @@ Compatibility commitments:
 - Unit: KPI computation contracts and tier lifecycle rules.
 - API integration: onboarding, tiers, metrics, RFP endpoints.
 - UI integration: dashboard flows and UMES extension rendering.
-- Starter E2E: blank tenant -> `mercato init --starter b2b_prm --starter-profile demo_agency` -> verify demo-ready state.
+- Example E2E: `create-mercato-app --example b2b-prm` -> `yarn initialize` -> verify demo-ready state.
 
 ## Performance, Cache & Scale
 ### Query and Index Strategy
@@ -516,6 +519,17 @@ Compatibility commitments:
 - **Fully compliant**: Approved for implementation as first starter profile.
 
 ## Changelog
+### 2026-03-18
+- Adopted `--example` pattern from `create-next-app`: bootstrap via `create-mercato-app --example b2b-prm` (per SPEC-068).
+- Renumbered framework reference: SPEC-062 → SPEC-068 (Use-Case Examples Framework) to resolve numbering conflict.
+- Renamed "starter" to "example" in bootstrap and distribution context.
+
+### 2026-03-17
+- Aligned bootstrap flow with Use-Case Starters Framework: replaced `mercato init --starter` with `create-mercato-app` + template repo + `yarn initialize` flow.
+- Updated Related field: SPEC-052 → SPEC-062, added SPEC-065.
+- Replaced CLI starter flags with env-var-based seed profile configuration.
+- Updated user stories, implementation plan, and testing strategy to match new bootstrap model.
+
 ### 2026-03-02
 - Initial specification for `b2b_prm` starter.
 - Defined phased scope and UMES-safe integration boundaries.

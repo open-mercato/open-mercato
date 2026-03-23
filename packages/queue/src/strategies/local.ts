@@ -81,18 +81,42 @@ export function createLocalQueue<T = unknown>(
     }
   }
 
+  function backupCorruptedQueueFile(content: string): string {
+    const backupFile = path.join(queueDir, `queue.corrupted.${Date.now()}.json`)
+    fs.writeFileSync(backupFile, content, 'utf8')
+    fs.writeFileSync(queueFile, '[]', 'utf8')
+    return backupFile
+  }
+
   function readQueue(): StoredJob<T>[] {
     ensureDir()
+    let content: string
+
     try {
-      const content = fs.readFileSync(queueFile, 'utf8')
-      return JSON.parse(content) as StoredJob<T>[]
+      content = fs.readFileSync(queueFile, 'utf8')
     } catch (error: unknown) {
-      const e = error as NodeJS.ErrnoException
-      if (e.code === 'ENOENT') {
+      const readError = error as NodeJS.ErrnoException
+      if (readError.code === 'ENOENT') {
         return []
       }
-      console.error(`[queue:${name}] Failed to read queue file:`, e.message)
-      throw new Error(`Queue file corrupted or unreadable: ${e.message}`)
+      console.error(`[queue:${name}] Failed to read queue file:`, readError.message)
+      throw new Error(`Queue file unreadable: ${readError.message}`)
+    }
+
+    try {
+      const parsed = JSON.parse(content) as unknown
+
+      if (!Array.isArray(parsed)) {
+        throw new Error('Queue file must contain a JSON array')
+      }
+
+      return parsed as StoredJob<T>[]
+    } catch (error: unknown) {
+      const parseError = error as Error
+      console.error(`[queue:${name}] Failed to read queue file:`, parseError.message)
+      const backupFile = backupCorruptedQueueFile(content)
+      console.error(`[queue:${name}] Backed up corrupted queue file to ${backupFile} and recreated queue.json`)
+      return []
     }
   }
 

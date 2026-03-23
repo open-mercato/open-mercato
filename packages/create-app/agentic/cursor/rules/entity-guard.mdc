@@ -1,0 +1,29 @@
+---
+description: Entity modification guard — triggers migration workflow
+globs:
+  - src/modules/*/entities/**/*.ts
+alwaysApply: false
+---
+
+# Entity Modification — Migration Required
+
+You are editing an entity file. After saving, you MUST:
+
+1. **Create a migration** — ask the user before running:
+   ```
+   yarn db:generate
+   ```
+
+2. **Show the migration** to the user and wait for confirmation before applying
+
+3. **Apply the migration** (only after user confirms):
+   ```
+   yarn db:migrate
+   ```
+
+4. **Regenerate registries**:
+   ```
+   yarn generate
+   ```
+
+Do NOT skip any step. Do NOT run migrations without user confirmation.

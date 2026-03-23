@@ -9,6 +9,7 @@ import {
   logActivityPayloadSchema,
   draftReplyPayloadSchema,
   extractionOutputSchema,
+  proposalListQuerySchema,
   validateActionPayloadForType,
 } from '../validators'
 
@@ -256,6 +257,26 @@ describe('draftReplyPayloadSchema', () => {
   })
 })
 
+describe('proposalListQuerySchema', () => {
+  it('accepts valid comma-separated category filters', () => {
+    const result = proposalListQuerySchema.safeParse({
+      category: 'rfq,order_update,payment',
+      page: '1',
+      pageSize: '25',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects invalid category values', () => {
+    const result = proposalListQuerySchema.safeParse({
+      category: 'rfq,not-a-real-category',
+      page: '1',
+      pageSize: '25',
+    })
+    expect(result.success).toBe(false)
+  })
+})
+
 describe('extractionOutputSchema', () => {
   const validOutput = {
     summary: 'Customer requests 100 units of Widget A',
@@ -438,6 +459,20 @@ describe('validateActionPayloadForType', () => {
       to: 'john@example.com',
       subject: 'Re: Test',
       body: 'Reply body',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('validates draft_reply payload with null optional fields (#899)', () => {
+    const result = validateActionPayloadForType('draft_reply', {
+      to: 'john@example.com',
+      subject: 'Re: Test',
+      body: 'Reply body',
+      replyTo: null,
+      references: null,
+      inReplyToMessageId: null,
+      toName: null,
+      context: null,
     })
     expect(result.success).toBe(true)
   })

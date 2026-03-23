@@ -16,18 +16,17 @@ The `.ai/specs/` folder is the central repository for:
 ## Naming Convention
 
 ### Specification Files
-Specification files follow scope-specific patterns:
+Specification files now follow one shared pattern in both OSS and enterprise folders:
 
-- OSS specs: `SPEC-{number}-{date}-{title}.md`
-- Enterprise specs: `SPEC-ENT-{number}-{date}-{title}.md`
+- `{date}-{title}.md`
 
-- **Number**: Sequential identifier (e.g., `001`, `002`, `003`)
 - **Date**: Creation date in ISO format (`YYYY-MM-DD`)
 - **Title**: Descriptive kebab-case title (e.g., `sidebar-reorganization`, `messages-module`)
+- **Legacy note**: Older specs may still use `SPEC-*` / `SPEC-ENT-*` prefixes. Keep those filenames only until they are intentionally normalized; new specs MUST use the date-first format.
 
 **Examples**:
-- `SPEC-007-2026-01-26-sidebar-reorganization.md`
-- `SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md`
+- `2026-01-26-sidebar-reorganization.md`
+- `2026-02-17-security-module-enterprise-mfa.md`
 
 ### Meta-Documentation Files
 Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ€”they provide guidelines for working with the specs themselves.
@@ -135,6 +134,7 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 | [SPEC-055](SPEC-055-2026-02-23-promotions-module.md) | 2026-02-23 | Promotions Module | Standalone promotions module with recursive rule tree, extensible evaluation engine, and resolved cart effects |
 | [SPEC-056](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp external communication + AI chat integration | WhatsApp conversation history, AI summaries, and tiered AI replies (easy auto-reply vs complex proposal-only). Extends Messages module (#414). Aligns with SPEC-045/045d. |
 | [SPEC-057](SPEC-057-2026-03-05-standalone-app-ai-folder.md) | 2026-03-05 | Standalone App `.ai` Folder & AI-Driven Development Kit | Dedicated `.ai/` folder for `create-mercato-app` template with adapted skills, UMES reference docs, and standalone Task Router for extension-first development. [#853](https://github.com/open-mercato/open-mercato/issues/853) |
+| [SPEC-068](SPEC-068-2026-03-02-use-case-examples-framework.md) | 2026-03-02 | Use-Case Examples Framework | `create-mercato-app --example` pattern for bootstrapping use-case solutions (B2B PRM, etc.) from official or community example repositories |
 
 ## Specification Structure
 
@@ -189,8 +189,8 @@ Every ADR must maintain a changelog at the bottom:
 ### When Creating New Modules
 
 1. Create a new specification file at:
-   - `.ai/specs/SPEC-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Open Source edition scope
-   - `.ai/specs/enterprise/SPEC-ENT-{next-number}-{YYYY-MM-DD}-{module-name}.md` for Enterprise Edition scope (enterprise numbering starts at `SPEC-ENT-001` in that folder)
+   - `.ai/specs/{YYYY-MM-DD}-{module-name}.md` for Open Source edition scope
+   - `.ai/specs/enterprise/{YYYY-MM-DD}-{module-name}.md` for Enterprise Edition scope
 2. Document the initial design before or alongside implementation
 3. Include a changelog entry for the initial specification
 4. Update this README.md with a link to the new specification

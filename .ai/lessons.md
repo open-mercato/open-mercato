@@ -86,6 +86,46 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: All UI components across `packages/ui`, `packages/core`, and `apps/mercato`.
 
+## WeakSet-based circular reference detection drops shared (non-circular) object references
+
+**Context**: The CLI OpenAPI generator (`packages/cli/src/lib/generators/openapi.ts`) used a `WeakSet` in `safeStringify` to detect circular references during JSON serialization. The `zodToJsonSchema` converter uses a `WeakMap` memo cache that returns the same JS object reference for identical Zod schema instances (e.g., `currencyCode` shared between quote and line item schemas).
+
+**Problem**: The `WeakSet` treated shared-but-non-circular references as circular, dropping them on second encounter. This caused properties like `currencyCode` to vanish from nested schemas in the generated `openapi.generated.json`. The line item schema was missing required fields, which misled AI agents and broke API payload construction.
+
+**Rule**: When detecting circular references in JSON serialization, use stack-based ancestor tracking (checking only the current path from root to node) instead of a `WeakSet` (which tracks all previously visited nodes globally). Shared references are legitimate and must be cloned, not dropped.
+
+**Applies to**: Any serialization code that processes object graphs with shared references (common in Zod schema conversions, AST tools, and dependency graphs).
+
+## Inject TypeScript types into LLM tool descriptions for correct API payloads
+
+**Context**: The AI Code Mode tools (`search` + `execute`) require the LLM to construct API payloads. When the LLM must query a separate tool to discover schema fields and then mentally translate a compact JSON format, it frequently constructs wrong payloads and enters debug spirals (20+ tool calls, 50+ API requests).
+
+**Problem**: Without inline type information, the LLM guesses field names and structures, sends bad payloads, gets 400 errors, then experiments with variations — wasting tokens and user time.
+
+**Rule**: For LLM-facing tools that construct structured API calls, pre-generate compact TypeScript type stubs from the OpenAPI spec at startup and inject them directly into the tool description. This mirrors Cloudflare's `generateTypes()` pattern. The LLM sees the correct types immediately without needing an extra discovery step.
+
+**Applies to**: Any AI tool that requires the LLM to construct structured payloads (API calls, database queries, form submissions).
+
+## Format Zod validation errors for LLM consumption
+
+**Context**: When the API returns 400 errors with raw Zod validation output (nested `issues[]` arrays, `fieldErrors` maps, or raw arrays), the LLM struggles to interpret the error structure and extract actionable fix instructions.
+
+**Problem**: The LLM sees verbose JSON like `[{"code":"invalid_type","expected":"string","path":["lines",0,"currencyCode"]}]` and may not correctly identify which field to fix, leading to trial-and-error debugging.
+
+**Rule**: Format validation errors into a concise human-readable string before returning to the LLM. Handle all Zod error formats (v3 `issues[]`, v4 `fieldErrors`/`formErrors`, raw arrays) and produce fix instructions like `"Validation failed — lines[0].currencyCode: expected string. Fix the listed fields and retry."` Fall back to `JSON.stringify` for unrecognized formats.
+
+**Applies to**: Any AI-facing API wrapper that surfaces validation errors to an LLM agent.
+
+## MikroORM 6 does NOT generate UUIDs client-side — assign PKs before referencing
+
+**Context**: `@PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })` configures PostgreSQL to generate UUIDs at INSERT time. When `em.create(Entity, data)` is called without an explicit `id`, the entity's `id` field is `undefined` until `em.flush()` executes the INSERT.
+
+**Problem**: In `sales/commands/documents.ts`, the quote/order creation code called `em.create(SalesQuote, { ... })` without providing an `id`, then immediately referenced `quote.id` when re-validating inline line items via `quoteLineCreateSchema.parse({ quoteId: quote.id })`. Since `quote.id` was `undefined`, Zod validation failed with "quoteId: Invalid input: expected string, received undefined" — silently breaking inline line creation for both quotes and orders.
+
+**Rule**: When creating an entity and immediately referencing its PK (before flush), generate the UUID client-side via `crypto.randomUUID()` and pass it explicitly: `em.create(Entity, { id: randomUUID(), ... })`. This ensures the PK is available immediately for child entity creation.
+
+**Applies to**: Any `em.create()` call where the entity's PK is referenced before `em.flush()`, especially parent-child patterns where children need the parent's ID.
+
 ## Integration tests: avoid `networkidle` on pages with SSE/background streams
 
 **Context**: Multiple Sales/Integration UI tests started timing out at 20s in ephemeral runs. Failing point was `page.waitForLoadState('networkidle')` right after navigation.
@@ -150,6 +190,14 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: All new connector work and refactors of existing providers (for example, `gateway_*`, `carrier_*`, and sync connector modules), with UMES extension points per SPEC-041.
 
+## Sanitize generated component override entries before runtime use
+
+**Context**: Enterprise security login overrides caused `/login` SSR failures because the server-side override registry received at least one malformed entry from generated component overrides, and `getComponentOverrides()` assumed every item had `target.componentId`.
+
+**Rule**: Shared runtime registries fed by generated/module-loaded plugin arrays must defensively filter malformed or `undefined` entries both at registration time and before lookup. Never assume SSR imports across client/server module boundaries preserve registry item shape.
+
+**Applies to**: `packages/shared/src/modules/widgets/component-registry.ts` and any similar generated registries that are consumed during Next.js SSR/bootstrap.
+
 ## Prefer canonical route paths over alias lists for custom APIs
 
 **Context**: Payment and shipping endpoints were still using the legacy `api/<method>/...` layout, and shipping added alias matching because its public URL was kebab-case while the module id is snake_case.
@@ -159,3 +207,193 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: For custom APIs, prefer the standard `api/<segment>/route.ts` layout. If the public URL must differ from the generator default, declare one canonical `metadata.path` override on the route instead of alias lists or app-route special cases.
 
 **Applies to**: Module API routes, generator path mapping, and any future public endpoint refactors.
+
+## Do not diagnose unknown-total progress as broken SSE
+
+**Context**: Data sync jobs were emitting `progress.job.updated` correctly through the same SSE bridge used by the working example page, but the top bar and run detail still looked frozen at `0%`.
+
+**Problem**: Product imports often do not know `totalCount` up front. `ProgressService.updateProgress()` therefore kept `progressPercent` at `0`, so the UI rendered a static 0% bar even while `processedCount` was increasing in real time.
+
+**Rule**: When a long-running job has no reliable total, treat it as **indeterminate progress** in the UI. Keep SSE/poll updates for `processedCount`, avoid showing `0% complete`, and preserve any available `totalEstimate` instead of discarding it in adapters.
+
+**Applies to**: `packages/core/src/modules/data_sync/lib/sync-engine.ts`, provider adapters such as `packages/sync-akeneo/src/modules/sync_akeneo/lib/adapter.ts`, and any UI using `ProgressTopBar` or run-detail progress bars.
+
+## Worker-emitted progress needs polling fallback even when SSE exists
+
+**Context**: Example-page progress SSE worked, but bulk product operations and data sync progress in the top bar did not update live.
+
+**Problem**: The DOM Event Bridge tap in `packages/events/src/modules/events/api/stream/route.ts` is process-local. Queue workers emit `progress.job.updated` in a different process, so those events do not reach the browser through SSE even though the `ProgressJob` database row updates correctly.
+
+**Rule**: For progress UIs, use **SSE for immediacy** and **polling while active jobs exist** as the correctness path. Do not assume worker-emitted progress events will reach the browser unless the event bus is explicitly cross-process bridged for broadcast traffic.
+
+**Applies to**: `packages/ui/src/backend/progress/useProgressSse.ts`, all worker-driven progress jobs (data sync, bulk delete, reindex, similar queue jobs), and any future SSE-based progress UI.
+
+## Akeneo base-field imports must not fall back across locales or channels
+
+**Context**: Akeneo product values were being resolved with a score-based matcher that could still pick a different locale or scope when the selected locale/channel did not exist.
+
+**Problem**: German or other scoped Akeneo content leaked into the tenant's base Open Mercato fields, so a single-locale import silently mixed languages and channel variants instead of leaving the field empty.
+
+**Rule**: When importing into non-translation Open Mercato fields, only accept the explicitly selected Akeneo locale/channel plus Akeneo's unlocalized or unscoped fallback entries. Never fall back to a different locale or channel just to fill a value.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts`, future translation import work, and any adapter that flattens layered external localized values into base fields.
+
+## Akeneo media identifiers can be slash-delimited path params
+
+**Context**: Akeneo media values looked like file paths (`6/7/7/...jpg`). The importer treated them as opaque codes and URL-encoded the entire string before calling `/api/rest/v1/media-files/{code}`.
+
+**Problem**: Encoding the whole identifier as one segment changed the path semantics and caused false `media file ... was not found` failures, which then prevented attachments from being created and assigned.
+
+**Rule**: For Akeneo media-file endpoints, preserve `/` path separators inside the media identifier and only encode each path segment individually. Treat these identifiers as route params, not as a single opaque slug.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/client.ts`, media download helpers, and any future Akeneo endpoint that accepts slash-delimited resource identifiers.
+
+## Sync progress must count source records, not emitted side-effect items
+
+**Context**: The Akeneo product adapter emits multiple import items per source product (for example product + default variant), but the sync engine was using `batch.items.length` as the user-facing processed count.
+
+**Problem**: Progress showed inflated numbers like 1800 processed for a 1320-product Akeneo catalog, which made the run look stuck or inconsistent even when it was just finishing reconciliation after the last real source page.
+
+**Rule**: When adapters emit derived records, they must report a separate source-level processed count, and the sync engine must use that value for progress. Batch/item counters may still track created/updated records separately, but user-facing progress should match the source system's entity count.
+
+**Applies to**: `packages/core/src/modules/data_sync/lib/adapter.ts`, `packages/core/src/modules/data_sync/lib/sync-engine.ts`, Akeneo import batches, and any future adapter that explodes one external record into multiple local writes.
+
+## Data-sync run detail should subscribe to its progress job, not just poll it
+
+**Context**: The global progress bar already reacted immediately to `progress.job.*` events, but the data-sync run detail page still depended on a 4-second polling loop.
+
+**Problem**: For fast or concurrent sync jobs, the run detail could look stale or inconsistent compared with the top bar, especially when multiple jobs from the same integration had generic names and users expected SSE-driven updates.
+
+**Rule**: Any page centered around a specific `ProgressJob` should subscribe to `progress.job.updated|started|completed|failed|cancelled` for that job ID and use polling only as a recovery/backfill path. Also include enough job metadata or naming detail to distinguish concurrent runs of the same integration.
+
+**Applies to**: `packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx`, progress payload serialization, and future job-specific run/detail pages.
+
+## Akeneo variant reuse must be scoped to the current product, not global SKU matches
+
+**Context**: The importer used SKU fallback when an Akeneo variant external-ID mapping was missing.
+
+**Problem**: If a stale or orphaned Akeneo variant row with the same SKU already existed under a different product, the importer could reuse that wrong variant ID. Price creation then failed with `Variant does not belong to the provided product`, even though the Akeneo source data itself was valid.
+
+**Rule**: Variant fallback matching must always be scoped to the current product. A missing external-ID mapping is not enough reason to reuse a same-SKU variant from another product.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts`, Akeneo re-import logic, and any sync adapter that falls back from stable external IDs to local natural keys.
+
+## Force-delete import tools must include orphaned imported rows, not only mapped rows
+
+**Context**: The Akeneo "Force delete all imported products" action originally found products only through `sync_external_id_mappings`.
+
+**Problem**: Earlier bad imports could leave Akeneo-origin products behind after mappings were lost or overwritten. The delete tool reported success but still left imported rows in the catalog, which then polluted later re-imports and caused duplicate-SKU conflicts.
+
+**Rule**: Destructive importer cleanup must discover imported rows from durable record metadata as well as external-ID mapping tables. Mapping tables alone are not a complete source of truth after failed or partial syncs.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/delete-imported-products.ts` and any future cleanup/reset actions for integration-owned data.
+
+## Variant hero media should be written after importer flush-heavy work
+
+**Context**: Akeneo variant images were being downloaded and attached to the correct variant records, but some variants still ended the import with `default_media_id = null`.
+
+**Problem**: Later ORM flushes in the same import path can leave the attachment in place while writing an older in-memory variant snapshot back over the hero-media fields.
+
+**Rule**: When an importer creates variant attachments and also performs later flush-heavy work, persist the variant hero-media pointer as the final variant write in that path. Attachment assignment and hero-media selection are separate pieces of state and both must survive the last flush.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/catalog-importer.ts` and any importer that assigns attachments plus a default/hero attachment on the same entity in one transaction flow.
+
+## Env-backed integration presets belong in the provider module, not core
+
+**Context**: Akeneo needed a way to come up preconfigured on fresh installs from deployment environment variables, while still supporting a manual rerun later.
+
+**Problem**: Pushing provider-specific bootstrap logic into core integration or data-sync modules would couple generic infrastructure to one connector and make every future provider preset harder to maintain.
+
+**Rule**: Provider-specific env bootstrapping should live in the provider package itself, exposed through that module's own `setup.ts` and `cli.ts`, and should reuse the same helper for automatic tenant init and manual reruns.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/setup.ts`, `packages/sync-akeneo/src/modules/sync_akeneo/cli.ts`, and future integration packages that need env-driven bootstrap.
+
+## Integration packages must use decryption-aware find helpers for all entity reads
+
+**Context**: The Akeneo package had accumulated a mix of `findWithDecryption` usage and raw `em.find` / `em.findOne` reads across routes, setup presets, cleanup jobs, and importer internals.
+
+**Problem**: Even when the currently-read fields are not encrypted, raw ORM reads bypass encryption-map handling and create silent regressions once entity fields become encrypted later.
+
+**Rule**: In integration/provider modules, all entity reads should default to `findWithDecryption` / `findOneWithDecryption`; treat raw `em.find` / `em.findOne` as a bug unless there is a deliberate low-level reason that is documented inline.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/**/*` and future integration packages reading tenant-scoped entities.
+
+## Optional native dependencies must report load failures accurately
+
+**Context**: The cache package warned that SQLite was unavailable because of a "missing dependency: better-sqlite3", even though the package was installed.
+
+**Problem**: The actual failure was a stale native build of `better-sqlite3` after a Node.js upgrade. The misleading warning sent debugging toward dependency declarations instead of the ABI mismatch and rebuild.
+
+**Rule**: For optional native dependencies, preserve and classify the original load error. Do not collapse ABI/version/build failures into "missing dependency" messages. When loading native modules from package runtimes, prefer `createRequire(import.meta.url)` over dynamic `import()` if it is more reliable for CJS/native addons.
+
+**Applies to**: `packages/cache/src/strategies/sqlite.ts`, `packages/cache/src/service.ts`, and any package with optional native providers.
+
+## New progress UI must use SSE, not fresh polling loops
+
+**Context**: The Akeneo "first full import" widget originally tracked its sequence state with `setTimeout` polling against a status endpoint, even though the platform already broadcasts `progress.job.*` events to the browser.
+
+**Problem**: Browser-local polling made the feature look active without proving a durable backend job existed, added stale state paths on refresh, and reintroduced a legacy pattern the rest of the progress system is moving away from.
+
+**Rule**: When a feature already has a real `ProgressJob`, drive the UI from `progress.job.*` SSE events and only use one-shot fetches for initial hydration or reconnect recovery. Do not add new timer-based progress polling loops in widgets or backend pages.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/widgets/injection/akeneo-config/widget.client.tsx` and future progress-driven UI in integrations or data sync.
+
+## Browser SSE bridges must work across worker and web processes
+
+**Context**: Akeneo product imports were updating `ProgressJob` rows and even the top bar sometimes, but the browser SSE stream often showed only heartbeats while worker-driven product progress was actively changing in the database.
+
+**Problem**: The DOM Event Bridge only tapped in-process event emits. Queue workers emitted `progress.job.*` from a different Node process, so the web server's `/api/events/stream` never saw those updates live. UI built on SSE then looked stalled or inconsistent, and frontend polling crept back in as a workaround.
+
+**Rule**: If server events can originate from workers, the event bridge must include a cross-process transport. Do not assume an in-memory tap is enough for SSE delivery. Also, orchestration widgets that wrap child sync runs should subscribe to the active child `progressJobId`, not only to a slower wrapper job.
+
+**Applies to**: `packages/events/src/bus.ts`, `packages/events/src/modules/events/api/stream/route.ts`, `packages/sync-akeneo/src/modules/sync_akeneo/lib/first-import.ts`, and worker-backed progress UI across the platform.
+
+## Keep standalone agentic content in sync with module conventions
+
+**Context**: `packages/create-app/agentic/` contains purpose-built AI coding tool configurations for standalone Open Mercato apps (AGENTS.md, CLAUDE.md, entity-migration hooks, Cursor rules, Codex enforcement rules). This content is separate from the monorepo's `.ai/` folder.
+
+**Problem**: When module conventions change (entity lifecycle, auto-discovery paths, CLI commands, `yarn generate` behavior), the standalone agentic content can drift, causing AI tools to give incorrect guidance or hooks to miss new patterns.
+
+**Rule**: When changing module conventions that affect standalone app developers — entity/migration workflow, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
+
+**Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+
+## Use `safeExtend()` when composing refined Zod object schemas
+
+**Context**: Checkout pay-link validators extended a schema that already contained `superRefine(...)` rules.
+
+**Problem**: Zod v4 throws at runtime when `.extend()` is used on object schemas that contain refinements. This broke both OpenAPI generation and app initialization with `Object schemas containing refinements cannot be extended`.
+
+**Rule**: Any time a Zod object schema has refinements (`refine`, `superRefine`, similar), compose follow-up schemas with `.safeExtend()` instead of `.extend()`.
+
+**Applies to**: Module validators, generated OpenAPI bundling, bootstrap/init code paths, and any schema reuse chain built on refined objects.
+
+## Package build scripts must rewrite side-effect ESM imports and declared watch entrypoints must exist
+
+**Context**: `@open-mercato/checkout` emitted `import "./commands"` into dist because its build post-processing only rewrote `from` and dynamic imports. `@open-mercato/gateway-stripe` declared `"watch": "node watch.mjs"` without a `watch.mjs` file.
+
+**Problem**: Dev boot failed on unsupported directory ESM imports, and `yarn watch:packages` aborted immediately on the missing watch entrypoint.
+
+**Rule**: For package-local build scripts, handle all three relative import forms when fixing ESM output: static `from`, dynamic `import(...)`, and bare side-effect `import "..."`. If a package exposes a `watch` script, keep a real `watch.mjs` entrypoint committed alongside `build.mjs`.
+
+**Applies to**: Workspace packages with custom `build.mjs` / `watch.mjs` tooling and any new ESM package added to the monorepo.
+
+## Use canonical generated entity ids, not shortened ad-hoc aliases
+
+**Context**: Checkout used shortened ids like `checkout:link` and `checkout:transaction`, while the generated canonical ids for its ORM entities are `checkout:checkout_link` and `checkout:checkout_transaction`.
+
+**Problem**: Query/index/search/encryption helpers rely on canonical entity ids to infer table names and registry metadata. The shortened aliases pushed reindexing toward `links` instead of `checkout_links` and silently diverged from the generated contract.
+
+**Rule**: For ORM-backed entities, use the generated canonical entity ids consistently across CRUD indexers, search config, translations, encryption defaults, and custom-entity declarations. Do not invent shorter aliases unless the platform explicitly supports them everywhere.
+
+**Applies to**: Any module that participates in generated entity ids, query index/search, translations, encryption maps, or custom field registration.
+
+## Prefer relative intra-package imports inside package CLI/runtime entrypoints
+
+**Context**: The core entities CLI imported its own package internals through `@open-mercato/core/...` aliases.
+
+**Problem**: Dist-time ESM resolution became brittle in initialization flows and failed to resolve package-internal files that were present locally.
+
+**Rule**: Inside a package's own CLI/runtime entrypoints, prefer local relative imports for same-package modules instead of going back through the package alias, unless that alias path is explicitly part of the public runtime contract.
+
+**Applies to**: `cli.ts`, bootstrap helpers, package-local scripts, and other runtime entrypoints executed directly from dist.

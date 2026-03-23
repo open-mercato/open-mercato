@@ -22,7 +22,7 @@ export const searchConfig: SearchModuleConfig = {
       enabled: true,
       priority: 6,
       fieldPolicy: {
-        searchable: ['summary'],
+        searchable: ['summary', 'category'],
         excluded: ['metadata', 'participants'],
       },
       buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
@@ -35,17 +35,19 @@ export const searchConfig: SearchModuleConfig = {
           fields: {
             status: record.status,
             confidence: record.confidence,
+            category: record.category,
             detected_language: record.detected_language,
           },
           presenter: {
             title: String(record.summary || 'Inbox Proposal').slice(0, 80),
-            subtitle: `Confidence: ${record.confidence} - Status: ${record.status}`,
+            subtitle: `Confidence: ${record.confidence} - Status: ${record.status}${record.category ? ` - Category: ${record.category}` : ''}`,
             icon: 'inbox',
           },
           checksumSource: {
             summary: record.summary,
             status: record.status,
             confidence: record.confidence,
+            category: record.category,
             detectedLanguage: record.detected_language,
           },
         }
@@ -53,7 +55,7 @@ export const searchConfig: SearchModuleConfig = {
       formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
         return {
           title: String(ctx.record.summary || 'Inbox Proposal').slice(0, 80),
-          subtitle: `Confidence: ${ctx.record.confidence} - Status: ${ctx.record.status}`,
+          subtitle: `Confidence: ${ctx.record.confidence} - Status: ${ctx.record.status}${ctx.record.category ? ` - Category: ${ctx.record.category}` : ''}`,
           icon: 'inbox',
         }
       },

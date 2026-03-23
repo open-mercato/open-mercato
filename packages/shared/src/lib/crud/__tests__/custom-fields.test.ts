@@ -1,4 +1,10 @@
-import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload, loadCustomFieldValues } from '../custom-fields'
+import {
+  buildCustomFieldFiltersFromQuery,
+  extractAllCustomFieldEntries,
+  loadCustomFieldDefinitionIndex,
+  loadCustomFieldValues,
+  splitCustomFieldPayload,
+} from '../custom-fields'
 import { encryptWithAesGcm } from '../../encryption/aes'
 
 const mockEntityManager = (defs: any[]) => ({
@@ -36,7 +42,16 @@ describe('buildCustomFieldFiltersFromQuery', () => {
   })
 
   it('restricts filters to the requested fieldset code', async () => {
-    const em = mockEntityManager(definitions)
+    const em = mockEntityManager([
+      ...definitions,
+      {
+        id: 'def-shared-support',
+        key: 'support_contact',
+        kind: 'text',
+        entityId: 'catalog:product',
+        configJson: { fieldsets: ['fashion', 'giftable'] },
+      },
+    ])
     const filters = await buildCustomFieldFiltersFromQuery({
       entityIds: ['catalog:product'],
       query: { cf_color: 'blue' },
@@ -53,6 +68,14 @@ describe('buildCustomFieldFiltersFromQuery', () => {
       fieldset: 'tech',
     })
     expect(emptyFilters).toEqual({})
+    const sharedFilters = await buildCustomFieldFiltersFromQuery({
+      entityIds: ['catalog:product'],
+      query: { cf_support_contact: 'team@example.com' },
+      em: em as any,
+      tenantId: 'tenant-1',
+      fieldset: 'giftable',
+    })
+    expect(sharedFilters).toEqual({ 'cf:support_contact': 'team@example.com' })
   })
 })
 
@@ -146,5 +169,51 @@ describe('loadCustomFieldValues (encryption)', () => {
       encryptionService: mockService as any,
     })
     expect(values['rec-1'].cf_note).toBe('secret-note')
+  })
+})
+
+describe('loadCustomFieldDefinitionIndex', () => {
+  it('filters definition summaries by selected fieldset membership', async () => {
+    const em = mockEntityManager([
+      {
+        key: 'service_deliverables',
+        entityId: 'checkout:checkout_link',
+        kind: 'multiline',
+        organizationId: null,
+        tenantId: 'tenant-1',
+        updatedAt: new Date('2026-03-20T10:00:00.000Z'),
+        configJson: { fieldset: 'service_package', label: 'What is included' },
+        isActive: true,
+      },
+      {
+        key: 'support_contact',
+        entityId: 'checkout:checkout_link',
+        kind: 'text',
+        organizationId: null,
+        tenantId: 'tenant-1',
+        updatedAt: new Date('2026-03-20T10:00:00.000Z'),
+        configJson: { fieldsets: ['service_package', 'event_ticket'], label: 'Support contact' },
+        isActive: true,
+      },
+      {
+        key: 'event_date',
+        entityId: 'checkout:checkout_link',
+        kind: 'text',
+        organizationId: null,
+        tenantId: 'tenant-1',
+        updatedAt: new Date('2026-03-20T10:00:00.000Z'),
+        configJson: { fieldset: 'event_ticket', label: 'Event date' },
+        isActive: true,
+      },
+    ])
+
+    const index = await loadCustomFieldDefinitionIndex({
+      em: em as any,
+      entityIds: 'checkout:checkout_link',
+      tenantId: 'tenant-1',
+      fieldset: 'service_package',
+    })
+
+    expect(Array.from(index.keys()).sort()).toEqual(['service_deliverables', 'support_contact'])
   })
 })

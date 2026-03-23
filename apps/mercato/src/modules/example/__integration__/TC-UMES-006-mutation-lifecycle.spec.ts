@@ -20,11 +20,11 @@ import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
   apiRequest,
-} from '@open-mercato/core/modules/core/__integration__/helpers/api'
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createCompanyFixture,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+} from '@open-mercato/core/helpers/integration/crmFixtures'
 
 async function createTodo(
   request: Parameters<typeof apiRequest>[0],

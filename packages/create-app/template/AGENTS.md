@@ -35,11 +35,20 @@ yarn typecheck
 # Linting
 yarn lint
 
-# Run tests
+# Run unit tests
 yarn test
 
-# Run a single test
+# Run a single unit test
 yarn test path/to/test.spec.ts
+
+# Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
+mercato test integration
+
+# Start ephemeral app only (for manual QA exploration)
+mercato test ephemeral
+
+# View HTML integration test report
+mercato test coverage
 
 # Generate code from modules
 yarn generate
@@ -97,6 +106,7 @@ Custom modules go in `src/modules/`. Each module can define:
 - Navigation entries
 
 Add new modules to `src/modules.ts` with `from: '@app'`.
+Install official package-backed modules with `yarn mercato module add @open-mercato/<package>`.
 
 ### Path Aliases
 

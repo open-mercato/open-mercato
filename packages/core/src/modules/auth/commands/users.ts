@@ -687,48 +687,66 @@ registerCommand(createUserCommand)
 registerCommand(updateUserCommand)
 registerCommand(deleteUserCommand)
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function resolveRole(
+  em: EntityManager,
+  value: string,
+  normalizedTenantId: string | null,
+): Promise<Role | null> {
+  if (UUID_RE.test(value)) {
+    const where: Record<string, unknown> = { id: value }
+    if (normalizedTenantId !== null) {
+      where.$or = [{ tenantId: normalizedTenantId }, { tenantId: null }]
+    }
+    return em.findOne(Role, where as any)
+  }
+  let role = await em.findOne(Role, { name: value, tenantId: normalizedTenantId })
+  if (!role && normalizedTenantId !== null) {
+    role = await em.findOne(Role, { name: value, tenantId: null })
+  }
+  return role
+}
+
 async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string[], tenantId: string | null) {
   const unique = Array.from(new Set(desiredRoles.map((role) => role.trim()).filter(Boolean)))
-  const currentLinks = await em.find(UserRole, { user })
-  const currentNames = new Map(
-    currentLinks.map((link) => {
-      const roleEntity = link.role
-      const name = roleEntity?.name ?? ''
-      return [name, link] as const
-    }),
-  )
-
-  for (const [name, link] of currentNames.entries()) {
-    if (!unique.includes(name) && link) {
-      em.remove(link)
-    }
-  }
-
   const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
-  const missingRoles: string[] = []
-  const roleAssignments: Role[] = []
 
-  for (const name of unique) {
-    if (!currentNames.has(name)) {
-      let role = await em.findOne(Role, { name, tenantId: normalizedTenantId })
-      if (!role && normalizedTenantId !== null) {
-        role = await em.findOne(Role, { name, tenantId: null })
-      }
-      if (!role) {
-        missingRoles.push(name)
-      } else {
-        roleAssignments.push(role)
-      }
+  const resolvedRoles: Role[] = []
+  const missingRoles: string[] = []
+  for (const value of unique) {
+    const role = await resolveRole(em, value, normalizedTenantId)
+    if (!role) {
+      missingRoles.push(value)
+    } else {
+      resolvedRoles.push(role)
     }
   }
 
   if (missingRoles.length) {
-    const names = missingRoles.map((n) => `"${n}"`).join(', ')
-    throw new CrudHttpError(400, { error: `Role(s) not found: ${names}` })
+    const labels = missingRoles.map((n) => `"${n}"`).join(', ')
+    throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
   }
 
-  for (const role of roleAssignments) {
-    em.persist(em.create(UserRole, { user, role, createdAt: new Date() }))
+  const desiredIds = new Set(resolvedRoles.map((r) => String(r.id)))
+  const currentLinks = await em.find(UserRole, { user })
+  const currentRoleIds = new Map(
+    currentLinks.map((link) => {
+      const roleId = String(link.role?.id ?? (link.role as unknown as string) ?? '')
+      return [roleId, link] as const
+    }),
+  )
+
+  for (const [roleId, link] of currentRoleIds.entries()) {
+    if (!desiredIds.has(roleId) && link) {
+      em.remove(link)
+    }
+  }
+
+  for (const role of resolvedRoles) {
+    if (!currentRoleIds.has(String(role.id))) {
+      em.persist(em.create(UserRole, { user, role, createdAt: new Date() }))
+    }
   }
 
   await em.flush()

@@ -14,7 +14,7 @@ const widget: InjectionWidgetModule = {
       const payload = data && typeof data === 'object' ? data as Record<string, unknown> : {}
       const captureMethod = payload.captureMethod
       if (captureMethod !== undefined && captureMethod !== 'automatic' && captureMethod !== 'manual') {
-        return { ok: false, message: 'Capture method must be automatic or manual' }
+        return { ok: false, message: 'gateway_stripe.config.validation.captureMethod' }
       }
       return { ok: true }
     },

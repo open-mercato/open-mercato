@@ -153,7 +153,19 @@ export function resolveModuleFile(
 
   const fromApp = hasApp
   const absolutePath = fromApp ? appFile : pkgFile
-  const importSuffix = relativePath.replace(/\.ts$/, '')
+  const importSuffix = relativePath.replace(/\.tsx?$/, '')
   const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${importSuffix}`
   return { absolutePath, fromApp, importPath }
+}
+
+export function resolveFirstModuleFile(
+  roots: ModuleRoots,
+  imps: ModuleImports,
+  relativePaths: string[],
+): ResolvedFile | null {
+  for (const relativePath of relativePaths) {
+    const resolved = resolveModuleFile(roots, imps, relativePath)
+    if (resolved) return resolved
+  }
+  return null
 }

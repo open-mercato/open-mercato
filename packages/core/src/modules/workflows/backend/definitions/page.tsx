@@ -23,7 +23,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
-import {Trash2} from "lucide-react";
+import { Trash2 } from 'lucide-react'
 
 type WorkflowDefinition = {
   id: string
@@ -31,6 +31,7 @@ type WorkflowDefinition = {
   workflowName: string
   description: string | null
   version: number
+  definition: Record<string, unknown>
   enabled: boolean
   effectiveFrom: string | null
   effectiveTo: string | null
@@ -54,6 +55,22 @@ type DefinitionsResponse = {
     offset: number
     hasMore: boolean
   }
+}
+
+type CreateDefinitionResponse = {
+  data?: {
+    id?: string
+  }
+  error?: string
+}
+
+const WORKFLOW_ID_MAX_LENGTH = 100
+
+function buildDuplicateWorkflowId(sourceWorkflowId: string, attempt: number): string {
+  const suffix = attempt === 0 ? '_copy' : `_copy_${attempt + 1}`
+  const maxBaseLength = Math.max(1, WORKFLOW_ID_MAX_LENGTH - suffix.length)
+  const base = sourceWorkflowId.slice(0, maxBaseLength)
+  return `${base}${suffix}`
 }
 
 export default function WorkflowDefinitionsListPage() {
@@ -138,8 +155,34 @@ export default function WorkflowDefinitionsListPage() {
   }
 
   const handleDuplicate = async (definition: WorkflowDefinition) => {
-    // TODO: Implement duplicate functionality
-    flash(t('workflows.messages.duplicateNotYetImplemented'), 'info')
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const duplicateWorkflowId = buildDuplicateWorkflowId(definition.workflowId, attempt)
+      const result = await apiCall<CreateDefinitionResponse>('/api/workflows/definitions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          workflowId: duplicateWorkflowId,
+          workflowName: definition.workflowName,
+          description: definition.description,
+          version: definition.version,
+          definition: definition.definition,
+          metadata: definition.metadata,
+          enabled: definition.enabled,
+        }),
+      })
+
+      if (result.ok) {
+        flash(t('workflows.messages.workflowDuplicated'), 'success')
+        queryClient.invalidateQueries({ queryKey: ['workflow-definitions'] })
+        return
+      }
+
+      if (result.status !== 409) {
+        break
+      }
+    }
+
+    flash(t('workflows.errors.createFailed'), 'error')
   }
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {

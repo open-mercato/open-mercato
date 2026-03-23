@@ -24,7 +24,6 @@ import { mergeMenuItems } from './injection/mergeMenuItems'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
-import { SseEventIndicator } from './injection/SseEventIndicator'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import { UmesDevToolsPanel } from './devtools'
 import {
@@ -250,6 +249,7 @@ function mergeSectionGroupsWithInjected(
         id: item.id,
         label,
         href: item.href,
+        icon: resolveInjectedIcon(item.icon) ?? undefined,
       }]
     })
     return {
@@ -268,7 +268,12 @@ function mergeSectionGroupsWithInjected(
     const items = sectionItems.flatMap((item) => {
       if (!item.href) return []
       const itemLabel = resolveInjectedMenuLabel(item, t)
-      return [{ id: item.id, label: itemLabel, href: item.href }]
+      return [{
+        id: item.id,
+        label: itemLabel,
+        href: item.href,
+        icon: resolveInjectedIcon(item.icon) ?? undefined,
+      }]
     })
     if (items.length === 0) continue
     nextSections.push({ id: sectionId, label, items })
@@ -1532,7 +1537,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <main className="flex-1 p-4 lg:p-6">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
-          <SseEventIndicator />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />

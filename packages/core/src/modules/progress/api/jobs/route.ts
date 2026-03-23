@@ -13,7 +13,7 @@ import {
 } from '../openapi'
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['progress.view'] },
+  GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['progress.create'] },
 }
 

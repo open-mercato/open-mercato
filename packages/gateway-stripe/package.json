@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/gateway-stripe",
-  "version": "1.0.0",
+  "version": "0.4.8",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -63,6 +63,9 @@
   "dependencies": {
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
+    "@open-mercato/ui": "workspace:*",
+    "@stripe/react-stripe-js": "^3.9.0",
+    "@stripe/stripe-js": "^7.9.0",
     "stripe": "^17.0.0"
   },
   "peerDependencies": {

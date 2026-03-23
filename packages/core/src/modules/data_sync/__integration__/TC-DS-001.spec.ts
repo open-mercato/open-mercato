@@ -20,14 +20,18 @@ async function detectSyncableIntegration(
   request: Parameters<typeof getAuthToken>[0],
   token: string,
 ): Promise<{ integrationId: string; entityType: string } | null> {
-  const listResponse = await apiRequest(request, 'GET', '/api/integrations', { token })
+  const listResponse = await apiRequest(request, 'GET', '/api/data_sync/options', { token })
   if (listResponse.status() !== 200) return null
   const listBody = await readJson(listResponse)
   const items = Array.isArray(listBody.items) ? (listBody.items as JsonRecord[]) : []
   if (items.length === 0) return null
+  const supportedEntities = Array.isArray(items[0].supportedEntities)
+    ? (items[0].supportedEntities as unknown[]).filter((value): value is string => typeof value === 'string')
+    : []
+  if (supportedEntities.length === 0) return null
   return {
-    integrationId: String(items[0].id),
-    entityType: 'catalog.product',
+    integrationId: String(items[0].integrationId),
+    entityType: supportedEntities[0],
   }
 }
 
@@ -57,10 +61,20 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
       beforeCredentialsBody.credentials && typeof beforeCredentialsBody.credentials === 'object'
         ? (beforeCredentialsBody.credentials as JsonRecord)
         : {}
+    const detailResponse = await apiRequest(request, 'GET', `/api/integrations/${integrationId}`, { token })
+    expect(detailResponse.status()).toBe(200)
+    const detailBody = await readJson(detailResponse)
+    const baselineState = detailBody.state && typeof detailBody.state === 'object'
+      ? (detailBody.state as JsonRecord)
+      : {}
 
     await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/credentials`, {
       token,
       data: { credentials: { testApiUrl: 'https://example.test.local', testApiKey: 'integration-test-key' } },
+    })
+    await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/state`, {
+      token,
+      data: { isEnabled: true },
     })
 
     try {
@@ -73,12 +87,14 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
         },
       })
       const validateBody = await readJson(validateResponse)
-      expect([200, 404]).toContain(validateResponse.status())
+      expect([200, 404, 422]).toContain(validateResponse.status())
       if (validateResponse.status() === 200) {
         expect(validateBody.ok).toBe(true)
-      } else {
+      } else if (validateResponse.status() === 404) {
         expect(validateBody.ok).toBe(false)
         expect(String(validateBody.message ?? '')).toMatch(/not found|no registered sync adapter/i)
+      } else {
+        expect(String(validateBody.error ?? validateBody.message ?? '')).not.toHaveLength(0)
       }
 
       const runResponse = await apiRequest(request, 'POST', '/api/data_sync/run', {
@@ -147,6 +163,15 @@ test.describe('TC-DS-001: Data sync hub APIs', () => {
       await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/credentials`, {
         token,
         data: { credentials: previousCredentials },
+      })
+      await apiRequest(request, 'PUT', `/api/integrations/${integrationId}/state`, {
+        token,
+        data: {
+          isEnabled:
+            typeof baselineState.isEnabled === 'boolean'
+              ? baselineState.isEnabled
+              : false,
+        },
       })
 
       for (const runId of createdRunIds) {

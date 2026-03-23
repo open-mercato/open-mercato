@@ -112,7 +112,7 @@ export async function POST(req: Request, context: RouteContext) {
       } : null,
       executionTime: result.executionTime,
       error: result.error,
-      logId: result.logId,
+      logId: result.logId ? String(result.logId) : undefined,
     }
 
     // Return appropriate status based on result

@@ -282,6 +282,35 @@ describe('Workflow Definitions API', () => {
       expect(mockEm.persistAndFlush).toHaveBeenCalled()
     })
 
+    test('should prevent duplicate workflowId even with a different version', async () => {
+      mockEm.findOne.mockResolvedValue({
+        id: 'existing-def',
+        workflowId: 'test-workflow',
+        version: 1,
+      })
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...validDefinition,
+          version: 2,
+        }),
+      })
+
+      const response = await createDefinition(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(data.error).toContain('already exists')
+      expect(mockEm.findOne).toHaveBeenCalledWith(
+        WorkflowDefinition,
+        expect.objectContaining({
+          workflowId: 'test-workflow',
+          tenantId: testTenantId,
+        })
+      )
+    })
+
     test('should check create permission', async () => {
       const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
       const localRbacService = {
@@ -331,11 +360,37 @@ describe('Workflow Definitions API', () => {
       expect(data.details).toBeDefined()
     })
 
-    test('should prevent duplicate workflowId + version', async () => {
+    test('should prevent duplicate workflowId', async () => {
       mockEm.findOne.mockResolvedValue({
         id: 'existing-def',
         workflowId: 'test-workflow',
         version: 1,
+      })
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions', {
+        method: 'POST',
+        body: JSON.stringify(validDefinition),
+      })
+
+      const response = await createDefinition(request)
+      const data = await response.json()
+
+      expect(response.status).toBe(409)
+      expect(data.error).toContain('already exists')
+    })
+
+    test('should return 409 on database unique constraint violation', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+      mockEm.create.mockReturnValue({
+        id: 'new-def-id',
+        ...validDefinition,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+      })
+      mockEm.persistAndFlush.mockRejectedValue({
+        code: '23505',
+        constraint: 'workflow_definitions_workflow_id_tenant_id_unique',
+        detail: 'Key (workflow_id, tenant_id) already exists.',
       })
 
       const request = new NextRequest('http://localhost/api/workflows/definitions', {
@@ -390,7 +445,16 @@ describe('Workflow Definitions API', () => {
       const data = await response.json()
 
       expect(response.status).toBe(200)
-      expect(data.data).toEqual(mockDefinition)
+      expect(data.data).toEqual({
+        ...mockDefinition,
+        description: null,
+        metadata: null,
+        effectiveFrom: null,
+        effectiveTo: null,
+        createdBy: null,
+        updatedBy: null,
+        deletedAt: null,
+      })
       expect(mockEm.findOne).toHaveBeenCalledWith(
         WorkflowDefinition,
         expect.objectContaining({

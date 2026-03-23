@@ -1,6 +1,57 @@
 /** @jest-environment node */
 
-import { splitPersonName, hasContactNameIssue } from '../contactValidation'
+import { splitPersonName, hasContactNameIssue, stripTitleFromName } from '../contactValidation'
+
+describe('stripTitleFromName', () => {
+  it('strips Polish academic title "mgr"', () => {
+    expect(stripTitleFromName('mgr Katarzyna Lewandowska')).toEqual({
+      cleanedName: 'Katarzyna Lewandowska',
+      title: 'mgr',
+    })
+  })
+
+  it('strips "Dr." with period', () => {
+    expect(stripTitleFromName('Dr. John Smith')).toEqual({
+      cleanedName: 'John Smith',
+      title: 'Dr.',
+    })
+  })
+
+  it('strips "Prof" without period', () => {
+    expect(stripTitleFromName('Prof Maria Garcia')).toEqual({
+      cleanedName: 'Maria Garcia',
+      title: 'Prof',
+    })
+  })
+
+  it('strips Polish engineering title "inż"', () => {
+    expect(stripTitleFromName('inż Jan Kowalski')).toEqual({
+      cleanedName: 'Jan Kowalski',
+      title: 'inż',
+    })
+  })
+
+  it('does not strip non-title words', () => {
+    expect(stripTitleFromName('Katarzyna Lewandowska')).toEqual({
+      cleanedName: 'Katarzyna Lewandowska',
+      title: null,
+    })
+  })
+
+  it('does not strip from single-word names', () => {
+    expect(stripTitleFromName('mgr')).toEqual({
+      cleanedName: 'mgr',
+      title: null,
+    })
+  })
+
+  it('is case-insensitive', () => {
+    expect(stripTitleFromName('MR John Doe')).toEqual({
+      cleanedName: 'John Doe',
+      title: 'MR',
+    })
+  })
+})
 
 describe('splitPersonName', () => {
   it('splits two-part name', () => {
@@ -9,6 +60,20 @@ describe('splitPersonName', () => {
 
   it('splits three-part name', () => {
     expect(splitPersonName('Mary Jane Watson')).toEqual({ firstName: 'Mary', lastName: 'Jane Watson' })
+  })
+
+  it('strips title before splitting', () => {
+    expect(splitPersonName('mgr Katarzyna Lewandowska')).toEqual({
+      firstName: 'Katarzyna',
+      lastName: 'Lewandowska',
+    })
+  })
+
+  it('strips Dr. title before splitting', () => {
+    expect(splitPersonName('Dr. Anna Nowak')).toEqual({
+      firstName: 'Anna',
+      lastName: 'Nowak',
+    })
   })
 
   it('returns empty lastName for single name', () => {
@@ -67,5 +132,13 @@ describe('hasContactNameIssue', () => {
 
   it('defaults type to person when missing', () => {
     expect(hasContactNameIssue({ actionType: 'create_contact', payload: { name: 'SingleName' } })).toBe(true)
+  })
+
+  it('returns true when name is only a title + single word (e.g. "mgr Smith")', () => {
+    expect(hasContactNameIssue({ actionType: 'create_contact', payload: { type: 'person', name: 'mgr Smith' } })).toBe(true)
+  })
+
+  it('returns false when name has title + first + last (e.g. "mgr Jan Kowalski")', () => {
+    expect(hasContactNameIssue({ actionType: 'create_contact', payload: { type: 'person', name: 'mgr Jan Kowalski' } })).toBe(false)
   })
 })

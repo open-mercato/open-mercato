@@ -14,6 +14,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "installation/prerequisites",
         "installation/setup",
+        "installation/railway",
         {
           type: "link",
           label: "Standalone App (create-mercato-app)",
@@ -71,6 +72,7 @@ const sidebars: SidebarsConfig = {
           label: "Integrations & Payments",
           items: [
             "user-guide/integrations",
+            "user-guide/akeneo-pim",
             "user-guide/stripe-payments",
             "user-guide/payment-transactions",
           ],
@@ -128,6 +130,24 @@ const sidebars: SidebarsConfig = {
       items: [
         "enterprise/overview",
         "enterprise/record-locks",
+        {
+          type: "category",
+          label: "Security",
+          items: [
+            "enterprise/security/index",
+            "enterprise/security/change-password",
+            {
+              type: "category",
+              label: "MFA",
+              items: [
+                "enterprise/security/mfa-user",
+                "enterprise/security/mfa-admin",
+                "enterprise/security/extending-mfa-providers"
+              ],
+            },
+            "enterprise/security/sudo",
+          ],
+        },
         {
           type: "category",
           label: "Single Sign-On (SSO)",
@@ -236,7 +256,11 @@ const sidebars: SidebarsConfig = {
           items: ["cli/test-integration", "cli/test-ephemeral"],
         },
         "cli/scheduler",
-        "cli/eject",
+        {
+          type: "category",
+          label: "Official Modules",
+          items: ["cli/module-add", "cli/module-enable", "cli/eject"],
+        },
       ],
     },
     {

@@ -24,6 +24,11 @@ export const createSessionSchema = z.object({
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  presentation: z.object({
+    mode: z.enum(['auto', 'embedded', 'redirect']).optional(),
+    rendererKey: z.string().min(1).optional(),
+    rendererSettings: z.record(z.string(), z.unknown()).optional(),
+  }).optional(),
 })
 
 export type CreateSessionPayload = z.infer<typeof createSessionSchema>

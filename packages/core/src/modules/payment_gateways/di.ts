@@ -5,6 +5,7 @@ import type { CredentialsService } from '../integrations/lib/credentials-service
 import type { IntegrationLogService } from '../integrations/lib/log-service'
 import type { IntegrationStateService } from '../integrations/lib/state-service'
 import { GatewayTransaction, WebhookProcessedEvent } from './data/entities'
+import { createPaymentGatewayDescriptorService } from './lib/descriptor-service'
 import { createPaymentGatewayService } from './lib/gateway-service'
 
 type Cradle = {
@@ -18,6 +19,9 @@ export function register(container: AppContainer) {
   container.register({
     paymentGatewayService: asFunction(({ em, integrationCredentialsService, integrationLogService, integrationStateService }: Cradle) =>
       createPaymentGatewayService({ em, integrationCredentialsService, integrationLogService, integrationStateService }),
+    ).scoped().proxy(),
+    paymentGatewayDescriptorService: asFunction(({ integrationCredentialsService, integrationStateService }: Cradle) =>
+      createPaymentGatewayDescriptorService({ integrationCredentialsService, integrationStateService }),
     ).scoped().proxy(),
 
     GatewayTransaction: asValue(GatewayTransaction),

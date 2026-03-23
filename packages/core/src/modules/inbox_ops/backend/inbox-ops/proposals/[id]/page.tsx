@@ -22,10 +22,12 @@ import {
   RefreshCw,
   Users,
   Languages,
+  Pencil,
 } from 'lucide-react'
 import type { ProposalTranslationEntry } from '../../../../data/entities'
 import type { ProposalDetail, ActionDetail, DiscrepancyDetail, EmailDetail } from '../../../../components/proposals/types'
 import { ActionCard, ConfidenceBadge, useActionTypeLabels, useDiscrepancyDescriptions } from '../../../../components/proposals/ActionCard'
+import { CategoryBadge, CATEGORY_CONFIG, ALL_CATEGORIES, useCategoryLabels } from '../../../../components/proposals/CategoryBadge'
 import { hasContactNameIssue } from '../../../../lib/contactValidation'
 import { EditActionDialog } from '../../../../components/proposals/EditActionDialog'
 
@@ -61,6 +63,82 @@ function EmailThreadViewer({ email }: { email: EmailDetail | null }) {
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">{t('inbox_ops.no_email_content', 'No email content available')}</p>
+      )}
+    </div>
+  )
+}
+
+function CategoryEditDropdown({
+  currentCategory,
+  onSelect,
+  disabled,
+}: {
+  currentCategory: string | null | undefined
+  onSelect: (category: string) => void
+  disabled: boolean
+}) {
+  const t = useT()
+  const labels = useCategoryLabels()
+  const [isOpen, setIsOpen] = React.useState(false)
+  const dropdownRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setIsOpen(false)
+    }
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      document.addEventListener('keydown', handleEscape)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [isOpen])
+
+  return (
+    <div className="relative inline-block" ref={dropdownRef}>
+      <div className="flex items-center gap-1">
+        <CategoryBadge category={currentCategory} />
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-6 w-6 p-0"
+          onClick={() => setIsOpen(!isOpen)}
+          disabled={disabled}
+          title={t('inbox_ops.recategorize', 'Change Category')}
+        >
+          <Pencil className="h-3 w-3" />
+        </Button>
+      </div>
+      {isOpen && (
+        <div className="absolute top-full left-0 mt-1 z-50 w-48 rounded-md border bg-popover shadow-md">
+          <div className="p-1">
+            {ALL_CATEGORIES.map((cat) => {
+              const config = CATEGORY_CONFIG[cat]
+              const { Icon } = config
+              return (
+                <Button
+                  key={cat}
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={`flex items-center gap-2 w-full justify-start rounded-sm px-2 py-1.5 text-sm hover:bg-accent hover:text-accent-foreground ${currentCategory === cat ? 'bg-accent' : ''}`}
+                  onClick={() => { onSelect(cat); setIsOpen(false) }}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {labels[cat] || cat}
+                </Button>
+              )
+            })}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -145,6 +223,22 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
     }
     setIsTranslating(false)
   }, [proposalId, locale, t, runMutation])
+
+  const handleCategorize = React.useCallback(async (category: string) => {
+    if (!proposalId) return
+    const result = await runMutation({
+      operation: () => apiCall<{ ok: boolean; category: string; previousCategory: string | null }>(
+        `/api/inbox_ops/proposals/${proposalId}/categorize`,
+        { method: 'POST', body: JSON.stringify({ category }) },
+      ),
+      context: {},
+    })
+    if (result?.ok && result.result?.ok) {
+      setProposal((prev) => prev ? { ...prev, category: result.result!.category } : prev)
+    } else {
+      flash(t('inbox_ops.flash.save_failed', 'Failed to save'), 'error')
+    }
+  }, [proposalId, t, runMutation])
 
   const loadData = React.useCallback(async () => {
     if (!proposalId) return
@@ -420,10 +514,18 @@ export default function ProposalDetailPage({ params }: { params?: { id?: string 
                     {showTranslation && translation ? translation.summary : proposal.summary}
                   </p>
 
-                  <div className="flex items-center gap-4 mb-3">
+                  <div className="flex items-center gap-4 mb-3 flex-wrap">
                     <div>
                       <span className="text-xs text-muted-foreground">{t('inbox_ops.confidence', 'Confidence')}</span>
                       <ConfidenceBadge value={proposal.confidence} />
+                    </div>
+                    <div>
+                      <span className="text-xs text-muted-foreground block">{t('inbox_ops.category', 'Category')}</span>
+                      <CategoryEditDropdown
+                        currentCategory={proposal.category}
+                        onSelect={handleCategorize}
+                        disabled={isProcessing}
+                      />
                     </div>
                   </div>
 
