@@ -3,7 +3,8 @@ import type { SubscriberContext } from '@open-mercato/events/types'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
-import { createWebhookDelivery, enqueueWebhookDelivery } from '../lib/delivery'
+import { createWebhookDelivery } from '../lib/delivery'
+import { enqueueWebhookDelivery } from '../lib/queue'
 import { isWebhookIntegrationEnabled } from '../lib/integration-state'
 
 export const metadata = {

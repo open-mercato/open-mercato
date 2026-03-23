@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { enqueueWebhookDelivery } from '../../../../lib/delivery'
+import { enqueueWebhookDelivery } from '../../../../lib/queue'
 import { isWebhookIntegrationEnabled } from '../../../../lib/integration-state'
 import { findScopedDelivery, json, resolveWebhookRequestScope, serializeDeliveryDetail } from '../../../helpers'
 

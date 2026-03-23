@@ -1,12 +1,14 @@
 "use client"
 import * as React from 'react'
 import { useParams, usePathname, useRouter } from 'next/navigation'
+import { Pencil, Power, RotateCw, Send, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -22,7 +24,7 @@ import {
   createWebhookInitialValues,
   normalizeWebhookFormPayload,
   type WebhookFormValues,
-} from '../form-config'
+} from '../../../components/webhook-form-config'
 import { useWebhookFeatureAccess } from '../useWebhookFeatureAccess'
 import { WebhookSecretPanel } from '../WebhookSecretPanel'
 
@@ -89,6 +91,7 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
   failed: 'destructive',
   expired: 'destructive',
 }
+const DELIVERY_AUTO_REFRESH_INTERVAL_MS = 5000
 
 export default function WebhookDetailPage() {
   const params = useParams()
@@ -107,78 +110,164 @@ export default function WebhookDetailPage() {
   const [deliveryTotal, setDeliveryTotal] = React.useState(0)
   const [deliveryTotalPages, setDeliveryTotalPages] = React.useState(1)
   const [deliveriesLoading, setDeliveriesLoading] = React.useState(false)
-  const [refreshToken, setRefreshToken] = React.useState(0)
+  const [isRefreshingDeliveries, setIsRefreshingDeliveries] = React.useState(false)
   const [testDelivery, setTestDelivery] = React.useState<DeliveryDetail | null>(null)
   const [selectedDelivery, setSelectedDelivery] = React.useState<DeliveryDetail | null>(null)
   const [selectedDeliveryLoading, setSelectedDeliveryLoading] = React.useState(false)
   const [revealedSecret, setRevealedSecret] = React.useState<string | null>(null)
+  const refreshInFlightRef = React.useRef(false)
   const access = useWebhookFeatureAccess()
 
-  const reload = React.useCallback(() => {
-    setRefreshToken((current) => current + 1)
-  }, [])
-
-  React.useEffect(() => {
+  const fetchWebhook = React.useCallback(async (options?: { silent?: boolean }) => {
     if (!webhookId) {
       setError(t('webhooks.errors.notFound'))
       setIsLoading(false)
       return
     }
-    let cancelled = false
-    async function loadDetail() {
+
+    const silent = options?.silent === true
+    if (!silent) {
       setIsLoading(true)
-      setError(null)
-      try {
-        const call = await apiCall<Webhook>(
-          `/api/webhooks/${encodeURIComponent(webhookId)}`,
-          undefined,
-          { fallback: null },
-        )
-        if (!cancelled && call.ok && call.result) {
-          setWebhook(call.result)
-          return
-        }
-        if (!cancelled) setError(t('webhooks.errors.notFound'))
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(loadError instanceof Error ? loadError.message : t('webhooks.detail.loadError'))
-        }
-      } finally {
-        if (!cancelled) setIsLoading(false)
+    }
+
+    setError(null)
+
+    try {
+      const call = await apiCall<Webhook>(
+        `/api/webhooks/${encodeURIComponent(webhookId)}`,
+        undefined,
+        { fallback: null },
+      )
+
+      if (call.ok && call.result) {
+        setWebhook(call.result)
+        return
+      }
+
+      setError(t('webhooks.errors.notFound'))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : t('webhooks.detail.loadError'))
+    } finally {
+      if (!silent) {
+        setIsLoading(false)
       }
     }
-    loadDetail()
-    return () => { cancelled = true }
-  }, [refreshToken, t, webhookId])
+  }, [t, webhookId])
+
+  const fetchDeliveries = React.useCallback(async (options?: { silent?: boolean }) => {
+    if (!webhookId) return
+
+    const silent = options?.silent === true
+    if (!silent) {
+      setDeliveriesLoading(true)
+    }
+
+    try {
+      const params = new URLSearchParams()
+      params.set('webhookId', webhookId)
+      params.set('page', String(deliveryPage))
+      params.set('pageSize', '20')
+
+      const fallback: DeliveryResponse = { items: [], total: 0, page: deliveryPage, pageSize: 20, totalPages: 1 }
+      const call = await apiCall<DeliveryResponse>(
+        `/api/webhooks/deliveries?${params.toString()}`,
+        undefined,
+        { fallback },
+      )
+
+      if (call.ok && call.result) {
+        setDeliveries(call.result.items)
+        setDeliveryTotal(call.result.total)
+        setDeliveryTotalPages(call.result.totalPages)
+      }
+    } finally {
+      if (!silent) {
+        setDeliveriesLoading(false)
+      }
+    }
+  }, [deliveryPage, webhookId])
+
+  const fetchDeliveryDetail = React.useCallback(async (deliveryId: string): Promise<DeliveryDetail | null> => {
+    const call = await apiCall<DeliveryDetail>(
+      `/api/webhooks/deliveries/${encodeURIComponent(deliveryId)}`,
+      undefined,
+      { fallback: null },
+    )
+
+    if (!call.ok || !call.result) {
+      return null
+    }
+
+    return call.result
+  }, [])
+
+  const refreshDeliveryState = React.useCallback(async () => {
+    if (!webhookId || refreshInFlightRef.current) return
+
+    refreshInFlightRef.current = true
+    setIsRefreshingDeliveries(true)
+
+    try {
+      await Promise.all([
+        fetchWebhook({ silent: true }),
+        fetchDeliveries({ silent: true }),
+      ])
+
+      const detailIds = [selectedDelivery?.id, testDelivery?.id].filter(
+        (value): value is string => typeof value === 'string' && value.length > 0,
+      )
+
+      if (detailIds.length > 0) {
+        const details = await Promise.all(detailIds.map((deliveryId) => fetchDeliveryDetail(deliveryId)))
+        const detailMap = new Map<string, DeliveryDetail>()
+
+        for (const detail of details) {
+          if (detail) {
+            detailMap.set(detail.id, detail)
+          }
+        }
+
+        if (selectedDelivery?.id) {
+          setSelectedDelivery((current) => current?.id ? (detailMap.get(current.id) ?? current) : current)
+        }
+
+        if (testDelivery?.id) {
+          setTestDelivery((current) => current?.id ? (detailMap.get(current.id) ?? current) : current)
+        }
+      }
+    } finally {
+      refreshInFlightRef.current = false
+      setIsRefreshingDeliveries(false)
+    }
+  }, [fetchDeliveries, fetchDeliveryDetail, fetchWebhook, selectedDelivery?.id, testDelivery?.id, webhookId])
+
+  React.useEffect(() => {
+    void fetchWebhook()
+  }, [fetchWebhook])
 
   React.useEffect(() => {
     if (!webhookId) return
-    let cancelled = false
-    async function loadDeliveries() {
-      setDeliveriesLoading(true)
-      try {
-        const params = new URLSearchParams()
-        params.set('webhookId', webhookId)
-        params.set('page', String(deliveryPage))
-        params.set('pageSize', '20')
-        const fallback: DeliveryResponse = { items: [], total: 0, page: deliveryPage, pageSize: 20, totalPages: 1 }
-        const call = await apiCall<DeliveryResponse>(
-          `/api/webhooks/deliveries?${params.toString()}`,
-          undefined,
-          { fallback },
-        )
-        if (!cancelled && call.ok && call.result) {
-          setDeliveries(call.result.items)
-          setDeliveryTotal(call.result.total)
-          setDeliveryTotalPages(call.result.totalPages)
-        }
-      } finally {
-        if (!cancelled) setDeliveriesLoading(false)
-      }
+    void fetchDeliveries()
+  }, [fetchDeliveries, webhookId])
+
+  useAppEvent('webhooks.delivery.*', (event) => {
+    const eventWebhookId = typeof event.payload?.webhookId === 'string' ? event.payload.webhookId : null
+    if (eventWebhookId !== webhookId) return
+    void refreshDeliveryState()
+  }, [refreshDeliveryState, webhookId])
+
+  React.useEffect(() => {
+    if (!webhookId || isEditing) return
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void refreshDeliveryState()
+    }, DELIVERY_AUTO_REFRESH_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
     }
-    loadDeliveries()
-    return () => { cancelled = true }
-  }, [deliveryPage, refreshToken, webhookId])
+  }, [isEditing, refreshDeliveryState, webhookId])
 
   const handleToggleActive = React.useCallback(async () => {
     if (!webhook) return
@@ -195,12 +284,12 @@ export default function WebhookDetailPage() {
       if (call.ok) {
         setWebhook((prev) => prev ? { ...prev, isActive: !prev.isActive } : prev)
         flash(t('webhooks.form.updateSuccess'), 'success')
-        reload()
+        void refreshDeliveryState()
       }
     } catch {
       flash(t('webhooks.form.updateError'), 'error')
     }
-  }, [reload, webhook, t])
+  }, [refreshDeliveryState, webhook, t])
 
   const handleRotateSecret = React.useCallback(async () => {
     if (!webhook) return
@@ -216,11 +305,11 @@ export default function WebhookDetailPage() {
       }
       setRevealedSecret(call.result.secret)
       flash(t('webhooks.detail.rotateSuccess'), 'success')
-      reload()
+      void refreshDeliveryState()
     } catch {
       flash(t('webhooks.detail.rotateError'), 'error')
     }
-  }, [reload, t, webhook])
+  }, [refreshDeliveryState, t, webhook])
 
   const handleTest = React.useCallback(async () => {
     if (!webhook) return
@@ -240,11 +329,11 @@ export default function WebhookDetailPage() {
         deliveryStatus === 'delivered' ? t('webhooks.detail.testSuccess') : t('webhooks.detail.testQueued'),
         deliveryStatus === 'delivered' ? 'success' : 'error',
       )
-      reload()
+      void refreshDeliveryState()
     } catch {
       flash(t('webhooks.detail.testError'), 'error')
     }
-  }, [reload, t, webhook])
+  }, [refreshDeliveryState, t, webhook])
 
   const handleRetryDelivery = React.useCallback(async (deliveryId: string) => {
     try {
@@ -258,11 +347,11 @@ export default function WebhookDetailPage() {
         return
       }
       flash(t('webhooks.deliveries.retrySuccess'), 'success')
-      reload()
+      void refreshDeliveryState()
     } catch {
       flash(t('webhooks.deliveries.retryError'), 'error')
     }
-  }, [reload, t])
+  }, [refreshDeliveryState, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!webhook) return
@@ -278,22 +367,18 @@ export default function WebhookDetailPage() {
   const handleDeliveryOpen = React.useCallback(async (deliveryId: string) => {
     setSelectedDeliveryLoading(true)
     try {
-      const call = await apiCall<DeliveryDetail>(
-        `/api/webhooks/deliveries/${encodeURIComponent(deliveryId)}`,
-        undefined,
-        { fallback: null },
-      )
-      if (!call.ok || !call.result) {
+      const detail = await fetchDeliveryDetail(deliveryId)
+      if (!detail) {
         flash(t('webhooks.deliveries.loadError'), 'error')
         return
       }
-      setSelectedDelivery(call.result)
+      setSelectedDelivery(detail)
     } catch {
       flash(t('webhooks.deliveries.loadError'), 'error')
     } finally {
       setSelectedDeliveryLoading(false)
     }
-  }, [t])
+  }, [fetchDeliveryDetail, t])
 
   const deliveryColumns = React.useMemo<ColumnDef<DeliveryRow>[]>(() => [
     { accessorKey: 'eventType', header: t('webhooks.deliveries.columns.event') },
@@ -343,11 +428,13 @@ export default function WebhookDetailPage() {
         {
           id: 'edit',
           label: t('webhooks.list.actions.edit'),
+          icon: Pencil,
           onSelect: () => setIsEditing(true),
         },
         {
           id: 'toggle-active',
           label: isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
+          icon: Power,
           onSelect: () => { void handleToggleActive() },
         },
       )
@@ -357,6 +444,7 @@ export default function WebhookDetailPage() {
       items.push({
         id: 'rotate-secret',
         label: t('webhooks.detail.actions.rotateSecret'),
+        icon: RotateCw,
         onSelect: () => { void handleRotateSecret() },
       })
     }
@@ -365,6 +453,7 @@ export default function WebhookDetailPage() {
       items.push({
         id: 'test',
         label: t('webhooks.detail.actions.test'),
+        icon: Send,
         onSelect: () => { void handleTest() },
       })
     }
@@ -373,6 +462,7 @@ export default function WebhookDetailPage() {
       items.push({
         id: 'delete',
         label: t('webhooks.list.actions.delete'),
+        icon: Trash2,
         onSelect: () => { void handleDelete() },
         destructive: true,
       })
@@ -403,7 +493,7 @@ export default function WebhookDetailPage() {
               await updateCrud(`webhooks/${encodeURIComponent(webhook.id)}`, payload)
               flash(t('webhooks.form.updateSuccess'), 'success')
               setIsEditing(false)
-              reload()
+              await refreshDeliveryState()
             }}
           />
         </PageBody>
@@ -483,6 +573,7 @@ export default function WebhookDetailPage() {
                     className="h-7 px-2 text-xs"
                     onClick={() => { void handleRotateSecret() }}
                   >
+                    <RotateCw className="mr-1.5 size-3.5" />
                     {t('webhooks.detail.actions.rotateSecret')}
                   </Button>
                 ) : null}
@@ -522,6 +613,24 @@ export default function WebhookDetailPage() {
         <div className="mt-8">
           <DataTable
             title={t('webhooks.deliveries.title')}
+            actions={(
+              <div className="flex items-center gap-2">
+                <span className="hidden text-xs text-muted-foreground md:inline">
+                  {t('webhooks.deliveries.autoRefreshHint')}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => { void refreshDeliveryState() }}
+                  disabled={isRefreshingDeliveries}
+                >
+                  {isRefreshingDeliveries
+                    ? t('webhooks.deliveries.refreshing')
+                    : t('webhooks.deliveries.refresh')}
+                </Button>
+              </div>
+            )}
             columns={deliveryColumns}
             data={deliveries}
             onRowClick={(row) => { void handleDeliveryOpen(row.id) }}
@@ -548,7 +657,7 @@ export default function WebhookDetailPage() {
               totalPages: deliveryTotalPages,
               onPageChange: setDeliveryPage,
             }}
-            isLoading={deliveriesLoading}
+            isLoading={deliveriesLoading || isRefreshingDeliveries}
           />
         </div>
 

@@ -3,7 +3,7 @@ import { buildWebhookHeaders, generateMessageId } from '@open-mercato/shared/lib
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { emitWebhooksEvent } from '../events'
-import { getWebhookQueue } from './queue'
+import { enqueueWebhookDelivery } from './queue'
 import { isWebhookIntegrationEnabled, WEBHOOK_INTEGRATION_DISABLED_MESSAGE } from './integration-state'
 
 export interface WebhookDeliveryJob {
@@ -62,10 +62,6 @@ export async function createWebhookDelivery(input: CreateWebhookDeliveryInput): 
     tenantId: input.webhook.tenantId,
   })
   return delivery
-}
-
-export async function enqueueWebhookDelivery(job: WebhookDeliveryJob, delayMs?: number): Promise<string> {
-  return getWebhookQueue().enqueue(job, delayMs && delayMs > 0 ? { delayMs } : undefined)
 }
 
 export async function processWebhookDeliveryJob(

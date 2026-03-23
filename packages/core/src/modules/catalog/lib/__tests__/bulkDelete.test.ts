@@ -52,6 +52,22 @@ describe('deleteCatalogProductsWithProgress', () => {
     })
 
     expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenNthCalledWith(1, 'catalog.products.delete', {
+      input: { body: { id: 'prod-1' } },
+      ctx: expect.objectContaining({
+        selectedOrganizationId: 'org-1',
+        organizationIds: ['org-1'],
+      }),
+      skipCacheInvalidation: true,
+    })
+    expect(execute).toHaveBeenNthCalledWith(2, 'catalog.products.delete', {
+      input: { body: { id: 'prod-2' } },
+      ctx: expect.objectContaining({
+        selectedOrganizationId: 'org-1',
+        organizationIds: ['org-1'],
+      }),
+      skipCacheInvalidation: true,
+    })
     expect(mockInvalidateCrudCache).toHaveBeenCalledWith(
       container,
       'catalog.product',

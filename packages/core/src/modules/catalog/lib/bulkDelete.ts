@@ -89,6 +89,7 @@ export async function deleteCatalogProductsWithProgress(params: {
     await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.products.delete', {
       input: { body: { id } },
       ctx: commandContext,
+      skipCacheInvalidation: true,
     })
     affectedCount += 1
 

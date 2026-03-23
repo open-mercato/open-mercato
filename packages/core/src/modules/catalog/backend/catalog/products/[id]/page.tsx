@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
+import { ErrorMessage } from "@open-mercato/ui/backend/detail";
 import {
   CrudForm,
   type CrudFormGroup,
@@ -1205,12 +1206,22 @@ export default function EditCatalogProductPage({
     return (
       <Page>
         <PageBody>
-          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {t(
+          <ErrorMessage
+            label={t(
               "catalog.products.edit.errors.idMissing",
               "Product identifier is missing.",
             )}
-          </div>
+          />
+        </PageBody>
+      </Page>
+    );
+  }
+
+  if (error && !loading) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
         </PageBody>
       </Page>
     );
@@ -1219,11 +1230,6 @@ export default function EditCatalogProductPage({
   return (
     <Page>
       <PageBody>
-        {error ? (
-          <div className="mb-4 rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {error}
-          </div>
-        ) : null}
         <CrudForm<ProductFormValues>
           title={t("catalog.products.edit.title", "Edit product")}
           backHref="/backend/catalog/products"

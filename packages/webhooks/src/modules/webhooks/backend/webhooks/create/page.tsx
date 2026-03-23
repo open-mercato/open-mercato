@@ -13,7 +13,7 @@ import {
   createWebhookInitialValues,
   normalizeWebhookFormPayload,
   type WebhookFormValues,
-} from '../form-config'
+} from '../../../components/webhook-form-config'
 import { WebhookSecretPanel } from '../WebhookSecretPanel'
 
 export default function CreateWebhookPage() {

@@ -7,6 +7,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('../../lib/delivery', () => ({
   createWebhookDelivery: jest.fn(),
+}))
+jest.mock('../../lib/queue', () => ({
   enqueueWebhookDelivery: jest.fn(),
 }))
 
@@ -15,7 +17,8 @@ jest.mock('../../lib/integration-state', () => ({
 }))
 
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { createWebhookDelivery, enqueueWebhookDelivery } from '../../lib/delivery'
+import { createWebhookDelivery } from '../../lib/delivery'
+import { enqueueWebhookDelivery } from '../../lib/queue'
 import { isWebhookIntegrationEnabled } from '../../lib/integration-state'
 
 describe('webhooks outbound dispatch subscriber', () => {
