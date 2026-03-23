@@ -16,6 +16,7 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
@@ -181,6 +182,7 @@ function paginateActivityItems(
 async function decorateActivityItems(
   em: EntityManager,
   items: ActivityItem[],
+  decryptionScope?: { tenantId: string; organizationId: string },
 ): Promise<ActivityItem[]> {
   if (items.length === 0) return items
 
@@ -201,7 +203,11 @@ async function decorateActivityItems(
 
   const [users, deals] = await Promise.all([
     authorIds.length > 0 ? em.find(User, { id: { $in: authorIds } }) : Promise.resolve([]),
-    dealIds.length > 0 ? em.find(CustomerDeal, { id: { $in: dealIds } }) : Promise.resolve([]),
+    dealIds.length > 0
+      ? decryptionScope
+        ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, decryptionScope)
+        : em.find(CustomerDeal, { id: { $in: dealIds } })
+      : Promise.resolve([]),
   ])
 
   const userMap = new Map(
@@ -386,6 +392,7 @@ async function listLegacyActivities(
   organizationIds: string[] | null,
   query: z.infer<typeof listSchema>,
   options?: { paginate?: boolean },
+  selectedOrganizationId?: string | null,
 ): Promise<{ items: ActivityItem[]; total: number }> {
   const where: Record<string, unknown> = { tenantId }
   if (organizationIds && organizationIds.length > 0) {
@@ -416,7 +423,11 @@ async function listLegacyActivities(
       : await em.count(CustomerActivity, where)
 
   return {
-    items: await decorateActivityItems(em, rows.map(mapLegacyActivity)),
+    items: await decorateActivityItems(
+      em,
+      rows.map(mapLegacyActivity),
+      selectedOrganizationId ? { tenantId, organizationId: selectedOrganizationId } : undefined,
+    ),
     total,
   }
 }
@@ -450,7 +461,7 @@ export async function GET(request: Request): Promise<Response> {
           query,
         )
       : await Promise.all([
-        listLegacyActivities(em, auth.tenantId, organizationIds, query, { paginate: false }),
+        listLegacyActivities(em, auth.tenantId, organizationIds, query, { paginate: false }, selectedOrganizationId),
         listCanonicalActivities(
           em,
           container,
