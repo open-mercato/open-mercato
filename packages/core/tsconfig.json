@@ -7,6 +7,9 @@
     "paths": {
       "@open-mercato/core/modules/core/__integration__/helpers/*": [
         "./src/modules/core/__integration__/helpers/*"
+      ],
+      "@open-mercato/core/helpers/integration/*": [
+        "./src/helpers/integration/*"
       ]
     }
   },

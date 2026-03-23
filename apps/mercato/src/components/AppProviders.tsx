@@ -7,6 +7,7 @@ import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { ThemeProvider, FrontendLayout, QueryProvider, AuthFooter } from '@open-mercato/ui'
 import { ClientBootstrapProvider } from '@/components/ClientBootstrap'
 import { GlobalNoticeBars } from '@/components/GlobalNoticeBars'
+import { ComponentOverridesBootstrap } from '@/components/ComponentOverridesBootstrap'
 
 type AppProvidersProps = {
   children: ReactNode
@@ -19,12 +20,14 @@ export function AppProviders({ children, locale, dict, demoModeEnabled }: AppPro
   return (
     <I18nProvider locale={locale} dict={dict}>
       <ClientBootstrapProvider>
-        <ThemeProvider>
-          <QueryProvider>
-            <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
-            <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
-          </QueryProvider>
-        </ThemeProvider>
+        <ComponentOverridesBootstrap>
+          <ThemeProvider>
+            <QueryProvider>
+              <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
+              <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
+            </QueryProvider>
+          </ThemeProvider>
+        </ComponentOverridesBootstrap>
       </ClientBootstrapProvider>
     </I18nProvider>
   )

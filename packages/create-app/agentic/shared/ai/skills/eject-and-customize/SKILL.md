@@ -99,10 +99,12 @@ Save this in `.ai/specs/` or a project README for future reference.
 ### Run the Eject Command
 
 ```bash
-yarn mercato eject <module-id>
+yarn mercato module eject <module-id>
 ```
 
 This copies the module from `node_modules/@open-mercato/core/dist/modules/<module-id>/` to `src/modules/<module-id>/`.
+
+The legacy alias `yarn mercato eject <module-id>` remains supported.
 
 ### Post-Ejection Steps
 

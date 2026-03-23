@@ -269,6 +269,19 @@ Navigate to `http://localhost:3000/backend` and sign in with the default credent
 
 Full installation guide (including prerequisites, Docker setup, and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
+## Release Channels
+
+- `latest` is the stable npm channel published from `main`.
+- `develop` is the moving prerelease channel published from pushes to `develop`.
+- Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
+
+Examples:
+
+```bash
+yarn add @open-mercato/core@develop
+npx create-mercato-app@develop my-app
+```
+
 ## Docker Setup
 
 Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.

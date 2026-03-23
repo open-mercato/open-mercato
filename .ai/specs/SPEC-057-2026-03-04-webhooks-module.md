@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-03-04 |
-| **Related** | SPEC-045 (Integration Marketplace), SPEC-045e (Webhook Endpoints Hub), SPEC-041 (UMES), Issue #257 |
+| **Related** | SPEC-045 (Integration Marketplace), SPEC-045e (Webhook Endpoints Hub), SPEC-041 (UMES), 2026-03-19-checkout-pay-links, Issue #257 |
 
 ## TLDR
 
@@ -782,6 +782,16 @@ export default setup
 - Returns event IDs grouped by module, with labels and categories
 - Excludes events with `excludeFromTriggers: true`
 
+**Alignment note: Checkout Pay Links automation**
+- outbound webhooks must support checkout pay-link lifecycle automation without any checkout-specific branching inside the webhooks module
+- the pay-links module is expected to expose stable post-commit events suitable for external system calls:
+  - `checkout.transaction.customerDataCaptured`
+  - `checkout.transaction.sessionStarted`
+  - `checkout.transaction.completed`
+  - `checkout.transaction.failed`
+- this allows operators to trigger external CRM, ERP, fulfillment, fraud, or notification workflows when customer data is acquired, the payment session starts, or the payment succeeds/fails
+- the webhooks module treats these like any other typed event; the required work is event-contract discipline in the source module, not custom dispatch logic here
+
 ---
 
 ## 6. Outbound Delivery Flow
@@ -862,6 +872,24 @@ function buildOutboundPayload(eventType: string, eventPayload: EventPayload): Re
   }
 }
 ```
+
+### 6.1A Event-Contract Requirements for Webhook-Facing Modules
+
+Modules that expect external automation through outbound webhooks MUST emit events that are safe and deterministic for delivery outside the platform.
+
+Requirements:
+- emit webhook-facing lifecycle events only after the relevant database state is committed
+- include stable identifiers and current state snapshots in the event payload so receivers do not need to race a follow-up read
+- never include secrets, provider credentials, embedded-form tokens, or raw mutable client input that was not persisted
+- if customer data is included, it must come from the validated persisted snapshot, not from transient request body data
+- payloads should be idempotency-friendly: external consumers must be able to reconcile on domain identifiers such as `transactionId`, `orderId`, or `customerId`
+- modules must assume at-least-once delivery and best-effort ordering; event payloads therefore need enough status/context to be self-reconciling
+
+Checkout Pay Links is the reference use case for this rule set:
+- `checkout.transaction.customerDataCaptured` fires after encrypted customer data is persisted
+- `checkout.transaction.sessionStarted` fires after gateway session creation data is persisted
+- `checkout.transaction.completed` / `checkout.transaction.failed` fire after the terminal state commit
+- these events are intended to drive external system calls smoothly through generic webhook subscriptions such as `checkout.transaction.**`
 
 ### 6.2 Event Pattern Matching
 
@@ -1389,6 +1417,7 @@ The `inbox_ops` module's webhook handler (`packages/core/src/modules/inbox_ops/a
 | **SPEC-045** | Integration Categories table (row: `webhook`) | Add reference to SPEC-057 as the implementation spec |
 | **SPEC-045e** | Section 2 (Webhook Endpoints Hub) | Add note: "Full implementation specified in SPEC-057. The `WebhookEndpointAdapter` contract defined here is implemented by the `webhooks` core module." |
 | **SPEC-045e** | Section 3 (Implementation Steps / Webhook Endpoints Hub) | Replace with reference to SPEC-057 phases |
+| **2026-03-19-checkout-pay-links** | Events / gateway integration / tests | Cross-reference outbound webhook automation for pay-link lifecycle events |
 
 No existing spec contracts are broken. The updates are additive cross-references only.
 
@@ -1442,6 +1471,7 @@ No existing spec contracts are broken. The updates are additive cross-references
 | 2026-03-04 | Initial draft |
 | 2026-03-18 | Phase 1 implemented: core outbound webhooks |
 | 2026-03-18 | Packaging, queue dispatch, retries, migration, inbound/events/test/retry APIs, and locale coverage completed for shippable rollout |
+| 2026-03-19 | Added pay-links alignment note: outbound webhooks must support checkout lifecycle automation through stable post-commit events |
 
 ---
 

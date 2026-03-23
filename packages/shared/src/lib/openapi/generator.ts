@@ -302,7 +302,13 @@ function zodToJsonSchema(schema?: ZodTypeAny, ctx?: SchemaConversionContext): Js
         } else if (check.kind === 'regex' && check.extra?.pattern instanceof RegExp) {
           result.pattern = check.extra.pattern.source
         } else if (check.kind === 'string_format' && typeof check.extra?.format === 'string') {
-          result.format = check.extra.format
+          if (check.extra.format === 'regex' && check.extra.pattern != null) {
+            result.pattern = check.extra.pattern instanceof RegExp
+              ? check.extra.pattern.source
+              : String(check.extra.pattern)
+          } else {
+            result.format = check.extra.format
+          }
         } else if (check.kind === 'datetime' || check.extra?.format === 'date-time') {
           result.format = 'date-time'
         } else if (['length', 'len', 'exact_length'].includes(check.kind ?? '')) {
@@ -442,7 +448,13 @@ function zodToJsonSchema(schema?: ZodTypeAny, ctx?: SchemaConversionContext): Js
     case 'ZodRecord':
     case 'record': {
       result.type = 'object'
-      result.additionalProperties = zodToJsonSchema(def.valueType ?? def.value, context) ?? {}
+      const valueSchema = def.valueType ?? def.value
+      const valueType = valueSchema ? resolveType(valueSchema._def) : undefined
+      if (!valueType || valueType === 'ZodUnknown' || valueType === 'unknown' || valueType === 'ZodAny' || valueType === 'any') {
+        result.additionalProperties = true
+      } else {
+        result.additionalProperties = zodToJsonSchema(valueSchema, context) ?? true
+      }
       break
     }
     case 'ZodObject':
@@ -476,8 +488,15 @@ function zodToJsonSchema(schema?: ZodTypeAny, ctx?: SchemaConversionContext): Js
       if (required.length > 0) result.required = required
       if (def.unknownKeys === 'passthrough') {
         result.additionalProperties = true
-      } else if (def.catchall && resolveType(def.catchall._def) !== 'ZodNever' && resolveType(def.catchall._def) !== 'never') {
-        result.additionalProperties = zodToJsonSchema(def.catchall, context) ?? true
+      } else if (def.catchall) {
+        const catchallType = resolveType(def.catchall._def)
+        if (catchallType === 'ZodNever' || catchallType === 'never') {
+          result.additionalProperties = false
+        } else if (!catchallType || catchallType === 'ZodUnknown' || catchallType === 'unknown' || catchallType === 'ZodAny' || catchallType === 'any') {
+          result.additionalProperties = true
+        } else {
+          result.additionalProperties = zodToJsonSchema(def.catchall, context) ?? true
+        }
       } else {
         result.additionalProperties = false
       }

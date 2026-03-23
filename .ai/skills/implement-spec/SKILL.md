@@ -1,6 +1,6 @@
 ---
 name: implement-spec
-description: Implement a specification (or specific phases of a spec) using coordinated subagents. Handles multi-phase spec implementation with unit tests, integration tests, documentation, and code-review compliance. Use when the user says "implement spec", "implement the spec", "implement SPEC-XXX", "implement phases", "build from spec", or "code the spec". Tracks progress by updating the spec with implementation status.
+description: Implement a specification (or specific phases of a spec) using coordinated subagents. Handles multi-phase spec implementation with unit tests, integration tests, documentation, and code-review compliance. Use when the user says "implement spec", "implement the spec", "implement a dated spec file", "implement phases", "build from spec", or "code the spec". Tracks progress by updating the spec with implementation status.
 ---
 
 # Implement Spec Skill

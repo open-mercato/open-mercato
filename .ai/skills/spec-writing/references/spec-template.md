@@ -1,4 +1,4 @@
-# SPEC-XXX: [Title]
+# [Title]
 
 ## TLDR
 **Key Points:**

@@ -20,9 +20,9 @@ This ADR defines a new **security** module inside the enterprise package that de
 
 ## 2. Decision
 
-We will implement a `security` module at `packages/enterprise/src/modules/security/` that provides six capabilities:
+We will implement a `security` module at `packages/enterprise/src/modules/security/` that provides seven capabilities:
 
-1. **Extensible profile page** with password management and widget injection points for other modules.
+1. **Security surfaces inside the existing auth profile area** (password hardening + MFA pages) exposed via UMES navigation injection and profile subroutes, with no auth module code changes.
 2. **Multi-factor authentication** with three built-in methods — TOTP authenticator apps (multiple), passkeys/WebAuthn (multiple), and OTP email — plus a **pluggable MFA provider registry** so third-party module developers can register custom MFA methods (e.g. SMS, push notifications, hardware tokens) that are auto-discovered at bootstrap.
 3. **MFA enforcement** configurable by superadmin at platform, tenant, or organisation scope.
 4. **Sudo challenge system** allowing superadmin to require re-authentication for specific packages, modules, routes, or features — configurable from the admin UI.
@@ -43,8 +43,10 @@ The module lives at `packages/enterprise/src/modules/security/` following the st
 | Integration | Mechanism | Notes |
 |---|---|---|
 | Auth module | Foreign key (`userId`) | No direct ORM relationships — links MFA credentials to users by ID only |
+| Auth login flow (API) | API Interceptor `after` hook (`api/interceptors.ts`) | Rewrites login response to inject `mfa_required` + pending token — no auth module modification — see §14.1 |
+| Auth login flow (UI) | UMES Phase H (component wrapper on `section:auth.login.form`) + Phase C (DOM event `om:auth:login-response`) | Intercepts form response client-side to present MFA challenge UI — requires two additive-only additions to the login page (component handle + event emit) — see §14.4 |
 | Directory module | Foreign key (`tenantId`, `orgId`) | Enforcement policies scoped to tenants/orgs |
-| Profile UI | Widget injection | Password change and MFA sections injected into profile page |
+| Profile UI | UMES Phase A menu injection (`menu:topbar:profile-dropdown`) + profile-area security subroutes | Injects "Security & MFA" entry into existing profile menu and routes users to `/backend/profile/security/*` pages owned by the security module, without modifying auth profile pages |
 | Sudo protection | Shared library export | Challenge middleware + React hook for other modules to consume |
 | Audit trail | Event system | All security actions emit events consumed by `audit_logs` module |
 | Notifications | Event subscribers | MFA changes, enforcement deadlines, and recovery code usage trigger user notifications |
@@ -55,14 +57,16 @@ The module lives at `packages/enterprise/src/modules/security/` following the st
 
 **MFA authentication flow:**
 
-1. User submits credentials to `POST /api/auth/login` (unchanged endpoint).
-2. Auth module validates credentials and emits `auth.login.success` event.
-3. Security module subscriber intercepts: checks if user has active MFA methods.
-4. If no MFA → standard JWT issued (existing behaviour preserved).
-5. If MFA enabled → response modified to return `{ mfa_required: true, challenge_id, available_methods }`.
-6. Client presents MFA challenge UI (TOTP input, passkey prompt, OTP email, or custom provider UI).
-7. User completes MFA verification via `POST /api/security/mfa/verify`.
-8. Full JWT issued with `mfa_verified: true` claim in the token.
+> **Architecture note — API Interceptor pattern:** Core module routes (login and any other applicable auth routes) MUST NOT be modified directly. All MFA-related response injection is handled by a security module **API Interceptor `after` hook** declared in `api/interceptors.ts`. The interceptor targets `POST /api/auth/login`, runs after the auth module returns a successful response, checks for active MFA methods, and rewrites the response body. This approach is non-invasive: the auth module is untouched, the interceptor is fail-closed (any interceptor error falls through to the standard response), and the pattern extends naturally to other auth endpoints (e.g. session refresh) without modifying core module code.
+
+1. User submits credentials to `POST /api/auth/login` (unchanged endpoint, unchanged auth module code).
+2. Auth module validates credentials and returns `{ ok: true, token, redirect }`.
+3. Security module API Interceptor `after` hook runs: queries `UserMfaMethod` for active methods matching `userId` extracted from the just-issued JWT.
+4. If no active MFA methods → interceptor returns `{}` (no-op); original response with full JWT reaches the client unchanged.
+5. If active MFA methods found → interceptor returns `replace: { ok: true, mfa_required: true, challenge_id: <new MfaChallenge.id>, available_methods: [{ type, label, icon }, ...], token: <short-lived pending JWT (10 min, mfa_pending: true claim)> }`.
+6. Client detects `mfa_required: true` and presents MFA challenge UI (renders built-in UI for known types, or provider's `VerifyComponent` for custom types).
+7. User completes MFA verification via `POST /api/security/mfa/verify` (uses `challenge_id` + pending token).
+8. Full JWT issued with additional claims: `mfa_verified: true`, `mfa_methods: ['totp', 'passkey']`.
 
 **Sudo challenge flow:**
 
@@ -300,7 +304,7 @@ CREATE INDEX "idx_user_mfa_methods_tenant" ON "user_mfa_methods" ("tenant_id");
 
 ### 4.2 `mfa_recovery_codes`
 
-Stores hashed recovery codes. 10 codes are generated per user; each code is a random alphanumeric string, bcrypt-hashed before storage.
+Stores hashed recovery codes. Recovery codes are generated on demand through `POST /api/security/mfa/recovery-codes/regenerate`; each regeneration creates 10 random alphanumeric codes, bcrypt-hashed before storage.
 
 ```sql
 CREATE TABLE "mfa_recovery_codes" (
@@ -349,8 +353,8 @@ CREATE TABLE "sudo_challenge_configs" (
   "id"                   uuid        NOT NULL DEFAULT gen_random_uuid(),
   "tenant_id"            uuid        NULL,       -- NULL for platform-wide defaults
   "organization_id"      uuid        NULL,       -- organisation-specific override
-  "target_type"          text        NOT NULL CHECK ("target_type" IN ('package', 'module', 'route', 'feature')),
-  "target_identifier"    text        NOT NULL,   -- e.g. "@open-mercato/core", "auth.roles", "DELETE /api/auth/roles/:id"
+  "target_type"          text        NULL DEFAULT 'feature',  -- display/category metadata only — not a lookup key
+  "target_identifier"    text        NOT NULL,   -- e.g. "auth.roles.delete", "security.sudo.manage"
   "is_enabled"           boolean     NOT NULL DEFAULT true,
   "is_developer_default" boolean     NOT NULL DEFAULT false,
   "ttl_seconds"          integer     NOT NULL DEFAULT 300,
@@ -362,7 +366,7 @@ CREATE TABLE "sudo_challenge_configs" (
   PRIMARY KEY ("id")
 );
 
-CREATE INDEX "idx_sudo_configs_target" ON "sudo_challenge_configs" ("target_type", "target_identifier");
+CREATE INDEX "idx_sudo_configs_target" ON "sudo_challenge_configs" ("target_identifier");
 ```
 
 ### 4.5 `sudo_sessions`
@@ -573,8 +577,9 @@ export class SudoChallengeConfig {
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null
 
-  @Enum({ name: 'target_type', items: () => SudoTargetType })
-  targetType!: SudoTargetType
+  /** Display/category metadata only — not used as a lookup key in enforcement. */
+  @Property({ name: 'target_type', type: 'text', nullable: true, default: 'feature' })
+  targetType: SudoTargetType | null = SudoTargetType.FEATURE
 
   @Property({ name: 'target_identifier', type: 'text' })
   targetIdentifier!: string
@@ -747,17 +752,16 @@ export const enforcementPolicyUpdateSchema = enforcementPolicySchema.partial()
 
 // ── Sudo ──
 
+// targetType deliberately omitted — identifier is the sole enforcement key
 export const sudoChallengeInitSchema = z.object({
   targetIdentifier: z.string().min(1).max(500),
 })
 
 export const sudoChallengeVerifySchema = z.object({
   sessionId: z.string().uuid(),
-  method: z.string().min(1),           // 'password' or any registered provider type
-  password: z.string().optional(),
-  code: z.string().optional(),
-  credential: z.any().optional(),
-  providerPayload: z.any().optional(), // for custom providers
+  targetIdentifier: z.string().min(1),
+  methodType: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()).default({}),
 })
 
 export const sudoConfigSchema = z.object({
@@ -838,7 +842,7 @@ Read-only endpoints (`GET ...`) remain direct query/service reads. Login/sudo ve
 | `DELETE` | `/api/security/mfa/methods/:id` | `security.mfa.manage` | Remove an MFA method (soft delete) |
 | `POST` | `/api/security/mfa/verify` | (public — requires `challenge_id`) | Verify MFA during login flow |
 | `POST` | `/api/security/mfa/recovery` | (public — requires `challenge_id`) | Use recovery code for login |
-| `POST` | `/api/security/mfa/recovery-codes/regenerate` | `security.mfa.manage` | Generate new set of 10 recovery codes |
+| `POST` | `/api/security/mfa/recovery-codes/regenerate` | `security.mfa.manage` | Generate a new set of 10 recovery codes. This is the only recovery-code creation path. |
 
 ### 7.3 MFA enforcement (superadmin)
 
@@ -885,12 +889,12 @@ Methods:
 
 **File:** `services/MfaService.ts`
 
-Manages MFA method lifecycle by **delegating to the `MfaProviderRegistry`** for all provider-specific operations. The service itself handles cross-cutting concerns (recording methods, generating recovery codes, enforcing method limits, emitting events) while each provider handles its own setup/verify logic.
+Manages MFA method lifecycle by **delegating to the `MfaProviderRegistry`** for all provider-specific operations. The service itself handles cross-cutting concerns (recording methods, enforcing method limits, emitting events, and explicit recovery-code rotation) while each provider handles its own setup/verify logic.
 
 Methods:
 
 - `setupMethod(userId: string, providerType: string, payload: unknown): Promise<{ setupId: string; clientData: Record<string, unknown> }>` — resolves the provider from registry, calls `provider.setup()`, creates an inactive `UserMfaMethod` record, returns provider-specific client data. This is the **unified entry point** for all provider types (built-in and custom).
-- `confirmMethod(userId: string, setupId: string, payload: unknown): Promise<void>` — resolves the provider, calls `provider.confirmSetup()`, stores returned metadata in `provider_metadata`, activates the method, generates recovery codes if this is the user's first MFA method. Emits `security.mfa.enrolled`.
+- `confirmMethod(userId: string, setupId: string, payload: unknown): Promise<{ recoveryCodes?: string[] }>` — resolves the provider, calls `provider.confirmSetup()`, stores returned metadata in `provider_metadata`, and activates the method. It does **not** generate recovery codes during setup; current route handlers return `{ ok: true }` and omit the compatibility `recoveryCodes` field. Emits `security.mfa.enrolled`.
 - `setupTotp(userId: string, label?: string): Promise<{ setupId: string; uri: string; secret: string; qrDataUrl: string }>` — convenience wrapper around `setupMethod('totp', ...)` that extracts TOTP-specific fields.
 - `confirmTotp(userId: string, setupId: string, code: string): Promise<void>` — convenience wrapper around `confirmMethod`.
 - `getRegistrationOptions(userId: string): Promise<PublicKeyCredentialCreationOptionsJSON>` — convenience wrapper for passkey provider setup.
@@ -900,7 +904,7 @@ Methods:
 - `getUserMethods(userId: string): Promise<UserMfaMethod[]>` — lists active MFA methods for a user.
 - `getAvailableProviders(tenantId: string, orgId?: string): Promise<Array<{ type: string; label: string; icon: string; allowMultiple: boolean }>>` — lists all registered providers, filtered by enforcement policy's `allowed_methods` if set.
 - `removeMethod(userId: string, methodId: string): Promise<void>` — soft-deletes an MFA method. Prevents removing the last method if MFA enforcement is active for the user's scope. Emits `security.mfa.removed` event.
-- `generateRecoveryCodes(userId: string): Promise<string[]>` — generates 10 random alphanumeric codes using `crypto.randomBytes`, bcrypt-hashes each, stores in `mfa_recovery_codes`, soft-deletes any existing codes. Returns plaintext codes (shown once only). Emits `security.recovery.regenerated` event.
+- `generateRecoveryCodes(userId: string): Promise<string[]>` — generates 10 random alphanumeric codes using `crypto.randomBytes`, bcrypt-hashes each, stores them in `mfa_recovery_codes`, and invalidates any existing unused codes. This is invoked only via the dedicated `security.mfa.recovery_codes.regenerate` command / `POST /api/security/mfa/recovery-codes/regenerate` route. Returns plaintext codes (shown once only). Emits `security.recovery.regenerated` event.
 
 ### 8.3 `MfaVerificationService`
 
@@ -938,11 +942,11 @@ Manages sudo challenge lifecycle, token issuance, and token validation. Tokens a
 
 Methods:
 
-- `isProtected(targetType: SudoTargetType, targetIdentifier: string, tenantId?: string, orgId?: string): Promise<{ protected: boolean; config?: SudoChallengeConfig }>` — checks if an action requires sudo, resolving organisation → tenant → platform → developer defaults.
-- `initiate(userId: string, targetIdentifier: string): Promise<{ sessionId: string; method: 'password' | 'mfa'; availableMfaMethods?: MfaMethodType[] }>` — determines challenge method (`password` if no MFA, `mfa` if MFA enabled), creates a pending `SudoSession`. Emits `security.sudo.challenged`.
-- `verify(sessionId: string, method: string, payload: unknown): Promise<{ sudoToken: string; expiresAt: Date }>` — validates re-authentication (delegates to `PasswordService.verifyPassword` or `MfaVerificationService`), generates HMAC-SHA256 token, stores in `SudoSession`, returns token + expiry. Emits `security.sudo.verified`.
-- `validateToken(token: string): Promise<{ valid: boolean; userId?: string; expiresAt?: Date }>` — checks HMAC signature, looks up session in database, verifies not expired.
-- `registerDeveloperDefault(targetType: SudoTargetType, identifier: string, ttlSeconds?: number): Promise<void>` — called during module setup to register developer defaults with `is_developer_default: true`.
+- `isProtected(targetIdentifier: string, tenantId?: string | null, organizationId?: string | null): Promise<{ protected: boolean; config?: SudoChallengeConfig }>` — checks if an action requires sudo by identifier alone, resolving organisation → tenant → platform → developer defaults.
+- `initiate(userId: string, targetIdentifier: string, options?: { tenantId?: string | null; organizationId?: string | null }): Promise<{ required: boolean; sessionId?: string; method?: 'password' | 'mfa'; ... }>` — determines challenge method (`password` if no MFA, `mfa` if MFA enabled), creates a pending `SudoSession`. Emits `security.sudo.challenged`.
+- `verify(sessionId: string, methodType: string, payload: unknown, options: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null; targetIdentifier: string }, req?: Request): Promise<{ sudoToken: string; expiresAt: Date }>` — validates re-authentication, generates HMAC-SHA256 token signed with request scope, stores in `SudoSession`, returns token + expiry. Emits `security.sudo.verified`.
+- `validateToken(token: string, targetIdentifier: string, options?: { expectedUserId?: string; tenantId?: string | null; organizationId?: string | null }): Promise<boolean>` — checks HMAC signature, looks up session in database, verifies not expired and scope matches.
+- `registerDeveloperDefault(input: { targetIdentifier: string; targetType?: SudoTargetType; ttlSeconds?: number; challengeMethod?: ChallengeMethod }): Promise<void>` — called during module setup to register developer defaults with `is_developer_default: true`. `targetType` is optional display metadata.
 - `cleanupExpired(): Promise<number>` — deletes expired sudo sessions. Called by scheduled cleanup job.
 
 ### 8.6 `MfaAdminService`
@@ -996,7 +1000,7 @@ export type {
 export type {
   MfaMethodType,
   EnforcementScope,
-  SudoTargetType,
+  SudoTargetType,    // display/category metadata — not an enforcement key
   ChallengeMethod,
 } from './data/entities'
 ```
@@ -1264,14 +1268,14 @@ export const securityEvents = {
 
 ## 13. Frontend pages
 
-### 13.1 Profile and MFA pages (`backend/profile/`)
+### 13.1 Profile-area security and MFA pages (`backend/profile/security/`)
 
 | Page path | Description |
 |---|---|
-| `backend/profile/page.tsx` | Extensible profile page with widget injection points. Contains password change form by default. Registers `security.profile.sections` and `security.profile.sidebar` injection points for other modules. |
-| `backend/profile/mfa/page.tsx` | MFA management page. Dynamically renders all registered providers from `MfaProviderRegistry`. Displays current enrolled methods with status badges, provides setup wizards for each available provider type (built-in + custom), shows recovery code management section. The "Add method" UI queries `/api/security/mfa/providers` to list available providers and renders each provider's `SetupComponent` or a generic form if none is provided. |
-| `backend/profile/mfa/setup-totp/page.tsx` | TOTP setup wizard: QR code display, manual secret entry toggle, 6-digit verification input, recovery codes display on first MFA enrollment. |
-| `backend/profile/mfa/setup-passkey/page.tsx` | Passkey registration flow using WebAuthn browser API. Browser compatibility check, authenticator selection (platform vs roaming), label input. |
+| `backend/profile/security/page.tsx` | Security profile page (owned by security module, routed under the existing auth profile area). Contains hardened password change form (current password required) and links to MFA management. No overrides/replacements of auth profile pages are required. |
+| `backend/profile/security/mfa/page.tsx` | MFA management page. Dynamically renders all registered providers from `MfaProviderRegistry`, displays current enrolled methods with status badges, and links to the dedicated recovery-codes page. The "Add method" UI queries `/api/security/mfa/providers` to list available providers and renders each provider's setup/details component. |
+| `backend/profile/security/mfa/[providername]/page.tsx` | Provider-specific MFA management page. Renders the provider details component for TOTP, passkey, OTP email, or a custom provider. Method setup here activates the MFA method only; recovery codes are generated separately from the dedicated recovery-codes page. |
+| `backend/profile/security/mfa/recovery-codes/page.tsx` | Recovery-code management page. Generates, displays, downloads, prints, and copies recovery codes through `POST /api/security/mfa/recovery-codes/regenerate`. |
 
 ### 13.2 Admin pages (`backend/security/`)
 
@@ -1290,22 +1294,23 @@ export const securityEvents = {
 | `GenericProviderSetup` | `components/GenericProviderSetup.tsx` | Fallback setup component for custom providers that don't supply `SetupComponent`. Renders a form based on the provider's `setupSchema` (Zod → form fields). |
 | `GenericProviderVerify` | `components/GenericProviderVerify.tsx` | Fallback verify component for custom providers that don't supply `VerifyComponent`. Renders a single code input field. |
 | `MfaMethodCard` | `components/MfaMethodCard.tsx` | Card displaying one MFA method: icon per type, label, active/inactive badge, last-used timestamp, remove button with confirmation. |
-| `TotpSetupWizard` | `components/TotpSetupWizard.tsx` | Multi-step: (1) QR code + manual secret, (2) verification input, (3) recovery codes display. Uses `qrcode` for client-side QR or receives data URI from server. |
-| `PasskeySetupFlow` | `components/PasskeySetupFlow.tsx` | Handles `navigator.credentials.create()` ceremony. Browser support check, authenticator prompt, label input, success confirmation. |
+| `TotpProviderDetails` | `components/TotpProviderDetails.tsx` | TOTP provider view. Starts setup, renders QR/manual secret guidance, and confirms enrollment with a 6-digit code. It does not display recovery codes. |
+| `PasskeyProviderDetails` | `components/PasskeyProviderDetails.tsx` | Passkey management view. Handles `navigator.credentials.create()` ceremony, browser support checks, labeling, and existing key removal. |
+| `OtpEmailProviderDetails` | `components/OtpEmailProviderDetails.tsx` | OTP email management view for enabling or removing the single email OTP method. |
 | `PasswordChangeForm` | `components/PasswordChangeForm.tsx` | Current password + new password + confirmation. Real-time policy validation feedback (length, complexity). Submit calls `PUT /api/security/profile/password`. |
 | `EnforcementPolicyForm` | `components/EnforcementPolicyForm.tsx` | Scope selector, tenant/org picker (conditional), deadline date picker, method checkboxes, affected users preview count. |
 | `MfaComplianceBadge` | `components/MfaComplianceBadge.tsx` | Status badge: "Enrolled" (green), "Pending" (yellow), "Overdue" (red), "Not Required" (grey). |
-| `RecoveryCodesDisplay` | `components/RecoveryCodesDisplay.tsx` | Grid of recovery codes with copy-all button and download-as-txt button. Shown once during generation with warning. |
+| `RecoveryCodesProviderDetails` | `components/RecoveryCodesProviderDetails.tsx` | Recovery-code management view. Generates the codes on demand, then offers copy/download/print actions for the current one-time-visible set. |
 | `SudoProvider` | `components/SudoProvider.tsx` | React context provider wrapping app layout. Manages sudo token state, renders `SudoChallengeModal` when triggered, exposes `openChallenge()` to children via context. |
 
 ### 13.4 Widget injection points
 
-The profile page exposes injection points so other modules can extend it:
+The security profile hub page exposes injection points so other modules can extend it:
 
 | Injection ID | Location | Description |
 |---|---|---|
-| `security.profile.sections` | Profile page body | Other modules register widget components that render as additional collapsible sections below password change. |
-| `security.profile.sidebar` | Profile side navigation | Modules add extra navigation items (e.g. "API Keys", "Connected Apps"). |
+| `security.profile.sections` | Security profile page body | Other modules register widget components that render as additional collapsible sections below password change. |
+| `security.profile.sidebar` | Security profile side navigation | Modules add extra navigation items (e.g. "API Keys", "Connected Apps"). |
 | `security.admin.user-actions` | Admin user table rows | Modules add context-specific action buttons per user row. |
 
 ---
@@ -1314,25 +1319,57 @@ The profile page exposes injection points so other modules can extend it:
 
 ### 14.1 Login flow modification
 
-The existing `POST /api/auth/login` endpoint is extended **without modifying the auth module**. A security module event subscriber listens to `auth.login.success`:
+The existing `POST /api/auth/login` endpoint is extended **without modifying the auth module**. The security module registers an **API Interceptor `after` hook** in `api/interceptors.ts` that targets this route. This is the correct platform mechanism for injecting response changes into another module's API endpoints — it is non-invasive, fail-closed, and does not interrupt the core module flow.
+
+> **Why an API Interceptor, not an event subscriber:** Event subscribers are fire-and-forget and have no mechanism to rewrite an HTTP response. The `ApiInterceptor.after` hook runs synchronously within the request lifecycle and can `merge` or `replace` the response body, which is the only way to reliably intercept and transform the login response (e.g. suppress the full JWT, inject `mfa_required` fields). Any other auth endpoints that need MFA-gating (e.g. session refresh) should follow the same pattern — declare an `after` interceptor in `api/interceptors.ts`, never modify the auth module directly.
 
 ```typescript
-// packages/enterprise/src/modules/security/subscribers/auth-login.ts
+// packages/enterprise/src/modules/security/api/interceptors.ts
 
-// Subscribes to: auth.login.success
-// 1. Receives { userId, tenantId } from event payload
-// 2. Queries UserMfaMethod for active methods where userId matches
-// 3. If no active methods → does nothing (standard JWT issued by auth module)
-// 4. If active methods found → modifies the response:
-//    - Replaces full JWT with a partial/pending token (short-lived, 10 min)
-//    - Adds to response body:
-//      { mfa_required: true, challenge_id: <new MfaChallenge.id>,
-//        available_methods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }, ...] }
-// 5. Client detects mfa_required and presents MFA challenge UI
-//    (renders built-in UI for known types, or provider's VerifyComponent for custom types)
-// 6. After successful POST /api/security/mfa/verify:
-//    - Full JWT issued with additional claims: mfa_verified: true, mfa_methods: ['totp', 'passkey']
+import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import type { MfaService } from '../services/MfaService'
+
+// Intercepts POST /api/auth/login after the auth module issues the JWT.
+// If the user has active MFA methods, replaces the full-access JWT with a
+// short-lived pending token and injects MFA challenge fields into the response.
+// If no MFA methods are active, returns {} — the original response is passed through unchanged.
+const loginMfaInterceptor: ApiInterceptor = {
+  id: 'security.login-mfa-check',
+  targetRoute: '/api/auth/login',
+  methods: ['POST'],
+  priority: 100,
+
+  after: async (request, response, context) => {
+    // Only act on successful logins
+    if (response.statusCode !== 200 || !response.body.ok) return {}
+
+    const mfaService = context.container.resolve('mfaService') as MfaService
+    const userId = extractUserIdFromToken(response.body.token as string)
+
+    const activeMethods = await mfaService.getActiveMethodsForUser(userId, context.tenantId)
+    if (!activeMethods.length) return {}  // no-op — standard JWT reaches client
+
+    const challenge = await mfaService.createChallenge(userId, context.tenantId)
+    const pendingToken = issuePendingJwt(userId, context.tenantId, challenge.id)  // 10 min TTL, mfa_pending: true claim
+
+    return {
+      replace: {
+        ok: true,
+        mfa_required: true,
+        challenge_id: challenge.id,
+        available_methods: activeMethods.map(m => ({ type: m.type, label: m.label, icon: m.icon })),
+        token: pendingToken,
+      },
+    }
+  },
+}
+
+export const interceptors = [loginMfaInterceptor]
+// Future auth endpoints requiring MFA-gating (e.g. session refresh) should be
+// added here as additional ApiInterceptor entries — never by modifying auth module files.
 ```
+
+After successful `POST /api/security/mfa/verify` (which validates the `challenge_id` + pending token), `MfaVerificationService` issues the full JWT with additional claims: `mfa_verified: true`, `mfa_methods: ['totp', 'passkey']`.
 
 ### 14.2 JWT token extensions
 
@@ -1346,6 +1383,143 @@ Two optional claims are added to the JWT payload. Existing JWT validation ignore
 ### 14.3 Enforcement redirect
 
 When MFA enforcement is active, the auth middleware (extended via shared library) adds an `mfa_enrollment_required` flag to the auth context. The frontend layout checks this flag and redirects unenrolled users to `/profile/mfa`. After `enforcement_deadline`, the auth middleware blocks JWT issuance entirely.
+
+### 14.4 Login page UI extensibility — UMES mechanism analysis
+
+> **Context:** The core auth login page (`packages/core/src/modules/auth/frontend/login.tsx`) is currently a closed React component — it declares no `useRegisteredComponent` handles, no widget injection spots, and emits no DOM events. When the API Interceptor (`§14.1`) returns `mfa_required: true`, the current login page silently no-ops (no `redirect` key → no navigation → form reappears). The client-side UI **must** be made aware of the `mfa_required` response to present the MFA challenge.
+
+#### UMES phase fit
+
+| UMES Phase | Mechanism | Fit for login MFA UI | Status |
+|---|---|---|---|
+| **H — Component replacement (wrapper)** | `widgets/components.ts` wraps a registered component handle | **Primary fit** — wrapper intercepts form submission response and conditionally renders `MfaChallenge` UI. Requires the login page to adopt one component handle (see below). | Implemented |
+| **C — DOM bridge / CustomEvent** | `window.dispatchEvent(CustomEvent)` + `useAppEvent` listener | **Secondary fit** — login page emits `om:auth:mfa-required` event with response payload; a globally-injected headless widget listens and opens the challenge modal. Requires the login page to emit the event. | Implemented |
+| **A — Widget injection spots** | `useInjectionDataWidgets('auth.login:post-form')` renders injected widgets | Tertiary / complementary — can host the MFA challenge modal below the login form. Requires an injection spot in the login page. | Implemented |
+| **E — API Interceptors (after hook)** | Server-side response rewrite | Already used for backend MFA detection (§14.1). Cannot inject client-side UI on its own. | Implemented |
+| **I — Detail page bindings** | Not implemented | N/A | Not implemented |
+
+#### Architectural decision: one controlled auth module change
+
+The login page (`frontend/login.tsx`) requires a **minimal, one-time, platform-level extensibility enhancement** to participate in UMES phases H and C. This is NOT adding MFA logic to the auth module — it is making the login page part of the UMES contract surface so that any future module (security, SSO, SAML, etc.) can extend the login flow. The required changes are:
+
+**1. Phase H — Component handle (enables wrapping the login form card):**
+
+```typescript
+// packages/core/src/modules/auth/frontend/login.tsx
+// Add to imports:
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+
+// Extract the login card content into a named component:
+function LoginFormContent(props: LoginFormContentProps) { /* ... existing JSX ... */ }
+
+// In the page component, use the registered component:
+export default function LoginPage() {
+  const LoginContent = useRegisteredComponent('section:auth.login.form', LoginFormContent)
+  return (
+    <div className="min-h-svh flex items-center justify-center p-4">
+      <LoginContent {...formProps} />
+    </div>
+  )
+}
+```
+
+The handle `section:auth.login.form` is added to the UMES frozen contract surface. Any module can then register a `wrapper` or `replacement` targeting it.
+
+**2. Phase C — DOM event emission (enables headless widget listeners):**
+
+```typescript
+// packages/core/src/modules/auth/frontend/login.tsx — in onSubmit, after reading response:
+const data = await res.json().catch(() => null)
+clearAllOperations()
+
+if (data?.mfa_required) {
+  // Emit a DOM event for any registered listener (security module, SSO module, etc.)
+  // The login page itself has no MFA knowledge — it just signals the raw response.
+  window.dispatchEvent(new CustomEvent('om:auth:login-response', {
+    detail: data,
+    bubbles: true,
+  }))
+  return  // do not redirect; the listener takes over
+}
+
+if (data?.redirect) {
+  router.replace(data.redirect)
+}
+```
+
+This `om:auth:login-response` event becomes a FROZEN contract — any future module can listen to it. The login page emits it unconditionally on every success response, not just for MFA, preserving generality.
+
+#### Security module implementation (no further auth module changes)
+
+The security module uses **Phase H wrapper** as the primary UI mechanism and **Phase C event listener** as supplementary:
+
+```typescript
+// packages/enterprise/src/modules/security/widgets/components.ts
+
+import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import { MfaChallengePanelLazy } from '../components/MfaChallengePanel'
+
+export const componentOverrides: ComponentOverride[] = [
+  {
+    target: { componentId: 'section:auth.login.form' },
+    priority: 100,
+    metadata: { module: 'security' },
+    // Wrapper receives the original LoginFormContent + all its props.
+    // It owns onSubmit interception: if response has mfa_required, renders MFA UI instead of redirecting.
+    wrapper: (OriginalLoginForm) => {
+      function LoginFormWithMfa(props: unknown) {
+        const [mfaState, setMfaState] = useState<MfaResponseData | null>(null)
+
+        // Listen for the Phase C DOM event as a fallback / supplementary channel
+        useEffect(() => {
+          function onLoginResponse(e: Event) {
+            const detail = (e as CustomEvent).detail
+            if (detail?.mfa_required) setMfaState(detail)
+          }
+          window.addEventListener('om:auth:login-response', onLoginResponse)
+          return () => window.removeEventListener('om:auth:login-response', onLoginResponse)
+        }, [])
+
+        if (mfaState) {
+          return <MfaChallengePanelLazy challengeId={mfaState.challenge_id} availableMethods={mfaState.available_methods} />
+        }
+
+        return React.createElement(OriginalLoginForm, props as object)
+      }
+      LoginFormWithMfa.displayName = 'SecurityLoginFormWithMfa'
+      return LoginFormWithMfa
+    },
+  },
+]
+```
+
+#### Summary of the non-invasive pattern
+
+```
+Login page (auth module — FROZEN contract surface additions only):
+  1. Exposes handle: section:auth.login.form  ←── Phase H registration point
+  2. Emits event: om:auth:login-response       ←── Phase C signal on every login success
+
+Security module (zero auth module coupling):
+  1. widgets/components.ts: wrapper for section:auth.login.form  ←── Phase H
+  2. Component listens for om:auth:login-response                ←── Phase C fallback
+  3. api/interceptors.ts: after-hook rewrites login response     ←── Phase E (§14.1)
+```
+
+The auth module additions are **additive-only** (no existing behaviour changed), declare **no MFA concepts** (generic event/handle names), and become part of the UMES frozen contract surface from the moment they land.
+
+---
+
+### 14.5 Profile/password integration without auth module changes (UMES Phase A)
+
+For profile/security navigation we use a pure-injection strategy with no auth module edits:
+
+- Security module registers a menu injection for `menu:topbar:profile-dropdown` that adds a `Security & MFA` item linking to `/backend/profile/security`.
+- Security module owns profile-area security pages under `backend/profile/security/*` and does not replace `auth` profile pages.
+- Existing auth routes (`/backend/profile`, `/backend/profile/change-password`, `/api/auth/profile`) remain unchanged for backward compatibility.
+- Enterprise users are directed to security-owned UX in the same profile URL namespace by the injected menu item; legacy links continue to work.
+
+This uses UMES Phase A (menu/item injection) and avoids route collisions with core profile pages.
 
 ---
 
@@ -1474,16 +1648,16 @@ Add to `.env.example`:
 
 ```env
 # ── Security Module ──
-SECURITY_TOTP_ISSUER=Open Mercato          # TOTP issuer name shown in authenticator apps
-SECURITY_TOTP_WINDOW=1                     # TOTP time-step tolerance (number of windows)
-SECURITY_OTP_EXPIRY_SECONDS=600            # OTP email code validity period
-SECURITY_OTP_MAX_ATTEMPTS=5                # Max OTP verification attempts per challenge
-SECURITY_SUDO_DEFAULT_TTL=300              # Default sudo token TTL in seconds
-SECURITY_SUDO_MAX_TTL=1800                 # Maximum configurable sudo TTL
-SECURITY_WEBAUTHN_RP_NAME=Open Mercato     # WebAuthn relying party name
-SECURITY_WEBAUTHN_RP_ID=                   # WebAuthn RP ID (defaults to hostname)
-SECURITY_RECOVERY_CODE_COUNT=10            # Number of recovery codes generated
-SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster recovery only)
+OM_SECURITY_TOTP_ISSUER=Open Mercato          # TOTP issuer name shown in authenticator apps
+OM_SECURITY_TOTP_WINDOW=1                     # TOTP time-step tolerance (number of windows)
+OM_SECURITY_OTP_EXPIRY_SECONDS=600            # OTP email code validity period
+OM_SECURITY_OTP_MAX_ATTEMPTS=5                # Max OTP verification attempts per challenge
+OM_SECURITY_SUDO_DEFAULT_TTL=300              # Default sudo token TTL in seconds
+OM_SECURITY_SUDO_MAX_TTL=1800                 # Maximum configurable sudo TTL
+OM_SECURITY_WEBAUTHN_RP_NAME=Open Mercato     # WebAuthn relying party name
+OM_SECURITY_WEBAUTHN_RP_ID=                   # WebAuthn RP ID (defaults to hostname)
+OM_SECURITY_RECOVERY_CODE_COUNT=10            # Number of recovery codes generated
+OM_SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster recovery only)
 ```
 
 ---
@@ -1549,15 +1723,16 @@ SECURITY_MFA_EMERGENCY_BYPASS=false        # Emergency bypass for MFA (disaster 
 
 ### Phase 1: Foundation (weeks 1–2)
 
-Goal: module scaffolding, database entities, profile page with password management.
+Goal: module scaffolding, database entities, profile-area security pages with password management.
 
 | Task | Priority | Est. days | Depends on |
 |---|---|---|---|
 | Scaffold module structure (all standard files) | High | 0.5 | — |
 | Create database entities and migration | High | 1 | Scaffold |
 | Implement `PasswordService` | High | 1 | Entities |
-| Build profile page with widget injection points | High | 1.5 | PasswordService |
-| Build `PasswordChangeForm` component | High | 1 | Profile page |
+| Build profile-area security page (`/backend/profile/security`) with widget injection points | High | 1.5 | PasswordService |
+| Build `PasswordChangeForm` component | High | 1 | Profile-area security page |
+| Register UMES menu injection (`menu:topbar:profile-dropdown`) with "Security & MFA" entry | High | 0.5 | Profile-area security page |
 | Profile/password API endpoints with OpenAPI specs | High | 1 | PasswordService |
 | Command scaffold for password/enforcement/sudo config mutations | High | 1 | Scaffold |
 | Feature permissions and role setup (`setup.ts`, `acl.ts`) | High | 0.5 | Scaffold |
@@ -1577,7 +1752,9 @@ Goal: provider registry, all three built-in MFA methods, verification, modified 
 | `MfaService` (unified service delegating to registry) | High | 1.5 | All providers |
 | `MfaVerificationService` (unified verifier via registry) | High | 1 | MfaService |
 | Recovery code generation and verification | High | 1 | MfaService |
-| Auth login flow integration (event subscriber) | Critical | 1.5 | MfaVerificationService |
+| Auth login flow integration — backend: API Interceptor `after` hook in `api/interceptors.ts` | Critical | 1 | MfaVerificationService |
+| Auth login flow integration — frontend: add `section:auth.login.form` handle + `om:auth:login-response` DOM event to `packages/core/src/modules/auth/frontend/login.tsx` (additive-only, see §14.4) | Critical | 0.5 | — (auth module change, coordinate with auth module maintainer) |
+| Security module `widgets/components.ts`: Phase H wrapper for `section:auth.login.form` → renders `MfaChallengePanel` when `mfa_required` detected | Critical | 1 | Auth module additions above |
 | MFA management page + setup wizards (TOTP, passkey) | High | 2 | MFA APIs |
 | `GenericProviderSetup` + `GenericProviderVerify` components | High | 1 | Registry |
 | MFA API endpoints including `/providers` and `/provider/:type/*` | High | 1 | MfaService |
@@ -1645,13 +1822,13 @@ Integration tests for this module must be implemented under the existing QA harn
 ### Test placement
 
 - Primary suite folder:
-  - `/.ai/qa/tests/integration/security/`
+  - `packages/enterprise/src/modules/security/__integration__/`
 - Suggested file split:
-  - `/.ai/qa/tests/integration/security/security-mfa-flows.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-enforcement.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-sudo.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-admin.spec.ts`
-  - `/.ai/qa/tests/integration/security/security-provider-registry.spec.ts`
+  - `TC-SEC-002.spec.ts` for MFA enrollment, verification, recovery-code regeneration, and recovery login
+  - `TC-SEC-003.spec.ts` for OTP email verification attempts
+  - `TC-SEC-004.spec.ts` for passkey enrollment and MFA login
+  - `TC-SEC-007.spec.ts` for admin MFA reset and status reporting
+  - `TC-SEC-008.spec.ts` for provider registry coverage
 
 ### Mandatory test scenarios
 
@@ -1660,7 +1837,8 @@ Integration tests for this module must be implemented under the existing QA harn
    - enroll/verify passkey (feature-detected; skip with explicit reason when unsupported in CI runtime)
    - enroll/verify OTP email
    - challenge verification success/failure attempt counters
-   - recovery code usage and regeneration
+   - recovery code regeneration via `POST /api/security/mfa/recovery-codes/regenerate`
+   - recovery code usage during login with invalidation after the next regeneration
 2. Enforcement:
    - policy cascade resolution (organisation > tenant > platform)
    - grace-period redirect to MFA enrollment
@@ -1701,6 +1879,12 @@ Integration tests for this module must be implemented under the existing QA harn
 ### Coverage gate for this module
 
 - No phase in this ADR is considered complete without corresponding integration coverage for new API paths and key UI paths introduced in that phase.
+
+## Migration & Backward Compatibility
+
+- `POST /api/security/mfa/recovery-codes/regenerate` remains the stable, supported path for creating recovery codes and is now the only generation path.
+- MFA provider confirmation routes keep the existing response shape compatibility bridge (`recoveryCodes?: string[]` remains tolerated by local types/OpenAPI), but the platform no longer populates that field during setup. Consumers must call the regeneration endpoint after enrollment when they need a fresh recovery-code set.
+- No route URLs, HTTP methods, command IDs, or event IDs changed as part of this adjustment.
 
 ---
 
@@ -1765,11 +1949,12 @@ security/
 │
 ├── backend/
 │   ├── profile/
-│   │   ├── page.tsx                            # User profile page (extensible)
-│   │   └── mfa/
-│   │       ├── page.tsx                        # MFA management page
-│   │       ├── setup-totp/page.tsx             # TOTP setup wizard
-│   │       └── setup-passkey/page.tsx          # Passkey registration flow
+│   │   └── security/
+│   │       ├── page.tsx                        # Profile-area security page
+│   │       └── mfa/
+│   │           ├── page.tsx                    # MFA management page
+│   │           ├── setup-totp/page.tsx         # TOTP setup wizard
+│   │           └── setup-passkey/page.tsx      # Passkey registration flow
 │   └── security/
 │       ├── page.tsx                            # Security dashboard
 │       ├── enforcement/page.tsx                # Enforcement management
@@ -1794,12 +1979,16 @@ security/
 │
 ├── widgets/
 │   ├── injection/profile-sections.ts           # Profile page widget injection config
-│   └── dashboard/security-stats.ts             # Dashboard widget config
+│   ├── injection/profile-dropdown-security-item.ts # UMES Phase A: inject "Security" link into profile dropdown
+│   ├── dashboard/security-stats.ts             # Dashboard widget config
+│   └── components.ts                           # UMES Phase H: component replacement/wrapper overrides (login form MFA wrapper, etc.)
+│
+├── api/
+│   └── interceptors.ts                         # API Interceptor after-hooks for core module routes (login MFA check, etc.)
 │
 ├── subscribers/
 │   ├── audit.ts                                # Audit log event subscriber
-│   ├── notification.ts                         # User notification subscriber
-│   └── auth-login.ts                           # Login flow MFA interceptor
+│   └── notification.ts                         # User notification subscriber
 │
 ├── emails/
 │   ├── otp-code.tsx                            # OTP email template
@@ -1818,7 +2007,7 @@ security/
 | Risk | Impact | Likelihood | Mitigation |
 |---|---|---|---|
 | WebAuthn browser compatibility | Medium | Low | SimpleWebAuthn provides polyfills. Graceful degradation to TOTP. Feature detection before offering passkey. |
-| Login flow regression | Critical | Medium | Event subscriber pattern avoids modifying auth module. Feature flag to disable MFA check. Comprehensive login integration tests. |
+| Login flow regression | Critical | Medium | API Interceptor `after` hook is fail-closed and non-invasive — auth module is untouched. Interceptor errors fall through to the standard response. Feature flag to disable MFA check. Comprehensive login integration tests. |
 | Clock drift affecting TOTP | Low | Medium | 1-window tolerance. Server NTP sync. Error message suggesting user time sync. |
 | Enforcement lockout (users locked out accidentally) | High | Low | Grace period with deadline. Superadmin always has MFA reset. Emergency bypass env flag. |
 | Sudo token forgery | Critical | Very Low | HMAC-SHA256 with server secret. Dual validation (crypto + DB). Short TTL. |
@@ -1851,3 +2040,48 @@ security/
 - Recovery codes add user responsibility to store codes securely. This is standard industry practice.
 - WebAuthn support depends on browser capabilities, but TOTP and OTP email provide universal fallback.
 - Custom MFA providers run in the same trust boundary as the module that registered them — this is consistent with Open Mercato's module architecture but means third-party modules should be code-reviewed.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 2 — Recovery-code lifecycle correction | Implemented | 2026-03-16 | Removed automatic recovery-code generation from MFA setup confirmation, kept regeneration exclusively behind the dedicated command/route, and aligned unit + integration coverage |
+| Phase 4 — Sudo system and protection APIs | In Progress | 2026-03-10 | Implemented sudo service, middleware, commands with undo tests, provider/hook/modal, admin configuration page, and bootstrap developer defaults |
+| Phase 4 — Email templates (OTP/MFA/enforcement) | In Progress | 2026-03-09 | Implemented MFA enrolled/reset/enforcement reminder email templates and notification subscribers |
+| Phase 3 — Enforcement notification handlers | In Progress | 2026-03-09 | Added deadline reminder request event + reminder subscriber for 7/3/1-day windows |
+
+### Phase 3/4 — Detailed Progress (Notifications + Email Slice)
+- [x] Add concrete notification type definitions in `notifications.ts`
+- [x] Implement MFA enrolled notification subscriber with email delivery
+- [x] Implement MFA reset notification subscriber with email delivery
+- [x] Implement enforcement deadline reminder subscriber with email delivery
+- [x] Replace scaffold email templates (`mfa-enrolled.tsx`, `mfa-reset.tsx`, `enforcement-deadline.tsx`)
+- [x] Add i18n notification keys and subscriber tests
+
+### Phase 4 — Detailed Progress (Sudo System Slice)
+- [x] Implement `SudoChallengeService`
+- [x] Implement `requireSudo` middleware
+- [x] Implement `SudoChallengeModal`
+- [x] Implement `useSudoChallenge` hook and `SudoProvider`
+- [x] Implement admin sudo configuration page
+- [x] Implement sudo config commands and undo tests
+- [x] Register developer sudo defaults from module setup declarations
+- [x] Implement `withSudoProtection`
+- [ ] Add end-to-end sudo integration coverage
+
+### 2026-03-17 — Remove `SudoTargetType` from enforcement path
+
+`SudoTargetType` (PACKAGE | MODULE | ROUTE | FEATURE) was removed from all sudo enforcement logic. The enum remains on the entity and admin form as display/category metadata only — it is never used as a DB lookup key or token field.
+
+**Rationale:** Protection only depends on WHERE `requireSudo()` is called in code. The type label adds zero enforcement value — all callers used FEATURE, the token `typ` field added no security, and the composite `(targetType, targetIdentifier)` DB index was misleading.
+
+**Changes:**
+- `target_type` column: made nullable (`DEFAULT 'feature'`), CHECK constraint removed, composite index changed to identifier-only
+- `SignedSudoTokenPayload`: `typ` field removed
+- `isProtected`: signature changed to `(targetIdentifier, tenantId?, organizationId?)` — no targetType param
+- `initiate` / `verify` / `validateToken`: all `targetType` params removed from options
+- `requireSudo(req, identifier)`: no options param
+- `useSudoChallenge().requireSudo(identifier)`: no options param
+- `sudoChallengeInitSchema` / `sudoChallengeVerifySchema`: `targetType` field removed
+- `dedupeSudoTargets`: dedup key changed from `${type}:${identifier}` to `identifier`
+- DB migration: `Migration20260317080124` — drops composite index, makes `target_type` nullable

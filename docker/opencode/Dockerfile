@@ -19,8 +19,8 @@ WORKDIR /home/opencode
 # Create config directory
 RUN mkdir -p /home/opencode/.config/opencode
 
-# Copy instructions (config is generated at runtime by entrypoint)
-COPY --chown=opencode:opencode AGENTS.md /home/opencode/.config/opencode/AGENTS.md
+# Copy instructions to working directory (OpenCode resolves relative to $CWD)
+COPY --chown=opencode:opencode AGENTS.md /home/opencode/AGENTS.md
 COPY --chown=opencode:opencode entrypoint.sh /home/opencode/entrypoint.sh
 
 USER root
