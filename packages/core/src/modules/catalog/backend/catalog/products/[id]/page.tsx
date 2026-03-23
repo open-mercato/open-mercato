@@ -67,8 +67,13 @@ import {
   sanitizeProductWeight,
   updateDimensionValue,
   updateWeightValue,
+  isConfigurableProductType,
 } from "@open-mercato/core/modules/catalog/components/products/productForm";
-import type { CatalogProductOptionSchema } from "@open-mercato/core/modules/catalog/data/types";
+import {
+  CATALOG_PRODUCT_TYPES,
+  type CatalogProductOptionSchema,
+  type CatalogProductType,
+} from "@open-mercato/core/modules/catalog/data/types";
 import { MetadataEditor } from "@open-mercato/core/modules/catalog/components/products/MetadataEditor";
 import {
   buildAttachmentImageUrl,
@@ -571,6 +576,14 @@ export default function EditCatalogProductPage({
           title: typeof record.title === "string" ? record.title : "",
           subtitle: typeof record.subtitle === "string" ? record.subtitle : "",
           handle: typeof record.handle === "string" ? record.handle : "",
+          sku: typeof record.sku === "string" ? record.sku : "",
+          productType: (
+            typeof record.product_type === "string"
+              ? record.product_type
+              : typeof record.productType === "string"
+                ? record.productType
+                : "simple"
+          ) as CatalogProductType,
           description:
             typeof record.description === "string" ? record.description : "",
           useMarkdown: Boolean(metadata.__useMarkdown),
@@ -808,6 +821,12 @@ export default function EditCatalogProductPage({
 
   const handleSubmit = React.useCallback(
     async (formValues: ProductFormValues) => {
+      const translateValidationMessage = (message: string | null | undefined) => {
+        if (typeof message !== "string") return "";
+        const trimmed = message.trim();
+        if (!trimmed) return "";
+        return t(trimmed, trimmed);
+      };
       if (!productId) {
         throw createCrudFormError(
           t(
@@ -822,10 +841,12 @@ export default function EditCatalogProductPage({
         const fieldErrors: Record<string, string> = {};
         issues.forEach((issue) => {
           const path = issue.path.join(".") || "form";
-          if (!fieldErrors[path]) fieldErrors[path] = issue.message;
+          if (!fieldErrors[path]) {
+            fieldErrors[path] = translateValidationMessage(issue.message);
+          }
         });
         const message =
-          issues[0]?.message ??
+          translateValidationMessage(issues[0]?.message) ||
           t(
             "catalog.products.edit.errors.validation",
             "Fix highlighted fields.",
@@ -847,6 +868,7 @@ export default function EditCatalogProductPage({
           : [],
         defaultMediaId: parsed.data.defaultMediaId ?? null,
         defaultMediaUrl: parsed.data.defaultMediaUrl ?? "",
+        productType: (parsed.data.productType ?? "simple") as CatalogProductType,
         hasVariants: parsed.data.hasVariants ?? false,
         options: Array.isArray(parsed.data.options) ? parsed.data.options : [],
         variants: Array.isArray(parsed.data.variants)
@@ -1017,9 +1039,13 @@ export default function EditCatalogProductPage({
         subtitle: values.subtitle?.trim() || undefined,
         description,
         handle,
+        sku: values.sku?.trim() || null,
+        productType: values.productType || "simple",
         taxRateId: values.taxRateId ?? null,
         taxRate: productTaxRateValue ?? null,
-        isConfigurable: Boolean(values.hasVariants),
+        isConfigurable: isConfigurableProductType(
+          values.productType || "simple",
+        ),
         metadata,
         dimensions,
         weightValue: weight?.value ?? null,
@@ -2276,6 +2302,77 @@ function ProductMetaSection({
         </p>
         {errors.handle ? (
           <p className="text-xs text-red-600">{errors.handle}</p>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <Label>{t("catalog.products.form.sku", "SKU")}</Label>
+        <Input
+          value={values.sku}
+          onChange={(event) => setValue("sku", event.target.value)}
+          placeholder={t(
+            "catalog.products.create.placeholders.sku",
+            "e.g., PROD-001",
+          )}
+          className="font-mono"
+        />
+        <p className="text-xs text-muted-foreground">
+          {t(
+            "catalog.products.create.skuHelp",
+            "Unique product identifier. Letters, numbers, hyphens, underscores, periods.",
+          )}
+        </p>
+        {errors.sku ? (
+          <p className="text-xs text-red-600">{errors.sku}</p>
+        ) : null}
+      </div>
+
+      <div className="space-y-2">
+        <Label>
+          {t("catalog.products.form.productType", "Product type")}
+        </Label>
+        <select
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          value={values.productType || "simple"}
+          onChange={(event) => {
+            const nextType = event.target.value;
+            setValue("productType", nextType);
+            const nextIsConfigurable =
+              isConfigurableProductType(nextType);
+            if (nextIsConfigurable && !values.hasVariants) {
+              setValue("hasVariants", true);
+            } else if (
+              !nextIsConfigurable &&
+              values.hasVariants
+            ) {
+              setValue("hasVariants", false);
+            }
+          }}
+        >
+          {CATALOG_PRODUCT_TYPES.map((type) => {
+            const isDisabled =
+              type === "bundle" || type === "grouped";
+            return (
+              <option
+                key={type}
+                value={type}
+                disabled={isDisabled}
+              >
+                {t(
+                  `catalog.products.types.${type}`,
+                  type,
+                )}
+                {isDisabled
+                  ? ` (${t("common.comingSoon", "Coming soon")})`
+                  : ""}
+              </option>
+            );
+          })}
+        </select>
+        {errors.productType ? (
+          <p className="text-xs text-red-600">
+            {errors.productType}
+          </p>
         ) : null}
       </div>
 

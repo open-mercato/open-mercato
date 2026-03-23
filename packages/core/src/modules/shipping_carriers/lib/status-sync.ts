@@ -2,6 +2,13 @@ import type { UnifiedShipmentStatus } from './adapter'
 import type { CarrierShipment } from '../data/entities'
 import type { ShippingEventId } from '../events'
 
+export class ShipmentCancelNotAllowedError extends Error {
+  constructor(status: string) {
+    super(`Shipment cannot be cancelled in its current status: ${status}`)
+    this.name = 'ShipmentCancelNotAllowedError'
+  }
+}
+
 const VALID_SHIPPING_TRANSITIONS: Record<string, UnifiedShipmentStatus[]> = {
   label_created: ['picked_up', 'in_transit', 'cancelled'],
   picked_up: ['in_transit', 'cancelled'],

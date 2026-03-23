@@ -101,6 +101,15 @@ export function isBroadcastEvent(eventId: string): boolean {
   return event?.clientBroadcast === true
 }
 
+/**
+ * Check if an event has portalBroadcast enabled.
+ * Used by the portal SSE endpoint to filter events for the Portal Event Bridge.
+ */
+export function isPortalBroadcastEvent(eventId: string): boolean {
+  const event = allDeclaredEvents.find(e => e.id === eventId)
+  return event?.portalBroadcast === true
+}
+
 // =============================================================================
 // Bootstrap Registration (similar to searchModuleConfigs pattern)
 // =============================================================================

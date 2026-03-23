@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -38,6 +38,10 @@
     "./lib/bootstrap/dynamicLoader": {
       "types": "./src/lib/bootstrap/dynamicLoader.ts",
       "default": "./dist/lib/bootstrap/dynamicLoader.js"
+    },
+    "./modules/generators": {
+      "types": "./src/modules/generators/index.ts",
+      "default": "./dist/modules/generators/index.js"
     },
     "./*.ts": {
       "types": "./src/*.ts",

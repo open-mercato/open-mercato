@@ -867,7 +867,7 @@ export async function logRuleExecution(
 
   await em.persistAndFlush(log)
 
-  return log.id
+  return String(log.id)
 }
 
 async function emitRuleExecutionFailed(

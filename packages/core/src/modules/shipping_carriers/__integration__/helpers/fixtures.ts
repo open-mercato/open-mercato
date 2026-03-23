@@ -159,6 +159,18 @@ export async function cancelShipment(
   return response.json()
 }
 
+export async function listProviders(
+  request: APIRequestContext,
+  token: string,
+): Promise<{ providers: Array<{ providerKey: string }> }> {
+  const response = await apiRequest(request, 'GET', '/api/shipping-carriers/providers', { token })
+  if (!response.ok()) {
+    const body = await response.text()
+    throw new Error(`Failed to list providers: ${response.status()} ${body}`)
+  }
+  return response.json()
+}
+
 export async function sendWebhook(
   request: APIRequestContext,
   providerKey: string,

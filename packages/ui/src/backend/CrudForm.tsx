@@ -101,6 +101,7 @@ export type CrudFieldOption = { value: string; label: string }
 export type CrudBuiltinField = CrudFieldBase & {
   type:
     | 'text'
+    | 'password'
     | 'textarea'
     | 'checkbox'
     | 'select'
@@ -482,6 +483,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [extendedInjectionEventsEnabled, triggerInjectionEvent],
   )
 
+  const translateValidationMessage = React.useCallback(
+    (message: string | null | undefined): string => {
+      if (typeof message !== 'string') return ''
+      const trimmed = message.trim()
+      if (!trimmed) return ''
+      return t(trimmed, trimmed)
+    },
+    [t],
+  )
+
+  const translateValidationErrors = React.useCallback(
+    (fieldErrors: Record<string, string>): Record<string, string> =>
+      Object.fromEntries(
+        Object.entries(fieldErrors).map(([fieldId, message]) => [fieldId, translateValidationMessage(message)]),
+      ),
+    [translateValidationMessage],
+  )
+
   const canNavigateTo = React.useCallback(
     async (target: string): Promise<boolean> => {
       if (!extendedInjectionEventsEnabled) return true
@@ -645,7 +664,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             }
             if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
               const transformedErrors = await transformValidationErrors(result.fieldErrors)
-              setErrors(transformedErrors)
+              setErrors(translateValidationErrors(transformedErrors))
             }
             const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
             flash(message, 'error')
@@ -1085,11 +1104,25 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const allFields = React.useMemo(() => {
     const base = [...fields, ...injectedCrudFields]
+
+    if (groups) {
+      const provided = new Set(base.map(f => f.id))
+      for (const group of groups) {
+        if (!group.fields) continue
+        for (const entry of group.fields) {
+          if (typeof entry === 'string') continue
+          if (!provided.has(entry.id)) {
+            provided.add(entry.id)
+            base.push(entry)
+          }
+        }
+      }
+    }
     if (!cfFields.length) return base
     const provided = new Set(base.map(f => f.id))
     const extras = cfFields.filter(f => !provided.has(f.id))
     return [...base, ...extras]
-  }, [fields, injectedCrudFields, cfFields])
+  }, [fields, injectedCrudFields, cfFields, groups])
 
   const fieldById = React.useMemo(() => {
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
@@ -1525,14 +1558,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             const mapped: Record<string, string> = {}
             for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
             const transformedErrors = await transformValidationErrors(mapped)
-            setErrors((prev) => ({ ...prev, ...transformedErrors }))
+            setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
           } else {
             const transformedErrors = await transformValidationErrors(
               Object.fromEntries(
                 Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
               ),
             )
-            setErrors((prev) => ({ ...prev, ...transformedErrors }))
+            setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
           }
           flash(highlightedMessage, 'error')
           return
@@ -1563,7 +1596,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           console.debug('[crud-form] Schema validation failed', res.error.issues)
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
-        setErrors(transformedErrors)
+        setErrors(translateValidationErrors(transformedErrors))
         flash(highlightedMessage, 'error')
         return
       }
@@ -1617,7 +1650,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
             const transformedErrors = await transformValidationErrors(result.fieldErrors)
-            setErrors(transformedErrors)
+            setErrors(translateValidationErrors(transformedErrors))
           }
           const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
@@ -1692,12 +1725,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             const firstKey = Object.keys(combinedFieldErrors)[0]
             if (!firstKey) return null
             const value = combinedFieldErrors[firstKey]
-            return typeof value === 'string' && value.trim().length ? value.trim() : null
+            if (typeof value !== 'string' || !value.trim().length) return null
+            return translateValidationMessage(value)
           })()
         : null
       if (hasFieldErrors) {
         const transformedErrors = await transformValidationErrors(combinedFieldErrors)
-        setErrors(transformedErrors)
+        setErrors(translateValidationErrors(transformedErrors))
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[crud-form] Submission failed with field errors', transformedErrors)
         }
@@ -2348,6 +2382,7 @@ function TextInput({
   onSubmit,
   disabled,
   suggestions,
+  inputType = 'text',
 }: {
   value: string
   onChange: (v: string) => void
@@ -2356,6 +2391,7 @@ function TextInput({
   onSubmit?: () => void
   disabled?: boolean
   suggestions?: string[]
+  inputType?: 'text' | 'password'
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -2399,7 +2435,7 @@ function TextInput({
   return (
     <>
       <input
-        type="text"
+        type={inputType}
         className="w-full h-9 rounded border px-2 text-sm"
         placeholder={placeholder}
         value={local}
@@ -2860,6 +2896,17 @@ const FieldControl = React.memo(function FieldControlImpl({
           suggestions={field.type === 'text' ? field.suggestions : undefined}
         />
       )}
+      {field.type === 'password' && (
+        <TextInput
+          value={value == null ? '' : String(value)}
+          placeholder={placeholder}
+          onChange={(next) => fieldSetValue(next)}
+          autoFocus={autoFocusField}
+          onSubmit={onSubmitRequest}
+          disabled={disabled}
+          inputType="password"
+        />
+      )}
       {field.type === 'number' && (
         <NumberInput
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
@@ -2952,12 +2999,12 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
           autoFocus={autoFocusField}
-          suggestions={options.map((opt) => opt.label)}
+          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {
                   const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => opt.label)
+                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
                 }
               : undefined
           }

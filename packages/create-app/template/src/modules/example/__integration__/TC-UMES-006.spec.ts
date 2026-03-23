@@ -5,7 +5,7 @@ test.describe('TC-UMES-006: transformFormData applyToForm opt-in', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -31,7 +31,7 @@ test.describe('TC-UMES-006: transformFormData applyToForm opt-in', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')

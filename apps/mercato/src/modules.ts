@@ -45,12 +45,14 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
+  { id: 'customer_accounts', from: '@open-mercato/core' },
+  { id: 'portal', from: '@open-mercato/core' },
   { id: 'example', from: '@app' },
-
 ]
 
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
+const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
 
 if (enterpriseModulesEnabled) {
   enabledModules.push(
@@ -61,4 +63,8 @@ if (enterpriseModulesEnabled) {
 
 if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
   enabledModules.push({ id: 'sso', from: '@open-mercato/enterprise' })
+}
+
+if (enterpriseModulesEnabled && enterpriseSecurityEnabled) {
+  enabledModules.push({ id: 'security', from: '@open-mercato/enterprise' })
 }

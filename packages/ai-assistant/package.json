@@ -1,13 +1,14 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "mcp:dev": "mercato ai_assistant mcp:dev",
-    "mcp:serve": "mercato ai_assistant mcp:serve-http"
+    "mcp:serve": "mercato ai_assistant mcp:serve-http",
+    "test": "jest --config jest.config.cjs --forceExit"
   },
   "exports": {
     ".": "./dist/index.js",

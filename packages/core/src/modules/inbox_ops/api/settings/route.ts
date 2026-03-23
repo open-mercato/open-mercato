@@ -1,9 +1,17 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxSettings } from '../../data/entities'
 import { updateSettingsSchema } from '../../data/validators'
 import { resolveRequestContext, handleRouteError } from '../routeHelpers'
+import {
+  resolveCache,
+  createSettingsCacheKey,
+  createSettingsCacheTag,
+  invalidateSettingsCache,
+  SETTINGS_CACHE_TTL_MS,
+} from '../../lib/cache'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.settings.manage'] },
@@ -13,6 +21,15 @@ export const metadata = {
 export async function GET(req: Request) {
   try {
     const ctx = await resolveRequestContext(req)
+    const cache = resolveCache(ctx.container)
+
+    if (cache) {
+      const cacheKey = createSettingsCacheKey(ctx.tenantId)
+      const cached = await runWithCacheTenant(ctx.tenantId, () => cache.get(cacheKey))
+      if (cached) {
+        return NextResponse.json(cached)
+      }
+    }
 
     const settings = await findOneWithDecryption(
       ctx.em,
@@ -26,14 +43,28 @@ export async function GET(req: Request) {
       ctx.scope,
     )
 
-    return NextResponse.json({
+    const responseBody = {
       settings: settings ? {
         id: settings.id,
         inboxAddress: settings.inboxAddress,
         isActive: settings.isActive,
         workingLanguage: settings.workingLanguage,
       } : null,
-    })
+    }
+
+    if (cache) {
+      const cacheKey = createSettingsCacheKey(ctx.tenantId)
+      const tag = createSettingsCacheTag(ctx.tenantId)
+      try {
+        await runWithCacheTenant(ctx.tenantId, () =>
+          cache.set(cacheKey, responseBody, { ttl: SETTINGS_CACHE_TTL_MS, tags: [tag] }),
+        )
+      } catch (err) {
+        console.warn('[inbox_ops:settings] Failed to set cache', err)
+      }
+    }
+
+    return NextResponse.json(responseBody)
   } catch (err) {
     return handleRouteError(err, 'load settings')
   }
@@ -73,6 +104,9 @@ export async function PATCH(req: Request) {
     }
 
     await ctx.em.flush()
+
+    const cache = resolveCache(ctx.container)
+    await runWithCacheTenant(ctx.tenantId, () => invalidateSettingsCache(cache, ctx.tenantId))
 
     return NextResponse.json({
       ok: true,

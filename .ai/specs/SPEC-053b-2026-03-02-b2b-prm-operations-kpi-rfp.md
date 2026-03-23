@@ -6,13 +6,13 @@
 | **Author** | Open Mercato Team |
 | **Created** | 2026-03-02 |
 | **Parent** | [SPEC-053](./SPEC-053-2026-03-02-b2b-prm-starter.md) |
-| **Related** | SPEC-052 (Use-Case Starters), SPEC-041 (UMES), SPEC-013 (setup.ts) |
+| **Related** | SPEC-068 (Use-Case Examples Framework), SPEC-041 (UMES), SPEC-013 (setup.ts) |
 
 ## TLDR
 **Key Points:**
 - Define a full operational contract for B2B partner program management: agency onboarding, tier governance, KPI (`WIC/WIP/MIN`), and phased RFP flow.
 - Keep rollout phased: POC baseline, MVP operations, v1 matching/fit automation, v2 commissions and sales handoff.
-- Run starter bootstrap from CLI (`mercato init --starter b2b_prm`) while runtime operations are API/UI based.
+- Example is bootstrapped via `create-mercato-app --example b2b-prm` + `yarn initialize` (per SPEC-068); runtime operations are API/UI based.
 
 **Scope:**
 - PRM operational domain model.
@@ -455,6 +455,10 @@ v1/v2:
 - **Fully compliant**: Approved for phased implementation.
 
 ## Changelog
+### 2026-03-17
+- Aligned with SPEC-068 (was SPEC-062): replaced `mercato init --starter` reference in TLDR with `create-mercato-app --example b2b-prm` + `yarn initialize` flow.
+- Updated Related field: SPEC-052 → SPEC-068.
+
 ### 2026-03-02
 - Initial detailed operations contract extracted for `b2b_prm` starter.
 - Added KPI computation contracts (`WIC`, `WIP`, `MIN`) and phased API lifecycle.

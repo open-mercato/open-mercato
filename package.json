@@ -1,6 +1,6 @@
 {
   "name": "open-mercato",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "packageManager": "yarn@4.12.0",
   "engines": {
@@ -103,17 +103,18 @@
     "date-fns-tz": "^3.2.0",
     "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
-    "newrelic": "^13.7.0",
-    "next": "16.1.5",
+    "newrelic": "^13.16.0",
+    "next": "16.1.7",
     "pdf2pic": "^3.2.0",
     "pg": "8.20.0",
     "react": "19.2.1",
     "react-dom": "19.2.1",
-    "react-email": "^5.0.6",
+    "react-email": "^5.2.10",
     "remark-gfm": "^4.0.1",
     "resend": "^6.5.2",
     "semver": "^7.7.3",
     "tailwind-merge": "^3.4.0",
+    "ts-pattern": "^5.9.0",
     "zod": "^4.1.13"
   },
   "devDependencies": {
@@ -156,6 +157,8 @@
     "serialize-javascript": "7.0.3",
     "svgo": "3.3.3",
     "qs": "6.14.2",
-    "tar": "7.5.10"
+    "flatted": "3.4.0",
+    "tar": "7.5.11",
+    "undici": "7.24.0"
   }
 }

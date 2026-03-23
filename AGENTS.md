@@ -36,12 +36,14 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding response enrichers to enrich other modules' API responses | `packages/core/AGENTS.md` → Response Enrichers |
 | Filtering CRUD list APIs by multiple IDs (`?ids=uuid1,uuid2`), including interceptor-driven ID narrowing | `packages/core/AGENTS.md` → API Interceptors + `packages/shared/AGENTS.md` |
 | Adding DOM Event Bridge (SSE-based real-time events to browser), `useAppEvent`, `useOperationProgress` | `packages/events/AGENTS.md` → DOM Event Bridge |
+| Building customer portal pages, portal auth, portal nav injection, portal event bridge | `packages/ui/AGENTS.md` → Portal Extension |
 | Adding new widget event handlers (`onFieldChange`, `onBeforeNavigate`, transformers) | `packages/ui/AGENTS.md` |
 | **Specific Modules** | |
 | Managing people/companies/deals/activities, **copying CRUD patterns for new modules** | `packages/core/src/modules/customers/AGENTS.md` |
 | Building orders/quotes/invoices, pricing calculations, document flow (Quote→Order→Invoice), shipments/payments, channel scoping | `packages/core/src/modules/sales/AGENTS.md` |
 | Managing products/categories/variants, pricing resolvers (`selectBestPrice`), offers, channel-scoped pricing, option schemas | `packages/core/src/modules/catalog/AGENTS.md` |
 | Users/roles/RBAC implementation, authentication flow, session management, feature-based access control | `packages/core/src/modules/auth/AGENTS.md` |
+| Customer identity, customer portal auth (login/signup/magic links), customer RBAC, sessions, CRM auto-linking, admin user management | `packages/core/src/modules/customer_accounts/AGENTS.md` |
 | Multi-currency support, exchange rates, dual currency recording, realized gains/losses | `packages/core/src/modules/currencies/AGENTS.md` |
 | Workflow automation, defining step-based workflows, executing instances, user tasks, async activities, event triggers, signals, compensation (saga pattern), visual editor | `packages/core/src/modules/workflows/AGENTS.md` |
 | Integration Marketplace foundation (registry/bundles, credentials, state, health checks, logs, admin UI, integration manifests) | `packages/core/src/modules/integrations/AGENTS.md` |
@@ -77,7 +79,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 ## Workflow Orchestration
 
-1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; create SPEC files using scope-appropriate naming (`SPEC-{number}-{date}-{title}.md` for OSS, `SPEC-ENT-{number}-{date}-{title}.md` for enterprise). Skip for small fixes.
+1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; create spec files using scope-appropriate naming (`{date}-{title}.md` for OSS and enterprise, with `date` as `YYYY-MM-DD` and `title` as kebab-case). Skip for small fixes.
     -   **Detailed Workflow**: Refer to the **`spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/spec-writing/SKILL.md`).
     -   **Pre-implementation analysis**: Before implementing a complex spec, run the **`pre-implement-spec` skill** to audit backward compatibility, identify gaps, and produce a readiness report.
     -   **Implementation**: Use the **`implement-spec` skill** to execute spec phases with coordinated subagents, unit tests, progress tracking, and code-review compliance gates.
@@ -152,6 +154,15 @@ All packages use the `@open-mercato/<package>` naming convention:
 | Event bridge hook | `import { useEventBridge } from '@open-mercato/ui/backend/injection/eventBridge'` |
 | Operation progress hook | `import { useOperationProgress } from '@open-mercato/ui/backend/injection/useOperationProgress'` |
 | Broadcast event check | `import { isBroadcastEvent } from '@open-mercato/shared/modules/events'` |
+| Portal broadcast event check | `import { isPortalBroadcastEvent } from '@open-mercato/shared/modules/events'` |
+| Portal customer auth hook | `import { useCustomerAuth } from '@open-mercato/ui/portal/hooks/useCustomerAuth'` |
+| Portal tenant context hook | `import { useTenantContext } from '@open-mercato/ui/portal/hooks/useTenantContext'` |
+| Portal shell (layout) | `import { PortalShell } from '@open-mercato/ui/portal/PortalShell'` |
+| Portal menu injection hook | `import { usePortalInjectedMenuItems } from '@open-mercato/ui/portal/hooks/usePortalInjectedMenuItems'` |
+| Portal event bridge hook | `import { usePortalEventBridge } from '@open-mercato/ui/portal/hooks/usePortalEventBridge'` |
+| Portal app event hook | `import { usePortalAppEvent } from '@open-mercato/ui/portal/hooks/usePortalAppEvent'` |
+| Customer auth types | `import type { CustomerAuthContext } from '@open-mercato/shared/modules/customer-auth'` |
+| Customer auth server (cookies) | `import { getCustomerAuthFromCookies } from '@open-mercato/core/modules/customer_accounts/lib/customerAuthServer'` |
 
 Import strategy:
 - Prefer package-level imports (`@open-mercato/<package>/...`) over deep relative imports (`../../../...`) when crossing module boundaries, referencing shared module internals, or importing from deeply nested files.
@@ -162,6 +173,7 @@ Import strategy:
 - Modules: plural, snake_case (folders and `id`). Special cases: `auth`, `example`.
 - **Event IDs**: `module.entity.action` (singular entity, past tense action, e.g., `pos.cart.completed`). use dots as separators.
 - `clientBroadcast: true` in EventDefinition bridges events to browser via SSE (DOM Event Bridge)
+- `portalBroadcast: true` in EventDefinition bridges events to customer portal via SSE (Portal Event Bridge)
 - JS/TS fields and identifiers: camelCase.
 - Database tables and columns: snake_case; table names plural.
 - Common columns: `id`, `created_at`, `updated_at`, `deleted_at`, `is_active`, `organization_id`, `tenant_id`.
@@ -189,13 +201,14 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 | `cli.ts` | default | CLI commands |
 | `di.ts` | `register(container)` | DI registrar (Awilix) |
 | `acl.ts` | `features` | Feature-based permissions |
-| `setup.ts` | `setup: ModuleSetupConfig` | Tenant initialization, role features |
+| `setup.ts` | `setup: ModuleSetupConfig` | Tenant initialization, role features, customer role features |
 | `ce.ts` | `entities` | Custom entities / custom field sets |
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |
 | `translations.ts` | `translatableFields` | Translatable field declarations per entity |
 | `notifications.ts` | `notificationTypes` | Notification type definitions |
 | `notifications.client.ts` | — | Client-side notification renderers |
+| `generators.ts` | `generatorPlugins` | Generator plugin declarations for additional aggregated output files |
 | `ai-tools.ts` | `aiTools` | MCP AI tool definitions |
 | `api/interceptors.ts` | `interceptors` | API route interception hooks (before/after) |
 | `data/entities.ts` | — | MikroORM entities |
@@ -271,6 +284,7 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 -   Hash passwords with bcryptjs (cost >=10), never log credentials
 -   Return minimal error messages for auth (avoid revealing whether email exists)
 -   RBAC: prefer declarative guards (`requireAuth`, `requireRoles`, `requireFeatures`) in page metadata
+-   Portal RBAC: use `requireCustomerAuth` and `requireCustomerFeatures` in page metadata for portal pages
 
 ### UI & HTTP
 

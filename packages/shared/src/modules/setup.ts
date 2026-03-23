@@ -20,6 +20,13 @@ export type DefaultRoleFeatures = {
   employee?: string[]
 }
 
+export type DefaultCustomerRoleFeatures = {
+  portal_admin?: string[]
+  buyer?: string[]
+  viewer?: string[]
+  [roleSlug: string]: string[] | undefined
+}
+
 export type ModuleSetupConfig = {
   /**
    * Called inside setupInitialTenant() right after the tenant/org is created.
@@ -49,4 +56,11 @@ export type ModuleSetupConfig = {
    * Merged into role ACLs during tenant setup.
    */
   defaultRoleFeatures?: DefaultRoleFeatures
+
+  /**
+   * Declarative default customer role-feature assignments.
+   * Merged into CustomerRoleAcl records during tenant setup.
+   * Keys are customer role slugs (portal_admin, buyer, viewer, or custom).
+   */
+  defaultCustomerRoleFeatures?: DefaultCustomerRoleFeatures
 }

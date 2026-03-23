@@ -9,11 +9,11 @@
 import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
-} from '@open-mercato/core/modules/core/__integration__/helpers/api'
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createPersonFixture,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+} from '@open-mercato/core/helpers/integration/crmFixtures'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const OM_EVENT_NAME = 'om:event'
@@ -91,7 +91,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend')
@@ -147,7 +147,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
 
     // Login and navigate to a backend page
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend')
@@ -179,7 +179,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     // Test the pattern matching utility in a browser context
     // since it's a client-side module
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend')
@@ -231,7 +231,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -252,7 +252,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -288,7 +288,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -321,7 +321,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -337,7 +337,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -370,7 +370,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -389,7 +389,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/todos/create')
@@ -557,7 +557,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
 
   test('TC-UMES-E15: Phase A/B harness shows injected menu items', async ({ page }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -569,7 +569,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
 
   test('TC-UMES-E16: Phase A/B harness quick links navigate to target pages', async ({ page }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -604,7 +604,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       })
 
       const { login } = await import(
-        '@open-mercato/core/modules/core/__integration__/helpers/auth'
+        '@open-mercato/core/helpers/integration/auth'
       )
       await login(page, 'admin')
       await page.goto('/backend/umes-handlers')
@@ -615,8 +615,9 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await page.getByTestId('phase-d-run-probe').click()
 
       await expect(page.getByTestId('phase-d-status')).toContainText('ok')
-      await expect(page.getByTestId('phase-d-result')).toContainText(personId)
       await expect(page.getByTestId('phase-d-result')).toContainText('_example')
+      await expect(page.getByTestId('phase-d-result')).toContainText('selectedRecord')
+      await expect(page.getByTestId('phase-d-result')).toContainText('inspectedCount')
       await expect(page.getByTestId('phase-d-result')).toContainText('example.customer-todo-count')
     } finally {
       await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
@@ -627,7 +628,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
@@ -647,7 +648,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
     await page.goto('/backend/umes-handlers')
