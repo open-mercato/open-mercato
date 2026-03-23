@@ -28,7 +28,7 @@ export class WebhookEntity {
   @Property({ name: 'subscribed_events', type: 'json' })
   subscribedEvents!: string[]
 
-  @Property({ name: 'http_method', type: 'text', default: "'POST'" })
+  @Property({ name: 'http_method', type: 'text', default: 'POST' })
   httpMethod: string = 'POST'
 
   @Property({ name: 'custom_headers', type: 'json', nullable: true })
@@ -37,7 +37,7 @@ export class WebhookEntity {
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
-  @Property({ name: 'delivery_strategy', type: 'text', default: "'http'" })
+  @Property({ name: 'delivery_strategy', type: 'text', default: 'http' })
   deliveryStrategy: string = 'http'
 
   @Property({ name: 'strategy_config', type: 'json', nullable: true })
@@ -104,7 +104,7 @@ export class WebhookDeliveryEntity {
   @Property({ name: 'payload', type: 'json' })
   payload!: Record<string, unknown>
 
-  @Property({ name: 'status', type: 'text', default: "'pending'" })
+  @Property({ name: 'status', type: 'text', default: 'pending' })
   status: string = 'pending'
 
   @Property({ name: 'response_status', type: 'int', nullable: true })

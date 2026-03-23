@@ -367,3 +367,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any workspace package that contributes auto-discovered backend/frontend pages must compile both `.ts` and `.tsx` sources into `dist/`, and its export map must cover the deepest generated import paths used by `modules.generated.ts`.
 
 **Applies to**: `packages/webhooks/build.mjs`, `packages/webhooks/package.json`, and future feature packages that expose generated page modules.
+
+## MikroORM string defaults must be plain values, not pre-quoted SQL fragments
+
+**Context**: The webhooks module declared text defaults as `"'pending'"`, `"'POST'"`, and `"'http'"` in entity metadata.
+
+**Problem**: MikroORM treated those values as literal strings and generated migration SQL with doubled quotes like `default ''pending''`, which broke `yarn initialize` when PostgreSQL tried to create the tables.
+
+**Rule**: For `@Property(... default: ...)` on string/text columns, pass the plain value such as `'pending'` or `'POST'`. Use `defaultRaw` only when you intentionally need a database expression.
+
+**Applies to**: `packages/webhooks/src/modules/webhooks/data/entities.ts` and future MikroORM entities with string defaults.
