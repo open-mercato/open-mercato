@@ -268,7 +268,7 @@ export default function WebhooksListPage() {
                   onSelect: () => { void handleToggleActive(row) },
                 },
               )
-              items.push({ id: 'delete', label: t('webhooks.list.actions.delete'), destructive: true, onSelect: () => { void handleDelete(row) } })
+              items.push({ id: 'delete', label: t('webhooks.list.actions.delete'), onSelect: () => { void handleDelete(row) } })
             }
 
             return <RowActions items={items} />

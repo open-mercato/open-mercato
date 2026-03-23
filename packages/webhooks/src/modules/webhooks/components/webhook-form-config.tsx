@@ -5,9 +5,7 @@ import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-
-type TranslateFn = (key: string, fallback?: string, vars?: Record<string, unknown>) => string
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 export type WebhookFormValues = {
   name: string

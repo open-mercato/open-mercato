@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { useParams, usePathname, useRouter } from 'next/navigation'
-import { Pencil, Power, RotateCw, Send, Trash2 } from 'lucide-react'
+import { RotateCw } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -34,7 +34,7 @@ type Webhook = {
   description: string | null
   url: string
   subscribedEvents: string[]
-  httpMethod: string
+  httpMethod: 'POST' | 'PUT' | 'PATCH'
   isActive: boolean
   maxRetries: number
   timeoutMs: number
@@ -420,7 +420,7 @@ export default function WebhookDetailPage() {
   const groups = React.useMemo(() => buildWebhookFormGroups(t), [t])
   const contentHeader = React.useMemo(() => buildWebhookFormContentHeader(t), [t])
   const menuActions = React.useMemo(() => {
-    const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = []
+    const items: Array<{ id: string; label: string; onSelect: () => void }> = []
     const isActive = webhook?.isActive ?? false
 
     if (access.canManage) {
@@ -428,13 +428,11 @@ export default function WebhookDetailPage() {
         {
           id: 'edit',
           label: t('webhooks.list.actions.edit'),
-          icon: Pencil,
           onSelect: () => setIsEditing(true),
         },
         {
           id: 'toggle-active',
           label: isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
-          icon: Power,
           onSelect: () => { void handleToggleActive() },
         },
       )
@@ -444,7 +442,6 @@ export default function WebhookDetailPage() {
       items.push({
         id: 'rotate-secret',
         label: t('webhooks.detail.actions.rotateSecret'),
-        icon: RotateCw,
         onSelect: () => { void handleRotateSecret() },
       })
     }
@@ -453,7 +450,6 @@ export default function WebhookDetailPage() {
       items.push({
         id: 'test',
         label: t('webhooks.detail.actions.test'),
-        icon: Send,
         onSelect: () => { void handleTest() },
       })
     }
@@ -462,9 +458,7 @@ export default function WebhookDetailPage() {
       items.push({
         id: 'delete',
         label: t('webhooks.list.actions.delete'),
-        icon: Trash2,
         onSelect: () => { void handleDelete() },
-        destructive: true,
       })
     }
 

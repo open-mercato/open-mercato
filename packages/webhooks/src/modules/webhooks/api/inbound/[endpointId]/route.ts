@@ -84,6 +84,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
         eventType: verified.eventType,
         tenantId: verified.tenantId ?? null,
         organizationId: verified.organizationId ?? null,
+        createdAt: new Date(),
       }))
       await em.flush()
     } catch (error) {
