@@ -35,6 +35,7 @@ import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
 import { getGatewayProviderConfigurationMessageKey } from '../lib/gatewayProviderAvailability'
+import { readCustomerFieldsSectionError } from '../lib/customerFieldErrors'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
 import { CustomerFieldsEditor } from './CustomerFieldsEditor'
 import { GatewaySettingsFields } from './GatewaySettingsFields'
@@ -323,9 +324,9 @@ function SectionLabel({
   return (
     <div className="space-y-2">
       <div className="space-y-1">
-        <Label>
+        <Label className="gap-0">
           {label}
-          {required ? <span className="ml-1 text-destructive">*</span> : null}
+          {required ? <span className="text-destructive"> *</span> : null}
         </Label>
         {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
         {error ? <p className="text-xs text-destructive">{error}</p> : null}
@@ -911,7 +912,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
   const t = useT()
   const collectCustomerDetails = readBoolean(values.collectCustomerDetails, true)
   const collectCustomerDetailsError = readError(errors, 'collectCustomerDetails')
-  const customerFieldsError = readDirectError(errors, 'customerFieldsSchema')
+  const customerFieldsError = readCustomerFieldsSectionError(errors)
 
   return (
     <div className="space-y-4">
