@@ -9,6 +9,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { PackageResolver } from '../resolver'
+import { resolveOpenApiGeneratorProjectRoot } from './openapi-paths'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -537,10 +538,7 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   }
 
   // Determine project root (cli package is at packages/cli/src/lib/generators/)
-  const projectRoot = path.resolve(
-    path.dirname(new URL(import.meta.url).pathname),
-    '../../../../..'
-  )
+  const projectRoot = resolveOpenApiGeneratorProjectRoot(import.meta.url)
 
   // Try esbuild bundle approach first — produces full requestBody/response schemas
   let doc: Record<string, any> | null = await generateOpenApiViaBundle(routes, projectRoot, quiet)
