@@ -7,9 +7,18 @@
   "gateway_stripe.config.paymentTypes": "Typy płatności",
   "gateway_stripe.config.statementDescriptor": "Opis na wyciągu",
   "gateway_stripe.config.statementDescriptor.help": "Co pojawia się na wyciągu bankowym klienta (maks. 22 znaki)",
+  "gateway_stripe.config.validation.captureMethod": "Metoda przechwytywania musi być automatyczna lub manualna",
   "gateway_stripe.description": "Akceptuj płatności kartą, Apple Pay, Google Pay i przelewy bankowe przez Stripe.",
   "gateway_stripe.feature.configure": "Konfiguracja ustawień Stripe",
   "gateway_stripe.feature.view": "Podgląd konfiguracji Stripe",
+  "gateway_stripe.payments.description": "Dokończ płatność poniżej bez opuszczania tej strony.",
+  "gateway_stripe.payments.failed": "Stripe nie mógł potwierdzić płatności.",
+  "gateway_stripe.payments.helper": "Użyj kart testowych Stripe albo portfeli skonfigurowanych dla tego konta.",
+  "gateway_stripe.payments.notReady": "Formularz Stripe nadal się ładuje.",
+  "gateway_stripe.payments.processing": "Potwierdzanie płatności...",
+  "gateway_stripe.payments.submit": "Zapłać bezpiecznie",
+  "gateway_stripe.payments.title": "Bezpieczna płatność Stripe",
+  "gateway_stripe.payments.unavailable": "Stripe jest skonfigurowany do osadzonego checkoutu, ale nie udało się przygotować publicznego formularza płatności.",
   "gateway_stripe.tabs.settings": "Ustawienia Stripe",
   "gateway_stripe.title": "Stripe"
 }

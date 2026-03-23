@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
@@ -7,7 +8,9 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -15,7 +18,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ChevronDown, ChevronRight, CreditCard, RefreshCw, Webhook } from 'lucide-react'
+import { ChevronDown, ChevronRight, CreditCard, HandCoins, RefreshCw, Webhook } from 'lucide-react'
 
 type TransactionRow = {
   id: string
@@ -178,6 +181,7 @@ function DetailStat({ label, value }: { label: string; value: React.ReactNode })
 
 export default function PaymentTransactionsPage() {
   const t = useT()
+  const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<TransactionRow[]>([])
   const [page, setPage] = React.useState(1)
@@ -192,7 +196,18 @@ export default function PaymentTransactionsPage() {
   const [detailError, setDetailError] = React.useState<string | null>(null)
   const [expandedLogId, setExpandedLogId] = React.useState<string | null>(null)
   const [isRefreshingStatus, setIsRefreshingStatus] = React.useState(false)
+  const [isCapturing, setIsCapturing] = React.useState(false)
+  const { runMutation } = useGuardedMutation<{
+    entityType: string
+    entityId?: string
+  }>({
+    contextId: 'payment_gateways:transactions-detail',
+  })
   const noneLabel = t('common.none', 'None')
+  const requestedTransactionId = React.useMemo(() => {
+    const raw = searchParams.get('transactionId')
+    return raw && raw.trim().length > 0 ? raw.trim() : null
+  }, [searchParams])
 
   const formatLogPrimitiveValue = React.useCallback((value: string | number | boolean | null): string => {
     if (value === null) return noneLabel
@@ -259,6 +274,12 @@ export default function PaymentTransactionsPage() {
     setSelectedId((current) => (current && rows.some((row) => row.id === current) ? current : null))
   }, [rows])
 
+  React.useEffect(() => {
+    if (!requestedTransactionId) return
+    if (!rows.some((row) => row.id === requestedTransactionId)) return
+    setSelectedId(requestedTransactionId)
+  }, [requestedTransactionId, rows])
+
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
     Object.entries(values).forEach(([key, value]) => {
@@ -289,6 +310,39 @@ export default function PaymentTransactionsPage() {
     flash(t('payment_gateways.transactions.success.refreshStatus', 'Transaction status refreshed'), 'success')
     setIsRefreshingStatus(false)
   }, [loadDetail, loadRows, selectedId, t])
+
+  const handleCapturePayment = React.useCallback(async () => {
+    if (!selectedId) return
+    setIsCapturing(true)
+    try {
+      await runMutation({
+        operation: async () => {
+          await apiCallOrThrow('/api/payment_gateways/capture', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ transactionId: selectedId }),
+          })
+        },
+        context: {
+          entityType: 'payment_gateways:gateway_transaction',
+          entityId: selectedId,
+        },
+        mutationPayload: { transactionId: selectedId },
+      })
+      await Promise.all([
+        loadRows(),
+        loadDetail(selectedId),
+      ])
+      flash(t('payment_gateways.transactions.success.capture', 'Payment captured'), 'success')
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : t('payment_gateways.transactions.error.capture', 'Failed to capture payment')
+      flash(message, 'error')
+    } finally {
+      setIsCapturing(false)
+    }
+  }, [loadDetail, loadRows, runMutation, selectedId, t])
 
   const providerOptions = React.useMemo(() => {
     const values = Array.from(new Set(rows.map((row) => row.providerKey).filter(Boolean))).sort()
@@ -385,6 +439,10 @@ export default function PaymentTransactionsPage() {
     () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   )
+  const canCaptureSelected = React.useMemo(() => {
+    const status = detail?.transaction.unifiedStatus ?? selectedSummary?.unifiedStatus ?? null
+    return status === 'authorized'
+  }, [detail?.transaction.unifiedStatus, selectedSummary?.unifiedStatus])
 
   return (
     <Page>
@@ -442,11 +500,22 @@ export default function PaymentTransactionsPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => void handleRefreshStatus()}
-                disabled={isRefreshingStatus || isLoadingDetail}
+                disabled={isRefreshingStatus || isLoadingDetail || isCapturing}
               >
                 {isRefreshingStatus ? <Spinner className="mr-2 h-4 w-4" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                 {t('payment_gateways.transactions.actions.refreshStatus', 'Refresh status')}
               </Button>
+              {canCaptureSelected ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => void handleCapturePayment()}
+                  disabled={isRefreshingStatus || isLoadingDetail || isCapturing}
+                >
+                  {isCapturing ? <Spinner className="mr-2 h-4 w-4" /> : <HandCoins className="mr-2 h-4 w-4" />}
+                  {t('payment_gateways.transactions.actions.capture', 'Capture payment')}
+                </Button>
+              ) : null}
             </CardHeader>
             <CardContent className="space-y-6">
               {isLoadingDetail ? <LoadingMessage label={t('payment_gateways.transactions.detail.loading', 'Loading transaction details')} /> : null}
@@ -646,6 +715,10 @@ export default function PaymentTransactionsPage() {
                         theme="dark"
                         maxHeight="24rem"
                         className="p-4"
+                      />
+                      <InjectionSpot
+                        spotId="admin.page:payment-gateways/transactions:after"
+                        context={{ selectedPaymentId: detail.transaction.paymentId }}
                       />
                     </div>
                   </div>

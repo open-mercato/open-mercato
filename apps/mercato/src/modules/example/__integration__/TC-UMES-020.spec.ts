@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 
 /**
  * TC-UMES-020: Payment Gateway demo page renders and mock flow works

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { Resend } from 'resend'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxProposalAction, InboxEmail } from '../../../../../../data/entities'
@@ -84,7 +85,12 @@ export async function POST(req: Request) {
     }
 
     const { inReplyToMessageId, references: payloadReferences } = payloadResult.data
-    const fromAddress = process.env.EMAIL_FROM || `inbox@${process.env.INBOX_OPS_DOMAIN || 'inbox.mercato.local'}`
+    const fromAddress = resolveDefaultEmailFromAddress()
+    if (!fromAddress) {
+      return NextResponse.json({
+        error: 'Email sender is not configured. Set NOTIFICATIONS_EMAIL_FROM, EMAIL_FROM, or ADMIN_EMAIL.',
+      }, { status: 503 })
+    }
 
     const headers: Record<string, string> = {}
     const inReplyTo = inReplyToMessageId || email?.messageId

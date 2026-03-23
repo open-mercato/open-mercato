@@ -172,5 +172,14 @@
   "customer_accounts.notifications.user.locked.body": "Customer account was locked due to too many failed login attempts.",
   "customer_accounts.notifications.user.locked.title": "Customer account locked",
   "customer_accounts.notifications.user.signup.body": "A new customer account was created.",
-  "customer_accounts.notifications.user.signup.title": "New customer signup"
+  "customer_accounts.notifications.user.signup.title": "New customer signup",
+  "customer_accounts.search.badge.customerRole": "Kundenrolle",
+  "customer_accounts.search.badge.customerUser": "Kundenbenutzer",
+  "customer_accounts.widgets.accountStatus": "Kontostatus",
+  "customer_accounts.widgets.emailVerified": "E-Mail verifiziert",
+  "customer_accounts.widgets.lastLogin": "Letzte Anmeldung",
+  "customer_accounts.widgets.noAccount": "Kein verknüpftes Konto",
+  "customer_accounts.widgets.noUsers": "Keine verknüpften Benutzer",
+  "customer_accounts.widgets.portalUsers": "Portalbenutzer",
+  "customer_accounts.widgets.viewAccount": "Konto anzeigen"
 }

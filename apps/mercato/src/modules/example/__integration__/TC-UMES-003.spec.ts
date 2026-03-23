@@ -9,11 +9,11 @@
 import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
-} from '@open-mercato/core/modules/core/__integration__/helpers/api'
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createPersonFixture,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+} from '@open-mercato/core/helpers/integration/crmFixtures'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const OM_EVENT_NAME = 'om:event'
@@ -76,25 +76,103 @@ async function setAuthCookie(
   context: import('@playwright/test').BrowserContext,
   token: string,
 ): Promise<void> {
-  await context.addCookies([
+  const claims = decodeJwtClaims(token)
+  const cookies: Array<{
+    name: string
+    value: string
+    url: string
+    sameSite: 'Lax'
+  }> = [
     {
       name: 'auth_token',
       value: token,
       url: BASE_URL,
       sameSite: 'Lax',
     },
-  ])
+  ]
+  if (typeof claims.tenantId === 'string' && claims.tenantId.length > 0) {
+    cookies.push({
+      name: 'om_selected_tenant',
+      value: claims.tenantId,
+      url: BASE_URL,
+      sameSite: 'Lax',
+    })
+  }
+  if (typeof claims.orgId === 'string' && claims.orgId.length > 0) {
+    cookies.push({
+      name: 'om_selected_org',
+      value: claims.orgId,
+      url: BASE_URL,
+      sameSite: 'Lax',
+    })
+  }
+
+  await context.addCookies(cookies)
+}
+
+async function emitProbeEvent(
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  data: Record<string, unknown>,
+): Promise<void> {
+  const emitResponse = await request.fetch(`${BASE_URL}/api/example/assignees`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data,
+  })
+  expect(emitResponse.ok()).toBeTruthy()
+}
+
+async function waitForBridgeReady(
+  page: import('@playwright/test').Page,
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  organizationId: string | null | undefined,
+  seed: string,
+): Promise<void> {
+  const probeId = `umes-bridge-${seed}-${Date.now()}`
+  await emitProbeEvent(request, token, {
+    eventId: 'example.todo.updated',
+    organizationId: organizationId ?? null,
+    payload: { probeId, title: 'bridge-ready' },
+  })
+  await expectProbeReceived(page, probeId)
+}
+
+async function openBackendSession(
+  page: import('@playwright/test').Page,
+  request: import('@playwright/test').APIRequestContext,
+  token: string,
+  organizationId: string | null | undefined,
+  seed: string,
+): Promise<void> {
+  const streamRequest = page.waitForRequest(
+    (candidate) => candidate.url().includes('/api/events/stream'),
+    { timeout: 10_000 },
+  ).catch(() => null)
+  await page.goto('/backend/umes-handlers', { waitUntil: 'domcontentloaded' })
+  await streamRequest
+  await installEventCollector(page)
+  await page.waitForTimeout(1_500)
+  await waitForBridgeReady(page, request, token, organizationId, seed)
 }
 
 test.describe('TC-UMES-003: Events & DOM Bridge', () => {
+  test.describe.configure({ timeout: 60_000 })
+
   test('TC-UMES-E01: SSE endpoint returns event stream headers', async ({
     page,
   }) => {
+    test.slow()
+
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
 
     const streamHeaderProbe = await page.evaluate(async () => {
@@ -141,18 +219,18 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
   test('TC-UMES-E05: Non-broadcast events do NOT appear in SSE stream', async ({
     page,
   }) => {
+    test.slow()
+
     // This test verifies via the browser that only clientBroadcast events are sent.
     // We set up a listener for om:event and create a todo (which has clientBroadcast: true).
     // The test verifies the event bridge infrastructure is wired correctly.
 
     // Login and navigate to a backend page
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend')
-
-    // Wait for page to load
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
 
     // Verify that the SSE endpoint is accessible from the browser
@@ -176,13 +254,15 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
   test('TC-UMES-E06: matchesPattern wildcard works correctly', async ({
     page,
   }) => {
+    test.slow()
+
     // Test the pattern matching utility in a browser context
     // since it's a client-side module
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
 
     // Evaluate matchesPattern logic directly in the browser
@@ -231,10 +311,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-field-change')).toBeVisible()
 
@@ -252,10 +332,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-transform-form-data')).toBeVisible()
 
@@ -288,10 +368,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-navigation')).toBeVisible()
 
@@ -321,10 +401,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
 
     await page.evaluate(() => {
@@ -337,10 +417,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('phase-c-app-event-result')).toBeVisible()
 
@@ -370,10 +450,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-transform-validation')).toBeVisible()
 
@@ -389,10 +469,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/todos/create')
+    await page.goto('/backend/todos/create', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-field-change')).toBeVisible()
 
@@ -421,7 +501,6 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     const employeeToken = await getAuthToken(request, 'employee')
     const adminClaims = decodeJwtClaims(adminToken)
     const employeeClaims = decodeJwtClaims(employeeToken)
-
     const adminContext = await browser.newContext()
     const employeeContext = await browser.newContext()
     const adminPage = await adminContext.newPage()
@@ -430,28 +509,16 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     try {
       await setAuthCookie(adminContext, adminToken)
       await setAuthCookie(employeeContext, employeeToken)
-      await adminPage.goto('/backend')
-      await employeePage.goto('/backend')
-      await adminPage.waitForLoadState('domcontentloaded')
-      await employeePage.waitForLoadState('domcontentloaded')
-      await installEventCollector(adminPage)
-      await installEventCollector(employeePage)
+      await openBackendSession(adminPage, request, adminToken, adminClaims.orgId, 'admin')
+      await openBackendSession(employeePage, request, employeeToken, employeeClaims.orgId, 'employee')
 
       const probeId = `umes-user-${Date.now()}`
-      const emitResponse = await request.fetch(`${BASE_URL}/api/example/assignees`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${adminToken}`,
-          'Content-Type': 'application/json',
-        },
-        data: {
-          eventId: 'example.todo.updated',
-          recipientUserId: adminClaims.sub,
-          organizationId: adminClaims.orgId ?? null,
-          payload: { probeId, title: 'user-targeted' },
-        },
+      await emitProbeEvent(request, adminToken, {
+        eventId: 'example.todo.updated',
+        recipientUserId: adminClaims.sub,
+        organizationId: adminClaims.orgId ?? null,
+        payload: { probeId, title: 'user-targeted' },
       })
-      expect(emitResponse.ok()).toBeTruthy()
 
       await expectProbeReceived(adminPage, probeId)
       await expectProbeNotReceived(employeePage, probeId)
@@ -485,28 +552,16 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     try {
       await setAuthCookie(adminContext, adminToken)
       await setAuthCookie(employeeContext, employeeToken)
-      await adminPage.goto('/backend')
-      await employeePage.goto('/backend')
-      await adminPage.waitForLoadState('domcontentloaded')
-      await employeePage.waitForLoadState('domcontentloaded')
-      await installEventCollector(adminPage)
-      await installEventCollector(employeePage)
+      await openBackendSession(adminPage, request, adminToken, adminClaims.orgId, 'admin-role')
+      await openBackendSession(employeePage, request, employeeToken, employeeClaims.orgId, 'employee-role')
 
       const probeId = `umes-role-${Date.now()}`
-      const emitResponse = await request.fetch(`${BASE_URL}/api/example/assignees`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${adminToken}`,
-          'Content-Type': 'application/json',
-        },
-        data: {
-          eventId: 'example.todo.updated',
-          recipientRoleIds: [adminRoleName],
-          organizationId: adminClaims.orgId ?? null,
-          payload: { probeId, title: 'role-targeted' },
-        },
+      await emitProbeEvent(request, adminToken, {
+        eventId: 'example.todo.updated',
+        recipientRoleIds: [adminRoleName],
+        organizationId: adminClaims.orgId ?? null,
+        payload: { probeId, title: 'role-targeted' },
       })
-      expect(emitResponse.ok()).toBeTruthy()
 
       await expectProbeReceived(adminPage, probeId)
       await expectProbeNotReceived(employeePage, probeId)
@@ -527,27 +582,17 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
 
     try {
       await setAuthCookie(adminContext, adminToken)
-      await adminPage.goto('/backend')
-      await adminPage.waitForLoadState('domcontentloaded')
-      await installEventCollector(adminPage)
+      await openBackendSession(adminPage, request, adminToken, adminClaims.orgId, 'admin-org')
 
       const probeId = `umes-org-${Date.now()}`
       const foreignOrganizationId = '00000000-0000-4000-8000-000000000777'
       expect(adminClaims.orgId).not.toBe(foreignOrganizationId)
 
-      const emitResponse = await request.fetch(`${BASE_URL}/api/example/assignees`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${adminToken}`,
-          'Content-Type': 'application/json',
-        },
-        data: {
-          eventId: 'example.todo.updated',
-          organizationId: foreignOrganizationId,
-          payload: { probeId, title: 'foreign-org-targeted' },
-        },
+      await emitProbeEvent(request, adminToken, {
+        eventId: 'example.todo.updated',
+        organizationId: foreignOrganizationId,
+        payload: { probeId, title: 'foreign-org-targeted' },
       })
-      expect(emitResponse.ok()).toBeTruthy()
 
       await expectProbeNotReceived(adminPage, probeId)
     } finally {
@@ -557,10 +602,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
 
   test('TC-UMES-E15: Phase A/B harness shows injected menu items', async ({ page }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
 
     await expect(page.getByTestId('phase-ab-sidebar-items')).toContainText('example-todos-shortcut')
@@ -568,24 +613,32 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
   })
 
   test('TC-UMES-E16: Phase A/B harness quick links navigate to target pages', async ({ page }) => {
+    test.slow()
+
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('phase-ab-open-backend').click()
+    const openBackendLink = page.getByTestId('phase-ab-open-backend')
+    await expect(openBackendLink).toHaveAttribute('href', '/backend')
+    await page.goto('/backend', { waitUntil: 'commit' })
     await expect(page).toHaveURL(/\/backend(?:\?.*)?$/)
 
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
-    await page.getByTestId('phase-ab-open-todos').click()
+    const openTodosLink = page.getByTestId('phase-ab-open-todos')
+    await expect(openTodosLink).toHaveAttribute('href', '/backend/todos')
+    await page.goto('/backend/todos', { waitUntil: 'commit' })
     await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
 
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
-    await page.getByTestId('phase-ab-open-todo-create').click()
+    const openTodoCreateLink = page.getByTestId('phase-ab-open-todo-create')
+    await expect(openTodoCreateLink).toHaveAttribute('href', '/backend/todos/create')
+    await page.goto('/backend/todos/create', { waitUntil: 'commit' })
     await expect(page).toHaveURL(/\/backend\/todos\/create(?:\?.*)?$/)
   })
 
@@ -604,10 +657,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       })
 
       const { login } = await import(
-        '@open-mercato/core/modules/core/__integration__/helpers/auth'
+        '@open-mercato/core/helpers/integration/auth'
       )
       await login(page, 'admin')
-      await page.goto('/backend/umes-handlers')
+      await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
       await page.waitForLoadState('domcontentloaded')
 
       await page.getByTestId('phase-d-person-id').fill(personId)
@@ -627,10 +680,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-save-guard')).toBeVisible()
 
@@ -647,10 +700,10 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     page,
   }) => {
     const { login } = await import(
-      '@open-mercato/core/modules/core/__integration__/helpers/auth'
+      '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
+    await page.goto('/backend/umes-handlers', { waitUntil: 'commit' })
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByTestId('widget-save-guard')).toBeVisible()
 

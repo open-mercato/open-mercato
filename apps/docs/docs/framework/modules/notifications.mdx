@@ -26,6 +26,16 @@ The Notifications module provides actionable in-app notifications that allow use
 - Batch notifications to multiple recipients
 - Event-driven architecture for decoupled creation
 
+## Email sender configuration
+
+Notification emails resolve their sender in this order:
+
+1. `NOTIFICATIONS_EMAIL_FROM`
+2. `EMAIL_FROM`
+3. `ADMIN_EMAIL`
+
+`NOTIFICATIONS_EMAIL_REPLY_TO` still overrides the reply-to header. If you leave the sender-specific variables empty, `ADMIN_EMAIL` must be a valid sender address for your email provider.
+
 ## Quick Start
 
 ### 1. Direct Service Call (Synchronous)

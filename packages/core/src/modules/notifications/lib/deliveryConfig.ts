@@ -1,5 +1,6 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { notificationDeliveryConfigSchema, type NotificationDeliveryConfigInput } from '../data/validators'
 
 export const NOTIFICATIONS_DELIVERY_CONFIG_KEY = 'delivery_strategies'
@@ -44,7 +45,7 @@ const resolveEnvDefaults = () => {
   )
   const panelPath = envString(process.env.NOTIFICATIONS_PANEL_PATH)
   const emailEnabled = parseBooleanWithDefault(process.env.NOTIFICATIONS_EMAIL_ENABLED, true)
-  const emailFrom = envString(process.env.NOTIFICATIONS_EMAIL_FROM || process.env.EMAIL_FROM)
+  const emailFrom = resolveDefaultEmailFromAddress()
   const emailReplyTo = envString(process.env.NOTIFICATIONS_EMAIL_REPLY_TO || process.env.ADMIN_EMAIL)
   const emailSubjectPrefix = envString(process.env.NOTIFICATIONS_EMAIL_SUBJECT_PREFIX)
 

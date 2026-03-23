@@ -90,8 +90,8 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
     }
     const features = match.route.requireFeatures
     if (features && features.length) {
-      const container = await createRequestContainer()
-      const rbac = container.resolve('rbacService') as RbacService
+      const scopeContainer = await ensureContainer()
+      const rbac = scopeContainer.resolve('rbacService') as RbacService
       const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
       if (!ok) return renderAccessDenied()
     }

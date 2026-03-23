@@ -1267,6 +1267,7 @@
   "sales.returns.errors.quantityExceeded": "Cannot return more than available quantity.",
   "sales.returns.lineMissing": "Order line not found.",
   "sales.returns.linesRequired": "Select at least one line to return.",
+  "sales.returns.loading": "Loading returns...",
   "sales.returns.notFound": "Return not found.",
   "sales.returns.notSet": "Not set",
   "sales.returns.notes": "Notes",

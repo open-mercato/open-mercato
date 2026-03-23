@@ -50,15 +50,49 @@ async function hasNotificationBatchEvent(
   })
 }
 
+async function waitForEventBridgeSubscription(page: Page): Promise<void> {
+  const streamRequested = page.waitForRequest((request) => (
+    request.url().includes('/api/events/stream')
+      && request.resourceType() === 'eventsource'
+  ))
+
+  await page.goto('/backend')
+  await page.waitForLoadState('domcontentloaded')
+  await streamRequested
+  await page.waitForTimeout(250)
+  await installOmEventCollector(page)
+}
+
+async function waitForNotificationBridgeReady(
+  page: Page,
+  request: Parameters<typeof apiRequest>[0],
+  token: string,
+  recipientUserId: string,
+): Promise<void> {
+  const probeTitle = `Notifications Bridge Ready ${Date.now()}`
+  const probeRes = await apiRequest(request, 'POST', '/api/notifications', {
+    token,
+    data: {
+      type: 'integration.test.bridge-ready',
+      title: probeTitle,
+      recipientUserId,
+    },
+  })
+  expect(probeRes.ok()).toBeTruthy()
+
+  await expect
+    .poll(async () => hasNotificationEvent(page, recipientUserId, probeTitle), { timeout: 8_000 })
+    .toBe(true)
+}
+
 test.describe('TC-ADMIN-013: Notifications SSE', () => {
   test('delivers notifications.notification.created to target user without polling', async ({ page, request }) => {
     await login(page, 'superadmin')
-    await page.goto('/backend')
-    await page.waitForLoadState('domcontentloaded')
-    await installOmEventCollector(page)
+    await waitForEventBridgeSubscription(page)
 
     const token = await getAuthToken(request, 'superadmin')
     const claims = decodeJwtClaims(token)
+    await waitForNotificationBridgeReady(page, request, token, claims.sub)
     const uniqueTitle = `Integration Notification ${Date.now()}`
 
     const createRes = await apiRequest(request, 'POST', '/api/notifications', {
@@ -78,12 +112,11 @@ test.describe('TC-ADMIN-013: Notifications SSE', () => {
 
   test('delivers notifications.notification.batch_created when batch notification is created', async ({ page, request }) => {
     await login(page, 'superadmin')
-    await page.goto('/backend')
-    await page.waitForLoadState('domcontentloaded')
-    await installOmEventCollector(page)
+    await waitForEventBridgeSubscription(page)
 
     const token = await getAuthToken(request, 'superadmin')
     const claims = decodeJwtClaims(token)
+    await waitForNotificationBridgeReady(page, request, token, claims.sub)
     const uniqueTitle = `Integration Notification Batch ${Date.now()}`
 
     const createRes = await apiRequest(request, 'POST', '/api/notifications/batch', {
