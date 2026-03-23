@@ -133,7 +133,7 @@ export async function createWebhookFixture(
     },
   });
 
-  expect(response.status()).toBe(200);
+  expect(response.status()).toBe(201);
   const body = await readJsonSafe<WebhookCreateResponse>(response);
   if (!body) {
     throw new Error('Expected webhook create response body');
