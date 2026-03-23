@@ -57,7 +57,7 @@ test.describe('TC-CAT-019: Option Schema Management', () => {
       expect(found?.name).toBe(schemaName)
     } finally {
       if (token && schemaId) {
-        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${schemaId}`, {
+        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${encodeURIComponent(schemaId as string)}`, {
           token,
         })
       }
@@ -142,7 +142,7 @@ test.describe('TC-CAT-019: Option Schema Management', () => {
       expect(choiceCodes).toContain('green')
     } finally {
       if (token && schemaId) {
-        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${schemaId}`, {
+        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${encodeURIComponent(schemaId as string)}`, {
           token,
         })
       }
@@ -185,7 +185,7 @@ test.describe('TC-CAT-019: Option Schema Management', () => {
       const deleteRes = await apiRequest(
         request,
         'DELETE',
-        `/api/catalog/option-schemas?id=${schemaId}`,
+        `/api/catalog/option-schemas?id=${encodeURIComponent(schemaId as string)}`,
         { token },
       )
       expect(deleteRes.ok(), `Failed to delete option schema: ${deleteRes.status()}`).toBeTruthy()
@@ -205,7 +205,7 @@ test.describe('TC-CAT-019: Option Schema Management', () => {
       schemaId = null
     } finally {
       if (token && schemaId) {
-        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${schemaId}`, {
+        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${encodeURIComponent(schemaId as string)}`, {
           token,
         })
       }
@@ -271,7 +271,7 @@ test.describe('TC-CAT-019: Option Schema Management', () => {
       const deleteRes = await apiRequest(
         request,
         'DELETE',
-        `/api/catalog/option-schemas?id=${schemaId}`,
+        `/api/catalog/option-schemas?id=${encodeURIComponent(schemaId as string)}`,
         { token },
       )
       const deleteStatus = deleteRes.status()
@@ -282,7 +282,7 @@ test.describe('TC-CAT-019: Option Schema Management', () => {
     } finally {
       await deleteCatalogProductIfExists(request, token, productId)
       if (token && schemaId) {
-        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${schemaId}`, {
+        await apiRequest(request, 'DELETE', `/api/catalog/option-schemas?id=${encodeURIComponent(schemaId as string)}`, {
           token,
         })
       }
