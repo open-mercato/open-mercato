@@ -4,7 +4,7 @@ export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     superadmin: ['webhooks.*'],
     admin: ['webhooks.*'],
-    employee: ['webhooks.view', 'webhooks.deliveries.view'],
+    employee: ['webhooks.view'],
   },
 }
 

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -7,6 +8,7 @@ import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/serv
 import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
 import { json } from '../../helpers'
+import { WebhookInboundReceiptEntity } from '../../../data/entities'
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -33,6 +35,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   }
 
   const container = await createRequestContainer()
+  const em = (container.resolve('em') as EntityManager).fork()
   const rateLimiterService = tryResolve<RateLimiterService>(container, 'rateLimiterService')
 
   if (rateLimiterService) {
@@ -48,41 +51,46 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
 
   const body = await request.text()
   const headers = Object.fromEntries(request.headers.entries())
-  const verified = await adapter.verifyWebhook({
-    headers,
-    body,
-    method: request.method,
-  })
+  let verified: Awaited<ReturnType<typeof adapter.verifyWebhook>>
+  try {
+    verified = await adapter.verifyWebhook({
+      headers,
+      body,
+      method: request.method,
+    })
+  } catch {
+    return json({ error: 'Verification failed' }, { status: 400 })
+  }
 
   const messageId = headers['webhook-id'] ?? headers['svix-id'] ?? null
-  const cache = tryResolve<{
-    has(key: string): Promise<boolean>
-    set(key: string, value: unknown, options?: { ttl?: number; tags?: string[] }): Promise<void>
-  }>(container, 'cache')
-
-  if (cache && messageId) {
-    const dedupeKey = `webhooks:inbound:${params.endpointId}:${messageId}`
-    if (await cache.has(dedupeKey)) {
-      return json({ ok: true, duplicate: true })
+  if (messageId) {
+    try {
+      em.persist(em.create(WebhookInboundReceiptEntity, {
+        endpointId: params.endpointId,
+        messageId,
+        providerKey: adapter.providerKey,
+        eventType: verified.eventType,
+        tenantId: verified.tenantId ?? null,
+        organizationId: verified.organizationId ?? null,
+      }))
+      await em.flush()
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        return json({ ok: true, duplicate: true })
+      }
+      throw error
     }
-    await cache.set(dedupeKey, true, { ttl: 24 * 60 * 60 * 1000 })
   }
 
   await emitWebhooksEvent('webhooks.inbound.received', {
     providerKey: adapter.providerKey,
     endpointId: params.endpointId,
-    eventType: verified.eventType,
-    tenantId: verified.tenantId ?? null,
-    organizationId: verified.organizationId ?? null,
-  })
-
-  await adapter.processInbound({
-    providerKey: adapter.providerKey,
+    messageId,
     eventType: verified.eventType,
     payload: verified.payload,
-    tenantId: verified.tenantId,
-    organizationId: verified.organizationId,
-  })
+    tenantId: verified.tenantId ?? null,
+    organizationId: verified.organizationId ?? null,
+  }, { persistent: true })
 
   return json({ ok: true })
 }
@@ -97,6 +105,7 @@ export const openApi: OpenApiRouteDoc = {
       pathParams: z.object({ endpointId: z.string().min(1) }),
       responses: [{ status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema }],
       errors: [
+        { status: 400, description: 'Verification failed', schema: errorSchema },
         { status: 404, description: 'Endpoint not found', schema: errorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
       ],
@@ -110,4 +119,12 @@ function tryResolve<T>(container: { resolve: (name: string) => unknown }, name: 
   } catch {
     return null
   }
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const maybeError = error as { code?: string; cause?: unknown }
+  if (maybeError.code === '23505') return true
+  if (!maybeError.cause || typeof maybeError.cause !== 'object') return false
+  return (maybeError.cause as { code?: string }).code === '23505'
 }

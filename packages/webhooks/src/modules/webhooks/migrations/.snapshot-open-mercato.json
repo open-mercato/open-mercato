@@ -59,7 +59,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "''pending''",
+          "default": "'pending'",
           "mappedType": "text"
         },
         "response_status": {
@@ -361,7 +361,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "''POST''",
+          "default": "'POST'",
           "mappedType": "text"
         },
         "custom_headers": {
@@ -390,7 +390,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "''http''",
+          "default": "'http'",
           "mappedType": "text"
         },
         "strategy_config": {
@@ -559,6 +559,123 @@
         },
         {
           "keyName": "webhooks_pkey",
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": true,
+          "unique": true
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {},
+      "nativeEnums": {}
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "gen_random_uuid()",
+          "mappedType": "uuid"
+        },
+        "endpoint_id": {
+          "name": "endpoint_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "provider_key": {
+          "name": "provider_key",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "mappedType": "text"
+        },
+        "event_type": {
+          "name": "event_type",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "length": 6,
+          "mappedType": "datetime"
+        }
+      },
+      "name": "webhook_inbound_receipts",
+      "schema": "public",
+      "indexes": [
+        {
+          "keyName": "webhook_inbound_receipts_provider_key_created_at_index",
+          "columnNames": [
+            "provider_key",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "webhook_inbound_receipts_endpoint_message_unique",
+          "columnNames": [
+            "endpoint_id",
+            "message_id"
+          ],
+          "composite": true,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "webhook_inbound_receipts_pkey",
           "columnNames": [
             "id"
           ],

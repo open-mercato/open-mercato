@@ -1,4 +1,4 @@
-import { Entity, PrimaryKey, Property, Index } from '@mikro-orm/core'
+import { Entity, PrimaryKey, Property, Index, Unique } from '@mikro-orm/core'
 
 @Entity({ tableName: 'webhooks' })
 @Index({ properties: ['organizationId', 'tenantId', 'isActive'] })
@@ -154,4 +154,33 @@ export class WebhookDeliveryEntity {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'webhook_inbound_receipts' })
+@Unique({ name: 'webhook_inbound_receipts_endpoint_message_unique', properties: ['endpointId', 'messageId'] })
+@Index({ properties: ['providerKey', 'createdAt'] })
+export class WebhookInboundReceiptEntity {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'endpoint_id', type: 'text' })
+  endpointId!: string
+
+  @Property({ name: 'message_id', type: 'text' })
+  messageId!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'event_type', type: 'text', nullable: true })
+  eventType?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }

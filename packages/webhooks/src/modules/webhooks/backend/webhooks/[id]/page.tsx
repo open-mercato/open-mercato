@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -11,6 +11,15 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import {
+  buildWebhookFormFields,
+  buildWebhookFormGroups,
+  createWebhookInitialValues,
+  normalizeWebhookFormPayload,
+  type WebhookFormValues,
+} from '../form-config'
 
 type Webhook = {
   id: string
@@ -22,9 +31,12 @@ type Webhook = {
   isActive: boolean
   maxRetries: number
   timeoutMs: number
+  rateLimitPerMinute: number
+  autoDisableThreshold: number
   consecutiveFailures: number
   lastSuccessAt: string | null
   lastFailureAt: string | null
+  customHeaders: Record<string, string> | null
   createdAt: string
   updatedAt: string
   maskedSecret: string
@@ -56,6 +68,14 @@ type DeliveryResponse = {
   totalPages: number
 }
 
+type DeliveryDetail = DeliveryRow & {
+  payload: Record<string, unknown>
+  responseBody: string | null
+  responseHeaders: Record<string, string> | null
+  nextRetryAt: string | null
+  updatedAt: string
+}
+
 const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   delivered: 'default',
   pending: 'secondary',
@@ -66,12 +86,14 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
 
 export default function WebhookDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const t = useT()
   const webhookId = params?.id as string
 
   const [webhook, setWebhook] = React.useState<Webhook | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isEditing, setIsEditing] = React.useState(false)
 
   const [deliveries, setDeliveries] = React.useState<DeliveryRow[]>([])
   const [deliveryPage, setDeliveryPage] = React.useState(1)
@@ -79,6 +101,9 @@ export default function WebhookDetailPage() {
   const [deliveryTotalPages, setDeliveryTotalPages] = React.useState(1)
   const [deliveriesLoading, setDeliveriesLoading] = React.useState(false)
   const [refreshToken, setRefreshToken] = React.useState(0)
+  const [testDelivery, setTestDelivery] = React.useState<DeliveryDetail | null>(null)
+  const [selectedDelivery, setSelectedDelivery] = React.useState<DeliveryDetail | null>(null)
+  const [selectedDeliveryLoading, setSelectedDeliveryLoading] = React.useState(false)
 
   const reload = React.useCallback(() => {
     setRefreshToken((current) => current + 1)
@@ -92,7 +117,7 @@ export default function WebhookDetailPage() {
       setError(null)
       try {
         const call = await apiCall<Webhook>(
-          `/api/webhooks/webhooks/${encodeURIComponent(webhookId)}`,
+          `/api/webhooks/${encodeURIComponent(webhookId)}`,
           undefined,
           { fallback: null },
         )
@@ -125,7 +150,7 @@ export default function WebhookDetailPage() {
         params.set('pageSize', '20')
         const fallback: DeliveryResponse = { items: [], total: 0, page: deliveryPage, pageSize: 20, totalPages: 1 }
         const call = await apiCall<DeliveryResponse>(
-          `/api/webhooks/webhook-deliveries?${params.toString()}`,
+          `/api/webhooks/deliveries?${params.toString()}`,
           undefined,
           { fallback },
         )
@@ -146,7 +171,7 @@ export default function WebhookDetailPage() {
     if (!webhook) return
     try {
       const call = await apiCall<Webhook>(
-        `/api/webhooks/webhooks?id=${webhook.id}`,
+        `/api/webhooks/${encodeURIComponent(webhook.id)}`,
         {
           method: 'PUT',
           headers: { 'content-type': 'application/json' },
@@ -168,7 +193,7 @@ export default function WebhookDetailPage() {
     if (!webhook) return
     try {
       const call = await apiCall<{ secret: string }>(
-        `/api/webhooks/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`,
+        `/api/webhooks/${encodeURIComponent(webhook.id)}/rotate-secret`,
         { method: 'POST' },
         { fallback: null },
       )
@@ -176,7 +201,7 @@ export default function WebhookDetailPage() {
         flash(t('webhooks.detail.rotateError'), 'error')
         return
       }
-      flash(`${t('webhooks.detail.rotateSuccess')}: ${call.result.secret}`, 'success')
+      flash(t('webhooks.detail.rotateSuccess'), 'success')
       reload()
     } catch {
       flash(t('webhooks.detail.rotateError'), 'error')
@@ -186,8 +211,8 @@ export default function WebhookDetailPage() {
   const handleTest = React.useCallback(async () => {
     if (!webhook) return
     try {
-      const call = await apiCall<{ delivery: { status: string } }>(
-        `/api/webhooks/webhooks/${encodeURIComponent(webhook.id)}/test`,
+      const call = await apiCall<{ delivery: DeliveryDetail }>(
+        `/api/webhooks/${encodeURIComponent(webhook.id)}/test`,
         { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) },
         { fallback: null },
       )
@@ -196,6 +221,7 @@ export default function WebhookDetailPage() {
         return
       }
       const deliveryStatus = call.result.delivery.status
+      setTestDelivery(call.result.delivery)
       flash(
         deliveryStatus === 'delivered' ? t('webhooks.detail.testSuccess') : t('webhooks.detail.testQueued'),
         deliveryStatus === 'delivered' ? 'success' : 'error',
@@ -209,7 +235,7 @@ export default function WebhookDetailPage() {
   const handleRetryDelivery = React.useCallback(async (deliveryId: string) => {
     try {
       const call = await apiCall(
-        `/api/webhooks/webhook-deliveries/${encodeURIComponent(deliveryId)}/retry`,
+        `/api/webhooks/deliveries/${encodeURIComponent(deliveryId)}/retry`,
         { method: 'POST' },
         { fallback: null },
       )
@@ -223,6 +249,37 @@ export default function WebhookDetailPage() {
       flash(t('webhooks.deliveries.retryError'), 'error')
     }
   }, [reload, t])
+
+  const handleDelete = React.useCallback(async () => {
+    if (!webhook) return
+    try {
+      await deleteCrud(`webhooks/${encodeURIComponent(webhook.id)}`, { fallbackResult: null })
+      flash(t('webhooks.list.deleteSuccess'), 'success')
+      router.push('/backend/webhooks')
+    } catch {
+      flash(t('webhooks.list.deleteError'), 'error')
+    }
+  }, [router, t, webhook])
+
+  const handleDeliveryOpen = React.useCallback(async (deliveryId: string) => {
+    setSelectedDeliveryLoading(true)
+    try {
+      const call = await apiCall<DeliveryDetail>(
+        `/api/webhooks/deliveries/${encodeURIComponent(deliveryId)}`,
+        undefined,
+        { fallback: null },
+      )
+      if (!call.ok || !call.result) {
+        flash(t('webhooks.deliveries.loadError'), 'error')
+        return
+      }
+      setSelectedDelivery(call.result)
+    } catch {
+      flash(t('webhooks.deliveries.loadError'), 'error')
+    } finally {
+      setSelectedDeliveryLoading(false)
+    }
+  }, [t])
 
   const deliveryColumns = React.useMemo<ColumnDef<DeliveryRow>[]>(() => [
     { accessorKey: 'eventType', header: t('webhooks.deliveries.columns.event') },
@@ -260,8 +317,37 @@ export default function WebhookDetailPage() {
     },
   ], [t])
 
+  const fields = React.useMemo(() => buildWebhookFormFields(t), [t])
+  const groups = React.useMemo(() => buildWebhookFormGroups(t), [t])
+
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('webhooks.detail.loading')} /></PageBody></Page>
   if (error || !webhook) return <Page><PageBody><ErrorMessage label={error ?? t('webhooks.errors.notFound')} /></PageBody></Page>
+
+  if (isEditing) {
+    return (
+      <Page>
+        <PageBody>
+          <CrudForm
+            title={t('webhooks.form.title.edit')}
+            backHref={`/backend/webhooks/${webhook.id}`}
+            fields={fields}
+            groups={groups}
+            initialValues={createWebhookInitialValues(webhook)}
+            submitLabel={t('common.save')}
+            cancelHref={`/backend/webhooks/${webhook.id}`}
+            onDelete={handleDelete}
+            onSubmit={async (values) => {
+              const payload = normalizeWebhookFormPayload(values as WebhookFormValues, t)
+              await updateCrud(`webhooks/${encodeURIComponent(webhook.id)}`, payload)
+              flash(t('webhooks.form.updateSuccess'), 'success')
+              setIsEditing(false)
+              reload()
+            }}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
@@ -278,9 +364,9 @@ export default function WebhookDetailPage() {
           backHref="/backend/webhooks"
           menuActions={[
             {
-              id: 'toggle-active',
-              label: webhook.isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
-              onSelect: handleToggleActive,
+              id: 'edit',
+              label: t('webhooks.list.actions.edit'),
+              onSelect: () => setIsEditing(true),
             },
             {
               id: 'rotate-secret',
@@ -291,6 +377,17 @@ export default function WebhookDetailPage() {
               id: 'test',
               label: t('webhooks.detail.actions.test'),
               onSelect: handleTest,
+            },
+            {
+              id: 'toggle-active',
+              label: webhook.isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
+              onSelect: handleToggleActive,
+            },
+            {
+              id: 'delete',
+              label: t('webhooks.list.actions.delete'),
+              onSelect: handleDelete,
+              destructive: true,
             },
           ]}
         />
@@ -314,17 +411,50 @@ export default function WebhookDetailPage() {
               <span className="ml-2">{webhook.maxRetries}</span>
             </div>
             <div>
+              <span className="text-muted-foreground">{t('webhooks.form.rateLimitPerMinute')}:</span>
+              <span className="ml-2">{webhook.rateLimitPerMinute}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">{t('webhooks.form.autoDisableThreshold')}:</span>
+              <span className="ml-2">{webhook.autoDisableThreshold}</span>
+            </div>
+            <div>
               <span className="text-muted-foreground">{t('webhooks.form.secret')}:</span>
               <span className="ml-2 font-mono text-xs">{webhook.maskedSecret}</span>
             </div>
+            <div>
+              <span className="text-muted-foreground">{t('webhooks.list.columns.lastDelivery')}:</span>
+              <span className="ml-2">{webhook.lastSuccessAt ?? webhook.lastFailureAt ?? '—'}</span>
+            </div>
+            <div className="col-span-2">
+              <span className="text-muted-foreground">{t('webhooks.form.customHeaders')}:</span>
+              <pre className="mt-2 rounded border bg-muted/40 p-3 text-xs">
+                {webhook.customHeaders ? JSON.stringify(webhook.customHeaders, null, 2) : '—'}
+              </pre>
+            </div>
           </div>
         </div>
+
+        {testDelivery ? (
+          <div className="mt-8 rounded-lg border bg-card p-4">
+            <h2 className="text-sm font-semibold">{t('webhooks.detail.testResult')}</h2>
+            <div className="mt-3 grid gap-2 text-sm">
+              <div>{t('webhooks.deliveries.columns.status')}: {testDelivery.status}</div>
+              <div>{t('webhooks.deliveries.columns.responseStatus')}: {testDelivery.responseStatus ?? '—'}</div>
+              <div>{t('webhooks.deliveries.columns.duration')}: {testDelivery.durationMs != null ? `${testDelivery.durationMs}ms` : '—'}</div>
+              <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+                {JSON.stringify(testDelivery.payload, null, 2)}
+              </pre>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-8">
           <DataTable
             title={t('webhooks.deliveries.title')}
             columns={deliveryColumns}
             data={deliveries}
+            onRowClick={(row) => { void handleDeliveryOpen(row.id) }}
             rowActions={(row) => (
               row.status === 'failed' || row.status === 'expired'
                 ? (
@@ -351,6 +481,39 @@ export default function WebhookDetailPage() {
             isLoading={deliveriesLoading}
           />
         </div>
+
+        {selectedDelivery || selectedDeliveryLoading ? (
+          <div className="mt-6 rounded-lg border bg-card p-4">
+            <h2 className="text-sm font-semibold">{t('webhooks.deliveries.detailTitle')}</h2>
+            {selectedDeliveryLoading || !selectedDelivery ? (
+              <div className="mt-3 text-sm text-muted-foreground">{t('common.loading')}</div>
+            ) : (
+              <div className="mt-3 space-y-4 text-sm">
+                <div>{t('webhooks.deliveries.columns.status')}: {selectedDelivery.status}</div>
+                <div>{t('webhooks.deliveries.columns.responseStatus')}: {selectedDelivery.responseStatus ?? '—'}</div>
+                <div>{t('webhooks.deliveries.columns.duration')}: {selectedDelivery.durationMs != null ? `${selectedDelivery.durationMs}ms` : '—'}</div>
+                <div>
+                  <div className="mb-2 font-medium">{t('webhooks.deliveries.requestBody')}</div>
+                  <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+                    {JSON.stringify(selectedDelivery.payload, null, 2)}
+                  </pre>
+                </div>
+                <div>
+                  <div className="mb-2 font-medium">{t('webhooks.deliveries.responseBody')}</div>
+                  <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+                    {selectedDelivery.responseBody ?? '—'}
+                  </pre>
+                </div>
+                <div>
+                  <div className="mb-2 font-medium">{t('webhooks.deliveries.responseHeaders')}</div>
+                  <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
+                    {selectedDelivery.responseHeaders ? JSON.stringify(selectedDelivery.responseHeaders, null, 2) : '—'}
+                  </pre>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : null}
       </PageBody>
     </Page>
   )

@@ -12,6 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type Row = {
   id: string
@@ -43,6 +44,7 @@ export default function WebhooksListPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
@@ -59,9 +61,12 @@ export default function WebhooksListPage() {
         params.set('page', String(page))
         params.set('pageSize', '20')
         if (search) params.set('search', search)
+        if (typeof filterValues.status === 'string' && filterValues.status.length > 0) {
+          params.set('isActive', filterValues.status)
+        }
         const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
         const call = await apiCall<ResponsePayload>(
-          `/api/webhooks/webhooks?${params.toString()}`,
+          `/api/webhooks?${params.toString()}`,
           undefined,
           { fallback },
         )
@@ -88,7 +93,7 @@ export default function WebhooksListPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [page, search, reloadToken, scopeVersion, t])
+  }, [filterValues.status, page, search, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(async (row: Row) => {
     const confirmed = await confirm({
@@ -98,7 +103,7 @@ export default function WebhooksListPage() {
     if (!confirmed) return
     try {
       const call = await apiCall<{ error?: string }>(
-        `/api/webhooks/webhooks?id=${encodeURIComponent(row.id)}`,
+        `/api/webhooks/${encodeURIComponent(row.id)}`,
         { method: 'DELETE' },
         { fallback: null },
       )
@@ -115,6 +120,40 @@ export default function WebhooksListPage() {
       flash(message, 'error')
     }
   }, [confirm, t])
+
+  const handleToggleActive = React.useCallback(async (row: Row) => {
+    try {
+      const call = await apiCall<Row>(
+        `/api/webhooks/${encodeURIComponent(row.id)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ isActive: !row.isActive }),
+        },
+        { fallback: null },
+      )
+      if (!call.ok) {
+        flash(t('webhooks.form.updateError'), 'error')
+        return
+      }
+      flash(t('webhooks.form.updateSuccess'), 'success')
+      setReloadToken((token) => token + 1)
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('webhooks.form.updateError'), 'error')
+    }
+  }, [t])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'status',
+      label: t('webhooks.list.filters.status'),
+      type: 'select',
+      options: [
+        { value: 'true', label: t('webhooks.list.status.active') },
+        { value: 'false', label: t('webhooks.list.status.inactive') },
+      ],
+    },
+  ], [t])
 
   const columns = React.useMemo<ColumnDef<Row>[]>(() => [
     {
@@ -154,12 +193,19 @@ export default function WebhooksListPage() {
       ),
     },
     {
-      accessorKey: 'consecutiveFailures',
-      header: t('webhooks.list.columns.successRate'),
+      accessorKey: 'lastSuccessAt',
+      header: t('webhooks.list.columns.lastDelivery'),
       cell: ({ row }) => {
-        const failures = row.original.consecutiveFailures
-        if (failures === 0) return <span className="text-muted-foreground">0</span>
-        return <span className="text-destructive font-medium">{failures}</span>
+        const lastSuccessAt = row.original.lastSuccessAt ? new Date(row.original.lastSuccessAt).getTime() : null
+        const lastFailureAt = row.original.lastFailureAt ? new Date(row.original.lastFailureAt).getTime() : null
+        const lastTimestamp = Math.max(lastSuccessAt ?? 0, lastFailureAt ?? 0)
+        if (!lastTimestamp) return <span className="text-muted-foreground">—</span>
+        const isFailure = lastFailureAt !== null && lastFailureAt >= (lastSuccessAt ?? 0)
+        return (
+          <span className={isFailure ? 'text-destructive' : 'text-muted-foreground'}>
+            {new Date(lastTimestamp).toLocaleString()}
+          </span>
+        )
       },
     },
     {
@@ -189,10 +235,30 @@ export default function WebhooksListPage() {
           data={rows}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(next) => {
+            setFilterValues(next)
+            setPage(1)
+          }}
+          onFiltersClear={() => {
+            setFilterValues({})
+            setPage(1)
+          }}
           perspective={{ tableId: 'webhooks.list' }}
           rowActions={(row) => (
             <RowActions items={[
               { id: 'edit', label: t('webhooks.list.actions.edit'), onSelect: () => { router.push(`/backend/webhooks/${row.id}`) } },
+              {
+                id: 'toggle-active',
+                label: row.isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
+                onSelect: () => { void handleToggleActive(row) },
+              },
+              {
+                id: 'view-deliveries',
+                label: t('webhooks.list.actions.viewDeliveries'),
+                onSelect: () => { router.push(`/backend/webhooks/${row.id}`) },
+              },
               { id: 'delete', label: t('webhooks.list.actions.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}

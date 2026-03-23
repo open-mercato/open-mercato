@@ -71,11 +71,12 @@ const errorSchema = z.object({ error: z.string() })
 const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeof webhookListQuerySchema>>({
   metadata: {
     GET: { requireAuth: true, requireFeatures: ['webhooks.view'] },
-    POST: { requireAuth: true, requireFeatures: ['webhooks.create'] },
-    PUT: { requireAuth: true, requireFeatures: ['webhooks.edit'] },
-    DELETE: { requireAuth: true, requireFeatures: ['webhooks.delete'] },
+    POST: { requireAuth: true, requireFeatures: ['webhooks.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['webhooks.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['webhooks.manage'] },
   },
   orm: { entity: WebhookEntity, orgField: 'organizationId' },
+  events: { module: 'webhooks', entity: 'webhook', persistent: true },
   list: { schema: webhookListQuerySchema },
   create: {
     schema: webhookCreateSchema,
@@ -159,7 +160,12 @@ const crud = makeCrudRoute<WebhookCreateInput, WebhookUpdateInput, z.infer<typeo
 
       if (search) {
         const pattern = `%${escapeLikePattern(search)}%`
-        qb.andWhere({ name: { $ilike: pattern } })
+        qb.andWhere({
+          $or: [
+            { name: { $ilike: pattern } },
+            { url: { $ilike: pattern } },
+          ],
+        })
       }
 
       if (query.isActive !== undefined && query.isActive !== '') {

@@ -3,7 +3,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findScopedDelivery, json, resolveWebhookRequestScope, serializeDeliveryDetail } from '../../helpers'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['webhooks.deliveries.view'] },
+  GET: { requireAuth: true, requireFeatures: ['webhooks.view'] },
 }
 
 interface RouteContext {

@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['webhooks.create'],
+  requireFeatures: ['webhooks.manage'],
   pageTitle: 'Create Webhook',
   pageTitleKey: 'webhooks.form.title.create',
   pageGroup: 'Integrations',

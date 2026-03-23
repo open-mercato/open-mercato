@@ -45,7 +45,7 @@ const errorSchema = z.object({ error: z.string() })
 
 const crud = makeCrudRoute<never, never, z.infer<typeof webhookDeliveryQuerySchema>>({
   metadata: {
-    GET: { requireAuth: true, requireFeatures: ['webhooks.deliveries.view'] },
+    GET: { requireAuth: true, requireFeatures: ['webhooks.view'] },
   },
   orm: { entity: WebhookDeliveryEntity, orgField: 'organizationId' },
   list: { schema: webhookDeliveryQuerySchema },
