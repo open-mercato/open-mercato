@@ -34,6 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primi
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
+import { getGatewayProviderConfigurationMessageKey } from '../lib/gatewayProviderAvailability'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
 import { CustomerFieldsEditor } from './CustomerFieldsEditor'
 import { GatewaySettingsFields } from './GatewaySettingsFields'
@@ -49,6 +50,9 @@ type FormValues = Record<string, unknown>
 type ProviderDescriptor = {
   providerKey: string
   label: string
+  isConfigured?: boolean
+  requiresConfiguration?: boolean
+  configurationStatus?: 'configured' | 'missing_credentials' | 'disabled' | 'unmanaged' | null
 }
 
 type TemplateSummary = {
@@ -273,6 +277,11 @@ function readError(errors: Record<string, string>, path: string): string | undef
   const prefix = `${path}.`
   const nestedEntry = Object.entries(errors).find(([key]) => key.startsWith(prefix))
   return nestedEntry?.[1]
+}
+
+function readDirectError(errors: Record<string, string>, path: string): string | undefined {
+  if (!path) return undefined
+  return errors[path]
 }
 
 function readAnyError(errors: Record<string, string>, ...paths: string[]): string | undefined {
@@ -853,7 +862,13 @@ function AppearanceSection({
 
 function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupComponentProps & { providers: ProviderDescriptor[] }) {
   const t = useT()
+  const selectedProviderKey = readString(values.gatewayProviderKey)
+  const selectedProvider = providers.find((provider) => provider.providerKey === selectedProviderKey)
   const gatewayProviderError = readError(errors, 'gatewayProviderKey')
+    ?? (() => {
+      const messageKey = getGatewayProviderConfigurationMessageKey(selectedProvider)
+      return messageKey ? t(messageKey) : undefined
+    })()
   const gatewaySettingsError = readError(errors, 'gatewaySettings')
 
   return (
@@ -869,8 +884,14 @@ function PaymentSection({ values, setValue, errors, providers }: CrudFormGroupCo
         >
           <option value="">{t('checkout.linkTemplateForm.payment.placeholders.provider')}</option>
           {providers.map((provider) => (
-            <option key={provider.providerKey} value={provider.providerKey}>
-              {provider.label}
+            <option
+              key={provider.providerKey}
+              value={provider.providerKey}
+              disabled={provider.isConfigured === false}
+            >
+              {provider.isConfigured === false
+                ? `${provider.label} ${t('checkout.linkTemplateForm.payment.providerUnavailableSuffix')}`
+                : provider.label}
             </option>
           ))}
         </select>
@@ -890,7 +911,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
   const t = useT()
   const collectCustomerDetails = readBoolean(values.collectCustomerDetails, true)
   const collectCustomerDetailsError = readError(errors, 'collectCustomerDetails')
-  const customerFieldsError = readError(errors, 'customerFieldsSchema')
+  const customerFieldsError = readDirectError(errors, 'customerFieldsSchema')
 
   return (
     <div className="space-y-4">
@@ -921,6 +942,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
           <CustomerFieldsEditor
             value={readCustomerFields(values.customerFieldsSchema, t)}
             onChange={(next) => setValue('customerFieldsSchema', next)}
+            errors={errors}
           />
         </>
       ) : (

@@ -4,12 +4,14 @@ import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
 import {
   applyTerminalTransactionState,
   buildConsentProof,
+  getCheckoutCustomerFieldSemanticType,
   pickExplicitParsedOverrides,
   resolveLoadedCheckoutCustomFields,
   resolveSubmittedAmount,
   serializeTemplateOrLink,
   serializeTransaction,
   signCheckoutAccessToken,
+  validateCheckoutCustomerData,
   validateDescriptorCurrencies,
   verifyCheckoutAccessToken,
 } from '../utils'
@@ -263,6 +265,25 @@ describe('checkout utils', () => {
     })).toEqual({
       support_contact: 'team@example.com',
       impact_summary: 'Supports workshops',
+    })
+  })
+
+  it('validates malformed email and phone customer data', () => {
+    expect(getCheckoutCustomerFieldSemanticType({ key: 'email' })).toBe('email')
+    expect(getCheckoutCustomerFieldSemanticType({ key: 'companyPhone' })).toBe('phone')
+
+    expect(validateCheckoutCustomerData(
+      [
+        { key: 'email', kind: 'text', required: true },
+        { key: 'phone', kind: 'text', required: false },
+      ],
+      {
+        email: 'invalid-email',
+        phone: 'wrong phone number',
+      },
+    )).toEqual({
+      'customerData.email': 'checkout.payPage.validation.invalidEmail',
+      'customerData.phone': 'checkout.payPage.validation.invalidPhone',
     })
   })
 

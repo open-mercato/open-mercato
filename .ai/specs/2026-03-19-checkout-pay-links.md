@@ -504,7 +504,7 @@ Undoability boundary:
 | Command | Undo | Notes |
 |---------|------|-------|
 | `checkout.template.create` | Soft-delete the created template | Snapshot: `after` entity + custom fields |
-| `checkout.template.update` | Restore `before` snapshot | Snapshot: `before`/`after` entity + custom fields. Uses `withAtomicFlush` |
+| `checkout.template.update` | Restore `before` snapshot | Snapshot: `before`/`after` entity + custom fields. Selectively syncs existing unlocked links with the same `templateId`: fields/custom fields update only when the link still matches the previous template value, so manual link overrides are preserved. |
 | `checkout.template.delete` | Restore `deleted_at = null` | Soft delete only |
 
 ### Link Commands
@@ -872,6 +872,7 @@ const groups: CrudFormGroup[] = [
 - Privacy Policy: Title + Markdown body + "Acceptance required" checkbox
 - Empty markdown means the document is disabled and not shown on the public page
 - Template values copy to a link when creating from template
+- Later template edits also propagate to existing unlocked links with the same `templateId`, but only for fields that the link has not overridden since creation/template sync
 - Admin help text: "If marked required, the customer must accept before payment. The document opens in a popup on the pay page."
 
 **Emails** (`column: 1`)
@@ -1825,6 +1826,7 @@ Preferred doc locations:
 | TC-CHKT-002 | Update template, verify changes | `PUT /api/checkout/templates/:id` |
 | TC-CHKT-003 | Delete template, verify soft delete | `DELETE /api/checkout/templates/:id` |
 | TC-CHKT-004 | Create link from template, verify field copy | `POST /api/checkout/links` with `templateId` |
+| TC-CHKT-037 | Update template, verify unchanged link fields sync while manual overrides stay intact | `PUT /api/checkout/templates/:id`, `GET /api/checkout/links/:id` |
 | TC-CHKT-005 | Create link without template | `POST /api/checkout/links` |
 | TC-CHKT-006 | Slug auto-generation and uniqueness | `POST /api/checkout/links` with duplicate slug |
 | TC-CHKT-007 | Update link, verify changes | `PUT /api/checkout/links/:id` |

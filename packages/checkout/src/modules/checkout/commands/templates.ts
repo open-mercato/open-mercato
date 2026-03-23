@@ -5,11 +5,15 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { buildCustomFieldResetMap, loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CheckoutLinkTemplate } from '../data/entities'
+import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
 import { createTemplateSchema, updateTemplateSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
+import {
+  ensureGatewayProviderConfigured,
+  type PaymentGatewayDescriptorService,
+} from '../lib/gatewayProviderAvailability'
 import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
@@ -20,11 +24,15 @@ import {
   validateDescriptorCurrencies,
 } from '../lib/utils'
 import {
+  buildSelectiveLinkedCustomFieldUpdates,
+  buildSelectiveLinkedLinkSnapshot,
   captureTemplateSnapshot,
   createTemplateFromSnapshot,
   extractUndoPayload,
+  captureLinkSnapshot,
   readCommandId,
   resolveCommandScope,
+  restoreLinkFromSnapshot,
   restoreTemplateFromSnapshot,
   toCheckoutAuditSnapshot,
   type CheckoutTemplateSnapshot,
@@ -35,12 +43,71 @@ type CheckoutTemplateUndoPayload = {
   after?: CheckoutTemplateSnapshot | null
 }
 
+async function syncLinkedLinksWithTemplateSnapshot(params: {
+  em: EntityManager
+  dataEngine: DataEngine
+  scope: { organizationId: string; tenantId: string }
+  templateId: string
+  before: CheckoutTemplateSnapshot
+  after: CheckoutTemplateSnapshot
+}) {
+  const { em, dataEngine, scope, templateId, before, after } = params
+  const linkedLinks = await findWithDecryption(
+    em,
+    CheckoutLink,
+    {
+      templateId,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+      isLocked: false,
+    },
+    undefined,
+    scope,
+  )
+
+  let changedLinks = false
+
+  for (const link of linkedLinks) {
+    const currentLinkSnapshot = captureLinkSnapshot(link)
+    const nextLinkSnapshot = buildSelectiveLinkedLinkSnapshot(currentLinkSnapshot, before, after)
+    if (nextLinkSnapshot.changed) {
+      restoreLinkFromSnapshot(link, nextLinkSnapshot.snapshot)
+      changedLinks = true
+    }
+
+    const currentCustom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.link,
+      recordId: link.id,
+      tenantId: link.tenantId,
+      organizationId: link.organizationId,
+    })
+    const customFieldUpdates = buildSelectiveLinkedCustomFieldUpdates(currentCustom, before.custom, after.custom)
+    if (Object.keys(customFieldUpdates).length > 0) {
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: CHECKOUT_ENTITY_IDS.link,
+        recordId: link.id,
+        tenantId: link.tenantId,
+        organizationId: link.organizationId,
+        values: customFieldUpdates,
+      })
+    }
+  }
+
+  if (changedLinks) {
+    await em.flush()
+  }
+}
+
 const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: string }> = {
   id: 'checkout.template.create',
   async execute(rawInput, ctx) {
     const { parsed, customFields } = parseCheckoutInput(rawInput, createTemplateSchema.parse)
     const scope = resolveCommandScope(ctx)
     validateDescriptorCurrencies(parsed.gatewayProviderKey, deriveConfiguredCurrencies(parsed))
+    const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
+    await ensureGatewayProviderConfigured(parsed.gatewayProviderKey, descriptorService, scope)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const template = em.create(CheckoutLinkTemplate, {
@@ -148,6 +215,8 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
     const { parsed, customFields } = parseCheckoutInput(rawInput, updateTemplateSchema.parse)
     const scope = resolveCommandScope(ctx)
     validateDescriptorCurrencies(parsed.gatewayProviderKey ?? null, deriveConfiguredCurrencies(parsed))
+    const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
+    await ensureGatewayProviderConfigured(parsed.gatewayProviderKey ?? null, descriptorService, scope)
     const em = ctx.container.resolve('em') as EntityManager
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     const template = await findOneWithDecryption(em, CheckoutLinkTemplate, {
@@ -157,6 +226,13 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       deletedAt: null,
     }, undefined, scope)
     if (!template) throw new CrudHttpError(404, { error: 'Template not found' })
+    const beforeCustom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.template,
+      recordId: template.id,
+      tenantId: template.tenantId,
+      organizationId: template.organizationId,
+    })
+    const beforeSnapshot = captureTemplateSnapshot(template, beforeCustom)
     const passwordHash = parsed.password !== undefined
       ? await hashCheckoutPassword(parsed.password)
       : template.passwordHash
@@ -176,6 +252,21 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       values: customFields,
+    })
+    const afterCustom = await loadCustomFieldSnapshot(em, {
+      entityId: CHECKOUT_ENTITY_IDS.template,
+      recordId: template.id,
+      tenantId: template.tenantId,
+      organizationId: template.organizationId,
+    })
+    const afterSnapshot = captureTemplateSnapshot(template, afterCustom)
+    await syncLinkedLinksWithTemplateSnapshot({
+      em,
+      dataEngine,
+      scope,
+      templateId: template.id,
+      before: beforeSnapshot,
+      after: afterSnapshot,
     })
     await emitCheckoutEvent('checkout.template.updated', {
       id: template.id,
@@ -238,6 +329,16 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
         organizationId: before.organizationId,
         values: reset,
         notify: false,
+      })
+    }
+    if (after) {
+      await syncLinkedLinksWithTemplateSnapshot({
+        em,
+        dataEngine,
+        scope: { organizationId: before.organizationId, tenantId: before.tenantId },
+        templateId: before.id,
+        before: after,
+        after: before,
       })
     }
   },

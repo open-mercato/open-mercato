@@ -40,9 +40,90 @@ export type CheckoutLinkSnapshot = CheckoutTemplateSnapshot & {
   isLocked: boolean
 }
 
+const PROPAGATED_TEMPLATE_FIELD_KEYS = [
+  'name',
+  'title',
+  'subtitle',
+  'description',
+  'logoAttachmentId',
+  'logoUrl',
+  'primaryColor',
+  'secondaryColor',
+  'backgroundColor',
+  'themeMode',
+  'pricingMode',
+  'fixedPriceAmount',
+  'fixedPriceCurrencyCode',
+  'fixedPriceIncludesTax',
+  'fixedPriceOriginalAmount',
+  'customAmountMin',
+  'customAmountMax',
+  'customAmountCurrencyCode',
+  'priceListItems',
+  'gatewayProviderKey',
+  'gatewaySettings',
+  'customFieldsetCode',
+  'collectCustomerDetails',
+  'customerFieldsSchema',
+  'legalDocuments',
+  'displayCustomFieldsOnPage',
+  'successTitle',
+  'successMessage',
+  'cancelTitle',
+  'cancelMessage',
+  'errorTitle',
+  'errorMessage',
+  'successEmailSubject',
+  'successEmailBody',
+  'sendSuccessEmail',
+  'errorEmailSubject',
+  'errorEmailBody',
+  'sendErrorEmail',
+  'startEmailSubject',
+  'startEmailBody',
+  'sendStartEmail',
+  'passwordHash',
+  'maxCompletions',
+  'checkoutType',
+] as const satisfies ReadonlyArray<keyof CheckoutTemplateSnapshot>
+
+type PropagatedTemplateFieldKey = (typeof PROPAGATED_TEMPLATE_FIELD_KEYS)[number]
+
 function cloneJson<T>(value: T): T {
   if (value == null) return value
   return JSON.parse(JSON.stringify(value)) as T
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => valuesEqual(value, right[index]))
+  }
+  if (
+    left &&
+    right &&
+    typeof left === 'object' &&
+    typeof right === 'object' &&
+    !Array.isArray(left) &&
+    !Array.isArray(right)
+  ) {
+    const leftKeys = Object.keys(left as Record<string, unknown>).sort()
+    const rightKeys = Object.keys(right as Record<string, unknown>).sort()
+    if (!valuesEqual(leftKeys, rightKeys)) return false
+    return leftKeys.every((key) => valuesEqual(
+      (left as Record<string, unknown>)[key],
+      (right as Record<string, unknown>)[key],
+    ))
+  }
+  return false
+}
+
+function copyPropagatedTemplateField<K extends PropagatedTemplateFieldKey>(
+  snapshot: CheckoutLinkSnapshot,
+  nextTemplate: CheckoutTemplateSnapshot,
+  key: K,
+): void {
+  snapshot[key] = cloneJson(nextTemplate[key]) as CheckoutLinkSnapshot[K]
 }
 
 export function captureTemplateSnapshot(
@@ -70,6 +151,52 @@ export function captureLinkSnapshot(
     activeReservationCount: record.activeReservationCount,
     isLocked: record.isLocked,
   }
+}
+
+export function buildSelectiveLinkedLinkSnapshot(
+  current: CheckoutLinkSnapshot,
+  previousTemplate: CheckoutTemplateSnapshot,
+  nextTemplate: CheckoutTemplateSnapshot,
+): { changed: boolean; snapshot: CheckoutLinkSnapshot } {
+  let changed = false
+  const snapshot = cloneJson(current)
+
+  for (const key of PROPAGATED_TEMPLATE_FIELD_KEYS) {
+    if (!valuesEqual(current[key], previousTemplate[key])) continue
+    if (valuesEqual(current[key], nextTemplate[key])) continue
+    copyPropagatedTemplateField(snapshot, nextTemplate, key)
+    changed = true
+  }
+
+  return { changed, snapshot }
+}
+
+export function buildSelectiveLinkedCustomFieldUpdates(
+  current: CustomFieldSnapshot | undefined,
+  previousTemplate: CustomFieldSnapshot | undefined,
+  nextTemplate: CustomFieldSnapshot | undefined,
+): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  const keys = new Set<string>()
+  if (current) for (const key of Object.keys(current)) keys.add(key)
+  if (previousTemplate) for (const key of Object.keys(previousTemplate)) keys.add(key)
+  if (nextTemplate) for (const key of Object.keys(nextTemplate)) keys.add(key)
+
+  for (const key of keys) {
+    const currentValue = current?.[key]
+    const previousValue = previousTemplate?.[key]
+    if (!valuesEqual(currentValue, previousValue)) continue
+
+    const hasNextValue = Boolean(nextTemplate && Object.prototype.hasOwnProperty.call(nextTemplate, key))
+    const nextValue = hasNextValue ? nextTemplate?.[key] : undefined
+    if (valuesEqual(currentValue, nextValue)) continue
+
+    values[key] = hasNextValue
+      ? cloneJson(nextValue)
+      : Array.isArray(previousValue) ? [] : null
+  }
+
+  return values
 }
 
 function buildTemplateSnapshotData(snapshot: CheckoutTemplateSnapshot) {

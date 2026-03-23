@@ -11,6 +11,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
 import { createLinkSchema, updateLinkSchema } from '../data/validators'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
+import {
+  ensureGatewayProviderConfigured,
+  type PaymentGatewayDescriptorService,
+} from '../lib/gatewayProviderAvailability'
 import { emitCheckoutEvent } from '../events'
 import {
   deriveConfiguredCurrencies,
@@ -76,6 +80,8 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
     }
 
     validateDescriptorCurrencies(sourceValues.gatewayProviderKey ?? null, deriveConfiguredCurrencies(sourceValues))
+    const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
+    await ensureGatewayProviderConfigured(sourceValues.gatewayProviderKey ?? null, descriptorService, scope)
     if (isCheckoutLinkPublic(sourceValues.status) && !sourceValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }
@@ -220,6 +226,8 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
       parsed.gatewayProviderKey ?? link.gatewayProviderKey ?? null,
       deriveConfiguredCurrencies(nextValues),
     )
+    const descriptorService = ctx.container.resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
+    await ensureGatewayProviderConfigured(nextValues.gatewayProviderKey ?? null, descriptorService, scope)
     if (isCheckoutLinkPublic(nextValues.status) && !nextValues.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be published' })
     }

@@ -21,6 +21,7 @@ import {
   resolveSubmittedAmount,
   validateDescriptorCurrencies,
 } from '../../../../lib/utils'
+import { validateCheckoutCustomerData } from '../../../../lib/customerDataValidation'
 import { checkoutSubmitRateLimitConfig } from '../../../../lib/rateLimiter'
 import { checkoutTag } from '../../../openapi'
 
@@ -297,17 +298,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       ? link.customerFieldsSchema as CheckoutCustomerFieldRequirement[]
       : []
     if (link.collectCustomerDetails !== false) {
-      for (const field of customerFields) {
-        if (field.required !== true) continue
-        const value = collectedCustomerData?.[field.key]
-        if (value == null || `${value}`.trim().length === 0) {
-          throw new CrudHttpError(422, {
-            error: 'checkout.payPage.validation.fixErrors',
-            fieldErrors: {
-              [`customerData.${field.key}`]: 'checkout.payPage.validation.requiredField',
-            },
-          })
-        }
+      const customerFieldErrors = validateCheckoutCustomerData(customerFields, collectedCustomerData)
+      if (Object.keys(customerFieldErrors).length > 0) {
+        throw new CrudHttpError(422, {
+          error: 'checkout.payPage.validation.fixErrors',
+          fieldErrors: customerFieldErrors,
+        })
       }
     }
     const resolvedAmount = resolveSubmittedAmount(link, body)

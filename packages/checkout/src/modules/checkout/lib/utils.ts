@@ -15,6 +15,12 @@ import type {
   UpdateTemplateInput,
 } from '../data/validators'
 import { CHECKOUT_TERMINAL_STATUSES } from './constants'
+export {
+  getCheckoutCustomerFieldSemanticType,
+  isValidCheckoutEmail,
+  isValidCheckoutPhone,
+  validateCheckoutCustomerData,
+} from './customerDataValidation'
 
 export type CheckoutScope = {
   organizationId: string

@@ -260,6 +260,20 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
   return current
 }
 
+function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): string | null {
+  if (!Array.isArray(path) || path.length === 0) return null
+  const segments = path
+    .map((segment) => {
+      if (typeof segment === 'string' || typeof segment === 'number') {
+        const normalized = String(segment).trim()
+        return normalized.length > 0 ? normalized : null
+      }
+      return null
+    })
+    .filter((segment): segment is string => segment !== null)
+  return segments.length > 0 ? segments.join('.') : null
+}
+
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
   layers: Layers,
   tag: Tag,
@@ -1381,6 +1395,40 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
       return nextData
     })
+    const clearedMessages: string[] = []
+    setErrors((prev) => {
+      if (!Object.keys(prev).length) return prev
+      let changed = false
+      const nextEntries = Object.entries(prev).filter(([fieldId, message]) => {
+        const shouldClear =
+          fieldId === id ||
+          fieldId.startsWith(`${id}.`) ||
+          id.startsWith(`${fieldId}.`)
+        if (shouldClear) {
+          changed = true
+          clearedMessages.push(message)
+        }
+        return !shouldClear
+      })
+      return changed ? Object.fromEntries(nextEntries) : prev
+    })
+    if (clearedMessages.length) {
+      const highlightedMessage = t('ui.forms.errors.highlighted')
+      const translatedMessages = new Set(
+        clearedMessages
+          .map((message) => translateValidationMessage(message))
+          .filter((message) => message.trim().length > 0),
+      )
+      setFormError((prev) => {
+        if (!prev) return prev
+        const normalized = prev.trim()
+        if (!normalized) return null
+        if (normalized === highlightedMessage || translatedMessages.has(normalized)) {
+          return null
+        }
+        return prev
+      })
+    }
     if (!nextData || !extendedInjectionEventsEnabled) return
     void triggerInjectionEvent('onFieldChange', nextData as TValues, injectionContextRef.current, {
       fieldId: id,
@@ -1411,7 +1459,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }).catch((err) => {
       console.error('[CrudForm] Error in onFieldChange:', err)
     })
-  }, [extendedInjectionEventsEnabled, flash, triggerInjectionEvent])
+  }, [extendedInjectionEventsEnabled, t, translateValidationMessage, triggerInjectionEvent])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -1607,7 +1655,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!res.success) {
         const fieldErrors: Record<string, string> = {}
         res.error.issues.forEach((issue) => {
-          if (issue.path && issue.path.length) fieldErrors[String(issue.path[0])] = issue.message
+          const path = serializeIssuePath(issue.path)
+          if (path) fieldErrors[path] = issue.message
         })
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[crud-form] Schema validation failed', res.error.issues)

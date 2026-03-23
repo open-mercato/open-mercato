@@ -1,49 +1,20 @@
 import { NextResponse } from 'next/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { PaymentGatewayDescriptorService } from '../../../lib/descriptor-service'
 import { paymentGatewaysTag } from '../../openapi'
-
-type PaymentGatewayDescriptorService = {
-  get: (providerKey: string) => {
-    providerKey: string
-    label: string
-    sessionConfig?: {
-      fields?: Array<{
-        key: string
-        label: string
-        type: string
-        description?: string
-        required?: boolean
-        options?: Array<{ value: string; label: string }>
-      }>
-      supportedCurrencies?: '*' | string[]
-      supportedPaymentTypes?: Array<{ value: string; label: string }>
-      defaultRendererKey?: string
-      renderers?: Array<{
-        key: string
-        label: string
-        type: 'embedded' | 'redirect'
-        description?: string
-        supportedPaymentTypes?: '*' | string[]
-        settingsFields?: Array<{
-          key: string
-          label: string
-          type: string
-          description?: string
-          required?: boolean
-          options?: Array<{ value: string; label: string }>
-        }>
-      }>
-      presentation?: 'embedded' | 'redirect' | 'either'
-    }
-  } | null
-}
 
 export const metadata = {
   path: '/payment_gateways/providers/[providerKey]',
   GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },
 }
 
-export async function GET(_request: Request, { params }: { params: Promise<{ providerKey: string }> | { providerKey: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ providerKey: string }> | { providerKey: string } }) {
+  const auth = await getAuthFromRequest(request)
+  if (!auth?.tenantId || !auth.orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const resolvedParams = await params
   const providerKey = resolvedParams?.providerKey?.trim()
   if (!providerKey) {
@@ -51,7 +22,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pro
   }
   const { resolve } = await createRequestContainer()
   const descriptorService = resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
-  const descriptor = descriptorService.get(providerKey)
+  const descriptor = await descriptorService.getResolved(providerKey, {
+    organizationId: auth.orgId,
+    tenantId: auth.tenantId,
+  })
   if (!descriptor) {
     return NextResponse.json({ error: 'Provider descriptor not found' }, { status: 404 })
   }

@@ -23,6 +23,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import {
+  getCheckoutCustomerFieldSemanticType,
+  validateCheckoutCustomerData,
+} from '../lib/customerDataValidation'
 
 type CustomerFieldOption = {
   value: string
@@ -754,6 +758,7 @@ export function PayPageCustomerForm({
           const fieldError = fieldErrors[fieldPath]
           const value = customerData[field.key]
           const containerClass = field.kind === 'multiline' ? 'space-y-2 sm:col-span-2' : 'space-y-2'
+          const semanticType = getCheckoutCustomerFieldSemanticType(field)
 
           return (
             <div key={field.key} className={containerClass}>
@@ -817,10 +822,12 @@ export function PayPageCustomerForm({
                   ) : (
                     <Input
                       className={READABLE_INPUT_CLASSNAME}
+                      type={semanticType === 'email' ? 'email' : semanticType === 'phone' ? 'tel' : 'text'}
                       value={typeof value === 'string' ? value : ''}
                       disabled={inputsLocked}
                       onChange={(event) => onFieldChange(field.key, event.target.value)}
                       placeholder={field.placeholder ?? undefined}
+                      autoComplete={semanticType === 'email' ? 'email' : semanticType === 'phone' ? 'tel' : undefined}
                       style={buildReadableInputStyle(themeTokens, Boolean(fieldError))}
                     />
                   )}
@@ -1560,16 +1567,10 @@ export function PayPage({
     const nextErrors: FieldErrors = {}
 
     if (shouldCollectCustomerDetails) {
-      for (const field of payload.customerFieldsSchema ?? []) {
-        if (field.required !== true) continue
-        const value = customerData[field.key]
-        const isMissing = field.kind === 'boolean'
-          ? value !== true
-          : value == null || `${value}`.trim().length === 0
-        if (isMissing) {
-          nextErrors[`customerData.${field.key}`] = 'checkout.payPage.validation.requiredField'
-        }
-      }
+      Object.assign(
+        nextErrors,
+        validateCheckoutCustomerData(payload.customerFieldsSchema ?? [], customerData),
+      )
     }
 
     if (payload.pricingMode === 'custom_amount') {

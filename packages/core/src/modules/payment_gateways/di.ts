@@ -4,12 +4,8 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CredentialsService } from '../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../integrations/lib/log-service'
 import type { IntegrationStateService } from '../integrations/lib/state-service'
-import {
-  getPaymentGatewayDescriptor,
-  listPaymentGatewayDescriptors,
-  type PaymentGatewayDescriptor,
-} from '@open-mercato/shared/modules/payment_gateways/types'
 import { GatewayTransaction, WebhookProcessedEvent } from './data/entities'
+import { createPaymentGatewayDescriptorService } from './lib/descriptor-service'
 import { createPaymentGatewayService } from './lib/gateway-service'
 
 type Cradle = {
@@ -24,14 +20,9 @@ export function register(container: AppContainer) {
     paymentGatewayService: asFunction(({ em, integrationCredentialsService, integrationLogService, integrationStateService }: Cradle) =>
       createPaymentGatewayService({ em, integrationCredentialsService, integrationLogService, integrationStateService }),
     ).scoped().proxy(),
-    paymentGatewayDescriptorService: asFunction(() => ({
-      list(): PaymentGatewayDescriptor[] {
-        return listPaymentGatewayDescriptors()
-      },
-      get(providerKey: string): PaymentGatewayDescriptor | null {
-        return getPaymentGatewayDescriptor(providerKey) ?? null
-      },
-    })).singleton(),
+    paymentGatewayDescriptorService: asFunction(({ integrationCredentialsService, integrationStateService }: Cradle) =>
+      createPaymentGatewayDescriptorService({ integrationCredentialsService, integrationStateService }),
+    ).scoped().proxy(),
 
     GatewayTransaction: asValue(GatewayTransaction),
     WebhookProcessedEvent: asValue(WebhookProcessedEvent),

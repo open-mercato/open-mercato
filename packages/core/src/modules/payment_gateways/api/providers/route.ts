@@ -1,52 +1,27 @@
 import { NextResponse } from 'next/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { PaymentGatewayDescriptorService } from '../../lib/descriptor-service'
 import { paymentGatewaysTag } from '../openapi'
-
-type PaymentGatewayDescriptorService = {
-  list: () => Array<{
-    providerKey: string
-    label: string
-    sessionConfig?: {
-      fields?: Array<{
-        key: string
-        label: string
-        type: string
-        description?: string
-        required?: boolean
-        options?: Array<{ value: string; label: string }>
-      }>
-      supportedCurrencies?: '*' | string[]
-      supportedPaymentTypes?: Array<{ value: string; label: string }>
-      defaultRendererKey?: string
-      renderers?: Array<{
-        key: string
-        label: string
-        type: 'embedded' | 'redirect'
-        description?: string
-        supportedPaymentTypes?: '*' | string[]
-        settingsFields?: Array<{
-          key: string
-          label: string
-          type: string
-          description?: string
-          required?: boolean
-          options?: Array<{ value: string; label: string }>
-        }>
-      }>
-      presentation?: 'embedded' | 'redirect' | 'either'
-    }
-  }>
-}
 
 export const metadata = {
   path: '/payment_gateways/providers',
   GET: { requireAuth: true, requireFeatures: ['payment_gateways.view'] },
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await getAuthFromRequest(request)
+  if (!auth?.tenantId || !auth.orgId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { resolve } = await createRequestContainer()
   const descriptorService = resolve('paymentGatewayDescriptorService') as PaymentGatewayDescriptorService
-  return NextResponse.json({ items: descriptorService.list() })
+  const items = await descriptorService.listResolved({
+    organizationId: auth.orgId,
+    tenantId: auth.tenantId,
+  })
+  return NextResponse.json({ items })
 }
 
 export const openApi = {
