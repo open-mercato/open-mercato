@@ -41,8 +41,9 @@ type WebhookCredentialsResponse = {
   credentials: WebhookIntegrationCredentials
 }
 
-export default function IntegrationSetupWidget({ context }: InjectionWidgetComponentProps<WebhookIntegrationContext>) {
+export default function IntegrationSetupWidget({ context }: InjectionWidgetComponentProps) {
   const t = useT()
+  const typedContext = context as WebhookIntegrationContext | undefined
   const [items, setItems] = React.useState<WebhookListItem[]>([])
   const [total, setTotal] = React.useState(0)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -107,7 +108,7 @@ export default function IntegrationSetupWidget({ context }: InjectionWidgetCompo
     }
   }, [t])
 
-  const isEnabled = context?.state?.isEnabled !== false
+  const isEnabled = typedContext?.state?.isEnabled !== false
   const notifyOnFailedDelivery = credentials.notifyOnFailedDelivery === true
 
   const handleToggleFailedDeliveryNotifications = React.useCallback(async (nextValue: boolean) => {

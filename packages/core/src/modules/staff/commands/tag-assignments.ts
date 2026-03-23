@@ -11,6 +11,7 @@ import {
   staffTeamMemberTagAssignmentSchema,
   type StaffTeamMemberTagAssignmentInput,
 } from '../data/validators'
+import { staffTeamMemberCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 type TeamMemberTagAssignmentSnapshot = {

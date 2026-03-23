@@ -15,6 +15,7 @@ import {
   type StaffTeamRoleCreateInput,
   type StaffTeamRoleUpdateInput,
 } from '../data/validators'
+import { staffTeamRoleCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -131,6 +132,7 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      events: staffTeamRoleCrudEvents,
       indexer: teamRoleCrudIndexer,
     })
 
@@ -184,7 +186,8 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
           organizationId: role.organizationId,
           tenantId: role.tenantId,
         },
-        indexer: teamRoleCrudIndexer,
+        events: staffTeamRoleCrudEvents,
+      indexer: teamRoleCrudIndexer,
       })
     }
   },
@@ -246,6 +249,7 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      events: staffTeamRoleCrudEvents,
       indexer: teamRoleCrudIndexer,
     })
 
@@ -329,6 +333,7 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      events: staffTeamRoleCrudEvents,
       indexer: teamRoleCrudIndexer,
     })
   },
@@ -394,6 +399,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      events: staffTeamRoleCrudEvents,
       indexer: teamRoleCrudIndexer,
     })
     return { roleId: role.id }
@@ -472,6 +478,7 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
         organizationId: role.organizationId,
         tenantId: role.tenantId,
       },
+      events: staffTeamRoleCrudEvents,
       indexer: teamRoleCrudIndexer,
     })
   },
