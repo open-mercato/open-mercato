@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, usePathname, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -13,13 +13,17 @@ import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
 import {
+  buildWebhookFormContentHeader,
   buildWebhookFormFields,
   buildWebhookFormGroups,
   createWebhookInitialValues,
   normalizeWebhookFormPayload,
   type WebhookFormValues,
 } from '../form-config'
+import { useWebhookFeatureAccess } from '../useWebhookFeatureAccess'
+import { WebhookSecretPanel } from '../WebhookSecretPanel'
 
 type Webhook = {
   id: string
@@ -40,6 +44,7 @@ type Webhook = {
   createdAt: string
   updatedAt: string
   maskedSecret: string
+  previousSecretSetAt: string | null
 }
 
 type DeliveryRow = {
@@ -86,9 +91,10 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
 
 export default function WebhookDetailPage() {
   const params = useParams()
+  const pathname = usePathname()
   const router = useRouter()
   const t = useT()
-  const webhookId = params?.id as string
+  const webhookId = React.useMemo(() => resolveWebhookId(params?.id, pathname), [params?.id, pathname])
 
   const [webhook, setWebhook] = React.useState<Webhook | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -104,13 +110,19 @@ export default function WebhookDetailPage() {
   const [testDelivery, setTestDelivery] = React.useState<DeliveryDetail | null>(null)
   const [selectedDelivery, setSelectedDelivery] = React.useState<DeliveryDetail | null>(null)
   const [selectedDeliveryLoading, setSelectedDeliveryLoading] = React.useState(false)
+  const [revealedSecret, setRevealedSecret] = React.useState<string | null>(null)
+  const access = useWebhookFeatureAccess()
 
   const reload = React.useCallback(() => {
     setRefreshToken((current) => current + 1)
   }, [])
 
   React.useEffect(() => {
-    if (!webhookId) return
+    if (!webhookId) {
+      setError(t('webhooks.errors.notFound'))
+      setIsLoading(false)
+      return
+    }
     let cancelled = false
     async function loadDetail() {
       setIsLoading(true)
@@ -201,6 +213,7 @@ export default function WebhookDetailPage() {
         flash(t('webhooks.detail.rotateError'), 'error')
         return
       }
+      setRevealedSecret(call.result.secret)
       flash(t('webhooks.detail.rotateSuccess'), 'success')
       reload()
     } catch {
@@ -319,6 +332,53 @@ export default function WebhookDetailPage() {
 
   const fields = React.useMemo(() => buildWebhookFormFields(t), [t])
   const groups = React.useMemo(() => buildWebhookFormGroups(t), [t])
+  const contentHeader = React.useMemo(() => buildWebhookFormContentHeader(t), [t])
+  const menuActions = React.useMemo(() => {
+    const items: Array<{ id: string; label: string; onSelect: () => void; destructive?: boolean }> = []
+    const isActive = webhook?.isActive ?? false
+
+    if (access.canManage) {
+      items.push(
+        {
+          id: 'edit',
+          label: t('webhooks.list.actions.edit'),
+          onSelect: () => setIsEditing(true),
+        },
+        {
+          id: 'toggle-active',
+          label: isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
+          onSelect: () => { void handleToggleActive() },
+        },
+      )
+    }
+
+    if (access.canSecrets) {
+      items.push({
+        id: 'rotate-secret',
+        label: t('webhooks.detail.actions.rotateSecret'),
+        onSelect: () => { void handleRotateSecret() },
+      })
+    }
+
+    if (access.canTest) {
+      items.push({
+        id: 'test',
+        label: t('webhooks.detail.actions.test'),
+        onSelect: () => { void handleTest() },
+      })
+    }
+
+    if (access.canManage) {
+      items.push({
+        id: 'delete',
+        label: t('webhooks.list.actions.delete'),
+        onSelect: () => { void handleDelete() },
+        destructive: true,
+      })
+    }
+
+    return items
+  }, [access.canManage, access.canSecrets, access.canTest, handleDelete, handleRotateSecret, handleTest, handleToggleActive, t, webhook?.isActive])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('webhooks.detail.loading')} /></PageBody></Page>
   if (error || !webhook) return <Page><PageBody><ErrorMessage label={error ?? t('webhooks.errors.notFound')} /></PageBody></Page>
@@ -335,7 +395,8 @@ export default function WebhookDetailPage() {
             initialValues={createWebhookInitialValues(webhook)}
             submitLabel={t('common.save')}
             cancelHref={`/backend/webhooks/${webhook.id}`}
-            onDelete={handleDelete}
+            contentHeader={contentHeader}
+            onDelete={access.canManage ? handleDelete : undefined}
             onSubmit={async (values) => {
               const payload = normalizeWebhookFormPayload(values as WebhookFormValues, t)
               await updateCrud(`webhooks/${encodeURIComponent(webhook.id)}`, payload)
@@ -352,6 +413,9 @@ export default function WebhookDetailPage() {
   return (
     <Page>
       <PageBody>
+        {revealedSecret ? (
+          <WebhookSecretPanel secret={revealedSecret} onClose={() => setRevealedSecret(null)} />
+        ) : null}
         <FormHeader
           mode="detail"
           title={webhook.name}
@@ -362,37 +426,17 @@ export default function WebhookDetailPage() {
             </Badge>
           }
           backHref="/backend/webhooks"
-          menuActions={[
-            {
-              id: 'edit',
-              label: t('webhooks.list.actions.edit'),
-              onSelect: () => setIsEditing(true),
-            },
-            {
-              id: 'rotate-secret',
-              label: t('webhooks.detail.actions.rotateSecret'),
-              onSelect: handleRotateSecret,
-            },
-            {
-              id: 'test',
-              label: t('webhooks.detail.actions.test'),
-              onSelect: handleTest,
-            },
-            {
-              id: 'toggle-active',
-              label: webhook.isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
-              onSelect: handleToggleActive,
-            },
-            {
-              id: 'delete',
-              label: t('webhooks.list.actions.delete'),
-              onSelect: handleDelete,
-              destructive: true,
-            },
-          ]}
+          menuActions={menuActions}
         />
 
         <div className="mt-6 space-y-4">
+          {!access.isLoading && !access.canManage && !access.canSecrets && !access.canTest ? (
+            <Notice compact>{t('webhooks.detail.readOnlyTip')}</Notice>
+          ) : null}
+          <div className="grid gap-3 lg:grid-cols-2">
+            <Notice compact>{t('webhooks.detail.deliveryTip')}</Notice>
+            <Notice compact>{t('webhooks.detail.signatureTip')}</Notice>
+          </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">{t('webhooks.form.url')}:</span>
@@ -419,12 +463,20 @@ export default function WebhookDetailPage() {
               <span className="ml-2">{webhook.autoDisableThreshold}</span>
             </div>
             <div>
+              <span className="text-muted-foreground">{t('webhooks.detail.consecutiveFailures')}:</span>
+              <span className="ml-2">{webhook.consecutiveFailures}</span>
+            </div>
+            <div>
               <span className="text-muted-foreground">{t('webhooks.form.secret')}:</span>
               <span className="ml-2 font-mono text-xs">{webhook.maskedSecret}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.list.columns.lastDelivery')}:</span>
               <span className="ml-2">{webhook.lastSuccessAt ?? webhook.lastFailureAt ?? '—'}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">{t('webhooks.detail.previousSecretSetAt')}:</span>
+              <span className="ml-2">{webhook.previousSecretSetAt ?? '—'}</span>
             </div>
             <div className="col-span-2">
               <span className="text-muted-foreground">{t('webhooks.form.customHeaders')}:</span>
@@ -456,7 +508,7 @@ export default function WebhookDetailPage() {
             data={deliveries}
             onRowClick={(row) => { void handleDeliveryOpen(row.id) }}
             rowActions={(row) => (
-              row.status === 'failed' || row.status === 'expired'
+              access.canManage && (row.status === 'failed' || row.status === 'expired')
                 ? (
                   <RowActions
                     items={[
@@ -517,4 +569,24 @@ export default function WebhookDetailPage() {
       </PageBody>
     </Page>
   )
+}
+
+function resolveWebhookId(paramValue: string | string[] | undefined, pathname: string | null): string | null {
+  if (typeof paramValue === 'string' && paramValue.trim().length > 0) {
+    return paramValue
+  }
+
+  if (Array.isArray(paramValue)) {
+    const first = paramValue.find((value) => typeof value === 'string' && value.trim().length > 0)
+    if (first) return first
+  }
+
+  if (typeof pathname === 'string') {
+    const match = pathname.match(/\/backend\/webhooks\/([^/?#]+)/)
+    if (match?.[1]) {
+      return decodeURIComponent(match[1])
+    }
+  }
+
+  return null
 }

@@ -1,6 +1,6 @@
 import type { IntegrationBundle, IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
 
-export const integration: IntegrationDefinition = {
+isexport const integration: IntegrationDefinition = {
   id: 'webhook_custom',
   title: 'Custom Webhooks',
   description: 'Send and receive webhooks using the Standard Webhooks specification.',

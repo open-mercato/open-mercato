@@ -13,6 +13,8 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
+import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { useWebhookFeatureAccess } from './useWebhookFeatureAccess'
 
 type Row = {
   id: string
@@ -51,6 +53,7 @@ export default function WebhooksListPage() {
   const t = useT()
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const access = useWebhookFeatureAccess()
 
   React.useEffect(() => {
     let cancelled = false
@@ -223,14 +226,15 @@ export default function WebhooksListPage() {
 
   return (
     <Page>
-      <PageBody>
+      <PageBody className="space-y-4">
+        <Notice title={t('webhooks.list.description')} message={t('webhooks.list.operatorTip')} />
         <DataTable
           title={t('webhooks.list.title')}
-          actions={(
+          actions={access.canManage ? (
             <Button asChild>
               <Link href="/backend/webhooks/create">{t('webhooks.nav.create')}</Link>
             </Button>
-          )}
+          ) : undefined}
           columns={columns}
           data={rows}
           searchValue={search}
@@ -246,22 +250,29 @@ export default function WebhooksListPage() {
             setPage(1)
           }}
           perspective={{ tableId: 'webhooks.list' }}
-          rowActions={(row) => (
-            <RowActions items={[
-              { id: 'edit', label: t('webhooks.list.actions.edit'), onSelect: () => { router.push(`/backend/webhooks/${row.id}`) } },
-              {
-                id: 'toggle-active',
-                label: row.isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
-                onSelect: () => { void handleToggleActive(row) },
-              },
+          rowActions={(row) => {
+            const items = [
               {
                 id: 'view-deliveries',
                 label: t('webhooks.list.actions.viewDeliveries'),
                 onSelect: () => { router.push(`/backend/webhooks/${row.id}`) },
               },
-              { id: 'delete', label: t('webhooks.list.actions.delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
-            ]} />
-          )}
+            ]
+
+            if (access.canManage) {
+              items.unshift(
+                { id: 'edit', label: t('webhooks.list.actions.edit'), onSelect: () => { router.push(`/backend/webhooks/${row.id}`) } },
+                {
+                  id: 'toggle-active',
+                  label: row.isActive ? t('webhooks.detail.actions.deactivate') : t('webhooks.detail.actions.activate'),
+                  onSelect: () => { void handleToggleActive(row) },
+                },
+              )
+              items.push({ id: 'delete', label: t('webhooks.list.actions.delete'), destructive: true, onSelect: () => { void handleDelete(row) } })
+            }
+
+            return <RowActions items={items} />
+          }}
           pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
         />
