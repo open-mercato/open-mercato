@@ -3,6 +3,8 @@ export const features = [
   { id: 'customers.people.manage', title: 'Manage people', module: 'customers' },
   { id: 'customers.companies.view', title: 'View companies', module: 'customers' },
   { id: 'customers.companies.manage', title: 'Manage companies', module: 'customers' },
+  { id: 'customers.branches.view', title: 'View branches', module: 'customers' },
+  { id: 'customers.branches.manage', title: 'Manage branches', module: 'customers' },
   { id: 'customers.deals.view', title: 'View deals', module: 'customers' },
   { id: 'customers.deals.manage', title: 'Manage deals', module: 'customers' },
   { id: 'customers.activities.view', title: 'View activities', module: 'customers' },
@@ -14,6 +16,11 @@ export const features = [
   { id: 'customers.widgets.next-interactions', title: 'Use customer next interactions widget', module: 'customers' },
   { id: 'customers.widgets.new-customers', title: 'Use customer new customers widget', module: 'customers' },
   { id: 'customers.widgets.new-deals', title: 'Use customer new deals widget', module: 'customers' },
+  { id: 'customers.analytics.view', title: 'View CRM analytics', module: 'customers' },
+  { id: 'customers.deals.bulk', title: 'Bulk update deals', module: 'customers' },
+  { id: 'customers.savedViews.manage', title: 'Manage saved views', module: 'customers' },
+  { id: 'customers.emails.view', title: 'View deal emails', module: 'customers' },
+  { id: 'customers.emails.send', title: 'Send emails from deals', module: 'customers' },
 ]
 
 export default features

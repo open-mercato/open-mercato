@@ -122,6 +122,8 @@ export default function CustomersCompaniesPage() {
     'address-types': {},
     'activity-types': {},
     'deal-statuses': {},
+    'deal-contact-roles': {},
+    'deal-close-reasons': {},
     'pipeline-stages': {},
     'job-titles': {},
     industries: {},
@@ -221,7 +223,7 @@ export default function CustomersCompaniesPage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'activity-types': {}, 'deal-statuses': {}, 'pipeline-stages': {}, 'job-titles': {}, industries: {} })
+      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'activity-types': {}, 'deal-statuses': {}, 'deal-contact-roles': {}, 'deal-close-reasons': {}, 'pipeline-stages': {}, 'job-titles': {}, industries: {} })
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),

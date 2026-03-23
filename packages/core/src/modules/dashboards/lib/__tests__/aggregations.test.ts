@@ -291,10 +291,11 @@ describe('aggregations', () => {
           'sales:quotes',
           'customers:entities',
           'customers:deals',
+          'customers:customer_branch',
           'catalog:products',
         ]),
       )
-      expect(entityIds).toHaveLength(6)
+      expect(entityIds).toHaveLength(7)
     })
 
     it('each config has required fields', () => {

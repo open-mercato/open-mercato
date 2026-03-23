@@ -18,7 +18,7 @@ test.describe('TC-CRM-014: Delete Customer', () => {
     await page.getByRole('textbox', { name: 'Search companies' }).fill(companyName);
     await page.getByRole('link', { name: companyName, exact: true }).click();
 
-    await page.getByRole('button', { name: 'Delete company' }).click();
+    await page.getByRole('button', { name: 'Delete' }).click();
     await page.getByRole('button', { name: 'Confirm' }).click();
 
     await expect(page).toHaveURL(/\/backend\/customers\/companies$/);

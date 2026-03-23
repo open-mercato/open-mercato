@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -23,6 +22,8 @@ const listSchema = z
     entityId: z.string().uuid().optional(),
     dealId: z.string().uuid().optional(),
     activityType: z.string().optional(),
+    isOverdue: z.coerce.boolean().optional(),
+    hasSchedule: z.coerce.boolean().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -59,6 +60,11 @@ const crud = makeCrudRoute({
       'subject',
       'body',
       'occurred_at',
+      'due_at',
+      'reminder_at',
+      'reminder_sent',
+      'is_overdue',
+      'assigned_to_user_id',
       'author_user_id',
       'organization_id',
       'tenant_id',
@@ -72,12 +78,15 @@ const crud = makeCrudRoute({
     sortFieldMap: {
       occurredAt: 'occurred_at',
       createdAt: 'created_at',
+      dueAt: 'due_at',
     },
-    buildFilters: async (query: any) => {
-      const filters: Record<string, any> = {}
+    buildFilters: async (query: z.infer<typeof listSchema>) => {
+      const filters: Record<string, unknown> = {}
       if (query.entityId) filters.entity_id = { $eq: query.entityId }
       if (query.dealId) filters.deal_id = { $eq: query.dealId }
       if (query.activityType) filters.activity_type = { $eq: query.activityType }
+      if (query.isOverdue === true) filters.is_overdue = { $eq: true }
+      if (query.hasSchedule === true) filters.due_at = { $ne: null }
       return filters
     },
     transformItem: (item: Record<string, unknown>) => {
@@ -115,6 +124,13 @@ const crud = makeCrudRoute({
         readString(record['organization_id']) ?? readString(record['organizationId'])
       const tenantId =
         readString(record['tenant_id']) ?? readString(record['tenantId'])
+      const assignedToUserId =
+        readString(record['assigned_to_user_id']) ?? readString(record['assignedToUserId']) ?? null
+      const readBoolean = (value: unknown): boolean => {
+        if (typeof value === 'boolean') return value
+        if (value === 1 || value === '1' || value === 'true') return true
+        return false
+      }
       const output: Record<string, unknown> = {
         id: idValue,
         entityId: readString(record['entity_id']) ?? readString(record['entityId']) ?? null,
@@ -123,6 +139,11 @@ const crud = makeCrudRoute({
         subject,
         body,
         occurredAt: toIsoString(record['occurred_at'] ?? record['occurredAt']),
+        dueAt: toIsoString(record['due_at'] ?? record['dueAt']),
+        reminderAt: toIsoString(record['reminder_at'] ?? record['reminderAt']),
+        reminderSent: readBoolean(record['reminder_sent'] ?? record['reminderSent']),
+        isOverdue: readBoolean(record['is_overdue'] ?? record['isOverdue']),
+        assignedToUserId,
         createdAt: toIsoString(record['created_at'] ?? record['createdAt']),
         authorUserId,
         organizationId,
@@ -221,21 +242,21 @@ const crud = makeCrudRoute({
       })
       if (normalizedValues.size) {
         try {
-          const em = ctx.container.resolve('em') as any
+          const em = ctx.container.resolve('em') as EntityManager
           const normalizedList = Array.from(normalizedValues)
           const orgList = Array.from(organizationIds)
           const where: Record<string, unknown> = {
             kind: 'activity_type',
-            normalizedValue: { $in: normalizedList as any },
+            normalizedValue: { $in: normalizedList },
           }
           const andClauses: Record<string, unknown>[] = []
           if (tenantId) {
-            andClauses.push({ $or: [{ tenantId: tenantId as any }, { tenantId: null }] })
+            andClauses.push({ $or: [{ tenantId }, { tenantId: null }] })
           } else {
             andClauses.push({ tenantId: null })
           }
           if (orgList.length) {
-            andClauses.push({ $or: [{ organizationId: { $in: orgList as any } }, { organizationId: null }] })
+            andClauses.push({ $or: [{ organizationId: { $in: orgList } }, { organizationId: null }] })
           } else {
             andClauses.push({ organizationId: null })
           }
@@ -320,7 +341,7 @@ const crud = makeCrudRoute({
       )
       if (authorIds.length) {
         try {
-          const em = ctx.container.resolve('em') as any
+          const em = ctx.container.resolve('em') as EntityManager
           const users = await em.find(User, { id: { $in: authorIds } })
           const map = new Map<string, { name: string | null; email: string | null }>()
           users.forEach((user: User) => {
@@ -358,6 +379,11 @@ const activityListItemSchema = z
     subject: z.string().nullable(),
     body: z.string().nullable(),
     occurredAt: z.string().nullable(),
+    dueAt: z.string().nullable().optional(),
+    reminderAt: z.string().nullable().optional(),
+    reminderSent: z.boolean().optional(),
+    isOverdue: z.boolean().optional(),
+    assignedToUserId: z.string().uuid().nullable().optional(),
     createdAt: z.string().nullable(),
     authorUserId: z.string().uuid().nullable(),
     organizationId: z.string().uuid().nullable().optional(),

@@ -1081,6 +1081,110 @@ export const searchConfig: SearchModuleConfig = {
         excluded: [],
       },
     },
+    // =========================================================================
+    // Branch
+    // =========================================================================
+    {
+      entityId: 'customers:customer_branch',
+      enabled: true,
+      priority: 6,
+
+      buildSource: async (ctx: SearchBuildContext): Promise<SearchIndexSource | null> => {
+        assertTenantContext(ctx)
+        const lines: string[] = []
+        const record = ctx.record
+        appendLine(lines, 'Branch name', record.name)
+        appendLine(lines, 'Type', record.branch_type ?? record.branchType)
+        appendLine(lines, 'Specialization', record.specialization)
+        appendLine(lines, 'Budget', record.budget)
+        appendLine(lines, 'Headcount', record.headcount)
+
+        const companyEntityId = (record.company_entity_id ?? record.companyEntityId) as string | undefined
+        let companyEntity: Record<string, unknown> | null = null
+        if (companyEntityId) {
+          companyEntity = await getCustomerEntity(ctx, companyEntityId)
+          if (companyEntity) {
+            appendLine(lines, 'Company', companyEntity.display_name ?? companyEntity.displayName)
+          }
+        }
+
+        appendCustomFieldLines(lines, ctx.customFields, 'Branch custom')
+        if (!lines.length) return null
+
+        const name = pickString(record.name)
+        const companyName = companyEntity
+          ? pickString(companyEntity.display_name ?? companyEntity.displayName)
+          : undefined
+        const branchType = pickString(record.branch_type ?? record.branchType)
+
+        const presenter: SearchResultPresenter = {
+          title: name ?? 'Branch',
+          subtitle: [companyName, branchType].filter(Boolean).join(' · ') || undefined,
+          icon: 'git-branch',
+        }
+
+        const links: SearchResultLink[] = []
+        if (companyEntityId) {
+          const href = buildCustomerUrl('company', companyEntityId)
+          if (href) {
+            links.push({ href: `${href}#branches`, label: companyName ? `${companyName} — Branches` : 'Company branches', kind: 'primary' })
+          }
+        }
+
+        return {
+          text: lines,
+          presenter,
+          links,
+          checksumSource: {
+            record: ctx.record,
+            customFields: ctx.customFields,
+            company: companyEntity,
+          },
+        }
+      },
+
+      formatResult: async (ctx: SearchBuildContext): Promise<SearchResultPresenter | null> => {
+        assertTenantContext(ctx)
+        const record = ctx.record
+        const companyEntityId = (record.company_entity_id ?? record.companyEntityId) as string | undefined
+        let companyName: string | null = null
+        if (companyEntityId) {
+          const companyEntity = await getCustomerEntity(ctx, companyEntityId)
+          companyName = pickString(companyEntity?.display_name ?? companyEntity?.displayName)
+        }
+        const branchType = pickString(record.branch_type ?? record.branchType)
+        return {
+          title: pickString(record.name) ?? 'Branch',
+          subtitle: [companyName, branchType].filter(Boolean).join(' · ') || undefined,
+          icon: 'git-branch',
+        }
+      },
+
+      resolveUrl: async (ctx: SearchBuildContext): Promise<string | null> => {
+        const companyEntityId = (ctx.record.company_entity_id ?? ctx.record.companyEntityId) as string | undefined
+        if (!companyEntityId) return null
+        const href = buildCustomerUrl('company', companyEntityId)
+        return href ? `${href}#branches` : null
+      },
+
+      resolveLinks: async (ctx: SearchBuildContext): Promise<SearchResultLink[] | null> => {
+        const companyEntityId = (ctx.record.company_entity_id ?? ctx.record.companyEntityId) as string | undefined
+        if (!companyEntityId) return null
+        const href = buildCustomerUrl('company', companyEntityId)
+        if (!href) return null
+        return [{ href: `${href}#branches`, label: 'View branches', kind: 'secondary' }]
+      },
+
+      fieldPolicy: {
+        searchable: [
+          'name',
+          'branch_type',
+          'specialization',
+        ],
+        hashOnly: [],
+        excluded: [],
+      },
+    },
   ],
 }
 

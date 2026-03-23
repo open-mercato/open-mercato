@@ -17,6 +17,7 @@ test.describe('TC-CRM-016: Company Note And Activity CRUD', () => {
 
       await login(page, 'admin');
       await page.goto(`/backend/customers/companies/${companyId}`);
+      await page.getByRole('tab', { name: 'Notes' }).click();
 
       const noteText = `QA company note ${Date.now()}`;
       await page.getByRole('button', { name: /Create( a)? note|Add( a)? note/i }).first().click();

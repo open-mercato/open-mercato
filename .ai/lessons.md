@@ -357,3 +357,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When changing module conventions that affect standalone app developers — entity/migration workflow, auto-discovery file conventions, CLI commands, `yarn generate` behavior — also update the corresponding content in `packages/create-app/agentic/` (shared AGENTS.md.template, tool-specific rules/hooks).
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+
+## Never import from "use client" component files in server-side module files
+
+**Context**: `setup.ts` imported a string constant (`DETAIL_HEADER_FIELDSET`) from `CompanyHighlights.tsx`, a `"use client"` React component that transitively imports `next/link`.
+
+**Problem**: The CLI bootstrap loads `setup.ts` via plain Node.js ESM (not turbopack). Node.js ESM cannot resolve `next/link` because the `next` package has no `exports` field and ESM doesn't auto-append `.js` extensions. This caused `mercato server dev` to crash immediately with `Cannot find module 'next/link'`, while `next dev` alone worked fine (turbopack handles the resolution).
+
+**Rule**: Server-side module files (`setup.ts`, `events.ts`, `acl.ts`, `ce.ts`, `cli.ts`, workers, subscribers, commands) must never import from `"use client"` component files, even for simple constants. Extract shared constants into a server-safe `lib/` file and import from there in both the server file and the component.
+
+**Applies to**: All auto-discovered module files loaded by the CLI bootstrap (`modules.cli.generated.ts`), and any file transitively imported by them.
