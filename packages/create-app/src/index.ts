@@ -14,6 +14,7 @@ const TEMPLATE_DIR = join(__dirname, '..', 'template')
 interface Options {
   registry?: string
   example?: string
+  exampleBranch?: string
   verdaccio: boolean
   help: boolean
   version: boolean
@@ -31,6 +32,7 @@ ${pc.bold('Arguments:')}
 
 ${pc.bold('Options:')}
   --example, -e <name|url>  Use an example as the starting point
+  --example-branch <branch> Override the branch for --example (e.g., feat/my-branch)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -52,6 +54,7 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
   const options: Options = {
     registry: undefined,
     example: undefined,
+    exampleBranch: undefined,
     verdaccio: false,
     help: false,
     version: false,
@@ -71,6 +74,8 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.registry = args[++i]
     } else if (arg === '--example' || arg === '-e') {
       options.example = args[++i]
+    } else if (arg === '--example-branch') {
+      options.exampleBranch = args[++i]
     } else if (!arg.startsWith('-')) {
       appName = arg
     }
@@ -246,7 +251,7 @@ async function main(): Promise<void> {
     if (options.example) {
       // Example path: fetch from GitHub
       const token = process.env.GITHUB_TOKEN
-      const exampleInfo = parseExampleUrl(options.example)
+      const exampleInfo = parseExampleUrl(options.example, { branch: options.exampleBranch })
 
       console.log(pc.dim(`  Resolving example: ${options.example}`))
 

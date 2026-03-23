@@ -86,6 +86,31 @@ describe('parseExampleUrl', () => {
       expect(() => parseExampleUrl('my_app')).toThrow('Invalid example')
     })
   })
+
+  describe('branch override', () => {
+    it('overrides branch for plain name', () => {
+      const result = parseExampleUrl('prm', { branch: 'feat/prm-phase1' })
+      expect(result).toEqual({
+        owner: 'open-mercato',
+        repo: 'ready-apps',
+        branch: 'feat/prm-phase1',
+        filePath: 'apps/prm',
+      })
+    })
+
+    it('overrides branch for GitHub URL and skips branch segments in path', () => {
+      const result = parseExampleUrl(
+        'https://github.com/some-agency/their-app/tree/feat/custom/examples/app',
+        { branch: 'feat/custom' }
+      )
+      expect(result).toEqual({
+        owner: 'some-agency',
+        repo: 'their-app',
+        branch: 'feat/custom',
+        filePath: 'examples/app',
+      })
+    })
+  })
 })
 
 describe('checkExampleExists', () => {

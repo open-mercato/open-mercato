@@ -17,8 +17,9 @@ const OFFICIAL_PREFIX = 'apps'
 
 /**
  * Parse an example identifier (plain name or GitHub URL) into fetch coordinates.
+ * @param options.branch - Override the branch (useful for branches with `/` in the name)
  */
-export function parseExampleUrl(input: string): ExampleInfo {
+export function parseExampleUrl(input: string, options?: { branch?: string }): ExampleInfo {
   // GitHub URL
   if (input.startsWith('https://github.com/') || input.startsWith('http://github.com/')) {
     const url = new URL(input)
@@ -41,6 +42,14 @@ export function parseExampleUrl(input: string): ExampleInfo {
       )
     }
 
+    // When --example-branch is provided, skip the branch segments in the URL path
+    // (avoids ambiguity with branches containing '/' like feat/my-feature)
+    if (options?.branch) {
+      const branchSegments = options.branch.split('/').length
+      const filePath = parts.slice(3 + branchSegments).join('/')
+      return { owner, repo, branch: options.branch, filePath }
+    }
+
     const branch = parts[3]
     const filePath = parts.slice(4).join('/')
 
@@ -52,7 +61,7 @@ export function parseExampleUrl(input: string): ExampleInfo {
     return {
       owner: OFFICIAL_OWNER,
       repo: OFFICIAL_REPO,
-      branch: OFFICIAL_BRANCH,
+      branch: options?.branch ?? OFFICIAL_BRANCH,
       filePath: `${OFFICIAL_PREFIX}/${input}`,
     }
   }
