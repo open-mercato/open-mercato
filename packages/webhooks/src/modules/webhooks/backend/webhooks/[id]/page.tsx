@@ -91,7 +91,7 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
   failed: 'destructive',
   expired: 'destructive',
 }
-const DELIVERY_AUTO_REFRESH_INTERVAL_MS = 5000
+const DELIVERY_AUTO_REFRESH_INTERVAL_MS = 30000
 
 export default function WebhookDetailPage() {
   const params = useParams()

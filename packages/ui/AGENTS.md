@@ -150,6 +150,9 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 ## Loading, Empty, and Error States
 
 - For list/detail data loading, use `LoadingMessage` and `ErrorMessage` from `@open-mercato/ui/backend/detail`.
+- For record-backed backend detail/edit pages, treat `notFound` as a dedicated page state, separate from generic `error`.
+- When a record is missing, return early with a page-level state built on `ErrorMessage` and a clear recovery action such as "Back to list"; do not render `CrudForm`, detail sections, tabs, or record actions in that branch.
+- Do not use ad hoc centered `<div>` error markup for missing-record pages when the shared backend detail primitives can express the state.
 - Use `TabEmptyState` when a section is empty but otherwise healthy (see sales document sub-sections).
 - Keep loading flags local to the section and reset errors before each load.
 

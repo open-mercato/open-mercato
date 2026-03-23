@@ -10,6 +10,7 @@ Use `@open-mercato/ui/backend` for all admin/backend page components. See `packa
 4. **MUST NOT hard-code user-facing strings** — use `useT()` for all labels and messages
 5. **MUST use `useGuardedMutation` when not using `CrudForm`** — wrap every write operation (`POST`/`PUT`/`PATCH`/`DELETE`) in `runMutation({ operation, context, mutationPayload })` so global mutation injections (record locks, conflict UI, future guards) run consistently
 6. **MUST use `Button` or `IconButton`** for every interactive button — never use raw `<button>` elements. Use `IconButton` for icon-only buttons, `Button` for everything else. Always pass `type="button"` explicitly on non-submit buttons. See `packages/ui/AGENTS.md` → Button and IconButton Usage for full patterns and variant reference.
+7. **MUST treat missing records as a dedicated page-level state** — distinguish `notFound` from generic `error`, return early, and render a shared `ErrorMessage`-based state with a clear recovery action (for example, back to the owning list page). Do not render `CrudForm`, detail sections, tabs, or record actions when the record is missing.
 
 ## DataTable Row-Click Behavior
 
@@ -98,4 +99,5 @@ CrudForm emits these extended handlers by default. Disable automatic emission wi
 - Use `CrudForm` for create/edit flows — see `packages/ui/AGENTS.md` → CrudForm Guidelines
 - Use `DataTable` for list views — see `packages/ui/AGENTS.md` → DataTable Guidelines
 - Use `FormHeader` with mode `edit` (compact) or `detail` (large title with status)
+- For record-backed `[id]` pages, prefer `loading -> notFound -> error -> ready` state flow over `if (error || !data)` shortcuts.
 - Follow the customers module as the reference implementation

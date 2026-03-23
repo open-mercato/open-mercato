@@ -196,14 +196,14 @@ const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentI
       { tenantId: before.tenantId, organizationId: before.organizationId },
     )
     if (!resource) throw new CrudHttpError(404, { error: 'Resource not found.' })
-    const existing = await em.findOne(ResourcesResourceTagAssignment, {
+    let assignment = await em.findOne(ResourcesResourceTagAssignment, {
       tag,
       resource,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
     })
-    if (!existing) {
-      const assignment = em.create(ResourcesResourceTagAssignment, {
+    if (!assignment) {
+      assignment = em.create(ResourcesResourceTagAssignment, {
         tag,
         resource,
         tenantId: before.tenantId,
@@ -219,11 +219,11 @@ const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentI
     await emitCrudUndoSideEffects({
       dataEngine,
       action: 'updated',
-      entity: resource,
+      entity: assignment,
       identifiers: {
-        id: resource.id,
-        tenantId: resource.tenantId,
-        organizationId: resource.organizationId,
+        id: assignment.id,
+        tenantId: assignment.tenantId,
+        organizationId: assignment.organizationId,
       },
       events: resourcesResourceTagAssignmentCrudEvents,
     })

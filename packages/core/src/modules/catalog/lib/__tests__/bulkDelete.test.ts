@@ -20,7 +20,7 @@ describe('deleteCatalogProductsWithProgress', () => {
     jest.clearAllMocks()
   })
 
-  it('invalidates the products collection cache before completing the bulk delete job', async () => {
+  it('invalidates each deleted product cache after the bulk delete finishes', async () => {
     const execute = jest.fn().mockResolvedValue({ result: { productId: 'prod-1' } })
     const startJob = jest.fn().mockResolvedValue(undefined)
     const updateProgress = jest.fn().mockResolvedValue(undefined)
@@ -68,10 +68,26 @@ describe('deleteCatalogProductsWithProgress', () => {
       }),
       skipCacheInvalidation: true,
     })
-    expect(mockInvalidateCrudCache).toHaveBeenCalledWith(
+    expect(mockInvalidateCrudCache).toHaveBeenCalledTimes(2)
+    expect(mockInvalidateCrudCache).toHaveBeenNthCalledWith(
+      1,
       container,
       'catalog.product',
       {
+        id: 'prod-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      'tenant-1',
+      'bulk-delete:catalog.products',
+      ['catalog.products'],
+    )
+    expect(mockInvalidateCrudCache).toHaveBeenNthCalledWith(
+      2,
+      container,
+      'catalog.product',
+      {
+        id: 'prod-2',
         organizationId: 'org-1',
         tenantId: 'tenant-1',
       },

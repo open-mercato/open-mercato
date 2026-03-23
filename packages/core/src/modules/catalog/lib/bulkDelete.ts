@@ -84,6 +84,7 @@ export async function deleteCatalogProductsWithProgress(params: {
 
   const commandContext = buildCommandContext(scope, container)
   let affectedCount = 0
+  const deletedIds = new Set<string>()
 
   for (const [index, id] of ids.entries()) {
     await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.products.delete', {
@@ -92,6 +93,7 @@ export async function deleteCatalogProductsWithProgress(params: {
       skipCacheInvalidation: true,
     })
     affectedCount += 1
+    deletedIds.add(id)
 
     await progressService.updateProgress(
       progressJobId,
@@ -104,17 +106,20 @@ export async function deleteCatalogProductsWithProgress(params: {
   }
 
   const summary: CatalogProductBulkDeleteSummary = { affectedCount }
-  await invalidateCrudCache(
-    container,
-    'catalog.product',
-    {
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-    },
-    scope.tenantId,
-    'bulk-delete:catalog.products',
-    BULK_DELETE_CACHE_ALIASES,
-  )
+  for (const id of deletedIds) {
+    await invalidateCrudCache(
+      container,
+      'catalog.product',
+      {
+        id,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      },
+      scope.tenantId,
+      'bulk-delete:catalog.products',
+      BULK_DELETE_CACHE_ALIASES,
+    )
+  }
   await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
 
   return summary
