@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 test.describe('TC-UMES-009: Phase J recursive widget extensibility', () => {
   test.beforeEach(async ({ page }) => {

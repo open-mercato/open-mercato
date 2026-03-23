@@ -39,6 +39,79 @@ export interface GatewayAdapter {
   mapStatus(providerStatus: string, eventType?: string): UnifiedPaymentStatus
 }
 
+export type PaymentGatewayDescriptorFieldType =
+  | 'text'
+  | 'number'
+  | 'select'
+  | 'multiselect'
+  | 'boolean'
+  | 'textarea'
+  | 'secret'
+  | 'url'
+
+export interface PaymentGatewayDescriptorField {
+  key: string
+  label: string
+  type: PaymentGatewayDescriptorFieldType
+  description?: string
+  required?: boolean
+  options?: Array<{ value: string; label: string }>
+}
+
+export type PaymentGatewayRendererType = 'embedded' | 'redirect'
+
+export interface PaymentGatewayRendererDescriptor {
+  key: string
+  label: string
+  type: PaymentGatewayRendererType
+  description?: string
+  supportedPaymentTypes?: '*' | string[]
+  settingsFields?: PaymentGatewayDescriptorField[]
+}
+
+export interface PaymentGatewayPresentationRequest {
+  mode?: 'auto' | PaymentGatewayRendererType
+  rendererKey?: string
+  rendererSettings?: Record<string, unknown>
+}
+
+export interface PaymentGatewayDescriptor {
+  providerKey: string
+  label: string
+  sessionConfig?: {
+    fields?: PaymentGatewayDescriptorField[]
+    supportedCurrencies?: '*' | string[]
+    supportedPaymentTypes?: Array<{ value: string; label: string }>
+    defaultRendererKey?: string
+    renderers?: PaymentGatewayRendererDescriptor[]
+    /**
+     * @deprecated Use `renderers` and `defaultRendererKey`.
+     */
+    presentation?: 'embedded' | 'redirect' | 'either'
+    /**
+     * @deprecated Use `renderers`.
+     */
+    embeddedRenderers?: string[]
+  }
+}
+
+export interface EmbeddedPaymentGatewayClientSession {
+  type: 'embedded'
+  rendererKey: string
+  payload?: Record<string, unknown>
+  settings?: Record<string, unknown>
+}
+
+export interface RedirectPaymentGatewayClientSession {
+  type: 'redirect'
+  redirectUrl: string
+  target?: 'self' | 'top'
+}
+
+export type PaymentGatewayClientSession =
+  | EmbeddedPaymentGatewayClientSession
+  | RedirectPaymentGatewayClientSession
+
 // ── Input / Output Types ────────────────────────────────────────────────────
 
 export interface CreateSessionInput {
@@ -56,6 +129,7 @@ export interface CreateSessionInput {
   metadata?: Record<string, unknown>
   credentials: Record<string, unknown>
   lineItems?: SessionLineItem[]
+  presentation?: PaymentGatewayPresentationRequest
 }
 
 export interface SessionLineItem {
@@ -71,6 +145,7 @@ export interface CreateSessionResult {
   redirectUrl?: string
   status: UnifiedPaymentStatus
   providerData?: Record<string, unknown>
+  clientSession?: PaymentGatewayClientSession
 }
 
 export interface CaptureInput {
@@ -157,6 +232,7 @@ export interface RegisterAdapterOptions {
 
 const ADAPTER_REGISTRY_KEY = '__openMercatoPaymentGatewayAdapters__'
 const WEBHOOK_REGISTRY_KEY = '__openMercatoPaymentGatewayWebhookHandlers__'
+const DESCRIPTOR_REGISTRY_KEY = '__openMercatoPaymentGatewayDescriptors__'
 
 function getAdapterRegistry(): Map<string, GatewayAdapter> {
   const globalState = globalThis as typeof globalThis & {
@@ -176,6 +252,16 @@ function getWebhookHandlerRegistry(): Map<string, WebhookHandlerRegistration> {
     globalState[WEBHOOK_REGISTRY_KEY] = new Map<string, WebhookHandlerRegistration>()
   }
   return globalState[WEBHOOK_REGISTRY_KEY]
+}
+
+function getDescriptorRegistry(): Map<string, PaymentGatewayDescriptor> {
+  const globalState = globalThis as typeof globalThis & {
+    [DESCRIPTOR_REGISTRY_KEY]?: Map<string, PaymentGatewayDescriptor>
+  }
+  if (!globalState[DESCRIPTOR_REGISTRY_KEY]) {
+    globalState[DESCRIPTOR_REGISTRY_KEY] = new Map<string, PaymentGatewayDescriptor>()
+  }
+  return globalState[DESCRIPTOR_REGISTRY_KEY]
 }
 
 function adapterKey(providerKey: string, version?: string): string {
@@ -247,4 +333,24 @@ export function getWebhookHandler(providerKey: string): WebhookHandlerRegistrati
 
 export function clearWebhookHandlers(): void {
   getWebhookHandlerRegistry().clear()
+}
+
+export function registerPaymentGatewayDescriptor(descriptor: PaymentGatewayDescriptor): () => void {
+  const descriptorRegistry = getDescriptorRegistry()
+  descriptorRegistry.set(descriptor.providerKey, descriptor)
+  return () => {
+    descriptorRegistry.delete(descriptor.providerKey)
+  }
+}
+
+export function getPaymentGatewayDescriptor(providerKey: string): PaymentGatewayDescriptor | undefined {
+  return getDescriptorRegistry().get(providerKey)
+}
+
+export function listPaymentGatewayDescriptors(): PaymentGatewayDescriptor[] {
+  return Array.from(getDescriptorRegistry().values()).sort((left, right) => left.label.localeCompare(right.label))
+}
+
+export function clearPaymentGatewayDescriptors(): void {
+  getDescriptorRegistry().clear()
 }

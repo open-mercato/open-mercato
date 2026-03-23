@@ -6,21 +6,44 @@ import { deleteTranslationIfExists, getLocales, setLocales } from './helpers/tra
 
 const ENTITY_TYPE = 'catalog:catalog_product'
 
+function escapeForRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
  * Helper: set a value directly into a ComboboxInput using allowCustomValues.
  * Types the value and presses Enter to confirm — avoids flaky dropdown clicks
  * and search index lag for async suggestions.
  */
-async function fillCombobox(page: import('@playwright/test').Page, placeholder: string, value: string) {
+async function fillCombobox(
+  page: import('@playwright/test').Page,
+  placeholder: string,
+  value: string,
+  options?: { waitForEnabledPlaceholder?: string },
+) {
   const input = page.getByPlaceholder(placeholder)
   await expect(input).toBeEnabled({ timeout: 10_000 })
   await input.click()
   await input.fill(value)
-  await input.press('Enter')
+  const suggestion = page.getByRole('button', {
+    name: new RegExp(escapeForRegex(value), 'i'),
+  }).first()
+  const suggestionVisible = await suggestion.waitFor({ state: 'visible', timeout: 2_000 }).then(
+    () => true,
+    () => false,
+  )
+  if (suggestionVisible) {
+    await suggestion.click()
+  } else {
+    await input.press('Enter')
+  }
   // Move focus away so the ComboboxInput's onBlur handler fires and settles
   // (onBlur has a 200ms timeout that calls confirmSelection, which may reset hasUserEdited)
   await input.press('Tab')
   await page.waitForTimeout(300)
+  if (options?.waitForEnabledPlaceholder) {
+    await expect(page.getByPlaceholder(options.waitForEnabledPlaceholder)).toBeEnabled({ timeout: 10_000 })
+  }
 }
 
 /**
@@ -44,7 +67,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await page.goto('/backend/config/translations')
       await expect(page.getByRole('heading', { name: 'Translations' })).toBeVisible()
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
       await fillCombobox(page, 'Search records...', productId!)
 
       await expect(page.getByText('Base value')).toBeVisible()
@@ -70,7 +93,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({
@@ -116,7 +139,7 @@ test.describe('TC-TRANS-005: Translation Manager Standalone', () => {
       await login(page, 'superadmin')
       await page.goto('/backend/config/translations')
 
-      await fillCombobox(page, 'Select an entity', ENTITY_TYPE)
+      await fillCombobox(page, 'Select an entity', ENTITY_TYPE, { waitForEnabledPlaceholder: 'Search records...' })
       await fillCombobox(page, 'Search records...', productId!)
 
       const managerCard = page.locator('.bg-card').filter({

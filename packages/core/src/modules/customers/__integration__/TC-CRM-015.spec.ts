@@ -66,7 +66,7 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
       expect(companyId, 'Expected created company id').toBeTruthy();
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/companies');
+      await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
 
       const searchByNameResponse = await apiRequest(
         request,

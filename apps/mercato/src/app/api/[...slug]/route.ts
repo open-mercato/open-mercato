@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { modules } from '@/.mercato/generated/modules.generated'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
 
 // Ensure all package registrations are initialized for API routes
@@ -35,6 +35,19 @@ type HandlerContext = {
 type LifecycleEventBus = {
   emit?: (event: string, payload: unknown) => Promise<void>
   emitEvent?: (event: string, payload: unknown) => Promise<void>
+}
+
+function clearStaffAuthCookies(response: Response): Response {
+  const nextResponse = response instanceof NextResponse
+    ? response
+    : new NextResponse(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      })
+  nextResponse.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
+  nextResponse.cookies.set('session_token', '', { path: '/', maxAge: 0 })
+  return nextResponse
 }
 
 function buildRequestId(req: NextRequest): string {
@@ -268,7 +281,8 @@ async function handleRequest(
     })
     return response
   }
-  const auth = await getAuthFromRequest(req)
+  const authResolution = await resolveAuthFromRequestDetailed(req)
+  const auth = authResolution.auth
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
     ...receivedPayload,
     authenticated: !!auth,
@@ -279,14 +293,17 @@ async function handleRequest(
   const methodMetadata = extractMethodMetadata(api.metadata, method)
   const authError = await checkAuthorization(methodMetadata, auth, req)
   if (authError) {
+    const response = authResolution.status === 'invalid' && authError.status === 401
+      ? clearStaffAuthCookies(authError)
+      : authError
     await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
       ...receivedPayload,
-      status: authError.status,
+      status: response.status,
       userId: auth?.sub ?? null,
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
-    return authError
+    return response
   }
 
   if (methodMetadata?.rateLimit) {
@@ -318,14 +335,17 @@ async function handleRequest(
   try {
     const handlerContext: HandlerContext = { params: api.params, auth }
     const response = await runWithCacheTenant(auth?.tenantId ?? null, () => api.handler(req, handlerContext))
+    const finalResponse = authResolution.status === 'invalid' && response.status === 401
+      ? clearStaffAuthCookies(response)
+      : response
     await emitLifecycleEvent(applicationLifecycleEvents.requestCompleted, {
       ...receivedPayload,
-      status: response.status,
+      status: finalResponse.status,
       userId: auth?.sub ?? null,
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
-    return response
+    return finalResponse
   } catch (error) {
     await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
       ...receivedPayload,

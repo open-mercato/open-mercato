@@ -8,6 +8,7 @@ import {
   type RefundResult,
   type CancelResult,
   type GatewayPaymentStatus,
+  type PaymentGatewayPresentationRequest,
   type UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
@@ -31,10 +32,12 @@ export interface CreatePaymentSessionInput {
   amount: number
   currencyCode: string
   captureMethod?: 'automatic' | 'manual'
+  paymentTypes?: string[]
   description?: string
   successUrl?: string
   cancelUrl?: string
   metadata?: Record<string, unknown>
+  presentation?: PaymentGatewayPresentationRequest
   organizationId: string
   tenantId: string
 }
@@ -137,10 +140,12 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         amount: input.amount,
         currencyCode: input.currencyCode,
         captureMethod: input.captureMethod,
+        paymentTypes: input.paymentTypes,
         description: input.description,
         successUrl: input.successUrl,
         cancelUrl: input.cancelUrl,
         metadata: input.metadata,
+        presentation: input.presentation,
         credentials,
       }
 
@@ -151,11 +156,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         providerKey: input.providerKey,
         providerSessionId: session.sessionId,
         unifiedStatus: session.status,
-        redirectUrl: session.redirectUrl ?? null,
-        clientSecret: null,
+        redirectUrl: session.redirectUrl
+          ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null),
+        clientSecret: session.clientSecret ?? null,
         amount: String(input.amount),
         currencyCode: input.currencyCode,
-        gatewayMetadata: session.providerData ?? null,
+        gatewayMetadata: {
+          ...(session.providerData ?? {}),
+          ...(session.clientSession ? { clientSession: session.clientSession } : {}),
+        },
         organizationId: input.organizationId,
         tenantId: input.tenantId,
       })

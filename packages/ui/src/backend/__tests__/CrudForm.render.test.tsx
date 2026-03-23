@@ -103,4 +103,23 @@ describe('CrudForm initialValues', () => {
 
     expect(input.value).toBe('Alice edited')
   })
+
+  it('hides destructive and submit actions when rendered in read-only mode', () => {
+    const { queryByRole, getByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ id: 'link_1', name: 'Alice' }}
+        readOnly
+        readOnlyOverlay={<div>Locked overlay</div>}
+        deleteVisible
+        onSubmit={() => {}}
+        onDelete={() => {}}
+      />
+    )
+
+    expect(getByText('Locked overlay')).toBeInTheDocument()
+    expect(queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+    expect(queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+  })
 })

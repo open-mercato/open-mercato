@@ -253,6 +253,12 @@ interface CreateSessionInput {
   locale?: string
   /** Additional metadata passed to the gateway */
   metadata?: Record<string, string>
+  /** Optional rendering preference from the consumer UI */
+  presentation?: {
+    mode?: 'auto' | 'embedded' | 'redirect'
+    rendererKey?: string
+    rendererSettings?: Record<string, unknown>
+  }
 }
 
 interface SessionLineItem {
@@ -265,8 +271,25 @@ interface SessionLineItem {
 interface CreateSessionResult {
   /** Gateway's session/transaction ID */
   sessionId: string
-  /** URL to redirect customer to for payment */
-  redirectUrl: string
+  /** URL to redirect customer to for payment when using a hosted flow */
+  redirectUrl?: string
+  /**
+   * Optional client-safe payment presentation description.
+   * Consumer modules resolve provider-owned renderers through a shared registry
+   * using providerKey + rendererKey and never import provider UI directly.
+   */
+  clientSession?:
+    | {
+        type: 'embedded'
+        rendererKey: string
+        payload?: Record<string, unknown>
+        settings?: Record<string, unknown>
+      }
+    | {
+        type: 'redirect'
+        redirectUrl: string
+        target?: 'self' | 'top'
+      }
   /** Gateway's payment intent/order ID (may differ from session ID) */
   gatewayPaymentId?: string
   /** Raw gateway response stored in metadata */
@@ -352,6 +375,38 @@ type UnifiedPaymentStatus =
   | 'expired'       // Session expired without completion
   | 'unknown'       // Unmapped gateway status (logged, not processed)
 ```
+
+### 5.1 Provider-Owned Payment Presentation Contract
+
+When a provider supports an inline payment UI, the provider package owns the browser component and publishes it through a generated client bootstrap import:
+
+- provider package exports `widgets/payments/client.ts(x)`
+- generator emits `payments.client.generated.ts`
+- app client bootstrap imports that file for side effects
+- consumer UIs receive `CreateSessionResult.clientSession`
+- if `clientSession.type === 'embedded'`, consumer UIs ask the shared payment-renderer registry for `providerKey + rendererKey`
+- if `clientSession.type === 'redirect'`, consumer UIs follow the returned redirect URL without adding provider-specific branching
+- host surfaces should expose renderer-local injection spots and a behavior/event spot so payment-specific UI and validation hooks stay within UMES instead of adding provider branches to checkout/sales
+
+Providers can also publish a renderer catalog in their safe descriptor surface:
+
+```typescript
+sessionConfig?: {
+  supportedCurrencies?: '*' | string[]
+  supportedPaymentTypes?: Array<{ value: string; label: string }>
+  defaultRendererKey?: string
+  renderers?: Array<{
+    key: string
+    label: string
+    type: 'embedded' | 'redirect'
+    description?: string
+    supportedPaymentTypes?: '*' | string[]
+    settingsFields?: PaymentGatewayDescriptorField[]
+  }>
+}
+```
+
+This keeps checkout, portal, and future sales payment pages generic. The consumer module never imports Stripe, PayU, or Przelewy24 UI code directly, and it never hardcodes gateway-specific rendering options.
 
 ---
 
@@ -1675,7 +1730,12 @@ No auth. Signature verified by the provider's adapter.
 
 ### 16.1 PCI DSS
 
-Open Mercato **never handles card data directly**. All integrations use redirect-based checkout (Stripe Checkout, PayU hosted form, P24 redirect). SAQ-A compliance level.
+Open Mercato **never handles raw card data directly**. Providers may expose either:
+
+- hosted redirect checkout (`redirectUrl`)
+- provider-owned embedded payment widgets (`clientSession`) rendered with the provider's own SDK
+
+The platform only mounts provider components and passes client-safe session payloads such as Stripe `clientSecret` + `publishableKey`. Secret keys remain server-side. Redirect-based providers still stay within SAQ-A. Embedded providers must keep Open Mercato out of PCI scope by using provider-hosted fields/Elements rather than native card inputs.
 
 ### 16.2 Credential Storage
 
@@ -1867,3 +1927,5 @@ These tests should mock the gateway HTTP API (no real Stripe/PayU calls in CI).
 | 2026-02-24 | Added §17 Integration Marketplace Alignment — credentials move to SPEC-045 `IntegrationCredentials`, provider modules declare `integration.ts` |
 | 2026-02-24 | Added API versioning support: adapter registry is version-aware, gateway service resolves tenant's selected version, Stripe module restructured with `lib/shared.ts` + `lib/adapters/v*.ts` pattern, `integration.ts` declares `apiVersions` |
 | 2026-03-10 | Implementation: TC-PGWY-008..011 edge-case tests added (partial refund, double capture, webhook idempotency, malformed webhook). All tests use mock adapter. Stripe-specific integration tests requiring real API keys deferred to future. |
+| 2026-03-19 | Added the provider-owned embedded payment contract: `CreateSessionResult.clientSession`, generated `payments.client.generated.ts` bootstrap imports, and shared browser renderer registry lookup. |
+| 2026-03-20 | Generalized provider-owned payment presentation: renderer catalogs in descriptors, consumer `presentation` request, embedded renderer settings, redirect sessions, and widget-aligned renderer bootstrap entrypoints under `widgets/payments/client.ts(x)`. |

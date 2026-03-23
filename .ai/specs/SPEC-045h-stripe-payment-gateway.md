@@ -96,6 +96,8 @@ packages/core/src/modules/gateway_stripe/
 ├── workers/
 │   └── webhook-processor.ts    # Async webhook event processing
 ├── widgets/
+│   ├── payments/
+│   │   └── client.tsx          # Registers the public Stripe payment renderer widget
 │   ├── injection-table.ts      # Inject config widget into integration detail page
 │   └── injection/
 │       └── stripe-config/
@@ -167,6 +169,15 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       clientSecret: paymentIntent.client_secret!,
       status: mapStripeStatus(paymentIntent.status),
       providerData: { paymentIntentId: paymentIntent.id },
+      clientSession: {
+        type: 'embedded',
+        rendererKey: 'stripe.payment_element',
+        settings: input.presentation?.rendererSettings,
+        payload: {
+          clientSecret: paymentIntent.client_secret!,
+          publishableKey: input.credentials.publishableKey,
+        },
+      },
     }
   },
 
@@ -232,6 +243,18 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   mapStatus: mapStripeStatus,  // Shared across versions
 }
 ```
+
+Stripe is the reference implementation for **renderer catalogs**:
+- the descriptor exposes `defaultRendererKey`
+- `renderers[]` declares supported presentations
+- each renderer can publish `settingsFields[]` so consumer modules persist renderer-specific options without learning Stripe semantics
+
+For `stripe.payment_element`, the first supported settings are:
+- `layout`
+- `paymentMethodOrder`
+- `billingDetails`
+
+Consumer modules pass them generically via `CreateSessionInput.presentation.rendererSettings`; the Stripe provider is solely responsible for mapping those values into `PaymentElement` options.
 
 ### 4.3 Status Mapping
 
@@ -604,6 +627,9 @@ export async function resolveStripeClient(
 | Test | Method | Assert |
 |------|--------|--------|
 | Create payment intent | `createSession()` | PaymentIntent created in Stripe, sessionId + clientSecret returned |
+| Embedded renderer registration | `widgets/payments/client.tsx` | Registers `stripe.payment_element` in the shared client registry |
+| Renderer settings passthrough | `createSession()` + `widgets/payments/client.tsx` | `rendererSettings` persisted in `clientSession.settings` and applied to Stripe `PaymentElement` options |
+| Embedded confirmation flow | Public pay page + renderer | `PaymentElement` confirms the PaymentIntent without checkout importing Stripe UI directly |
 | Capture authorized payment | `capturePayment()` | Amount captured, status → `captured` |
 | Partial capture | `capturePayment()` with amount | Only specified amount captured |
 | Full refund | `refundPayment()` | Refund created, status → `refunded` |
@@ -664,3 +690,5 @@ When Stripe-specific tests are added in the future, they should:
 | Date | Change |
 |------|--------|
 | 2026-03-10 | Added §13 Testing Strategy noting deferred Stripe-specific integration tests. Mock adapter tests validate the GatewayAdapter contract. Added `company` field to integration metadata. |
+| 2026-03-19 | Added provider-owned embedded payment renderer support: `stripe.payment_element` and `clientSession` returned from `createSession()`. |
+| 2026-03-20 | Extended Stripe to the generalized renderer-catalog contract and aligned renderer bootstrap with module widgets: descriptor `renderers[]`, default renderer key, `PaymentElement` renderer settings, and `widgets/payments/client.tsx`. |

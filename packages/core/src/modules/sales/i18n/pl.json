@@ -1267,6 +1267,7 @@
   "sales.returns.errors.quantityExceeded": "Nie można zwrócić więcej niż dostępna ilość.",
   "sales.returns.lineMissing": "Nie znaleziono pozycji zamówienia.",
   "sales.returns.linesRequired": "Wybierz co najmniej jedną pozycję do zwrotu.",
+  "sales.returns.loading": "Ładowanie zwrotów...",
   "sales.returns.notFound": "Nie znaleziono zwrotu.",
   "sales.returns.notSet": "Nie ustawiono",
   "sales.returns.notes": "Notatki",

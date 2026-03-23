@@ -8,6 +8,7 @@ jest.mock('../../FlashMessages', () => ({
 import { flash } from '../../FlashMessages'
 import {
   ForbiddenError,
+  UnauthorizedError,
   apiFetch,
 } from '../../utils/api'
 
@@ -91,5 +92,33 @@ describe('apiFetch', () => {
     const result = await apiFetch('/api/private')
     expect(result).toBe(response)
     expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('returns 401 payload when unauthorized redirect is disabled', async () => {
+    const response = createMockResponse(401, {
+      error: 'checkout.payPage.errors.password',
+    })
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () => response)
+
+    const result = await apiFetch('/api/private', {
+      headers: {
+        'x-om-unauthorized-redirect': '0',
+      },
+    })
+
+    expect(result).toBe(response)
+    expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('throws UnauthorizedError for 401 responses by default', async () => {
+    ;(window as unknown as Record<string, unknown>).__omOriginalFetch = jest.fn(async () =>
+      createMockResponse(401, { error: 'Unauthorized' }),
+    )
+
+    await expect(apiFetch('/api/private')).rejects.toBeInstanceOf(UnauthorizedError)
+    expect(flash).toHaveBeenCalledWith(
+      'Session expired. Redirecting to sign in…',
+      'warning',
+    )
   })
 })

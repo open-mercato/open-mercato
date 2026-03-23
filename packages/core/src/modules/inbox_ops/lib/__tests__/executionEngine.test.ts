@@ -169,7 +169,13 @@ describe('executionEngine', () => {
       const freshAction = makeAction({ status: 'processing' })
       mockFindOneWithDecryption.mockResolvedValueOnce(freshAction)
 
-      mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-1' } })
+      const operationLogEntry = {
+        id: 'log-1',
+        undoToken: 'undo-1',
+        commandId: 'sales.orders.create',
+        createdAt: new Date('2026-03-19T09:00:00.000Z'),
+      }
+      mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-1' }, logEntry: operationLogEntry })
 
       const action = makeAction()
       const result = await executeAction(action, makeCtx(em))
@@ -177,6 +183,7 @@ describe('executionEngine', () => {
       expect(result.success).toBe(true)
       expect(result.createdEntityId).toBe('order-1')
       expect(result.createdEntityType).toBe('sales_order')
+      expect(result.operationLogEntry).toEqual(operationLogEntry)
       expect(freshAction.status).toBe('executed')
       expect(freshAction.executedByUserId).toBe('user-1')
       expect(freshAction.createdEntityId).toBe('order-1')

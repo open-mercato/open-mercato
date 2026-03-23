@@ -23,7 +23,7 @@ test.describe('TC-CRM-012: Tag Customers for Segmentation', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies-v2/${companyId}`);
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
 
       await page.getByRole('heading', { name: 'Tags' }).locator('xpath=ancestor::div[1]').getByRole('button').click();
       const tagInput = page.getByRole('textbox', { name: 'Type to add tags' });
@@ -38,7 +38,7 @@ test.describe('TC-CRM-012: Tag Customers for Segmentation', () => {
       await expect(page.getByText(tagOne)).toBeVisible();
       await expect(page.getByText(tagTwo)).toBeVisible();
 
-      await page.goto('/backend/customers/companies');
+      await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Refresh' }).waitFor();
       await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
       await page.getByRole('button', { name: /^Filters/ }).click();
