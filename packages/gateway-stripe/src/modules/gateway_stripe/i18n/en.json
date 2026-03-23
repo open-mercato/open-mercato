@@ -7,9 +7,18 @@
   "gateway_stripe.config.paymentTypes": "Payment Types",
   "gateway_stripe.config.statementDescriptor": "Statement Descriptor",
   "gateway_stripe.config.statementDescriptor.help": "What appears on the customer's bank statement (max 22 characters)",
+  "gateway_stripe.config.validation.captureMethod": "Capture method must be automatic or manual",
   "gateway_stripe.description": "Accept card payments, Apple Pay, Google Pay, and bank transfers via Stripe.",
   "gateway_stripe.feature.configure": "Configure Stripe settings",
   "gateway_stripe.feature.view": "View Stripe configuration",
+  "gateway_stripe.payments.description": "Complete the payment below without leaving this page.",
+  "gateway_stripe.payments.failed": "Stripe could not confirm the payment.",
+  "gateway_stripe.payments.helper": "Use Stripe test mode cards or wallets configured for this account.",
+  "gateway_stripe.payments.notReady": "The Stripe payment form is still loading.",
+  "gateway_stripe.payments.processing": "Confirming payment...",
+  "gateway_stripe.payments.submit": "Pay securely",
+  "gateway_stripe.payments.title": "Secure Stripe payment",
+  "gateway_stripe.payments.unavailable": "Stripe is configured for embedded checkout, but the public payment form could not be prepared.",
   "gateway_stripe.tabs.settings": "Stripe settings",
   "gateway_stripe.title": "Stripe"
 }

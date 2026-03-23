@@ -5625,6 +5625,7 @@ __metadata:
     "@mikro-orm/postgresql": "npm:^6.6.2"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
+    "@open-mercato/checkout": "workspace:*"
     "@open-mercato/cli": "workspace:*"
     "@open-mercato/content": "workspace:*"
     "@open-mercato/core": "workspace:*"
@@ -5714,6 +5715,26 @@ __metadata:
       optional: true
     ioredis:
       optional: true
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/checkout@workspace:*, @open-mercato/checkout@workspace:packages/checkout":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/checkout@workspace:packages/checkout"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    bcryptjs: "npm:^3.0.3"
+    esbuild: "npm:^0.25.2"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.2.0"
+    ts-jest: "npm:^29.4.6"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^6.6.2
+    "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
   languageName: unknown
   linkType: soft
 
@@ -5821,6 +5842,9 @@ __metadata:
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@stripe/react-stripe-js": "npm:^3.9.0"
+    "@stripe/stripe-js": "npm:^7.9.0"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.25.2"
     glob: "npm:^11.0.3"
@@ -7662,7 +7686,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@stripe/stripe-js@npm:^7.8.0":
+"@stripe/stripe-js@npm:^7.8.0, @stripe/stripe-js@npm:^7.9.0":
   version: 7.9.0
   resolution: "@stripe/stripe-js@npm:7.9.0"
   checksum: 10/8d568df3cdaa6d5a9de69751388dd7363081634b8e23045c4580950b80af40cb75e72021e5e36b8aea3fc5df27369902f63255bf3a277dadafdae975d2347bbf

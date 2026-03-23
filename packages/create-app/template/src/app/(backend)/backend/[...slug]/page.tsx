@@ -74,14 +74,14 @@ export default async function BackendCatchAll(props: BackendParams) {
     }
     const features = match.route.requireFeatures
     if (features && features.length) {
-      const container = await createRequestContainer()
-      const rbac = container.resolve('rbacService') as RbacService
+      const scopeContainer = await ensureContainer()
+      const rbac = scopeContainer.resolve('rbacService') as RbacService
       let organizationIdForCheck: string | null = auth.orgId ?? null
       const cookieStore = await cookies()
       const cookieSelected = cookieStore.get('om_selected_org')?.value ?? null
       let tenantIdForCheck: string | null = auth.tenantId ?? null
       try {
-        const { organizationId, allowedOrganizationIds, scope } = await resolveFeatureCheckContext({ container, auth, selectedId: cookieSelected })
+        const { organizationId, allowedOrganizationIds, scope } = await resolveFeatureCheckContext({ container: scopeContainer, auth, selectedId: cookieSelected })
         organizationIdForCheck = organizationId
         tenantIdForCheck = scope.tenantId ?? auth.tenantId ?? null
         if (Array.isArray(allowedOrganizationIds) && allowedOrganizationIds.length === 0) {

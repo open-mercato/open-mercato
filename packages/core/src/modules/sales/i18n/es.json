@@ -1267,6 +1267,7 @@
   "sales.returns.errors.quantityExceeded": "No se puede devolver más que la cantidad disponible.",
   "sales.returns.lineMissing": "No se encontró la línea del pedido.",
   "sales.returns.linesRequired": "Selecciona al menos una línea para devolver.",
+  "sales.returns.loading": "Cargando devoluciones...",
   "sales.returns.notFound": "Devolución no encontrada.",
   "sales.returns.notSet": "No establecido",
   "sales.returns.notes": "Notas",

@@ -16,7 +16,13 @@ import type {
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { resolveStripeClient } from '../client'
 import { mapRefundReason, mapStripeStatus, mapWebhookEventToStatus } from '../status-map'
-import { toCents, fromCents, buildStripeMetadata } from '../shared'
+import {
+  toCents,
+  fromCents,
+  buildStripeMetadata,
+  normalizeStripePaymentElementSettings,
+  resolveStripeRendererKey,
+} from '../shared'
 import { verifyStripeWebhook } from '../webhook-handler'
 
 export const stripeAdapterV20231016: GatewayAdapter = {
@@ -24,6 +30,8 @@ export const stripeAdapterV20231016: GatewayAdapter = {
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
     const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const rendererKey = resolveStripeRendererKey(input.presentation)
+    const rendererSettings = normalizeStripePaymentElementSettings(input.presentation?.rendererSettings)
 
     const paymentIntent = await stripe.paymentIntents.create({
       amount: toCents(input.amount, input.currencyCode),
@@ -49,6 +57,17 @@ export const stripeAdapterV20231016: GatewayAdapter = {
           ? input.credentials.publishableKey
           : undefined,
       },
+      clientSession: paymentIntent.client_secret && typeof input.credentials.publishableKey === 'string'
+        ? {
+            type: 'embedded',
+            rendererKey,
+            payload: {
+              clientSecret: paymentIntent.client_secret,
+              publishableKey: input.credentials.publishableKey,
+            },
+            settings: rendererSettings,
+          }
+        : undefined,
     }
   },
 

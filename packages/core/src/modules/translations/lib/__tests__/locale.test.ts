@@ -67,15 +67,24 @@ describe('resolveLocaleFromRequest', () => {
       expect(resolveLocaleFromRequest(req)).toBe('pl')
     })
 
-    it('matches first supported locale found in Accept-Language', () => {
-      // locales array is ['en', 'pl', 'es', 'de'] — en is checked first
+    it('prefers the highest-priority locale from Accept-Language', () => {
       const req = makeRequest('https://example.com/api/products', { 'accept-language': 'de-DE,de;q=0.9,en;q=0.8' })
-      expect(resolveLocaleFromRequest(req)).toBe('en')
+      expect(resolveLocaleFromRequest(req)).toBe('de')
     })
 
     it('returns de when Accept-Language only contains de', () => {
       const req = makeRequest('https://example.com/api/products', { 'accept-language': 'de-DE,de;q=0.9' })
       expect(resolveLocaleFromRequest(req)).toBe('de')
+    })
+
+    it('maps regional browser locales to the supported base locale', () => {
+      const req = makeRequest('https://example.com/api/products', { 'accept-language': 'es-MX,fr;q=0.9' })
+      expect(resolveLocaleFromRequest(req)).toBe('es')
+    })
+
+    it('respects q-values when ordering supported locales', () => {
+      const req = makeRequest('https://example.com/api/products', { 'accept-language': 'en;q=0.6,pl;q=0.9' })
+      expect(resolveLocaleFromRequest(req)).toBe('pl')
     })
 
     it('returns null when Accept-Language has no matching locale', () => {

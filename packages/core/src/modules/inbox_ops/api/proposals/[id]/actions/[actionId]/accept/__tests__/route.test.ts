@@ -3,6 +3,7 @@
 import { POST } from '@open-mercato/core/modules/inbox_ops/api/proposals/[id]/actions/[actionId]/accept/route'
 import { InboxProposal, InboxProposalAction } from '@open-mercato/core/modules/inbox_ops/data/entities'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { deserializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 
 const mockFindOneWithDecryption = jest.fn()
 
@@ -34,7 +35,7 @@ const mockContainer = {
 const mockEventBus = { emit: jest.fn() }
 
 const mockExecuteAction = jest.fn<
-  Promise<{ success: boolean; createdEntityId?: string | null; createdEntityType?: string | null; error?: string; statusCode?: number }>,
+  Promise<{ success: boolean; createdEntityId?: string | null; createdEntityType?: string | null; operationLogEntry?: Record<string, unknown> | null; error?: string; statusCode?: number }>,
   [InboxProposalAction, { em: typeof mockEm; userId: string; tenantId: string; organizationId: string; eventBus: typeof mockEventBus | null; container: typeof mockContainer; auth: AuthContext }]
 >()
 
@@ -132,6 +133,51 @@ describe('POST /api/inbox_ops/proposals/[id]/actions/[actionId]/accept', () => {
         organizationId: 'org-1',
       }),
     )
+  })
+
+  it('emits operation metadata for undoable command-backed actions', async () => {
+    const pendingAction = {
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      actionType: 'create_order',
+      status: 'pending',
+    } as unknown as InboxProposalAction
+
+    const activeProposal = {
+      id: 'proposal-1',
+      isActive: true,
+    } as unknown as InboxProposal
+
+    setupActionAndProposal(pendingAction, activeProposal)
+
+    mockExecuteAction.mockResolvedValueOnce({
+      success: true,
+      createdEntityId: 'order-1',
+      createdEntityType: 'sales_order',
+      statusCode: 200,
+      operationLogEntry: {
+        id: 'log-1',
+        undoToken: 'undo-1',
+        commandId: 'sales.orders.create',
+        actionLabel: 'Create order',
+        resourceKind: 'sales.order',
+        resourceId: 'order-1',
+        createdAt: '2026-03-19T09:00:00.000Z',
+      },
+    })
+
+    const response = await POST(makeRequest())
+    const metadata = deserializeOperationMetadata(response.headers.get('x-om-operation'))
+
+    expect(metadata).toEqual({
+      id: 'log-1',
+      undoToken: 'undo-1',
+      commandId: 'sales.orders.create',
+      actionLabel: 'Create order',
+      resourceKind: 'sales.order',
+      resourceId: 'order-1',
+      executedAt: '2026-03-19T09:00:00.000Z',
+    })
   })
 
   it('allows retrying a failed action and delegates execution', async () => {

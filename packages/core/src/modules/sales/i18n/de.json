@@ -1267,6 +1267,7 @@
   "sales.returns.errors.quantityExceeded": "Es kann nicht mehr als die verfügbare Menge zurückgegeben werden.",
   "sales.returns.lineMissing": "Bestellposition nicht gefunden.",
   "sales.returns.linesRequired": "Wähle mindestens eine Position zur Rückgabe aus.",
+  "sales.returns.loading": "Rückgaben werden geladen...",
   "sales.returns.notFound": "Rückgabe nicht gefunden.",
   "sales.returns.notSet": "Nicht festgelegt",
   "sales.returns.notes": "Notizen",

@@ -7,6 +7,7 @@ Use this package for commercial Open Mercato features.
 - Place enterprise-only modules in `packages/enterprise/src/modules/<module>/`.
 - Keep integrations compatible with existing `@open-mercato/core` conventions.
 - Do not duplicate open source modules unless explicitly creating an enterprise overlay.
+- Keep any published `@types/*` packages required by exported enterprise sources in `dependencies`, not `devDependencies`, so standalone apps can typecheck installed packages.
 
 ## Current Focus
 

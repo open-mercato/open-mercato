@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { Button } from '../primitives/button'
+import { ComboboxInput } from './inputs/ComboboxInput'
 import { TagsInput, type TagsInputOption } from './inputs/TagsInput'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -9,9 +10,9 @@ export type FilterOption = { value: string; label: string; description?: string 
 export type FilterDef = {
   id: string
   label: string
-  type: 'text' | 'select' | 'checkbox' | 'dateRange' | 'tags'
+  type: 'text' | 'select' | 'checkbox' | 'dateRange' | 'tags' | 'combobox'
   options?: FilterOption[]
-  // Optional async loader for options (used by select/tags)
+  // Optional async loader for options (used by select/tags/combobox)
   loadOptions?: (query?: string) => Promise<FilterOption[]>
   multiple?: boolean
   placeholder?: string
@@ -168,6 +169,24 @@ export function FilterOverlay({
     return map
   }, [stableFilters])
 
+  const comboboxLoaders = React.useMemo(() => {
+    const map = new Map<string, (q?: string) => Promise<FilterOption[]>>()
+    for (const f of stableFilters) {
+      if (f.type === 'combobox' && typeof f.loadOptions === 'function') {
+        map.set(f.id, async (query?: string) => {
+          try {
+            const opts = await f.loadOptions?.(query)
+            setDynamicOptions((prev) => ({ ...prev, [f.id]: opts ?? [] }))
+            return opts ?? []
+          } catch {
+            return []
+          }
+        })
+      }
+    }
+    return map
+  }, [stableFilters])
+
   return (
     <>
       {open && (
@@ -260,6 +279,47 @@ export function FilterOverlay({
                       )}
                     </div>
                   )}
+                  {f.type === 'combobox' && (() => {
+                    const staticOptions = f.options || []
+                    const dynamic = dynamicOptions[f.id] || []
+                    const optionMap = new Map<string, FilterOption>()
+                    staticOptions.forEach((opt) => optionMap.set(opt.value, opt))
+                    dynamic.forEach((opt) => optionMap.set(opt.value, opt))
+                    const currentValue = typeof values[f.id] === 'string' ? values[f.id] : ''
+                    const suggestions = Array.from(optionMap.values()).map((opt) => ({
+                      value: opt.value,
+                      label: opt.label,
+                      description: opt.description ?? null,
+                    }))
+                    const loadSuggestions = comboboxLoaders.get(f.id)
+                    return (
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <ComboboxInput
+                            value={currentValue}
+                            onChange={(next) => setValue(f.id, next.trim().length ? next : undefined)}
+                            suggestions={suggestions}
+                            loadSuggestions={loadSuggestions}
+                            resolveLabel={(value) => f.formatValue?.(value) ?? optionMap.get(value)?.label ?? value}
+                            resolveDescription={(value) => optionMap.get(value)?.description ?? null}
+                            placeholder={f.placeholder}
+                            allowCustomValues={false}
+                          />
+                        </div>
+                        {currentValue ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setValue(f.id, undefined)}
+                          >
+                            {t('ui.filters.actions.clear', 'Clear')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
                   {f.type === 'tags' && (() => {
                     const arr: string[] = Array.isArray(values[f.id]) ? values[f.id] : []
                     const staticOptions = f.options || []

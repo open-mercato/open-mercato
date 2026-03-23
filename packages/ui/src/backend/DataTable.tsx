@@ -818,6 +818,10 @@ export function DataTable<T>({
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
     [resolvedInjectionSpotId]
   )
+  const toolbarInjectionSpotId = React.useMemo(
+    () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:toolbar` : null),
+    [resolvedInjectionSpotId]
+  )
   const footerInjectionSpotId = React.useMemo(
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:footer` : null),
     [resolvedInjectionSpotId]
@@ -1816,7 +1820,8 @@ export function DataTable<T>({
   const refreshButtonConfig = refreshButton
   const hasRefreshButton = Boolean(refreshButtonConfig)
   const hasToolbar = builtToolbar != null
-  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport
+  const hasToolbarInjection = Boolean(toolbarInjectionSpotId)
+  const shouldRenderActionsWrapper = hasActions || hasRefreshButton || shouldReserveActionsSpace || hasExport || hasToolbarInjection
   const renderToolbarInline = embedded && hasToolbar
   const shouldRenderToolbarBelow = hasToolbar && !renderToolbarInline
   const shouldRenderHeader = hasTitle || renderToolbarInline || shouldRenderActionsWrapper || shouldRenderToolbarBelow
@@ -1876,6 +1881,9 @@ export function DataTable<T>({
                     </Button>
                   ) : null}
                   {exportConfig && hasExport ? <ExportMenu config={exportConfig} sections={resolvedExportSections} /> : null}
+                  {toolbarInjectionSpotId ? (
+                    <InjectionSpot spotId={toolbarInjectionSpotId} context={resolvedInjectionContext} />
+                  ) : null}
                   {hasActions ? actions : null}
                 </div>
               ) : null}

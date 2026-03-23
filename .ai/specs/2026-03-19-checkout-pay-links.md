@@ -370,7 +370,7 @@ Reusable configuration for rapidly creating pay links. Templates define defaults
 | `start_email_body` | text | NULL | Markdown |
 | `password_hash` | varchar(255) | NULL | bcrypt hash (cost ≥ 10) |
 | `max_completions` | integer | NULL | `NULL` = unlimited, `1` = single-use |
-| `is_active` | boolean | DEFAULT `true` | |
+| `status` | varchar(20) | DEFAULT `'draft'` | `'draft'` \| `'active'` \| `'inactive'` |
 | `checkout_type` | varchar(20) | DEFAULT `'pay_link'` | `'pay_link'` \| `'simple_checkout'` (Phase B) |
 | `created_at` | timestamptz | NOT NULL | |
 | `updated_at` | timestamptz | NOT NULL | |
@@ -393,7 +393,7 @@ The actual pay link with a unique public URL slug. Shares all template columns p
 
 **Indexes:**
 - Partial unique index: `UNIQUE (organization_id, tenant_id, slug) WHERE deleted_at IS NULL`
-- Index: `(organization_id, tenant_id, is_active, deleted_at)`
+- Index: `(organization_id, tenant_id, status, deleted_at)`
 
 ### Entity: CheckoutTransaction
 
@@ -504,7 +504,7 @@ Undoability boundary:
 | Command | Undo | Notes |
 |---------|------|-------|
 | `checkout.template.create` | Soft-delete the created template | Snapshot: `after` entity + custom fields |
-| `checkout.template.update` | Restore `before` snapshot | Snapshot: `before`/`after` entity + custom fields. Uses `withAtomicFlush` |
+| `checkout.template.update` | Restore `before` snapshot | Snapshot: `before`/`after` entity + custom fields. Selectively syncs existing unlocked links with the same `templateId`: fields/custom fields update only when the link still matches the previous template value, so manual link overrides are preserved. |
 | `checkout.template.delete` | Restore `deleted_at = null` | Soft delete only |
 
 ### Link Commands
@@ -532,7 +532,7 @@ WHERE id = $1
   AND organization_id = $2
   AND tenant_id = $3
   AND deleted_at IS NULL
-  AND is_active = true
+  AND status = 'active'
   AND (
     max_completions IS NULL
     OR completion_count + active_reservation_count < max_completions
@@ -561,6 +561,7 @@ const events = [
   { id: 'checkout.link.created', label: 'Link Created', entity: 'link', category: 'crud' },
   { id: 'checkout.link.updated', label: 'Link Updated', entity: 'link', category: 'crud' },
   { id: 'checkout.link.deleted', label: 'Link Deleted', entity: 'link', category: 'crud' },
+  { id: 'checkout.link.published', label: 'Link Published', entity: 'link', category: 'lifecycle', clientBroadcast: true },
   { id: 'checkout.link.locked', label: 'Link Locked', entity: 'link', category: 'lifecycle', clientBroadcast: true },
 
   // Transaction lifecycle
@@ -648,9 +649,11 @@ const events = [
 - Features: `checkout.view`
 - Response: Full transaction including `customerData` (decrypted, requires `checkout.viewPii`), `paymentStatus`, link info
 
-### Public API (no auth required)
+### Public API (no auth required — except preview mode)
 
 `GET /api/checkout/pay/:slug` — Get public link data
+
+- Query param: `?preview=true` — requires valid admin session with `checkout.view` feature; returns full link data with `"preview": true` flag regardless of link status
 - Response (no password / password verified):
   ```json
   {
@@ -685,7 +688,7 @@ const events = [
   ```
 - If password-protected and not verified: `{ requiresPassword: true, title: "..." }` (minimal info)
 - If limit reached: `{ available: false, message: "..." }`
-- If inactive/deleted: `404`
+- If `draft`, `inactive`, or deleted (without `preview=true`): `404`
 - **MUST NOT** expose: `passwordHash`, `gatewaySettings`, admin-only fields, PII from other transactions
 
 `POST /api/checkout/pay/:slug/verify-password` — Verify password
@@ -718,7 +721,9 @@ const events = [
   - Password session verified if link is password-protected
   - Usage slot reserved atomically
   - Replayed `Idempotency-Key` returns the already-created transaction/session response instead of creating duplicates
-- Response: `{ transactionId, redirectUrl?, embeddedFormData? }`
+- Response: `{ transactionId, redirectUrl?, paymentSession? }`
+  - `paymentSession` is the generic provider-owned embedded session shape returned from `paymentGatewayService`
+  - checkout resolves the browser renderer through the shared client registry; it never imports Stripe/other provider UI directly
 - Creates `CheckoutTransaction` with status `processing`
 - Creates gateway session via `paymentGatewayService` with `paymentId = checkoutTransaction.id`
 - Sends start email to customer
@@ -764,11 +769,11 @@ export const features = [
 #### Pay Links List (`/backend/checkout/pay-links`)
 
 DataTable with `extensionTableId="checkout-links"`:
-- Columns: Name, Title, Slug, Pricing Mode, Status (Active/Inactive), Completions (`3 / 10` or `5 / ∞`), Created At
-- Row actions: Edit, View Pay Page (external link), Show Transactions (navigates to transactions filtered by `linkId`), Copy Link URL, Delete
-- Bulk actions: Activate, Deactivate, Delete
+- Columns: Name, Title, Slug, Pricing Mode, Status (Draft/Active/Inactive), Completions (`3 / 10` or `5 / ∞`), Created At
+- Row actions: Edit, Preview (opens pay page in preview mode), View Pay Page (external link — only for `active` links), Show Transactions, Copy Link URL, Publish (draft → active), Deactivate, Delete
+- Bulk actions: Publish, Deactivate, Delete
 - FilterBar with `FilterDef[]`:
-  - `status` (select: Active / Inactive)
+  - `status` (select: Draft / Active / Inactive)
   - `pricingMode` (select: Fixed / Custom Amount / Price List)
   - `isLocked` (checkbox)
   - `templateId` (select with `loadOptions` — async template lookup)
@@ -780,7 +785,7 @@ DataTable with `extensionTableId="checkout-links"`:
 
 DataTable with `extensionTableId="checkout-templates"`:
 - Columns: Name, Pricing Mode, Gateway Provider, Max Completions, Created At
-- Row actions: Edit, Create Link from Template, Delete
+- Row actions: Edit, Preview (renders a temporary pay page preview with template data), Create Link from Template, Delete
 
 **Wireframe:** See [Templates List wireframe](./2026-03-19-checkout-pay-links-wireframes.md#templates-list)
 
@@ -827,7 +832,7 @@ const groups: CrudFormGroup[] = [
   { id: 'payment', title: t('checkout.form.groups.payment'), column: 2, fields: ['gatewayProviderKey'], component: GatewaySettingsFields },
   { id: 'customerFields', title: t('checkout.form.groups.customerFields'), column: 1, component: CustomerFieldsEditor },
   { id: 'legal', title: t('checkout.form.groups.legal'), column: 1, fields: ['legalDocuments.terms.title', 'legalDocuments.terms.markdown', 'legalDocuments.terms.required', 'legalDocuments.privacyPolicy.title', 'legalDocuments.privacyPolicy.markdown', 'legalDocuments.privacyPolicy.required'] },
-  { id: 'settings', title: t('checkout.form.groups.settings'), column: 2, fields: ['maxCompletions', 'password', 'isActive'] },
+  { id: 'settings', title: t('checkout.form.groups.settings'), column: 2, fields: ['status', 'maxCompletions', 'password'] },
   { id: 'messages', title: t('checkout.form.groups.messages'), column: 1, fields: ['successTitle', 'successMessage', 'cancelTitle', 'cancelMessage', 'errorTitle', 'errorMessage'] },
   { id: 'emails', title: t('checkout.form.groups.emails'), column: 1, fields: ['startEmailSubject', 'startEmailBody', 'successEmailSubject', 'successEmailBody', 'errorEmailSubject', 'errorEmailBody'] },
   { id: 'customFields', title: t('checkout.form.groups.customFields'), column: 2, kind: 'customFields' },
@@ -842,6 +847,7 @@ const groups: CrudFormGroup[] = [
 - Subtitle (text)
 - Description (textarea, markdown editor)
 - Slug (text, auto-generated from title — link only, not on templates)
+- Template selector on link creation (searchable combobox; applying a template copies template values into the current link draft without leaving the form)
 
 **Pricing** (`column: 1`)
 - Pricing Mode (select: Fixed Price / Custom Amount / Price List)
@@ -866,6 +872,7 @@ const groups: CrudFormGroup[] = [
 - Privacy Policy: Title + Markdown body + "Acceptance required" checkbox
 - Empty markdown means the document is disabled and not shown on the public page
 - Template values copy to a link when creating from template
+- Later template edits also propagate to existing unlocked links with the same `templateId`, but only for fields that the link has not overridden since creation/template sync
 - Admin help text: "If marked required, the customer must accept before payment. The document opens in a popup on the pay page."
 
 **Emails** (`column: 1`)
@@ -891,9 +898,9 @@ const groups: CrudFormGroup[] = [
 - Dynamic gateway settings fields (loaded from the selected payment-gateway descriptor)
 
 **Settings** (`column: 2`)
+- Status (select: Draft / Active / Inactive) — new links default to `draft`
 - Max Completions (number input, empty = unlimited)
 - Password (password input — stored as bcrypt hash)
-- Is Active (toggle)
 - Checkout Type (select: Pay Link / Simple Checkout)
 
 **Custom Fields** (`column: 2`, `kind: 'customFields'`)
@@ -970,6 +977,58 @@ Full-page wireframe for the default fixed-price pay page with all layout section
   - replace them with their own implementation
   - copy/fork them into app code for deeper "eject-style" customization
 - There is no special runtime eject feature; exported defaults + replaceable handles are the supported customization path.
+
+### Preview & Draft Mode
+
+Links and templates support a **draft → active → inactive** lifecycle. New links are created in `draft` status by default, allowing admins to preview and verify the full pay page experience before publishing.
+
+**Link statuses:**
+
+| Status     | Public visibility          | Admin preview                           | Can edit                            | Can accept payments |
+|------------|----------------------------|-----------------------------------------|-------------------------------------|---------------------|
+| `draft`    | 404 (not found)            | Yes — full pay page with preview banner | Yes                                 | No                  |
+| `active`   | Visible, payments accepted | Yes                                     | No (locked after first transaction) | Yes                 |
+| `inactive` | 404 (not found)            | Yes — with "inactive" banner            | No (locked)                         | No                  |
+
+**Admin preview flow:**
+
+1. Admin clicks "Preview" on the DataTable row action or the CrudForm header button
+2. Opens `/pay/[slug]?preview=true` in a new tab
+3. The API detects `preview=true` query param and validates the admin session (`requireAuth`, `requireFeatures: ['checkout.view']`)
+4. The full pay page renders with all branding, pricing, customer fields, and gateway form — identical to the live page
+5. A sticky preview banner is shown at the top:
+   > "Preview Mode — This link is not published. Payments are disabled. [← Back to Admin] [Publish]"
+6. The submit button is replaced with a disabled "Pay" button showing "(Preview — payments disabled)"
+7. The gateway payment form section shows a placeholder instead of the real gateway form
+
+**Template preview:**
+
+Templates do not have slugs. Preview is accessed via a dedicated admin route:
+- URL: `/backend/checkout/templates/[id]/preview`
+- Renders the same pay page component using template field values
+- Generates a temporary preview slug (not persisted) for URL display
+- Same preview banner behavior as link preview
+
+**Publishing (draft → active):**
+
+- Admin clicks "Publish" in the CrudForm header, preview banner, or DataTable row action
+- Executes `checkout.link.update` command setting `status = 'active'`
+- Validates that `gatewayProviderKey` is set before allowing publish (returns validation error if missing)
+- Event `checkout.link.published` emitted (category: `lifecycle`, `clientBroadcast: true`)
+
+**Public API behavior by status:**
+
+- `GET /api/checkout/pay/:slug` — returns 404 for `draft` and `inactive` links (unless `preview=true` with valid admin session)
+- `POST /api/checkout/pay/:slug/submit` — returns 422 for non-`active` links: "This payment link is not currently accepting payments"
+
+**CrudForm header actions (link edit page):**
+
+| Status | Header actions |
+|--------|---------------|
+| `draft` | [Preview] [Publish] [Save] |
+| `active` (not locked) | [Preview] [Deactivate] [Save] |
+| `active` (locked) | [Preview] [Deactivate] — read-only form |
+| `inactive` | [Preview] [Reactivate] — read-only form |
 
 ### Success Page (`/pay/[slug]/success/[transactionId]`)
 
@@ -1209,7 +1268,7 @@ Customer visits /pay/[slug]
   Yes                                     No
   │                                        │
   ▼                                        ▼
-  Return embeddedFormData              Return redirectUrl
+  Return paymentSession                Return redirectUrl
   (render inline)                      (frontend redirects)
 ```
 
@@ -1297,7 +1356,17 @@ type PaymentGatewayDescriptor = {
     }>
     supportedCurrencies?: '*' | string[]
     supportedPaymentTypes?: Array<{ value: string; label: string }>
+    defaultRendererKey?: string
+    renderers?: Array<{
+      key: string
+      label: string
+      type: 'embedded' | 'redirect'
+      description?: string
+      supportedPaymentTypes?: '*' | string[]
+      settingsFields?: PaymentGatewayDescriptorField[]
+    }>
     presentation?: 'embedded' | 'redirect' | 'either'
+    embeddedRenderers?: string[]
   }
 }
 ```
@@ -1309,6 +1378,21 @@ The core `payment_gateways` module should expose this generically through a DI s
 - `GET /api/payment_gateways/providers/:providerKey`
 
 Provider packages register descriptors next to their adapters. Core remains unaware of pay links; it only exposes generic provider capabilities.
+
+For embedded payments, provider packages register their browser renderer through `widgets/payments/client.ts(x)`, discovered by the generator and imported by client bootstrap. Checkout receives `{ providerKey, rendererKey, payload, settings }` from the session response and mounts the provider-owned component through the shared registry, keeping the pay page fully gateway-agnostic.
+
+The pay page host also exposes a UMES behavior spot at `checkout.pay-page:form` plus renderer-local visual spots:
+
+- `checkout.pay-page:gateway-widget:before`
+- `checkout.pay-page:gateway-widget:renderer:before`
+- `checkout.pay-page:gateway-widget:renderer:after`
+- `checkout.pay-page:gateway-widget:actions:before`
+- `checkout.pay-page:gateway-widget:actions:after`
+- `checkout.pay-page:gateway-widget:after`
+
+`checkout.pay-page:form` widgets may use `onFieldChange`, `transformValidation`, `transformFormData`, `onBeforeSave`, `onSave`, and `onAfterSave` so public payment flows stay aligned with UMES behavior contracts.
+
+If a provider does not render anything on the merchant page, the same generic contract can return `clientSession.type = 'redirect'` (with the existing `redirectUrl` preserved as a bridge). Checkout still remains provider-agnostic: it either mounts the provider-owned renderer or follows the redirect returned by the gateway layer.
 
 **Currency validation**
 
@@ -1551,10 +1635,12 @@ export const entities: CustomEntitySpec[] = [
 
 **Template → Link custom field copy:** When creating a link from a template, the `checkout.link.create` command copies all custom field values from the template entity to the new link entity using `loadCustomFieldValues` + `setCustomFieldsIfAny`.
 
-**Seed custom fields:** The `seed/custom-fields.ts` file creates example custom fields for `checkout:link`:
-- `referenceCode` (text) — External reference
-- `internalNotes` (multiline) — Internal notes for the team
-- `priority` (select: low/medium/high) — Link priority level
+**Seed custom fields:** Checkout example entities ship with customer-safe fieldset-based custom fields for links and templates:
+- `service_package` fieldset — `service_deliverables`, `delivery_timeline`, `session_format`, `support_contact`
+- `donation_campaign` fieldset — `impact_summary`, `donation_usage`, `tax_receipt_note`, `support_contact`
+- `event_ticket` fieldset — `event_date`, `event_location`, `ticket_includes`, `support_contact`
+
+Only fieldsets explicitly selected on a link/template and enabled via `displayCustomFieldsOnPage` are exposed on the public pay page.
 
 ---
 
@@ -1580,7 +1666,7 @@ export const entities: CustomEntitySpec[] = [
 All examples are seeded **without** `gatewayProviderKey` set. The link form displays:
 > "To accept payments, you need to configure a payment integration first. [Set up integrations →](/backend/integrations)"
 
-Example custom field values are populated on seeded links.
+Example templates and links include prefilled success/cancel/error messages, transactional email subjects/bodies, and fieldset-specific public custom field values.
 
 ---
 
@@ -1740,6 +1826,7 @@ Preferred doc locations:
 | TC-CHKT-002 | Update template, verify changes | `PUT /api/checkout/templates/:id` |
 | TC-CHKT-003 | Delete template, verify soft delete | `DELETE /api/checkout/templates/:id` |
 | TC-CHKT-004 | Create link from template, verify field copy | `POST /api/checkout/links` with `templateId` |
+| TC-CHKT-037 | Update template, verify unchanged link fields sync while manual overrides stay intact | `PUT /api/checkout/templates/:id`, `GET /api/checkout/links/:id` |
 | TC-CHKT-005 | Create link without template | `POST /api/checkout/links` |
 | TC-CHKT-006 | Slug auto-generation and uniqueness | `POST /api/checkout/links` with duplicate slug |
 | TC-CHKT-007 | Update link, verify changes | `PUT /api/checkout/links/:id` |
@@ -1758,7 +1845,11 @@ Preferred doc locations:
 | TC-CHKT-020 | Checkout sidebar section visible with checkout.view feature via route metadata | Navigate to `/backend`, verify sidebar group |
 | TC-CHKT-021 | Custom fields copy from template to link | Verify custom field values after link creation |
 | TC-CHKT-022 | Link deletion blocked with active transactions | `DELETE /api/checkout/links/:id` → 422 |
-| TC-CHKT-023 | Inactive link returns 404 on public page | Deactivate link, `GET /api/checkout/pay/:slug` → 404 |
+| TC-CHKT-023 | Draft/inactive link returns 404 on public page | `GET /api/checkout/pay/:slug` for draft/inactive → 404 |
+| TC-CHKT-029 | Admin preview of draft link renders pay page | `GET /api/checkout/pay/:slug?preview=true` with admin session → 200 with `preview: true` |
+| TC-CHKT-030 | Preview mode disables payment submission | `POST /submit` on draft link → 422 |
+| TC-CHKT-031 | Publish draft link makes it publicly accessible | Update status to `active`, `GET /api/checkout/pay/:slug` → 200 |
+| TC-CHKT-032 | Publish requires gateway provider | Attempt publish without `gatewayProviderKey` → validation error |
 | TC-CHKT-024 | Amount tampering prevention (fixed mode) | `POST /submit` with wrong amount → 422 |
 | TC-CHKT-025 | Submit replay with same `Idempotency-Key` does not create duplicate transactions | Repeat `POST /submit` with same header |
 | TC-CHKT-026 | Status endpoint rejects transaction from another slug | `GET /status/:transactionId` with mismatched slug → 404 |
@@ -1921,6 +2012,21 @@ None identified.
 
 ## Changelog
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase A — Pay Links | Done | 2026-03-19 | Public flow, admin CRUD, workers, docs, and verification completed |
+
+### Phase A — Detailed Progress
+- [x] Package scaffolding and data layer
+- [x] Admin CRUD for templates, links, and transactions
+- [x] Sidebar wiring and UMES outbound integrations
+- [x] Public pay page and payment flow
+- [x] Emails, notifications, and expiry worker
+- [x] Seeding, security polish, and public endpoint protections
+- [x] Documentation and unit-test verification
+
 ### 2026-03-19
 - Initial specification created
 - Defined Phase A scope: Pay Links, Link Templates, Transactions
@@ -1932,3 +2038,7 @@ None identified.
 - Defined implementation plan (7 sub-phases)
 - Defined 24 integration test cases
 - Completed compliance review against all AGENTS.md rules
+- Updated public payment flow to return generic `paymentSession` descriptors instead of checkout-owned embedded form payloads
+- Added provider-owned client renderer registration via generated `payments.client.generated.ts` from module entrypoints under `widgets/payments/client.ts(x)`
+- Added fieldset-based, customer-safe example custom fields for checkout links/templates and public pay-page rendering
+- Seeded checkout examples with richer success/cancel/error messaging and transactional email templates

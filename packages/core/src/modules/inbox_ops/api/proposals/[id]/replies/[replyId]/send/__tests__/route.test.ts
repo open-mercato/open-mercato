@@ -108,7 +108,11 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
     mockEm.flush.mockResolvedValue(undefined)
     mockEmitInboxOpsEvent.mockResolvedValue(undefined)
     mockCreateMessageRecordForReply.mockResolvedValue(null)
-    process.env = { ...originalEnv, RESEND_API_KEY: 'test-api-key' }
+    process.env = {
+      ...originalEnv,
+      RESEND_API_KEY: 'test-api-key',
+      EMAIL_FROM: 'ops@example.com',
+    }
     mockResendSend.mockResolvedValue({ data: { id: 'sent-msg-1' }, error: null })
   })
 
