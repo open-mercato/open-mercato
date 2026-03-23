@@ -88,6 +88,7 @@ export function TabsTrigger({ value, children, className, disabled }: TabsTrigge
 
   return (
     <Button
+      type="button"
       variant="ghost"
       size="sm"
       role="tab"

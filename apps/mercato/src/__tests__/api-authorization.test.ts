@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import type { Module, HttpMethod, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -14,7 +14,7 @@ import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
 
 // Mock the auth module
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: jest.fn()
+  resolveAuthFromRequestDetailed: jest.fn()
 }))
 
 // Mock DI container to provide rbacService
@@ -94,7 +94,20 @@ jest.mock('@/generated/modules.generated', () => ({
 import { registerModules } from '@open-mercato/shared/lib/i18n/server'
 registerModules(getMockedModules() as any)
 
-const mockGetAuthFromRequest = getAuthFromRequest as jest.MockedFunction<typeof getAuthFromRequest>
+const mockResolveAuthFromRequestDetailed = resolveAuthFromRequestDetailed as jest.MockedFunction<typeof resolveAuthFromRequestDetailed>
+
+function authenticatedAuth(roles: string[] | undefined, email = 'user@test.com') {
+  return {
+    auth: {
+      sub: 'user1',
+      tenantId: 'tenant1',
+      orgId: 'org1',
+      email,
+      roles,
+    },
+    status: 'authenticated' as const,
+  }
+}
 
 describe('API Route Authorization', () => {
   let consoleWarnSpy: jest.SpyInstance
@@ -109,6 +122,7 @@ describe('API Route Authorization', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockRbac.loadAcl.mockResolvedValue({
       isSuperAdmin: false,
@@ -119,13 +133,7 @@ describe('API Route Authorization', () => {
 
   describe('GET /example/test', () => {
     it('should allow access with admin role', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'admin@test.com',
-        roles: ['admin']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -135,7 +143,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access without authentication', async () => {
-      mockGetAuthFromRequest.mockResolvedValue(null)
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -145,13 +153,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access with insufficient role', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'user@test.com',
-        roles: ['user']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['user']))
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -161,13 +163,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access when required features are missing (rbac returns false)', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'admin@test.com',
-        roles: ['admin']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
       mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
@@ -180,13 +176,7 @@ describe('API Route Authorization', () => {
 
   describe('POST /example/test', () => {
     it('should allow access with admin role', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'admin@test.com',
-        roles: ['admin']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'POST' })
       const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -196,13 +186,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should allow access with superuser role', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'superuser@test.com',
-        roles: ['superuser']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['superuser'], 'superuser@test.com'))
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'POST' })
       const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -216,13 +200,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access with insufficient role', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'user@test.com',
-        roles: ['user']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['user']))
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'POST' })
       const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -232,13 +210,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access when required features are missing on POST', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'admin@test.com',
-        roles: ['admin']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
       mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'POST' })
@@ -251,7 +223,7 @@ describe('API Route Authorization', () => {
 
   describe('PUT /example/test', () => {
     it('should allow access without authentication when requireAuth is false', async () => {
-      mockGetAuthFromRequest.mockResolvedValue(null)
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'PUT' })
       const response = await PUT(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -263,13 +235,7 @@ describe('API Route Authorization', () => {
 
   describe('PATCH /example/test', () => {
     it('should allow access with user role', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'user@test.com',
-        roles: ['user']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['user']))
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'PATCH' })
       const response = await PATCH(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -281,13 +247,7 @@ describe('API Route Authorization', () => {
 
   describe('DELETE /example/test', () => {
     it('should allow access with superuser role', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'superuser@test.com',
-        roles: ['superuser']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['superuser'], 'superuser@test.com'))
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'DELETE' })
       const response = await DELETE(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -297,13 +257,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should deny access with admin role (requires superuser)', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'admin@test.com',
-        roles: ['admin']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
 
       const request = new NextRequest('http://localhost:3001/api/example/test', { method: 'DELETE' })
       const response = await DELETE(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -325,13 +279,7 @@ describe('API Route Authorization', () => {
 
   describe('Edge cases', () => {
     it('should handle empty roles array', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'user@test.com',
-        roles: []
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth([]))
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -341,13 +289,7 @@ describe('API Route Authorization', () => {
     })
 
     it('should handle undefined roles', async () => {
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'user@test.com',
-        roles: undefined
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(undefined))
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
@@ -358,19 +300,25 @@ describe('API Route Authorization', () => {
 
     it('should handle empty requireRoles array', async () => {
       // This would require a different mock setup, but tests the logic
-      mockGetAuthFromRequest.mockResolvedValue({
-        sub: 'user1',
-        tenantId: 'tenant1',
-        orgId: 'org1',
-        email: 'user@test.com',
-        roles: ['admin']
-      })
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin']))
 
       const request = new NextRequest('http://localhost:3001/api/example/test')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
 
       // Should still work because user has admin role
       expect(response.status).toBe(200)
+    })
+
+    it('should clear stale auth cookies when auth context is invalid', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'invalid' })
+
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(401)
+      const setCookie = response.headers.get('set-cookie') || ''
+      expect(setCookie).toContain('auth_token=;')
+      expect(setCookie).toContain('session_token=;')
     })
   })
 })

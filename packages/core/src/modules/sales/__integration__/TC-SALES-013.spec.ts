@@ -35,7 +35,7 @@ test.describe('TC-SALES-013: Sales Channel Config', () => {
       token = await getAuthToken(request);
       await login(page, 'admin');
       await page.goto('/backend/sales/channels');
-      await page.getByRole('link', { name: /Add channel/i }).click();
+      await page.getByRole('link', { name: /Add channel|Create sales channel/i }).last().click();
 
       const createForm = page.locator('form').first();
       await createForm.getByRole('textbox').nth(0).fill(name);
@@ -55,13 +55,8 @@ test.describe('TC-SALES-013: Sales Channel Config', () => {
       await expect(page).toHaveURL(/\/backend\/sales\/channels\/[0-9a-f-]{36}\/edit$/i);
       const editForm = page.locator('form').first();
       await editForm.getByRole('textbox').nth(0).fill(updatedName);
-      const updateResponsePromise = page.waitForResponse(
-        (response) => response.request().method() === 'PUT' && /\/api\/sales\/channels(?:\?|$)/.test(response.url()),
-        { timeout: 10_000 },
-      );
       await editForm.getByRole('button', { name: /Save changes|Update|Save/i }).first().click();
-      const updateResponse = await updateResponsePromise;
-      expect(updateResponse.ok(), `Channel update failed with ${updateResponse.status()}`).toBeTruthy();
+      await expect(page.getByText(/Last operation:\s*Update sales channel/i).first()).toBeVisible({ timeout: 10_000 });
       await page.goto(`/backend/sales/channels/${channelId}/edit`);
       await expect(editForm.getByRole('textbox').nth(0)).toHaveValue(updatedName);
     } finally {

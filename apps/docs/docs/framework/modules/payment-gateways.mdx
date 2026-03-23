@@ -16,6 +16,8 @@ The system uses a two-layer architecture:
 
 Providers plug into the Integration Marketplace for credentials management, health checks, and admin UI.
 
+If a provider needs browser-side payment UI, it registers that UI from `widgets/payments/client.tsx`. The app bootstrap imports all discovered payment renderer widgets through the generated `payments.client.generated.ts` entrypoint, and consumer modules resolve them by `providerKey + rendererKey`.
+
 ## GatewayAdapter interface
 
 Every provider implements this contract:
@@ -95,6 +97,18 @@ The practical flow is:
 5. Refresh status or wait for webhooks to synchronize the transaction.
 6. Capture, refund, or cancel by transaction ID through the payment hub API.
 7. Inspect the full lifecycle in **External systems -> Payment Transactions**.
+
+### Provider-owned renderer widgets
+
+Embedded payment UI is owned by the provider package, not by checkout or sales. The contract is:
+
+- gateway descriptor publishes `renderers[]` and `defaultRendererKey`
+- session creation may return `clientSession.type = 'embedded'` with `rendererKey`, `payload`, and `settings`
+- provider package registers the browser widget in `widgets/payments/client.tsx`
+- consumer modules resolve the widget through the shared renderer registry
+- redirect-only providers return `clientSession.type = 'redirect'` or `redirectUrl`
+
+Host pages should expose UMES injection spots around the payment-widget host and a behavior spot for validation/submit hooks, so provider-specific or app-specific payment extensions remain inside the widget system.
 
 ### 1. Configure Stripe in admin
 

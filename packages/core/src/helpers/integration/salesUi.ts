@@ -7,6 +7,7 @@ type CreateDocumentOptions = {
   kind: DocumentKind;
   customerQuery?: string;
   channelQuery?: string;
+  preferApi?: boolean;
 };
 
 type ChannelListItem = {
@@ -470,6 +471,13 @@ export async function createSalesDocument(page: Page, options: CreateDocumentOpt
   const fixtureContext = await ensureSalesDocumentFixtures(page, options);
   const customerQuery = fixtureContext.customerQuery;
   const channelQuery = fixtureContext.channelQuery;
+
+  if (options.preferApi) {
+    const token = await getAuthToken(page.request, 'admin');
+    const id = await createSalesDocumentFixture(page, token, options.kind, customerQuery, channelQuery);
+    await openSalesDocumentPage(page, id, options.kind);
+    return id;
+  }
 
   let createPageReady = false;
   for (let attempt = 0; attempt < 3; attempt += 1) {

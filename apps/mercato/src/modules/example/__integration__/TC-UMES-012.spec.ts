@@ -12,12 +12,12 @@ import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
   apiRequest,
-} from '@open-mercato/core/modules/core/__integration__/helpers/api'
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createPersonFixture,
   deleteEntityIfExists,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+} from '@open-mercato/core/helpers/integration/crmFixtures'
 import {
   buildExtensionHeader,
   parseExtensionHeaders,

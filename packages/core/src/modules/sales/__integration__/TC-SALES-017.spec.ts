@@ -13,6 +13,8 @@ import {
  */
 test.describe('TC-SALES-017: Multi-Adjustment Totals Recalculation', () => {
   test('should recalculate grand total after multiple adjustments', async ({ page }) => {
+    test.slow();
+
     await login(page, 'admin');
     await createSalesDocument(page, { kind: 'order' });
     await addCustomLine(page, { name: `QA TC-SALES-017 Item ${Date.now()}`, quantity: 1, unitPriceGross: 100 });

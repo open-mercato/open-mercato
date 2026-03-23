@@ -1,5 +1,9 @@
 import type { ReactNode } from 'react'
 import React from 'react'
+import type { Module, ModuleRoute, PageMetadata } from '@open-mercato/shared/modules/registry'
+
+/** Route with optional page-metadata aliases that may be merged during generation. */
+type NavRoute = ModuleRoute & Partial<Pick<PageMetadata, 'pageTitleKey' | 'pageGroupKey'>>
 
 export type AdminNavItem = {
   group: string
@@ -111,7 +115,7 @@ export function buildSettingsSections(
       labelKey: item.titleKey,
       href: item.href,
       icon: item.icon,
-      requireFeatures: undefined as string[] | undefined,
+      requireFeatures: undefined,
       order: item.order ?? item.priority ?? 100,
       children: item.children?.map(mapSectionItem),
     }
@@ -212,7 +216,7 @@ type ConvertedSectionNavItem = {
 }
 
 export async function buildAdminNav(
-  modules: any[],
+  modules: Pick<Module, 'id' | 'backendRoutes'>[],
   ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },
   userEntities?: Array<{ entityId: string; label: string; href: string }>,
   translate?: (key: string | undefined, fallback: string) => string,
@@ -230,8 +234,8 @@ export async function buildAdminNav(
   // Collect all unique features needed across all routes first
   const allRequiredFeatures = new Set<string>()
   for (const m of modules) {
-    for (const r of m.backendRoutes ?? []) {
-      const features = (r as any).requireFeatures as string[] | undefined
+    for (const r of (m.backendRoutes ?? []) as NavRoute[]) {
+      const features = r.requireFeatures
       if (features && features.length) {
         features.forEach(f => allRequiredFeatures.add(f))
       }
@@ -265,37 +269,37 @@ export async function buildAdminNav(
   // Icons are defined per-page in metadata; no heuristic derivation here.
   for (const m of modules) {
     const groupDefault = capitalize(m.id)
-    for (const r of m.backendRoutes ?? []) {
-      const href = (r.pattern ?? r.path ?? '') as string
+    for (const r of (m.backendRoutes ?? []) as NavRoute[]) {
+      const href = r.pattern ?? r.path ?? ''
       if (!href || href.includes('[')) continue
-      if ((r as any).navHidden) continue
-      const title = (r.title as string) || deriveTitleFromPath(href)
-      const titleKey = (r as any).pageTitleKey ?? (r as any).titleKey
-      const group = (r.group as string) || groupDefault
-      const groupKey = (r as any).pageGroupKey ?? (r as any).groupKey
-      const groupId = (groupKey as string | undefined) ?? group
+      if (r.navHidden) continue
+      const title = r.title || deriveTitleFromPath(href)
+      const titleKey = r.pageTitleKey ?? r.titleKey
+      const group = r.group || groupDefault
+      const groupKey = r.pageGroupKey ?? r.groupKey
+      const groupId = groupKey ?? group
       const displayGroup = translate ? translate(groupKey, group) : group
       const displayTitle = translate ? translate(titleKey, title) : title
       const visible = r.visible ? await Promise.resolve(r.visible(ctx)) : true
       if (!visible) continue
       const enabled = r.enabled ? await Promise.resolve(r.enabled(ctx)) : true
       // If roles are required, check; otherwise include
-      const required = (r.requireRoles as string[]) || []
+      const required = r.requireRoles || []
       if (required.length) {
         const roles = ctx.auth?.roles || []
         const ok = required.some((role) => roles.includes(role))
         if (!ok) continue
       }
       // If features are required, check from cached batch result
-      const features = (r as any).requireFeatures as string[] | undefined
+      const features = r.requireFeatures
       if (features && features.length) {
         const ok = hasAllFeatures(features)
         if (!ok) continue
       }
-      const order = (r as any).order as number | undefined
-      const priority = ((r as any).priority as number | undefined) ?? order
-      let icon = (r as any).icon as ReactNode | undefined
-      const pageContext = (r as any).pageContext as 'main' | 'admin' | 'settings' | 'profile' | undefined
+      const order = r.order
+      const priority = r.priority ?? order
+      const icon = r.icon
+      const pageContext = r.pageContext
       entries.push({
         group: displayGroup,
         groupId,
@@ -314,18 +318,22 @@ export async function buildAdminNav(
     }
   }
   // Build hierarchy: treat routes whose href starts with a parent href + '/'
+  // Sort by href length (shortest first) so potential parents are processed before children
+  const sorted = [...entries].sort((a, b) => a.href.length - b.href.length)
   const byHref = new Map<string, AdminNavItem>()
-  for (const e of entries) byHref.set(e.href, e)
   const roots: AdminNavItem[] = []
-  for (const e of entries) {
-    // Find the longest parent href that is a strict prefix and within same group
+  for (const e of sorted) {
+    // Walk up the href segments to find the longest matching parent in the same group
     let parent: AdminNavItem | undefined
-    for (const p of entries) {
-      if (p === e) continue
-      if (p.groupId !== e.groupId) continue
-      if (!e.href.startsWith(p.href + '/')) continue
-      if (!parent || p.href.length > parent.href.length) parent = p
+    const segments = e.href.split('/')
+    for (let i = segments.length - 1; i >= 2; i--) {
+      const candidate = byHref.get(segments.slice(0, i).join('/'))
+      if (candidate && candidate !== e && candidate.groupId === e.groupId) {
+        parent = candidate
+        break
+      }
     }
+    byHref.set(e.href, e)
     if (parent) {
       parent.children = parent.children || []
       parent.children.push(e)

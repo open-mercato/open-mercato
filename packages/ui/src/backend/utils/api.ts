@@ -19,6 +19,10 @@ function mergeHeaders(base: HeadersInit | undefined, scoped: Record<string, stri
   return headers
 }
 
+function readRedirectOverride(headers: Headers, headerName: string): boolean {
+  return headers.get(headerName) === '0'
+}
+
 export async function withScopedApiHeaders<T>(headers: Record<string, string>, run: () => Promise<T>): Promise<T> {
   return scopedHeaders.withScopedHeaders(headers, run)
 }
@@ -108,7 +112,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const mergedInit = Object.keys(scoped).length
     ? { ...(init ?? {}), headers: mergeHeaders(init?.headers, scoped) }
     : init
-  const disableForbiddenRedirect = new Headers(mergedInit?.headers).get('x-om-forbidden-redirect') === '0'
+  const requestHeaders = new Headers(mergedInit?.headers)
+  const disableUnauthorizedRedirect = readRedirectOverride(requestHeaders, 'x-om-unauthorized-redirect')
+  const disableForbiddenRedirect = readRedirectOverride(requestHeaders, 'x-om-forbidden-redirect')
   const res = await baseFetch(input, mergedInit)
   const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
   const onLoginPage = pathname.startsWith('/login')
@@ -116,7 +122,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   if (res.status === 401) {
     // Trigger same redirect flow as protected pages
     // Skip for staff login page and all portal routes (portal has its own auth)
-    if (!onLoginPage && !onPortalRoute) {
+    if (!onLoginPage && !onPortalRoute && !disableUnauthorizedRedirect) {
       redirectToSessionRefresh()
       // Throw a typed error for callers that might still handle it
       throw new UnauthorizedError(await res.text().catch(() => 'Unauthorized'))

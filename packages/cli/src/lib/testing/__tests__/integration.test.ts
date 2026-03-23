@@ -20,6 +20,7 @@ import {
 
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
+const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 
@@ -39,6 +40,7 @@ describe('integration cache and options', () => {
   const ephemeralLegacyEnvFilePath = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
   const originalCacheTtl = process.env[CACHE_TTL_ENV_VAR]
   const originalAppReadyTimeout = process.env[APP_READY_TIMEOUT_ENV_VAR]
+  const originalCheckoutTestInjectionFlag = process.env[CHECKOUT_TEST_INJECTION_FLAG]
   let originalEphemeralEnvState: string | null = null
   let originalEphemeralLegacyEnvState: string | null = null
 
@@ -69,11 +71,17 @@ describe('integration cache and options', () => {
     } else {
       process.env[APP_READY_TIMEOUT_ENV_VAR] = originalAppReadyTimeout
     }
+    if (originalCheckoutTestInjectionFlag === undefined) {
+      delete process.env[CHECKOUT_TEST_INJECTION_FLAG]
+    } else {
+      process.env[CHECKOUT_TEST_INJECTION_FLAG] = originalCheckoutTestInjectionFlag
+    }
     await restoreEphemeralStateFiles(originalEphemeralEnvState, originalEphemeralLegacyEnvState)
   })
 
   it('reuses an existing reachable ephemeral environment state', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
+    delete process.env[CHECKOUT_TEST_INJECTION_FLAG]
     const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : String(input)
       if (url.endsWith('/api/auth/login')) {
@@ -116,6 +124,49 @@ describe('integration cache and options', () => {
         ownedByCurrentProcess: false,
       })
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
+      expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  }, 20000)
+
+  it('reuses an existing environment with checkout wrapper injections only when explicitly enabled', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    process.env[CHECKOUT_TEST_INJECTION_FLAG] = 'true'
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : String(input)
+      if (url.endsWith('/api/auth/login')) {
+        return { status: 401, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app-healthcheck.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
+        return { status: 200, text: async () => '' } as unknown as Response
+      }
+      return { status: 200, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      await writeEphemeralEnvironmentState({
+        baseUrl,
+        port: 5001,
+        logPrefix: 'integration',
+        captureScreenshots: true,
+      })
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: true,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+
+      expect(environment).not.toBeNull()
+      expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBe('true')
     } finally {
       fetchSpy.mockRestore()
     }

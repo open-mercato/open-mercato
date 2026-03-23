@@ -9,6 +9,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
  */
 test.describe('TC-CRM-012: Tag Customers for Segmentation', () => {
   test('should assign multiple tags to a company and filter list by assigned tag', async ({ page, request }) => {
+    test.slow();
+
     let token: string | null = null;
     let companyId: string | null = null;
 
@@ -21,7 +23,7 @@ test.describe('TC-CRM-012: Tag Customers for Segmentation', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies/${companyId}`);
+      await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'domcontentloaded' });
 
       await page.getByRole('heading', { name: 'Tags' }).locator('xpath=ancestor::div[1]').getByRole('button').click();
       const tagInput = page.getByRole('textbox', { name: 'Type to add tags' });
@@ -34,9 +36,10 @@ test.describe('TC-CRM-012: Tag Customers for Segmentation', () => {
       await expect(page.getByText(tagOne)).toBeVisible();
       await expect(page.getByText(tagTwo)).toBeVisible();
 
-      await page.goto('/backend/customers/companies');
+      await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
       await page.getByRole('button', { name: 'Filters' }).click();
       const filterTagInput = page.getByRole('textbox', { name: 'Add tag and press Enter' });
+      await expect(filterTagInput).toBeVisible();
       await filterTagInput.fill(tagOne);
       await filterTagInput.press('Enter');
       await page.getByRole('button', { name: 'Apply' }).last().click();

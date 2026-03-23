@@ -19,6 +19,7 @@
   "payment_gateways.status.pending": "Pendiente",
   "payment_gateways.status.refunded": "Reembolsado",
   "payment_gateways.status.unknown": "Desconocido",
+  "payment_gateways.transactions.actions.capture": "Capturar pago",
   "payment_gateways.transactions.actions.hideDetails": "Ocultar detalles",
   "payment_gateways.transactions.actions.refreshStatus": "Actualizar estado",
   "payment_gateways.transactions.actions.showDetails": "Mostrar detalles",
@@ -54,6 +55,7 @@
   "payment_gateways.transactions.detail.title": "Detalles de la transaccion",
   "payment_gateways.transactions.detail.webhooks": "Actividad de webhooks",
   "payment_gateways.transactions.detail.webhooksEmpty": "Todavia no se han registrado eventos de webhook para esta transaccion.",
+  "payment_gateways.transactions.error.capture": "No se pudo capturar el pago",
   "payment_gateways.transactions.error.load": "No se pudieron cargar las transacciones de pago",
   "payment_gateways.transactions.error.loadDetail": "No se pudieron cargar los detalles de la transaccion",
   "payment_gateways.transactions.error.refreshStatus": "No se pudo actualizar el estado de la transaccion",
@@ -71,6 +73,7 @@
   "payment_gateways.transactions.log.runId": "ID de ejecucion",
   "payment_gateways.transactions.log.time": "Hora",
   "payment_gateways.transactions.searchPlaceholder": "Buscar por pago, transaccion, sesion o ID de la pasarela",
+  "payment_gateways.transactions.success.capture": "Pago capturado",
   "payment_gateways.transactions.success.refreshStatus": "El estado de la transaccion se actualizo",
   "payment_gateways.transactions.tableTitle": "Transacciones",
   "payment_gateways.transactions.title": "Transacciones de pago"

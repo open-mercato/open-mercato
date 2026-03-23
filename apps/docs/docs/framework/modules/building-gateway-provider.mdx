@@ -28,6 +28,9 @@ packages/gateway-myprovider/
             │   ├── webhook-handler.ts
             │   ├── status-map.ts
             │   └── health.ts
+            ├── widgets/
+            │   └── payments/
+            │       └── client.tsx
             ├── workers/
             │   └── webhook-processor.ts
             └── i18n/
@@ -252,6 +255,14 @@ https://YOUR-NGROK-SUBDOMAIN.ngrok-free.app/api/payment_gateways/webhook/myprovi
 2. Run `yarn generate` and `yarn build:packages`.
 3. Go to **Settings > Integrations**, find your provider, and enter credentials.
 4. Use the Payment Gateway Demo page or create a payment method with your provider key.
+
+## Provider-owned payment widgets
+
+If your provider supports inline payment UI, register it from `widgets/payments/client.tsx`. That file is auto-discovered by the generator and imported through `payments.client.generated.ts` during client bootstrap.
+
+Use this file to register renderer widgets declaratively by `providerKey + rendererKey`. Consumer modules such as checkout should only resolve them through the shared payment renderer registry; they must not import provider UI directly.
+
+When a host page exposes payment-widget injection spots, keep provider-specific embellishments in those widgets too. Validation and submit hooks should flow through UMES behavior spots instead of custom provider branches.
 
 ## Shipping carrier providers
 

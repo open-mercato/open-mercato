@@ -9,7 +9,12 @@ import { InboxProposal, InboxProposalAction, InboxDiscrepancy } from '../data/en
 import type { InboxActionStatus, InboxActionType, InboxProposalStatus } from '../data/entities'
 import { REQUIRED_FEATURES_MAP } from './constants'
 import { formatZodErrors } from './validation'
-import { ExecutionError, executeCommand } from './executionHelpers'
+import {
+  clearLatestCommandLogEntry,
+  ExecutionError,
+  executeCommand,
+  readLatestCommandLogEntry,
+} from './executionHelpers'
 
 interface CommonEntityFields {
   tenantId?: string
@@ -42,6 +47,15 @@ interface ExecutionResult {
   success: boolean
   createdEntityId?: string | null
   createdEntityType?: string | null
+  operationLogEntry?: {
+    id?: string | null
+    undoToken?: string | null
+    commandId?: string | null
+    actionLabel?: string | null
+    resourceKind?: string | null
+    resourceId?: string | null
+    createdAt?: Date | string | null
+  } | null
   error?: string
   statusCode?: number
 }
@@ -51,6 +65,7 @@ interface TypeExecutionResult {
   createdEntityType?: string | null
   matchedEntityId?: string | null
   matchedEntityType?: string | null
+  operationLogEntry?: ExecutionResult['operationLogEntry']
 }
 
 const ACTION_EXECUTABLE_STATUSES: InboxActionStatus[] = ['pending', 'failed']
@@ -374,6 +389,7 @@ async function executeByType(
 
   // Action-specific normalization from the registered handler
   const actionCtx = adaptContext(ctx)
+  clearLatestCommandLogEntry(actionCtx)
   if (definition.normalizePayload) {
     payload = await definition.normalizePayload(payload, actionCtx)
   }
@@ -386,10 +402,15 @@ async function executeByType(
     )
   }
 
-  return definition.execute(
+  const result = await definition.execute(
     { id: action.id, proposalId: action.proposalId, payload: parsed.data },
     actionCtx,
   )
+
+  return {
+    ...result,
+    operationLogEntry: readLatestCommandLogEntry(actionCtx),
+  }
 }
 
 async function resolveUnknownContactDiscrepanciesInProposal(
