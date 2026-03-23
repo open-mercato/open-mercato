@@ -74,6 +74,7 @@ const assignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInp
         tenantId: assignment.tenantId,
         organizationId: assignment.organizationId,
       },
+      events: resourcesResourceTagAssignmentCrudEvents,
     })
 
     return { assignmentId: assignment.id }
@@ -152,6 +153,7 @@ const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentI
         tenantId: existing.tenantId,
         organizationId: existing.organizationId,
       },
+      events: resourcesResourceTagAssignmentCrudEvents,
     })
 
     return { assignmentId: existing.id ?? null }
@@ -223,6 +225,7 @@ const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentI
         tenantId: resource.tenantId,
         organizationId: resource.organizationId,
       },
+      events: resourcesResourceTagAssignmentCrudEvents,
     })
   },
 }

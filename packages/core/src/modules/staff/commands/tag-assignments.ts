@@ -71,6 +71,7 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
 
     return { memberId: member.id }
@@ -122,6 +123,7 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
   },
 }
@@ -162,6 +164,7 @@ const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentI
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
 
     return { memberId: member.id }
@@ -213,6 +216,7 @@ const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentI
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
   },
 }

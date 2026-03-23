@@ -70,6 +70,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  events: plannerAvailabilityRuleCrudEvents,
   indexer: { entityType: E.planner.planner_availability_rule },
   list: {
     schema: listSchema,
