@@ -11,6 +11,7 @@ import {
   resourcesResourceTagAssignmentSchema,
   type ResourcesResourceTagAssignmentInput,
 } from '../data/validators'
+import { resourcesResourceTagAssignmentCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 type ResourceTagAssignmentSnapshot = {

@@ -4,6 +4,21 @@ type MatchEventPatternOptions = {
   mode?: EventPatternMode
 }
 
+const singleSegmentPatternCache = new Map<string, RegExp>()
+
+function getSingleSegmentPatternRegex(pattern: string): RegExp {
+  const existing = singleSegmentPatternCache.get(pattern)
+  if (existing) return existing
+
+  const regexPattern = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '[^.]+')
+
+  const compiled = new RegExp(`^${regexPattern}$`)
+  singleSegmentPatternCache.set(pattern, compiled)
+  return compiled
+}
+
 export function matchEventPattern(
   eventName: string,
   pattern: string,
@@ -29,9 +44,27 @@ export function matchEventPattern(
     return false
   }
 
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^.]+')
+  return getSingleSegmentPatternRegex(pattern).test(eventName)
+}
 
-  return new RegExp(`^${regexPattern}$`).test(eventName)
+export function matchAnyEventPattern(
+  eventName: string,
+  patterns: Iterable<string>,
+  options?: MatchEventPatternOptions,
+): boolean {
+  for (const pattern of patterns) {
+    if (matchEventPattern(eventName, pattern, options)) {
+      return true
+    }
+  }
+
+  return false
+}
+
+export function matchWebhookEventPattern(eventName: string, pattern: string): boolean {
+  return matchEventPattern(eventName, pattern, { mode: 'prefix' })
+}
+
+export function matchAnyWebhookEventPattern(eventName: string, patterns: Iterable<string>): boolean {
+  return matchAnyEventPattern(eventName, patterns, { mode: 'prefix' })
 }

@@ -1,4 +1,9 @@
-import { matchEventPattern } from '../patterns'
+import {
+  matchAnyEventPattern,
+  matchAnyWebhookEventPattern,
+  matchEventPattern,
+  matchWebhookEventPattern,
+} from '../patterns'
 
 describe('matchEventPattern', () => {
   describe('single-segment mode', () => {
@@ -28,6 +33,19 @@ describe('matchEventPattern', () => {
 
     it('does not match unrelated prefixes', () => {
       expect(matchEventPattern('catalog.product.deleted', 'customers.*', { mode: 'prefix' })).toBe(false)
+    })
+  })
+
+  describe('collection helpers', () => {
+    it('matches any event pattern from an iterable', () => {
+      expect(matchAnyEventPattern('sales.order.created', ['catalog.*', 'sales.order.created'])).toBe(true)
+      expect(matchAnyEventPattern('sales.order.created', ['catalog.*', 'customers.*'])).toBe(false)
+    })
+
+    it('provides webhook-specific prefix helpers', () => {
+      expect(matchWebhookEventPattern('customers.person.deleted', 'customers.*')).toBe(true)
+      expect(matchAnyWebhookEventPattern('query_index.vectorize_one', ['catalog.*', 'query_index*'])).toBe(true)
+      expect(matchAnyWebhookEventPattern('sales.order.created', ['catalog.*', 'customers.*'])).toBe(false)
     })
   })
 })
