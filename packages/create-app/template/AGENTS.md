@@ -35,11 +35,20 @@ yarn typecheck
 # Linting
 yarn lint
 
-# Run tests
+# Run unit tests
 yarn test
 
-# Run a single test
+# Run a single unit test
 yarn test path/to/test.spec.ts
+
+# Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
+mercato test integration
+
+# Start ephemeral app only (for manual QA exploration)
+mercato test ephemeral
+
+# View HTML integration test report
+mercato test coverage
 
 # Generate code from modules
 yarn generate
