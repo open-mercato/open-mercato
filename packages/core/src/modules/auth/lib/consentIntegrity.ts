@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 
 type ConsentHashInput = {
   userId: string
@@ -11,7 +11,11 @@ type ConsentHashInput = {
 }
 
 function getSecret(): string {
-  return process.env.CONSENT_INTEGRITY_SECRET || process.env.NEXTAUTH_SECRET || 'om-consent-integrity-default-key'
+  const secret = process.env.CONSENT_INTEGRITY_SECRET || process.env.NEXTAUTH_SECRET
+  if (!secret) {
+    console.warn('[consentIntegrity] CONSENT_INTEGRITY_SECRET and NEXTAUTH_SECRET are not set — integrity hashes are insecure')
+  }
+  return secret || 'om-consent-integrity-default-key'
 }
 
 function normalizeDate(date: Date | string | null | undefined): string {
@@ -37,5 +41,6 @@ export function computeConsentIntegrityHash(input: ConsentHashInput): string {
 export function verifyConsentIntegrityHash(input: ConsentHashInput, hash: string | null | undefined): boolean {
   if (!hash) return false
   const expected = computeConsentIntegrityHash(input)
-  return expected === hash
+  if (expected.length !== hash.length) return false
+  return timingSafeEqual(Buffer.from(expected), Buffer.from(hash))
 }

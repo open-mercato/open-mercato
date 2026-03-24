@@ -78,6 +78,8 @@ function resolveWidgetText(
 
 export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHandle, WidgetVisibilityEditorProps>(function WidgetVisibilityEditor(props, ref) {
   const t = useT()
+  const tRef = React.useRef(t)
+  tRef.current = t
 
   const resolveTitle = React.useCallback(
     (widget: WidgetCatalogItem) => resolveWidgetText(t, widget.id, 'title', widget.title),
@@ -113,7 +115,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     const data = await readApiResultOrThrow<{ items?: unknown[] }>(
       '/api/dashboards/widgets/catalog',
       undefined,
-      { errorMessage: t('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+      { errorMessage: tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
     )
     const items = Array.isArray(data?.items) ? data.items : []
     const mapped = items
@@ -139,7 +141,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     const data = await readApiResultOrThrow<RoleResponse>(
       `/api/dashboards/roles/widgets?${params.toString()}`,
       undefined,
-      { errorMessage: t('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+      { errorMessage: tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
     )
     const ids = Array.isArray(data.widgetIds) ? data.widgetIds : []
     setSelected(ids)
@@ -156,7 +158,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     const data = await readApiResultOrThrow<UserResponse>(
       `/api/dashboards/users/widgets?${params.toString()}`,
       undefined,
-      { errorMessage: t('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
+      { errorMessage: tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.') },
     )
     const ids = Array.isArray(data.widgetIds) ? data.widgetIds : []
     setSelected(ids)
@@ -178,7 +180,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       } catch (err) {
         console.error('Failed to load widget visibility data', err)
         if (!cancelled) {
-          setError(t('dashboards.widgets.error.load', 'Unable to load widget configuration.'))
+          setError(tRef.current('dashboards.widgets.error.load', 'Unable to load widget configuration.'))
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -186,7 +188,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     }
     load()
     return () => { cancelled = true }
-  }, [kind, loadCatalog, loadRoleData, loadUserData, t])
+  }, [kind, loadCatalog, loadRoleData, loadUserData])
 
   const toggle = React.useCallback((id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))

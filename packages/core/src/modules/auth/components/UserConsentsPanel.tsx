@@ -41,6 +41,8 @@ type UserConsentsPanelProps = {
 
 export function UserConsentsPanel({ userId }: UserConsentsPanelProps) {
   const t = useT()
+  const tRef = React.useRef(t)
+  tRef.current = t
   const [consents, setConsents] = React.useState<ConsentItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -56,19 +58,19 @@ export function UserConsentsPanel({ userId }: UserConsentsPanelProps) {
         )
         if (!cancelled) {
           if (!ok) {
-            setError(t('auth.users.consents.loadError', 'Failed to load consents'))
+            setError(tRef.current('auth.users.consents.loadError', 'Failed to load consents'))
           } else {
             setConsents(result?.items ?? [])
           }
         }
       } catch {
-        if (!cancelled) setError(t('auth.users.consents.loadError', 'Failed to load consents'))
+        if (!cancelled) setError(tRef.current('auth.users.consents.loadError', 'Failed to load consents'))
       }
       if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
-  }, [userId, t])
+  }, [userId])
 
   if (loading) {
     return <p className="text-sm text-muted-foreground">{t('auth.users.consents.loading', 'Loading consents...')}</p>

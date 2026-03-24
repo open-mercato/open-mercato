@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { verifyConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -47,11 +48,19 @@ export async function GET(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const tenantId = auth.tenantId ?? null
-  const consents = await em.find(UserConsent, {
-    userId: parsed.data.userId,
-    deletedAt: null,
-    ...(tenantId ? { tenantId } : {}),
-  }, { orderBy: { createdAt: 'DESC' } })
+  const organizationId = auth.orgId ?? null
+  const consents = await findWithDecryption(
+    em,
+    UserConsent,
+    {
+      userId: parsed.data.userId,
+      deletedAt: null,
+      ...(tenantId ? { tenantId } : {}),
+      ...(organizationId ? { organizationId } : {}),
+    },
+    { orderBy: { createdAt: 'DESC' } },
+    { tenantId, organizationId },
+  )
 
   const items: ConsentItem[] = consents.map((c) => ({
     id: c.id,

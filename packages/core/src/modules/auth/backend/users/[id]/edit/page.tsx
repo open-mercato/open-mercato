@@ -104,6 +104,8 @@ function TenantAwareOrganizationSelectInput({
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const tRef = React.useRef(t)
+  tRef.current = t
   const [initialUser, setInitialUser] = React.useState<LoadedUser | null>(null)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -127,7 +129,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   React.useEffect(() => {
     if (!id) {
       setLoading(false)
-      setError(t('auth.users.form.errors.noId', 'No user ID provided'))
+      setError(tRef.current('auth.users.form.errors.noId', 'No user ID provided'))
       return
     }
     let cancelled = false
@@ -144,7 +146,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
           if (!item) {
-            setError(t('auth.users.form.errors.notFound', 'User not found'))
+            setError(tRef.current('auth.users.form.errors.notFound', 'User not found'))
             setCustomFieldValues({})
             setInitialUser(null)
             setSelectedTenantId(null)
@@ -178,9 +180,10 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         }
       } catch (err) {
         console.error('Failed to load user:', err)
-        if (!cancelled) setError(t('auth.users.form.errors.load', 'Failed to load user data'))
+        if (!cancelled) setError(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         if (!cancelled) setCustomFieldValues({})
       }
+      if (!cancelled) setLoading(false)
       try {
         const featureCheck = await apiCall<FeatureCheckResponse>(
           '/api/auth/feature-check',
@@ -195,11 +198,10 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       } catch (err) {
         console.error('Failed to check features:', err)
       }
-      if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
-  }, [id, t])
+  }, [id])
 
   const selectedOrgId = initialUser?.organizationId ? String(initialUser.organizationId) : null
   const preloadedTenants = React.useMemo(() => {

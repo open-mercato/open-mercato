@@ -169,6 +169,13 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'auth:user_consent',
+    fields: [
+      { field: 'ip_address' },
+      { field: 'source' },
+    ],
+  },
+  {
     entityId: 'integrations:integration_credentials',
     fields: [{ field: 'credentials' }],
   },
