@@ -466,6 +466,12 @@ export async function run(argv = process.argv) {
         }
         console.log('✅ Module defaults seeded\n')
 
+        // Seed ACLs for custom roles created by app modules in seedDefaults.
+        // ensureDefaultRoleAcls runs before seedDefaults (in setupTenantAndPrimaryUser),
+        // so custom roles don't exist yet at that point. This second pass picks them up.
+        const { ensureCustomRoleAcls } = await import('@open-mercato/core/modules/auth/lib/setup-app')
+        await ensureCustomRoleAcls(seedEm, tenantId, allModules)
+
         if (skipExamples) {
           console.log('🚫 Example data seeding skipped (--no-examples)\n')
         } else {

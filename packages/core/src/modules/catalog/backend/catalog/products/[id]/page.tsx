@@ -686,6 +686,21 @@ export default function EditCatalogProductPage({
     };
   }, []);
 
+  // Next.js client-side navigation does not scroll to hash targets.
+  // Runs without a dependency array intentionally: the target element is rendered
+  // asynchronously by CrudForm, so we need to retry until it exists in the DOM.
+  // The ref guard ensures scrollIntoView fires at most once.
+  const hasScrolledToHash = React.useRef(false)
+  React.useEffect(() => {
+    if (hasScrolledToHash.current) return
+    const hash = window.location.hash.replace('#', '')
+    if (!hash) return
+    const el = document.getElementById(hash)
+    if (!el) return
+    hasScrolledToHash.current = true
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  })
+
   const handleVariantDeleted = React.useCallback((variantId: string) => {
     setVariants((prev) => prev.filter((variant) => variant.id !== variantId));
   }, []);

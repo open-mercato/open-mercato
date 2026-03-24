@@ -61,6 +61,10 @@
       "types": "./src/modules/auth/index.ts",
       "default": "./dist/modules/auth/index.js"
     },
+    "./modules/auth/lib/setup-app": {
+      "types": "./src/modules/auth/lib/setup-app.ts",
+      "default": "./dist/modules/auth/lib/setup-app.js"
+    },
     "./modules/directory": {
       "types": "./src/modules/directory/index.ts",
       "default": "./dist/modules/directory/index.js"
