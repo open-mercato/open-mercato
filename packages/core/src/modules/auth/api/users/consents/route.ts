@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { verifyConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -10,7 +11,7 @@ export const metadata = {
   path: '/auth/users/consents',
   GET: {
     requireAuth: true,
-    requireFeatures: ['users.view'],
+    requireFeatures: ['auth.users.edit'],
   },
 }
 
@@ -32,6 +33,11 @@ type ConsentItem = {
 }
 
 export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth) {
+    return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  }
+
   const url = new URL(req.url)
   const parsed = querySchema.safeParse({ userId: url.searchParams.get('userId') })
   if (!parsed.success) {
@@ -40,9 +46,11 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
+  const tenantId = auth.tenantId ?? null
   const consents = await em.find(UserConsent, {
     userId: parsed.data.userId,
     deletedAt: null,
+    ...(tenantId ? { tenantId } : {}),
   }, { orderBy: { createdAt: 'DESC' } })
 
   const items: ConsentItem[] = consents.map((c) => ({
