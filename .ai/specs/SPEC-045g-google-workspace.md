@@ -1,311 +1,276 @@
-# SPEC-045g — Google Workspace Integration: Spreadsheet Product Import
+# SPEC-045g — Google Workspace Integration: Google Sheets Product Import
 
 **Parent**: [SPEC-045 — Integration Marketplace](./SPEC-045-2026-02-24-integration-marketplace.md)
-**Depends on**: [SPEC-045a — Foundation](./SPEC-045a-foundation.md) (§8 OAuth, §2 Credentials), [SPEC-045b — Data Sync Hub](./SPEC-045b-data-sync-hub.md) (DataSyncAdapter)
+**Related**: [SPEC-045a — Foundation](./SPEC-045a-foundation.md), [SPEC-045b — Data Sync Hub](./SPEC-045b-data-sync-hub.md), [SPEC-041 — Universal Module Extension System](./SPEC-041-2026-02-24-universal-module-extension-system.md)
 
 | Field | Value |
 |-------|-------|
-| **Status** | Draft |
+| **Status** | Draft (rewritten for current architecture) |
 | **Author** | Piotr Karwatka |
 | **Created** | 2026-02-24 |
+| **Last Updated** | 2026-03-24 |
 | **Category** | `data_sync` |
 | **Hub** | `data_sync` |
+| **Package** | `@open-mercato/sync-google-workspace` |
+| **Primary Integration IDs** | `sync_google_workspace` bundle, `sync_google_sheets_products` child integration |
 
 ---
 
 ## TLDR
 
-Build a Google Workspace integration bundle (`sync_google_workspace`) that lets an admin connect their Google account via OAuth 2.0, pick a Google Spreadsheet, configure field mapping between spreadsheet columns and Open Mercato product fields, and import products — with support for scheduled background sync. This spec covers the full end-to-end flow: Google Cloud project setup, OAuth consent, spreadsheet selection, column mapping, import execution, and background scheduled sync.
+Build Google Sheets product import as a dedicated provider package, not a core module. The provider reuses the existing `integrations` and `data_sync` foundations, injects its own admin tabs into the integration detail page via UMES, stores Google OAuth tokens in the existing integration credentials record, stores spreadsheet/source configuration in a provider-owned entity, and reuses generic `sync_mappings` and `sync_schedules` for mapping and scheduling.
 
-The same OAuth infrastructure supports future Microsoft 365 (Excel Online via Microsoft Graph) and GitHub integrations — they only need different `OAuthConfig` parameters and adapter implementations. The credential types, token lifecycle, and admin UX are identical across all OAuth providers.
+V1 scope is intentionally narrow:
 
----
+- one Google Workspace bundle
+- one child integration: Google Sheets product import
+- admin brings their own Google Cloud OAuth app
+- provider-owned OAuth connect/disconnect flow
+- spreadsheet selection, sheet selection, header mapping preview
+- scheduled import using the existing `data_sync` run infrastructure
 
-## 1. Problem Statement
+Explicitly out of scope for V1:
 
-Many merchants manage product catalogs in Google Sheets — especially during initial setup, bulk updates, or when working with suppliers who share data via spreadsheets. Currently, to import products from a Google Sheet, the admin must:
-
-1. Export as CSV from Google Sheets
-2. Download the file
-3. Upload it to Open Mercato's CSV import
-
-This is manual, error-prone, and cannot run in the background. A direct Google Sheets integration eliminates these steps and enables automated, scheduled product sync.
-
----
-
-## 2. Design Principles
-
-| # | Principle | Rationale |
-|---|-----------|-----------|
-| 1 | **Admin brings their own Google Cloud project** | No shared platform OAuth app — each tenant controls their own API quotas, consent screen branding, and token revocation |
-| 2 | **Reuses SPEC-045a OAuth infrastructure** | OAuth flow, token storage, background refresh — all from the foundation layer |
-| 3 | **Reuses SPEC-045b DataSyncAdapter** | Streaming, resumable, queue-based import with progress tracking |
-| 4 | **Column mapping is configurable** | Admin maps spreadsheet columns to product fields via the data sync mapping UI |
-| 5 | **Provider-agnostic OAuth pattern** | Same admin UX works for Google, Microsoft, GitHub — only the `OAuthConfig` differs |
-| 6 | **Background sync after one-time setup** | Once connected and configured, the integration runs on schedule without admin intervention |
+- generic core-rendered OAuth credential UI
+- Google Drive storage integration
+- Google Docs generation
+- generic spreadsheet import engine in core
+- automatic background token refresh worker
+- real-time Google change detection
 
 ---
 
-## 3. Prerequisites — Google Cloud Project Setup
+## Overview
 
-Before using this integration, the admin must create a Google Cloud project and configure OAuth consent. This is a one-time setup per organization.
+Many merchants keep their first or primary product catalog in Google Sheets. They need a connector that can turn a selected spreadsheet into a repeatable import source without forcing CSV download/upload loops.
 
-### 3.1 Step-by-Step Google Cloud Configuration
+This spec defines a provider package that behaves like existing external connectors such as `sync-akeneo`: the provider owns its remote API client, source configuration, import logic, and custom integration-detail UI, while the platform continues to own the generic marketplace shell, encrypted credentials storage, health/log state, sync-run lifecycle, schedules, and progress UX.
 
-The integration detail page (`/backend/integrations/sync_google_workspace`) includes a "Setup Guide" tab with these instructions:
+> **Market Reference**: Airbyte- and Fivetran-style source configuration separation is adopted: connection/auth, source selection, mapping, and schedules are treated as distinct concerns. Rejected for V1: a fully generic “OAuth field renderer in core” because the current platform does not support it end-to-end yet, and shipping Google Sheets does not require blocking on that broader platform feature.
 
-#### Step 1: Create a Google Cloud Project
+---
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Click **Select a project** → **New Project**
-3. Name it (e.g., "Open Mercato Integration") → **Create**
+## Problem Statement
 
-#### Step 2: Enable Required APIs
+Today, merchants who manage products in Google Sheets must:
 
-1. Go to **APIs & Services** → **Library**
-2. Search for and enable:
-   - **Google Sheets API** — read spreadsheet data
-   - **Google Drive API** — list and select spreadsheets
+1. export a sheet as CSV
+2. download the file locally
+3. upload the file into a separate import flow
+4. repeat the process whenever the source sheet changes
 
-#### Step 3: Configure OAuth Consent Screen
+That workflow is manual, error-prone, and not schedulable. It also breaks the integration marketplace model because the source is conceptually an external system, but the import path behaves like a local file upload.
 
-1. Go to **APIs & Services** → **OAuth consent screen**
-2. Select **External** user type → **Create**
-3. Fill in:
-   - App name: your company name
-   - User support email: your admin email
-   - Developer contact: your admin email
-4. Click **Save and Continue**
-5. Add scopes:
-   - `https://www.googleapis.com/auth/spreadsheets.readonly`
-   - `https://www.googleapis.com/auth/drive.readonly`
-6. Click **Save and Continue**
-7. Add test users (your Google account email) → **Save**
-8. **Note**: For production, submit the app for Google verification
+At the same time, the current platform state matters:
 
-#### Step 4: Create OAuth Credentials
+- external integrations must be shipped as dedicated workspace packages, not new modules in `packages/core`
+- the integrations detail page already supports UMES tabs/panels
+- `data_sync` already owns runs, progress, schedules, and mapping persistence
+- the current integrations UI does not render `oauth` credential fields end-to-end
 
-1. Go to **APIs & Services** → **Credentials**
-2. Click **Create Credentials** → **OAuth client ID**
-3. Application type: **Web application**
-4. Name: "Open Mercato"
-5. Authorized redirect URIs: add your Open Mercato callback URL:
-   ```
-   https://your-domain.com/api/integrations/oauth/callback
-   ```
-6. Click **Create**
-7. Copy the **Client ID** and **Client Secret**
+The spec therefore must solve the Google Sheets problem without assuming core platform changes that do not exist yet.
 
-#### Step 5: Enter Credentials in Open Mercato
+---
 
-1. Go to **Integrations** → **Google Workspace** → **Credentials** tab
-2. Paste the **Client ID** and **Client Secret**
-3. Click **Save**
-4. Click **Connect** on the Google Account field
-5. Complete the Google consent flow
-6. You should see "Connected" status
+## Proposed Solution
 
-### 3.2 Local Development with Tunnels (ngrok / Cloudflare Tunnel / localtunnel)
+Create a new provider package:
 
-Google OAuth requires HTTPS redirect URIs — `localhost` does not work. During local development, use a tunnel to expose your local Open Mercato instance to the internet.
-
-#### Option A: ngrok (Recommended for Development)
-
-1. Install ngrok: `brew install ngrok` (macOS) or download from [ngrok.com](https://ngrok.com)
-2. Sign up for a free ngrok account and authenticate:
-   ```bash
-   ngrok config add-authtoken YOUR_AUTH_TOKEN
-   ```
-3. Start your Open Mercato dev server:
-   ```bash
-   yarn dev
-   ```
-4. In a separate terminal, start the ngrok tunnel pointing to your dev server port:
-   ```bash
-   ngrok http 3000
-   ```
-5. ngrok displays a public URL, e.g.:
-   ```
-   Forwarding   https://a1b2c3d4.ngrok-free.app → http://localhost:3000
-   ```
-6. Copy the HTTPS URL and configure it in Google Cloud Console:
-   - Go to **APIs & Services** → **Credentials** → click your OAuth Client ID
-   - Under **Authorized redirect URIs**, add:
-     ```
-     https://a1b2c3d4.ngrok-free.app/api/integrations/oauth/callback
-     ```
-   - Click **Save**
-7. **Important**: The free ngrok tier generates a new URL on every restart. When the URL changes:
-   - Update the redirect URI in Google Cloud Console
-   - Wait ~30 seconds for Google to propagate the change
-8. **Tip**: Use ngrok's paid plan for a stable subdomain (`ngrok http --domain=your-name.ngrok-free.app 3000`) to avoid reconfiguring the redirect URI each time
-
-#### Option B: Cloudflare Tunnel (Free, Stable URL)
-
-1. Install cloudflared: `brew install cloudflare/cloudflare/cloudflared`
-2. Login to Cloudflare:
-   ```bash
-   cloudflared tunnel login
-   ```
-3. Create a named tunnel:
-   ```bash
-   cloudflared tunnel create open-mercato-dev
-   ```
-4. Route a subdomain to the tunnel:
-   ```bash
-   cloudflared tunnel route dns open-mercato-dev dev-mercato.your-domain.com
-   ```
-5. Start the tunnel:
-   ```bash
-   cloudflared tunnel run --url http://localhost:3000 open-mercato-dev
-   ```
-6. Add the redirect URI in Google Cloud Console:
-   ```
-   https://dev-mercato.your-domain.com/api/integrations/oauth/callback
-   ```
-7. **Advantage**: The URL is stable — no reconfiguration needed between restarts
-
-#### Option C: localtunnel (Zero Setup)
-
-1. Run directly with npx (no install needed):
-   ```bash
-   npx localtunnel --port 3000 --subdomain open-mercato-dev
-   ```
-2. Add the redirect URI in Google Cloud Console:
-   ```
-   https://open-mercato-dev.loca.lt/api/integrations/oauth/callback
-   ```
-3. **Note**: localtunnel shows an interstitial page on first visit — click through it
-
-#### Google Cloud Console Configuration for Tunnels
-
-Regardless of which tunnel you use, the Google side configuration is the same:
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/) → **APIs & Services** → **Credentials**
-2. Click your OAuth 2.0 Client ID
-3. Under **Authorized redirect URIs**, add your tunnel URL:
-   ```
-   https://<your-tunnel-url>/api/integrations/oauth/callback
-   ```
-4. Under **Authorized JavaScript origins** (optional, for client-side flows), add:
-   ```
-   https://<your-tunnel-url>
-   ```
-5. Click **Save**
-6. **Important**: Google may take up to 5 minutes to propagate redirect URI changes. If you get a "redirect_uri_mismatch" error, wait and retry.
-
-**Multiple redirect URIs**: Google allows multiple redirect URIs on the same OAuth Client ID. You can add both your production URL and your tunnel URL simultaneously:
-```
-https://your-production-domain.com/api/integrations/oauth/callback
-https://a1b2c3d4.ngrok-free.app/api/integrations/oauth/callback
-https://dev-mercato.your-domain.com/api/integrations/oauth/callback
+```text
+packages/sync-google-workspace/
 ```
 
-This way, the same Client ID works for both production and development environments. Remove development URIs before publishing the app for Google verification.
+with module id:
 
-#### Platform Callback URL Resolution
+```text
+sync_google_workspace
+```
 
-The platform must generate the correct `redirect_uri` matching the incoming request's host. The OAuth start endpoint (`POST /api/integrations/:id/oauth/start`) builds the callback URL from the request's `Host` header:
+The provider exposes:
+
+- a Google Workspace bundle with shared static credentials: `clientId`, `clientSecret`
+- a child integration `sync_google_sheets_products` for product import
+- custom UMES tabs on the integration detail page:
+  - Setup Guide
+  - Google Account
+  - Spreadsheet Source
+- a provider-owned OAuth flow implemented in provider routes, not in the generic credentials form
+- a provider-owned source entity for selected spreadsheet and sheet settings
+- a provider-owned row-state entity for content-hash delta tracking
+- a `DataSyncAdapter` for `products`
+- a provider-owned importer that writes catalog data through existing catalog commands
+
+The platform pieces reused unchanged:
+
+- `integrationCredentialsService` for encrypted bundle credential storage and token persistence
+- `integrationStateService` for `reauthRequired` and health state
+- `integrationLogService` for logs
+- `data_sync` runs, progress, retry, cancellation, schedules, mappings, and options APIs
+- built-in integration detail tabs for credentials, schedule, health, and logs
+
+### Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Provider package, not core module | Required by current integration package model |
+| Provider-owned OAuth tab and routes in V1 | Current core integrations UI does not support `oauth` fields end-to-end |
+| Bundle credentials store only `clientId` and `clientSecret` in form schema | Keeps built-in credentials tab usable without core changes |
+| OAuth tokens stored under bundle credentials record but outside declared form fields | Allows future bundle reuse without exposing unsupported field types |
+| Provider-owned `GoogleSheetsSource` entity | Source selection is provider-specific and should not overload generic mapping tables |
+| Reuse `sync_mappings` | Mapping persistence already belongs to `data_sync` |
+| Reuse `sync_schedules` and built-in schedule tab | Scheduling is already solved generically |
+| On-demand token refresh in V1 | Avoids a provider-only background refresh worker while still supporting scheduled syncs |
+| Provider-owned importer writes local catalog data inside the adapter/importer | Matches the current `sync-akeneo` pattern and current `data_sync` engine responsibilities |
+
+### Alternatives Considered
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Generic `oauth` credential field rendered by core integrations page | Not fully implemented in the current platform; blocks shipping Google Sheets |
+| Store mapping and source config in one provider JSON blob | Duplicates `data_sync` mapping ownership and hurts future generic tooling |
+| Add Google connector inside `packages/core/src/modules` | Violates the external integration package model |
+| Background refresh worker for tokens in V1 | Extra complexity with little user value over on-demand refresh |
+
+---
+
+## User Stories / Use Cases
+
+- **Admin** wants to enter Google OAuth client credentials once so that the tenant can use its own Google Cloud project.
+- **Admin** wants to connect a Google account so that Open Mercato can read spreadsheets available to that account.
+- **Admin** wants to pick one spreadsheet and one sheet tab so that the connector imports the correct source.
+- **Admin** wants to preview inferred mappings and first rows so that they can validate the source before running sync.
+- **Admin** wants scheduled imports so that catalog changes in Google Sheets can flow into Open Mercato without manual CSV uploads.
+- **Operator** wants failures and re-auth problems visible in logs and integration health so that support and maintenance are straightforward.
+
+---
+
+## Scope
+
+### In Scope
+
+- Google Workspace bundle and Google Sheets products child integration
+- BYO Google Cloud OAuth app setup guide
+- static bundle credentials: `clientId`, `clientSecret`
+- provider-owned Google account connect/disconnect flow
+- encrypted storage of Google token set in the existing integration credentials record
+- spreadsheet listing, sheet metadata, header inspection, preview
+- source settings: spreadsheet, sheet name, header row, data start row
+- mapping persistence through `data_sync` mapping APIs
+- schedules through `data_sync` schedule APIs and built-in schedule tab
+- import of products through provider-owned importer and catalog commands
+- content-hash delta detection using a provider-owned row-state entity
+- tenant-scoped health checks and logs
+
+### Out of Scope
+
+- Microsoft 365 and GitHub provider implementations
+- Google Drive storage provider
+- Google Docs generation
+- write-back to Google Sheets
+- real-time Google file-change detection
+- generic core OAuth renderer
+- generic spreadsheet import framework in `data_sync`
+- background token refresh worker
+
+---
+
+## Architecture
+
+### Package Placement
+
+The implementation MUST live in a dedicated workspace package:
+
+```text
+packages/sync-google-workspace/
+```
+
+with source rooted at:
+
+```text
+packages/sync-google-workspace/src/modules/sync_google_workspace/
+```
+
+and enabled by the app from `apps/mercato/src/modules.ts`.
+
+### Module Structure
+
+```text
+packages/sync-google-workspace/
+├── package.json
+└── src/modules/sync_google_workspace/
+    ├── index.ts
+    ├── integration.ts
+    ├── di.ts
+    ├── setup.ts
+    ├── cli.ts
+    ├── data/
+    │   ├── entities.ts
+    │   └── validators.ts
+    ├── lib/
+    │   ├── google-client.ts
+    │   ├── oauth-session.ts
+    │   ├── oauth.ts
+    │   ├── importer.ts
+    │   ├── adapter.ts
+    │   ├── source-service.ts
+    │   ├── row-state-service.ts
+    │   ├── preview.ts
+    │   ├── health.ts
+    │   └── preset.ts
+    ├── api/
+    │   ├── account/route.ts
+    │   ├── oauth/start/route.ts
+    │   ├── oauth/callback/route.ts
+    │   ├── oauth/disconnect/route.ts
+    │   ├── source/route.ts
+    │   ├── preview/route.ts
+    │   └── spreadsheets/
+    │       ├── route.ts
+    │       └── [spreadsheetId]/route.ts
+    ├── widgets/
+    │   ├── injection-table.ts
+    │   └── injection/
+    │       ├── setup-guide/
+    │       │   ├── widget.ts
+    │       │   └── widget.client.tsx
+    │       ├── google-account/
+    │       │   ├── widget.ts
+    │       │   └── widget.client.tsx
+    │       └── spreadsheet-source/
+    │           ├── widget.ts
+    │           └── widget.client.tsx
+    ├── i18n/
+    │   ├── en.json
+    │   └── pl.json
+    └── __integration__/
+        ├── TC-GWS-001.spec.ts
+        ├── TC-GWS-002.spec.ts
+        └── ...
+```
+
+### Integration Definition
+
+The provider exports one bundle and one child integration.
 
 ```typescript
-function buildCallbackUrl(req: ApiRequest): string {
-  const protocol = req.headers['x-forwarded-proto'] ?? 'https'
-  const host = req.headers['x-forwarded-host'] ?? req.headers.host
-  return `${protocol}://${host}/api/integrations/oauth/callback`
-}
-```
+import { buildIntegrationDetailWidgetSpotId, type IntegrationBundle, type IntegrationDefinition } from '@open-mercato/shared/modules/integrations/types'
 
-This ensures the same code works with any tunnel or production domain — no environment variables needed for the redirect URI.
-
-### 3.3 Setup Guide UI
-
-The integration detail page shows this as a collapsible step-by-step guide:
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  ← Back to Integrations                                             │
-│                                                                     │
-│  [Google Icon]  Google Workspace              [Not Connected]       │
-│  Import products from Google Sheets                                 │
-│                                                                     │
-│  [Setup Guide] [Credentials] [Spreadsheets] [Health] [Logs]         │
-│                                                                     │
-│  ── Setup Guide ────────────────────────────────────────────────── │
-│                                                                     │
-│  Follow these steps to connect Google Workspace:                    │
-│                                                                     │
-│  ✅ Step 1: Create a Google Cloud Project                            │
-│     Go to console.cloud.google.com and create a new project.       │
-│     ▸ Detailed instructions                                        │
-│                                                                     │
-│  ✅ Step 2: Enable Google Sheets API and Google Drive API            │
-│     ▸ Detailed instructions                                        │
-│                                                                     │
-│  ○ Step 3: Configure OAuth Consent Screen                           │
-│     ▸ Detailed instructions                                        │
-│                                                                     │
-│  ○ Step 4: Create OAuth Client ID                                   │
-│     Your redirect URI:                                              │
-│     ┌──────────────────────────────────────────────────────────┐    │
-│     │ https://your-domain.com/api/integrations/oauth/callback  │    │
-│     └──────────────────────────────────────────────────────────┘    │
-│     [Copy]                                                          │
-│                                                                     │
-│  ○ Step 5: Enter Client ID and Secret below, then click Connect    │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 4. Integration Definition
-
-### 4.1 Bundle Declaration
-
-```typescript
-// sync_google_workspace/integration.ts
-
-import type { IntegrationDefinition, IntegrationBundle } from '@open-mercato/shared/modules/integrations'
+export const googleWorkspaceDetailWidgetSpotId = buildIntegrationDetailWidgetSpotId('sync_google_sheets_products')
 
 export const bundle: IntegrationBundle = {
   id: 'sync_google_workspace',
   title: 'Google Workspace',
-  description: 'Import products from Google Sheets with configurable field mapping and scheduled sync.',
+  description: 'Google Workspace integrations for spreadsheets and future Google services.',
   icon: 'google-workspace',
   package: '@open-mercato/sync-google-workspace',
   version: '1.0.0',
   author: 'Open Mercato Team',
-  license: 'MIT',
-
   credentials: {
     fields: [
       { key: 'clientId', label: 'OAuth Client ID', type: 'text', required: true },
       { key: 'clientSecret', label: 'OAuth Client Secret', type: 'secret', required: true },
-      {
-        key: 'oauthTokens',
-        label: 'Google Account',
-        type: 'oauth',
-        required: true,
-        oauth: {
-          provider: 'google',
-          authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
-          tokenUrl: 'https://oauth2.googleapis.com/token',
-          scopes: [
-            'https://www.googleapis.com/auth/spreadsheets.readonly',
-            'https://www.googleapis.com/auth/drive.readonly',
-          ],
-          usePkce: true,
-          refreshStrategy: 'background',
-          refreshBeforeExpiryMinutes: 5,
-          authParams: {
-            access_type: 'offline',
-            prompt: 'consent',
-          },
-        },
-      },
     ],
   },
-
   healthCheck: { service: 'googleWorkspaceHealthCheck' },
 }
 
@@ -313,508 +278,474 @@ export const integrations: IntegrationDefinition[] = [
   {
     id: 'sync_google_sheets_products',
     title: 'Google Sheets — Products',
-    description: 'Import products from a Google Spreadsheet with configurable column-to-field mapping.',
+    description: 'Import products from Google Sheets with preview, mapping, and scheduled sync.',
     category: 'data_sync',
     hub: 'data_sync',
-    providerKey: 'google_sheets_products',
+    providerKey: 'google_workspace_products',
     bundleId: 'sync_google_workspace',
-    tags: ['products', 'spreadsheets', 'google', 'import'],
-    credentials: { fields: [] },  // Inherits from bundle
+    package: '@open-mercato/sync-google-workspace',
+    version: '1.0.0',
+    tags: ['google', 'sheets', 'products', 'import'],
+    detailPage: {
+      widgetSpotId: googleWorkspaceDetailWidgetSpotId,
+    },
   },
 ]
 ```
 
-### 4.2 Future Integrations in This Bundle
+Notes:
 
-The bundle is designed to grow. Future integrations within the same bundle:
+- the built-in credentials tab remains usable because the declared schema uses only supported field types
+- OAuth tokens are still stored in the bundle credentials record under an internal key such as `oauthTokens`
+- future Google child integrations may reuse the same bundle token set
 
-| ID | Title | Category | Description |
-|----|-------|----------|-------------|
-| `sync_google_sheets_customers` | Google Sheets — Customers | `data_sync` | Import contacts/customers from a Google Sheet |
-| `sync_google_sheets_orders` | Google Sheets — Orders | `data_sync` | Import orders from a Google Sheet |
-| `sync_google_drive_assets` | Google Drive — Assets | `storage` | Use Google Drive as a media/asset storage backend |
+### Integration Detail Page UX
 
-All share the same OAuth tokens and Google Cloud project.
+The integration detail page for `sync_google_sheets_products` uses:
 
----
+- built-in `credentials` tab for `clientId` and `clientSecret`
+- built-in `data-sync-schedule` tab for schedules
+- built-in `health` tab
+- built-in `logs` tab
+- UMES-injected `Setup Guide` tab
+- UMES-injected `Google Account` tab
+- UMES-injected `Spreadsheet Source` tab
 
-## 5. Module Structure
+This keeps the spec aligned with the current integrations detail page extension model rather than introducing a provider-owned standalone backend page.
 
-```
-packages/core/src/modules/sync_google_workspace/
-├── index.ts                           # Module metadata
-├── integration.ts                     # Bundle + integration definitions (§4.1)
-├── setup.ts                           # Register adapters, health check
-├── di.ts                              # Google API client, health check service
-├── lib/
-│   ├── google-client.ts               # Google Sheets + Drive API client wrapper
-│   ├── adapters/
-│   │   └── sheets-products.ts         # DataSyncAdapter for spreadsheet → products
-│   ├── spreadsheet-selector.ts        # List spreadsheets, list sheets within a spreadsheet
-│   ├── column-detector.ts             # Auto-detect column types from header row
-│   └── health.ts                      # HealthCheckable — verifies API access
-├── data/
-│   ├── entities.ts                    # GoogleSheetsConfig (spreadsheet selection + settings)
-│   └── validators.ts                  # Zod schemas
-├── api/
-│   ├── get/google-workspace/spreadsheets.ts       # List available spreadsheets
-│   ├── get/google-workspace/spreadsheets/[id].ts  # List sheets + columns in a spreadsheet
-│   ├── get/google-workspace/config.ts             # Get current config (selected spreadsheet + mapping)
-│   ├── put/google-workspace/config.ts             # Save config
-│   └── post/google-workspace/preview.ts           # Preview first 5 rows with mapping applied
-├── backend/
-│   └── google-workspace/
-│       ├── page.tsx                   # Setup guide + config page
-│       └── spreadsheets/page.tsx      # Spreadsheet browser/selector
-├── workers/
-│   └── scheduled-sync.ts             # Scheduled background import
-└── i18n/
-    ├── en.ts
-    └── pl.ts
-```
+### OAuth Model
 
----
+V1 uses provider-owned OAuth routes and widgets.
 
-## 6. End-to-End Flow
+Flow:
 
-### 6.1 Complete Setup and First Import
+1. Admin saves `clientId` and `clientSecret` in the built-in credentials tab.
+2. Admin opens the injected `Google Account` tab and clicks `Connect`.
+3. Provider route creates signed state + PKCE verifier and stores the OAuth session in cache with a short TTL.
+4. Provider route returns an authorization URL.
+5. Browser redirects to Google.
+6. Google redirects back to provider callback route.
+7. Provider validates state and exchanges code for tokens.
+8. Provider stores the token set under bundle credentials, key `oauthTokens`.
+9. Provider clears `reauthRequired` in integration state.
+10. Provider redirects back to the integration detail page with a success indicator.
 
-```
-PHASE 1: GOOGLE CLOUD SETUP (one-time, in Google Cloud Console)
-───────────────────────────────────────────────────────────────
-Admin follows the Setup Guide (§3.1) to create a Google Cloud
-project, enable APIs, configure OAuth consent, and create
-OAuth credentials.
+The provider does not depend on the generic `oauth` credential field renderer.
 
-PHASE 2: CONNECT (one-time, in Open Mercato admin)
-───────────────────────────────────────────────────
-1. Admin enters Client ID + Client Secret → Save
-2. Admin clicks "Connect" → Google OAuth consent screen
-3. Admin grants spreadsheets.readonly + drive.readonly
-4. Redirect back → tokens stored (encrypted, per-tenant)
-5. Background worker refreshes tokens before expiry
-   → integration works indefinitely without re-auth
+### OAuth Scopes
 
-PHASE 3: SELECT SPREADSHEET (per data source)
-─────────────────────────────────────────────
-1. Admin goes to "Spreadsheets" tab
-2. Platform calls Google Drive API → lists available spreadsheets
-3. Admin selects a spreadsheet (e.g., "Product Catalog 2026")
-4. Platform reads the header row → shows column names
-5. Admin sees auto-detected column mapping:
-   Column A: "Product Name"  →  title
-   Column B: "SKU"           →  sku
-   Column C: "Price"         →  basePrice
-   Column D: "Description"   →  description
-   Column E: "Category"      →  categoryName
-   Column F: "Image URL"     →  imageUrl
-   Column G: "Stock"         →  stockQuantity
+V1 requests these scopes during the OAuth consent flow:
 
-PHASE 4: CONFIGURE MAPPING (per data source)
-────────────────────────────────────────────
-1. Admin reviews auto-detected mapping, adjusts if needed
-2. Admin sets import options:
-   - Sheet name (if multiple sheets in the workbook)
-   - Header row number (default: 1)
-   - Start data row (default: 2)
-   - Match strategy: by SKU, by external ID, or by title
-   - Sync schedule: manual, hourly, daily, weekly
-3. Admin clicks "Preview" → sees first 5 rows mapped to products
-4. Admin clicks "Save Configuration"
+| Scope | Purpose |
+| ------- | --------- |
+| `https://www.googleapis.com/auth/spreadsheets.readonly` | Read spreadsheet content for import |
+| `https://www.googleapis.com/auth/drive.readonly` | List spreadsheets available to the user, read file metadata |
+| `https://www.googleapis.com/auth/userinfo.email` | Display the connected account email in the Google Account tab |
 
-PHASE 5: IMPORT (manual or scheduled)
-─────────────────────────────────────
-1. Admin clicks "Run Import Now" or waits for schedule
-2. DataSyncAdapter reads spreadsheet via Google Sheets API
-3. Streams rows in batches of 100
-4. Maps each row to a product using configured field mapping
-5. Creates/updates products via existing catalog module commands
-6. Progress bar shows real-time status
-7. Errors logged per-row via integrationLog
-8. On completion: notification sent to admin
+The `drive.readonly` scope grants read access to all files in the user's Google Drive (including Docs, Slides, etc.), but V1 only uses it for listing and reading spreadsheets. This scope is reusable by future child integrations (see below).
 
-BACKGROUND OPERATION (after one-time setup)
-───────────────────────────────────────────
-• OAuth token refresh worker runs every 5 minutes
-  → refreshes tokens before expiry → no manual re-auth needed
-• Scheduled sync worker runs on configured schedule
-  → delta detection via row hash comparison
-  → only changed rows are processed
-• If Google revokes the refresh token → reauthRequired warning
-  → admin clicks "Re-connect" → new consent → back to normal
-```
+### Google Account Identity
 
-### 6.2 Spreadsheet Selection UI
+When OAuth tokens are obtained, the provider MUST also fetch the user's profile from the Google `userinfo` endpoint to store and display:
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  ← Google Workspace                                                  │
-│                                                                     │
-│  Select Spreadsheet                                    [Search...]  │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  📊  Product Catalog 2026                                    │   │
-│  │  Last modified: Feb 24, 2026 · 3 sheets · 1,234 rows       │   │
-│  │                                                    [Select] │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  📊  Supplier Price List — Acme Corp                         │   │
-│  │  Last modified: Feb 20, 2026 · 1 sheet · 567 rows           │   │
-│  │                                                    [Select] │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │  📊  Q1 Inventory Update                                     │   │
-│  │  Last modified: Jan 15, 2026 · 2 sheets · 89 rows           │   │
-│  │                                                    [Select] │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  Showing 3 of 24 spreadsheets              [← Prev] [Next →]       │
-└─────────────────────────────────────────────────────────────────────┘
-```
+- `email` — e.g., `piotr.karwatka@gmail.com`
+- `name` — display name (optional, for future use)
 
-### 6.3 Column Mapping UI
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│  ← Google Workspace                                                  │
-│                                                                     │
-│  Configure Import: Product Catalog 2026                             │
-│  Sheet: [Products ▾]    Header Row: [1]    Data Starts Row: [2]    │
-│                                                                     │
-│  ── Column Mapping ──────────────────────────────────────────────  │
-│                                                                     │
-│  Spreadsheet Column          Open Mercato Field         Transform   │
-│  ─────────────────────────   ────────────────────────   ──────────  │
-│  A: "Product Name"         → [title ▾]                  [none ▾]   │
-│  B: "SKU"                  → [sku ▾]                    [none ▾]   │
-│  C: "Price"                → [basePrice ▾]              [none ▾]   │
-│  D: "Description"          → [description ▾]            [none ▾]   │
-│  E: "Category"             → [categoryName ▾]           [none ▾]   │
-│  F: "Image URL"            → [imageUrl ▾]               [none ▾]   │
-│  G: "Stock"                → [stockQuantity ▾]          [toInt ▾]  │
-│  H: "Weight (kg)"          → [weight ▾]                 [toFloat▾] │
-│  I: "Active"               → [isActive ▾]               [toBool▾]  │
-│  J: "Barcode"              → [— skip — ▾]              [none ▾]   │
-│                                                                     │
-│  Match Strategy: [● SKU  ○ External ID  ○ Title]                   │
-│  Schedule: [● Daily at 03:00  ○ Hourly  ○ Weekly  ○ Manual only]  │
-│                                                                     │
-│  ── Preview (first 5 rows) ──────────────────────────────────────  │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │ title          │ sku      │ basePrice │ isActive │ action   │   │
-│  │────────────────│──────────│───────────│──────────│──────────│   │
-│  │ Widget Pro     │ WDG-001  │ 29.99     │ true     │ create   │   │
-│  │ Gadget Mini    │ GDG-002  │ 14.50     │ true     │ update   │   │
-│  │ Thingamajig    │ THG-003  │ 49.00     │ false    │ create   │   │
-│  │ Doohickey XL   │ DOH-004  │ 89.99     │ true     │ create   │   │
-│  │ Sprocket 5000  │ SPR-005  │ 12.00     │ true     │ skip     │   │
-│  └─────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  [Save Configuration]                     [Run Import Now]          │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 7. DataSyncAdapter — Google Sheets Products
-
-### 7.1 Adapter Implementation
+This data is persisted alongside `oauthTokens` in bundle credentials under key `oauthProfile`:
 
 ```typescript
-// sync_google_workspace/lib/adapters/sheets-products.ts
-
-export const googleSheetsProductsAdapter: DataSyncAdapter = {
-  providerKey: 'google_sheets_products',
-  direction: 'import',
-  supportedEntities: ['catalog.product'],
-
-  async *streamImport(input: StreamImportInput): AsyncIterable<ImportBatch> {
-    const client = createGoogleSheetsClient(input.credentials)
-    const config = input.mapping  // Contains spreadsheetId, sheetName, headerRow, dataStartRow
-
-    // 1. Read header row to resolve column positions
-    const headers = await client.getRow(config.spreadsheetId, config.sheetName, config.headerRow)
-
-    // 2. Stream data rows in batches
-    let batchIndex = 0
-    const startRow = input.cursor
-      ? parseInt(input.cursor, 10)
-      : config.dataStartRow
-
-    const totalRows = await client.getRowCount(config.spreadsheetId, config.sheetName)
-
-    for (let row = startRow; row <= totalRows; row += input.batchSize) {
-      const endRow = Math.min(row + input.batchSize - 1, totalRows)
-      const rows = await client.getRows(config.spreadsheetId, config.sheetName, row, endRow)
-
-      const items: ImportItem[] = rows.map((rowData, index) => {
-        const mappedData = applyColumnMapping(headers, rowData, input.mapping.fields)
-        const matchValue = mappedData[input.mapping.matchField ?? 'sku']
-
-        return {
-          externalId: `row-${row + index}`,
-          data: mappedData,
-          action: determineAction(mappedData, matchValue, input),
-          hash: computeRowHash(rowData),
-        }
-      })
-
-      yield {
-        items,
-        cursor: String(endRow + 1),
-        hasMore: endRow < totalRows,
-        totalEstimate: totalRows - config.dataStartRow + 1,
-        batchIndex: batchIndex++,
-      }
-    }
-  },
-
-  async getMapping(input: GetMappingInput): Promise<DataMapping> {
-    const client = createGoogleSheetsClient(input.credentials)
-    const config = await loadGoogleSheetsConfig(input.integrationId, input.scope)
-
-    if (!config?.spreadsheetId) {
-      return { entityType: 'catalog.product', fields: [], matchStrategy: 'sku' }
-    }
-
-    // Auto-detect mapping from header row
-    const headers = await client.getRow(config.spreadsheetId, config.sheetName, config.headerRow)
-    const fields = autoDetectFieldMapping(headers)
-
-    return {
-      entityType: 'catalog.product',
-      fields,
-      matchStrategy: 'sku',
-      matchField: 'sku',
-    }
-  },
-
-  async validateConnection(input: ValidateConnectionInput): Promise<ValidationResult> {
-    try {
-      const client = createGoogleSheetsClient(input.credentials)
-      const config = await loadGoogleSheetsConfig(input.integrationId, input.scope)
-
-      if (!config?.spreadsheetId) {
-        return { valid: false, message: 'No spreadsheet selected. Go to the Spreadsheets tab to select one.' }
-      }
-
-      const rowCount = await client.getRowCount(config.spreadsheetId, config.sheetName)
-      return {
-        valid: true,
-        message: `Connected. Spreadsheet has ${rowCount} rows.`,
-      }
-    } catch (err) {
-      return { valid: false, message: err.message }
-    }
-  },
+type GoogleOAuthProfile = {
+  email: string
+  name?: string
+  picture?: string
 }
 ```
 
-### 7.2 Auto-Detection of Column Mapping
+The Google Account tab shows this profile info so the admin knows exactly which Google account is connected.
 
-The adapter attempts to match spreadsheet column headers to Open Mercato product fields:
+### Future: Google Drive and Docs Access (V2+)
 
-```typescript
-// sync_google_workspace/lib/column-detector.ts
+The Google Workspace bundle is designed as an umbrella for multiple child integrations sharing the same OAuth token set. After V1 ships Google Sheets product import, the following child integrations can be added **without changing the bundle, credentials, or OAuth flow**:
 
-const headerToFieldMap: Record<string, string> = {
-  // Title / Name
-  'product name': 'title', 'name': 'title', 'title': 'title', 'product title': 'title',
-  // SKU
-  'sku': 'sku', 'product code': 'sku', 'item number': 'sku', 'article number': 'sku',
-  // Price
-  'price': 'basePrice', 'base price': 'basePrice', 'unit price': 'basePrice', 'cost': 'basePrice',
-  // Description
-  'description': 'description', 'product description': 'description', 'desc': 'description',
-  // Category
-  'category': 'categoryName', 'product category': 'categoryName', 'type': 'categoryName',
-  // Image
-  'image': 'imageUrl', 'image url': 'imageUrl', 'photo': 'imageUrl', 'picture': 'imageUrl',
-  // Stock
-  'stock': 'stockQuantity', 'quantity': 'stockQuantity', 'qty': 'stockQuantity', 'inventory': 'stockQuantity',
-  // Weight
-  'weight': 'weight', 'weight (kg)': 'weight', 'weight (g)': 'weight',
-  // Active
-  'active': 'isActive', 'status': 'isActive', 'published': 'isActive', 'enabled': 'isActive',
-  // Barcode
-  'barcode': 'barcode', 'ean': 'barcode', 'upc': 'barcode', 'gtin': 'barcode',
-}
+| Child Integration | Description | Required Scope Changes |
+| --- | --- | --- |
+| `google_drive_files` | Browse and attach Google Drive files as product/entity attachments. Admin sees their own files (e.g., `piotr.karwatka@gmail.com`'s Drive). | None — `drive.readonly` already granted |
+| `google_docs_viewer` | Preview Google Docs linked to records without downloading. | None — `drive.readonly` already granted |
+| `google_sheets_customers` | Import customers from a different sheet. | None — reuses same scopes |
+| `google_sheets_orders` | Import orders from a sheet. | None — reuses same scopes |
 
-function autoDetectFieldMapping(headers: string[]): FieldMapping[] {
-  return headers
-    .map((header, index) => {
-      const normalized = header.toLowerCase().trim()
-      const localField = headerToFieldMap[normalized]
-      if (!localField) return null
+Each future child integration would:
 
-      const transform = detectTransform(localField)
+1. Add a new `IntegrationDefinition` in `integration.ts` with its own `id` and `detailPage.widgetSpotId`
+2. Add its own UMES-injected tabs
+3. Reuse the existing bundle credentials and OAuth tokens
+4. Require no core platform changes
 
-      return {
-        externalField: `col_${index}`,
-        localField,
-        transform,
-      }
-    })
-    .filter(Boolean) as FieldMapping[]
-}
+> **Key point**: when an admin connects as `piotr.karwatka@gmail.com`, the `drive.readonly` scope already lets the provider read all files visible to that account. V1 only reads spreadsheets, but V2 can expose a Drive file browser showing the user's docs, folders, and files — all within the same bundle and token set.
 
-function detectTransform(localField: string): string | undefined {
-  switch (localField) {
-    case 'basePrice':
-    case 'weight': return 'toFloat'
-    case 'stockQuantity': return 'toInt'
-    case 'isActive': return 'toBool'
-    default: return undefined
-  }
-}
+### Source Configuration Model
+
+The provider owns source selection because it is Google-specific:
+
+- selected spreadsheet
+- selected sheet tab
+- header row
+- data start row
+
+The provider does not own mapping persistence or schedules:
+
+- field mapping remains in `sync_mappings`
+- schedules remain in `sync_schedules`
+
+### Data Sync Execution Model
+
+The current `data_sync` engine is orchestration-focused. It does not perform generic entity persistence itself. The Google provider follows the existing provider pattern:
+
+1. `data_sync` starts a run and resolves credentials and mapping.
+2. Google adapter reads rows from Sheets in batches.
+3. Provider importer resolves product create/update/skip decisions.
+4. Provider importer writes local catalog state through existing catalog commands.
+5. Adapter yields `ImportItem[]` that reflect actual outcomes.
+6. `data_sync` updates counters, cursor, progress, and logs.
+
+This mirrors the existing `sync-akeneo` approach and avoids inventing a generic entity writer in core.
+
+### Matching and External Identity
+
+For V1:
+
+- supported match strategies:
+  - `sku`
+  - `externalId`
+- unsupported in V1:
+  - title-only matching
+  - fuzzy matching
+
+The provider constructs a stable external id for row-state tracking from the selected match field, not from row number. Example:
+
+```text
+sku:WDG-001
 ```
+
+This allows row reordering in the sheet without breaking delta detection.
+
+### Token Refresh Strategy
+
+V1 uses on-demand token refresh:
+
+- before any Google API call, the client checks token expiry
+- if expiry is near and a refresh token exists, it refreshes synchronously
+- on `invalid_grant` or missing refresh token, the provider sets `reauthRequired = true`
+
+V1 does not add a separate background refresh worker.
 
 ---
 
-## 8. Google API Client
+## Data Models
+
+### GoogleSheetsSource
+
+Provider-owned source configuration for one child integration.
 
 ```typescript
-// sync_google_workspace/lib/google-client.ts
+@Entity({ tableName: 'google_sheets_sources' })
+@Index({ properties: ['integrationId', 'organizationId', 'tenantId'], options: { unique: true } })
+export class GoogleSheetsSource {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
 
-export function createGoogleSheetsClient(credentials: Record<string, unknown>) {
-  const tokenSet = credentials.oauthTokens as OAuthTokenSet
+  @Property({ name: 'integration_id', type: 'text' })
+  integrationId!: string
 
-  return {
-    /** List spreadsheets accessible to the connected Google account */
-    async listSpreadsheets(query?: string, pageToken?: string): Promise<SpreadsheetListResult> {
-      // GET https://www.googleapis.com/drive/v3/files
-      //   ?q=mimeType='application/vnd.google-apps.spreadsheet'
-      //   &fields=files(id,name,modifiedTime,owners)
-      //   &pageSize=20
-      //   &pageToken=...
-      // Authorization: Bearer {accessToken}
-    },
+  @Property({ name: 'spreadsheet_id', type: 'text' })
+  spreadsheetId!: string
 
-    /** Get metadata for a spreadsheet (sheets, row counts) */
-    async getSpreadsheetMeta(spreadsheetId: string): Promise<SpreadsheetMeta> {
-      // GET https://sheets.googleapis.com/v4/spreadsheets/{spreadsheetId}
-      //   ?fields=sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))
-    },
+  @Property({ name: 'spreadsheet_name', type: 'text' })
+  spreadsheetName!: string
 
-    /** Read a single row (for header detection) */
-    async getRow(spreadsheetId: string, sheetName: string, rowNumber: number): Promise<string[]> {
-      // GET https://sheets.googleapis.com/v4/spreadsheets/{spreadsheetId}/values/{sheetName}!{rowNumber}:{rowNumber}
-    },
+  @Property({ name: 'sheet_name', type: 'text' })
+  sheetName!: string
 
-    /** Read a range of rows (for batch import) */
-    async getRows(spreadsheetId: string, sheetName: string, startRow: number, endRow: number): Promise<string[][]> {
-      // GET https://sheets.googleapis.com/v4/spreadsheets/{spreadsheetId}/values/{sheetName}!{startRow}:{endRow}
-    },
+  @Property({ name: 'header_row', type: 'int', default: 1 })
+  headerRow: number = 1
 
-    /** Get total row count for a sheet */
-    async getRowCount(spreadsheetId: string, sheetName: string): Promise<number> {
-      // From spreadsheet metadata — gridProperties.rowCount
-    },
-  }
-}
-```
+  @Property({ name: 'data_start_row', type: 'int', default: 2 })
+  dataStartRow: number = 2
 
-All API calls use the OAuth access token from `credentials.oauthTokens.accessToken`. Before each call, the adapter checks token expiry and calls `resolveAccessToken()` if needed (on-demand refresh as fallback to background refresh).
-
----
-
-## 9. GoogleSheetsConfig Entity
-
-Persists the admin's spreadsheet selection and import settings per-tenant:
-
-```typescript
-@Entity({ tableName: 'google_sheets_configs' })
-export class GoogleSheetsConfig extends BaseEntity {
-  @Property()
-  integrationId!: string  // 'sync_google_sheets_products'
-
-  @Property()
-  spreadsheetId!: string  // Google Spreadsheet ID
-
-  @Property()
-  spreadsheetName!: string  // Human-readable name (for display)
-
-  @Property({ default: 'Sheet1' })
-  sheetName!: string  // Tab/sheet name within the spreadsheet
-
-  @Property({ default: 1 })
-  headerRow!: number  // Row number containing column headers
-
-  @Property({ default: 2 })
-  dataStartRow!: number  // First row of actual data
-
-  @Property({ length: 30, default: 'manual' })
-  syncSchedule!: 'manual' | 'hourly' | 'daily' | 'weekly'
-
-  @Property({ nullable: true, length: 5 })
-  syncTime?: string  // HH:MM for daily/weekly schedules (e.g., '03:00')
-
-  @Property({ nullable: true })
-  lastSyncAt?: Date
-
-  @Property()
+  @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  @Property()
+  @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Unique({ properties: ['integrationId', 'organizationId', 'tenantId'] })
-  _unique!: never
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 ```
+
+### GoogleSheetsRowState
+
+Provider-owned delta state for row content hashing.
+
+```typescript
+@Entity({ tableName: 'google_sheets_row_states' })
+@Index({ properties: ['integrationId', 'externalId', 'organizationId', 'tenantId'], options: { unique: true } })
+export class GoogleSheetsRowState {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'integration_id', type: 'text' })
+  integrationId!: string
+
+  @Property({ name: 'external_id', type: 'text' })
+  externalId!: string
+
+  @Property({ name: 'last_hash', type: 'text' })
+  lastHash!: string
+
+  @Property({ name: 'last_row_number', type: 'int', nullable: true })
+  lastRowNumber?: number | null
+
+  @Property({ name: 'last_seen_at', type: Date, nullable: true })
+  lastSeenAt?: Date | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+```
+
+### Stored Credential Shape
+
+Bundle credentials record:
+
+```typescript
+type GoogleWorkspaceCredentials = {
+  clientId?: string
+  clientSecret?: string
+  oauthTokens?: {
+    accessToken: string
+    refreshToken?: string
+    expiresAt?: string
+    tokenType: 'Bearer'
+    scope?: string
+    idToken?: string
+    rawResponse?: Record<string, unknown>
+  }
+  oauthProfile?: {
+    email: string
+    name?: string
+    picture?: string
+  }
+}
+```
+
+`oauthTokens` is persisted through `integrationCredentialsService.saveField('sync_google_workspace', 'oauthTokens', tokenSet, scope)`.
+
+`oauthProfile` is persisted through `integrationCredentialsService.saveField('sync_google_workspace', 'oauthProfile', profile, scope)` during the OAuth callback, after fetching `https://www.googleapis.com/oauth2/v2/userinfo`.
+
+### Validation
+
+Provider routes MUST define Zod schemas for:
+
+- OAuth start input
+- spreadsheet list/detail query params
+- source save payload
+- preview request payload
+- account disconnect payload if needed
+
+All provider-owned entity queries MUST filter by both `organizationId` and `tenantId`.
 
 ---
 
-## 10. API Contracts
+## API Contracts
 
-### 10.1 List Available Spreadsheets
+All provider routes MUST export `openApi` and `metadata`.
 
+### 1. Get OAuth Account State
+
+- `GET /api/sync_google_workspace/account?integrationId=sync_google_sheets_products`
+- Guards: `requireAuth`, `requireFeatures: ['integrations.view']`
+
+Response:
+
+```json
+{
+  "provider": "google",
+  "connected": true,
+  "email": "admin@company.com",
+  "grantedScopes": [
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/userinfo.email"
+  ],
+  "expiresAt": "2026-03-24T12:00:00.000Z",
+  "reauthRequired": false
+}
 ```
-GET /api/google-workspace/spreadsheets?search=catalog&pageToken=abc
 
-→ 200: {
-  items: [
+### 2. Start OAuth Flow
+
+- `POST /api/sync_google_workspace/oauth/start`
+- Guards: `requireAuth`, `requireFeatures: ['integrations.credentials.manage']`
+
+Request:
+
+```json
+{
+  "integrationId": "sync_google_sheets_products"
+}
+```
+
+Response:
+
+```json
+{
+  "authorizationUrl": "https://accounts.google.com/o/oauth2/v2/auth?..."
+}
+```
+
+Notes:
+
+- the route resolves bundle credentials for `clientId` and `clientSecret`
+- it creates signed state + PKCE verifier
+- it stores a short-lived OAuth session in cache
+
+### 3. OAuth Callback
+
+- `GET /api/sync_google_workspace/oauth/callback?code=...&state=...`
+- No normal auth guard; authorization is by signed state + cached session
+
+Behavior:
+
+- validate state
+- exchange code
+- store token set under bundle credentials
+- clear `reauthRequired`
+- write integration log entry
+- redirect to `/backend/integrations/sync_google_sheets_products?tab=google-account&oauth=success`
+
+Error redirect:
+
+```text
+/backend/integrations/sync_google_sheets_products?tab=google-account&oauth=error
+```
+
+### 4. Disconnect OAuth Account
+
+- `POST /api/sync_google_workspace/oauth/disconnect`
+- Guards: `requireAuth`, `requireFeatures: ['integrations.credentials.manage']`
+
+Request:
+
+```json
+{
+  "integrationId": "sync_google_sheets_products"
+}
+```
+
+Response:
+
+```json
+{
+  "ok": true
+}
+```
+
+Behavior:
+
+- remove `oauthTokens` from bundle credentials
+- set `reauthRequired = false`
+- keep `clientId` and `clientSecret`
+
+### 5. List Spreadsheets
+
+- `GET /api/sync_google_workspace/spreadsheets?integrationId=sync_google_sheets_products&search=catalog&pageToken=abc`
+- Guards: `requireAuth`, `requireFeatures: ['data_sync.configure']`
+
+Response:
+
+```json
+{
+  "items": [
     {
-      id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms',
-      name: 'Product Catalog 2026',
-      modifiedTime: '2026-02-24T10:00:00Z',
-      owner: 'admin@company.com',
-      rowCount: 1234,
-      sheetCount: 3,
-    },
+      "id": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms",
+      "name": "Product Catalog 2026",
+      "modifiedTime": "2026-02-24T10:00:00Z",
+      "owner": "admin@company.com",
+      "sheetCount": 3
+    }
   ],
-  nextPageToken: 'def',
+  "nextPageToken": "def"
 }
 ```
 
-### 10.2 Get Spreadsheet Details (Sheets + Columns)
+### 6. Get Spreadsheet Details
 
-```
-GET /api/google-workspace/spreadsheets/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
+- `GET /api/sync_google_workspace/spreadsheets/:spreadsheetId?integrationId=sync_google_sheets_products`
+- Guards: `requireAuth`, `requireFeatures: ['data_sync.configure']`
 
-→ 200: {
-  id: '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms',
-  name: 'Product Catalog 2026',
-  sheets: [
-    { name: 'Products', rowCount: 1234, columnCount: 10 },
-    { name: 'Categories', rowCount: 45, columnCount: 3 },
-    { name: 'Price List', rowCount: 890, columnCount: 5 },
+Response:
+
+```json
+{
+  "id": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms",
+  "name": "Product Catalog 2026",
+  "sheets": [
+    { "name": "Products", "rowCount": 1234, "columnCount": 10 },
+    { "name": "Categories", "rowCount": 45, "columnCount": 3 }
   ],
-  headers: ['Product Name', 'SKU', 'Price', 'Description', 'Category', 'Image URL', 'Stock', 'Weight (kg)', 'Active', 'Barcode'],
-  autoMapping: [
-    { externalField: 'col_0', localField: 'title' },
-    { externalField: 'col_1', localField: 'sku' },
-    { externalField: 'col_2', localField: 'basePrice', transform: 'toFloat' },
-    ...
-  ],
+  "headers": ["Product Name", "SKU", "Price"],
+  "autoMapping": [
+    { "externalField": "Product Name", "localField": "title" },
+    { "externalField": "SKU", "localField": "sku" },
+    { "externalField": "Price", "localField": "basePrice", "transform": "toFloat" }
+  ]
 }
 ```
 
-### 10.3 Save Configuration
+### 7. Get Source Configuration
 
+- `GET /api/sync_google_workspace/source?integrationId=sync_google_sheets_products`
+- Guards: `requireAuth`, `requireFeatures: ['data_sync.configure']`
+
+Response:
+
+```json
+{
+  "source": {
+    "spreadsheetId": "1BxiMVs0XRA...",
+    "spreadsheetName": "Product Catalog 2026",
+    "sheetName": "Products",
+    "headerRow": 1,
+    "dataStartRow": 2,
+    "updatedAt": "2026-03-24T10:00:00.000Z"
+  }
+}
 ```
-PUT /api/google-workspace/config
 
+### 8. Save Source Configuration
+
+- `PUT /api/sync_google_workspace/source`
+- Guards: `requireAuth`, `requireFeatures: ['data_sync.configure']`
+
+Request:
+
+```json
 {
   "integrationId": "sync_google_sheets_products",
   "spreadsheetId": "1BxiMVs0XRA...",
@@ -822,258 +753,710 @@ PUT /api/google-workspace/config
   "sheetName": "Products",
   "headerRow": 1,
   "dataStartRow": 2,
-  "syncSchedule": "daily",
-  "syncTime": "03:00",
-  "mapping": {
-    "fields": [...],
-    "matchStrategy": "sku",
-    "matchField": "sku"
+  "updatedAt": "2026-03-24T10:00:00.000Z"
+}
+```
+
+Response:
+
+```json
+{
+  "ok": true,
+  "source": {
+    "spreadsheetId": "1BxiMVs0XRA...",
+    "spreadsheetName": "Product Catalog 2026",
+    "sheetName": "Products",
+    "headerRow": 1,
+    "dataStartRow": 2,
+    "updatedAt": "2026-03-24T10:05:00.000Z"
   }
 }
-
-→ 200: { "saved": true }
 ```
 
-### 10.4 Preview Import
+Notes:
 
-```
-POST /api/google-workspace/preview
+- provider uses optimistic concurrency through `updatedAt`
+- mapping and schedule are not saved here
 
+### 9. Preview Import
+
+- `POST /api/sync_google_workspace/preview`
+- Guards: `requireAuth`, `requireFeatures: ['data_sync.configure']`
+
+Request:
+
+```json
 {
   "integrationId": "sync_google_sheets_products",
   "rows": 5
 }
-
-→ 200: {
-  items: [
-    { title: 'Widget Pro', sku: 'WDG-001', basePrice: 29.99, isActive: true, action: 'create' },
-    { title: 'Gadget Mini', sku: 'GDG-002', basePrice: 14.50, isActive: true, action: 'update' },
-    ...
-  ],
-  totalRows: 1234,
-  mappedColumns: 9,
-  unmappedColumns: 1,
-}
 ```
 
----
+Response:
 
-## 11. Scheduled Background Sync
-
-### 11.1 Scheduled Sync Worker
-
-```typescript
-// sync_google_workspace/workers/scheduled-sync.ts
-
-export const metadata: WorkerMeta = {
-  queue: 'google-sheets-scheduled-sync',
-  id: 'google-sheets-scheduled-sync-worker',
-  concurrency: 2,
-  schedule: '*/15 * * * *',  // Check every 15 minutes for due syncs
-}
-
-export default async function handler(job: Job, ctx: WorkerContext) {
-  // 1. Find all GoogleSheetsConfig with schedule != 'manual' that are due
-  const dueConfigs = await findDueConfigs(ctx.em)
-
-  for (const config of dueConfigs) {
-    const scope = { organizationId: config.organizationId, tenantId: config.tenantId }
-
-    // 2. Check if integration is enabled
-    const enabled = await ctx.integrationState.isEnabled(config.integrationId, scope)
-    if (!enabled) continue
-
-    // 3. Check if there's no sync already running
-    const running = await ctx.syncRunService.findRunning(config.integrationId, scope)
-    if (running) continue
-
-    // 4. Enqueue a data sync import job (reuses SPEC-045b infrastructure)
-    await ctx.enqueueJob('data-sync-import', {
-      integrationId: config.integrationId,
-      entityType: 'catalog.product',
-      direction: 'import',
-      triggeredBy: 'scheduler',
-      organizationId: config.organizationId,
-      tenantId: config.tenantId,
-    })
-
-    // 5. Update lastSyncAt
-    config.lastSyncAt = new Date()
-    await ctx.em.flush()
-  }
-}
-```
-
-### 11.2 Delta Detection
-
-Since Google Sheets doesn't have a built-in change tracking cursor, the adapter uses **row content hashing**:
-
-1. On first import: compute SHA-256 hash of each row's content, store in `SyncExternalIdMapping.metadata`
-2. On subsequent imports: re-compute hash, compare with stored hash
-   - Hash unchanged → `action: 'skip'`
-   - Hash changed → `action: 'update'`
-   - No stored hash → `action: 'create'`
-
-This approach detects changes even when rows are reordered, as long as the match field (SKU) is stable.
-
----
-
-## 12. Future Provider Examples — Microsoft & GitHub
-
-The OAuth infrastructure built for Google works identically for other providers. Here are the `OAuthConfig` differences:
-
-### 12.1 Microsoft 365 (Excel Online)
-
-```typescript
-// Future: sync_microsoft_365/integration.ts
-credentials: {
-  fields: [
-    { key: 'clientId', label: 'Azure App Client ID', type: 'text', required: true },
-    { key: 'clientSecret', label: 'Azure App Client Secret', type: 'secret', required: true },
+```json
+{
+  "items": [
     {
-      key: 'oauthTokens',
-      label: 'Microsoft Account',
-      type: 'oauth',
-      required: true,
-      oauth: {
-        provider: 'microsoft',
-        authorizationUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
-        tokenUrl: 'https://login.microsoftonline.com/common/oauth2/v2.0/token',
-        scopes: ['Files.Read.All', 'Sites.Read.All'],
-        usePkce: true,
-        refreshStrategy: 'background',
-        refreshBeforeExpiryMinutes: 5,
-        authParams: { response_mode: 'query' },
-      },
-    },
-  ],
-}
-```
-
-**Setup guide differences**: Admin creates an Azure App Registration instead of a Google Cloud project. Redirect URI goes in Azure Portal → App registrations → Authentication → Redirect URIs.
-
-### 12.2 GitHub (Repository Data)
-
-```typescript
-// Future: sync_github/integration.ts
-credentials: {
-  fields: [
-    { key: 'clientId', label: 'GitHub App Client ID', type: 'text', required: true },
-    { key: 'clientSecret', label: 'GitHub App Client Secret', type: 'secret', required: true },
-    {
-      key: 'oauthTokens',
-      label: 'GitHub Account',
-      type: 'oauth',
-      required: true,
-      oauth: {
-        provider: 'github',
-        authorizationUrl: 'https://github.com/login/oauth/authorize',
-        tokenUrl: 'https://github.com/login/oauth/access_token',
-        scopes: ['repo', 'read:org'],
-        usePkce: false,  // GitHub doesn't support PKCE
-        refreshStrategy: 'on-demand',  // GitHub tokens don't expire (unless revoked)
-      },
+      "externalId": "sku:WDG-001",
+      "title": "Widget Pro",
+      "sku": "WDG-001",
+      "basePrice": 29.99,
+      "action": "create"
     },
     {
-      key: 'sshKey',
-      label: 'Deploy Key',
-      type: 'ssh_keypair',
-      ssh: { algorithm: 'ed25519', keyComment: 'open-mercato-deploy' },
-    },
-  ],
-}
-```
-
-**Note**: GitHub integration uses both OAuth (for API access) and SSH keys (for Git operations). Both credential types from SPEC-045a §8 and §10 are combined in a single integration.
-
----
-
-## 13. Health Check
-
-```typescript
-// sync_google_workspace/lib/health.ts
-
-export const googleWorkspaceHealthCheck: HealthCheckable = {
-  async check(credentials: Record<string, unknown>, scope: TenantScope): Promise<HealthCheckResult> {
-    const tokenSet = credentials.oauthTokens as OAuthTokenSet | undefined
-
-    if (!tokenSet?.accessToken) {
-      return { status: 'error', message: 'Not connected. Click "Connect" to authorize Google account.' }
+      "externalId": "sku:GDG-002",
+      "title": "Gadget Mini",
+      "sku": "GDG-002",
+      "basePrice": 14.5,
+      "action": "update"
     }
-
-    try {
-      const client = createGoogleSheetsClient(credentials)
-      // Try listing 1 spreadsheet — validates both auth and API access
-      await client.listSpreadsheets(undefined, undefined)
-      return { status: 'healthy', message: 'Connected to Google Workspace. APIs accessible.' }
-    } catch (err) {
-      if (err.status === 401) {
-        return { status: 'error', message: 'Authentication expired. Click "Re-connect" to re-authorize.' }
-      }
-      return { status: 'error', message: `API error: ${err.message}` }
-    }
-  },
+  ],
+  "mappedColumns": 9,
+  "unmappedColumns": 1,
+  "warnings": []
 }
 ```
 
----
+### 10. Trigger Run
 
-## 14. Risks & Impact Review
+Manual runs use the existing data-sync route:
 
-### Critical Risks
+- `POST /api/data_sync/run`
 
-#### Google OAuth Token Revocation
-- **Scenario**: Admin revokes access in Google Account settings, or Google revokes for policy violation
-- **Mitigation**: Background refresh worker detects 401 response → sets `reauthRequired` → admin sees warning → clicks "Re-connect"
-- **Residual risk**: Scheduled syncs fail until re-auth. Operation logs capture all failures.
+Request:
 
-### High Risks
+```json
+{
+  "integrationId": "sync_google_sheets_products",
+  "entityType": "products",
+  "direction": "import",
+  "fullSync": false,
+  "batchSize": 100
+}
+```
 
-#### Google API Quota Exhaustion
-- **Scenario**: Too many API calls hit Google Sheets API quota (default: 300 requests/minute)
-- **Mitigation**: Rate limiter in Google client (from SPEC-045b). Batch reads (100 rows per request). Import worker concurrency = 2.
-- **Residual risk**: Very large spreadsheets (100K+ rows) may hit quotas during peak hours.
-
-#### Spreadsheet Structure Change
-- **Scenario**: Admin adds/removes columns or renames headers in Google Sheets
-- **Mitigation**: Mapping validates against current header row on each sync run. Mismatches logged as warnings, not errors. Admin gets notification to review mapping.
-- **Residual risk**: Renamed columns may map to wrong fields until mapping is updated.
-
-### Medium Risks
-
-#### Large Spreadsheet Performance
-- **Mitigation**: Streaming in batches of 100 rows. Memory stays constant regardless of spreadsheet size.
-
-#### Multiple Admins Editing Mapping
-- **Mitigation**: Standard optimistic concurrency (updated_at check on save).
+The provider does not add a separate run endpoint.
 
 ---
 
-## 15. Integration Test Coverage
+## UI/UX
 
-| Test | Method | Assert |
-|------|--------|--------|
-| List spreadsheets with valid OAuth | GET `/api/google-workspace/spreadsheets` | Returns spreadsheet list from Google Drive API |
-| List spreadsheets without OAuth | GET (no tokens) | Returns 401 with "not connected" message |
-| Get spreadsheet details | GET `.../spreadsheets/:id` | Returns sheets, headers, auto-mapping |
-| Save configuration | PUT `/api/google-workspace/config` | GoogleSheetsConfig persisted |
-| Preview import | POST `/api/google-workspace/preview` | Returns mapped product preview |
-| Run import via DataSyncAdapter | Worker | Products created/updated, progress tracked, errors logged per-row |
-| Delta detection (hash-based) | Re-run import with unchanged rows | Unchanged rows skipped |
-| Delta detection (hash-based) | Re-run import with changed rows | Changed rows updated |
-| Scheduled sync triggers on schedule | Worker | Sync enqueued when schedule is due |
-| Scheduled sync skips manual-only | Worker | Config with schedule='manual' not triggered |
-| Health check — connected | POST health check | Returns 'healthy' |
-| Health check — expired token | POST health check | Returns 'error' with re-connect message |
-| Auto-detect column mapping | Adapter getMapping() | Headers correctly mapped to product fields |
-| Column mapping — unknown header | Adapter | Unknown columns returned as unmapped |
-| Bundle credential fallthrough | Adapter resolves credentials | OAuth tokens resolved from bundle |
-| Cross-tenant isolation | Two tenants | Each has own config, own spreadsheet, own tokens |
+### Detail Tab Layout
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Google Sheets — Products                                          [Enabled ●]  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  [Setup Guide] [Credentials] [Google Account] [Source] [Schedule] [Health] [Logs]│
+│  ──────────────────────────────────────────────────────────────────────────────  │
+│                                                                                 │
+│                         << tab content area >>                                  │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Setup Guide Tab
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Setup Guide                                                                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  1. Create a Google Cloud project                                               │
+│     Go to console.cloud.google.com and create a new project                     │
+│     or use an existing one.                                                     │
+│                                                                                 │
+│  2. Enable required APIs                                                        │
+│     ┌─────────────────────────────────────────────────┐                         │
+│     │  ☑ Google Sheets API                            │                         │
+│     │  ☑ Google Drive API                             │                         │
+│     └─────────────────────────────────────────────────┘                         │
+│                                                                                 │
+│  3. Configure OAuth consent screen                                              │
+│     Set the app to "Internal" or "External" depending                           │
+│     on your organization. Add the scopes listed below.                          │
+│                                                                                 │
+│  4. Create OAuth client credentials                                             │
+│     Type: Web application                                                       │
+│                                                                                 │
+│     Authorized redirect URI:                                                    │
+│     ┌──────────────────────────────────────────────────────────────┬──────────┐  │
+│     │  https://your-domain.com/api/sync_google_workspace/         │  [ Copy] │  │
+│     │  oauth/callback                                             │          │  │
+│     └──────────────────────────────────────────────────────────────┴──────────┘  │
+│                                                                                 │
+│     ⚠ For local development, use a tunnel like ngrok or cloudflared             │
+│       and update the redirect URI accordingly.                                  │
+│                                                                                 │
+│  5. Required scopes                                                             │
+│     • https://www.googleapis.com/auth/spreadsheets.readonly                     │
+│     • https://www.googleapis.com/auth/drive.readonly                            │
+│     • https://www.googleapis.com/auth/userinfo.email                            │
+│                                                                                 │
+│  6. Enter Client ID and Client Secret in the Credentials tab                    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+Shows:
+
+- Google Cloud project setup steps
+- required APIs
+- required scopes (including `userinfo.email` for account display)
+- callback URL copy box with auto-detected current host
+- local development tunnel guidance
+
+This tab is static/informational and injected via UMES.
+
+### Google Account Tab
+
+#### State: Disconnected (no OAuth tokens)
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Google Account                                                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌───────────────────────────────────────────────────────────────────────┐       │
+│  │                                                                       │      │
+│  │   ○  No Google account connected                                      │      │
+│  │                                                                       │      │
+│  │   Connect a Google account to allow Open Mercato to read              │      │
+│  │   your spreadsheets. You will be redirected to Google to              │      │
+│  │   authorize access.                                                   │      │
+│  │                                                                       │      │
+│  │   [ Connect Google Account ]                                          │      │
+│  │                                                                       │      │
+│  └───────────────────────────────────────────────────────────────────────┘       │
+│                                                                                 │
+│  ⓘ Make sure Client ID and Client Secret are saved in the Credentials tab       │
+│    before connecting.                                                           │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### State: Connected
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Google Account                                                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌───────────────────────────────────────────────────────────────────────┐       │
+│  │                                                                       │      │
+│  │   ● Connected                                                         │      │
+│  │                                                                       │      │
+│  │   📧  piotr.karwatka@gmail.com                                        │      │
+│  │                                                                       │      │
+│  │   Scopes granted:                                                     │      │
+│  │     • Spreadsheets (read-only)                                        │      │
+│  │     • Drive (read-only)                                               │      │
+│  │     • User info (email)                                               │      │
+│  │                                                                       │      │
+│  │   Token expires: 2026-03-24 14:00 UTC                                 │      │
+│  │                                                                       │      │
+│  │   [ Reconnect ]                     [ Disconnect ]                    │      │
+│  │                                                                       │      │
+│  └───────────────────────────────────────────────────────────────────────┘       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### State: Re-authentication Required
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Google Account                                                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌───────────────────────────────────────────────────────────────────────┐       │
+│  │                                                                       │      │
+│  │   ⚠ Re-authentication required                                        │      │
+│  │                                                                       │      │
+│  │   📧  piotr.karwatka@gmail.com                                        │      │
+│  │                                                                       │      │
+│  │   The connection to Google has expired or been revoked.               │      │
+│  │   Scheduled imports are paused until you reconnect.                   │      │
+│  │                                                                       │      │
+│  │   [ Reconnect Now ]                  [ Disconnect ]                   │      │
+│  │                                                                       │      │
+│  └───────────────────────────────────────────────────────────────────────┘       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+All buttons MUST use shared `Button`/`IconButton` primitives.
+
+### Spreadsheet Source Tab
+
+#### State: No source selected
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Spreadsheet Source                                                             │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  Search spreadsheets  [ catalog________________ ] [🔍]                          │
+│                                                                                 │
+│  ┌──────────────────────────────────────────────────────┬──────────┬──────────┐  │
+│  │  Name                                                │  Sheets  │ Modified │  │
+│  ├──────────────────────────────────────────────────────┼──────────┼──────────┤  │
+│  │  📗 Product Catalog 2026                             │    3     │ Mar 24   │  │
+│  │  📗 Inventory Sheet                                  │    1     │ Mar 20   │  │
+│  │  📗 Spring Collection                                │    2     │ Mar 15   │  │
+│  └──────────────────────────────────────────────────────┴──────────┴──────────┘  │
+│                                                                                 │
+│  [< Prev]                                                        [Next >]       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### State: Spreadsheet selected — sheet and header configuration
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Spreadsheet Source                                                             │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  Selected: 📗 Product Catalog 2026                           [ Change ]         │
+│                                                                                 │
+│  Sheet tab:       [ Products          ▾ ]                                       │
+│  Header row:      [ 1                   ]                                       │
+│  Data start row:  [ 2                   ]                                       │
+│                                                                                 │
+│  ── Detected Headers ──────────────────────────────────────────────────────────  │
+│                                                                                 │
+│  ┌─────────────────┬──────────────────┬──────────────┐                          │
+│  │  Sheet Column    │  Maps To         │  Transform   │                         │
+│  ├─────────────────┼──────────────────┼──────────────┤                          │
+│  │  Product Name    │  title       ✓   │  —           │                         │
+│  │  SKU             │  sku         ✓   │  trim        │                         │
+│  │  Price           │  basePrice   ✓   │  toFloat     │                         │
+│  │  Description     │  description ✓   │  —           │                         │
+│  │  Weight          │  weight      ✓   │  toFloat     │                         │
+│  │  Active          │  isActive    ✓   │  toBool      │                         │
+│  │  Notes           │  ⚠ unmapped      │  —           │                         │
+│  └─────────────────┴──────────────────┴──────────────┘                          │
+│                                                                                 │
+│  9 of 10 columns mapped · 1 unmapped                                            │
+│                                                                                 │
+│  ── Preview (first 5 rows) ──────────────────────────────────────────────────── │
+│                                                                                 │
+│  ┌──────────┬─────────────┬───────┬─────────┬────────┐                          │
+│  │  SKU     │  Title       │ Price │ Action  │ Delta  │                         │
+│  ├──────────┼─────────────┼───────┼─────────┼────────┤                          │
+│  │  WDG-001 │  Widget Pro  │ 29.99 │ create  │  new   │                         │
+│  │  GDG-002 │  Gadget Mini │ 14.50 │ update  │  changed│                        │
+│  │  CBL-003 │  Cable XL    │  9.99 │ skip    │  same  │                         │
+│  └──────────┴─────────────┴───────┴─────────┴────────┘                          │
+│                                                                                 │
+│                                          [ Save Source ]  [ Run Import Now ]    │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### State: Google account not connected (disabled)
+
+```text
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  Spreadsheet Source                                                             │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  ┌───────────────────────────────────────────────────────────────────────┐       │
+│  │                                                                       │      │
+│  │   ⚠ Connect a Google account first                                    │      │
+│  │                                                                       │      │
+│  │   Go to the Google Account tab to connect your Google account         │      │
+│  │   before selecting a spreadsheet source.                              │      │
+│  │                                                                       │      │
+│  └───────────────────────────────────────────────────────────────────────┘       │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+The actual field mapping editor remains the generic `data_sync` mapping flow.
+
+### User-Facing Constraints in V1
+
+- V1 product mapping supports a documented subset only
+- unsupported columns are previewed as unmapped, not silently discarded
+- if no Google account is connected, spreadsheet and preview screens are disabled with clear guidance
 
 ---
+
+## Product Import Rules
+
+V1 product import supports:
+
+- product title
+- product description
+- product SKU
+- product barcode
+- base price
+- active flag
+- weight value and weight unit
+
+V1 may optionally support:
+
+- simple category assignment by category name
+- one primary image URL if attachment import is implemented safely
+
+V1 does not support:
+
+- multi-variant spreadsheet modeling
+- complex offer/channel pricing matrices
+- inventory synchronization into a stock subsystem not defined in this provider
+- rich media galleries
+
+### Mapping Rules
+
+- `title` is required for create
+- `sku` is required when match strategy is `sku`
+- `externalId` match strategy requires a mapped external-id column
+- transforms supported in V1:
+  - `toInt`
+  - `toFloat`
+  - `toBool`
+  - `trim`
+- unknown transform names are validation errors
+
+### Catalog Persistence Rules
+
+The importer MUST write through existing catalog commands, not raw cross-module helpers for side effects.
+
+V1 command usage:
+
+- create product: `catalog.products.create`
+- update product: `catalog.products.update`
+- create variant if needed for SKU-centric storage: `catalog.variants.create`
+- update variant if needed: `catalog.variants.update`
+
+The exact command graph may be simplified if the provider chooses a stable product-plus-default-variant model, but the spec MUST keep writes command-based and reversible where the target command already supports undo.
+
+---
+
+## Internationalization (i18n)
+
+The provider MUST define locale keys for:
+
+- setup guide copy
+- account state labels
+- connect/reconnect/disconnect actions
+- source selection labels
+- preview warnings and errors
+- health-check messages
+- log-facing summary messages where surfaced to the UI
+
+No user-facing strings may be hard-coded in widgets or route-generated UI payloads.
+
+---
+
+## Migration & Compatibility
+
+This spec is additive.
+
+Additive changes only:
+
+- new package `@open-mercato/sync-google-workspace`
+- new provider-owned entities
+- new provider-owned API routes
+- new integration IDs
+- new bundle ID
+- new widget spot usage through existing integration detail extension surface
+
+This spec does not rename or remove:
+
+- existing integration routes
+- existing `data_sync` routes
+- existing event IDs
+- existing detail-page spot IDs
+- existing DI service names
+
+Legacy compatibility note:
+
+- the spec intentionally does not depend on the generic `oauth` credential field renderer from earlier foundation drafts
+- if generic OAuth support is added later, the provider MAY adopt it behind a compatibility bridge, but V1 MUST NOT block on that future work
+
+---
+
+## Phasing
+
+### Phase 1: Provider Foundation
+
+Deliver:
+
+- package scaffold
+- integration definition
+- bundle credentials for client ID/secret
+- provider-owned entities
+- DI wiring
+- setup guide tab
+
+### Phase 2: OAuth and Account UX
+
+Deliver:
+
+- provider-owned OAuth start/callback/disconnect routes
+- OAuth session storage with PKCE
+- Google account tab
+- token persistence into bundle credentials
+- reconnect handling through `reauthRequired`
+
+### Phase 3: Source Selection and Preview
+
+Deliver:
+
+- spreadsheets list/detail routes
+- source entity CRUD
+- spreadsheet source tab
+- preview route
+- header auto-detection and transform inference
+
+### Phase 4: Data Sync Import
+
+Deliver:
+
+- `DataSyncAdapter`
+- provider importer
+- row-state delta tracking
+- manual run via existing `data_sync` API
+- schedule reuse via existing `data_sync` schedule UI/API
+
+### Phase 5: Hardening
+
+Deliver:
+
+- health check
+- provider logs
+- retry/reauth failure paths
+- integration and unit tests
+- docs for BYO Google Cloud setup
+
+---
+
+## Implementation Plan
+
+### Phase 1: Package and Integration Registration
+
+1. Create `packages/sync-google-workspace/`.
+2. Add package build/test config and module exports.
+3. Create `integration.ts` with bundle and child integration definitions.
+4. Register detail-page widget spot via `detailPage.widgetSpotId`.
+5. Add the package to `apps/mercato/src/modules.ts`.
+
+### Phase 2: Provider Data Model and Services
+
+1. Create `GoogleSheetsSource`.
+2. Create `GoogleSheetsRowState`.
+3. Add Zod schemas for source save, preview, spreadsheet queries, and OAuth start.
+4. Implement source and row-state services through DI.
+5. Generate migrations with `yarn db:generate`.
+
+### Phase 3: OAuth Flow
+
+1. Implement cache-backed OAuth session helper with TTL and PKCE verifier.
+2. Implement Google auth URL builder.
+3. Implement callback token exchange and credential persistence.
+4. Implement account disconnect.
+5. Inject Google Account widget tab.
+
+### Phase 4: Source Selection and Preview
+
+1. Implement Google client list/read helpers.
+2. Implement spreadsheet list/detail routes.
+3. Implement source get/save route.
+4. Implement preview route.
+5. Inject Setup Guide and Spreadsheet Source tabs.
+
+### Phase 5: Adapter and Importer
+
+1. Implement provider mapping inference.
+2. Implement provider importer using catalog commands.
+3. Implement `DataSyncAdapter` with `supportedEntities = ['products']`.
+4. Implement row hash delta detection.
+5. Register adapter in DI.
+
+### Phase 6: Health, Logs, and Tests
+
+1. Implement health check service.
+2. Add provider-specific log messages.
+3. Add integration coverage for routes and runs.
+4. Add unit tests for OAuth/session/preview/hash logic.
+5. Document setup and local tunnel workflow.
+
+### File Manifest
+
+| File | Action | Purpose |
+|------|--------|---------|
+| `packages/sync-google-workspace/package.json` | Create | Workspace package manifest |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/integration.ts` | Create | Bundle + integration definitions |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/data/entities.ts` | Create | Provider-owned source and row-state entities |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/api/oauth/start/route.ts` | Create | OAuth start |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/api/oauth/callback/route.ts` | Create | OAuth callback |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/api/source/route.ts` | Create | Source CRUD |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/api/preview/route.ts` | Create | Preview |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/lib/adapter.ts` | Create | Data sync adapter |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/lib/importer.ts` | Create | Catalog write orchestration |
+| `packages/sync-google-workspace/src/modules/sync_google_workspace/widgets/injection-table.ts` | Create | Detail tab registration |
+
+### Testing Strategy
+
+- unit tests:
+  - auth URL construction
+  - PKCE/state validation
+  - token refresh behavior
+  - header inference
+  - row hash comparison
+- integration tests:
+  - OAuth happy path with stubbed Google responses
+  - OAuth denial/state mismatch
+  - spreadsheet list/detail
+  - source save/load
+  - preview
+  - manual run
+  - scheduled run
+  - cross-tenant isolation
+
+---
+
+## Risks & Impact Review
+
+#### Google OAuth App Misconfiguration
+- **Scenario**: Admin saves wrong client credentials or configures a callback URL that does not match the current host/tunnel.
+- **Severity**: High
+- **Affected area**: OAuth connect flow, spreadsheet access, scheduled imports
+- **Mitigation**: Setup Guide tab includes exact callback URL copy UI; OAuth start validates presence of client credentials before redirect; callback failures are logged with actionable messages.
+- **Residual risk**: Google-side propagation delays and operator error can still temporarily block connection.
+
+#### Refresh Token Revoked or Missing
+- **Scenario**: Google returns `invalid_grant`, or the granted token set does not include a usable refresh token.
+- **Severity**: High
+- **Affected area**: Scheduled syncs, manual spreadsheet listing, preview
+- **Mitigation**: On-demand refresh marks `reauthRequired = true`, health check returns `unhealthy`, Google Account tab shows reconnect state, logs capture the failure.
+- **Residual risk**: Scheduled sync remains blocked until an admin reconnects.
+
+#### Spreadsheet Structure Drift
+- **Scenario**: Admin renames headers, removes columns, or changes the selected sheet contents after mapping was configured.
+- **Severity**: High
+- **Affected area**: Preview accuracy, import correctness
+- **Mitigation**: Preview and sync re-read current headers each time; missing mapped headers produce warnings or validation errors; unknown headers are treated as unmapped.
+- **Residual risk**: A header may be renamed to another valid field-like name and still require manual review.
+
+#### Product Shape Too Complex for V1
+- **Scenario**: Merchant expects variants, channel pricing, inventory, categories, and media to import from a single flat sheet.
+- **Severity**: High
+- **Affected area**: Scope control, implementation timeline, support burden
+- **Mitigation**: V1 scope is explicit and narrow; unsupported mappings are surfaced clearly in preview; complex product modeling is deferred.
+- **Residual risk**: Some merchants will need manual follow-up workflows for unsupported data.
+
+#### Cross-Tenant Credential or Source Leakage
+- **Scenario**: Provider queries credentials, source config, or row-state records without both tenant and organization scope.
+- **Severity**: Critical
+- **Affected area**: Security and tenant isolation
+- **Mitigation**: Every provider service and route explicitly scopes by `organizationId` and `tenantId`; integration tests cover two-tenant isolation.
+- **Residual risk**: Residual risk is low if review and tests catch missing scope filters.
+
+#### Duplicate Scheduling Ownership
+- **Scenario**: Provider accidentally stores schedule values in source config while `data_sync` also stores schedules.
+- **Severity**: Medium
+- **Affected area**: Admin UX, scheduler correctness
+- **Mitigation**: Source entity deliberately excludes schedule fields; built-in `data-sync-schedule` tab remains the only schedule editor.
+- **Residual risk**: None if implementation follows this spec.
+
+#### Delta State False Positives or False Negatives
+- **Scenario**: Match key changes, or row hashing uses the wrong normalized data, causing unnecessary updates or missed updates.
+- **Severity**: Medium
+- **Affected area**: Import efficiency and correctness
+- **Mitigation**: External id is derived from the selected stable match field; hashing uses normalized mapped source data; tests cover unchanged and changed rows.
+- **Residual risk**: Match-strategy changes may require a one-time full sync reset.
+
+#### Google API Rate Limiting
+- **Scenario**: Large spreadsheets or repeated previews hit Google read quotas.
+- **Severity**: Medium
+- **Affected area**: Spreadsheet browsing, sync throughput
+- **Mitigation**: Batch reads, page-size caps, retry/backoff in Google client, no unnecessary metadata fan-out.
+- **Residual risk**: Extremely large sheets may still import slowly at quota boundaries.
+
+#### OAuth Session Replay or Expiry Issues
+- **Scenario**: Callback uses expired or replayed state.
+- **Severity**: High
+- **Affected area**: OAuth security
+- **Mitigation**: Short TTL cache entry, one-time state consumption, PKCE verifier binding, signed state payload.
+- **Residual risk**: Low if state invalidation is implemented correctly.
+
+---
+
+## Final Compliance Report — 2026-03-24
+
+### AGENTS.md Files Reviewed
+- `AGENTS.md` (root)
+- `.ai/specs/AGENTS.md`
+- `packages/core/AGENTS.md`
+- `packages/core/src/modules/integrations/AGENTS.md`
+- `packages/core/src/modules/data_sync/AGENTS.md`
+- `packages/core/src/modules/catalog/AGENTS.md`
+- `packages/ui/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|-------------|------|--------|-------|
+| root AGENTS.md | External integration providers must be dedicated workspace packages | Compliant | Provider lives in `packages/sync-google-workspace/` |
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | Provider uses IDs and catalog commands, not cross-module ORM links |
+| root AGENTS.md | Always scope tenant data by `organization_id` and `tenant_id` | Compliant | Explicit in provider entities, routes, and risks |
+| root AGENTS.md | API routes must use Zod validation | Compliant | Provider validators are part of the plan |
+| root AGENTS.md | API routes must export `openApi` | Compliant | Explicit for every provider route |
+| `.ai/specs/AGENTS.md` | Keep specs implementation-accurate | Compliant | Rewritten to current package/UI/data-sync contracts |
+| `packages/core/AGENTS.md` | Integration provider env presets belong in provider package setup | Compliant | `preset.ts` and `setup.ts` are provider-owned |
+| `packages/core/src/modules/integrations/AGENTS.md` | Providers may extend detail page through UMES widget spot | Compliant | Uses `detailPage.widgetSpotId` and injected tabs |
+| `packages/core/src/modules/integrations/AGENTS.md` | Do not add provider-specific logic to core integrations module | Compliant | OAuth and source flows stay in provider package |
+| `packages/core/src/modules/data_sync/AGENTS.md` | Use queue system and existing data sync lifecycle | Compliant | Manual and scheduled runs use existing `data_sync` APIs and workers |
+| `packages/core/src/modules/data_sync/AGENTS.md` | Persist mapping and schedules through normal sync services | Compliant | Mapping and schedules stay in generic `data_sync` storage |
+| `packages/core/src/modules/catalog/AGENTS.md` | Do not reimplement pricing logic ad hoc | Compliant | Import writes through existing catalog commands |
+| `packages/ui/AGENTS.md` | Use shared button/form/dialog primitives | Compliant | Explicit in injected tab UX section |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Data models match API contracts | Pass | Source and row-state entities align with provider routes |
+| API contracts match UI/UX section | Pass | Tabs map directly to provider routes and built-in tabs |
+| Risks cover all write operations | Pass | Covers OAuth persistence, source save, scheduled sync, delta state |
+| Commands defined for all mutations | Pass | Product writes use catalog commands; config writes are provider service writes |
+| Cache/session strategy covers OAuth flow | Pass | Short-lived cached session defined for state + PKCE |
+
+### Non-Compliant Items
+
+None.
+
+### Verdict
+
+- **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
 
-| Date | Change |
-|------|--------|
-| 2026-02-24 | Initial draft — Google Workspace integration with Sheets product import, OAuth setup guide, column mapping, scheduled sync |
+### 2026-03-24 (v3)
+
+- Added ASCII UI mockups for all tab states: Setup Guide, Google Account (disconnected/connected/reauth), Spreadsheet Source (no source/selected/disabled).
+- Added OAuth Scopes section with explicit scope table.
+- Added Google Account Identity section: `userinfo.email` scope, `oauthProfile` credential key, profile fetch during callback.
+- Added Future: Google Drive and Docs Access (V2+) section describing how the bundle supports future child integrations (`google_drive_files`, `google_docs_viewer`, `google_sheets_customers`, `google_sheets_orders`) with zero core changes.
+- Updated `GoogleWorkspaceCredentials` type to include `oauthProfile` field.
+- Updated account state API response to include `userinfo.email` scope.
+
+### 2026-03-24
+- Rewrote the spec to the current architecture: dedicated provider package, provider-owned OAuth/account flow, provider-owned source config, reuse of `data_sync` mappings and schedules, and provider-owned row-state delta tracking.
+
+### 2026-02-24
+- Initial draft — Google Workspace integration with Sheets product import, OAuth setup guide, column mapping, scheduled sync.
+
+### Review — 2026-03-24
+- **Reviewer**: Agent
+- **Security**: Passed
+- **Performance**: Passed
+- **Cache**: Passed
+- **Commands**: Passed
+- **Risks**: Passed
+- **Verdict**: Approved
