@@ -408,6 +408,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   const [addressesLoading, setAddressesLoading] = React.useState(false)
   const [addressesError, setAddressesError] = React.useState<string | null>(null)
   const [addressFormat, setAddressFormat] = React.useState<AddressFormatStrategy>('line_first')
+  const [defaultCurrency, setDefaultCurrency] = React.useState<string>('USD')
   const addressRequestRef = React.useRef(0)
   const addressAbortRef = React.useRef<AbortController | null>(null)
   const addressTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -534,6 +535,22 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     }
   }, [])
 
+  const loadDefaultCurrency = React.useCallback(async () => {
+    try {
+      const call = await apiCall<{ items?: Array<{ currency_code?: string | null }> }>(
+        '/api/catalog/price-kinds?isPromotion=false&isActive=true&pageSize=1'
+      )
+      if (call.ok && Array.isArray(call.result?.items) && call.result.items.length) {
+        const code = call.result.items[0]?.currency_code
+        if (typeof code === 'string' && code.trim().length) {
+          setDefaultCurrency(code.trim().toUpperCase())
+        }
+      }
+    } catch (err) {
+      console.error('sales.documents.loadDefaultCurrency', err)
+    }
+  }, [])
+
   const loadAddresses = React.useCallback(async (customerId?: string | null): Promise<AddressOption[]> => {
     addressRequestRef.current += 1
     const requestId = addressRequestRef.current
@@ -630,7 +647,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   React.useEffect(() => {
     loadCustomers().catch(() => {})
     loadChannels().catch(() => {})
-  }, [loadChannels, loadCustomers])
+    loadDefaultCurrency().catch(() => {})
+  }, [loadChannels, loadCustomers, loadDefaultCurrency])
 
   React.useEffect(
     () => () => {
@@ -1252,7 +1270,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     () => ({
       documentKind: initialKind === 'order' ? 'order' : 'quote',
       documentNumber: '',
-      currencyCode: inboxPreFill?.currencyCode || 'USD',
+      currencyCode: inboxPreFill?.currencyCode || defaultCurrency,
       channelId: inboxPreFill?.channelId || undefined,
       customerEntityId: inboxPreFill?.customerEntityId || undefined,
       comments: inboxPreFill?.comments || undefined,
@@ -1260,7 +1278,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       useCustomBilling: false,
       sameAsShipping: true,
     }),
-    [initialKind, inboxPreFill]
+    [initialKind, inboxPreFill, defaultCurrency]
   )
 
   // When inboxPreFill provides a customer, load their addresses on mount
