@@ -288,6 +288,7 @@ const sidebars: SidebarsConfig = {
           label: "Modules",
           items: [
             "framework/modules/overview",
+            "framework/modules/official-modules",
             "framework/modules/routes-and-pages",
             "framework/modules/notifications",
             "framework/modules/messages",
