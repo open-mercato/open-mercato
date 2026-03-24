@@ -38,7 +38,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid userId' }, { status: 400 })
   }
 
-  const container = await createRequestContainer(req)
+  const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const consents = await em.find(UserConsent, {
     userId: parsed.data.userId,
