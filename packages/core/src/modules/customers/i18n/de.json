@@ -924,6 +924,7 @@
   "customers.people.form.primaryEmail": "E-Mail",
   "customers.people.form.primaryEmailPlaceholder": "name@beispiel.de",
   "customers.people.form.primaryPhone": "Telefon",
+  "customers.people.form.primaryPhone.invalid": "Enter a valid phone number (digits, spaces, dashes, parentheses)",
   "customers.people.form.primaryPhonePlaceholder": "+00 000 000 000",
   "customers.people.form.sections.companyInformation": "Unternehmensinformationen",
   "customers.people.form.sections.contactInformation": "Kontaktinformationen",

@@ -46,6 +46,7 @@ export type ActivitiesSectionProps = {
   emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
+  onDataRefresh?: () => void
   dealOptions?: Array<{ id: string; label: string }>
   entityOptions?: Array<{ id: string; label: string }>
   defaultEntityId?: string | null
@@ -60,6 +61,7 @@ export function ActivitiesSection({
   emptyState,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   dealOptions,
   entityOptions,
   defaultEntityId,
@@ -207,6 +209,7 @@ export function ActivitiesSection({
           ),
           interactionPayload,
         )
+        onDataRefresh?.()
         return
       }
 
@@ -229,6 +232,7 @@ export function ActivitiesSection({
         ),
         activityPayload,
       )
+      onDataRefresh?.()
     },
     update: async ({ id, patch }) => {
       if (useCanonicalInteractions) {
@@ -252,6 +256,7 @@ export function ActivitiesSection({
           ),
           interactionPatch,
         )
+        onDataRefresh?.()
         return
       }
 
@@ -275,6 +280,7 @@ export function ActivitiesSection({
         ),
         activityPatch,
       )
+      onDataRefresh?.()
     },
     delete: async ({ id }) => {
       if (useCanonicalInteractions) {
@@ -286,6 +292,7 @@ export function ActivitiesSection({
           }),
           deletePayload,
         )
+        onDataRefresh?.()
         return
       }
 
@@ -297,8 +304,9 @@ export function ActivitiesSection({
         }),
         deletePayload,
       )
+      onDataRefresh?.()
     },
-  }), [runWriteMutation, translate, useCanonicalInteractions])
+  }), [onDataRefresh, runWriteMutation, translate, useCanonicalInteractions])
 
   const resolveActivityPresentation = React.useCallback((activity: ActivitySummary) => {
     const entry = dictionaryMap[activity.activityType]

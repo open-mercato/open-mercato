@@ -343,6 +343,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     entityId={personId}
                     useCanonicalInteractions={useCanonicalInteractions}
                     runGuardedMutation={runMutationWithContext}
+                    onDataRefresh={loadData}
                     addActionLabel={t('customers.people.detail.activities.add', 'Log activity')}
                     emptyState={{
                       title: t('customers.people.detail.emptyState.activities.title', 'No activities logged yet'),
@@ -389,6 +390,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     initialTasks={data.todos}
                     useCanonicalInteractions={useCanonicalInteractions}
                     runGuardedMutation={runMutationWithContext}
+                    onDataRefresh={loadData}
                     emptyLabel={t('customers.people.detail.empty.todos', 'No tasks linked to this person.')}
                     addActionLabel={t('customers.people.detail.tasks.add', 'Add task')}
                     emptyState={{

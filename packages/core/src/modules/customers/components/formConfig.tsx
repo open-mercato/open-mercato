@@ -645,6 +645,7 @@ export const createPersonFormSchema = () =>
       primaryPhone: z
         .string()
         .trim()
+        .regex(/^\+?[\d\s\-().]{3,50}$/, 'customers.people.form.primaryPhone.invalid')
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1017,6 +1018,7 @@ export const createCompanyFormSchema = () =>
       primaryPhone: z
         .string()
         .trim()
+        .regex(/^\+?[\d\s\-().]{3,50}$/, 'customers.people.form.primaryPhone.invalid')
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))

@@ -36,6 +36,7 @@ export type TagsSectionProps = {
   onChange?: (next: TagOption[]) => void
   isSubmitting?: boolean
   canEdit?: boolean
+  autoSave?: boolean
   loadOptions: (query?: string) => Promise<TagOption[]>
   createTag: (label: string) => Promise<TagOption>
   onSave: (params: {
@@ -52,12 +53,13 @@ function TagsSectionImpl({
   onChange,
   isSubmitting = false,
   canEdit = true,
+  autoSave = false,
   loadOptions,
   createTag,
   onSave,
   labels,
 }: TagsSectionProps) {
-  const [editing, setEditing] = React.useState(false)
+  const [editing, setEditing] = React.useState(autoSave)
   const [draft, setDraft] = React.useState<string[]>([])
   const [saving, setSaving] = React.useState(false)
   const [options, setOptions] = React.useState<Map<string, TagOption>>(() => new Map())
@@ -176,8 +178,10 @@ function TagsSectionImpl({
       await onSave({ next: finalTagOptions, added, removed })
 
       onChange?.(finalTagOptions)
-      setEditing(false)
-      setDraft([])
+      if (!autoSave) {
+        setEditing(false)
+        setDraft([])
+      }
       if (labels.success) flash(labels.success, 'success')
     } catch (err) {
       const message = err instanceof Error ? err.message : labels.updateError
@@ -207,6 +211,44 @@ function TagsSectionImpl({
     [cancelEditing, editing, handleSave, isSubmitting, saving],
   )
 
+  const autoSaveInitializedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!autoSave || autoSaveInitializedRef.current) return
+    autoSaveInitializedRef.current = true
+    setEditing(true)
+    setDraft(tags.map((tag) => tag.label))
+    let cancelled = false
+    loadOptions().then((fetched) => {
+      if (cancelled) return
+      syncFetchedOptions(fetched)
+    }).catch(() => {})
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSave])
+
+  const autoSaveUserEditedRef = React.useRef(false)
+  const originalOnChange = React.useCallback(
+    (values: string[]) => {
+      autoSaveUserEditedRef.current = true
+      setDraft(values)
+    },
+    [],
+  )
+
+  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  React.useEffect(() => {
+    if (!autoSave || !editing || !autoSaveUserEditedRef.current) return
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = setTimeout(() => {
+      if (saving) return
+      void handleSave()
+    }, 600)
+    return () => {
+      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    }
+  }, [autoSave, draft, editing, handleSave, saving])
+
   const disableInteraction = isSubmitting || !canEdit
 
   return (
@@ -215,23 +257,25 @@ function TagsSectionImpl({
         <h2 className="text-sm font-semibold">
           {title}
         </h2>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={editing ? cancelEditing : startEditing}
-          disabled={disableInteraction || saving}
-          className={
-            editing
-              ? 'opacity-100 transition-opacity duration-150'
-              : 'opacity-100 md:opacity-0 transition-opacity duration-150 md:group-hover:opacity-100 focus-visible:opacity-100'
-          }
-        >
-          {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-          <span className="sr-only">
-            {editing ? labels.cancel ?? 'Cancel' : labels.edit ?? 'Edit'}
-          </span>
-        </Button>
+        {autoSave ? null : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={editing ? cancelEditing : startEditing}
+            disabled={disableInteraction || saving}
+            className={
+              editing
+                ? 'opacity-100 transition-opacity duration-150'
+                : 'opacity-100 md:opacity-0 transition-opacity duration-150 md:group-hover:opacity-100 focus-visible:opacity-100'
+            }
+          >
+            {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+            <span className="sr-only">
+              {editing ? labels.cancel ?? 'Cancel' : labels.edit ?? 'Edit'}
+            </span>
+          </Button>
+        )}
       </div>
 
       {editing ? (
@@ -244,29 +288,31 @@ function TagsSectionImpl({
             <div className="space-y-3" onKeyDown={handleEditingKeyDown}>
               <TagsInput
                 value={activeTags}
-                onChange={(values) => setDraft(values)}
+                onChange={autoSave ? originalOnChange : (values) => setDraft(values)}
                 placeholder={labels.placeholder}
                 loadSuggestions={loadSuggestions}
-                autoFocus
+                autoFocus={!autoSave}
               />
               {error ? <p className="text-xs text-red-600">{error}</p> : null}
-              <div className="flex items-center gap-2 mt-3 mb-2">
-                <Button type="button" size="sm" onClick={handleSave} disabled={saving || isSubmitting}>
-                  {saving ? (
-                    <span className="mr-2 h-4 w-4 animate-spin rounded-full border border-background border-t-primary" />
-                  ) : null}
-                  {labels.saveShortcut}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={cancelEditing}
-                  disabled={saving || isSubmitting}
-                >
-                  {labels.cancelShortcut}
-                </Button>
-              </div>
+              {autoSave ? null : (
+                <div className="flex items-center gap-2 mt-3 mb-2">
+                  <Button type="button" size="sm" onClick={handleSave} disabled={saving || isSubmitting}>
+                    {saving ? (
+                      <span className="mr-2 h-4 w-4 animate-spin rounded-full border border-background border-t-primary" />
+                    ) : null}
+                    {labels.saveShortcut}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={cancelEditing}
+                    disabled={saving || isSubmitting}
+                  >
+                    {labels.cancelShortcut}
+                  </Button>
+                </div>
+              )}
             </div>
           </DataLoader>
         </div>

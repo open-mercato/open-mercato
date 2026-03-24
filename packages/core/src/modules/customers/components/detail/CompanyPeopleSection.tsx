@@ -59,7 +59,8 @@ export function CompanyPeopleSection({
     const action: SectionAction = {
       label: addActionLabel,
       onClick: () => {
-        router.push(`/backend/customers/people/create?companyId=${encodeURIComponent(companyId)}`)
+        const returnTo = `/backend/customers/companies-v2/${encodeURIComponent(companyId)}?tab=people`
+        router.push(`/backend/customers/people/create?companyId=${encodeURIComponent(companyId)}&returnTo=${encodeURIComponent(returnTo)}`)
       },
     }
     onActionChange?.(action)

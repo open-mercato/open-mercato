@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Ban, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -32,6 +32,7 @@ type TasksSectionProps = {
   emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
+  onDataRefresh?: () => void
   translator?: Translator
   entityName?: string | null
   dialogContextKey?: string
@@ -68,6 +69,7 @@ export function TasksSection({
   emptyState,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   translator,
   entityName,
   dialogContextKey,
@@ -257,13 +259,14 @@ export function TasksSection({
           },
         )
         flash(t('customers.people.detail.tasks.createSuccess', 'Task created'), 'success')
+        onDataRefresh?.()
       } catch (err) {
         const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.error', 'Failed to create task')
         flash(message, 'error')
         throw err
       }
     },
-    [createTask, entityId, runWriteMutation, t],
+    [createTask, entityId, onDataRefresh, runWriteMutation, t],
   )
 
   const handleUpdate = React.useCallback(
@@ -279,6 +282,7 @@ export function TasksSection({
           },
         )
         flash(t('customers.people.detail.tasks.updateSuccess', 'Task updated'), 'success')
+        onDataRefresh?.()
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t('customers.people.detail.tasks.updateError', 'Failed to update task')
@@ -286,7 +290,7 @@ export function TasksSection({
         throw err
       }
     },
-    [runWriteMutation, t, updateTask],
+    [onDataRefresh, runWriteMutation, t, updateTask],
   )
 
   const handleToggle = React.useCallback(
@@ -306,13 +310,14 @@ export function TasksSection({
             : t('customers.people.detail.tasks.reopenSuccess', 'Task reopened'),
           'success',
         )
+        onDataRefresh?.()
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError', 'Failed to update task status')
         flash(message, 'error')
       }
     },
-    [runWriteMutation, t, toggleTask],
+    [onDataRefresh, runWriteMutation, t, toggleTask],
   )
 
   const handleDelete = React.useCallback(
@@ -326,6 +331,7 @@ export function TasksSection({
           },
         )
         flash(t('customers.people.detail.tasks.deleteSuccess', 'Task removed'), 'success')
+        onDataRefresh?.()
         await refresh()
       } catch (err) {
         const message =
@@ -333,7 +339,26 @@ export function TasksSection({
         flash(message, 'error')
       }
     },
-    [refresh, runWriteMutation, t, unlinkTask],
+    [onDataRefresh, refresh, runWriteMutation, t, unlinkTask],
+  )
+
+  const handleCancel = React.useCallback(
+    async (task: TodoLinkSummary) => {
+      if (!useCanonicalInteractions) return
+      try {
+        await runWriteMutation(
+          () => canonicalResult.cancelInteraction(task.todoId),
+          { id: task.todoId },
+        )
+        flash(t('customers.people.detail.tasks.cancelSuccess', 'Task canceled'), 'success')
+        onDataRefresh?.()
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : t('customers.people.detail.tasks.cancelError', 'Failed to cancel task')
+        flash(message, 'error')
+      }
+    },
+    [canonicalResult, onDataRefresh, runWriteMutation, t, useCanonicalInteractions],
   )
 
   const renderTaskMeta = React.useCallback(
@@ -451,6 +476,18 @@ export function TasksSection({
                           <Pencil className="h-4 w-4" />
                         )}
                       </IconButton>
+                      {useCanonicalInteractions && !isDone ? (
+                        <IconButton
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleCancel(task)}
+                          disabled={isMutating}
+                          aria-label={t('customers.people.detail.tasks.cancelAction', 'Cancel task')}
+                        >
+                          <Ban className="h-4 w-4" />
+                        </IconButton>
+                      ) : null}
                       <IconButton
                         type="button"
                         variant="ghost"

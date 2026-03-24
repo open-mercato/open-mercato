@@ -335,6 +335,32 @@ type CustomFieldEntityLayout = {
   activeFieldset: string | null
 }
 
+class FieldDefinitionsManagerErrorBoundary extends React.Component<
+  { children: React.ReactNode; onClose: () => void; unavailableMessage: string },
+  { hasError: boolean }
+> {
+  constructor(props: { children: React.ReactNode; onClose: () => void; unavailableMessage: string }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground">
+          <p>{this.props.unavailableMessage}</p>
+          <Button type="button" variant="outline" size="sm" onClick={this.props.onClose}>
+            Close
+          </Button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export function CrudForm<TValues extends Record<string, unknown>>({
   schema,
   fields,
@@ -388,7 +414,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const manageFieldsetLabel = t('entities.customFields.manageFieldset', 'Manage fields')
   const fieldsetDialogTitle = t('entities.customFields.manageDialogTitle', 'Edit custom fields')
   const fieldsetDialogUnavailable = t('entities.customFields.manageDialogUnavailable', 'Field definitions page is unavailable.')
-  const deleteConfirmMessage = t('ui.forms.confirmDelete')
+  const hasVersionHistory = Boolean(versionHistory?.resourceKind)
+  const deleteConfirmMessage = hasVersionHistory
+    ? t('ui.forms.confirmDeleteWithUndo', 'Delete this record? You can restore it using version history.')
+    : t('ui.forms.confirmDelete')
   const deleteSuccessMessage = t('ui.forms.flash.deleteSuccess')
   const deleteErrorMessage = t('ui.forms.flash.deleteError')
   const saveErrorMessage = t('ui.forms.flash.saveError')
@@ -477,7 +506,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     valuesRef.current = values
   }, [values])
-  
+
+  React.useEffect(() => {
+    if (embedded) return
+    const snapshot = initialValuesSnapshotRef.current
+    if (!snapshot) return
+    const currentSnapshot = JSON.stringify(values)
+    const isDirty = currentSnapshot !== snapshot
+    if (!isDirty) return
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => {
+      window.removeEventListener('beforeunload', handler)
+    }
+  }, [embedded, values])
+
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,
     triggerOnLoad: true,
@@ -2142,14 +2187,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           <DialogTitle>{fieldsetDialogTitle}</DialogTitle>
         </DialogHeader>
         {fieldsetEditorTarget ? (
-          <FieldDefinitionsManager
-            ref={fieldsetManagerRef}
-            entityId={fieldsetEditorTarget.entityId}
-            initialFieldset={fieldsetEditorTarget.fieldsetCode}
-            fullEditorHref={fieldsetEditorFullHref ?? undefined}
-            onSaved={refreshCustomFieldDefinitions}
+          <FieldDefinitionsManagerErrorBoundary
             onClose={() => setFieldsetEditorTarget(null)}
-          />
+            unavailableMessage={fieldsetDialogUnavailable}
+          >
+            <FieldDefinitionsManager
+              ref={fieldsetManagerRef}
+              entityId={fieldsetEditorTarget.entityId}
+              initialFieldset={fieldsetEditorTarget.fieldsetCode}
+              fullEditorHref={fieldsetEditorFullHref ?? undefined}
+              onSaved={refreshCustomFieldDefinitions}
+              onClose={() => setFieldsetEditorTarget(null)}
+            />
+          </FieldDefinitionsManagerErrorBoundary>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground px-4 text-center">
             {fieldsetDialogUnavailable}
@@ -2313,7 +2363,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               <div className="space-y-3">{col1Content}</div>
               {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
             </div>
-            {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+            {formError && !Object.keys(errors).length ? <div className="text-sm text-red-600">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}
@@ -2407,7 +2457,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 )
               })}
             </div>
-            {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
+            {formError && !Object.keys(errors).length ? <div className="text-sm text-red-600">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}

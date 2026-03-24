@@ -153,6 +153,7 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
       onChange={onChange}
       isSubmitting={isSubmitting}
       canEdit={!!entityId}
+      autoSave
       loadOptions={fetchTags}
       createTag={createTag}
       onSave={handlePersist}

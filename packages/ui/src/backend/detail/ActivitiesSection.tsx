@@ -917,12 +917,6 @@ function ActivitiesSectionImpl<C = unknown>({
         await dataAdapter.create({ ...payload, context: dataContext })
         await loadActivities()
         flash(t('success', 'Activity saved'), 'success')
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : t('error', 'Failed to save activity')
-        throw err instanceof Error ? err : new Error(message)
       } finally {
         setPendingAction(null)
         popLoading()
@@ -954,12 +948,6 @@ function ActivitiesSectionImpl<C = unknown>({
         await dataAdapter.update({ id: activityId, patch, context: dataContext })
         await loadActivities()
         flash(t('updateSuccess', 'Activity updated.'), 'success')
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : t('error', 'Failed to save activity')
-        throw err instanceof Error ? err : new Error(message)
       } finally {
         setPendingAction(null)
         popLoading()
@@ -988,7 +976,6 @@ function ActivitiesSectionImpl<C = unknown>({
             ? err.message
             : t('deleteError', 'Failed to delete activity.')
         flash(message, 'error')
-        throw err instanceof Error ? err : new Error(message)
       } finally {
         setPendingAction(null)
       }
@@ -998,14 +985,20 @@ function ActivitiesSectionImpl<C = unknown>({
 
   const handleDialogSubmit = React.useCallback(
     async (payload: ActivityFormSubmitPayload) => {
-      if (dialogMode === 'edit' && editingActivityId) {
-        await handleUpdate(editingActivityId, payload)
-      } else {
-        await handleCreate(payload)
+      try {
+        if (dialogMode === 'edit' && editingActivityId) {
+          await handleUpdate(editingActivityId, payload)
+        } else {
+          await handleCreate(payload)
+        }
+        closeDialog()
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : t('error', 'Failed to save activity')
+        flash(message, 'error')
       }
-      closeDialog()
     },
-    [closeDialog, dialogMode, editingActivityId, handleCreate, handleUpdate],
+    [closeDialog, dialogMode, editingActivityId, handleCreate, handleUpdate, t],
   )
 
   React.useEffect(() => {

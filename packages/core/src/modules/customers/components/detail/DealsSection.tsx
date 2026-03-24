@@ -742,14 +742,22 @@ export function DealsSection({
 
   const handleDialogSubmit = React.useCallback(
     async (payload: DealFormSubmitPayload) => {
-      if (dialogMode === 'edit' && editingDealId) {
-        await handleUpdate(editingDealId, payload)
-      } else {
-        await handleCreate(payload)
+      try {
+        if (dialogMode === 'edit' && editingDealId) {
+          await handleUpdate(editingDealId, payload)
+        } else {
+          await handleCreate(payload)
+        }
+        closeDialog()
+      } catch (err) {
+        const message =
+          err instanceof Error
+            ? err.message
+            : translate('customers.people.detail.deals.error', 'Failed to save deal.')
+        flash(message, 'error')
       }
-      closeDialog()
     },
-    [closeDialog, dialogMode, editingDealId, handleCreate, handleUpdate],
+    [closeDialog, dialogMode, editingDealId, handleCreate, handleUpdate, translate],
   )
 
   React.useEffect(() => {

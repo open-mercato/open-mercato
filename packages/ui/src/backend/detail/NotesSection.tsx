@@ -574,7 +574,10 @@ function NotesSectionImpl<C = unknown>({
         return false
       }
       const body = input.body.trim()
-      if (!body) {
+      const strippedBody = body
+        .replace(/^[\s#\-*>_~`|+\\\n\r]+$/gm, '')
+        .replace(/\s+/g, '')
+      if (!body || !strippedBody.length) {
         focusComposer()
         return false
       }

@@ -34,7 +34,7 @@ const baseEntitySchema = {
     .email()
     .max(320)
     .optional(),
-  primaryPhone: z.string().trim().max(50).optional(),
+  primaryPhone: z.string().trim().max(50).regex(/^\+?[\d\s\-().]{3,50}$/, 'customers.people.form.primaryPhone.invalid').optional(),
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
   source: z.string().trim().max(150).optional(),

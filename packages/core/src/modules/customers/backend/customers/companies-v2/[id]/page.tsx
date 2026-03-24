@@ -378,6 +378,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     entityId={companyId}
                     useCanonicalInteractions={useCanonicalInteractions}
                     runGuardedMutation={runMutationWithContext}
+                    onDataRefresh={loadData}
                     addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
                     emptyState={{
                       title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
@@ -444,6 +445,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     initialTasks={data.todos}
                     useCanonicalInteractions={useCanonicalInteractions}
                     runGuardedMutation={runMutationWithContext}
+                    onDataRefresh={loadData}
                     emptyLabel={t('customers.companies.detail.empty.todos', 'No tasks linked to this company.')}
                     addActionLabel={t('customers.companies.detail.tasks.add', 'Add task')}
                     emptyState={{
