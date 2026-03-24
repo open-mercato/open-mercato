@@ -87,9 +87,30 @@ export const injectionTable = {
 
 Rendering semantics:
 
-- `kind: 'tab'` adds an extra tab next to Credentials, Version, Health, and Logs
+- `kind: 'tab'` adds a provider tab to the integration detail page
 - `kind: 'group'` renders a card section above the tabs
 - `kind: 'stack'` renders an inline section above the grouped cards/tabs
+
+Built-in tab visibility is now provider-configurable through `detailPage.hiddenTabs`. This lets a provider hide stock sections such as `credentials`, `health`, or `logs` when they are not meaningful, then replace them with provider-specific tabs backed by injected widgets.
+
+Example:
+
+```ts
+export const integration = {
+  id: 'webhook_custom',
+  title: 'Custom Webhooks',
+  detailPage: {
+    widgetSpotId: buildIntegrationDetailWidgetSpotId('webhook_custom'),
+    hiddenTabs: ['credentials', 'health', 'logs'],
+  },
+} satisfies IntegrationDefinition
+```
+
+That pattern is useful when:
+
+- credentials are better presented as a provider-owned settings surface
+- health checks do not apply to the provider
+- the generic integration log should be replaced by an aggregated provider-specific log view
 
 Compatibility note:
 - Existing providers that still use the legacy `integrations.detail:tabs` spot continue to work
@@ -219,3 +240,7 @@ For phase A/B coverage, keep:
 - Integration tests for `integrations` APIs (list/detail/state/version/credentials/logs).
 - Integration tests for `data_sync` APIs (validate/run/detail/list/cancel/retry).
 - Unit tests for state/credentials services and adapter-driven run lifecycle helpers.
+
+## Publishing integration modules
+
+Once your integration module is tested and production-ready, you can publish it to the [Official Modules repository](./official-modules). This gives your integration discoverability, core-team review, and one-command installation for other Open Mercato users. See [Official Modules — Publishing your module](./official-modules#publishing-your-module) for details.

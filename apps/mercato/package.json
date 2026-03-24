@@ -41,6 +41,7 @@
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/sync-akeneo": "workspace:*",
     "@open-mercato/ui": "workspace:*",
+    "@open-mercato/webhooks": "workspace:*",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-label": "^2.1.8",

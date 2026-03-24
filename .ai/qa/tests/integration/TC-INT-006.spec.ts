@@ -6,8 +6,6 @@ import { apiRequest, getAuthToken } from '../helpers/api';
  * TC-INT-006: Embedded Settings Headings on Resource and Team Member Detail
  */
 test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Member Detail', () => {
-  test.describe.configure({ timeout: 120_000 });
-
   test('should render embedded settings sections without the old edit-form header rows', async ({ page, request }) => {
     test.slow();
     const stamp = Date.now();

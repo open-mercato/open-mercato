@@ -50,8 +50,6 @@ async function readJsonSafe<T>(response: { text(): Promise<string> }): Promise<T
  * 2) switch the selected widget on in Dashboard customize mode.
  */
 test.describe('TC-ADMIN-011: User Widget Override And Dashboard Enablement', () => {
-  test.describe.configure({ timeout: 120_000 });
-
   test('should enable widgets for current admin user and switch them on in dashboard', async ({ page, request }) => {
     test.slow();
 

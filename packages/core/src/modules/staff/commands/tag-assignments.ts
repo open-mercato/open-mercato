@@ -11,6 +11,7 @@ import {
   staffTeamMemberTagAssignmentSchema,
   type StaffTeamMemberTagAssignmentInput,
 } from '../data/validators'
+import { staffTeamMemberCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 
 type TeamMemberTagAssignmentSnapshot = {
@@ -70,6 +71,7 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
 
     return { memberId: member.id }
@@ -121,6 +123,7 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
   },
 }
@@ -161,6 +164,7 @@ const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentI
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
 
     return { memberId: member.id }
@@ -212,6 +216,7 @@ const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentI
         tenantId: member.tenantId,
         organizationId: member.organizationId,
       },
+      events: staffTeamMemberCrudEvents,
     })
   },
 }

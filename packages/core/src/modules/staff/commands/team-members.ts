@@ -16,6 +16,7 @@ import {
   type StaffTeamMemberCreateInput,
   type StaffTeamMemberUpdateInput,
 } from '../data/validators'
+import { staffTeamMemberCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -184,6 +185,7 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      events: staffTeamMemberCrudEvents,
       indexer: teamMemberCrudIndexer,
     })
 
@@ -237,6 +239,7 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
           organizationId: member.organizationId,
           tenantId: member.tenantId,
         },
+        events: staffTeamMemberCrudEvents,
         indexer: teamMemberCrudIndexer,
       })
     }
@@ -311,6 +314,7 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      events: staffTeamMemberCrudEvents,
       indexer: teamMemberCrudIndexer,
     })
 
@@ -398,6 +402,7 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      events: staffTeamMemberCrudEvents,
       indexer: teamMemberCrudIndexer,
     })
   },
@@ -442,6 +447,7 @@ const deleteTeamMemberCommand: CommandHandler<{ id?: string }, { memberId: strin
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      events: staffTeamMemberCrudEvents,
       indexer: teamMemberCrudIndexer,
     })
 
@@ -525,6 +531,7 @@ const deleteTeamMemberCommand: CommandHandler<{ id?: string }, { memberId: strin
         organizationId: member.organizationId,
         tenantId: member.tenantId,
       },
+      events: staffTeamMemberCrudEvents,
       indexer: teamMemberCrudIndexer,
     })
   },

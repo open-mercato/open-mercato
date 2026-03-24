@@ -5,7 +5,9 @@ import {
   registerWebhookHandler,
 } from '@open-mercato/shared/modules/payment_gateways/types'
 import { registerShippingAdapter } from '@open-mercato/core/modules/shipping_carriers/lib/adapter-registry'
+import { registerWebhookEndpointAdapter } from '@open-mercato/webhooks/modules/webhooks/lib/adapter-registry'
 import { mockGatewayAdapter } from './lib/mock-gateway-adapter'
+import { mockWebhookEndpointAdapter } from './lib/mock-webhook-endpoint-adapter'
 import { mockShippingAdapter } from './lib/mock-shipping-adapter'
 
 function readMockWebhookSessionId(payload: Record<string, unknown> | null): string | null {
@@ -109,4 +111,7 @@ export function register(container: AppContainer) {
 
   // Register mock shipping adapter for carrier testing (no real credentials needed)
   registerShippingAdapter(mockShippingAdapter)
+
+  // Register mock inbound webhook adapter for webhooks module integration tests
+  registerWebhookEndpointAdapter(mockWebhookEndpointAdapter)
 }

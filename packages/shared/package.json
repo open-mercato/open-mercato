@@ -39,6 +39,14 @@
       "types": "./src/lib/bootstrap/dynamicLoader.ts",
       "default": "./dist/lib/bootstrap/dynamicLoader.js"
     },
+    "./lib/webhooks": {
+      "types": "./src/lib/webhooks/index.ts",
+      "default": "./dist/lib/webhooks/index.js"
+    },
+    "./lib/events/patterns": {
+      "types": "./src/lib/events/patterns.ts",
+      "default": "./dist/lib/events/patterns.js"
+    },
     "./modules/generators": {
       "types": "./src/modules/generators/index.ts",
       "default": "./dist/modules/generators/index.js"
