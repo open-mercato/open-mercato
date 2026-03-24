@@ -1,9 +1,11 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { clearPaymentGatewayDescriptors, registerPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CheckoutLink, CheckoutTransaction } from '../../data/entities'
 import {
   applyTerminalTransactionState,
   buildConsentProof,
+  ensureUniqueSlug,
   getCheckoutCustomerFieldSemanticType,
   pickExplicitParsedOverrides,
   resolveLoadedCheckoutCustomFields,
@@ -79,6 +81,30 @@ describe('checkout utils', () => {
       amount: 99.99,
       currencyCode: 'USD',
       selectedPriceItemId: null,
+    })
+  })
+
+  it('ensures slug uniqueness globally even when another tenant already uses the requested slug', async () => {
+    const findOne = jest
+      .fn()
+      .mockResolvedValueOnce({ id: 'other-tenant-link', slug: 'shared-slug' })
+      .mockResolvedValueOnce(null)
+
+    const slug = await ensureUniqueSlug(
+      { findOne } as unknown as EntityManager,
+      { tenantId: 'tenant_2', organizationId: 'org_2' },
+      'shared-slug',
+      'Shared slug',
+    )
+
+    expect(slug).toBe('shared-slug-2')
+    expect(findOne).toHaveBeenNthCalledWith(1, CheckoutLink, {
+      slug: 'shared-slug',
+      deletedAt: null,
+    })
+    expect(findOne).toHaveBeenNthCalledWith(2, CheckoutLink, {
+      slug: 'shared-slug-2',
+      deletedAt: null,
     })
   })
 

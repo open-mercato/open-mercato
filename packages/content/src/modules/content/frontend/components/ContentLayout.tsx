@@ -28,7 +28,6 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
               alt="Open Mercato logo"
               width={32}
               height={32}
-              className="dark:invert"
               priority
             />
             <span className="text-base font-semibold tracking-tight">Open Mercato</span>
@@ -83,11 +82,12 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
                 className={cn(
                   'prose prose-lg prose-slate max-w-none dark:prose-invert',
                   'prose-headings:font-semibold prose-headings:text-foreground',
-                  'prose-h2:mt-10 prose-h2:mb-4 prose-h2:text-2xl prose-h2:border-b prose-h2:border-border prose-h2:pb-3',
-                  'prose-h3:mt-6 prose-h3:mb-3 prose-h3:text-lg',
-                  'prose-p:leading-relaxed prose-p:mb-4',
-                  'prose-ul:my-4 prose-li:my-1 prose-li:marker:text-muted-foreground',
                   'prose-a:font-medium prose-a:text-primary prose-a:underline',
+                  'prose-li:marker:text-muted-foreground',
+                  '[&_h2]:mt-12 [&_h2]:mb-5 [&_h2]:text-2xl [&_h2]:border-b [&_h2]:border-border [&_h2]:pb-3',
+                  '[&_h3]:mt-8 [&_h3]:mb-3 [&_h3]:text-xl',
+                  '[&_p]:mb-5 [&_p]:leading-relaxed [&_p+p]:mt-6',
+                  '[&_ul]:my-5 [&_ol]:my-5 [&_li]:my-1.5',
                 )}
               >
                 {children}
@@ -104,7 +104,7 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
             className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground"
             aria-label="Open Mercato"
           >
-            <Image src="/open-mercato.svg" alt="Open Mercato logo" width={28} height={28} className="dark:invert" />
+            <Image src="/open-mercato.svg" alt="Open Mercato logo" width={28} height={28} />
             <span className="font-medium text-foreground">Open Mercato</span>
           </Link>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">

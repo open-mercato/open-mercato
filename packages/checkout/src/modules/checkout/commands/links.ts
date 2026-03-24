@@ -47,6 +47,22 @@ type CheckoutLinkUndoPayload = {
   after?: CheckoutLinkSnapshot | null
 }
 
+async function resolveRestoredLinkSlug(
+  em: EntityManager,
+  snapshot: CheckoutLinkSnapshot,
+): Promise<string> {
+  return ensureUniqueSlug(
+    em,
+    {
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+    },
+    snapshot.slug,
+    snapshot.title ?? snapshot.name,
+    snapshot.id,
+  )
+}
+
 const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; slug: string }> = {
   id: 'checkout.link.create',
   async execute(rawInput, ctx) {
@@ -315,6 +331,7 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
     const link = await em.findOne(CheckoutLink, { id: before.id, deletedAt: null })
     if (!link) return
     restoreLinkFromSnapshot(link, before)
+    link.slug = await resolveRestoredLinkSlug(em, before)
     await em.flush()
     const reset = buildCustomFieldResetMap(before.custom, after?.custom)
     if (Object.keys(reset).length) {
@@ -407,8 +424,12 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
     let link = await em.findOne(CheckoutLink, { id: before.id })
     if (link) {
       restoreLinkFromSnapshot(link, before)
+      link.slug = await resolveRestoredLinkSlug(em, before)
     } else {
-      link = em.create(CheckoutLink, createLinkFromSnapshot(before))
+      link = em.create(CheckoutLink, {
+        ...createLinkFromSnapshot(before),
+        slug: await resolveRestoredLinkSlug(em, before),
+      })
       em.persist(link)
     }
     await em.flush()

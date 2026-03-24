@@ -1,5 +1,4 @@
 import { cookies, headers } from 'next/headers'
-import Script from 'next/script'
 import type { ReactNode } from 'react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
@@ -388,7 +387,6 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   return (
     <>
-      <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
       <I18nProvider locale={locale} dict={dict}>
         <AiAssistantIntegration
           tenantId={auth?.tenantId ?? null}

@@ -94,7 +94,7 @@ function TenantAwareOrganizationSelectInput({
       onChange={handleChange}
       required
       includeEmptyOption
-      className="w-full h-9 rounded border px-2 text-sm"
+      className="w-full h-9 rounded border pl-2 pr-7 text-sm truncate"
       includeInactiveIds={includeInactiveIds}
       tenantId={tenantId}
     />
@@ -249,7 +249,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
                 setAclData({ isSuperAdmin: false, features: [], organizations: null })
               }}
               includeEmptyOption
-              className="w-full h-9 rounded border px-2 text-sm"
+              className="w-full h-9 rounded border pl-2 pr-7 text-sm truncate"
               required
               tenants={preloadedTenants}
             />
