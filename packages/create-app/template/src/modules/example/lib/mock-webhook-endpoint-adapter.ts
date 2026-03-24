@@ -17,10 +17,9 @@ export const mockWebhookEndpointAdapter: WebhookEndpointAdapter = {
     }
 
     const payload = parseJsonBody(input.body)
-    const eventType =
-      typeof payload.type === 'string' && payload.type.trim().length > 0
-        ? payload.type
-        : 'mock.inbound.received'
+    const eventType = typeof payload.type === 'string' && payload.type.trim().length > 0
+      ? payload.type
+      : 'mock.inbound.received'
 
     return {
       eventType,
