@@ -377,7 +377,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
             tenants={tenantSelectOptions}
             fetchOnMount={false}
             includeEmptyOption={false}
-            className="h-9 rounded border px-2 text-sm"
+            className="h-9 rounded border pl-2 pr-7 text-sm truncate"
             aria-label={t('organizationSwitcher.tenantLabel', 'Tenant')}
           />
         </>
@@ -395,7 +395,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
           fetchOnMount={false}
           includeAllOption
           aria-label={t('organizationSwitcher.label')}
-          className="h-9 rounded border px-2 text-sm"
+          className="h-9 rounded border pl-2 pr-7 text-sm truncate"
         />
       ) : (
         <span className="text-xs text-muted-foreground">{t('organizationSwitcher.empty')}</span>

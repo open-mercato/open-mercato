@@ -8,6 +8,16 @@ Recurring patterns and mistakes to avoid. Review at session start.
 
 Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.
 
+## Standardize record-not-found as a dedicated page state in backend UI
+
+**Context**: Record-backed backend pages evolved with mixed missing-record patterns. Some pages used `ErrorMessage`, some rendered custom centered `<div>` markup with plain text and a button, and some collapsed `notFound` and generic load failures into the same branch.
+
+**Problem**: The UX became inconsistent across products, customers, auth, resources, sales, and similar modules. In some pages the missing-record path still lived too close to the form/detail rendering path, making it easy to keep rendering page chrome or controls when the record was gone.
+
+**Rule**: For any record-backed backend detail or edit page, model `notFound` as a dedicated page state separate from generic `error`. When the requested record does not exist, return early and render a page-level state built on `ErrorMessage`, with a clear recovery action such as "Back to list". Do not render `CrudForm`, detail sections, tabs, or record actions in the not-found branch.
+
+**Applies to**: `packages/ui`, `packages/ui/src/backend`, and any backend `[id]` page in `packages/core/src/modules/**/backend/**`.
+
 ## Avoid identity-map stale snapshots in command logs
 
 **Context**: Command `buildLog()` in multiple modules loaded the "after" snapshot using the same non-forked `EntityManager` used earlier in `prepare()`. MikroORM's identity map returned cached entities, so `snapshotAfter` matched `snapshotBefore`.
@@ -37,6 +47,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any change to shared bootstrap/layout shell behavior in `apps/mercato/src/app/**` must include a sync review and required updates in matching `packages/create-app/template/src/app/**` and dependent template components.
 
 **Applies to**: Root layout, backend layout, global providers, header/sidebar wiring, and related template-only wrapper components.
+
+## Keep standalone template module lists aligned with template package dependencies
+
+**Context**: The standalone app template enabled `{ id: 'webhooks', from: '@open-mercato/webhooks' }` in `packages/create-app/template/src/modules.ts`, but `packages/create-app/template/package.json.template` did not install `@open-mercato/webhooks`.
+
+**Problem**: `yarn install` succeeded, but `mercato generate` failed later because the generator resolved a package-backed module that was never installed in the standalone app.
+
+**Rule**: Any time a package-backed module is added or kept enabled in `packages/create-app/template/src/modules.ts`, verify the matching npm package exists in `packages/create-app/template/package.json.template`. Review the template lockfile in the same change whenever dependency shape changes.
+
+**Applies to**: `packages/create-app/template/src/modules.ts`, `packages/create-app/template/package.json.template`, template lockfiles, and standalone app smoke tests.
 
 ## Store global event bus in `globalThis` to survive module duplication in dev
 
@@ -368,6 +388,45 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/core/src/modules/customers/components/detail/**/*`, customer detail pages, and any future backend section that performs manual writes outside `CrudForm`.
 
+## Workspace packages with backend pages must build and export deep TSX entrypoints
+
+**Context**: The new `@open-mercato/webhooks` workspace package exposed backend pages through generated imports like `@open-mercato/webhooks/modules/webhooks/backend/webhooks/page`, but the package build only compiled `src/**/*.ts` and the export map stopped before the deepest generated paths.
+
+**Problem**: `yarn build:app` failed even though generation succeeded, because the generated app imported real package entrypoints that were neither emitted to `dist/` nor resolvable through `package.json` exports.
+
+**Rule**: Any workspace package that contributes auto-discovered backend/frontend pages must compile both `.ts` and `.tsx` sources into `dist/`, and its export map must cover the deepest generated import paths used by `modules.generated.ts`.
+
+**Applies to**: `packages/webhooks/build.mjs`, `packages/webhooks/package.json`, and future feature packages that expose generated page modules.
+
+## MikroORM string defaults must be plain values, not pre-quoted SQL fragments
+
+**Context**: The webhooks module declared text defaults as `"'pending'"`, `"'POST'"`, and `"'http'"` in entity metadata.
+
+**Problem**: MikroORM treated those values as literal strings and generated migration SQL with doubled quotes like `default ''pending''`, which broke `yarn initialize` when PostgreSQL tried to create the tables.
+
+**Rule**: For `@Property(... default: ...)` on string/text columns, pass the plain value such as `'pending'` or `'POST'`. Use `defaultRaw` only when you intentionally need a database expression.
+
+**Applies to**: `packages/webhooks/src/modules/webhooks/data/entities.ts` and future MikroORM entities with string defaults.
+
+## Client injection hooks must tolerate late registry registration
+
+**Context**: The integrations detail page relied on provider-injected tabs for webhook settings and aggregated logs. In the browser, generated injection tables and widgets were present, but some pages could still render without injected content on the first client pass.
+
+**Problem**: `useInjectionWidgets()` and `useInjectionSpotEvents()` could read the injection registry before client bootstrap finished registering generated tables/widgets, cache an empty result, and never retry. That left valid widgets invisible until a hard refresh or unrelated rerender.
+
+**Rule**: Client-side injection hooks must react to registry registration changes. When bootstrap registers core injection widgets/tables, invalidate loader caches and notify hooks so they reload instead of permanently caching an empty registry snapshot.
+
+**Applies to**: `packages/shared/src/modules/widgets/injection-loader.ts`, `packages/ui/src/backend/injection/InjectionSpot.tsx`, and any future client hook that reads generated registries during hydration.
+
+## New shared deep import paths should get explicit export-map entries
+
+**Context**: A new shared utility under `@open-mercato/shared/lib/events/patterns` built correctly, but sibling workspace tests failed to resolve it through the package name.
+
+**Problem**: Generic wildcard export rules are not always enough for every tool in the workspace, especially test runners resolving package subpaths across linked workspaces. That turns a valid refactor into a package-resolution failure.
+
+**Rule**: When adding a new shared utility intended for cross-package imports, add an explicit `package.json` export entry for the new subpath instead of relying only on broad wildcard export patterns.
+
+**Applies to**: `packages/shared/package.json` and future cross-package utilities added under new `@open-mercato/shared/lib/*` paths.
 ## Use `safeExtend()` when composing refined Zod object schemas
 
 **Context**: Checkout pay-link validators extended a schema that already contained `superRefine(...)` rules.

@@ -1,5 +1,4 @@
 import { cookies, headers } from 'next/headers'
-import Script from 'next/script'
 import type { ReactNode } from 'react'
 import { modules } from '@/.mercato/generated/modules.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
@@ -36,7 +35,9 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { profileSections, profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageInjectionBoundary'
+import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
 import { AiAssistantIntegration, AiChatHeaderButton } from '@open-mercato/ai-assistant/frontend'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 
@@ -372,6 +373,7 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   const mobileSidebarContent = <OrganizationSwitcher compact />
 
+  const demoModeEnabled = parseBooleanWithDefault(process.env.DEMO_MODE, true)
   const deployEnv = process.env.DEPLOY_ENV
   const baseProductName = translate('appShell.productName', 'Open Mercato')
   const productName = deployEnv && deployEnv !== 'local'
@@ -386,7 +388,6 @@ export default async function BackendLayout({ children, params }: { children: Re
 
   return (
     <>
-      <Script async src="https://w.appzi.io/w.js?token=TtIV6" strategy="afterInteractive" />
       <I18nProvider locale={locale} dict={dict}>
         <AiAssistantIntegration
           tenantId={auth?.tenantId ?? null}
@@ -414,6 +415,7 @@ export default async function BackendLayout({ children, params }: { children: Re
             <PageInjectionBoundary path={path} context={injectionContext}>
               {children}
             </PageInjectionBoundary>
+            {demoModeEnabled ? <DemoFeedbackWidget demoModeEnabled={demoModeEnabled} /> : null}
           </AppShell>
         </AiAssistantIntegration>
       </I18nProvider>

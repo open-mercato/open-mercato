@@ -385,7 +385,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               productTaxRate,
             })
             flash(t('catalog.variants.form.createSuccess', 'Variant created.'), 'success')
-            router.push(`/backend/catalog/products/${productId}/variants/${variantId}`)
+            router.push(`/backend/catalog/products/${productId}#variants`)
           }}
         />
       </PageBody>

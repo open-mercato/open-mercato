@@ -37,8 +37,7 @@ export default function CreateWorkflowDefinitionPage() {
       throw new Error(error.error || t('workflows.errors.createFailed'))
     }
 
-    const result = await response.json()
-    router.push(`/backend/definitions/${result.id}`)
+    router.push('/backend/definitions')
     router.refresh()
   }
 

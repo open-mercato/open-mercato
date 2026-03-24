@@ -10,6 +10,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
+    "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "generate": "mercato generate",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",
@@ -36,6 +37,7 @@
     "@open-mercato/search": "{{PACKAGE_VERSION}}",
     "@open-mercato/shared": "{{PACKAGE_VERSION}}",
     "@open-mercato/ui": "{{PACKAGE_VERSION}}",
+    "@open-mercato/webhooks": "{{PACKAGE_VERSION}}",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.0.5",
     "@radix-ui/react-label": "^2.1.8",
@@ -71,6 +73,7 @@
     "@open-mercato/sync-akeneo": "{{PACKAGE_VERSION}}"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.1.17",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.9.1",

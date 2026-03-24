@@ -8,9 +8,12 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '../DataTable'
+import { APP_EVENT_DOM_NAME } from '../injection/useAppEvent'
+
+const mockRouterRefresh = jest.fn()
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn(), refresh: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn(), refresh: mockRouterRefresh }),
 }))
 
 const useInjectionDataWidgetsMock = jest.fn()
@@ -60,6 +63,7 @@ describe('DataTable extensions', () => {
     ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
     useInjectionDataWidgetsMock.mockImplementation(() => ({ widgets: [], isLoading: false, error: null }))
     flashMock.mockReset()
+    mockRouterRefresh.mockReset()
   })
 
   it('renders injected columns from data-table extension surface', () => {
@@ -249,6 +253,63 @@ describe('DataTable extensions', () => {
       expect(flashMock).toHaveBeenCalledWith('Bulk action started. Track progress in the top bar.', 'success')
       expect(screen.queryByText('1 / 2')).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Delete all filtered' })).toBeEnabled()
+    } finally {
+      rendered.cleanupQueryClient()
+    }
+  })
+
+  it('refreshes the table when a tracked bulk action progress job completes', async () => {
+    const onExecute = jest.fn(async () => ({ ok: true, progressJobId: 'job-1' }))
+    const refreshButtonMock = jest.fn()
+
+    useInjectionDataWidgetsMock.mockImplementation((spotId: string) => {
+      if (spotId === 'data-table:customers.people:bulk-actions') {
+        return {
+          widgets: [
+            {
+              metadata: { id: 'test.bulk-actions' },
+              bulkActions: [
+                {
+                  id: 'bulk-delete-filtered',
+                  label: 'Delete all filtered',
+                  requiresSelection: false,
+                  onExecute,
+                },
+              ],
+            },
+          ],
+          isLoading: false,
+          error: null,
+        }
+      }
+      return { widgets: [], isLoading: false, error: null }
+    })
+
+    const rendered = renderTable({
+      columns: [{ accessorKey: 'name', header: 'Name' }],
+      data: [{ id: 'r1', name: 'Alice' }],
+      injectionSpotId: 'data-table:customers.people',
+      refreshButton: { label: 'Refresh', onRefresh: refreshButtonMock },
+    })
+
+    try {
+      fireEvent.click(screen.getByRole('button', { name: 'Delete all filtered' }))
+
+      await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1))
+      refreshButtonMock.mockClear()
+      mockRouterRefresh.mockClear()
+
+      window.dispatchEvent(new CustomEvent(APP_EVENT_DOM_NAME, {
+        detail: {
+          id: 'progress.job.completed',
+          payload: { jobId: 'job-1' },
+          timestamp: Date.now(),
+          organizationId: 'org-1',
+        },
+      }))
+
+      await waitFor(() => expect(refreshButtonMock).toHaveBeenCalledTimes(1))
+      expect(mockRouterRefresh).not.toHaveBeenCalled()
     } finally {
       rendered.cleanupQueryClient()
     }

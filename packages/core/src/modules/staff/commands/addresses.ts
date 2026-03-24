@@ -10,6 +10,7 @@ import {
   type StaffTeamMemberAddressCreateInput,
   type StaffTeamMemberAddressUpdateInput,
 } from '../data/validators'
+import { staffTeamMemberAddressCrudEvents } from '../lib/crud'
 import {
   ensureOrganizationScope,
   ensureTenantScope,
@@ -135,6 +136,7 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
         organizationId: address.organizationId,
         tenantId: address.tenantId,
       },
+      events: staffTeamMemberAddressCrudEvents,
       indexer: addressCrudIndexer,
     })
 
@@ -229,6 +231,7 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
         organizationId: address.organizationId,
         tenantId: address.tenantId,
       },
+      events: staffTeamMemberAddressCrudEvents,
       indexer: addressCrudIndexer,
     })
 
@@ -351,6 +354,7 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
         organizationId: address.organizationId,
         tenantId: address.tenantId,
       },
+      events: staffTeamMemberAddressCrudEvents,
       indexer: addressCrudIndexer,
     })
   },
@@ -385,7 +389,8 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: address.organizationId,
           tenantId: address.tenantId,
         },
-        indexer: addressCrudIndexer,
+        events: staffTeamMemberAddressCrudEvents,
+      indexer: addressCrudIndexer,
       })
       return { addressId: address.id }
     },
@@ -473,7 +478,8 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: address.organizationId,
           tenantId: address.tenantId,
         },
-        indexer: addressCrudIndexer,
+        events: staffTeamMemberAddressCrudEvents,
+      indexer: addressCrudIndexer,
       })
     },
   }

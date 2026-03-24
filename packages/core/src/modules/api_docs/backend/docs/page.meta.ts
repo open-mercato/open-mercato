@@ -17,4 +17,5 @@ export const metadata = {
   pageGroupKey: 'backend.nav.developers',
   pageOrder: 1000,
   icon: bookIcon,
+  pageContext: 'settings' as const,
 }

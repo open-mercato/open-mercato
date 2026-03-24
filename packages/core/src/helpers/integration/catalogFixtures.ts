@@ -6,6 +6,13 @@ type ProductFixtureInput = {
   sku: string;
 };
 
+type VariantFixtureInput = {
+  productId: string;
+  name: string;
+  sku: string;
+  isDefault?: boolean;
+};
+
 export async function createProductFixture(
   request: APIRequestContext,
   token: string,
@@ -21,6 +28,27 @@ export async function createProductFixture(
     },
   });
   expect(response.ok(), `Failed to create product fixture: ${response.status()}`).toBeTruthy();
+  const body = (await response.json()) as { id?: string };
+  expect(typeof body.id === 'string' && body.id.length > 0).toBeTruthy();
+  return body.id as string;
+}
+
+export async function createVariantFixture(
+  request: APIRequestContext,
+  token: string,
+  input: VariantFixtureInput,
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/catalog/variants', {
+    token,
+    data: {
+      productId: input.productId,
+      name: input.name,
+      sku: input.sku,
+      isDefault: input.isDefault ?? false,
+      isActive: true,
+    },
+  });
+  expect(response.ok(), `Failed to create variant fixture: ${response.status()}`).toBeTruthy();
   const body = (await response.json()) as { id?: string };
   expect(typeof body.id === 'string' && body.id.length > 0).toBeTruthy();
   return body.id as string;
@@ -70,4 +98,3 @@ export async function deleteCatalogProductIfExists(
     return;
   }
 }
-

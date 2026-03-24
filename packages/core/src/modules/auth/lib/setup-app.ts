@@ -453,12 +453,57 @@ async function ensureDefaultRoleAcls(
     await ensureRoleAclFor(em, employeeRole, tenantId, employeeFeatures)
   }
 
-  // Seed ACLs for custom roles defined by app modules
+  // Seed ACLs for custom roles defined by app modules.
+  // NOTE: Custom roles may not exist yet if they are created in seedDefaults
+  // (which runs after this function). In that case, use ensureCustomRoleAcls()
+  // after seedDefaults to pick them up.
   for (const [roleName, features] of customRoleFeatures) {
     const role = await findRoleByName(em, roleName, roleTenantId)
     if (role) {
       await ensureRoleAclFor(em, role, tenantId, features)
     }
+  }
+}
+
+/**
+ * Seed ACLs for custom roles defined in module defaultRoleFeatures.
+ * Call this AFTER seedDefaults to pick up roles created by app modules.
+ * Safe to call multiple times — ensureRoleAclFor merges features idempotently.
+ */
+export async function ensureCustomRoleAcls(
+  em: EntityManager,
+  tenantId: string,
+  modules?: Module[],
+): Promise<void> {
+  const resolvedModules = modules ?? tryGetModules()
+  const roleTenantId = normalizeTenantId(tenantId) ?? null
+  const builtInRoles = ['superadmin', 'admin', 'employee']
+  const customRoleFeatures = new Map<string, string[]>()
+
+  for (const mod of resolvedModules) {
+    const roleFeatures = mod.setup?.defaultRoleFeatures
+    if (!roleFeatures) continue
+    for (const [roleName, features] of Object.entries(roleFeatures)) {
+      if (builtInRoles.includes(roleName)) continue
+      if (!Array.isArray(features)) continue
+      const existing = customRoleFeatures.get(roleName) ?? []
+      existing.push(...features)
+      customRoleFeatures.set(roleName, existing)
+    }
+  }
+
+  if (customRoleFeatures.size === 0) return
+
+  let seeded = 0
+  for (const [roleName, features] of customRoleFeatures) {
+    const role = await findRoleByName(em, roleName, roleTenantId)
+    if (role) {
+      await ensureRoleAclFor(em, role, tenantId, features)
+      seeded++
+    }
+  }
+  if (seeded > 0) {
+    console.log(`✅ Seeded custom role ACLs (${seeded} roles)`)
   }
 }
 

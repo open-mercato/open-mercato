@@ -8,6 +8,7 @@ export type VerificationEmailCopy = {
   body: string
   cta: string
   expiry: string
+  marketingConsent: string
   footer: string
 }
 
@@ -45,6 +46,7 @@ export default function VerificationEmail({ verifyUrl, copy }: VerificationEmail
             </Button>
           </Section>
           <Text style={{ fontSize: '14px', color: '#64748b', marginBottom: '16px', lineHeight: '22px' }}>{copy.expiry}</Text>
+          <Text style={{ fontSize: '14px', color: '#64748b', marginBottom: '8px', lineHeight: '22px' }}>{copy.marketingConsent}</Text>
           <Hr style={{ borderColor: '#e2e8f0', margin: '24px 0' }} />
           <Text style={{ fontSize: '12px', color: '#94a3b8' }}>{copy.footer}</Text>
         </Container>

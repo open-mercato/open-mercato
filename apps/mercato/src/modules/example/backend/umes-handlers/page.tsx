@@ -72,9 +72,9 @@ export default function UmesHandlersPage() {
   const [draftTitle, setDraftTitle] = React.useState('display me')
   const [formSeed, setFormSeed] = React.useState({ nonce: 0, title: 'display me', note: '  draft note  ' })
   const [personId, setPersonId] = React.useState('')
-  const personIdRef = React.useRef(personId)
-  personIdRef.current = personId
+  const personIdInputRef = React.useRef<HTMLInputElement | null>(null)
   const [probeTodoTitle, setProbeTodoTitle] = React.useState('UMES enricher probe')
+  const probeTodoTitleInputRef = React.useRef<HTMLInputElement | null>(null)
   const [enricherProbeStatus, setEnricherProbeStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [enricherProbeError, setEnricherProbeError] = React.useState<string | null>(null)
   const [enricherProbeResult, setEnricherProbeResult] = React.useState<EnricherProbeResult | null>(null)
@@ -142,7 +142,7 @@ export default function UmesHandlersPage() {
     setEnricherProbeError(null)
     setEnricherProbeResult(null)
     try {
-      const title = probeTodoTitle.trim()
+      const title = (probeTodoTitleInputRef.current?.value ?? probeTodoTitle).trim()
       if (title.length > 0) {
         await apiCallOrThrow('/api/example/todos', {
           method: 'POST',
@@ -151,11 +151,13 @@ export default function UmesHandlersPage() {
         })
       }
 
-      const currentPersonId = personIdRef.current.trim()
+      const currentPersonId = (personIdInputRef.current?.value ?? personId).trim()
       const params = new URLSearchParams()
-      params.set('pageSize', '5')
       if (currentPersonId.length > 0) {
         params.set('id', currentPersonId)
+        params.set('pageSize', '1')
+      } else {
+        params.set('pageSize', '5')
       }
       const payload = await readApiResultOrThrow<CustomersResponse>(`/api/customers/people?${params.toString()}`)
       const items = readCustomerItems(payload)
@@ -492,6 +494,7 @@ export default function UmesHandlersPage() {
               <span>{t('example.umes.handlers.phaseD.fields.personId')}</span>
               <input
                 data-testid="phase-d-person-id"
+                ref={personIdInputRef}
                 value={personId}
                 onChange={(event) => setPersonId(event.target.value)}
                 className="h-9 rounded border border-input bg-background px-3 text-sm"
@@ -503,6 +506,7 @@ export default function UmesHandlersPage() {
               <span>{t('example.umes.handlers.phaseD.fields.probeTodoTitle')}</span>
               <input
                 data-testid="phase-d-probe-title"
+                ref={probeTodoTitleInputRef}
                 value={probeTodoTitle}
                 onChange={(event) => setProbeTodoTitle(event.target.value)}
                 className="h-9 rounded border border-input bg-background px-3 text-sm"

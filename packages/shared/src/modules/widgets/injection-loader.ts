@@ -44,8 +44,11 @@ type WidgetEntry = ModuleInjectionWidgetEntry & { moduleId: string }
 // Registration pattern for publishable packages
 let _coreInjectionWidgetEntries: ModuleInjectionWidgetEntry[] | null = null
 let _coreInjectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> | null = null
+let _injectionRegistryVersion = 0
 const GLOBAL_INJECTION_WIDGETS_KEY = '__openMercatoCoreInjectionWidgetEntries__'
 const GLOBAL_INJECTION_TABLES_KEY = '__openMercatoCoreInjectionTables__'
+const GLOBAL_INJECTION_REGISTRY_VERSION_KEY = '__openMercatoCoreInjectionRegistryVersion__'
+const INJECTION_REGISTRY_CHANGED_EVENT = '__openMercatoInjectionRegistryChanged__'
 
 function readGlobalInjectionWidgets(): ModuleInjectionWidgetEntry[] | null {
   try {
@@ -81,12 +84,42 @@ function writeGlobalInjectionTables(tables: Array<{ moduleId: string; table: Mod
   }
 }
 
+function readGlobalInjectionRegistryVersion(): number | null {
+  try {
+    const value = (globalThis as Record<string, unknown>)[GLOBAL_INJECTION_REGISTRY_VERSION_KEY]
+    return typeof value === 'number' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function writeGlobalInjectionRegistryVersion(version: number) {
+  try {
+    ;(globalThis as Record<string, unknown>)[GLOBAL_INJECTION_REGISTRY_VERSION_KEY] = version
+  } catch {
+    // ignore global assignment failures
+  }
+}
+
+function notifyInjectionRegistryChanged() {
+  _injectionRegistryVersion += 1
+  writeGlobalInjectionRegistryVersion(_injectionRegistryVersion)
+  invalidateInjectionWidgetCache()
+
+  if (typeof window === 'undefined') return
+
+  window.dispatchEvent(new CustomEvent(INJECTION_REGISTRY_CHANGED_EVENT, {
+    detail: { version: _injectionRegistryVersion },
+  }))
+}
+
 export function registerCoreInjectionWidgets(entries: ModuleInjectionWidgetEntry[]) {
   if (_coreInjectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
     console.debug('[Bootstrap] Core injection widgets re-registered (this may occur during HMR)')
   }
   _coreInjectionWidgetEntries = entries
   writeGlobalInjectionWidgets(entries)
+  notifyInjectionRegistryChanged()
 }
 
 export function getCoreInjectionWidgets(): ModuleInjectionWidgetEntry[] {
@@ -108,6 +141,25 @@ export function registerCoreInjectionTables(tables: Array<{ moduleId: string; ta
   }
   _coreInjectionTables = tables
   writeGlobalInjectionTables(tables)
+  notifyInjectionRegistryChanged()
+}
+
+export function getInjectionRegistryVersion(): number {
+  const globalVersion = readGlobalInjectionRegistryVersion()
+  if (globalVersion !== null) return globalVersion
+  return _injectionRegistryVersion
+}
+
+export function subscribeToInjectionRegistryChanges(listener: () => void): () => void {
+  if (typeof window === 'undefined') {
+    return () => {}
+  }
+
+  const handler = () => listener()
+  window.addEventListener(INJECTION_REGISTRY_CHANGED_EVENT, handler)
+  return () => {
+    window.removeEventListener(INJECTION_REGISTRY_CHANGED_EVENT, handler)
+  }
 }
 
 export function getCoreInjectionTables(): Array<{ moduleId: string; table: ModuleInjectionTable }> {

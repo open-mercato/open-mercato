@@ -269,7 +269,9 @@ export class CommandBus {
       }
     }
 
-    await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+    if (!effectiveOptions.skipCacheInvalidation) {
+      await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+    }
     await this.flushCrudSideEffects(effectiveOptions.ctx.container)
     return { result: finalResult, logEntry }
   }

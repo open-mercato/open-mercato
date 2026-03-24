@@ -95,6 +95,16 @@ export type QueueOptions<S extends QueueStrategyType> = S extends 'async'
   ? AsyncQueueOptions
   : LocalQueueOptions
 
+/**
+ * Optional job scheduling options.
+ */
+export type EnqueueOptions = {
+  /**
+   * Delay job execution by this many milliseconds.
+   */
+  delayMs?: number
+}
+
 // ============================================================================
 // Process Types
 // ============================================================================
@@ -136,9 +146,10 @@ export interface Queue<T = unknown> {
   /**
    * Add a job to the queue.
    * @param data - The job payload
+   * @param options - Optional scheduling options
    * @returns Promise resolving to the job ID
    */
-  enqueue(data: T): Promise<string>
+  enqueue(data: T, options?: EnqueueOptions): Promise<string>
 
   /**
    * Process jobs from the queue.

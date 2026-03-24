@@ -21,6 +21,7 @@ import {
   type StaffTeamMemberActivityCreateInput,
   type StaffTeamMemberActivityUpdateInput,
 } from '../data/validators'
+import { staffTeamMemberActivityCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -152,6 +153,7 @@ const createActivityCommand: CommandHandler<
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: staffTeamMemberActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -236,6 +238,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: staffTeamMemberActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -336,6 +339,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: staffTeamMemberActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -383,7 +387,8 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
-        indexer: activityCrudIndexer,
+        events: staffTeamMemberActivityCrudEvents,
+      indexer: activityCrudIndexer,
       })
       return { activityId: activity.id }
     },
@@ -453,7 +458,8 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
-        indexer: activityCrudIndexer,
+        events: staffTeamMemberActivityCrudEvents,
+      indexer: activityCrudIndexer,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, undefined)

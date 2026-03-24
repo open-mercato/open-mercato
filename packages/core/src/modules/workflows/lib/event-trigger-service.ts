@@ -8,6 +8,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { CacheService } from '@open-mercato/cache'
+import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import {
   WorkflowEventTrigger,
   WorkflowDefinition,
@@ -68,34 +69,6 @@ const TRIGGER_CACHE_TTL = 5 * 60 * 1000
 // ============================================================================
 // Pattern Matching
 // ============================================================================
-
-/**
- * Match an event name against a pattern.
- *
- * Supports:
- * - Exact match: `customers.people.created`
- * - Wildcard `*` matches single segment: `customers.*` matches `customers.people` but not `customers.people.created`
- * - Global wildcard: `*` alone matches all events
- */
-export function matchEventPattern(eventName: string, pattern: string): boolean {
-  // Global wildcard matches all events
-  if (pattern === '*') return true
-
-  // Exact match
-  if (pattern === eventName) return true
-
-  // No wildcards in pattern means we need exact match, which already failed
-  if (!pattern.includes('*')) return false
-
-  // Convert pattern to regex:
-  // - Escape regex special chars (except *)
-  // - Replace * with [^.]+ (match one or more non-dot chars)
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^.]+')
-  const regex = new RegExp(`^${regexPattern}$`)
-  return regex.test(eventName)
-}
 
 // ============================================================================
 // Filter Evaluation

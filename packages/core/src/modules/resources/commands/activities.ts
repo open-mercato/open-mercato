@@ -28,6 +28,7 @@ import {
   type ResourcesResourceActivityCreateInput,
   type ResourcesResourceActivityUpdateInput,
 } from '../data/validators'
+import { resourcesResourceActivityCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -151,6 +152,7 @@ const createActivityCommand: CommandHandler<ResourcesResourceActivityCreateInput
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: resourcesResourceActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -236,6 +238,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: resourcesResourceActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -324,6 +327,7 @@ const updateActivityCommand: CommandHandler<ResourcesResourceActivityUpdateInput
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: resourcesResourceActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -370,6 +374,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: resourcesResourceActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
     return { activityId: activity.id }
@@ -440,6 +445,7 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: resourcesResourceActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 

@@ -13,6 +13,7 @@ import {
   type ResourcesResourceCommentCreateInput,
   type ResourcesResourceCommentUpdateInput,
 } from '../data/validators'
+import { resourcesResourceCommentCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -91,6 +92,7 @@ const createCommentCommand: CommandHandler<
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
 
@@ -171,6 +173,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
 
@@ -250,6 +253,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
   },
@@ -283,6 +287,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
     return { commentId: comment.id }
@@ -347,6 +352,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
   },
