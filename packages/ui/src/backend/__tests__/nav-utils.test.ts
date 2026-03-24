@@ -1,6 +1,38 @@
 import { buildSettingsSections, convertToSectionNavGroups, type AdminNavItem } from '../utils/nav'
 
 describe('settings navigation helpers', () => {
+  it('includes only settings-context entries', () => {
+    const entries: AdminNavItem[] = [
+      {
+        group: 'System',
+        groupId: 'settings.sections.system',
+        groupKey: 'settings.sections.system',
+        groupDefaultName: 'System',
+        title: 'Audit Logs',
+        defaultTitle: 'Audit Logs',
+        href: '/backend/audit-logs',
+        enabled: true,
+        order: 10,
+        pageContext: 'settings',
+      },
+      {
+        group: 'Customers',
+        groupId: 'customers.nav.group',
+        groupDefaultName: 'Customers',
+        title: 'People',
+        defaultTitle: 'People',
+        href: '/backend/customers/people',
+        enabled: true,
+        order: 1,
+      },
+    ]
+
+    const sections = buildSettingsSections(entries, { system: 1 })
+
+    expect(sections).toHaveLength(1)
+    expect(sections[0].items.map((item) => item.href)).toEqual(['/backend/audit-logs'])
+  })
+
   it('preserves nested children for settings section items', () => {
     const entries: AdminNavItem[] = [
       {
