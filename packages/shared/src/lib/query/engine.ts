@@ -74,9 +74,32 @@ export function resolveEntityTableName(em: EntityManager | undefined, entity: En
         }
       } catch {}
     }
+
+    // Secondary lookup: search ORM metadata by candidate table names
+    const modulePrefix = parts[0] ?? ''
+    const candidateTables = [
+      `${modulePrefix}_${rawName}`,
+      pluralizeBaseName(rawName),
+      `${modulePrefix}_${pluralizeBaseName(rawName)}`,
+    ]
+    try {
+      const allMeta: any[] = metadata.getAll?.() ?? []
+      for (const meta of allMeta) {
+        if (meta?.tableName && candidateTables.includes(String(meta.tableName))) {
+          const tableName = String(meta.tableName)
+          entityTableCache.set(entity, tableName)
+          return tableName
+        }
+      }
+    } catch {}
   }
 
   const fallback = pluralizeBaseName(rawName || '')
+  console.warn(
+    `[QueryEngine] Could not resolve entity "${entity}" via ORM metadata. ` +
+    `Falling back to table name "${fallback}". ` +
+    `Ensure the entity ID segment matches the class name convention.`
+  )
   entityTableCache.set(entity, fallback)
   return fallback
 }

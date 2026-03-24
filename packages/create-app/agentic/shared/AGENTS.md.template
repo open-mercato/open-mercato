@@ -38,7 +38,7 @@ Match your task, then load the listed file(s) BEFORE writing code. A task may ma
 
 | Task | Load |
 |---|---|
-| Add/modify an entity, create migration | `.ai/guides/core.md` → Module Files, then `yarn db:generate` |
+| Add/modify an entity, create migration | `.ai/guides/core.md` → Module Files, then `yarn mercato db generate` |
 | Add a REST API endpoint | `.ai/guides/core.md` → API Routes |
 | Add a backend page | `.ai/guides/ui.md` → CrudForm / DataTable |
 | Add event subscribers or emit events | `.ai/guides/events.md` |
@@ -101,11 +101,11 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 ## Critical Conventions
 
 - After any module/entity change: `yarn generate`
-- After any entity edit: `yarn db:generate` (never hand-write migrations)
+- After any entity edit: `yarn mercato db generate` (never hand-write migrations)
 - NEVER edit `.mercato/generated/*` — auto-generated
 - NEVER edit `node_modules/@open-mercato/*` — eject instead
 - Custom modules use `from: '@app'` in `src/modules.ts`
-- Confirm migrations with user before `yarn db:migrate`
+- Confirm migrations with user before `yarn mercato db migrate`
 
 ## Naming Conventions
 
@@ -160,8 +160,8 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 | `yarn dev` | Start dev server |
 | `yarn generate` | Regenerate `.mercato/generated/` |
 | `yarn mercato module add <package>` | Install and enable an official module package |
-| `yarn db:generate` | Create migration for entity changes |
-| `yarn db:migrate` | Apply pending migrations |
+| `yarn mercato db generate` | Create migration for entity changes |
+| `yarn mercato db migrate` | Apply pending migrations |
 | `yarn initialize` | Bootstrap DB + first admin account |
 | `yarn build` | Build for production |
 | `yarn mercato eject <module>` | Copy a core module into `src/modules/` |
