@@ -394,6 +394,8 @@ Every module there:
 
 Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
 
+[![Watch: Official Modules](https://img.youtube.com/vi/alPsIVq7PKo/maxresdefault.jpg)](https://www.youtube.com/watch?v=alPsIVq7PKo)
+
 ### VPS Deployment
 
 [![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
