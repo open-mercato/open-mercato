@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { verifyConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { ConsentItem } from '@open-mercato/core/modules/auth/lib/consentTypes'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -19,19 +20,6 @@ export const metadata = {
 const querySchema = z.object({
   userId: z.string().uuid(),
 })
-
-type ConsentItem = {
-  id: string
-  consentType: string
-  isGranted: boolean
-  grantedAt: string | null
-  withdrawnAt: string | null
-  source: string | null
-  ipAddress: string | null
-  integrityValid: boolean
-  createdAt: string
-  updatedAt: string | null
-}
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)

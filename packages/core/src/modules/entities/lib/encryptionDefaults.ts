@@ -176,6 +176,15 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     ],
   },
   {
+    entityId: 'onboarding:onboarding_request',
+    fields: [
+      { field: 'email' },
+      { field: 'first_name' },
+      { field: 'last_name' },
+      { field: 'organization_name' },
+    ],
+  },
+  {
     entityId: 'integrations:integration_credentials',
     fields: [{ field: 'credentials' }],
   },

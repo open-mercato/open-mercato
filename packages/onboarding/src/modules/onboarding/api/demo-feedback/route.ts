@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import FeedbackEmail from '@open-mercato/onboarding/modules/onboarding/emails/FeedbackEmail'
+import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+const demoFeedbackIpRateLimitConfig = readEndpointRateLimitConfig('DEMO_FEEDBACK_IP', {
+  points: 5, duration: 300, blockDuration: 300, keyPrefix: 'demo-feedback-ip',
+})
 
 export const metadata = {
   path: '/onboarding/demo-feedback',
@@ -20,6 +26,12 @@ const feedbackSchema = z.object({
 })
 
 export async function POST(req: Request) {
+  const { error: rateLimitError } = await checkAuthRateLimit({
+    req,
+    ipConfig: demoFeedbackIpRateLimitConfig,
+  })
+  if (rateLimitError) return rateLimitError
+
   let payload: unknown
   try {
     payload = await req.json()

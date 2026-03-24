@@ -132,7 +132,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       })
       .filter((item: WidgetCatalogItem | null): item is WidgetCatalogItem => item !== null)
     setCatalog(mapped)
-  }, [t])
+  }, [])
 
   const loadRoleData = React.useCallback(async () => {
     const params = new URLSearchParams({ roleId: targetId })
@@ -149,7 +149,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     setMode('override')
     setOriginalMode('override')
     setEffective(ids)
-  }, [organizationId, targetId, tenantId, t])
+  }, [organizationId, targetId, tenantId])
 
   const loadUserData = React.useCallback(async () => {
     const params = new URLSearchParams({ userId: targetId })
@@ -166,7 +166,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     setMode(data.mode || 'inherit')
     setOriginalMode(data.mode || 'inherit')
     setEffective(Array.isArray(data.effectiveWidgetIds) ? data.effectiveWidgetIds : [])
-  }, [organizationId, targetId, tenantId, t])
+  }, [organizationId, targetId, tenantId])
 
   React.useEffect(() => {
     let cancelled = false

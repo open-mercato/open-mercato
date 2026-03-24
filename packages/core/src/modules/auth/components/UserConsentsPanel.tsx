@@ -3,19 +3,7 @@ import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ShieldCheck, ShieldAlert, ShieldX } from 'lucide-react'
-
-type ConsentItem = {
-  id: string
-  consentType: string
-  isGranted: boolean
-  grantedAt: string | null
-  withdrawnAt: string | null
-  source: string | null
-  ipAddress: string | null
-  integrityValid: boolean
-  createdAt: string
-  updatedAt: string | null
-}
+import type { ConsentItem } from '@open-mercato/core/modules/auth/lib/consentTypes'
 
 type ConsentsResponse = {
   ok?: boolean
