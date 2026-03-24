@@ -13,6 +13,7 @@ import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/
 import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
 
 type EditUserFormValues = {
   email: string
@@ -320,6 +321,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           />
         ) : null
       ),
+    },
+    {
+      id: 'consents',
+      title: t('auth.users.form.group.consents', 'Consents'),
+      column: 2,
+      component: () => (id ? <UserConsentsPanel userId={String(id)} /> : null),
     },
   ], [aclData, actorIsSuperAdmin, canEditOrgs, detailFieldIds, id, initialUser, selectedTenantId, t])
 
