@@ -81,10 +81,13 @@ export function ContentLayout({ title, intro, breadcrumb, children }: ContentLay
             <div className="px-6 py-8 sm:px-10">
               <article
                 className={cn(
-                  'prose prose-slate max-w-none dark:prose-invert',
+                  'prose prose-lg prose-slate max-w-none dark:prose-invert',
                   'prose-headings:font-semibold prose-headings:text-foreground',
-                  'prose-p:leading-relaxed prose-li:marker:text-muted-foreground',
-                  'prose-a:font-medium prose-a:text-primary prose-a:underline'
+                  'prose-h2:mt-10 prose-h2:mb-4 prose-h2:text-2xl prose-h2:border-b prose-h2:border-border prose-h2:pb-3',
+                  'prose-h3:mt-6 prose-h3:mb-3 prose-h3:text-lg',
+                  'prose-p:leading-relaxed prose-p:mb-4',
+                  'prose-ul:my-4 prose-li:my-1 prose-li:marker:text-muted-foreground',
+                  'prose-a:font-medium prose-a:text-primary prose-a:underline',
                 )}
               >
                 {children}
