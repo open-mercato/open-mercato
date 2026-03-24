@@ -15,6 +15,7 @@ import {
   type PlannerAvailabilityRuleSetCreateInput,
   type PlannerAvailabilityRuleSetUpdateInput,
 } from '../data/validators'
+import { plannerAvailabilityRuleSetCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -107,6 +108,7 @@ const createAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: plannerAvailabilityRuleSetCrudEvents,
       indexer: availabilityRuleSetCrudIndexer,
     })
     return { ruleSetId: record.id }
@@ -157,7 +159,8 @@ const createAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
           organizationId: ruleSet.organizationId,
           tenantId: ruleSet.tenantId,
         },
-        indexer: availabilityRuleSetCrudIndexer,
+        events: plannerAvailabilityRuleSetCrudEvents,
+      indexer: availabilityRuleSetCrudIndexer,
       })
     }
   },
@@ -209,6 +212,7 @@ const updateAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: plannerAvailabilityRuleSetCrudEvents,
       indexer: availabilityRuleSetCrudIndexer,
     })
     return { ruleSetId: record.id }
@@ -284,6 +288,7 @@ const updateAvailabilityRuleSetCommand: CommandHandler<PlannerAvailabilityRuleSe
         organizationId: ruleSet.organizationId,
         tenantId: ruleSet.tenantId,
       },
+      events: plannerAvailabilityRuleSetCrudEvents,
       indexer: availabilityRuleSetCrudIndexer,
     })
   },
@@ -328,6 +333,7 @@ const deleteAvailabilityRuleSetCommand: CommandHandler<{ id?: string }, { ruleSe
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: plannerAvailabilityRuleSetCrudEvents,
       indexer: availabilityRuleSetCrudIndexer,
     })
     return { ruleSetId: record.id }
@@ -400,6 +406,7 @@ const deleteAvailabilityRuleSetCommand: CommandHandler<{ id?: string }, { ruleSe
         organizationId: ruleSet.organizationId,
         tenantId: ruleSet.tenantId,
       },
+      events: plannerAvailabilityRuleSetCrudEvents,
       indexer: availabilityRuleSetCrudIndexer,
     })
   },

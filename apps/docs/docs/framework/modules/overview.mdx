@@ -248,3 +248,9 @@ This ensures that:
 - Enable modules explicitly in `apps/mercato/src/modules.ts`.
 - Generators (`yarn generate`) and migrations (`yarn db:*`) only include enabled modules.
 - Migrations are written under `packages/<pkg>/src/modules/<module>/migrations` for package modules, or `apps/mercato/src/modules/<module>/migrations` for app-local modules.
+
+## Official Modules
+
+Beyond core and app-level modules, the community publishes reusable modules to the **[Official Modules repository](https://github.com/open-mercato/official-modules)**. These are reviewed, installable in one command, and ejectable for full local ownership. If you've built a module that others could use, this is the recommended way to share it without modifying the core platform.
+
+See [Official Modules](./official-modules) for installation, ejection, and contribution details.

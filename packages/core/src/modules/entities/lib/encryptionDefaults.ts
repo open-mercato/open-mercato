@@ -189,6 +189,13 @@ export const DEFAULT_ENCRYPTION_MAPS: Array<{ entityId: string; fields: Array<{ 
     fields: [{ field: 'credentials' }],
   },
   {
+    entityId: 'webhooks:webhook_entity',
+    fields: [
+      { field: 'secret' },
+      { field: 'previous_secret' },
+    ],
+  },
+  {
     entityId: 'staff:staff_leave_request',
     fields: [
       { field: 'note' },

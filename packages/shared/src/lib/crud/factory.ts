@@ -354,8 +354,8 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   create?: CreateConfig<TCreate>
   update?: UpdateConfig<TUpdate>
   del?: DeleteConfig
-  events?: CrudEventsConfig
-  indexer?: CrudIndexerConfig
+  events?: CrudEventsConfig<any>
+  indexer?: CrudIndexerConfig<any>
   resolveIdentifiers?: CrudIdentifierResolver
   hooks?: CrudHooks<TCreate, TUpdate, TList>
   actions?: {

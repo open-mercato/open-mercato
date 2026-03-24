@@ -208,7 +208,7 @@ export async function resolveAuthFromCookiesDetailed(): Promise<AuthResolution> 
   try {
     const payload = verifyJwt(token) as AuthContext
     if (!payload) return { auth: null, status: 'invalid' }
-    if ((payload as any).type === 'customer') return { auth: null, status: 'invalid' }
+    if (payload.type === 'customer') return { auth: null, status: 'invalid' }
     const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
     if (!canonicalAuth) return { auth: null, status: 'invalid' }
     const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
@@ -241,7 +241,7 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
   if (token) {
     try {
       const payload = verifyJwt(token) as AuthContext
-      if (payload && (payload as any).type === 'customer') return { auth: null, status: 'invalid' }
+      if (payload && payload.type === 'customer') return { auth: null, status: 'invalid' }
       if (payload) {
         const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
         if (canonicalAuth) {

@@ -26,7 +26,9 @@ Use the search box to find a provider by name. Each card shows the provider name
 
 Click **Configure** on any integration card to open its detail page. Toggle the **State** switch to enable or disable the provider for your tenant.
 
-Some integrations can add provider-specific tabs or tools to this page. For example, a payment gateway can expose extra diagnostics, mapping tools, or setup helpers alongside the standard Credentials, Version, Health, and Logs tabs.
+Some integrations can extend this page with provider-specific tabs or tools. Providers can also hide built-in tabs when those sections are not relevant. For example, a payment gateway may expose diagnostics alongside the standard tabs, while Custom Webhooks replaces the generic view with a dedicated **Settings** tab and an aggregated **Logs** tab for delivery history.
+
+Custom Webhooks is one of those providers. It adds a dedicated **Settings** tab for endpoint shortcuts and failed-delivery notifications, plus an aggregated **Logs** tab that shows delivery attempts across all webhook endpoints.
 
 ## Credentials
 
@@ -80,7 +82,9 @@ Logs are invaluable for debugging webhook deliveries, tracking payment lifecycle
 
 ## Next steps
 
+- [Custom Webhooks](./webhooks) — enable the webhook integration, create endpoints, copy signing secrets, and inspect delivery logs.
 - [Configure Stripe for payments](./stripe-payments) — step-by-step Stripe setup, testing with the demo page, and webhook configuration.
 - [Payment Transactions](./payment-transactions) — track and inspect all payment gateway transactions.
 - [Payment Gateways REST API](/api/payment-gateways) — programmatic access to sessions, captures, refunds, and webhooks.
 - [Integrations & Data Sync REST API](/api/integrations-data-sync) — manage integration state, credentials, and data sync runs via API.
+- [Official Modules](../framework/modules/official-modules) — browse and install community-built integration modules, or publish your own custom integration for other Open Mercato users.

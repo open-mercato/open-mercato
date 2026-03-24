@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
+import {
+  createProductFixture,
+  createVariantFixture,
+  deleteCatalogProductIfExists,
+} from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures';
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
@@ -12,25 +16,26 @@ test.describe('TC-CAT-004: Delete Product', () => {
     test.slow();
     const productName = `QA TC-CAT-004 ${Date.now()}`;
     const sku = `QA-CAT-004-BASE-${Date.now()}`;
+    const variantName = `Delete Me Variant ${Date.now()}`;
+    const variantSku = `QA-CAT-004-VAR-${Date.now()}`;
     let token: string | null = null;
     let productId: string | null = null;
 
     try {
       token = await getAuthToken(request);
       productId = await createProductFixture(request, token, { title: productName, sku });
+      await createVariantFixture(request, token, {
+        productId,
+        name: variantName,
+        sku: variantSku,
+        isDefault: true,
+      });
 
       await login(page, 'admin');
       await page.goto(`/backend/catalog/products/${productId}`, { waitUntil: 'domcontentloaded' });
-
-      await page.goto(`/backend/catalog/products/${productId}/variants/create`, { waitUntil: 'domcontentloaded' });
-      await expect(page).toHaveURL(/\/variants\/create$/);
-      await page.getByRole('textbox', { name: 'e.g., Blue / Small' }).fill('Delete Me Variant');
-      await page.getByRole('textbox', { name: 'Unique identifier' }).fill(`QA-CAT-004-VAR-${Date.now()}`);
-      await page.getByRole('button', { name: 'Create variant' }).last().click();
-      await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/i);
-
-      await page.goto(`/backend/catalog/products/${productId}`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: /^Delete$/i }).first().click();
+      const variantRow = page.getByRole('row').filter({ hasText: variantName });
+      await expect(variantRow).toBeVisible();
+      await variantRow.getByRole('button', { name: /^Delete$/i }).click();
       const confirmDialog = page.getByRole('alertdialog');
       await expect(confirmDialog).toBeVisible();
       await expect(confirmDialog.getByRole('heading', { name: /Delete variant/i })).toBeVisible();

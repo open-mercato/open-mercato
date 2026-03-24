@@ -16,6 +16,7 @@ import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './ut
 import { RowActions, type RowActionItem } from './RowActions'
 import { subscribeOrganizationScopeChanged, type OrganizationScopeChangedDetail } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { InjectionSpot } from './injection/InjectionSpot'
+import { useAppEvent } from './injection/useAppEvent'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -1650,6 +1651,51 @@ export function DataTable<T>({
     if (!hasInjectedBulkActions) return []
     return table.getSelectedRowModel().rows.map((row) => row.original as T)
   }, [hasInjectedBulkActions, table, rowSelection])
+  const trackedBulkProgressJobIdsRef = React.useRef(new Set<string>())
+
+  const clearTrackedBulkProgressJob = React.useCallback((jobId: string | null): boolean => {
+    if (!jobId) return false
+    return trackedBulkProgressJobIdsRef.current.delete(jobId)
+  }, [])
+
+  const refreshAfterBulkProgressCompletion = React.useCallback(() => {
+    if (refreshButton?.onRefresh) {
+      refreshButton.onRefresh()
+      return
+    }
+    scheduleRouterRefresh(router)
+  }, [refreshButton, router])
+
+  useAppEvent(
+    'progress.job.completed',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      if (!clearTrackedBulkProgressJob(jobId)) return
+      refreshAfterBulkProgressCompletion()
+    },
+    [clearTrackedBulkProgressJob, refreshAfterBulkProgressCompletion],
+  )
+
+  useAppEvent(
+    'progress.job.failed',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      clearTrackedBulkProgressJob(jobId)
+    },
+    [clearTrackedBulkProgressJob],
+  )
+
+  useAppEvent(
+    'progress.job.cancelled',
+    (event) => {
+      const payload = event.payload as { jobId?: unknown } | null | undefined
+      const jobId = typeof payload?.jobId === 'string' ? payload.jobId : null
+      clearTrackedBulkProgressJob(jobId)
+    },
+    [clearTrackedBulkProgressJob],
+  )
 
   const runBulkAction = React.useCallback(
     async (action: InjectionBulkActionDefinition) => {
@@ -1674,6 +1720,7 @@ export function DataTable<T>({
           return
         }
         if (normalized?.progressJobId) {
+          trackedBulkProgressJobIdsRef.current.add(normalized.progressJobId)
           setRowSelection({})
           flash(
             normalized.message
