@@ -14,7 +14,7 @@ import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/sha
 
 type SubmissionState = 'idle' | 'loading' | 'success'
 type FieldErrors = Partial<Record<
-  'email' | 'firstName' | 'lastName' | 'organizationName' | 'password' | 'confirmPassword' | 'termsAccepted',
+  'email' | 'firstName' | 'lastName' | 'organizationName' | 'password' | 'confirmPassword' | 'termsAccepted' | 'marketingConsent',
   string
 >>
 
@@ -27,6 +27,7 @@ export default function OnboardingPage() {
   const [globalError, setGlobalError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [termsAccepted, setTermsAccepted] = useState(false)
+  const [marketingConsent, setMarketingConsent] = useState(false)
   const [emailSubmitted, setEmailSubmitted] = useState<string | null>(null)
   const passwordPolicy = getPasswordPolicy()
   const passwordRequirements = formatPasswordRequirements(passwordPolicy, translate, 'onboarding.password.requirements')
@@ -53,6 +54,7 @@ export default function OnboardingPage() {
       password: String(form.get('password') ?? ''),
       confirmPassword: String(form.get('confirmPassword') ?? ''),
       termsAccepted: termsAccepted,
+      marketingConsent: marketingConsent,
       locale,
     }
 
@@ -106,7 +108,7 @@ export default function OnboardingPage() {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...parsed.data, termsAccepted: true }),
+          body: JSON.stringify({ ...parsed.data, termsAccepted: true, marketingConsent }),
         },
       )
       const data = call.result ?? {}
@@ -297,13 +299,50 @@ export default function OnboardingPage() {
                 aria-invalid={Boolean(fieldErrors.termsAccepted)}
               />
               <span>
-                {translate('onboarding.form.termsLabel', 'I have read and accept the terms of service')}{' '}
+                {translate('onboarding.form.termsLabel', 'I have read and accept the ')}
                 <a className="underline hover:text-foreground" href="/terms" target="_blank" rel="noreferrer">
-                  {translate('onboarding.form.termsLink', 'terms of service')}
+                  {translate('onboarding.form.termsLink', 'Terms of Service')}
+                </a>
+                {translate('onboarding.form.termsAnd', ' and ')}
+                <a className="underline hover:text-foreground" href="/privacy" target="_blank" rel="noreferrer">
+                  {translate('onboarding.form.privacyLink', 'Privacy Policy')}
                 </a>
                 {fieldErrors.termsAccepted && (
                   <span className="mt-1 block text-xs text-red-600">{fieldErrors.termsAccepted}</span>
                 )}
+              </span>
+            </label>
+            <label className="flex items-start gap-3 text-sm text-muted-foreground">
+              <Checkbox
+                id="marketingConsent"
+                checked={marketingConsent}
+                disabled={disabled}
+                onCheckedChange={(value: boolean | 'indeterminate') => {
+                  setMarketingConsent(value === true)
+                }}
+              />
+              <span>
+                {translate(
+                  'onboarding.form.marketingLabel',
+                  "I consent to receiving direct marketing from CT Tornado by email at the address I provide. I'm aware that I can withdraw my consent at any time (e.g., via the unsubscribe link), and that CT Tornado may also process my email address under its legitimate interests to manage its mailing list, keep proof of my consent, and record opt-outs. See our {termsLink} and {privacyLink}.",
+                )
+                  .split(/{termsLink}|{privacyLink}/)
+                  .map((part, index, parts) => (
+                    <span key={index}>
+                      {part}
+                      {index < parts.length - 1 && (
+                        index === 0 ? (
+                          <a className="underline hover:text-foreground" href="/terms" target="_blank" rel="noreferrer">
+                            {translate('onboarding.form.termsLink', 'Terms of Service')}
+                          </a>
+                        ) : (
+                          <a className="underline hover:text-foreground" href="/privacy" target="_blank" rel="noreferrer">
+                            {translate('onboarding.form.privacyLink', 'Privacy Policy')}
+                          </a>
+                        )
+                      )}
+                    </span>
+                  ))}
               </span>
             </label>
             <button

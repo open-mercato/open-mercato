@@ -5,7 +5,7 @@ import { setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { CheckoutLink, CheckoutLinkTemplate } from '../data/entities'
 import { CHECKOUT_ENTITY_IDS } from '../lib/constants'
 import { DEFAULT_CHECKOUT_CUSTOMER_FIELDS } from '../lib/defaults'
-import { toMoneyString, toTemplateOrLinkMutationInput } from '../lib/utils'
+import { ensureUniqueSlug, toMoneyString, toTemplateOrLinkMutationInput } from '../lib/utils'
 import { ensureCheckoutFieldsetsAndDefinitions } from './customFields'
 
 type TemplateSeed = {
@@ -198,6 +198,11 @@ function cloneCustomerFields() {
   return DEFAULT_CHECKOUT_CUSTOMER_FIELDS.map((field) => ({ ...field }))
 }
 
+function buildScopedSeedSlug(seedSlug: string, tenantId: string) {
+  const suffix = tenantId.split('-')[0] || tenantId.slice(0, 8)
+  return `${seedSlug}-${suffix}`
+}
+
 async function ensureTemplate(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string },
@@ -266,22 +271,46 @@ async function ensureLink(
   template: CheckoutLinkTemplate,
   seed: LinkSeed,
 ): Promise<{ link: CheckoutLink; created: boolean }> {
-  const existing = await em.findOne(CheckoutLink, {
+  const scopedSlug = buildScopedSeedSlug(seed.slug, scope.tenantId)
+
+  const existingByScopedSlug = await em.findOne(CheckoutLink, {
+    slug: scopedSlug,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+  })
+  if (existingByScopedSlug) {
+    return { link: existingByScopedSlug, created: false }
+  }
+
+  const existingByLegacySlug = await em.findOne(CheckoutLink, {
     slug: seed.slug,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
     deletedAt: null,
   })
-  if (existing) {
-    return { link: existing, created: false }
+  if (existingByLegacySlug) {
+    return { link: existingByLegacySlug, created: false }
   }
+
+  const existingByName = await em.findOne(CheckoutLink, {
+    name: seed.name,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+  })
+  if (existingByName) {
+    return { link: existingByName, created: false }
+  }
+
+  const uniqueSlug = await ensureUniqueSlug(em, scope, scopedSlug, `${seed.name}-${scope.tenantId.slice(0, 8)}`)
 
   const values = toTemplateOrLinkMutationInput(template, {
     name: seed.name,
     title: seed.title,
     subtitle: seed.subtitle,
     description: seed.description,
-    slug: seed.slug,
+    slug: uniqueSlug,
     templateId: template.id,
     status: 'draft',
   })
@@ -293,7 +322,7 @@ async function ensureLink(
     activeReservationCount: 0,
     isLocked: false,
     ...values,
-    slug: seed.slug,
+    slug: uniqueSlug,
     fixedPriceAmount: toMoneyString(values.fixedPriceAmount ?? null),
     fixedPriceOriginalAmount: toMoneyString(values.fixedPriceOriginalAmount ?? null),
     customAmountMin: toMoneyString(values.customAmountMin ?? null),
