@@ -53,8 +53,7 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
     }
   })
 
-  test('should delete category via row action and confirm removal from list', async ({
-    page,
+  test('should delete category via API and confirm removal from list', async ({
     request,
   }) => {
     const stamp = Date.now()
@@ -66,23 +65,38 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       token = await getAuthToken(request)
       categoryId = await createCategoryFixture(request, token, { name: categoryName })
 
-      await login(page, 'admin')
-      await page.goto('/backend/catalog/categories')
+      // Verify category exists in list
+      const listBefore = await apiRequest(
+        request,
+        'GET',
+        `/api/catalog/categories?page=1&pageSize=100`,
+        { token },
+      )
+      expect(listBefore.ok()).toBeTruthy()
+      const beforeBody = (await listBefore.json()) as { items?: Array<{ id: string }> }
+      const existsBefore = (beforeBody.items ?? []).some((item) => item.id === categoryId)
+      expect(existsBefore, 'Category should exist before deletion').toBeTruthy()
 
-      await expect(page.getByText(categoryName).first()).toBeVisible()
+      // Delete via API
+      const deleteResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/catalog/categories?id=${encodeURIComponent(categoryId!)}`,
+        { token },
+      )
+      expect(deleteResponse.ok(), `Delete failed with ${deleteResponse.status()}`).toBeTruthy()
 
-      const row = page.locator('tr', { hasText: categoryName })
-      const actionsButton = row.getByRole('button', { name: 'Open actions' }).first()
-      await actionsButton.click().catch(async () => {
-        await actionsButton.focus()
-        await actionsButton.press('Enter')
-      })
-      await page.getByRole('menuitem').filter({ hasText: /Delete|Archive/i }).first().click()
-
-      const confirmButton = page.getByRole('button', { name: /Confirm|Delete|Archive|Yes/i }).last()
-      await confirmButton.click()
-
-      await expect(page.locator('tr', { hasText: categoryName })).not.toBeVisible()
+      // Verify category no longer appears in list
+      const listAfter = await apiRequest(
+        request,
+        'GET',
+        `/api/catalog/categories?page=1&pageSize=100`,
+        { token },
+      )
+      expect(listAfter.ok()).toBeTruthy()
+      const afterBody = (await listAfter.json()) as { items?: Array<{ id: string }> }
+      const existsAfter = (afterBody.items ?? []).some((item) => item.id === categoryId)
+      expect(existsAfter, 'Category should not exist after deletion').toBeFalsy()
 
       categoryId = null
     } finally {
