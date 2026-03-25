@@ -5811,6 +5811,7 @@ __metadata:
     "@open-mercato/ui": "workspace:*"
     "@simplewebauthn/browser": "npm:^11.0.0"
     "@simplewebauthn/server": "npm:^11.0.0"
+    "@simplewebauthn/types": "npm:^11.0.0"
     "@types/jest": "npm:^30.0.0"
     "@types/qrcode": "npm:^1.5.5"
     jest: "npm:^30.2.0"
