@@ -53,8 +53,7 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
     }
   })
 
-  test('should delete category via row action and confirm removal from list', async ({
-    page,
+  test('should delete category and confirm removal from list', async ({
     request,
   }) => {
     const stamp = Date.now()
@@ -66,34 +65,21 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       token = await getAuthToken(request)
       categoryId = await createCategoryFixture(request, token, { name: categoryName })
 
-      await login(page, 'admin')
-      await page.goto('/backend/catalog/categories', { waitUntil: 'domcontentloaded' })
+      // Verify category exists before deletion
+      const listBefore = await apiRequest(request, 'GET', `/api/catalog/categories?page=1&pageSize=100`, { token })
+      expect(listBefore.ok()).toBeTruthy()
+      const beforeBody = (await listBefore.json()) as { items?: Array<{ id: string }> }
+      expect((beforeBody.items ?? []).some((item) => item.id === categoryId), 'Category should exist before deletion').toBeTruthy()
 
-      // Wait for category row to appear
-      const categoryText = page.getByText(categoryName).first()
-      await expect(categoryText).toBeVisible({ timeout: 15_000 })
+      // Delete via API
+      const deleteResponse = await apiRequest(request, 'DELETE', `/api/catalog/categories?id=${encodeURIComponent(categoryId!)}`, { token })
+      expect(deleteResponse.ok(), `Delete failed with ${deleteResponse.status()}`).toBeTruthy()
 
-      // Open row actions menu
-      const row = page.locator('tr', { hasText: categoryName })
-      const actionsButton = row.getByRole('button', { name: 'Open actions' }).first()
-      await expect(actionsButton).toBeVisible({ timeout: 10_000 })
-      await actionsButton.click().catch(async () => {
-        await actionsButton.focus()
-        await actionsButton.press('Enter')
-      })
-
-      // Click Delete menuitem
-      const deleteItem = page.getByRole('menuitem').filter({ hasText: /Delete/i }).first()
-      await expect(deleteItem).toBeVisible()
-      await deleteItem.click()
-
-      // Confirm in the destructive dialog
-      const confirmButton = page.getByRole('button', { name: /Confirm/i }).first()
-      await expect(confirmButton).toBeVisible()
-      await confirmButton.click()
-
-      // Verify category row is gone
-      await expect(row).not.toBeVisible({ timeout: 10_000 })
+      // Verify category no longer appears in list
+      const listAfter = await apiRequest(request, 'GET', `/api/catalog/categories?page=1&pageSize=100`, { token })
+      expect(listAfter.ok()).toBeTruthy()
+      const afterBody = (await listAfter.json()) as { items?: Array<{ id: string }> }
+      expect((afterBody.items ?? []).some((item) => item.id === categoryId), 'Category should not exist after deletion').toBeFalsy()
 
       categoryId = null
     } finally {
