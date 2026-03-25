@@ -8,6 +8,7 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
+import { QueryProvider } from '../theme/QueryProvider'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
@@ -1452,6 +1453,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   )
 
   return (
+    <QueryProvider>
     <HeaderContext.Provider value={headerCtxValue}>
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
       {/* Desktop sidebar */}
@@ -1591,6 +1593,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     </div>
     <UmesDevToolsPanel />
     </HeaderContext.Provider>
+    </QueryProvider>
   )
 }
 
