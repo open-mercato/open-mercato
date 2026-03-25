@@ -53,6 +53,8 @@ export async function POST(req: Request) {
     preview: `Demo feedback from ${email}`,
     heading: 'New demo feedback',
     body: `${email} submitted a feedback/contact request from the demo environment.`,
+    senderEmailLabel: 'From email:',
+    senderEmail: email,
     messageLabel: 'Message:',
     message: message || '(no message provided)',
     marketingConsent: marketingText,
