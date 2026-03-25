@@ -48,7 +48,7 @@ Use a dedicated enterprise module with four layers:
 3. **UI widget injection** for lock state banners, conflict dialog, participant presence, and save-header propagation.
 4. **Generic mutation guard adapter** registered as `crudMutationGuardService` to apply the same checks in CRUD and custom mutation routes.
 
-The generic mutation guard contract itself is framework-level (OSS) and documented in `.ai/specs/SPEC-035-2026-02-22-mutation-guard-mechanism.md`. This spec documents the enterprise adapter implementation.
+The generic mutation guard contract itself is framework-level (OSS) and documented in `.ai/specs/implemented/SPEC-035-2026-02-22-mutation-guard-mechanism.md`. This spec documents the enterprise adapter implementation.
 
 ## Architecture
 

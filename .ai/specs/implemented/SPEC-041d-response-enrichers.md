@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
+| **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
 | **Phase** | D (PR 4) |
 | **Branch** | `feat/umes-response-enrichers` |
 | **Depends On** | Nothing (independent) |

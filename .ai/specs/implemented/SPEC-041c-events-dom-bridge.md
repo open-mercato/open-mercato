@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
+| **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
 | **Phase** | C (PR 3) |
 | **Branch** | `feat/umes-event-bridge` |
 | **Depends On** | Phase A (Foundation) |
@@ -66,7 +66,7 @@ interface WidgetInjectionEventFilter {
 }
 ```
 
-**Operation Filter** (Phase M): When `filter.operations` is specified, the CrudForm save pipeline checks the current operation (create/update/delete) before invoking each widget's event handlers. Handlers for filtered-out operations are skipped entirely. See [SPEC-041m](./SPEC-041m-mutation-lifecycle.md) for the full pipeline and filtering details.
+**Operation Filter** (Phase M): When `filter.operations` is specified, the CrudForm save pipeline checks the current operation (create/update/delete) before invoking each widget's event handlers. Handlers for filtered-out operations are skipped entirely. See [SPEC-041m](../SPEC-041m-mutation-lifecycle.md) for the full pipeline and filtering details.
 
 ### 2. Dual-Mode Event Dispatch
 

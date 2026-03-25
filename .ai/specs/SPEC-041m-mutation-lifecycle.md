@@ -6,7 +6,7 @@
 | **Phase** | M (PR 13) |
 | **Branch** | `feat/umes-mutation-lifecycle` |
 | **Depends On** | Phase E (API Interceptors) |
-| **Related** | [SPEC-035 — Mutation Guard](./SPEC-035-2026-02-22-mutation-guard-mechanism.md) |
+| **Related** | [SPEC-035 — Mutation Guard](./implemented/SPEC-035-2026-02-22-mutation-guard-mechanism.md) |
 | **Status** | Draft |
 
 ## Sub-Specs

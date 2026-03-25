@@ -2,10 +2,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
+| **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
 | **Phase** | N |
 | **Branch** | `feat/umes-query-engine-extensibility` |
-| **Depends On** | [SPEC-041d — Response Enrichers](./SPEC-041d-response-enrichers.md), [SPEC-041m2 — Sync Event Subscribers](./SPEC-041m2-sync-event-subscribers.md) |
+| **Depends On** | [SPEC-041d — Response Enrichers](./SPEC-041d-response-enrichers.md), [SPEC-041m2 — Sync Event Subscribers](../SPEC-041m2-sync-event-subscribers.md) |
 | **Status** | Implemented |
 | **Created** | 2026-02-26 |
 
