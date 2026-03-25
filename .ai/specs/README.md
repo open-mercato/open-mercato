@@ -51,12 +51,10 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | --- | --- | --- | --- |
 | [SPEC-005](SPEC-005-2026-01-23-record-locking-module.md) | 2026-01-23 | Record Locking Module (Pointer) | Moved to Enterprise: [`SPEC-ENT-003`](enterprise/implemented/SPEC-ENT-003-2026-01-23-record-locking-module.md); this file remains as a pointer |
 | [SPEC-008](SPEC-008-2026-01-27-product-quality-widget.md) | 2026-01-27 | Product Quality Widget | Dashboard widget for tracking products with missing images/descriptions |
-| [SPEC-012](SPEC-012-2026-01-27-ai-assistant-schema-discovery.md) | 2026-01-27 | AI Assistant Schema Discovery | Entity schema extraction and OpenAPI integration for MCP tools |
 | [SPEC-018](SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` — N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |
 | [SPEC-021](SPEC-021-2026-02-07-compound-commands-graph-save.md) | 2026-02-07 | Compound Commands & Graph Save | Graph-save pattern for aggregate roots and compound command wrapper for atomic multi-command operations |
 | [SPEC-022](SPEC-022-2026-02-07-pos-module.md) | 2026-02-07 | POS Module | Point of Sale module for in-store retail operations |
 | [SPEC-022a](SPEC-022a-2026-02-09-pos-tile-browsing.md) | 2026-02-09 | POS Tile Browsing | Tile-based product browsing UI for POS checkout |
-| [SPEC-025](SPEC-025-2026-02-12-ai-assisted-business-rules.md) | 2026-02-12 | AI-Assisted Business Rules | AI-assisted business rule editing |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter: org-scoped stores, per-store configurable branding (CSS variables), localized catalog APIs, server-side faceted filters with cross-facet exclusion, multi-variant selection algorithm, WCAG 2.2 AA compliance, RWD-first component spec, and workflow-driven checkout (Phase 3) |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, API exposure, and admin configuration |
 | [SPEC-040](SPEC-040-2026-02-22-document-parser-module.md) | 2026-02-22 | Document Parser Module | Schema-driven AI document extraction with consensus, preview, and review workflows |
@@ -75,7 +73,6 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [SPEC-055](SPEC-055-2026-02-23-promotions-module.md) | 2026-02-23 | Promotions Module | Standalone promotions module with recursive rule tree, extensible evaluation engine, and resolved cart effects |
 | [SPEC-056](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp External Communication + AI Chat Integration | WhatsApp conversation history, AI summaries, and tiered AI replies (easy auto-reply vs complex proposal-only). Extends Messages module (#414). Aligns with SPEC-045/045d. |
 | [SPEC-058](SPEC-058-2026-03-05-sales-native-payment-gateway-refactor.md) | 2026-03-05 | Sales Native Payment Gateway Refactor | Refactor of payment gateway integration in native sales module |
-| [SPEC-058](SPEC-058-2026-03-08-custom-route-auth-interceptor-local-pattern.md) | 2026-03-08 | Custom Route Auth Interceptor Local Pattern | Local pattern for custom route authentication interceptors |
 | [SPEC-059](SPEC-059-2026-03-08-middleware-injection-registry.md) | 2026-03-08 | Middleware Injection Registry | Registry-based middleware injection system for API routes |
 | [SPEC-059](SPEC-059-2026-03-09-order-status-history-tab.md) | 2026-03-09 | Order Status History Tab | Dedicated tab UI for order status history in sales document detail pages |
 | [SPEC-062](SPEC-062-2026-03-18-sales-native-shipping-carrier-refactor.md) | 2026-03-18 | Sales Native Shipping Carrier Refactor | Refactor of shipping carrier integration in native sales module |
@@ -96,6 +93,9 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | SPEC | Date | Title | Description |
 | --- | --- | --- | --- |
 | [SPEC-001](implemented/SPEC-001-2026-01-21-ui-reusable-components.md) | 2026-01-21 | UI Reusable Components | Library of reusable UI components and patterns |
+| [SPEC-012](implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md) | 2026-01-27 | AI Assistant Schema Discovery | Entity schema extraction and OpenAPI integration for MCP tools |
+| [SPEC-025](implemented/SPEC-025-2026-02-12-ai-assisted-business-rules.md) | 2026-02-12 | AI-Assisted Business Rules | AI-assisted business rule editor with 343 tests passing |
+| [SPEC-058](implemented/SPEC-058-2026-03-08-custom-route-auth-interceptor-local-pattern.md) | 2026-03-08 | Custom Route Auth Interceptor Local Pattern | All phases complete; shared helper, login route adoption, and validation hardening |
 | [SPEC-002](implemented/SPEC-002-2026-01-23-messages-module.md) | 2026-01-23 | Messages Module | Internal messaging and communication system |
 | [SPEC-003](implemented/SPEC-003-2026-01-23-notifications-module.md) | 2026-01-23 | Notifications Module | User notification system with multiple channels |
 | [SPEC-004](implemented/SPEC-004-2026-01-23-progress-module.md) | 2026-01-23 | Progress Module | Long-running task progress tracking |
