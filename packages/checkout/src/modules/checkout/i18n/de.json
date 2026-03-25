@@ -342,6 +342,7 @@
   "checkout.payPage.legal.acceptDocument": "Ich akzeptiere {document}.",
   "checkout.payPage.legal.defaultPrivacyTitle": "die Datenschutzerklaerung",
   "checkout.payPage.legal.defaultTermsTitle": "die Allgemeinen Geschaeftsbedingungen",
+  "checkout.payPage.legal.readDocument": "Read document",
   "checkout.payPage.loading": "Zahlungslink wird geladen...",
   "checkout.payPage.passwordPlaceholder": "Passwort",
   "checkout.payPage.payment.kicker": "Zahlungsbereich",
