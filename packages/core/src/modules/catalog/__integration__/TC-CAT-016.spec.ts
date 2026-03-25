@@ -29,7 +29,7 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       categoryId = await createCategoryFixture(request, token, { name: originalName })
 
       await login(page, 'admin')
-      await page.goto(`/backend/catalog/categories/${categoryId}/edit`)
+      await page.goto(`/backend/catalog/categories/${categoryId}/edit`, { waitUntil: 'domcontentloaded' })
 
       const nameField = page.getByRole('textbox', { name: 'e.g., Footwear' })
       await expect(nameField).toBeVisible()
@@ -46,14 +46,15 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       const saveResponse = await saveResponsePromise
       expect(saveResponse.ok(), `Category update failed with ${saveResponse.status()}`).toBeTruthy()
 
-      await page.goto('/backend/catalog/categories')
+      await page.goto('/backend/catalog/categories', { waitUntil: 'domcontentloaded' })
       await expect(page.getByText(updatedName).first()).toBeVisible()
     } finally {
       await deleteCatalogCategoryIfExists(request, token, categoryId)
     }
   })
 
-  test('should delete category via API and confirm removal from list', async ({
+  test('should delete category via row action and confirm removal from list', async ({
+    page,
     request,
   }) => {
     const stamp = Date.now()
@@ -65,38 +66,34 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       token = await getAuthToken(request)
       categoryId = await createCategoryFixture(request, token, { name: categoryName })
 
-      // Verify category exists in list
-      const listBefore = await apiRequest(
-        request,
-        'GET',
-        `/api/catalog/categories?page=1&pageSize=100`,
-        { token },
-      )
-      expect(listBefore.ok()).toBeTruthy()
-      const beforeBody = (await listBefore.json()) as { items?: Array<{ id: string }> }
-      const existsBefore = (beforeBody.items ?? []).some((item) => item.id === categoryId)
-      expect(existsBefore, 'Category should exist before deletion').toBeTruthy()
+      await login(page, 'admin')
+      await page.goto('/backend/catalog/categories', { waitUntil: 'domcontentloaded' })
 
-      // Delete via API
-      const deleteResponse = await apiRequest(
-        request,
-        'DELETE',
-        `/api/catalog/categories?id=${encodeURIComponent(categoryId!)}`,
-        { token },
-      )
-      expect(deleteResponse.ok(), `Delete failed with ${deleteResponse.status()}`).toBeTruthy()
+      // Wait for category row to appear
+      const categoryText = page.getByText(categoryName).first()
+      await expect(categoryText).toBeVisible({ timeout: 15_000 })
 
-      // Verify category no longer appears in list
-      const listAfter = await apiRequest(
-        request,
-        'GET',
-        `/api/catalog/categories?page=1&pageSize=100`,
-        { token },
-      )
-      expect(listAfter.ok()).toBeTruthy()
-      const afterBody = (await listAfter.json()) as { items?: Array<{ id: string }> }
-      const existsAfter = (afterBody.items ?? []).some((item) => item.id === categoryId)
-      expect(existsAfter, 'Category should not exist after deletion').toBeFalsy()
+      // Open row actions menu
+      const row = page.locator('tr', { hasText: categoryName })
+      const actionsButton = row.getByRole('button', { name: 'Open actions' }).first()
+      await expect(actionsButton).toBeVisible({ timeout: 10_000 })
+      await actionsButton.click().catch(async () => {
+        await actionsButton.focus()
+        await actionsButton.press('Enter')
+      })
+
+      // Click Delete menuitem
+      const deleteItem = page.getByRole('menuitem').filter({ hasText: /Delete/i }).first()
+      await expect(deleteItem).toBeVisible()
+      await deleteItem.click()
+
+      // Confirm in the destructive dialog
+      const confirmButton = page.getByRole('button', { name: /Confirm/i }).first()
+      await expect(confirmButton).toBeVisible()
+      await confirmButton.click()
+
+      // Verify category row is gone
+      await expect(row).not.toBeVisible({ timeout: 10_000 })
 
       categoryId = null
     } finally {
