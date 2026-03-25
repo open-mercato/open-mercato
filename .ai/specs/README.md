@@ -124,6 +124,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [SPEC-056](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp external communication + AI chat integration | WhatsApp conversation history, AI summaries, and tiered AI replies (easy auto-reply vs complex proposal-only). Extends Messages module (#414). Aligns with SPEC-045/045d. |
 | [SPEC-057](SPEC-057-2026-03-05-standalone-app-ai-folder.md) | 2026-03-05 | Standalone App `.ai` Folder & AI-Driven Development Kit | Dedicated `.ai/` folder for `create-mercato-app` template with adapted skills, UMES reference docs, and standalone Task Router for extension-first development. [#853](https://github.com/open-mercato/open-mercato/issues/853) |
 | [SPEC-068](SPEC-068-2026-03-02-use-case-examples-framework.md) | 2026-03-02 | Use-Case Examples Framework | `create-mercato-app --example` pattern for bootstrapping use-case solutions (B2B PRM, etc.) from official or community example repositories |
+| [SPEC-069](SPEC-069-2026-02-23-core-timesheets.md) | 2026-02-23 | Core Timesheets Functionality | Core timesheets functionality in the `staff` module with My Timesheets, Projects, and phase-based approvals/policies. |
 
 ### Implemented Specifications
 
