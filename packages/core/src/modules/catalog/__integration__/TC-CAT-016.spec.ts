@@ -36,7 +36,15 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       await nameField.clear()
       await nameField.fill(updatedName)
 
+      const saveResponsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === 'PUT' &&
+          /\/api\/catalog\/categories(?:\?|$)/.test(response.url()),
+        { timeout: 10_000 },
+      )
       await page.getByRole('button', { name: /Save/i }).first().click()
+      const saveResponse = await saveResponsePromise
+      expect(saveResponse.ok(), `Category update failed with ${saveResponse.status()}`).toBeTruthy()
 
       await page.goto('/backend/catalog/categories')
       await expect(page.getByText(updatedName).first()).toBeVisible()
@@ -64,8 +72,12 @@ test.describe('TC-CAT-016: Category Edit and Delete', () => {
       await expect(page.getByText(categoryName).first()).toBeVisible()
 
       const row = page.locator('tr', { hasText: categoryName })
-      await row.getByRole('button', { name: /actions/i }).first().click()
-      await page.getByRole('menuitem', { name: /Delete|Archive/i }).click()
+      const actionsButton = row.getByRole('button', { name: 'Open actions' }).first()
+      await actionsButton.click().catch(async () => {
+        await actionsButton.focus()
+        await actionsButton.press('Enter')
+      })
+      await page.getByRole('menuitem').filter({ hasText: /Delete|Archive/i }).first().click()
 
       const confirmButton = page.getByRole('button', { name: /Confirm|Delete|Archive|Yes/i }).last()
       await confirmButton.click()
