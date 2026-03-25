@@ -20,20 +20,20 @@ Each phase is a separate PR, independently mergeable, with example module demons
 
 | Phase | Sub-Spec | PR Branch | Summary | Depends On |
 |-------|----------|-----------|---------|------------|
-| **A** | [SPEC-041a — Foundation](./SPEC-041a-foundation.md) | `feat/umes-foundation` | `InjectionPosition` enum, headless widget types, `useInjectionDataWidgets` hook | — |
-| **B** | [SPEC-041b — Menu Injection](./SPEC-041b-menu-injection.md) | `feat/umes-menu-injection` | `useInjectedMenuItems`, `mergeMenuItems`, profile/sidebar/topbar chrome | A |
-| **C** | [SPEC-041c — Events & DOM Bridge](./SPEC-041c-events-dom-bridge.md) | `feat/umes-event-bridge` | `onFieldChange`, transformers, `clientBroadcast`, `useAppEvent`, SSE bridge | A |
-| **D** | [SPEC-041d — Response Enrichers](./SPEC-041d-response-enrichers.md) | `feat/umes-response-enrichers` | `ResponseEnricher` contract, `enrichMany`, CRUD factory integration | — |
-| **E** | [SPEC-041e — API Interceptors](./SPEC-041e-api-interceptors.md) | `feat/umes-api-interceptors` | `ApiInterceptor` before/after, Zod re-validation, metadata passthrough | D |
-| **F** | [SPEC-041f — DataTable Extensions](./SPEC-041f-datatable-extensions.md) | `feat/umes-datatable-extensions` | Column, row action, bulk action, filter injection into DataTable | A, D |
-| **G** | [SPEC-041g — CrudForm Fields](./SPEC-041g-crudform-fields.md) | `feat/umes-crudform-fields` | Field injection into form groups, triad pattern (enricher→field→onSave) | A, D |
-| **H** | [SPEC-041h — Component Replacement](./SPEC-041h-component-replacement.md) | `feat/umes-component-replacement` | Component registry, `useRegisteredComponent`, replace/wrapper/props modes | A |
+| **A** | [SPEC-041a — Foundation](./implemented/SPEC-041a-foundation.md) | `feat/umes-foundation` | `InjectionPosition` enum, headless widget types, `useInjectionDataWidgets` hook | — |
+| **B** | [SPEC-041b — Menu Injection](./implemented/SPEC-041b-menu-injection.md) | `feat/umes-menu-injection` | `useInjectedMenuItems`, `mergeMenuItems`, profile/sidebar/topbar chrome | A |
+| **C** | [SPEC-041c — Events & DOM Bridge](./implemented/SPEC-041c-events-dom-bridge.md) | `feat/umes-event-bridge` | `onFieldChange`, transformers, `clientBroadcast`, `useAppEvent`, SSE bridge | A |
+| **D** | [SPEC-041d — Response Enrichers](./implemented/SPEC-041d-response-enrichers.md) | `feat/umes-response-enrichers` | `ResponseEnricher` contract, `enrichMany`, CRUD factory integration | — |
+| **E** | [SPEC-041e — API Interceptors](./implemented/SPEC-041e-api-interceptors.md) | `feat/umes-api-interceptors` | `ApiInterceptor` before/after, Zod re-validation, metadata passthrough | D |
+| **F** | [SPEC-041f — DataTable Extensions](./implemented/SPEC-041f-datatable-extensions.md) | `feat/umes-datatable-extensions` | Column, row action, bulk action, filter injection into DataTable | A, D |
+| **G** | [SPEC-041g — CrudForm Fields](./implemented/SPEC-041g-crudform-fields.md) | `feat/umes-crudform-fields` | Field injection into form groups, triad pattern (enricher→field→onSave) | A, D |
+| **H** | [SPEC-041h — Component Replacement](./implemented/SPEC-041h-component-replacement.md) | `feat/umes-component-replacement` | Component registry, `useRegisteredComponent`, replace/wrapper/props modes | A |
 | **I** | [SPEC-041i — Detail Page Bindings](./SPEC-041i-detail-page-bindings.md) | `feat/umes-detail-bindings` | `useExtensibleDetail`, `InjectedField`, `runSectionSave` | D, G |
-| **J** | [SPEC-041j — Recursive Widgets](./SPEC-041j-recursive-widgets.md) | `feat/umes-recursive-widgets` | Widget-level `InjectionSpot`, nested event handlers | A |
+| **J** | [SPEC-041j — Recursive Widgets](./implemented/SPEC-041j-recursive-widgets.md) | `feat/umes-recursive-widgets` | Widget-level `InjectionSpot`, nested event handlers | A |
 | **K** | [SPEC-041k — DevTools](./SPEC-041k-devtools.md) | `feat/umes-devtools` | UMES DevTools panel, build-time conflict detection | All |
 | **L** | [SPEC-041l — Integration Extensions](./SPEC-041l-integration-extensions.md) | `feat/umes-integration-extensions` | Wizard widgets, status badges, external ID mapping display | A, C, D, G |
 | **M** | [SPEC-041m — Mutation Lifecycle](./SPEC-041m-mutation-lifecycle.md) | `feat/umes-mutation-lifecycle` | Guard registry, sync event subscribers (lifecycle events), client-side event filtering, command interceptors | E |
-| **N** | [SPEC-041n — Query Engine Extensibility](./SPEC-041n-query-engine-extensibility.md) | `feat/umes-query-engine-extensibility` | Query-level enricher opt-in, unified enricher registry for Basic/Hybrid query engines, sync query events (`*.querying`/`*.queried`) with filter/query/result transforms | D, M |
+| **N** | [SPEC-041n — Query Engine Extensibility](./implemented/SPEC-041n-query-engine-extensibility.md) | `feat/umes-query-engine-extensibility` | Query-level enricher opt-in, unified enricher registry for Basic/Hybrid query engines, sync query events (`*.querying`/`*.queried`) with filter/query/result transforms | D, M |
 
 ### Implementation Progress Snapshot (2026-02-27)
 
@@ -251,7 +251,7 @@ User clicks Save (Cmd+Enter)
   └─  7. [Async] Event Subscribers                        (existing — fire-and-forget)
 ```
 
-**Important**: Widget `onSave` (step 4) fires BEFORE the core API call (step 5). This matches the actual `CrudForm.tsx` implementation (lines 1483 vs 1495). See [SPEC-041g](./SPEC-041g-crudform-fields.md) for implications and mitigation.
+**Important**: Widget `onSave` (step 4) fires BEFORE the core API call (step 5). This matches the actual `CrudForm.tsx` implementation (lines 1483 vs 1495). See [SPEC-041g](./implemented/SPEC-041g-crudform-fields.md) for implications and mitigation.
 
 ---
 

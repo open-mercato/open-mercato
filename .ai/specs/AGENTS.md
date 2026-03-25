@@ -9,6 +9,16 @@ Check `.ai/specs/` and `.ai/specs/enterprise/` before modifying any module. Crea
 - New enterprise specs use the same `{date}-{title}.md` filename convention as OSS specs; the directory path, not a filename prefix, defines the scope.
 - Enterprise specifications are not distributed under the open source license. For commercial licensing and partnership details, see [`packages/enterprise/README.md`](../../packages/enterprise/README.md).
 
+## Spec Lifecycle States
+
+Specs are organized by implementation status:
+- **Root** (`.ai/specs/`): Pending, draft, in-progress, or partially implemented specs
+- **Implemented** (`.ai/specs/implemented/`): Fully implemented and deployed specs
+- **Enterprise Root** (`.ai/specs/enterprise/`): Pending enterprise specs
+- **Enterprise Implemented** (`.ai/specs/enterprise/implemented/`): Fully implemented enterprise specs
+
+Move a spec to `implemented/` when all phases are complete and the feature is deployed. Use `git mv` to preserve history. Update all cross-references when moving.
+
 ## Detailed Guidance
 
 For detailed spec writing and review, use the spec-writing skill:

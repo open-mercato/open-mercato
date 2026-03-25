@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
+| **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
 | **Phase** | B (PR 2) |
 | **Branch** | `feat/umes-menu-injection` |
 | **Depends On** | Phase A (Foundation) |

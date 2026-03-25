@@ -2,10 +2,10 @@
 
 | Field | Value |
 |-------|-------|
-| **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
+| **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
 | **Phase** | E (PR 5) |
 | **Branch** | `feat/umes-api-interceptors` |
-| **Depends On** | Phase D (Response Enrichers — for execution order), [SPEC-042](./SPEC-042-2026-02-24-multi-id-query-parameter.md) for multi-id query rewriting |
+| **Depends On** | Phase D (Response Enrichers — for execution order), [SPEC-042](../SPEC-042-2026-02-24-multi-id-query-parameter.md) for multi-id query rewriting |
 | **Status** | Implemented (2026-02-26) |
 
 ## Goal
@@ -103,7 +103,7 @@ interface InterceptorContext {
 12. Return HTTP response
 ```
 
-**Layering**: API Interceptors operate at the HTTP/route level (outermost). Sync event subscribers and Mutation Guards operate at the entity level (inner). See [SPEC-041m](./SPEC-041m-mutation-lifecycle.md) for the full layering model.
+**Layering**: API Interceptors operate at the HTTP/route level (outermost). Sync event subscribers and Mutation Guards operate at the entity level (inner). See [SPEC-041m](../SPEC-041m-mutation-lifecycle.md) for the full layering model.
 
 **Key constraint**: Interceptor `before` runs AFTER Zod validation. If an interceptor modifies the request body or query, the modified data is **re-validated through the route's Zod schema**:
 

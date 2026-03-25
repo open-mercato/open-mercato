@@ -184,7 +184,7 @@ Fully compliant. Approved.
 
 ## Evolution: UMES Mutation Lifecycle (SPEC-041m)
 
-[SPEC-041m](./SPEC-041m-mutation-lifecycle.md) evolves this singleton guard mechanism into a multi-guard registry:
+[SPEC-041m](../SPEC-041m-mutation-lifecycle.md) evolves this singleton guard mechanism into a multi-guard registry:
 
 - **Singleton → Registry**: The DI token `crudMutationGuardService` is auto-bridged to a `MutationGuard` registry entry with `priority: 0`, so existing adapters (enterprise record-locks) continue to work without changes.
 - **Multi-Guard**: Multiple modules can register guards via `data/guards.ts` auto-discovery, each targeting specific entities and operations.

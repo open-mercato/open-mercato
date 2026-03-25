@@ -6,7 +6,7 @@
 ## TLDR
 This document is no longer the canonical spec. The mutation guard mechanism is framework-level and now documented in OSS:
 
-- `.ai/specs/SPEC-035-2026-02-22-mutation-guard-mechanism.md`
+- `.ai/specs/implemented/SPEC-035-2026-02-22-mutation-guard-mechanism.md`
 
 ## Overview
 The original document described mutation guard extensibility with record-lock examples. The implemented contract is generic and shared (`@open-mercato/shared`), so it belongs to OSS scope rather than Enterprise-only scope.
@@ -19,10 +19,10 @@ Move canonical documentation to OSS and keep this file as a historical pointer.
 
 ## Architecture
 Canonical architecture is described in:
-- `.ai/specs/SPEC-035-2026-02-22-mutation-guard-mechanism.md`
+- `.ai/specs/implemented/SPEC-035-2026-02-22-mutation-guard-mechanism.md`
 
 Enterprise-specific adapter behavior remains documented in:
-- `.ai/specs/enterprise/SPEC-ENT-003-2026-01-23-record-locking-module.md`
+- `.ai/specs/enterprise/implemented/SPEC-ENT-003-2026-01-23-record-locking-module.md`
 
 ## Data Models
 No enterprise-only data model is defined by this moved spec.

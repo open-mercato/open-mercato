@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Parent** | [SPEC-041 — UMES](./SPEC-041-2026-02-24-universal-module-extension-system.md) |
+| **Parent** | [SPEC-041 — UMES](../SPEC-041-2026-02-24-universal-module-extension-system.md) |
 | **Phase** | H (PR 8) |
 | **Branch** | `feat/umes-component-replacement` |
 | **Depends On** | Phase A (Foundation) |
