@@ -14,7 +14,7 @@ import {
   normalizeWebhookFormPayload,
   type WebhookFormValues,
 } from '../../../components/webhook-form-config'
-import { WebhookSecretPanel } from '../WebhookSecretPanel'
+import { WebhookSecretPanel } from '../../../components/WebhookSecretPanel'
 
 export default function CreateWebhookPage() {
   const router = useRouter()
