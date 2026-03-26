@@ -1234,4 +1234,514 @@ describe('customers commands undo custom fields', () => {
       expect.objectContaining({ id: createdInteractionId }),
     )
   })
+
+  it('companies.create normalizes a blank primaryPhone to null', async () => {
+    const handler = commandRegistry.get('customers.companies.create') as CommandHandler
+    const createdEntityId = '123e4567-e89b-41d3-a456-426614174230'
+    const createdProfileId = '123e4567-e89b-41d3-a456-426614174231'
+    let createdEntity: Partial<CustomerEntity> | null = null
+
+    const em = {
+      fork: () => em,
+      create: jest.fn((ctor, data) => {
+        if (ctor === CustomerEntity) {
+          const entity = {
+            id: createdEntityId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            deletedAt: null,
+            ...data,
+          }
+          createdEntity = entity as Partial<CustomerEntity>
+          return entity
+        }
+        if (ctor === CustomerCompanyProfile) {
+          return {
+            id: createdProfileId,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            ...data,
+          }
+        }
+        return data
+      }),
+      find: jest.fn(async () => []),
+      persist: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({
+      em,
+      dataEngine,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+
+    await handler.execute(
+      {
+        tenantId: TEST_TENANT_ID,
+        organizationId: TEST_ORG_ID,
+        displayName: 'Acme Corp',
+        primaryPhone: '',
+      },
+      ctx,
+    )
+
+    expect(createdEntity?.primaryPhone).toBeNull()
+  })
+
+  it('companies.update normalizes a blank primaryPhone to null', async () => {
+    const handler = commandRegistry.get('customers.companies.update') as CommandHandler
+    const existingEntity: CustomerEntity = {
+      id: '123e4567-e89b-41d3-a456-426614174232',
+      organizationId: TEST_ORG_ID,
+      tenantId: TEST_TENANT_ID,
+      kind: 'company',
+      displayName: 'Acme Corp',
+      description: null,
+      ownerUserId: null,
+      primaryEmail: null,
+      primaryPhone: '+48 123 456 789',
+      status: null,
+      lifecycleStage: null,
+      source: null,
+      nextInteractionAt: null,
+      nextInteractionName: null,
+      nextInteractionRefId: null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      personProfile: undefined,
+      companyProfile: undefined,
+      addresses: [] as any,
+      activities: [] as any,
+      comments: [] as any,
+      tagAssignments: [] as any,
+      todoLinks: [] as any,
+      dealPersonLinks: [] as any,
+      dealCompanyLinks: [] as any,
+      companyMembers: [] as any,
+    }
+    const existingProfile: CustomerCompanyProfile = {
+      id: '123e4567-e89b-41d3-a456-426614174233',
+      entity: existingEntity,
+      organizationId: TEST_ORG_ID,
+      tenantId: TEST_TENANT_ID,
+      legalName: null,
+      brandName: null,
+      domain: null,
+      websiteUrl: null,
+      industry: null,
+      sizeBucket: null,
+      annualRevenue: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    existingEntity.companyProfile = existingProfile
+
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: Record<string, unknown>) => {
+        if (ctor === CustomerEntity && where.id === existingEntity.id) return existingEntity
+        if (ctor === CustomerCompanyProfile && where.entity === existingEntity) return existingProfile
+        return null
+      }),
+      find: jest.fn(async () => []),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({
+      em,
+      dataEngine,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+    })
+
+    await handler.execute(
+      {
+        id: existingEntity.id,
+        primaryPhone: '',
+      },
+      ctx,
+    )
+
+    expect(existingEntity.primaryPhone).toBeNull()
+  })
+
+  it('companies.create undo emits query-index cleanup for the removed company', async () => {
+    const tenantId = TEST_TENANT_ID
+    const organizationId = TEST_ORG_ID
+    const entityId = '123e4567-e89b-41d3-a456-426614174210'
+    const profileId = '123e4567-e89b-41d3-a456-426614174211'
+
+    const entity = {
+      id: entityId,
+      organizationId,
+      tenantId,
+      kind: 'company',
+      displayName: 'Acme Corp',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    } as Partial<CustomerEntity>
+    const profile = {
+      id: profileId,
+      entity: entity as CustomerEntity,
+      organizationId,
+      tenantId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Partial<CustomerCompanyProfile>
+
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerEntity && where.id === entityId) return entity
+        if (ctor === CustomerCompanyProfile && where.entity === entity) return profile
+        return null
+      }),
+      nativeDelete: jest.fn(async () => 1),
+      remove: jest.fn(() => {}),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
+    const handler = commandRegistry.get('customers.companies.create') as CommandHandler
+
+    await handler.undo?.({
+      input: undefined,
+      ctx,
+      logEntry: {
+        resourceId: entityId,
+        commandPayload: {
+          undo: {
+            after: {
+              entity: { id: entityId },
+              profile: { id: profileId },
+            },
+          },
+        },
+      } as any,
+    })
+
+    expect((dataEngine as any).markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'deleted',
+        entity,
+        identifiers: expect.objectContaining({
+          id: profileId,
+          organizationId,
+          tenantId,
+        }),
+      }),
+    )
+  })
+
+  it('people.create undo emits query-index cleanup for the removed person', async () => {
+    const tenantId = TEST_TENANT_ID
+    const organizationId = TEST_ORG_ID
+    const entityId = '123e4567-e89b-41d3-a456-426614174220'
+    const profileId = '123e4567-e89b-41d3-a456-426614174221'
+
+    const entity = {
+      id: entityId,
+      organizationId,
+      tenantId,
+      kind: 'person',
+      displayName: 'Ada Lovelace',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    } as Partial<CustomerEntity>
+    const profile = {
+      id: profileId,
+      entity: entity as CustomerEntity,
+      organizationId,
+      tenantId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as Partial<CustomerPersonProfile>
+
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerEntity && where.id === entityId) return entity
+        if (ctor === CustomerPersonProfile && where.entity === entity) return profile
+        return null
+      }),
+      nativeDelete: jest.fn(async () => 1),
+      remove: jest.fn(() => em),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine, tenantId, organizationId })
+    const handler = commandRegistry.get('customers.people.create') as CommandHandler
+
+    await handler.undo?.({
+      input: undefined,
+      ctx,
+      logEntry: {
+        resourceId: entityId,
+        commandPayload: {
+          undo: {
+            after: {
+              entity: { id: entityId },
+              profile: { id: profileId },
+            },
+          },
+        },
+      } as any,
+    })
+
+    expect((dataEngine as any).markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'deleted',
+        entity,
+        identifiers: expect.objectContaining({
+          id: profileId,
+          organizationId,
+          tenantId,
+        }),
+      }),
+    )
+  })
+
+  it('companies.delete removes canonical interactions before deleting the company entity', async () => {
+    const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const entity: CustomerEntity = {
+      id: 'company-delete-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      kind: 'company',
+      displayName: 'Delete Me Co',
+      description: null,
+      ownerUserId: null,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: null,
+      lifecycleStage: null,
+      source: null,
+      nextInteractionAt: null,
+      nextInteractionName: null,
+      nextInteractionRefId: null,
+      nextInteractionIcon: null,
+      nextInteractionColor: null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      personProfile: undefined,
+      companyProfile: undefined,
+      addresses: [] as any,
+      activities: [] as any,
+      comments: [] as any,
+      interactions: [] as any,
+      tagAssignments: [] as any,
+      todoLinks: [] as any,
+      dealPersonLinks: [] as any,
+      dealCompanyLinks: [] as any,
+      companyMembers: [] as any,
+    }
+    const profile: CustomerCompanyProfile = {
+      id: 'company-profile-1',
+      entity,
+      organizationId: entity.organizationId,
+      tenantId: entity.tenantId,
+      legalName: null,
+      brandName: null,
+      domain: null,
+      websiteUrl: null,
+      industry: null,
+      sizeBucket: null,
+      annualRevenue: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    const interaction: CustomerInteraction = {
+      id: 'interaction-company-1',
+      entity,
+      organizationId: entity.organizationId,
+      tenantId: entity.tenantId,
+      interactionType: 'task',
+      title: 'Follow up',
+      body: null,
+      status: 'planned',
+      scheduledAt: null,
+      occurredAt: null,
+      priority: null,
+      authorUserId: null,
+      ownerUserId: null,
+      appearanceIcon: null,
+      appearanceColor: null,
+      source: null,
+      dealId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }
+
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerEntity && where.id === entity.id) return entity
+        if (ctor === CustomerCompanyProfile && where.entity === entity) return profile
+        return null
+      }),
+      find: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerInteraction && where.entity === entity) return [interaction]
+        return []
+      }),
+      nativeUpdate: jest.fn(async () => 1),
+      nativeDelete: jest.fn(async () => 1),
+      remove: jest.fn(() => em),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine })
+    await handler.execute({ query: { id: entity.id } }, ctx)
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerInteraction, { entity })
+    const interactionDeleteOrder = em.nativeDelete.mock.invocationCallOrder[
+      em.nativeDelete.mock.calls.findIndex(([ctor]) => ctor === CustomerInteraction)
+    ]
+    expect(interactionDeleteOrder).toBeLessThan(em.flush.mock.invocationCallOrder[0])
+  })
+
+  it('people.delete removes canonical interactions before deleting the person entity', async () => {
+    const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const entity: CustomerEntity = {
+      id: 'person-delete-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      kind: 'person',
+      displayName: 'Delete Me Person',
+      description: null,
+      ownerUserId: null,
+      primaryEmail: null,
+      primaryPhone: null,
+      status: null,
+      lifecycleStage: null,
+      source: null,
+      nextInteractionAt: null,
+      nextInteractionName: null,
+      nextInteractionRefId: null,
+      nextInteractionIcon: null,
+      nextInteractionColor: null,
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+      personProfile: undefined,
+      companyProfile: undefined,
+      addresses: [] as any,
+      activities: [] as any,
+      comments: [] as any,
+      interactions: [] as any,
+      tagAssignments: [] as any,
+      todoLinks: [] as any,
+      dealPersonLinks: [] as any,
+      dealCompanyLinks: [] as any,
+      companyMembers: [] as any,
+    }
+    const profile: CustomerPersonProfile = {
+      id: 'person-profile-delete-1',
+      entity,
+      organizationId: entity.organizationId,
+      tenantId: entity.tenantId,
+      firstName: 'Delete',
+      lastName: 'Person',
+      preferredName: null,
+      jobTitle: null,
+      department: null,
+      seniority: null,
+      timezone: null,
+      linkedInUrl: null,
+      twitterUrl: null,
+      company: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    const interaction: CustomerInteraction = {
+      id: 'interaction-person-1',
+      entity,
+      organizationId: entity.organizationId,
+      tenantId: entity.tenantId,
+      interactionType: 'task',
+      title: 'Reach out',
+      body: null,
+      status: 'planned',
+      scheduledAt: null,
+      occurredAt: null,
+      priority: null,
+      authorUserId: null,
+      ownerUserId: null,
+      appearanceIcon: null,
+      appearanceColor: null,
+      source: null,
+      dealId: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    }
+
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerEntity && where.id === entity.id) return entity
+        if (ctor === CustomerPersonProfile && where.entity === entity) return profile
+        return null
+      }),
+      find: jest.fn(async (ctor, where: any) => {
+        if (ctor === CustomerInteraction && where.entity === entity) return [interaction]
+        return []
+      }),
+      nativeDelete: jest.fn(async () => 1),
+      remove: jest.fn(() => em),
+      flush: jest.fn(async () => {}),
+    }
+
+    const dataEngine = {
+      setCustomFields: jest.fn(async () => {}),
+      emitOrmEntityEvent: jest.fn(async () => {}),
+    }
+
+    const ctx = createMockContext({ em, dataEngine })
+    await handler.execute({ query: { id: entity.id } }, ctx)
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerInteraction, { entity })
+    const interactionDeleteOrder = em.nativeDelete.mock.invocationCallOrder[
+      em.nativeDelete.mock.calls.findIndex(([ctor]) => ctor === CustomerInteraction)
+    ]
+    expect(interactionDeleteOrder).toBeLessThan(em.flush.mock.invocationCallOrder[0])
+  })
 })

@@ -36,14 +36,9 @@ export function DetailTabsLayout<TId extends string = string>({
   navClassName,
   children,
 }: DetailTabsLayoutProps<TId>) {
-  const navRef = React.useRef<HTMLElement | null>(null)
-
   const handleTabChange = React.useCallback(
     (id: TId) => {
       onTabChange(id)
-      requestAnimationFrame(() => {
-        navRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-      })
     },
     [onTabChange],
   )
@@ -52,7 +47,6 @@ export function DetailTabsLayout<TId extends string = string>({
     <div className={cn('space-y-4', className)}>
       <div className={cn('flex flex-wrap items-center justify-between gap-3', headerClassName)}>
         <nav
-          ref={navRef}
           className={cn('flex flex-wrap items-center gap-3 text-sm', navClassName)}
           role="tablist"
           aria-label={navAriaLabel}
@@ -60,6 +54,7 @@ export function DetailTabsLayout<TId extends string = string>({
           {tabs.map((tab) => (
             <Button
               key={tab.id}
+              type="button"
               variant="ghost"
               size="sm"
               role="tab"
@@ -68,7 +63,7 @@ export function DetailTabsLayout<TId extends string = string>({
               className={cn(
                 'h-auto rounded-none border-b-2 px-0 py-1',
                 activeTab === tab.id
-                  ? 'border-primary text-foreground'
+                  ? 'border-primary text-foreground hover:bg-transparent'
                   : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
               )}
             >

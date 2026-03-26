@@ -13,8 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -30,6 +29,7 @@ import { TagsSection } from '../../../../components/detail/TagsSection'
 import type { TagSummary } from '../../../../components/detail/types'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { PersonHighlightsSummary } from '../../../../components/detail/CustomerFormHighlights'
+import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import {
   buildPersonEditPayload,
   createPersonEditFields,
@@ -91,13 +91,16 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       ? data.person.displayName
       : t('customers.people.list.deleteFallbackName', 'this person')
 
+  const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
       setError(t('customers.people.detail.error.notFound', 'Person not found.'))
       setIsLoading(false)
       return
     }
-    setIsLoading(true)
+    if (!initialLoadDoneRef.current) {
+      setIsLoading(true)
+    }
     setError(null)
     try {
       const search = new URLSearchParams()
@@ -112,9 +115,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customers.people.detail.error.load', 'Failed to load person.')
       setError(message)
-      setData(null)
+      if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
+      initialLoadDoneRef.current = true
     }
   }, [id, t])
 
@@ -201,6 +205,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
   }, [])
+  const tagsSectionControllerRef = React.useRef<TagsSectionController | null>(null)
 
   const dealsScope = React.useMemo(
     () => (currentPersonId ? ({ kind: 'person', entityId: currentPersonId } as const) : null),
@@ -212,14 +217,47 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     [data],
   )
 
+  const contentHeader = React.useMemo(
+    () => (data ? <PersonHighlightsSummary data={data} /> : undefined),
+    [data],
+  )
+
+  const handleFormSubmit = React.useCallback(
+    async (values: PersonEditFormValues) => {
+      await tagsSectionControllerRef.current?.flush()
+
+      let payload: Record<string, unknown>
+      try {
+        payload = buildPersonEditPayload(values, organizationId)
+      } catch (err) {
+        if (err instanceof Error && err.message === 'DISPLAY_NAME_REQUIRED') {
+          const message = t('customers.people.form.displayName.error')
+          throw createCrudFormError(message, { displayName: message })
+        }
+        throw err
+      }
+
+      await updateCrud('customers/people', payload)
+      flash(t('customers.people.form.updateSuccess', 'Person updated.'), 'success')
+      await loadData()
+    },
+    [loadData, organizationId, t],
+  )
+
+  const handleFormDelete = React.useCallback(
+    async () => {
+      await deleteCrud('customers/people', { id: data?.person?.id ?? '' })
+      flash(t('customers.people.list.deleteSuccess', 'Person deleted.'), 'success')
+      router.push('/backend/customers/people')
+    },
+    [data?.person?.id, router, t],
+  )
+
   if (isLoading) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <Spinner className="h-6 w-6" />
-            <span>{t('customers.people.detail.loading', 'Loading person…')}</span>
-          </div>
+          <LoadingMessage label={t('customers.people.detail.loading', 'Loading person…')} />
         </PageBody>
       </Page>
     )
@@ -229,14 +267,16 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('customers.people.detail.error.notFound', 'Person not found.')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/customers/people">
-                {t('customers.people.detail.actions.backToList', 'Back to people')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error || t('customers.people.detail.error.notFound', 'Person not found.')}
+            action={(
+              <Button asChild variant="outline">
+                <Link href="/backend/customers/people">
+                  {t('customers.people.detail.actions.backToList', 'Back to people')}
+                </Link>
+              </Button>
+            )}
+          />
         </PageBody>
       </Page>
     )
@@ -267,29 +307,17 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             fields={fields}
             groups={groups}
             initialValues={initialValues}
-            contentHeader={<PersonHighlightsSummary data={data} />}
-            onSubmit={async (values) => {
-              let payload: Record<string, unknown>
-              try {
-                payload = buildPersonEditPayload(values as PersonEditFormValues, organizationId)
-              } catch (err) {
-                if (err instanceof Error && err.message === 'DISPLAY_NAME_REQUIRED') {
-                  const message = t('customers.people.form.displayName.error')
-                  throw createCrudFormError(message, { displayName: message })
-                }
-                throw err
-              }
-
-              await updateCrud('customers/people', payload)
-              flash(t('customers.people.form.updateSuccess', 'Person updated.'), 'success')
-              await loadData()
-            }}
-            onDelete={async () => {
-              await deleteCrud('customers/people', { id: personId })
-              flash(t('customers.people.list.deleteSuccess', 'Person deleted.'), 'success')
-              router.push('/backend/customers/people')
-            }}
+            contentHeader={contentHeader}
+            onSubmit={handleFormSubmit}
+            onDelete={handleFormDelete}
           />
+
+          <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            {t(
+              'customers.detail.saveGuide',
+              'Profile fields save with the main Save button. Tags save automatically. The related sections below save independently inside their own tabs and panels.',
+            )}
+          </div>
 
           {/* Tags (independent save) */}
           <TagsSection
@@ -297,6 +325,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             tags={data.tags}
             onChange={handleTagsChange}
             isSubmitting={false}
+            controllerRef={tagsSectionControllerRef}
           />
 
           {/* Zone 2: Related Data Tabs */}

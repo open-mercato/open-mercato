@@ -714,7 +714,7 @@ export function DealsSection({
       const confirmed = await confirm({
         title: translate(
           'customers.people.detail.deals.deleteConfirm',
-          'Delete this deal? This action cannot be undone.',
+          'Delete this deal? You can restore it using version history.',
         ),
         variant: 'destructive',
       })

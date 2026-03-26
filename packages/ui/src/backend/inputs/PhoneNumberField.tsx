@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { extractPhoneDigits, validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 
 export type PhoneDuplicateMatch = {
   id: string
@@ -12,6 +13,7 @@ export type PhoneNumberFieldProps = {
   value?: string | null
   onValueChange: (next: string | undefined) => void
   onDigitsChange?: (digits: string | null) => void
+  externalError?: string | null
   disabled?: boolean
   autoFocus?: boolean
   placeholder?: string
@@ -19,21 +21,18 @@ export type PhoneNumberFieldProps = {
   checkingLabel?: string
   duplicateLabel?: (match: PhoneDuplicateMatch) => string
   duplicateLinkLabel?: string
+  invalidLabel?: string
   onDuplicateLookup?: (normalizedValue: string) => Promise<PhoneDuplicateMatch | null>
 }
 
 const DEFAULT_MIN_DIGITS = 6
-const DIGIT_PATTERN = /\d+/g
-
-const digitsOnly = (value: string): string => {
-  const matches = value.match(DIGIT_PATTERN)
-  return matches ? matches.join('') : ''
-}
+const DEFAULT_INVALID_LABEL = 'Enter a valid phone number with country code (e.g. +1 212 555 1234)'
 
 export function PhoneNumberField({
   value,
   onValueChange,
   onDigitsChange,
+  externalError,
   disabled = false,
   autoFocus,
   placeholder,
@@ -41,13 +40,21 @@ export function PhoneNumberField({
   checkingLabel,
   duplicateLabel,
   duplicateLinkLabel,
+  invalidLabel,
   onDuplicateLookup,
 }: PhoneNumberFieldProps) {
-  const [local, setLocal] = React.useState<string>(() => (value == null ? '' : String(value)))
+  const [local, setLocal] = React.useState<string>(() => {
+    if (value == null || value === '') return ''
+    return String(value)
+  })
   const [duplicate, setDuplicate] = React.useState<PhoneDuplicateMatch | null>(null)
   const [checking, setChecking] = React.useState(false)
+  const [validationHint, setValidationHint] = React.useState<string | null>(null)
+  const userEditingRef = React.useRef(false)
+  const visibleValidationHint = externalError ? null : validationHint
 
   React.useEffect(() => {
+    if (userEditingRef.current) return
     if (value == null || value === '') {
       setLocal('')
       onDigitsChange?.(null)
@@ -55,7 +62,7 @@ export function PhoneNumberField({
     }
     const nextValue = String(value)
     setLocal(nextValue)
-    onDigitsChange?.(digitsOnly(nextValue) || null)
+    onDigitsChange?.(extractPhoneDigits(nextValue) || null)
   }, [value, onDigitsChange])
 
   React.useEffect(() => {
@@ -64,7 +71,7 @@ export function PhoneNumberField({
       setChecking(false)
       return
     }
-    const digits = digitsOnly(local)
+    const digits = extractPhoneDigits(local)
     if (!digits || digits.length < minDigits) {
       setDuplicate(null)
       setChecking(false)
@@ -93,13 +100,39 @@ export function PhoneNumberField({
   const handleChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const next = event.target.value
-      const cleanDigits = digitsOnly(next)
+      const cleanDigits = extractPhoneDigits(next)
+      userEditingRef.current = true
       setLocal(next)
+      setValidationHint(null)
       onValueChange(next.length ? next : undefined)
       onDigitsChange?.(cleanDigits.length ? cleanDigits : null)
     },
     [onValueChange, onDigitsChange]
   )
+
+  const handleBlur = React.useCallback(() => {
+    userEditingRef.current = false
+    const trimmed = local.trim()
+    if (!trimmed) {
+      setLocal('')
+      setValidationHint(null)
+      onValueChange(undefined)
+      onDigitsChange?.(null)
+      return
+    }
+    const result = validatePhoneNumber(trimmed)
+    if (result.valid) {
+      setLocal(result.normalized ?? '')
+      setValidationHint(null)
+      onValueChange(result.normalized || undefined)
+      onDigitsChange?.(result.digits || null)
+    } else {
+      setLocal(trimmed)
+      setValidationHint(invalidLabel ?? DEFAULT_INVALID_LABEL)
+      onValueChange(trimmed)
+      onDigitsChange?.(result.digits || null)
+    }
+  }, [invalidLabel, local, onDigitsChange, onValueChange])
 
   return (
     <div className="space-y-2">
@@ -108,11 +141,15 @@ export function PhoneNumberField({
         className="w-full h-9 rounded border px-2 text-sm"
         value={local}
         onChange={handleChange}
+        onBlur={handleBlur}
         placeholder={placeholder}
         autoFocus={autoFocus}
         disabled={disabled}
         data-crud-focus-target=""
       />
+      {visibleValidationHint ? (
+        <p className="text-xs text-destructive">{visibleValidationHint}</p>
+      ) : null}
       {!disabled && duplicate && duplicateLabel && duplicateLinkLabel ? (
         <p className="text-xs text-amber-600">
           {duplicateLabel(duplicate)}{' '}

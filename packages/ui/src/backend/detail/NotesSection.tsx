@@ -686,8 +686,7 @@ function NotesSectionImpl<C = unknown>({
   const handleDeleteNote = React.useCallback(
     async (note: CommentSummary) => {
       const confirmed = await confirm({
-        title: label('deleteConfirm', 'Delete this note?'),
-        text: 'This action cannot be undone.',
+        title: label('deleteConfirm', 'Delete this note? You can restore it using version history.'),
         variant: 'destructive',
       })
       if (!confirmed) return

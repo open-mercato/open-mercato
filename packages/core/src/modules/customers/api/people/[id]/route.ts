@@ -434,7 +434,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('container_resolved')
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
-    const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
     const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
     profiler.mark('scope_resolved', {
       scopedOrganizations: Array.isArray(scope?.filterIds) ? scope.filterIds.length : 0,

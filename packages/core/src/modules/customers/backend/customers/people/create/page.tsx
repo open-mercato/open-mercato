@@ -53,7 +53,7 @@ export default function CreatePersonPage() {
           initialValues={initialValues}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t('customers.people.form.submit')}
-          cancelHref="/backend/customers/people"
+          cancelHref={returnTo ?? '/backend/customers/people'}
           schema={formSchema}
           onSubmit={async (values) => {
             const addresses = Array.isArray(values.addresses) ? values.addresses : []

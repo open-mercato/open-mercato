@@ -865,6 +865,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                     onActionChange={handleSectionActionChange}
                     onLoadingChange={handlePeopleLoadingChange}
                     translator={detailTranslator}
+                    runGuardedMutation={runMutationWithContext}
                     onPeopleChange={(next) => {
                       setData((prev) => (prev ? { ...prev, people: next } : prev))
                     }}

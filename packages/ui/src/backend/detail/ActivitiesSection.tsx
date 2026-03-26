@@ -960,8 +960,7 @@ function ActivitiesSectionImpl<C = unknown>({
     async (activity: ActivitySummary) => {
       if (!activity.id) return
       const confirmed = await confirm({
-        title: t('deleteConfirm', 'Delete this activity?'),
-        text: 'This action cannot be undone.',
+        title: t('deleteConfirm', 'Delete this activity? You can restore it using version history.'),
         variant: 'destructive',
       })
       if (!confirmed) return

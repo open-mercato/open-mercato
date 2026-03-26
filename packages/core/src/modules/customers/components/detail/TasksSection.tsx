@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Ban, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -42,18 +42,42 @@ type TasksSectionProps = {
   runGuardedMutation?: GuardedMutationRunner
 }
 
+const RESERVED_TASK_CUSTOM_KEYS = new Set(['priority', 'description', 'due_at', 'dueAt'])
+
+function toTimestamp(value: string | null | undefined): number | null {
+  if (!value) return null
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function sortTaskSummaries(tasks: TodoLinkSummary[]): TodoLinkSummary[] {
+  return [...tasks].sort((left, right) => {
+    const leftDue = toTimestamp(left.dueAt)
+    const rightDue = toTimestamp(right.dueAt)
+    if (leftDue !== null || rightDue !== null) {
+      if (leftDue === null) return 1
+      if (rightDue === null) return -1
+      if (leftDue !== rightDue) return leftDue - rightDue
+    }
+    const leftCreated = toTimestamp(left.createdAt) ?? 0
+    const rightCreated = toTimestamp(right.createdAt) ?? 0
+    if (leftCreated !== rightCreated) return rightCreated - leftCreated
+    return left.id.localeCompare(right.id)
+  })
+}
+
 function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, unknown> | undefined {
   if (!task) return undefined
   const values: Record<string, unknown> = {
     title: task.title ?? '',
     is_done: task.isDone ?? false,
+    description: task.description ?? '',
+    priority: task.priority ?? '',
+    scheduledAt: task.dueAt ?? '',
   }
-  if (task.priority !== undefined && task.priority !== null) values.cf_priority = task.priority
-  if (task.severity) values.cf_severity = task.severity
-  if (task.description) values.cf_description = task.description
-  if (task.dueAt) values.cf_due_at = task.dueAt
   if (task.customValues) {
     for (const [key, value] of Object.entries(task.customValues)) {
+      if (RESERVED_TASK_CUSTOM_KEYS.has(key)) continue
       const formKey = `cf_${key}`
       if (values[formKey] === undefined) values[formKey] = value
     }
@@ -113,14 +137,10 @@ export function TasksSection({
         interactionType: 'task',
         title: payload.base.title,
         status: payload.base.is_done ? 'done' : 'planned',
-        priority: typeof payload.custom.priority === 'number' ? payload.custom.priority : null,
-        body: typeof payload.custom.description === 'string' ? payload.custom.description : null,
-        scheduledAt:
-          typeof payload.custom.due_at === 'string'
-            ? payload.custom.due_at
-            : typeof payload.custom.dueAt === 'string'
-              ? (payload.custom.dueAt as string)
-              : null,
+        priority: payload.base.priority ?? null,
+        body: payload.base.description ?? null,
+        scheduledAt: payload.base.scheduledAt ?? null,
+        customValues: payload.custom,
       }
       await canonicalResult.createInteraction(interactionPayload)
     },
@@ -132,14 +152,10 @@ export function TasksSection({
       await canonicalResult.updateInteraction(task.todoId, {
         title: payload.base.title,
         status: payload.base.is_done ? 'done' : 'planned',
-        priority: typeof payload.custom.priority === 'number' ? payload.custom.priority : null,
-        body: typeof payload.custom.description === 'string' ? payload.custom.description : null,
-        scheduledAt:
-          typeof payload.custom.due_at === 'string'
-            ? payload.custom.due_at
-            : typeof payload.custom.dueAt === 'string'
-              ? (payload.custom.dueAt as string)
-              : null,
+        priority: payload.base.priority ?? null,
+        body: payload.base.description ?? null,
+        scheduledAt: payload.base.scheduledAt ?? null,
+        customValues: payload.custom,
       })
     },
     [canonicalResult],
@@ -178,6 +194,7 @@ export function TasksSection({
   const unlinkTask = useCanonicalInteractions ? canonicalUnlinkTask : legacyResult.unlinkTask
   const pendingTaskId = useCanonicalInteractions ? canonicalResult.pendingId : legacyResult.pendingTaskId
   const error = useCanonicalInteractions ? canonicalResult.error : legacyResult.error
+  const sortedTasks = React.useMemo(() => sortTaskSummaries(tasks), [tasks])
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
@@ -259,7 +276,7 @@ export function TasksSection({
           },
         )
         flash(t('customers.people.detail.tasks.createSuccess', 'Task created'), 'success')
-        onDataRefresh?.()
+        await Promise.resolve(onDataRefresh?.())
       } catch (err) {
         const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.error', 'Failed to create task')
         flash(message, 'error')
@@ -282,7 +299,7 @@ export function TasksSection({
           },
         )
         flash(t('customers.people.detail.tasks.updateSuccess', 'Task updated'), 'success')
-        onDataRefresh?.()
+        await Promise.resolve(onDataRefresh?.())
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t('customers.people.detail.tasks.updateError', 'Failed to update task')
@@ -310,7 +327,7 @@ export function TasksSection({
             : t('customers.people.detail.tasks.reopenSuccess', 'Task reopened'),
           'success',
         )
-        onDataRefresh?.()
+        await Promise.resolve(onDataRefresh?.())
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError', 'Failed to update task status')
@@ -331,7 +348,7 @@ export function TasksSection({
           },
         )
         flash(t('customers.people.detail.tasks.deleteSuccess', 'Task removed'), 'success')
-        onDataRefresh?.()
+        await Promise.resolve(onDataRefresh?.())
         await refresh()
       } catch (err) {
         const message =
@@ -351,7 +368,7 @@ export function TasksSection({
           { id: task.todoId },
         )
         flash(t('customers.people.detail.tasks.cancelSuccess', 'Task canceled'), 'success')
-        onDataRefresh?.()
+        await Promise.resolve(onDataRefresh?.())
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t('customers.people.detail.tasks.cancelError', 'Failed to cancel task')
@@ -364,6 +381,9 @@ export function TasksSection({
   const renderTaskMeta = React.useCallback(
     (task: TodoLinkSummary) => {
       const meta: string[] = []
+      if (task.status === 'canceled') {
+        meta.push(t('customers.people.detail.tasks.status.canceled', 'Canceled'))
+      }
       if (typeof task.priority === 'number') {
         meta.push(t('customers.people.detail.tasks.priorityLabel', 'Priority {{priority}}', { priority: task.priority }))
       }
@@ -398,7 +418,7 @@ export function TasksSection({
     [dialogMode, editingTask, handleCreate, handleUpdate],
   )
 
-  const hasTasks = tasks.length > 0
+  const hasTasks = sortedTasks.length > 0
 
   return (
     <div className="mt-0 space-y-6">
@@ -428,12 +448,13 @@ export function TasksSection({
                 {error}
               </div>
             ) : null}
-            {tasks.map((task) => {
+            {sortedTasks.map((task) => {
               const todoHref = resolveTodoHref(task.todoSource, task.todoId)
               const createdLabel = formatDateTime(task.createdAt) ?? emptyLabel
               const meta = renderTaskMeta(task)
               const title = task.title ?? t('customers.people.detail.tasks.untitled', 'Untitled task')
               const isDone = task.isDone === true
+              const isCanceled = task.status === 'canceled'
               const checkboxId = `person-task-${task.id}`
               const isPendingToggle = pendingTaskId === task.todoId
               return (
@@ -450,10 +471,16 @@ export function TasksSection({
                               const next = event.target.checked
                               void handleToggle(task, next)
                             }}
-                            disabled={isMutating || isPendingToggle}
+                            disabled={isMutating || isPendingToggle || isCanceled}
                             className="h-4 w-4 rounded border"
                           />
-                          <span className={cn('text-sm font-semibold', isDone ? 'line-through text-muted-foreground' : undefined)}>
+                          <span
+                            className={cn(
+                              'text-sm font-semibold',
+                              isDone ? 'line-through text-muted-foreground' : undefined,
+                              isCanceled ? 'text-muted-foreground' : undefined,
+                            )}
+                          >
                             {title}
                           </span>
                         </span>
@@ -476,18 +503,6 @@ export function TasksSection({
                           <Pencil className="h-4 w-4" />
                         )}
                       </IconButton>
-                      {useCanonicalInteractions && !isDone ? (
-                        <IconButton
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleCancel(task)}
-                          disabled={isMutating}
-                          aria-label={t('customers.people.detail.tasks.cancelAction', 'Cancel task')}
-                        >
-                          <Ban className="h-4 w-4" />
-                        </IconButton>
-                      ) : null}
                       <IconButton
                         type="button"
                         variant="ghost"
@@ -513,6 +528,18 @@ export function TasksSection({
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{task.description}</p>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-3 text-xs">
+                    {useCanonicalInteractions && !isDone && !isCanceled ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+                        onClick={() => void handleCancel(task)}
+                        disabled={isMutating || isPendingToggle}
+                      >
+                        {t('customers.people.detail.tasks.cancelAction', 'Cancel task')}
+                      </Button>
+                    ) : null}
                     {todoHref ? (
                       <Link href={todoHref} className="text-primary hover:underline">
                         {t('customers.people.detail.tasks.openTask', 'Open task')}
@@ -525,7 +552,7 @@ export function TasksSection({
             <div ref={sentinelRef} />
             {hasMore ? (
               <div className="flex justify-center">
-                <Button variant="outline" size="sm" onClick={() => loadMore().catch(() => {})} disabled={isLoadingMore}>
+                <Button type="button" variant="outline" size="sm" onClick={() => loadMore().catch(() => {})} disabled={isLoadingMore}>
                   {isLoadingMore ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -545,7 +572,7 @@ export function TasksSection({
             ) : null}
             <div className="flex justify-center">
               <Button asChild variant="outline" size="sm">
-                <Link href="/backend/customer-tasks" target="_blank" rel="noreferrer">
+                <Link href="/backend/customer-tasks">
                   {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
                 </Link>
               </Button>

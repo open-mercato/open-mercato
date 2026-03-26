@@ -18,6 +18,7 @@ export type InteractionCreatePayload = {
   status?: string
   scheduledAt?: string | null
   priority?: number | null
+  customValues?: Record<string, unknown>
   ownerUserId?: string | null
   dealId?: string | null
 }
@@ -30,6 +31,7 @@ export type InteractionUpdatePayload = {
   scheduledAt?: string | null
   occurredAt?: string | null
   priority?: number | null
+  customValues?: Record<string, unknown>
   ownerUserId?: string | null
   dealId?: string | null
 }

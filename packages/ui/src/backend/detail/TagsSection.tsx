@@ -28,6 +28,12 @@ export type TagsSectionLabels = {
   edit?: string
   cancel?: string
   success?: string
+  saving?: string
+  autoSaveHint?: string
+}
+
+export type TagsSectionController = {
+  flush: () => Promise<void>
 }
 
 export type TagsSectionProps = {
@@ -37,6 +43,7 @@ export type TagsSectionProps = {
   isSubmitting?: boolean
   canEdit?: boolean
   autoSave?: boolean
+  controllerRef?: React.MutableRefObject<TagsSectionController | null>
   loadOptions: (query?: string) => Promise<TagOption[]>
   createTag: (label: string) => Promise<TagOption>
   onSave: (params: {
@@ -45,6 +52,20 @@ export type TagsSectionProps = {
     removed: TagOption[]
   }) => Promise<void>
   labels: TagsSectionLabels
+}
+
+function normalizeTagLabels(labels: string[]): string[] {
+  return Array.from(
+    new Set(
+      labels
+        .map((label) => label.trim().toLowerCase())
+        .filter((label) => label.length > 0),
+    ),
+  ).sort()
+}
+
+function buildTagLabelKey(labels: string[]): string {
+  return normalizeTagLabels(labels).join('\0')
 }
 
 function TagsSectionImpl({
@@ -58,23 +79,34 @@ function TagsSectionImpl({
   createTag,
   onSave,
   labels,
+  controllerRef,
 }: TagsSectionProps) {
   const [editing, setEditing] = React.useState(autoSave)
   const [draft, setDraft] = React.useState<string[]>([])
   const [saving, setSaving] = React.useState(false)
-  const [options, setOptions] = React.useState<Map<string, TagOption>>(() => new Map())
+  const [, setOptions] = React.useState<Map<string, TagOption>>(() => new Map())
   const [loadingOptions, setLoadingOptions] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
+  const draftRef = React.useRef<string[]>([])
+  const savedTagsRef = React.useRef<TagOption[]>(tags)
+  const optionsRef = React.useRef<Map<string, TagOption>>(new Map())
+  const saveTaskRef = React.useRef<Promise<void> | null>(null)
   React.useEffect(() => {
+    savedTagsRef.current = tags
     setOptions((prev) => {
       const next = new Map(prev)
       for (const tag of tags) {
         next.set(tag.label.toLowerCase(), tag)
       }
+      optionsRef.current = next
       return next
     })
   }, [tags])
+
+  React.useEffect(() => {
+    draftRef.current = draft
+  }, [draft])
 
   const syncFetchedOptions = React.useCallback((fetched: TagOption[]) => {
     if (!fetched.length) return
@@ -83,9 +115,18 @@ function TagsSectionImpl({
       for (const tag of fetched) {
         next.set(tag.label.toLowerCase(), tag)
       }
+      optionsRef.current = next
       return next
     })
   }, [])
+
+  const hasPendingDraftChanges = React.useCallback(() => {
+    if (!autoSave || !autoSaveUserEditedRef.current) return false
+    const draftLabels = normalizeTagLabels(draftRef.current)
+    const savedLabels = normalizeTagLabels(savedTagsRef.current.map((tag) => tag.label))
+    if (draftLabels.length !== savedLabels.length) return true
+    return draftLabels.some((label, index) => label !== savedLabels[index])
+  }, [autoSave])
 
   const loadSuggestions = React.useCallback(
     async (query?: string) => {
@@ -131,13 +172,14 @@ function TagsSectionImpl({
       if (!normalized.length) {
         throw new Error(labels.labelRequired)
       }
-      const existing = options.get(normalized.toLowerCase())
+      const existing = optionsRef.current.get(normalized.toLowerCase())
       if (existing) return existing
       try {
         const created = await createTag(normalized)
         setOptions((prev) => {
           const next = new Map(prev)
           next.set(created.label.toLowerCase(), created)
+          optionsRef.current = next
           return next
         })
         return created
@@ -146,51 +188,86 @@ function TagsSectionImpl({
         throw new Error(message)
       }
     },
-    [createTag, labels.createError, labels.labelRequired, options],
+    [createTag, labels.createError, labels.labelRequired],
   )
 
   const handleSave = React.useCallback(async () => {
-    if (saving) return
-    const trimmed = draft.map((label) => label.trim()).filter((label) => label.length > 0)
+    if (saveTaskRef.current) {
+      await saveTaskRef.current
+      if (!autoSave || !hasPendingDraftChanges()) return
+    }
+    if (autoSave && !hasPendingDraftChanges()) {
+      autoSaveUserEditedRef.current = false
+      return
+    }
+
+    const trimmed = draftRef.current.map((label) => label.trim()).filter((label) => label.length > 0)
     const uniqueLabels = Array.from(new Set(trimmed.map((label) => label.toLowerCase())))
 
-    const currentIds = new Set(tags.map((tag) => tag.id))
-    const finalTagOptions: TagOption[] = []
+    let shouldContinueAutoSave = false
 
-    setSaving(true)
-    setError(null)
-    try {
-      for (const normalized of uniqueLabels) {
-        const existing = options.get(normalized)
-        if (existing) {
-          finalTagOptions.push(existing)
-          continue
+    const task = (async () => {
+      const currentTags = savedTagsRef.current
+      const currentIds = new Set(currentTags.map((tag) => tag.id))
+      const finalTagOptions: TagOption[] = []
+      const submittedDraftKey = buildTagLabelKey(trimmed)
+
+      setSaving(true)
+      setError(null)
+      try {
+        for (const normalized of uniqueLabels) {
+          const existing = optionsRef.current.get(normalized)
+          if (existing) {
+            finalTagOptions.push(existing)
+            continue
+          }
+          const matchingLabel = trimmed.find((label) => label.toLowerCase() === normalized) ?? normalized
+          const created = await ensureTagOption(matchingLabel)
+          finalTagOptions.push(created)
         }
-        const matchingLabel = trimmed.find((label) => label.toLowerCase() === normalized) ?? normalized
-        const created = await ensureTagOption(matchingLabel)
-        finalTagOptions.push(created)
+
+        const finalIds = new Set(finalTagOptions.map((tag) => tag.id))
+        const added = finalTagOptions.filter((tag) => !currentIds.has(tag.id))
+        const removed = currentTags.filter((tag) => !finalIds.has(tag.id))
+
+        if (added.length > 0 || removed.length > 0) {
+          await onSave({ next: finalTagOptions, added, removed })
+        }
+
+        savedTagsRef.current = finalTagOptions
+        onChange?.(finalTagOptions)
+        if (autoSave) {
+          const latestDraftKey = buildTagLabelKey(draftRef.current)
+          if (latestDraftKey === submittedDraftKey) {
+            autoSaveUserEditedRef.current = false
+            setDraft(finalTagOptions.map((tag) => tag.label))
+          } else {
+            shouldContinueAutoSave = true
+          }
+        } else {
+          setEditing(false)
+          setDraft([])
+        }
+        if (labels.success && (added.length > 0 || removed.length > 0)) flash(labels.success, 'success')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : labels.updateError
+        setError(message)
+        flash(message, 'error')
+      } finally {
+        setSaving(false)
       }
+    })()
 
-      const finalIds = new Set(finalTagOptions.map((tag) => tag.id))
-      const added = finalTagOptions.filter((tag) => !currentIds.has(tag.id))
-      const removed = tags.filter((tag) => !finalIds.has(tag.id))
-
-      await onSave({ next: finalTagOptions, added, removed })
-
-      onChange?.(finalTagOptions)
-      if (!autoSave) {
-        setEditing(false)
-        setDraft([])
-      }
-      if (labels.success) flash(labels.success, 'success')
-    } catch (err) {
-      const message = err instanceof Error ? err.message : labels.updateError
-      setError(message)
-      flash(message, 'error')
+    saveTaskRef.current = task
+    try {
+      await task
     } finally {
-      setSaving(false)
+      saveTaskRef.current = null
     }
-  }, [draft, ensureTagOption, labels.success, labels.updateError, onChange, onSave, options, saving, tags])
+    if (shouldContinueAutoSave) {
+      void handleSave()
+    }
+  }, [autoSave, ensureTagOption, hasPendingDraftChanges, labels.success, labels.updateError, onChange, onSave])
 
   const activeTags = editing ? draft : tags.map((tag) => tag.label)
 
@@ -236,20 +313,35 @@ function TagsSectionImpl({
     [],
   )
 
-  const autoSaveTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
   React.useEffect(() => {
     if (!autoSave || !editing || !autoSaveUserEditedRef.current) return
-    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
-    autoSaveTimerRef.current = setTimeout(() => {
-      if (saving) return
-      void handleSave()
-    }, 600)
-    return () => {
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current)
+    if (!hasPendingDraftChanges()) return
+    void handleSave()
+  }, [autoSave, draft, editing, handleSave, hasPendingDraftChanges])
+
+  const flush = React.useCallback(async () => {
+    if (saveTaskRef.current) {
+      await saveTaskRef.current
+      if (!autoSave || !editing || !hasPendingDraftChanges()) return
     }
-  }, [autoSave, draft, editing, handleSave, saving])
+    if (!autoSave || !editing || !hasPendingDraftChanges()) return
+    await handleSave()
+  }, [autoSave, editing, handleSave, hasPendingDraftChanges])
+
+  React.useEffect(() => {
+    if (!controllerRef) return
+    controllerRef.current = { flush }
+    return () => {
+      if (controllerRef.current?.flush === flush) {
+        controllerRef.current = null
+      }
+    }
+  }, [controllerRef, flush])
 
   const disableInteraction = isSubmitting || !canEdit
+  const autoSaveStatusLabel = saving
+    ? (labels.saving ?? 'Saving…')
+    : (labels.autoSaveHint ?? null)
 
   return (
     <div className="space-y-3">
@@ -257,7 +349,9 @@ function TagsSectionImpl({
         <h2 className="text-sm font-semibold">
           {title}
         </h2>
-        {autoSave ? null : (
+        {autoSave ? (
+          autoSaveStatusLabel ? <p className="text-xs text-muted-foreground">{autoSaveStatusLabel}</p> : null
+        ) : (
           <Button
             type="button"
             variant="ghost"

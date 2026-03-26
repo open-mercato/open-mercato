@@ -13,8 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -32,6 +31,7 @@ import type { TagSummary } from '../../../../components/detail/types'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { CompanyHighlightsSummary } from '../../../../components/detail/CustomerFormHighlights'
+import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import {
   buildCompanyEditPayload,
   createCompanyEditFields,
@@ -118,13 +118,16 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     [t],
   )
 
+  const initialLoadDoneRef = React.useRef(false)
   const loadData = React.useCallback(async () => {
     if (!id) {
       setError(t('customers.companies.detail.error.notFound', 'Company not found.'))
       setIsLoading(false)
       return
     }
-    setIsLoading(true)
+    if (!initialLoadDoneRef.current) {
+      setIsLoading(true)
+    }
     setError(null)
     try {
       const search = new URLSearchParams()
@@ -140,9 +143,10 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
       setError(message)
-      setData(null)
+      if (!initialLoadDoneRef.current) setData(null)
     } finally {
       setIsLoading(false)
+      initialLoadDoneRef.current = true
     }
   }, [id, t])
 
@@ -230,6 +234,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const handleTagsChange = React.useCallback((nextTags: TagSummary[]) => {
     setData((prev) => (prev ? { ...prev, tags: nextTags } : prev))
   }, [])
+  const tagsSectionControllerRef = React.useRef<TagsSectionController | null>(null)
 
   const dealsScope = React.useMemo(
     () => (currentCompanyId ? ({ kind: 'company', entityId: currentCompanyId } as const) : null),
@@ -241,14 +246,53 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     [data],
   )
 
+  const contentHeader = React.useMemo(
+    () => (data ? <CompanyHighlightsSummary data={data} /> : undefined),
+    [data],
+  )
+
+  const handleFormSubmit = React.useCallback(
+    async (values: CompanyEditFormValues) => {
+      await tagsSectionControllerRef.current?.flush()
+
+      let payload: Record<string, unknown>
+      try {
+        payload = buildCompanyEditPayload(values, organizationId)
+      } catch (err) {
+        if (err instanceof Error) {
+          if (err.message === 'DISPLAY_NAME_REQUIRED') {
+            const message = t('customers.companies.form.displayName.error')
+            throw createCrudFormError(message, { displayName: message })
+          }
+          if (err.message === 'ANNUAL_REVENUE_INVALID') {
+            const message = t('customers.companies.form.annualRevenue.error')
+            throw createCrudFormError(message, { annualRevenue: message })
+          }
+        }
+        throw err
+      }
+
+      await updateCrud('customers/companies', payload)
+      flash(t('customers.companies.form.updateSuccess', 'Company updated.'), 'success')
+      await loadData()
+    },
+    [loadData, organizationId, t],
+  )
+
+  const handleFormDelete = React.useCallback(
+    async () => {
+      await deleteCrud('customers/companies', { id: data?.company?.id ?? '' })
+      flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
+      router.push('/backend/customers/companies')
+    },
+    [data?.company?.id, router, t],
+  )
+
   if (isLoading) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <Spinner className="h-6 w-6" />
-            <span>{t('customers.companies.detail.loading', 'Loading company…')}</span>
-          </div>
+          <LoadingMessage label={t('customers.companies.detail.loading', 'Loading company…')} />
         </PageBody>
       </Page>
     )
@@ -258,14 +302,16 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{error || t('customers.companies.detail.error.notFound', 'Company not found.')}</p>
-            <Button asChild variant="outline">
-              <Link href="/backend/customers/companies">
-                {t('customers.companies.detail.actions.backToList', 'Back to companies')}
-              </Link>
-            </Button>
-          </div>
+          <ErrorMessage
+            label={error || t('customers.companies.detail.error.notFound', 'Company not found.')}
+            action={(
+              <Button asChild variant="outline">
+                <Link href="/backend/customers/companies">
+                  {t('customers.companies.detail.actions.backToList', 'Back to companies')}
+                </Link>
+              </Button>
+            )}
+          />
         </PageBody>
       </Page>
     )
@@ -296,35 +342,17 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             fields={fields}
             groups={groups}
             initialValues={initialValues}
-            contentHeader={<CompanyHighlightsSummary data={data} />}
-            onSubmit={async (values) => {
-              let payload: Record<string, unknown>
-              try {
-                payload = buildCompanyEditPayload(values as CompanyEditFormValues, organizationId)
-              } catch (err) {
-                if (err instanceof Error) {
-                  if (err.message === 'DISPLAY_NAME_REQUIRED') {
-                    const message = t('customers.companies.form.displayName.error')
-                    throw createCrudFormError(message, { displayName: message })
-                  }
-                  if (err.message === 'ANNUAL_REVENUE_INVALID') {
-                    const message = t('customers.companies.form.annualRevenue.error')
-                    throw createCrudFormError(message, { annualRevenue: message })
-                  }
-                }
-                throw err
-              }
-
-              await updateCrud('customers/companies', payload)
-              flash(t('customers.companies.form.updateSuccess', 'Company updated.'), 'success')
-              await loadData()
-            }}
-            onDelete={async () => {
-              await deleteCrud('customers/companies', { id: companyId })
-              flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
-              router.push('/backend/customers/companies')
-            }}
+            contentHeader={contentHeader}
+            onSubmit={handleFormSubmit}
+            onDelete={handleFormDelete}
           />
+
+          <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+            {t(
+              'customers.detail.saveGuide',
+              'Profile fields save with the main Save button. Tags save automatically. The related sections below save independently inside their own tabs and panels.',
+            )}
+          </div>
 
           {/* Tags (independent save) */}
           <TagsSection
@@ -332,6 +360,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             tags={data.tags}
             onChange={handleTagsChange}
             isSubmitting={false}
+            controllerRef={tagsSectionControllerRef}
           />
 
           {/* Zone 2: Related Data Tabs */}
@@ -417,6 +446,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     }}
                     onActionChange={handleSectionActionChange}
                     translator={detailTranslator}
+                    onDataRefresh={loadData}
+                    runGuardedMutation={runMutationWithContext}
                     onPeopleChange={(next) => {
                       setData((prev) => (prev ? { ...prev, people: next } : prev))
                     }}

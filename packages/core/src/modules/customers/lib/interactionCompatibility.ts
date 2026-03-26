@@ -63,6 +63,7 @@ export function mapInteractionRecordToTodoSummary(interaction: InteractionRecord
     createdAt: interaction.createdAt,
     title: interaction.title ?? null,
     isDone: interaction.status === 'done',
+    status: interaction.status,
     priority: interaction.priority ?? null,
     severity:
       typeof customValues.severity === 'string' && customValues.severity.trim().length

@@ -20,6 +20,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import type {
   CrudCustomFieldRenderProps,
   CrudField,
@@ -40,6 +41,7 @@ import {
 } from './detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
+import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
 export const metadata = {
   navHidden: true,
@@ -393,12 +395,14 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
       <PhoneNumberField
         value={typeof value === 'string' ? value : null}
         onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+        externalError={error}
         autoFocus={autoFocus}
         disabled={disabled}
-        placeholder={t('customers.people.form.primaryPhonePlaceholder', '+00 000 000 000')}
+        placeholder={t('customers.people.form.primaryPhonePlaceholder', '+1 555 123 4567')}
         checkingLabel={t('customers.people.form.phoneChecking')}
         duplicateLabel={(match) => t('customers.people.form.phoneDuplicateNotice', undefined, { name: match.label })}
         duplicateLinkLabel={t('customers.people.form.phoneDuplicateLink')}
+        invalidLabel={t('customers.people.form.primaryPhone.invalid', 'Enter a valid phone number with country code (e.g. +1 212 555 1234)')}
         minDigits={7}
         onDuplicateLookup={!disabled && !error ? duplicateLookup : undefined}
       />
@@ -645,7 +649,8 @@ export const createPersonFormSchema = () =>
       primaryPhone: z
         .string()
         .trim()
-        .regex(/^\+?[\d\s\-().]{3,50}$/, 'customers.people.form.primaryPhone.invalid')
+        .max(50)
+        .refine((value) => isValidPhoneNumber(value), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1018,7 +1023,8 @@ export const createCompanyFormSchema = () =>
       primaryPhone: z
         .string()
         .trim()
-        .regex(/^\+?[\d\s\-().]{3,50}$/, 'customers.people.form.primaryPhone.invalid')
+        .max(50)
+        .refine((value) => isValidPhoneNumber(value), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1130,10 +1136,21 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
     {
       id: 'primaryPhone',
       label: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
-      type: 'text',
+      type: 'custom',
       layout: 'half',
-      placeholder: t('customers.companies.form.primaryPhonePlaceholder', '+00 000 000 000'),
-    },
+      component: ({ value, setValue, error, disabled, autoFocus }: CrudCustomFieldRenderProps) => (
+        <PhoneNumberField
+          value={typeof value === 'string' ? value : null}
+          onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+          externalError={error}
+          autoFocus={autoFocus}
+          disabled={disabled}
+          placeholder={t('customers.companies.form.primaryPhonePlaceholder', '+1 555 123 4567')}
+          invalidLabel={t('customers.people.form.primaryPhone.invalid', 'Enter a valid phone number with country code (e.g. +1 212 555 1234)')}
+          minDigits={7}
+        />
+      ),
+    } as CrudField,
     ...dictionaryFields,
     {
       id: 'legalName',
@@ -1153,6 +1170,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
       type: 'text',
       layout: 'half',
       placeholder: t('customers.companies.detail.fields.domainPlaceholder', 'example.com'),
+      description: t('customers.companies.detail.fields.domainHelp', 'Use a plain domain like example.com.'),
     },
     {
       id: 'websiteUrl',
@@ -1160,6 +1178,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
       type: 'text',
       layout: 'half',
       placeholder: t('customers.companies.detail.highlights.websitePlaceholder', 'https://example.com'),
+      description: t('customers.companies.detail.fields.websiteHelp', 'Use a full URL like https://example.com.'),
     },
     {
       id: 'industry',
@@ -1694,11 +1713,13 @@ export type PersonOverview = {
 // ---------------------------------------------------------------------------
 
 export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Partial<CompanyEditFormValues> {
+  const rawPhone = overview.company.primaryPhone
+  const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.company.id,
     displayName: overview.company.displayName,
     primaryEmail: overview.company.primaryEmail ?? '',
-    primaryPhone: overview.company.primaryPhone ?? '',
+    primaryPhone: phoneValue,
     status: overview.company.status ?? '',
     lifecycleStage: overview.company.lifecycleStage ?? '',
     source: overview.company.source ?? '',
@@ -1715,13 +1736,15 @@ export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Parti
 }
 
 export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial<PersonEditFormValues> {
+  const rawPhone = overview.person.primaryPhone
+  const phoneValue = rawPhone == null ? '' : String(rawPhone)
   return {
     id: overview.person.id,
     displayName: overview.person.displayName,
     firstName: overview.profile?.firstName ?? '',
     lastName: overview.profile?.lastName ?? '',
     primaryEmail: overview.person.primaryEmail ?? '',
-    primaryPhone: overview.person.primaryPhone ?? '',
+    primaryPhone: phoneValue,
     companyEntityId: overview.profile?.companyEntityId ?? '',
     jobTitle: overview.profile?.jobTitle ?? '',
     status: overview.person.status ?? '',

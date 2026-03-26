@@ -1,6 +1,13 @@
 import { z } from 'zod'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 
 const uuid = () => z.string().uuid()
+
+export const CUSTOMER_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+
+const phoneSchema = z.string().trim().max(50).refine((val) => {
+  return isValidPhoneNumber(val)
+}, { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY }).optional()
 
 const scopedSchema = z.object({
   organizationId: uuid(),
@@ -34,7 +41,7 @@ const baseEntitySchema = {
     .email()
     .max(320)
     .optional(),
-  primaryPhone: z.string().trim().max(50).regex(/^\+?[\d\s\-().]{3,50}$/, 'customers.people.form.primaryPhone.invalid').optional(),
+  primaryPhone: phoneSchema,
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
   source: z.string().trim().max(150).optional(),

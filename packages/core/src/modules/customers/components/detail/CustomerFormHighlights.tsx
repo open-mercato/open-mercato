@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { Info } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CompanyOverview, PersonOverview } from '../formConfig'
 
@@ -8,13 +9,21 @@ type HighlightItemProps = {
   label: string
   value: string | null | undefined
   href?: string
+  hint?: string | null
 }
 
-function HighlightItem({ label, value, href }: HighlightItemProps) {
-  const display = value && value.trim().length ? value.trim() : '—'
+function HighlightItem({ label, value, href, hint }: HighlightItemProps) {
+  const display = typeof value === 'string' && value.trim().length ? value.trim() : '—'
   return (
     <div className="space-y-0.5">
-      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+        {hint && display === '—' ? (
+          <span title={hint} className="cursor-help">
+            <Info className="h-3 w-3" />
+          </span>
+        ) : null}
+      </div>
       {href && display !== '—' ? (
         <a href={href} className="text-sm font-medium text-primary underline-offset-2 hover:underline">
           {display}
@@ -37,6 +46,10 @@ function formatNextInteraction(at: string | null | undefined, name: string | nul
 export function CompanyHighlightsSummary({ data }: { data: CompanyOverview }) {
   const t = useT()
   const { company } = data
+  const isLegacy = data.interactionMode !== 'canonical'
+  const nextInteractionHint = isLegacy
+    ? t('customers.companies.detail.highlights.nextInteractionLegacyHint', 'Available when unified interactions are enabled. Create tasks with a due date to see the next planned interaction.')
+    : t('customers.companies.detail.highlights.nextInteractionHint', 'Shows the nearest planned interaction. Create a task with a due date to populate this.')
   return (
     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
       <HighlightItem
@@ -46,7 +59,7 @@ export function CompanyHighlightsSummary({ data }: { data: CompanyOverview }) {
       />
       <HighlightItem
         label={t('customers.companies.detail.highlights.primaryPhone', 'Phone')}
-        value={company.primaryPhone}
+        value={company.primaryPhone != null ? String(company.primaryPhone) : null}
         href={company.primaryPhone ? `tel:${company.primaryPhone}` : undefined}
       />
       <HighlightItem
@@ -56,6 +69,7 @@ export function CompanyHighlightsSummary({ data }: { data: CompanyOverview }) {
       <HighlightItem
         label={t('customers.companies.detail.highlights.nextInteraction', 'Next interaction')}
         value={formatNextInteraction(company.nextInteractionAt, company.nextInteractionName)}
+        hint={nextInteractionHint}
       />
     </div>
   )
@@ -73,7 +87,7 @@ export function PersonHighlightsSummary({ data }: { data: PersonOverview }) {
       />
       <HighlightItem
         label={t('customers.people.detail.highlights.primaryPhone', 'Phone')}
-        value={person.primaryPhone}
+        value={person.primaryPhone != null ? String(person.primaryPhone) : null}
         href={person.primaryPhone ? `tel:${person.primaryPhone}` : undefined}
       />
       <HighlightItem

@@ -102,12 +102,14 @@ export function ActivitiesSection({
 
   const loadActivityOptions = React.useCallback(async (): Promise<DictionaryOption[]> => {
     const data = await ensureCustomerDictionary(queryClient, 'activity-types', scopeVersion)
-    return data.entries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color ?? null,
-      icon: entry.icon ?? null,
-    }))
+    return data.entries
+      .filter((entry) => entry.value !== 'task')
+      .map((entry) => ({
+        value: entry.value,
+        label: entry.label,
+        color: entry.color ?? null,
+        icon: entry.icon ?? null,
+      }))
   }, [queryClient, scopeVersion])
 
   const createActivityOption = React.useCallback(

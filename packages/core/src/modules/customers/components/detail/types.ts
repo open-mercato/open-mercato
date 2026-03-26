@@ -102,6 +102,7 @@ export type TodoLinkSummary = {
   createdByUserId?: string | null
   title?: string | null
   isDone?: boolean | null
+  status?: string | null
   priority?: number | null
   severity?: string | null
   description?: string | null

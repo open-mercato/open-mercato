@@ -308,7 +308,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
   const em = (container.resolve('em') as EntityManager)
-  const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+  const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
   const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
 
   const company = await em.findOne(

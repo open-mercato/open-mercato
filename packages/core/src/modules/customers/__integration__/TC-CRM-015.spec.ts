@@ -96,19 +96,29 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
         searchByEmailItems.some((item) => item && typeof item === 'object' && (item as { id?: unknown }).id === companyId),
       ).toBeTruthy();
 
+      const filteredListResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/companies?status=active&lifecycleStage=prospect&tagIds=${encodeURIComponent(tagId!)}&page=1&pageSize=100`,
+        { token },
+      );
+      expect(filteredListResponse.ok()).toBeTruthy();
+      const filteredListBody =
+        (await readJsonSafe<{ items?: Array<{ id?: unknown }> }>(filteredListResponse)) ?? {};
+      const filteredListItems = Array.isArray(filteredListBody.items) ? filteredListBody.items : [];
+      expect(
+        filteredListItems.some((item) => item && typeof item === 'object' && (item as { id?: unknown }).id === companyId),
+      ).toBeTruthy();
+
       const search = page.getByRole('textbox', { name: /Search companies/i });
-      const waitForCompanyInList = async (value: string) => {
+      const waitForCompanyInList = async () => {
         await expect
           .poll(
             async () => {
-              await page.getByRole('button', { name: 'Refresh' }).waitFor();
-              await page.getByRole('button', { name: 'Refresh' }).click();
-              await search.fill(value);
-              await page.waitForTimeout(1000);
               await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
               return await page.getByRole('link', { name: companyName, exact: true }).count();
             },
-            { timeout: 60000 },
+            { timeout: 20000 },
           )
           .toBeGreaterThan(0);
       };
@@ -135,13 +145,16 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
 
       await expect(page.getByRole('button', { name: /Status:\s*Active/i })).toBeVisible();
       await expect(page.getByRole('button', { name: /Lifecycle stage:\s*Prospect/i })).toBeVisible();
+      await expect(page.getByRole('button', { name: new RegExp(companyTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })).toBeVisible();
 
-      await waitForCompanyInList(companyName);
+      await waitForCompanyInList();
 
       await page.getByRole('button', { name: /^Filters/ }).click();
       await filtersDialog.getByRole('button', { name: 'Clear' }).first().click();
       await filtersDialog.getByRole('button', { name: 'Apply' }).first().click();
-      await waitForCompanyInList(companyName);
+      await search.fill(companyName);
+      await page.waitForTimeout(1200);
+      await waitForCompanyInList();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
