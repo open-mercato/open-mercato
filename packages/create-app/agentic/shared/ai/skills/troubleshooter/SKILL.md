@@ -224,7 +224,7 @@ yarn typecheck
 3. **Is the correct import path used?** Use `@open-mercato/ui/backend/...`
 4. **Are API calls using `apiCall` / `apiCallOrThrow`?** Never use raw `fetch`
 
-### DataTable shows no data
+### DataTable shows no data or missing rows
 
 **Checklist**:
 
@@ -232,6 +232,25 @@ yarn typecheck
 2. **Is the entity ID correct?** Check `entityId` prop
 3. **Does the API return data?** Test with `curl` or browser devtools
 4. **Does the user have `view` feature?** Check ACL
+5. **Are pagination props wired?** Without `page`, `pageSize`, `totalCount`, and `onPageChange`, the table only shows the first page with no pagination controls. Check the API returns `totalCount` in the response.
+6. **Is `organization_id` scoping correct?** Records created without proper `organization_id` won't appear when the API filters by current org
+7. **Are records soft-deleted?** Records with `deletedAt` set are filtered out by default
+
+### Sidebar icons broken or wrong
+
+**Checklist**:
+
+1. **Are icons using `lucide-react` components?** Import from `lucide-react` (e.g., `import { Trophy } from 'lucide-react'`)
+2. **AVOID `React.createElement('svg', ...)`** — inline SVG via `React.createElement` is fragile in bundler contexts and can produce broken icons after `yarn generate`
+3. **Is the icon defined in `page.meta.ts`?** Export as part of `metadata.icon`
+4. **Did you run `yarn generate`?** The generator reads icon metadata from `page.meta.ts`
+
+**Correct pattern**:
+```tsx
+// page.meta.ts
+import { Trophy } from 'lucide-react'
+export const metadata = { icon: <Trophy className="size-4" /> }
+```
 
 ### CrudForm doesn't save
 
@@ -407,6 +426,8 @@ yarn dev               # 5. Restart dev server
 | Enricher data missing | `critical: false` hiding errors | Set `critical: true` temporarily |
 | Interceptor not running | Wrong `targetRoute` or `methods` | Check exact route path and methods |
 | `ECONNREFUSED` | Database/service not running | `docker compose up -d` |
+| DataTable shows fewer rows than expected | Missing pagination props or API `totalCount` | Wire `page`/`pageSize`/`totalCount`/`onPageChange` props |
+| Sidebar icons broken or wrong | Inline SVG via `React.createElement` | Use `lucide-react` components in `page.meta.ts` |
 | `yarn generate` changes unexpected files | Stale generated files | Delete `.mercato/generated/`, re-run |
 
 ---

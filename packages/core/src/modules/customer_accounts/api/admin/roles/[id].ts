@@ -98,7 +98,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'Role not found' }, { status: 404 })
   }
 
-  if (role.isSystem && parsed.data.name !== undefined) {
+  if (role.isSystem && parsed.data.name !== undefined && parsed.data.name !== role.name) {
     return NextResponse.json({ ok: false, error: 'Cannot change name of a system role' }, { status: 400 })
   }
 

@@ -475,7 +475,37 @@ export default function CustomerAccountsPage() {
 
   return (
     <Page>
-      <PageBody>
+      <PageBody className="space-y-4">
+        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                {t('customer_accounts.admin.portalInfo.title', 'Customer Portal')}
+              </h3>
+              <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                {t('customer_accounts.admin.portalInfo.description', 'Manage customer portal accounts. Customers can self-register, log in, and access orders, quotes, and invoices through the portal.')}
+              </p>
+              <p className="mt-1.5 text-xs text-blue-600 dark:text-blue-400">
+                {t('customer_accounts.admin.portalInfo.url', 'Portal URL: {url}', {
+                  url: `${typeof window !== 'undefined' ? window.location.origin : ''}/[org-slug]/portal`,
+                })}
+              </p>
+              <p className="mt-0.5 text-xs text-blue-600 dark:text-blue-400">
+                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / password123')}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              asChild
+            >
+              <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/portal`} target="_blank" rel="noopener noreferrer">
+                {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
+              </a>
+            </Button>
+          </div>
+        </div>
         <DataTable<UserRow>
           title={t('customer_accounts.admin.title', 'Customer Accounts')}
           actions={(

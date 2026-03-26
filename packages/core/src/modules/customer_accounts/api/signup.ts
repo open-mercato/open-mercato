@@ -6,7 +6,6 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerRole, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
@@ -48,8 +47,11 @@ export async function POST(req: Request) {
   const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
-  const org = await em.findOne(Organization, { id: organizationId, deletedAt: null })
-  if (!org) {
+  const [orgRow] = await em.getConnection().execute(
+    `SELECT 1 FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
+    [organizationId],
+  )
+  if (!orgRow) {
     return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
   }
 

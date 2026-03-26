@@ -152,6 +152,16 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
   const [resetPasswordOpen, setResetPasswordOpen] = React.useState(false)
   const [isVerifying, setIsVerifying] = React.useState(false)
+  const [editPersonEntityId, setEditPersonEntityId] = React.useState<string | null>(null)
+  const [editCustomerEntityId, setEditCustomerEntityId] = React.useState<string | null>(null)
+  const [personSearchQuery, setPersonSearchQuery] = React.useState('')
+  const [companySearchQuery, setCompanySearchQuery] = React.useState('')
+  const [personResults, setPersonResults] = React.useState<Array<{ id: string; label: string }>>([])
+  const [companyResults, setCompanyResults] = React.useState<Array<{ id: string; label: string }>>([])
+  const [personName, setPersonName] = React.useState<string | null>(null)
+  const [companyName, setCompanyName] = React.useState<string | null>(null)
+  const [isSendingResetLink, setIsSendingResetLink] = React.useState(false)
+  const [resetLinkUrl, setResetLinkUrl] = React.useState<string | null>(null)
 
   const mutationContextId = `customer_accounts:user:${id ?? 'pending'}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -193,6 +203,8 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
         setEditActive(payload.isActive)
         setEditDisplayName(payload.displayName)
         setSelectedRoleIds(payload.roles.map((role) => role.id))
+        setEditPersonEntityId(payload.personEntityId)
+        setEditCustomerEntityId(payload.customerEntityId)
       } catch (err) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.error.load', 'Failed to load user')
@@ -225,6 +237,87 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
     return () => { cancelled = true }
   }, [])
 
+  React.useEffect(() => {
+    if (!data) return
+    let cancelled = false
+    async function loadCrmNames() {
+      if (data!.personEntityId) {
+        try {
+          const call = await apiCall<{ id?: string; firstName?: string; lastName?: string }>(`/api/customers/people/${encodeURIComponent(data!.personEntityId)}`)
+          if (!cancelled && call.ok && call.result) {
+            setPersonName([call.result.firstName, call.result.lastName].filter(Boolean).join(' ') || call.result.id || null)
+          }
+        } catch { /* ignore */ }
+      }
+      if (data!.customerEntityId) {
+        try {
+          const call = await apiCall<{ id?: string; name?: string }>(`/api/customers/${encodeURIComponent(data!.customerEntityId)}`)
+          if (!cancelled && call.ok && call.result) {
+            setCompanyName(call.result.name || call.result.id || null)
+          }
+        } catch { /* ignore */ }
+      }
+    }
+    loadCrmNames()
+    return () => { cancelled = true }
+  }, [data])
+
+  const handleSearchPeople = React.useCallback(async (query: string) => {
+    setPersonSearchQuery(query)
+    if (query.trim().length < 2) { setPersonResults([]); return }
+    try {
+      const call = await apiCall<{ items?: Array<{ id: string; firstName?: string; lastName?: string; email?: string }> }>(
+        `/api/customers/people?search=${encodeURIComponent(query.trim())}&pageSize=10`,
+      )
+      if (call.ok && Array.isArray(call.result?.items)) {
+        setPersonResults(call.result!.items.map((person) => ({
+          id: person.id,
+          label: [person.firstName, person.lastName].filter(Boolean).join(' ') || person.email || person.id,
+        })))
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  const handleSearchCompanies = React.useCallback(async (query: string) => {
+    setCompanySearchQuery(query)
+    if (query.trim().length < 2) { setCompanyResults([]); return }
+    try {
+      const call = await apiCall<{ items?: Array<{ id: string; name?: string }> }>(
+        `/api/customers?search=${encodeURIComponent(query.trim())}&pageSize=10`,
+      )
+      if (call.ok && Array.isArray(call.result?.items)) {
+        setCompanyResults(call.result!.items.map((company) => ({
+          id: company.id,
+          label: company.name || company.id,
+        })))
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  const handleSendResetLink = React.useCallback(async () => {
+    if (!id) return
+    setIsSendingResetLink(true)
+    try {
+      await runMutationWithContext(async () => {
+        const call = await apiCall<{ ok: boolean; resetLink?: string; error?: string }>(
+          `/api/customer_accounts/admin/users/${encodeURIComponent(id)}/send-reset-link`,
+          { method: 'POST' },
+        )
+        if (!call.ok || !call.result?.resetLink) {
+          flash(call.result?.error || t('customer_accounts.admin.detail.sendResetLink.error', 'Failed to generate reset link'), 'error')
+          return
+        }
+        setResetLinkUrl(call.result.resetLink)
+        flash(t('customer_accounts.admin.detail.sendResetLink.flash.success', 'Reset link generated'), 'success')
+      }, { id })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.sendResetLink.error', 'Failed to generate reset link')
+      flash(message, 'error')
+    } finally {
+      setIsSendingResetLink(false)
+    }
+  }, [id, runMutationWithContext, t])
+
   const handleSave = React.useCallback(async () => {
     if (!data || !id) return
     setIsSaving(true)
@@ -239,6 +332,8 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
               displayName: editDisplayName.trim() || undefined,
               isActive: editActive,
               roleIds: selectedRoleIds,
+              personEntityId: editPersonEntityId,
+              customerEntityId: editCustomerEntityId,
             }),
           },
         )
@@ -251,15 +346,17 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           ...prev,
           isActive: editActive ?? prev.isActive,
           displayName: editDisplayName.trim() || prev.displayName,
+          personEntityId: editPersonEntityId,
+          customerEntityId: editCustomerEntityId,
         } : prev)
-      }, { displayName: editDisplayName, isActive: editActive, roleIds: selectedRoleIds })
+      }, { displayName: editDisplayName, isActive: editActive, roleIds: selectedRoleIds, personEntityId: editPersonEntityId, customerEntityId: editCustomerEntityId })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.detail.error.save', 'Failed to save user')
       flash(message, 'error')
     } finally {
       setIsSaving(false)
     }
-  }, [data, editActive, editDisplayName, id, runMutationWithContext, selectedRoleIds, t])
+  }, [data, editActive, editCustomerEntityId, editDisplayName, editPersonEntityId, id, runMutationWithContext, selectedRoleIds, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!data || !id) return
@@ -394,6 +491,24 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           deleteLabel={t('customer_accounts.admin.detail.actions.delete', 'Delete')}
         />
 
+        <div className="rounded-lg border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-800 dark:bg-blue-950/50">
+          <div className="flex items-start gap-3">
+            <div className="flex-1">
+              <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
+                {t('customer_accounts.admin.detail.portalAccess.title', 'Customer Portal Access')}
+              </h3>
+              <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                {t('customer_accounts.admin.detail.portalAccess.description', 'This user can access the customer portal at the URL below. The portal provides self-service access to orders, invoices, quotes, and account management.')}
+              </p>
+              <p className="mt-2 text-xs text-blue-600 dark:text-blue-400">
+                {t('customer_accounts.admin.detail.portalAccess.url', 'Portal URL: {url}', {
+                  url: `${typeof window !== 'undefined' ? window.location.origin : ''}/[org-slug]/portal`,
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="grid gap-6 md:grid-cols-2">
           <div className="rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.info', 'User Information')}</h2>
@@ -441,69 +556,138 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
 
           <div className="rounded-lg border p-4 space-y-3">
             <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.crmLinks', 'CRM Links')}</h2>
-            <dl className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.personEntity', 'Linked Person')}</dt>
-                <dd>
-                  {data.personEntityId ? (
-                    <Link href={`/backend/customers/people/${data.personEntityId}`} className="text-primary hover:underline">
-                      {t('customer_accounts.admin.detail.actions.viewPerson', 'View')}
+            <div className="space-y-3 text-sm">
+              <div className="space-y-1.5">
+                <p className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.personEntity', 'Linked Person')}</p>
+                {editPersonEntityId ? (
+                  <div className="flex items-center gap-2">
+                    <Link href={`/backend/customers/people/${editPersonEntityId}`} className="text-primary hover:underline">
+                      {personName || editPersonEntityId}
                     </Link>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
-                </dd>
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditPersonEntityId(null); setPersonName(null) }}>
+                      {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={personSearchQuery}
+                        onChange={(event) => { void handleSearchPeople(event.target.value) }}
+                        placeholder={t('customer_accounts.admin.detail.fields.searchPerson', 'Search people by name...')}
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                      {personResults.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
+                          {personResults.map((person) => (
+                            <button
+                              key={person.id}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                              onClick={() => {
+                                setEditPersonEntityId(person.id)
+                                setPersonName(person.label)
+                                setPersonSearchQuery('')
+                                setPersonResults([])
+                              }}
+                            >
+                              {person.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.customerEntity', 'Linked Company')}</dt>
-                <dd>
-                  {data.customerEntityId ? (
-                    <Link href={`/backend/customers/companies/${data.customerEntityId}`} className="text-primary hover:underline">
-                      {t('customer_accounts.admin.detail.actions.viewCompany', 'View')}
+              <div className="space-y-1.5">
+                <p className="text-muted-foreground">{t('customer_accounts.admin.detail.fields.customerEntity', 'Linked Company')}</p>
+                {editCustomerEntityId ? (
+                  <div className="flex items-center gap-2">
+                    <Link href={`/backend/customers/companies/${editCustomerEntityId}`} className="text-primary hover:underline">
+                      {companyName || editCustomerEntityId}
                     </Link>
-                  ) : (
-                    <span className="text-muted-foreground">-</span>
-                  )}
-                </dd>
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditCustomerEntityId(null); setCompanyName(null) }}>
+                      {t('customer_accounts.admin.detail.actions.unlink', 'Unlink')}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={companySearchQuery}
+                        onChange={(event) => { void handleSearchCompanies(event.target.value) }}
+                        placeholder={t('customer_accounts.admin.detail.fields.searchCompany', 'Search companies by name...')}
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                      {companyResults.length > 0 && (
+                        <div className="absolute z-10 mt-1 w-full rounded-md border bg-background shadow-lg max-h-40 overflow-y-auto">
+                          {companyResults.map((company) => (
+                            <button
+                              key={company.id}
+                              type="button"
+                              className="w-full px-3 py-2 text-left text-sm hover:bg-muted"
+                              onClick={() => {
+                                setEditCustomerEntityId(company.id)
+                                setCompanyName(company.label)
+                                setCompanySearchQuery('')
+                                setCompanyResults([])
+                              }}
+                            >
+                              {company.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            </dl>
+              <p className="text-xs text-muted-foreground">
+                {t('customer_accounts.admin.detail.crmLinks.hint', 'Changes to CRM links are saved when you click Save Changes below.')}
+              </p>
+            </div>
           </div>
         </div>
 
         <div className="rounded-lg border p-4 space-y-4">
           <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.settings', 'Account Settings')}</h2>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <label className="text-sm font-medium" htmlFor="user-display-name">
-                {t('customer_accounts.admin.detail.fields.displayName', 'Display Name')}
-              </label>
-              <input
-                id="user-display-name"
-                type="text"
-                value={editDisplayName}
-                onChange={(event) => setEditDisplayName(event.target.value)}
-                className="flex h-9 w-full max-w-sm rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="user-display-name">
+                  {t('customer_accounts.admin.detail.fields.displayName', 'Display Name')}
+                </label>
+                <input
+                  id="user-display-name"
+                  type="text"
+                  value={editDisplayName}
+                  onChange={(event) => setEditDisplayName(event.target.value)}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
 
-            <div className="flex items-center gap-3">
-              <label className="text-sm font-medium" htmlFor="user-active-toggle">
-                {t('customer_accounts.admin.detail.fields.isActive', 'Active')}
-              </label>
-              <button
-                id="user-active-toggle"
-                type="button"
-                role="switch"
-                aria-checked={editActive ?? data.isActive}
-                onClick={() => setEditActive((prev) => !(prev ?? data.isActive))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  (editActive ?? data.isActive) ? 'bg-primary' : 'bg-muted'
-                }`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  (editActive ?? data.isActive) ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
+              <div className="flex items-center gap-3">
+                <label className="text-sm font-medium" htmlFor="user-active-toggle">
+                  {t('customer_accounts.admin.detail.fields.isActive', 'Active')}
+                </label>
+                <button
+                  id="user-active-toggle"
+                  type="button"
+                  role="switch"
+                  aria-checked={editActive ?? data.isActive}
+                  onClick={() => setEditActive((prev) => !(prev ?? data.isActive))}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    (editActive ?? data.isActive) ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    (editActive ?? data.isActive) ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
@@ -512,18 +696,20 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 {availableRoles.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
                   return (
-                    <button
+                    <Button
                       key={role.id}
                       type="button"
+                      variant="outline"
+                      size="sm"
                       onClick={() => handleRoleToggle(role.id)}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      className={`rounded-full ${
                         isSelected
                           ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                          : ''
                       }`}
                     >
                       {role.name}
-                    </button>
+                    </Button>
                   )
                 })}
                 {availableRoles.length === 0 && (
@@ -533,14 +719,13 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
                 )}
               </div>
             </div>
-
-            <div className="pt-2">
-              <Button onClick={() => { void handleSave() }} disabled={isSaving}>
-                {isSaving
-                  ? t('customer_accounts.admin.detail.actions.saving', 'Saving...')
-                  : t('customer_accounts.admin.detail.actions.save', 'Save Changes')}
-              </Button>
-            </div>
+          </div>
+          <div className="pt-2">
+            <Button onClick={() => { void handleSave() }} disabled={isSaving}>
+              {isSaving
+                ? t('customer_accounts.admin.detail.actions.saving', 'Saving...')
+                : t('customer_accounts.admin.detail.actions.save', 'Save Changes')}
+            </Button>
           </div>
         </div>
 
@@ -548,11 +733,46 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">{t('customer_accounts.admin.detail.sections.security', 'Security')}</h2>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setResetPasswordOpen(true)}>
               {t('customer_accounts.admin.detail.resetPassword.actions.open', 'Reset Password')}
             </Button>
+            <Button
+              variant="outline"
+              onClick={() => { void handleSendResetLink() }}
+              disabled={isSendingResetLink}
+            >
+              {isSendingResetLink
+                ? t('customer_accounts.admin.detail.sendResetLink.actions.sending', 'Generating...')
+                : t('customer_accounts.admin.detail.sendResetLink.actions.send', 'Send Reset Link')}
+            </Button>
           </div>
+          {resetLinkUrl && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-950">
+              <p className="mb-1.5 text-sm font-medium text-blue-900 dark:text-blue-100">
+                {t('customer_accounts.admin.detail.sendResetLink.linkLabel', 'Password reset link (valid for 60 minutes):')}
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 break-all rounded bg-blue-100 px-2 py-1 text-xs text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                  {resetLinkUrl}
+                </code>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(resetLinkUrl)
+                    flash(t('customer_accounts.admin.detail.sendResetLink.flash.copied', 'Link copied to clipboard'), 'success')
+                  }}
+                >
+                  {t('customer_accounts.admin.detail.sendResetLink.actions.copy', 'Copy')}
+                </Button>
+              </div>
+              <p className="mt-1.5 text-xs text-blue-700 dark:text-blue-300">
+                {t('customer_accounts.admin.detail.sendResetLink.hint', 'Share this link with the customer to let them set a new password.')}
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="rounded-lg border p-4 space-y-3">

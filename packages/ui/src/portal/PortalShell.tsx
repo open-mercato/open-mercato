@@ -176,9 +176,9 @@ export function PortalShell({
   const signupHref = orgSlug ? `/${orgSlug}/portal/signup` : '/portal/signup'
   const dashboardHref = orgSlug ? `/${orgSlug}/portal/dashboard` : '/portal/dashboard'
   const profileHref = orgSlug ? `/${orgSlug}/portal/profile` : '/portal/profile'
-  // Use orgSlug as immediate fallback to prevent "Customer Portal" → "Acme Corp" flash
-  // while tenant is loading. The slug is available synchronously from the URL.
-  const headerTitle = orgName || orgSlug || t('portal.title', 'Customer Portal')
+  // Always use the resolved organization name from the database.
+  // Fall back to the generic portal title — never display the raw slug.
+  const headerTitle = orgName || t('portal.title', 'Customer Portal')
 
   const closeMobile = useCallback(() => setMobileOpen(false), [])
 
@@ -205,7 +205,7 @@ export function PortalShell({
         <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80" data-portal-handle={PORTAL_HEADER_HANDLE}>
           <div className="mx-auto flex h-16 w-full max-w-screen-lg items-center justify-between px-6">
             <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-              <Image src="/open-mercato.svg" alt="" width={28} height={28} className="dark:invert" priority />
+              <Image src="/open-mercato.svg" alt="" width={28} height={28} className="" priority />
               <span className="text-[15px] font-semibold tracking-tight">{headerTitle}</span>
             </Link>
             <nav aria-label="Primary" className="flex items-center gap-1">
@@ -228,7 +228,7 @@ export function PortalShell({
         <footer className="border-t" data-portal-handle={PORTAL_FOOTER_HANDLE}>
           <div className="mx-auto flex w-full max-w-screen-lg items-center justify-between px-6 py-6">
             <Link href={portalHome} className="flex items-center gap-2 text-muted-foreground transition hover:text-foreground">
-              <Image src="/open-mercato.svg" alt="" width={20} height={20} className="dark:invert" />
+              <Image src="/open-mercato.svg" alt="" width={20} height={20} className="" />
               <span className="text-sm font-medium text-foreground">{headerTitle}</span>
             </Link>
             <p className="text-xs text-muted-foreground/60">
@@ -246,7 +246,7 @@ export function PortalShell({
     <div className="flex h-full flex-col" data-portal-handle={PORTAL_SIDEBAR_HANDLE}>
       <div className="flex h-16 items-center gap-2.5 border-b px-5">
         <Link href={portalHome} className="flex items-center gap-2.5 text-foreground transition hover:opacity-80" aria-label={headerTitle}>
-          <Image src="/open-mercato.svg" alt="" width={22} height={22} className="dark:invert" />
+          <Image src="/open-mercato.svg" alt="" width={22} height={22} className="" />
           <span className="text-[14px] font-semibold tracking-tight truncate">{headerTitle}</span>
         </Link>
       </div>
