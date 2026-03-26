@@ -158,7 +158,8 @@ export function computeSettingsPathPrefixes(sections: SettingsSection[]): string
   const prefixes = new Set<string>()
   const visitItem = (item: SettingsSectionItem) => {
     const parts = item.href.split('/')
-    if (parts.length > 3) {
+    const lastSegment = parts[parts.length - 1]
+    if (parts.length > 3 && lastSegment !== 'settings') {
       prefixes.add(parts.slice(0, -1).join('/'))
     }
     prefixes.add(item.href)

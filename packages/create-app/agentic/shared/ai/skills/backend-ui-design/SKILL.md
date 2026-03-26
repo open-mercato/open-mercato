@@ -50,6 +50,29 @@ Column patterns:
 - Status/enum: `EnumBadge` with severity presets
 - Actions: `RowActions` for context menus
 
+### DataTable Pagination
+
+DataTable MUST be configured with pagination props to display all data correctly. Without these, the table only shows the first page with no way to navigate:
+
+```tsx
+<DataTable
+  columns={columns}
+  data={items}
+  page={page}
+  pageSize={pageSize}
+  totalCount={totalCount}
+  onPageChange={setPage}
+/>
+```
+
+When using a custom API (not `makeCrudRoute`), ensure the list response always returns:
+- `items` — array of records for the current page
+- `totalCount` — total records matching the query (not just the current page)
+- `page` — current page number (1-based)
+- `pageSize` — records per page
+
+The default `pageSize` is 25. Keep at or below 100. If you see fewer records than expected, verify your API returns `totalCount` and the DataTable has pagination props wired.
+
 ### Forms
 
 Use `CrudForm` for ALL forms. Never build from scratch.

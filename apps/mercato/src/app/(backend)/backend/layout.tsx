@@ -341,10 +341,11 @@ export default async function BackendLayout({ children, params }: { children: Re
   const settingsSectionOrder: Record<string, number> = {
     'system': 1,
     'auth': 2,
-    'data-designer': 3,
-    'module-configs': 4,
-    'directory': 5,
-    'feature-toggles': 6,
+    'customer-portal': 3,
+    'data-designer': 4,
+    'module-configs': 5,
+    'directory': 6,
+    'feature-toggles': 7,
   }
   const generatedSettingsSections = buildSettingsSections(entries, settingsSectionOrder)
   const settingsPathPrefixes = computeSettingsPathPrefixes(generatedSettingsSections)

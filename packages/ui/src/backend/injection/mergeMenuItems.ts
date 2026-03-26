@@ -52,8 +52,17 @@ export function mergeMenuItems(
     source: 'built-in',
   })) as MergedMenuItem[]
 
+  const existingIds = new Set(builtIn.map((i) => i.id))
+  const existingHrefs = new Set(builtIn.map((i) => (i as Record<string, unknown>).href as string | undefined).filter(Boolean))
+
   for (const item of injected) {
+    if (existingIds.has(item.id)) continue
+    if (item.href && existingHrefs.has(item.href)) continue
+
     const nextItem = toMergedInjectedItem(item)
+    existingIds.add(item.id)
+    if (item.href) existingHrefs.add(item.href)
+
     if (!item.placement && item.groupId) {
       const existingGroupIndexes = merged
         .map((entry, index) => ({ entry, index }))

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -68,6 +68,7 @@
     "@open-mercato/ui": "workspace:*",
     "@simplewebauthn/browser": "^11.0.0",
     "@simplewebauthn/server": "^11.0.0",
+    "@simplewebauthn/types": "^11.0.0",
     "@types/qrcode": "^1.5.5",
     "openid-client": "^6.3.3",
     "otpauth": "9.4.1",

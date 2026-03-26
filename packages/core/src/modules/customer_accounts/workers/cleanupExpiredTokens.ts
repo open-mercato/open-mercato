@@ -6,10 +6,6 @@ import {
   CustomerUserInvitation,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-type CleanupPayload = {
-  batchSize?: number
-}
-
 export const metadata: WorkerMeta = {
   queue: 'customer-accounts-cleanup-tokens',
   id: 'customer_accounts:cleanup-expired-tokens',
@@ -20,7 +16,7 @@ type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
 }
 
-export default async function handle(job: QueuedJob<CleanupPayload>, ctx: HandlerContext): Promise<void> {
+export default async function handle(job: QueuedJob, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
   const now = new Date()
 

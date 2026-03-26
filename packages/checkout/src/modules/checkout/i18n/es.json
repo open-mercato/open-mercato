@@ -342,6 +342,7 @@
   "checkout.payPage.legal.acceptDocument": "Acepto {document}.",
   "checkout.payPage.legal.defaultPrivacyTitle": "la politica de privacidad",
   "checkout.payPage.legal.defaultTermsTitle": "los terminos y condiciones",
+  "checkout.payPage.legal.readDocument": "Read document",
   "checkout.payPage.loading": "Cargando enlace de pago...",
   "checkout.payPage.passwordPlaceholder": "Contrasena",
   "checkout.payPage.payment.kicker": "Panel de pago",

@@ -1,4 +1,9 @@
-import { buildSettingsSections, convertToSectionNavGroups, type AdminNavItem } from '../utils/nav'
+import {
+  buildSettingsSections,
+  computeSettingsPathPrefixes,
+  convertToSectionNavGroups,
+  type AdminNavItem,
+} from '../utils/nav'
 
 describe('settings navigation helpers', () => {
   it('includes only settings-context entries', () => {
@@ -73,5 +78,28 @@ describe('settings navigation helpers', () => {
     expect(converted[0].items[0].children?.map((item) => item.href)).toEqual([
       '/backend/entities/user/example%3Acalendar_entity/records',
     ])
+  })
+
+  it('does not treat parent routes as settings prefixes for leaf settings pages', () => {
+    const entries: AdminNavItem[] = [
+      {
+        group: 'Module Configs',
+        groupId: 'settings.sections.moduleConfigs',
+        groupKey: 'settings.sections.moduleConfigs',
+        groupDefaultName: 'Module Configs',
+        title: 'Portal Settings',
+        defaultTitle: 'Portal Settings',
+        href: '/backend/customer_accounts/settings',
+        enabled: true,
+        order: 50,
+        pageContext: 'settings',
+      },
+    ]
+
+    const sections = buildSettingsSections(entries, { 'module-configs': 4 })
+    const prefixes = computeSettingsPathPrefixes(sections)
+
+    expect(prefixes).toContain('/backend/customer_accounts/settings')
+    expect(prefixes).not.toContain('/backend/customer_accounts')
   })
 })

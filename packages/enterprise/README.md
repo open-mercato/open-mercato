@@ -4,9 +4,11 @@ Enterprise-only package for commercial Open Mercato modules and overlays.
 
 This package is where Enterprise Edition implementations are delivered, currently including:
 
-- **MFA / 2FA** — multi-factor authentication with TOTP and backup codes
-- **SSO & Directory Sync** — SAML/OIDC single sign-on with SCIM directory provisioning
-- **Record Locking** — pessimistic locking to prevent concurrent editing conflicts
+- **MFA / 2FA** — multi-factor authentication with pluggable providers (TOTP, WebAuthn/passkeys, OTP email), enforcement policies, sudo challenge flows, provider-specific challenge UI registry, and enrollment redirect UX
+- **SSO & Directory Sync** — SAML/OIDC single sign-on with SCIM directory provisioning, per-org IdP configuration, and JIT user provisioning
+- **Record Locking** — optimistic and pessimistic mutation protection with participant presence, conflict detection/resolution, and force release
+- **Auth Login Interceptors** — MFA login gating via UMES extension points with zero core modifications
+- **System Status Overlays** — enterprise overlays and injected widgets for system status pages
 
 ## Open Mercato Partnership Program
 

@@ -13,7 +13,7 @@ const aiIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['ai_assistant.view'],
+  requireFeatures: ['ai_assistant.settings.manage'],
   pageTitle: 'AI Assistant',
   pageTitleKey: 'ai_assistant.config.nav.settings',
   pageGroup: 'Module Configs',

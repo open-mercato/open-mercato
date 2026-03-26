@@ -13,6 +13,7 @@ import AdminNotificationEmail from '@open-mercato/onboarding/modules/onboarding/
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
   path: '/onboarding/onboarding',
@@ -22,7 +23,7 @@ export const metadata = {
 }
 
 export async function POST(req: Request) {
-  if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') {
+  if (parseBooleanToken(process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? '') !== true) {
     return NextResponse.json({ ok: false, error: 'Self-service onboarding is disabled.' }, { status: 404 })
   }
   let payload: unknown

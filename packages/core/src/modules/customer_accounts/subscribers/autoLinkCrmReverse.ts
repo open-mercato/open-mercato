@@ -52,11 +52,9 @@ export default async function handle(
 
     const emailHash = hashForLookup(email.toLowerCase().trim())
 
-    const personProfile = await em.getConnection().execute(
-      `SELECT company_entity_id FROM customer_people WHERE entity_id = ? LIMIT 1`,
-      [(entity as any).id],
-    )
-    const companyEntityId = personProfile?.[0]?.company_entity_id as string | undefined
+    const { CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
+    const personProfile = await em.findOne(CustomerPersonProfile as any, { entity: (entity as any).id } as any) as any
+    const companyEntityId = personProfile?.companyEntityId as string | undefined
 
     const customerUser = await em.findOne(CustomerUser, {
       emailHash,
