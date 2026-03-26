@@ -378,7 +378,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           return
         }
         flash(t('customer_accounts.admin.flash.deleted', 'User deleted'), 'success')
-        router.push('/backend/customer_accounts')
+        router.push('/backend/customer_accounts/users')
       }, { id })
     } catch (err) {
       const message = err instanceof Error ? err.message : t('customer_accounts.admin.error.delete', 'Failed to delete user')
@@ -468,7 +468,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
           <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
             <p>{error || t('customer_accounts.admin.detail.error.notFound', 'User not found')}</p>
             <Button asChild variant="outline">
-              <Link href="/backend/customer_accounts">
+              <Link href="/backend/customer_accounts/users">
                 {t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
               </Link>
             </Button>
@@ -483,7 +483,7 @@ export default function CustomerUserDetailPage({ params }: { params?: { id?: str
       <PageBody className="space-y-6">
         <FormHeader
           mode="detail"
-          backHref="/backend/customer_accounts"
+          backHref="/backend/customer_accounts/users"
           backLabel={t('customer_accounts.admin.detail.actions.backToList', 'Back to list')}
           title={data.displayName}
           subtitle={data.email}

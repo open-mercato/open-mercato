@@ -26,7 +26,6 @@ export const metadata = {
   icon: shieldIcon,
   pageContext: 'settings' as const,
   breadcrumb: [
-    { label: 'Users', labelKey: 'customer_accounts.nav.users', href: '/backend/customer_accounts' },
     { label: 'Roles', labelKey: 'customer_accounts.nav.roles' },
   ],
 } as const

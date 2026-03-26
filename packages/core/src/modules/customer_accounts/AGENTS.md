@@ -290,9 +290,9 @@ Both inject as column 2 groups with priority 200, gated by `customer_accounts.vi
 
 | Path | Purpose |
 |------|---------|
-| `backend/page.tsx` | Customers Portal list (`/backend/customer_accounts`) |
-| `backend/customer_accounts/[id]/page.tsx` | User detail/edit |
-| `backend/customer_accounts/roles/page.tsx` | Role list |
+| `backend/customer_accounts/users/page.tsx` | Users list (`/backend/customer_accounts/users`) |
+| `backend/customer_accounts/users/[id]/page.tsx` | User detail/edit |
+| `backend/customer_accounts/roles/page.tsx` | Role list (`/backend/customer_accounts/roles`) |
 | `backend/customer_accounts/roles/create/page.tsx` | Create role |
 | `backend/customer_accounts/roles/[id]/page.tsx` | Role detail/edit ACL |
 | `backend/customer_accounts/settings/page.tsx` | Portal settings |
@@ -300,7 +300,7 @@ Both inject as column 2 groups with priority 200, gated by `customer_accounts.vi
 ### Staff Navigation
 
 - Staff-facing `customer_accounts` pages belong in **Settings → Customer Portal**.
-- Keep the whole section together: **Customers Portal**, **Customer Roles**, and **Portal Settings**.
+- Keep the whole section together: **Users**, **Roles**, and **Portal Settings** as peer items.
 - Do not place these pages in the main **Customers** sidebar group unless a future spec explicitly changes the information architecture.
 
 ## Security

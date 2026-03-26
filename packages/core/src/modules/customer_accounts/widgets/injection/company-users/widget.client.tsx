@@ -63,7 +63,7 @@ export default function CompanyUsersWidget({ context }: CompanyUsersProps) {
                   {user.isActive ? t('common.active', 'Active') : t('common.inactive', 'Inactive')}
                 </span>
                 <a
-                  href={`/backend/customer_accounts/${user.id}`}
+                  href={`/backend/customer_accounts/users/${user.id}`}
                   className="text-xs text-primary hover:underline"
                 >
                   {t('common.view', 'View')}

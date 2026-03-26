@@ -315,7 +315,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
       </div>
       <div className="mt-2">
         <a
-          href={`/backend/customer_accounts/${data.id}`}
+          href={`/backend/customer_accounts/users/${data.id}`}
           className="text-xs text-primary hover:underline"
         >
           {t('customer_accounts.widgets.viewAccount', 'View account details →')}

@@ -29,7 +29,7 @@ export default function CustomerAccountsSettingsPage() {
         <FormHeader
           mode="detail"
           title={t('customer_accounts.settings.title', 'Portal Settings')}
-          backHref="/backend/customer_accounts"
+          backHref="/backend/customer_accounts/users"
           backLabel={t('customer_accounts.settings.back', 'Users')}
         />
       </div>
@@ -112,7 +112,7 @@ export default function CustomerAccountsSettingsPage() {
             </h3>
             <ul className="space-y-2">
               <li>
-                <Link href="/backend/customer_accounts" className="text-sm text-primary underline underline-offset-4 hover:text-primary/80">
+                <Link href="/backend/customer_accounts/users" className="text-sm text-primary underline underline-offset-4 hover:text-primary/80">
                   {t('customer_accounts.settings.quick_links.manage_users', 'Manage customer users')}
                 </Link>
               </li>

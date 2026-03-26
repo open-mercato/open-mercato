@@ -411,7 +411,7 @@ export default function CustomerAccountsPage() {
         header: t('customer_accounts.admin.columns.displayName', 'Name'),
         cell: ({ row }) => (
           <Link
-            href={`/backend/customer_accounts/${row.original.id}`}
+            href={`/backend/customer_accounts/users/${row.original.id}`}
             className="font-medium hover:underline"
           >
             {row.original.displayName || row.original.email}
@@ -538,14 +538,14 @@ export default function CustomerAccountsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{ tableId: 'customer_accounts.admin.users' }}
-          onRowClick={(row) => router.push(`/backend/customer_accounts/${row.id}`)}
+          onRowClick={(row) => router.push(`/backend/customer_accounts/users/${row.id}`)}
           rowActions={(row) => (
             <RowActions
               items={[
                 {
                   id: 'view',
                   label: t('customer_accounts.admin.actions.view', 'View'),
-                  onSelect: () => { router.push(`/backend/customer_accounts/${row.id}`) },
+                  onSelect: () => { router.push(`/backend/customer_accounts/users/${row.id}`) },
                 },
                 {
                   id: 'toggle-active',
