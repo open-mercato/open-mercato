@@ -1,6 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata = {
@@ -47,11 +46,9 @@ export default async function handle(
 
     if (!matchingEntity) return
 
-    const profileRows = await em.getConnection().execute(
-      `SELECT company_entity_id FROM customer_people WHERE entity_id = ? LIMIT 1`,
-      [matchingEntity.id],
-    )
-    const companyEntityId = profileRows?.[0]?.company_entity_id as string | undefined
+    const { CustomerPersonProfile } = await import('@open-mercato/core/modules/customers/data/entities')
+    const profile = await em.findOne(CustomerPersonProfile as any, { entity: matchingEntity.id } as any) as any
+    const companyEntityId = profile?.companyEntityId as string | undefined
 
     const updates: Record<string, unknown> = { personEntityId: matchingEntity.id }
     if (companyEntityId) {

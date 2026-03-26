@@ -111,7 +111,9 @@ function processPageFiles(options: {
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
     const routePath = type === 'frontend'
       ? '/' + (routeSegs.join('/') || '')
-      : '/backend/' + [modId, ...segs, name].filter(Boolean).join('/')
+      : '/backend/' + (segs[0] === modId
+          ? [...segs, name].filter(Boolean).join('/')
+          : [modId, ...segs, name].filter(Boolean).join('/'))
     const metaCandidates = [
       path.join(fromApp ? appDir : pkgDir, ...segs, `${name}.meta.ts`),
       path.join(fromApp ? appDir : pkgDir, ...segs, 'meta.ts'),

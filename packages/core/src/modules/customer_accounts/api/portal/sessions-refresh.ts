@@ -4,20 +4,9 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
+import { readCookieFromHeader } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 
 export const metadata: { path?: string } = {}
-
-function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
-  if (!header) return undefined
-  const parts = header.split(';')
-  for (const part of parts) {
-    const trimmed = part.trim()
-    if (trimmed.startsWith(`${name}=`)) {
-      return trimmed.slice(name.length + 1)
-    }
-  }
-  return undefined
-}
 
 export async function POST(req: Request) {
   const cookieHeader = req.headers.get('cookie') || ''

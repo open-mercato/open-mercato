@@ -1,7 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
-import { MikroORM, type Logger } from '@mikro-orm/core'
+import { MikroORM, MetadataStorage, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
@@ -188,6 +188,10 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   const results: string[] = []
 
   for (const entry of ordered) {
+    // Clear global metadata registry to prevent decorator side effects from
+    // previously loaded modules leaking into this module's migration generation.
+    MetadataStorage.clear()
+
     const modId = entry.id
     const sanitizedModId = sanitizeModuleId(modId)
     const entities = await loadModuleEntities(entry, resolver)
