@@ -2,6 +2,7 @@ import { flash, type FlashKind } from '@open-mercato/ui/backend/FlashMessages'
 import {
   getNotificationHandlerEntries,
 } from '@open-mercato/shared/lib/notifications/handler-registry'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type {
   NotificationHandler,
   NotificationHandlerContext,
@@ -48,8 +49,7 @@ function matchesType(pattern: string | string[], type: string): boolean {
 }
 
 function matchesFeatures(required: string[] | undefined, current: string[]): boolean {
-  if (!required || required.length === 0) return true
-  return required.every((feature) => current.includes(feature))
+  return hasAllFeatures(current, required)
 }
 
 function buildHandlerContext(runtime: RuntimeContext): NotificationHandlerContext {

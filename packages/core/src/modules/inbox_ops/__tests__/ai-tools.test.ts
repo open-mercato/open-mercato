@@ -94,4 +94,49 @@ describe('inbox_ops aiTools', () => {
     expect(mockRunWithCacheTenant).toHaveBeenCalledWith('tenant-1', expect.any(Function))
     expect(mockInvalidateCountsCache).toHaveBeenCalledWith(cache, 'tenant-1')
   })
+
+  it('accepts action-required features granted via wildcard ACL', async () => {
+    const em = {
+      fork: jest.fn(),
+    }
+    em.fork.mockReturnValue(em)
+
+    const container = {
+      resolve: jest.fn((token: string) => {
+        if (token === 'em') return em
+        throw new Error(`Unknown token: ${token}`)
+      }),
+    }
+
+    mockFindOneWithDecryption.mockResolvedValueOnce({
+      id: 'action-1',
+      proposalId: 'proposal-1',
+      status: 'pending',
+      requiredFeature: 'catalog.products.manage',
+      payload: {},
+    })
+
+    const tool = aiTools.find((candidate) => candidate.name === 'inbox_ops_accept_action')
+    if (!tool) {
+      throw new Error('Accept action tool not found')
+    }
+
+    const result = await tool.handler(
+      { proposalId: 'proposal-1', actionId: 'action-1' } as never,
+      {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        userId: 'user-1',
+        container: container as never,
+        userFeatures: ['catalog.*'],
+        isSuperAdmin: false,
+      },
+    )
+
+    expect(result).toEqual({
+      ok: true,
+      createdEntityId: 'entity-1',
+      createdEntityType: 'catalog_product',
+    })
+  })
 })
