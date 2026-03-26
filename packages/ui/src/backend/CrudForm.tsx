@@ -541,7 +541,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setHasUnsavedChanges(false)
       return
     }
-    const snapshot = initialValuesSnapshotRef.current
+    const snapshot = dirtyBaselineSnapshotRef.current
     if (!snapshot) {
       isDirtyRef.current = false
       setHasUnsavedChanges(false)
@@ -590,7 +590,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const clearDirtyState = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     const source = snapshotSource ?? (valuesRef.current as Record<string, unknown>)
-    initialValuesSnapshotRef.current = JSON.stringify(source)
+    dirtyBaselineSnapshotRef.current = JSON.stringify(source)
     isDirtyRef.current = false
     setHasUnsavedChanges(false)
   }, [])
@@ -1697,12 +1697,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [buildCustomFieldsManageHref],
   )
 
-  const initialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
-  React.useEffect(() => {
+  const appliedInitialValuesSnapshotRef = React.useRef<string | undefined>(undefined)
+  const dirtyBaselineSnapshotRef = React.useRef<string | undefined>(undefined)
+  React.useLayoutEffect(() => {
     if (!initialValues) return
     const snapshot = JSON.stringify(initialValues)
-    if (initialValuesSnapshotRef.current === snapshot) return
-    initialValuesSnapshotRef.current = snapshot
+    if (appliedInitialValuesSnapshotRef.current === snapshot) return
+    appliedInitialValuesSnapshotRef.current = snapshot
     let mergedValues: CrudFormValues<TValues> | null = null
     setValues((prev) => {
       const merged = { ...prev, ...initialValues } as CrudFormValues<TValues>
@@ -1716,6 +1717,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       mergedValues = merged
       return mergedValues
     })
+    if (mergedValues) {
+      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+    }
     if (!extendedInjectionEventsEnabled || !mergedValues) return
     let cancelled = false
     const run = async () => {
@@ -1727,6 +1731,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         )
         const transformed = result.data
         if (cancelled || !transformed) return
+        dirtyBaselineSnapshotRef.current = JSON.stringify(transformed as Record<string, unknown>)
         setValues(transformed as CrudFormValues<TValues>)
       } catch (err) {
         console.error('[CrudForm] Error in transformDisplayData:', err)
