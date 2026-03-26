@@ -1,7 +1,7 @@
 # 0.4.9 (2026-03-25)
 
 ## Highlights
-This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound webhook infrastructure with Standard Webhooks signing and delivery queues. It also ships **Pay Links & Checkout** 💳 with shareable payment links, the **Security Enterprise** module 🔐 with advanced access controls, and the **InPost Shipping Carrier** integration 🚚 with ShipX API conformance and shipment wizard (later extracted to official-modules). Additionally: **Official Modules CLI**, **Marketing Consents**, **AI Assistant Code Mode**, and a large batch of bug fixes and i18n additions.
+This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound webhook infrastructure with Standard Webhooks signing and delivery queues. It also ships **Pay Links & Checkout** 💳 with shareable payment links, the **Security Enterprise** module 🔐 with advanced access controls, and the **InPost Shipping Carrier** integration 🚚 with ShipX API conformance and shipment wizard (later extracted to official-modules). Additionally: **Official Modules CLI**, **Marketing Consents**, **AI Assistant Code Mode**, and a large batch of bug fixes, i18n additions, and integration test coverage.
 
 ## ✨ Features
 
@@ -41,6 +41,8 @@ This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound w
 - 🧰 Integration test helpers exported at npm-published paths for standalone apps. (#1037, #1046) *(@mat-gren)*
 - ⚙️ Settings page reorganization for improved usability. (#1055) *(@maciej-dudziak)*
 - 🔄 Redundant flow improvement after creating product variant. (#950) *(@rotynski)*
+- 🧪 SPEC-050 catalog integration tests phase 3 — 10 new test files (TC-CAT-016 through TC-CAT-025) covering category edit/delete, offer CRUD, price management, option schemas, advanced filtering, duplicate SKU validation, soft-delete, media, multi-variant products, and pricing edge cases. (#1053) *(@migsilva89)*
+- 🔧 SPEC for Dev/build coexistence — safe side-by-side `yarn dev` and `yarn build` with onboarding lock and i18n fixes for checkout, security, and onboarding modules. *(@pkarw)*
 
 ## 🐛 Fixes
 - 🧭 Move Security and Developers modules to Settings sidebar for better discoverability. (#1060) *(@muhammadusman586)*
@@ -62,6 +64,8 @@ This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound w
 - 🛡️ Guard `catalog_product_offers` references in translation migration. (#1048) *(@mat-gren)*
 - 🔧 Wire integration test infrastructure for standalone `create-app` projects. (#1046) *(@mat-gren)*
 - 📄 Preserve regex patterns, fix ZodRecord/passthrough schemas in OpenAPI generation. *(@wojciech-baklazec)*
+- 🔑 Restrict employee role from accessing module settings pages — added proper `defaultRoleFeatures` for catalog, customers, and sales. (#1065) *(@amtmich)*
+- 💬 Keep messages autosuggest working for multi-character recipient queries with unit tests. (#1062) *(@dominikpalatynski)*
 
 ## 🛠️ Improvements
 - 🏗️ Type `buildAdminNav` params and optimize parent-finding algorithm. (#1045) *(@maciej-cielecki)*
@@ -74,6 +78,9 @@ This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound w
 - 📖 Updated examples repo to ready-apps, removed superseded SPEC-062. (#1036) *(@mat-gren)*
 - 📖 Aligned SPEC-053 family bootstrap flow with SPEC-062. (#1006) *(@mat-gren)*
 - 📖 Updated enterprise README with all delivered modules and fixed license year. (#1007) *(@mat-gren)*
+- 📋 SPEC-041: Core timesheets functionality specification (SPEC-069). (#678) *(@mpiatkowski)*
+- 📁 Move implemented specs to `implemented/` folder for better organization (fixes #1039). (#1064) *(@karol-kozer)*
+- 🔗 Specs reorganization and links fixes. *(@pkarw)*
 
 ## 👥 Contributors
 
@@ -91,6 +98,8 @@ This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound w
 - @migsilva89
 - @jszarras
 - @rotynski
+- @amtmich
+- @mpiatkowski
 
 ---
 

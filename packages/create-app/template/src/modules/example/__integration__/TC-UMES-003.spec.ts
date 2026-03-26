@@ -665,6 +665,8 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
 
       await page.getByTestId('phase-d-person-id').fill(personId)
       await page.getByTestId('phase-d-probe-title').fill('')
+      await expect(page.getByTestId('phase-d-person-id')).toHaveValue(personId)
+      await expect(page.getByTestId('phase-d-probe-title')).toHaveValue('')
       await page.getByTestId('phase-d-run-probe').click()
 
       await expect(page.getByTestId('phase-d-status')).toContainText('ok')

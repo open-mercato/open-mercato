@@ -15,6 +15,8 @@ function print(value: unknown) {
   return JSON.stringify(value ?? null)
 }
 
+const defaultProbeTodoTitle = 'UMES enricher probe'
+
 const hintClassName = 'inline-flex items-center rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-400/10 px-2 py-1 text-xs text-amber-800 dark:text-amber-100/90'
 
 type CustomerRecord = {
@@ -71,9 +73,7 @@ export default function UmesHandlersPage() {
   const [serverEmitError, setServerEmitError] = React.useState<string | null>(null)
   const [draftTitle, setDraftTitle] = React.useState('display me')
   const [formSeed, setFormSeed] = React.useState({ nonce: 0, title: 'display me', note: '  draft note  ' })
-  const [personId, setPersonId] = React.useState('')
   const personIdInputRef = React.useRef<HTMLInputElement | null>(null)
-  const [probeTodoTitle, setProbeTodoTitle] = React.useState('UMES enricher probe')
   const probeTodoTitleInputRef = React.useRef<HTMLInputElement | null>(null)
   const [enricherProbeStatus, setEnricherProbeStatus] = React.useState<'idle' | 'pending' | 'ok' | 'error'>('idle')
   const [enricherProbeError, setEnricherProbeError] = React.useState<string | null>(null)
@@ -142,7 +142,8 @@ export default function UmesHandlersPage() {
     setEnricherProbeError(null)
     setEnricherProbeResult(null)
     try {
-      const title = (probeTodoTitleInputRef.current?.value ?? probeTodoTitle).trim()
+      const currentPersonId = personIdInputRef.current?.value.trim() ?? ''
+      const title = (probeTodoTitleInputRef.current?.value ?? defaultProbeTodoTitle).trim()
       if (title.length > 0) {
         await apiCallOrThrow('/api/example/todos', {
           method: 'POST',
@@ -151,7 +152,6 @@ export default function UmesHandlersPage() {
         })
       }
 
-      const currentPersonId = (personIdInputRef.current?.value ?? personId).trim()
       const params = new URLSearchParams()
       if (currentPersonId.length > 0) {
         params.set('id', currentPersonId)
@@ -176,7 +176,7 @@ export default function UmesHandlersPage() {
       setEnricherProbeError(message)
       setEnricherProbeStatus('error')
     }
-  }, [probeTodoTitle, t])
+  }, [t])
 
   const phaseASidebarItems = React.useMemo(
     () => sidebarMenuItems.filter((item) => item.id.startsWith('example-')),
@@ -495,8 +495,7 @@ export default function UmesHandlersPage() {
               <input
                 data-testid="phase-d-person-id"
                 ref={personIdInputRef}
-                value={personId}
-                onChange={(event) => setPersonId(event.target.value)}
+                defaultValue=""
                 className="h-9 rounded border border-input bg-background px-3 text-sm"
                 placeholder={t('example.umes.handlers.phaseD.fields.personIdPlaceholder')}
               />
@@ -507,8 +506,7 @@ export default function UmesHandlersPage() {
               <input
                 data-testid="phase-d-probe-title"
                 ref={probeTodoTitleInputRef}
-                value={probeTodoTitle}
-                onChange={(event) => setProbeTodoTitle(event.target.value)}
+                defaultValue={defaultProbeTodoTitle}
                 className="h-9 rounded border border-input bg-background px-3 text-sm"
                 placeholder={t('example.umes.handlers.phaseD.fields.probeTodoTitlePlaceholder')}
               />
