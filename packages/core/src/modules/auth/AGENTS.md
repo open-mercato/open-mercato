@@ -41,6 +41,8 @@ Features are string-based permissions: `<module>.<action>` (e.g., `users.view`, 
 - Features are assigned to roles and users through ACLs
 - Pages/APIs use `requireFeatures` in metadata for access control
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
+- Wildcards are first-class ACL grants: `module.*` and `*` must satisfy matching concrete features in every runtime check, not only in page/API guards.
+- When code inspects raw granted feature arrays instead of calling `rbacService`, MUST use shared helpers such as `matchFeature` / `hasFeature` / `hasAllFeatures` rather than `includes(...)`.
 
 ### Special Flags
 
@@ -99,3 +101,5 @@ export const setup: ModuleSetupConfig = {
   },
 }
 ```
+
+When exposing helper endpoints such as `/api/auth/feature-check`, keep wildcard handling normalized for callers. If a consumer bypasses the endpoint and reads raw ACL grants directly, it must apply wildcard-aware matching itself.
