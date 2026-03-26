@@ -209,13 +209,15 @@ packages/core/src/modules/customer_accounts/
     cleanupExpiredSessions.ts # Daily cleanup of expired session rows
     cleanupExpiredTokens.ts   # Daily cleanup of used/expired verification, reset, and invitation tokens
   backend/
-    page.tsx                  # /backend/customer_accounts — admin user list
+    page.tsx                  # /backend/customer_accounts — staff "Customers Portal" list (Settings → Customer Portal)
     [id]/
       page.tsx                # /backend/customer_accounts/:id — admin user detail
     roles/
       page.tsx                # /backend/customer_accounts/roles — role management
       [id]/
         page.tsx              # /backend/customer_accounts/roles/:id — role detail + ACL editor
+    settings/
+      page.tsx                # /backend/customer_accounts/settings — portal settings
   widgets/
     injection/
       AccountStatusCard.tsx   # UMES widget: account status on CRM person detail
@@ -1052,12 +1054,13 @@ No hardcoded user-facing strings. All error messages, email subjects, and UI lab
 
 ### Staff Admin Pages
 
-1. **`/backend/customer_accounts`** — Admin user list page
+1. **`/backend/customer_accounts`** — Staff "Customers Portal" list page
    - DataTable with columns: Email, Display Name, Company (CRM link), Status (active/locked/unverified), Roles (badges), Last Login, Created At
    - Filters: status, company, role, CRM link status
    - Row actions: View, Lock/Unlock, Deactivate
    - Bulk actions: None (security-sensitive operations should be explicit)
    - Uses `CrudForm` patterns from customers module
+   - Appears in staff navigation under **Settings → Customer Portal**
 
 2. **`/backend/customer_accounts/:id`** — Admin user detail page
    - User info section: email, display name, status, verification state, last login
@@ -1070,12 +1073,18 @@ No hardcoded user-facing strings. All error messages, email subjects, and UI lab
    - DataTable with columns: Name, Slug, Users Count, Is Default, Is System, Features Summary
    - Row actions: View, Edit, Delete (disabled for system roles)
    - "Create Role" button
+   - Appears in staff navigation under **Settings → Customer Portal**
 
 4. **`/backend/customer_accounts/roles/:id`** — Role detail + ACL editor page
    - Role info: name, slug, description, is_default, is_system
    - ACL editor: feature tree with checkboxes. Group by namespace (`portal.storefront.*`, `portal.partner.*`, `portal.account.*`, `portal.users.*`).
    - `is_portal_admin` toggle at top (grants all `portal.*`)
    - "Save" button applies changes, invalidates RBAC cache
+
+5. **`/backend/customer_accounts/settings`** — Portal settings page
+   - Portal URL and quick links
+   - Demo credentials reference
+   - Appears in staff navigation under **Settings → Customer Portal**
 
 ### UMES Widgets
 

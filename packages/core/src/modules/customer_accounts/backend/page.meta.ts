@@ -21,13 +21,14 @@ const usersIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['customer_accounts.view'],
-  pageTitle: 'Customer Accounts',
+  pageTitle: 'Users',
   pageTitleKey: 'customer_accounts.nav.users',
-  pageGroup: 'Customers',
-  pageGroupKey: 'customer_accounts.nav.group',
-  pageOrder: 155,
+  pageGroup: 'Customer Portal',
+  pageGroupKey: 'customer_accounts.settings.section',
+  pageOrder: 1,
   icon: usersIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
-    { label: 'Customer Accounts', labelKey: 'customer_accounts.nav.users' },
+    { label: 'Users', labelKey: 'customer_accounts.nav.users' },
   ],
 } as const

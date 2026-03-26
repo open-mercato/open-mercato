@@ -3,6 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { Globe, Settings } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { ColumnDef } from '@tanstack/react-table'
@@ -494,20 +495,34 @@ export default function CustomerAccountsPage() {
                 {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / password123')}
               </p>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              asChild
-            >
-              <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/portal`} target="_blank" rel="noopener noreferrer">
-                {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
-              </a>
-            </Button>
+            <div className="flex shrink-0 flex-col gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <Link href="/backend/customer_accounts/settings">
+                  <Settings className="size-4" />
+                  {t('customer_accounts.admin.portalInfo.openConfiguration', 'Open Configuration')}
+                </Link>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <a href={`${typeof window !== 'undefined' ? window.location.origin : ''}/portal`} target="_blank" rel="noopener noreferrer">
+                  <Globe className="size-4" />
+                  {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
+                </a>
+              </Button>
+            </div>
           </div>
         </div>
         <DataTable<UserRow>
-          title={t('customer_accounts.admin.title', 'Customer Accounts')}
+          title={t('customer_accounts.admin.title', 'Users')}
           actions={(
             <Button onClick={() => setCreateDialogOpen(true)}>
               {t('customer_accounts.admin.actions.createUser', 'Create User')}

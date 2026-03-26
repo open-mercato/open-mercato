@@ -5,7 +5,7 @@ export const metadata = {
   pageTitleKey: 'customer_accounts.nav.user_detail',
   navHidden: true,
   breadcrumb: [
-    { label: 'Customer Accounts', labelKey: 'customer_accounts.nav.users', href: '/backend/customer_accounts' },
+    { label: 'Customers Portal', labelKey: 'customer_accounts.nav.users', href: '/backend/customer_accounts' },
     { label: 'User Detail', labelKey: 'customer_accounts.nav.user_detail' },
   ],
 } as const
