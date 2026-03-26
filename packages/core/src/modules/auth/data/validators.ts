@@ -37,11 +37,15 @@ export const sidebarPreferencesInputSchema = z.object({
 // Optional helpers for CLI or admin forms
 export const userCreateSchema = z.object({
   email: z.string().email(),
-  password: passwordSchema,
+  password: passwordSchema.optional(),
+  sendInviteEmail: z.boolean().optional(),
   tenantId: z.string().uuid().optional(),
   organizationId: z.string().uuid(),
   rolesCsv: z.string().optional(),
-})
+}).refine(
+  (data) => data.password || data.sendInviteEmail,
+  { message: 'Either password or sendInviteEmail is required', path: ['password'] },
+)
 
 export type UserLoginInput = z.infer<typeof userLoginSchema>
 export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>

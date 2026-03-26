@@ -87,6 +87,23 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     expiresAfterHours: 168,
   },
   {
+    type: 'auth.user.invited',
+    module: 'auth',
+    titleKey: 'auth.notifications.user.invited.title',
+    bodyKey: 'auth.notifications.user.invited.body',
+    icon: 'mail',
+    severity: 'info',
+    actions: [
+      {
+        id: 'check_email',
+        labelKey: 'auth.actions.checkEmail',
+        variant: 'outline',
+        icon: 'mail',
+      },
+    ],
+    expiresAfterHours: 48,
+  },
+  {
     type: 'auth.role.revoked',
     module: 'auth',
     titleKey: 'auth.notifications.role.revoked.title',
