@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import React from 'react'
 import type { Module, ModuleRoute, PageMetadata } from '@open-mercato/shared/modules/registry'
-import { hasAllFeatures as grantedFeaturesSatisfy } from '@open-mercato/shared/lib/auth/featureMatch'
+import { hasAllFeatures as checkFeatures } from '@open-mercato/shared/security/features'
 
 /** Route with optional page-metadata aliases that may be merged during generation. */
 type NavRoute = ModuleRoute & Partial<Pick<PageMetadata, 'pageTitleKey' | 'pageGroupKey'>>
@@ -265,7 +265,7 @@ export async function buildAdminNav(
   // Helper: check if user has all required features (from cache)
   function hasAllFeatures(required: string[]): boolean {
     if (!required || required.length === 0) return true
-    return grantedFeaturesSatisfy(required, userFeatures)
+    return checkFeatures(userFeatures, required)
   }
 
   // Icons are defined per-page in metadata; no heuristic derivation here.

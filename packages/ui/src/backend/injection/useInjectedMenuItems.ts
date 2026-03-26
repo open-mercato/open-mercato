@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
-import { hasAllFeatures as grantedFeaturesSatisfy } from '@open-mercato/shared/lib/auth/featureMatch'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useInjectionDataWidgets } from './useInjectionDataWidgets'
 import { apiCall } from '../utils/apiCall'
 
@@ -116,7 +116,7 @@ export function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
       rawItems.filter((item) => {
         const features = item.features ?? []
         const roles = item.roles ?? []
-        const featuresOk = features.length === 0 || grantedFeaturesSatisfy(features, grantedFeatureList)
+        const featuresOk = features.length === 0 || hasAllFeatures(grantedFeatureList, features)
         const rolesOk = roles.length === 0 || roles.some((role) => userRoles.has(role))
         return featuresOk && rolesOk
       }),

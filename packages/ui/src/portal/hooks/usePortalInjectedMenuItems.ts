@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
-import { hasAllFeatures as grantedFeaturesSatisfy } from '@open-mercato/shared/lib/auth/featureMatch'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useInjectionDataWidgets } from '../../backend/injection/useInjectionDataWidgets'
 import { apiCall } from '../../backend/utils/apiCall'
 import { usePortalContext } from '../PortalContext'
@@ -115,7 +115,7 @@ export function usePortalInjectedMenuItems(surfaceId: PortalMenuSurfaceId): {
       rawItems
         .filter((item) => {
           const features = item.features ?? []
-          return features.length === 0 || grantedFeaturesSatisfy(features, grantedFeatureList)
+          return features.length === 0 || hasAllFeatures(grantedFeatureList, features)
         })
         .map((item) => ({
           ...item,

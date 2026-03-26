@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import { hasAllFeatures as grantedFeaturesSatisfy } from '@open-mercato/shared/lib/auth/featureMatch'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type SettingsCard = {
@@ -35,7 +35,7 @@ export function SettingsNavigation({ sections, userFeatures }: SettingsNavigatio
   const hasRequiredFeatures = (card: SettingsCard): boolean => {
     if (!card.requireFeatures || card.requireFeatures.length === 0) return true
     if (!userFeatures) return true // If no userFeatures provided, show all cards
-    return grantedFeaturesSatisfy(card.requireFeatures, grantedFeatureList)
+    return hasAllFeatures(grantedFeatureList, card.requireFeatures)
   }
 
   const renderCard = (card: SettingsCard) => (

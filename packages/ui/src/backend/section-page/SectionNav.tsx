@@ -2,7 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { hasAllFeatures as grantedFeaturesSatisfy } from '@open-mercato/shared/lib/auth/featureMatch'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { IconButton } from '../../primitives/icon-button'
 import type { SectionNavGroup, SectionNavItem } from './types'
@@ -45,7 +45,7 @@ export function SectionNav({
   const hasRequiredFeatures = (item: SectionNavItem): boolean => {
     if (!item.requireFeatures || item.requireFeatures.length === 0) return true
     if (!userFeatures) return true
-    return grantedFeaturesSatisfy(item.requireFeatures, grantedFeatureList)
+    return hasAllFeatures(grantedFeatureList, item.requireFeatures)
   }
 
   const resolvedTitle = titleKey ? t(titleKey, title) : title
