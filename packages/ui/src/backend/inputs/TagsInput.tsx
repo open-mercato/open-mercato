@@ -65,6 +65,7 @@ export function TagsInput({
   const [asyncOptions, setAsyncOptions] = React.useState<TagsInputOption[]>([])
   const [loading, setLoading] = React.useState(false)
   const [touched, setTouched] = React.useState(false)
+  const suppressBlurCommitRef = React.useRef(false)
 
   const staticOptions = React.useMemo(() => normalizeOptions(suggestions), [suggestions])
   const selectedOptionList = React.useMemo(
@@ -241,6 +242,11 @@ export function TagsInput({
           }}
           onBlur={() => {
             if (disabled) return
+            if (suppressBlurCommitRef.current) {
+              suppressBlurCommitRef.current = false
+              setInput('')
+              return
+            }
             addTag(input)
             setInput('')
           }}
@@ -257,8 +263,15 @@ export function TagsInput({
                 variant="ghost"
                 size="sm"
                 className="w-full justify-start font-normal flex flex-col items-start text-xs px-1.5 py-1"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => addValue(option.value)}
+                onMouseDown={(event) => {
+                  suppressBlurCommitRef.current = true
+                  event.preventDefault()
+                }}
+                onClick={() => {
+                  suppressBlurCommitRef.current = false
+                  addValue(option.value)
+                  setInput('')
+                }}
               >
                 <span>{option.label}</span>
                 {option.description ? (

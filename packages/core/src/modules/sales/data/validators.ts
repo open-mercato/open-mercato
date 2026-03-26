@@ -18,12 +18,14 @@ const currencyCode = z
   .trim()
   .regex(/^[A-Z]{3}$/, 'currency code must be a three-letter ISO code')
 
-const decimal = (opts?: { min?: number; max?: number }) => {
+const decimal = (opts?: { min?: number; max?: number; message?: string }) => {
   let schema = z.coerce.number()
   if (typeof opts?.min === 'number') schema = schema.min(opts.min)
-  if (typeof opts?.max === 'number') schema = schema.max(opts.max)
+  if (typeof opts?.max === 'number') schema = schema.max(opts.max, opts.message)
   return schema
 }
+
+const MAX_QUANTITY = 999_999_999
 
 const percentage = () => decimal({ min: 0, max: 100 })
 
@@ -291,9 +293,9 @@ const lineKindSchema = z.enum(['product', 'service', 'shipping', 'discount', 'ad
 const adjustmentKindSchema = z.string().trim().min(1).max(150)
 
 const linePricingSchema = z.object({
-  quantity: decimal({ min: 0 }),
+  quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
   quantityUnit: z.string().trim().max(25).optional(),
-  normalizedQuantity: decimal({ min: 0 }).optional(),
+  normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
   normalizedUnit: z.string().trim().max(25).nullable().optional(),
   unitPriceNet: decimal({ min: 0 }).optional(),
   unitPriceGross: decimal({ min: 0 }).optional(),
@@ -603,7 +605,7 @@ export const shipmentCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: decimal({ min: 0 }),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         metadata,
       })
     )
@@ -615,6 +617,21 @@ export const shipmentUpdateSchema = z
     id: uuid(),
   })
   .merge(shipmentCreateSchema.partial())
+
+export const returnCreateSchema = scoped.extend({
+  orderId: uuid(),
+  reason: z.string().trim().max(4000).optional(),
+  notes: z.string().trim().max(4000).optional(),
+  returnedAt: z.coerce.date().optional(),
+  lines: z
+    .array(
+      z.object({
+        orderLineId: uuid(),
+        quantity: decimal({ min: 0 }),
+      })
+    )
+    .min(1),
+})
 
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
@@ -632,9 +649,9 @@ export const invoiceCreateSchema = scoped.extend({
         lineNumber: z.coerce.number().int().min(0).optional(),
         kind: lineKindSchema.optional(),
         description: z.string().trim().max(4000).optional(),
-        quantity: decimal({ min: 0 }),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         quantityUnit: z.string().trim().max(25).optional(),
-        normalizedQuantity: decimal({ min: 0 }).optional(),
+        normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
         normalizedUnit: z.string().trim().max(25).nullable().optional(),
         uomSnapshot: uomSnapshotSchema,
         currencyCode,
@@ -681,9 +698,9 @@ export const creditMemoCreateSchema = scoped.extend({
         orderLineId: uuid().optional(),
         lineNumber: z.coerce.number().int().min(0).optional(),
         description: z.string().trim().max(4000).optional(),
-        quantity: decimal({ min: 0 }),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         quantityUnit: z.string().trim().max(25).optional(),
-        normalizedQuantity: decimal({ min: 0 }).optional(),
+        normalizedQuantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).optional(),
         normalizedUnit: z.string().trim().max(25).nullable().optional(),
         uomSnapshot: uomSnapshotSchema,
         currencyCode,
@@ -813,6 +830,7 @@ export type QuoteAdjustmentCreateInput = z.infer<typeof quoteAdjustmentCreateSch
 export type QuoteAdjustmentUpdateInput = z.infer<typeof quoteAdjustmentUpdateSchema>
 export type ShipmentCreateInput = z.infer<typeof shipmentCreateSchema>
 export type ShipmentUpdateInput = z.infer<typeof shipmentUpdateSchema>
+export type ReturnCreateInput = z.infer<typeof returnCreateSchema>
 export type InvoiceCreateInput = z.infer<typeof invoiceCreateSchema>
 export type InvoiceUpdateInput = z.infer<typeof invoiceUpdateSchema>
 export type CreditMemoCreateInput = z.infer<typeof creditMemoCreateSchema>

@@ -5,6 +5,7 @@ export type AdminNotificationCopy = {
   preview: string
   heading: string
   body: string
+  marketingConsent: string
   footer: string
 }
 
@@ -22,7 +23,8 @@ export default function AdminNotificationEmail({ copy }: AdminNotificationEmailP
       <Body style={{ backgroundColor: '#f8fafc', fontFamily: 'Helvetica, Arial, sans-serif', padding: '24px 0' }}>
         <Container style={{ backgroundColor: '#ffffff', padding: '28px', borderRadius: '12px', margin: '0 auto', maxWidth: '520px' }}>
           <Heading style={{ fontSize: '22px', fontWeight: 600, margin: '0 0 16px', color: '#0f172a' }}>{copy.heading}</Heading>
-          <Text style={{ fontSize: '15px', color: '#1f2937', lineHeight: '24px', marginBottom: '20px' }}>{copy.body}</Text>
+          <Text style={{ fontSize: '15px', color: '#1f2937', lineHeight: '24px', marginBottom: '12px' }}>{copy.body}</Text>
+          <Text style={{ fontSize: '14px', color: '#475569', marginBottom: '20px' }}>{copy.marketingConsent}</Text>
           <Hr style={{ borderColor: '#e2e8f0', margin: '24px 0' }} />
           <Text style={{ fontSize: '13px', color: '#64748b' }}>{copy.footer}</Text>
         </Container>

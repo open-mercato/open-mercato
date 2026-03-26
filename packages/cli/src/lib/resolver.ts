@@ -3,6 +3,25 @@ import fs from 'node:fs'
 import ts from 'typescript'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
+/**
+ * Resolved execution environment for the CLI.
+ * Produced once by resolveEnvironment() and consumed by all subsystems.
+ * Eliminates per-subsystem isMonorepo() branching and hardcoded path segments.
+ */
+export type CliEnvironment = {
+  /** Whether the CLI is running inside a Yarn/npm workspace monorepo. */
+  mode: 'monorepo' | 'standalone'
+  /** Workspace or project root (where package.json / node_modules live). */
+  rootDir: string
+  /** Next.js application directory (contains src/, package.json, next.config.*). */
+  appDir: string
+  /**
+   * Resolve the root directory of an installed @open-mercato package.
+   * Monorepo: packages/<pkg>/   Standalone: node_modules/<pkg>/
+   */
+  packageRoot: (packageName: string) => string
+}
+
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
@@ -111,7 +130,18 @@ function parseProcessEnvAccess(
 }
 
 function evaluateStaticExpression(node: ts.Expression, env: NodeJS.ProcessEnv): unknown {
-  if (ts.isParenthesizedExpression(node)) return evaluateStaticExpression(node.expression, env)
+  return evaluateStaticExpressionWithScope(node, env, new Map())
+}
+
+function evaluateStaticExpressionWithScope(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+  scope: Map<string, unknown>,
+): unknown {
+  if (ts.isParenthesizedExpression(node)) return evaluateStaticExpressionWithScope(node.expression, env, scope)
+  if (ts.isIdentifier(node)) {
+    return scope.get(node.text)
+  }
   if (ts.isStringLiteralLike(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text
   if (ts.isNumericLiteral(node)) return Number(node.text)
   if (node.kind === ts.SyntaxKind.TrueKeyword) return true
@@ -122,39 +152,43 @@ function evaluateStaticExpression(node: ts.Expression, env: NodeJS.ProcessEnv): 
   if (envAccess.matched) return envAccess.value
 
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
-    return !Boolean(evaluateStaticExpression(node.operand, env))
+    return !Boolean(evaluateStaticExpressionWithScope(node.operand, env, scope))
   }
 
   if (ts.isBinaryExpression(node)) {
     if (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-      return Boolean(evaluateStaticExpression(node.left, env))
-        && Boolean(evaluateStaticExpression(node.right, env))
+      return Boolean(evaluateStaticExpressionWithScope(node.left, env, scope))
+        && Boolean(evaluateStaticExpressionWithScope(node.right, env, scope))
     }
     if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
-      return Boolean(evaluateStaticExpression(node.left, env))
-        || Boolean(evaluateStaticExpression(node.right, env))
+      return Boolean(evaluateStaticExpressionWithScope(node.left, env, scope))
+        || Boolean(evaluateStaticExpressionWithScope(node.right, env, scope))
     }
     if (node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken) {
-      return evaluateStaticExpression(node.left, env) === evaluateStaticExpression(node.right, env)
+      return evaluateStaticExpressionWithScope(node.left, env, scope) === evaluateStaticExpressionWithScope(node.right, env, scope)
     }
     if (node.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
-      return evaluateStaticExpression(node.left, env) !== evaluateStaticExpression(node.right, env)
+      return evaluateStaticExpressionWithScope(node.left, env, scope) !== evaluateStaticExpressionWithScope(node.right, env, scope)
     }
   }
 
   if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'parseBooleanWithDefault') {
     const rawValueNode = node.arguments[0]
     const fallbackNode = node.arguments[1]
-    const rawValue = rawValueNode ? evaluateStaticExpression(rawValueNode, env) : undefined
-    const fallbackValue = fallbackNode ? evaluateStaticExpression(fallbackNode, env) : false
+    const rawValue = rawValueNode ? evaluateStaticExpressionWithScope(rawValueNode, env, scope) : undefined
+    const fallbackValue = fallbackNode ? evaluateStaticExpressionWithScope(fallbackNode, env, scope) : false
     return parseBooleanWithDefault(typeof rawValue === 'string' ? rawValue : undefined, Boolean(fallbackValue))
   }
 
   return undefined
 }
 
-function evaluateStaticCondition(node: ts.Expression, env: NodeJS.ProcessEnv): boolean {
-  const evaluated = evaluateStaticExpression(node, env)
+function evaluateStaticCondition(
+  node: ts.Expression,
+  env: NodeJS.ProcessEnv,
+  scope: Map<string, unknown>,
+): boolean {
+  const evaluated = evaluateStaticExpressionWithScope(node, env, scope)
   return Boolean(evaluated)
 }
 
@@ -162,17 +196,18 @@ function collectPushEntriesFromStatement(
   statement: ts.Statement,
   env: NodeJS.ProcessEnv,
   targetVariableName: string,
+  scope: Map<string, unknown>,
 ): ModuleEntry[] {
   if (ts.isBlock(statement)) {
-    return statement.statements.flatMap((child) => collectPushEntriesFromStatement(child, env, targetVariableName))
+    return statement.statements.flatMap((child) => collectPushEntriesFromStatement(child, env, targetVariableName, scope))
   }
 
   if (ts.isIfStatement(statement)) {
-    if (evaluateStaticCondition(statement.expression, env)) {
-      return collectPushEntriesFromStatement(statement.thenStatement, env, targetVariableName)
+    if (evaluateStaticCondition(statement.expression, env, scope)) {
+      return collectPushEntriesFromStatement(statement.thenStatement, env, targetVariableName, scope)
     }
     if (statement.elseStatement) {
-      return collectPushEntriesFromStatement(statement.elseStatement, env, targetVariableName)
+      return collectPushEntriesFromStatement(statement.elseStatement, env, targetVariableName, scope)
     }
     return []
   }
@@ -197,25 +232,34 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
   const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const modules: ModuleEntry[] = []
   const variableName = 'enabledModules'
+  const scope = new Map<string, unknown>()
   let foundDeclaration = false
 
   for (const statement of sourceFile.statements) {
     if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
-        if (!ts.isIdentifier(declaration.name) || declaration.name.text !== variableName) continue
-        if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
-        const fromArray = declaration.initializer.elements.flatMap((element) => {
-          if (!ts.isObjectLiteralExpression(element)) return []
-          const entry = parseModuleEntryFromObjectLiteral(element)
-          return entry ? [entry] : []
-        })
-        modules.push(...fromArray)
-        foundDeclaration = true
+        if (!ts.isIdentifier(declaration.name)) continue
+        if (declaration.name.text === variableName) {
+          if (!declaration.initializer || !ts.isArrayLiteralExpression(declaration.initializer)) continue
+          const fromArray = declaration.initializer.elements.flatMap((element) => {
+            if (!ts.isObjectLiteralExpression(element)) return []
+            const entry = parseModuleEntryFromObjectLiteral(element)
+            return entry ? [entry] : []
+          })
+          modules.push(...fromArray)
+          foundDeclaration = true
+          continue
+        }
+        if (!declaration.initializer) continue
+        scope.set(
+          declaration.name.text,
+          evaluateStaticExpressionWithScope(declaration.initializer, env, scope),
+        )
       }
       continue
     }
     if (!foundDeclaration) continue
-    modules.push(...collectPushEntriesFromStatement(statement, env, variableName))
+    modules.push(...collectPushEntriesFromStatement(statement, env, variableName, scope))
   }
 
   return modules
@@ -394,18 +438,24 @@ function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; m
 
 export function createResolver(cwd: string = process.cwd()): PackageResolver {
   // First detect if we're in a monorepo by checking if node_modules packages are symlinks
-  const { isMonorepo: _isMonorepo, monorepoRoot } = detectMonorepoFromNodeModules(cwd)
-  const rootDir = monorepoRoot ?? cwd
+  const { isMonorepo: _isMonorepo, monorepoRoot, nodeModulesRoot } = detectMonorepoFromNodeModules(cwd)
+  // In workspaces with hoisted real directories, package sources live under the discovered node_modules root.
+  const rootDir = monorepoRoot ?? nodeModulesRoot ?? cwd
+
+  // shouldResolveAppFromRoot: true when we have a workspace/install root that differs from cwd
+  // (monorepo symlinks detected, or node_modules root found above cwd)
+  const shouldResolveAppFromRoot =
+    _isMonorepo || (nodeModulesRoot !== null && path.resolve(nodeModulesRoot) !== path.resolve(cwd))
 
   // The app directory depends on context:
   // - In monorepo: use detectAppDir to find apps/mercato or similar
   // - When symlinks not detected (e.g. Docker volume node_modules): still use apps/mercato if present at rootDir
   // - Otherwise: app is at cwd
-  const candidateAppDir = detectAppDir(rootDir, true)
+  const candidateAppDir = shouldResolveAppFromRoot ? detectAppDir(rootDir, true) : rootDir
   const appDir =
     _isMonorepo
       ? candidateAppDir
-      : candidateAppDir !== rootDir && fs.existsSync(candidateAppDir)
+      : shouldResolveAppFromRoot && candidateAppDir !== rootDir && fs.existsSync(candidateAppDir)
         ? candidateAppDir
         : cwd
 
@@ -459,5 +509,22 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
     getPackageRoot: (from?: string) => {
       return pkgRootFor(rootDir, from, _isMonorepo)
     },
+  }
+}
+
+/**
+ * Resolve the CLI execution environment as a plain value-object.
+ * Call once at subsystem init; use the returned object for all path decisions.
+ */
+export function resolveEnvironment(cwd: string = process.cwd()): CliEnvironment {
+  const resolver = createResolver(cwd)
+  const _isMonorepo = resolver.isMonorepo()
+  const rootDir = resolver.getRootDir()
+  const appDir = resolver.getAppDir()
+  return {
+    mode: _isMonorepo ? 'monorepo' : 'standalone',
+    rootDir,
+    appDir,
+    packageRoot: (packageName: string) => pkgRootFor(rootDir, packageName, _isMonorepo),
   }
 }

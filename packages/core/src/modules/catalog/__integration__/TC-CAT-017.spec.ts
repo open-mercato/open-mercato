@@ -1,75 +1,295 @@
-import { expect, test } from '@playwright/test';
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { expect, test } from "@playwright/test";
+import {
+  apiRequest,
+  getAuthToken,
+} from "@open-mercato/core/modules/core/__integration__/helpers/api";
+import {
+  createProductFixture,
+  deleteCatalogProductIfExists,
+} from "@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures";
 
-/**
- * TC-CAT-017: Omnibus Config GET and PATCH
- * Source: SPEC-033 — Omnibus Price Tracking, GET/PATCH /api/catalog/config/omnibus
- */
-test.describe('TC-CAT-017: Omnibus Config GET and PATCH', () => {
-  test('should read and update omnibus configuration', async ({ request }) => {
+async function getOrCreateChannel(
+  request: Parameters<typeof apiRequest>[0],
+  token: string,
+): Promise<string> {
+  const listResponse = await apiRequest(
+    request,
+    "GET",
+    "/api/sales/channels?page=1&pageSize=1",
+    { token },
+  );
+  expect(
+    listResponse.ok(),
+    `Failed to list channels: ${listResponse.status()}`,
+  ).toBeTruthy();
+  const listBody = (await listResponse.json()) as {
+    items?: Array<{ id: string }>;
+  };
+  const existing = Array.isArray(listBody.items) ? listBody.items[0] : null;
+  if (existing?.id) return existing.id;
+
+  const stamp = Date.now();
+  const createResponse = await apiRequest(
+    request,
+    "POST",
+    "/api/sales/channels",
+    {
+      token,
+      data: { name: `QA Channel ${stamp}`, code: `qa-channel-${stamp}` },
+    },
+  );
+  expect(
+    createResponse.ok(),
+    `Failed to create channel fixture: ${createResponse.status()}`,
+  ).toBeTruthy();
+  const body = (await createResponse.json()) as {
+    id?: string;
+    channelId?: string;
+  };
+  const channelId = body.channelId ?? body.id;
+  expect(
+    typeof channelId === "string" && channelId.length > 0,
+    "Channel id missing",
+  ).toBeTruthy();
+  return channelId as string;
+}
+
+/** TC-CAT-017: Offer CRUD Lifecycle */
+test.describe("TC-CAT-017: Offer CRUD Lifecycle", () => {
+  test("should create an offer for a product and verify it appears in the list", async ({
+    request,
+  }) => {
+    const stamp = Date.now();
+    const title = `QA TC-CAT-017 Offer ${stamp}`;
     let token: string | null = null;
-    let originalConfig: Record<string, unknown> = {};
+    let productId: string | null = null;
 
     try {
       token = await getAuthToken(request);
-
-      // GET returns current config (may be empty object on fresh tenant)
-      const getRes = await apiRequest(request, 'GET', '/api/catalog/config/omnibus', { token });
-      expect(getRes.ok(), `GET /api/catalog/config/omnibus failed: ${getRes.status()}`).toBeTruthy();
-      originalConfig = ((await getRes.json()) as Record<string, unknown>) ?? {};
-      expect(typeof originalConfig === 'object' && originalConfig !== null).toBeTruthy();
-
-      // PATCH updates lookbackDays
-      const patchRes = await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
-        token,
-        data: { lookbackDays: 45 },
+      const channelId = await getOrCreateChannel(request, token);
+      productId = await createProductFixture(request, token, {
+        title: `QA TC-CAT-017 Product ${stamp}`,
+        sku: `QA-CAT-017-${stamp}`,
       });
-      expect(patchRes.ok(), `PATCH /api/catalog/config/omnibus failed: ${patchRes.status()}`).toBeTruthy();
-      const patchBody = (await patchRes.json()) as Record<string, unknown>;
-      expect(patchBody.lookbackDays).toBe(45);
 
-      // Subsequent GET reflects the patched value
-      const getAfterRes = await apiRequest(request, 'GET', '/api/catalog/config/omnibus', { token });
-      expect(getAfterRes.ok()).toBeTruthy();
-      const getAfterBody = (await getAfterRes.json()) as Record<string, unknown>;
-      expect(getAfterBody.lookbackDays).toBe(45);
+      const createResponse = await apiRequest(
+        request,
+        "POST",
+        "/api/catalog/offers",
+        {
+          token,
+          data: { title, productId, channelId },
+        },
+      );
+      expect(
+        createResponse.ok(),
+        `Failed to create offer: ${createResponse.status()}`,
+      ).toBeTruthy();
+      const createBody = (await createResponse.json()) as { id?: string };
+      expect(
+        typeof createBody.id === "string" && createBody.id.length > 0,
+        "Offer id missing",
+      ).toBeTruthy();
 
-      // Enabling Omnibus without backfill for a configured EU channel must return 422
-      const priceKindsRes = await apiRequest(request, 'GET', '/api/catalog/price-kinds?pageSize=1', { token });
-      expect(priceKindsRes.ok()).toBeTruthy();
-      const priceKindsBody = (await priceKindsRes.json()) as { items?: { id: string }[] };
-      const priceKindId = priceKindsBody.items?.[0]?.id;
+      const listResponse = await apiRequest(
+        request,
+        "GET",
+        "/api/catalog/offers?page=1&pageSize=50",
+        { token },
+      );
+      expect(
+        listResponse.ok(),
+        `Failed to list offers: ${listResponse.status()}`,
+      ).toBeTruthy();
+      const listBody = (await listResponse.json()) as {
+        items?: Array<Record<string, unknown>>;
+      };
+      const items = Array.isArray(listBody.items) ? listBody.items : [];
+      const found = items.some((item) => item.id === createBody.id);
+      expect(found, "Created offer should appear in the list").toBeTruthy();
+    } finally {
+      await deleteCatalogProductIfExists(request, token, productId);
+    }
+  });
 
-      if (priceKindId) {
-        const enableWithChannelRes = await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
+  test("should update offer title and verify changes persist", async ({
+    request,
+  }) => {
+    const stamp = Date.now();
+    const title = `QA TC-CAT-017 Update ${stamp}`;
+    let token: string | null = null;
+    let productId: string | null = null;
+
+    try {
+      token = await getAuthToken(request);
+      const channelId = await getOrCreateChannel(request, token);
+      productId = await createProductFixture(request, token, {
+        title: `QA TC-CAT-017 UpdProd ${stamp}`,
+        sku: `QA-CAT-017-UPD-${stamp}`,
+      });
+
+      const createResponse = await apiRequest(
+        request,
+        "POST",
+        "/api/catalog/offers",
+        {
+          token,
+          data: { title, productId, channelId },
+        },
+      );
+      expect(
+        createResponse.ok(),
+        `Failed to create offer fixture: ${createResponse.status()}`,
+      ).toBeTruthy();
+      const createBody = (await createResponse.json()) as { id?: string };
+      const offerId = createBody.id as string;
+
+      const updatedTitle = `QA TC-CAT-017 Updated ${stamp}`;
+      const updatedDescription = `QA TC-CAT-017 Desc ${stamp}`;
+      const updateResponse = await apiRequest(
+        request,
+        "PUT",
+        "/api/catalog/offers",
+        {
           token,
           data: {
-            enabled: true,
-            enabledCountryCodes: ['DE'],
-            defaultPresentedPriceKindId: priceKindId,
-            channels: {
-              'fake-channel-id-no-backfill': {
-                presentedPriceKindId: priceKindId,
-                countryCode: 'DE',
-              },
-            },
+            id: offerId,
+            title: updatedTitle,
+            description: updatedDescription,
+            isActive: false,
           },
-        });
-        // Should reject with 422 because the channel has no backfill coverage entry
-        expect(enableWithChannelRes.status()).toBe(422);
-        const errBody = (await enableWithChannelRes.json()) as { error?: string };
-        expect(errBody.error).toBe('backfill_required_before_enable');
-      }
+        },
+      );
+      expect(
+        updateResponse.ok(),
+        `Failed to update offer: ${updateResponse.status()}`,
+      ).toBeTruthy();
+
+      const listResponse = await apiRequest(
+        request,
+        "GET",
+        "/api/catalog/offers?page=1&pageSize=50",
+        { token },
+      );
+      expect(
+        listResponse.ok(),
+        `Failed to list offers after update: ${listResponse.status()}`,
+      ).toBeTruthy();
+      const listBody = (await listResponse.json()) as {
+        items?: Array<Record<string, unknown>>;
+      };
+      const items = Array.isArray(listBody.items) ? listBody.items : [];
+      const updated = items.find((item) => item.id === offerId);
+      expect(updated, "Updated offer should appear in the list").toBeTruthy();
+      expect(updated?.title, "Title should be updated").toBe(updatedTitle);
+      expect(updated?.description, "Description should be updated").toBe(
+        updatedDescription,
+      );
+      expect(
+        updated?.isActive ?? updated?.is_active,
+        "isActive should be false",
+      ).toBe(false);
     } finally {
-      // Restore config to original state
-      if (token) {
-        const restore: Record<string, unknown> = { lookbackDays: originalConfig.lookbackDays ?? 30 };
-        if (originalConfig.enabled !== undefined) restore.enabled = originalConfig.enabled;
-        await apiRequest(request, 'PATCH', '/api/catalog/config/omnibus', {
+      await deleteCatalogProductIfExists(request, token, productId);
+    }
+  });
+
+  // NOTE: Spec says "Create offer with invalid date range → verify validation error"
+  // but the offer API has no date fields (startDate/endDate). Testing empty title validation instead.
+  test("should reject offer creation with invalid data", async ({
+    request,
+  }) => {
+    const stamp = Date.now();
+    let token: string | null = null;
+    let productId: string | null = null;
+
+    try {
+      token = await getAuthToken(request);
+      const channelId = await getOrCreateChannel(request, token);
+      productId = await createProductFixture(request, token, {
+        title: `QA TC-CAT-017 ValProd ${stamp}`,
+        sku: `QA-CAT-017-VAL-${stamp}`,
+      });
+
+      const createResponse = await apiRequest(
+        request,
+        "POST",
+        "/api/catalog/offers",
+        {
           token,
-          data: restore,
-        }).catch(() => {});
-      }
+          data: { title: "", productId, channelId },
+        },
+      );
+      expect(
+        [400, 422].includes(createResponse.status()),
+        `Expected validation error for empty title, got ${createResponse.status()}`,
+      ).toBeTruthy();
+    } finally {
+      await deleteCatalogProductIfExists(request, token, productId);
+    }
+  });
+
+  test("should delete an offer and verify it is removed from the list", async ({
+    request,
+  }) => {
+    const stamp = Date.now();
+    const title = `QA TC-CAT-017 Delete ${stamp}`;
+    let token: string | null = null;
+    let productId: string | null = null;
+
+    try {
+      token = await getAuthToken(request);
+      const channelId = await getOrCreateChannel(request, token);
+      productId = await createProductFixture(request, token, {
+        title: `QA TC-CAT-017 DelProd ${stamp}`,
+        sku: `QA-CAT-017-DEL-${stamp}`,
+      });
+
+      const createResponse = await apiRequest(
+        request,
+        "POST",
+        "/api/catalog/offers",
+        {
+          token,
+          data: { title, productId, channelId },
+        },
+      );
+      expect(
+        createResponse.ok(),
+        `Failed to create offer fixture: ${createResponse.status()}`,
+      ).toBeTruthy();
+      const createBody = (await createResponse.json()) as { id?: string };
+      const offerId = createBody.id as string;
+
+      const deleteResponse = await apiRequest(
+        request,
+        "DELETE",
+        `/api/catalog/offers?id=${encodeURIComponent(offerId)}`,
+        { token },
+      );
+      expect(
+        deleteResponse.ok(),
+        `Failed to delete offer: ${deleteResponse.status()}`,
+      ).toBeTruthy();
+
+      const listResponse = await apiRequest(
+        request,
+        "GET",
+        "/api/catalog/offers?page=1&pageSize=50",
+        { token },
+      );
+      expect(
+        listResponse.ok(),
+        `Failed to list offers after delete: ${listResponse.status()}`,
+      ).toBeTruthy();
+      const listBody = (await listResponse.json()) as {
+        items?: Array<Record<string, unknown>>;
+      };
+      const items = Array.isArray(listBody.items) ? listBody.items : [];
+      const found = items.some((item) => item.id === offerId);
+      expect(found, "Deleted offer should not appear in the list").toBeFalsy();
+    } finally {
+      await deleteCatalogProductIfExists(request, token, productId);
     }
   });
 });

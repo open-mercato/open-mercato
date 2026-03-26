@@ -5,6 +5,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
 import { setupInitialTenant } from '@open-mercato/core/modules/auth/lib/setup-app'
+import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
+import { computeConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
+import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { reindexEntity } from '@open-mercato/core/modules/query_index/lib/reindexer'
 import { purgeIndexScope } from '@open-mercato/core/modules/query_index/lib/purge'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -15,6 +18,7 @@ import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
+  path: '/onboarding/onboarding/verify',
   GET: {
     requireAuth: false,
   },
@@ -120,6 +124,32 @@ export async function GET(req: Request) {
     const resolvedUserId = String(user.id)
     userId = resolvedUserId
     await service.updateProvisioningIds(request, { tenantId, organizationId, userId: resolvedUserId })
+
+    if (request.marketingConsent) {
+      const now = new Date()
+      const clientIp = getClientIp(req, 1) ?? null
+      const integrityHash = computeConsentIntegrityHash({
+        userId: resolvedUserId,
+        consentType: 'marketing_email',
+        isGranted: true,
+        grantedAt: now,
+        ipAddress: clientIp,
+        source: 'onboarding',
+      })
+      em.create(UserConsent, {
+        userId: resolvedUserId,
+        tenantId,
+        organizationId,
+        consentType: 'marketing_email',
+        isGranted: true,
+        grantedAt: now,
+        source: 'onboarding',
+        ipAddress: clientIp,
+        integrityHash,
+        createdAt: now,
+      })
+      await em.flush()
+    }
 
     // Call module seedDefaults + seedExamples hooks
     const modules = getModules()

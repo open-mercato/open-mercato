@@ -1,0 +1,269 @@
+---
+title: Checkout
+description: Build standalone pay links with branded public payment pages, gateway-agnostic session creation, and stable checkout extension points.
+---
+
+# Checkout
+
+The `checkout` module lives in the standalone `@open-mercato/checkout` package and adds Phase A pay links to Open Mercato. It is intentionally decoupled from `sales`: merchants can collect one-off payments through shareable URLs without creating quotes or orders.
+
+For day-to-day operator workflow, see the [Checkout Pay Links user guide](/user-guide/checkout).
+
+## What Phase A delivers
+
+- Link templates for reusable defaults
+- Pay links with `fixed`, `custom_amount`, and `price_list` pricing modes
+- Public pay pages with password protection, usage limits, markdown content, and legal-consent gating
+- Checkout transactions correlated to gateway transactions through the existing `paymentGatewayService`
+- Admin transaction tracking, emails, and notifications
+
+## Enable the module
+
+Add the package and register it in the app module list:
+
+```ts
+// apps/mercato/src/modules.ts
+{ id: 'checkout', from: '@open-mercato/checkout' }
+```
+
+After enabling the module, run migrations and `npm run modules:prepare` when you add or modify auto-discovered module files.
+
+## Admin workflow
+
+### Templates
+
+Use templates when you repeat the same payment setup:
+
+- branding
+- pricing mode
+- customer-field collection
+- legal documents
+- success/cancel/error messages
+- transactional email defaults
+
+### Pay links
+
+Create a pay link directly or from a template. The link form supports:
+
+- fixed pricing with optional strikethrough original amount
+- custom amount ranges
+- price lists with server-authoritative price selection
+- password protection
+- max completion limits
+- gateway provider selection
+
+On the create-link form itself, users can also search and apply a template as a starting point without leaving the page.
+
+Links start in `draft`, can be previewed, and become public only after they are published.
+
+### Transactions
+
+Transactions are read-only in admin. Users with `checkout.view` can inspect status and gateway correlation. Users also need `checkout.viewPii` to see decrypted customer fields.
+
+## Public flow
+
+The public flow uses four endpoints:
+
+- `GET /api/checkout/pay/:slug`
+- `POST /api/checkout/pay/:slug/verify-password`
+- `POST /api/checkout/pay/:slug/submit`
+- `GET /api/checkout/pay/:slug/status/:transactionId`
+
+Password-protected pay links sign a short-lived cookie-backed session. Set `AUTH_SECRET` or `NEXTAUTH_SECRET` in the app env when possible. If those are not configured, checkout falls back to `JWT_SECRET`, then `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`.
+
+The server remains authoritative for:
+
+- amount validation
+- selected price-list item validation
+- password-session enforcement
+- required legal-consent acceptance
+- usage-limit reservation
+- status reconciliation
+
+`POST /submit` requires `Idempotency-Key` to prevent duplicate transactions during client retries.
+
+## Protections and security boundaries
+
+Checkout is intentionally customizable at the UI layer, but strict at the integrity layer. The module includes the following protections out of the box.
+
+### Publication boundary
+
+- Only links in `active` status are publicly payable.
+- `draft` and `inactive` links are not accepted on the public payment route.
+- Preview mode is a separate internal flow that requires authenticated admin access plus `checkout.view`.
+- Preview pages are rendered for review only and are not treated as publicly payable links.
+
+### Admin access control
+
+- Admin pages and write routes require authenticated backend access.
+- Template and pay-link routes are feature-gated with `checkout.view`, `checkout.create`, `checkout.edit`, and `checkout.delete`.
+- Transaction visibility is split from PII visibility.
+- Users need `checkout.view` to inspect transactions.
+- Users need `checkout.viewPii` to see decrypted customer identity fields, submitted customer data, IP address, user agent, and stored legal-consent proof.
+
+### Password-protected pay links
+
+- Pay links can require a password before the full payment payload is returned.
+- Passwords are stored as bcrypt hashes, never plaintext.
+- Successful password verification creates a short-lived signed access cookie.
+- That cookie is `HttpOnly`, `Secure`, `SameSite=Strict`, and expires after one hour.
+- Access tokens are bound to the pay-link slug and link id.
+- Access tokens are also bound to the current password-hash version, so changing the password invalidates existing access sessions automatically.
+- The public status endpoint enforces the same password session, so status polling cannot bypass password protection.
+
+### Secret handling
+
+- Checkout password-session signing uses the first configured secret from:
+  1. `AUTH_SECRET`
+  2. `NEXTAUTH_SECRET`
+  3. `JWT_SECRET`
+  4. `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`
+- This lets checkout reuse an existing application secret instead of introducing a separate session-signing mechanism.
+
+### Public endpoint hardening
+
+- Public page view, password verification, payment submission, and status polling are all wired to dedicated rate-limit hooks.
+- Payment submission validates browser origin against the current request origin, configured allow-list entries, app URL env values, and forwarded host/protocol headers.
+- This reduces the risk of untrusted cross-origin browser submissions while still supporting proxies and ephemeral environments.
+
+### Duplicate-submit protection
+
+- `POST /api/checkout/pay/:slug/submit` requires an `Idempotency-Key` header.
+- Keys must be between 16 and 128 characters.
+- Checkout stores transactions with a uniqueness boundary on `organization + tenant + link + idempotency key`.
+- Reusing the same idempotency key returns the original transaction response instead of creating a duplicate payment attempt.
+
+### Server-authoritative amount validation
+
+- Fixed-price links reject mismatched client-submitted amounts.
+- Custom-amount links enforce configured minimum and maximum boundaries server-side.
+- Price-list links require a valid server-known price item id and verify that the submitted amount matches that item.
+- The selected currency is validated against the payment-gateway descriptor before the payment session is created.
+
+### Legal-consent enforcement
+
+- Required legal documents are enforced server-side during submit.
+- Submission is rejected until every required acceptance is present.
+- Accepted legal documents are stored as structured proof with acceptance timestamp and a hash of the markdown shown to the customer.
+- That gives operators an auditable record of what was accepted without relying on browser state alone.
+
+### Availability and oversell protection
+
+- Checkout reserves capacity before creating the provider-side session.
+- Each new payment attempt increments `activeReservationCount` transactionally.
+- A link stops accepting new attempts when `completionCount + activeReservationCount` reaches `maxCompletions`.
+- This prevents race conditions where multiple customers could oversubscribe a limited-use link.
+- When a terminal state is reached, the reservation is released and successful completions increment `completionCount`.
+
+### Status reconciliation
+
+- Public status polling is scoped to the current link and transaction pair.
+- When a transaction is still `pending` or `processing`, checkout can refresh provider status through the payment gateway service before returning the latest result.
+- This keeps checkout status aligned with the gateway rather than trusting stale client-side state.
+
+### Data minimization
+
+- Password hashes are not exposed by the normal checkout serializers.
+- PII is stripped from transaction API responses unless `checkout.viewPii` is granted.
+- Sensitive operational fields such as `passwordHash` and `gatewaySettings` are excluded from checkout search indexing.
+
+### Customization boundary
+
+- Extensions can wrap or replace page sections.
+- Extensions cannot replace the server-side enforcement for pricing validation, password sessions, legal-consent checks, idempotency, reservation locking, or transaction reconciliation.
+- This boundary is deliberate: checkout is flexible in presentation, not in payment integrity.
+
+## Emails and notifications
+
+Checkout can send:
+
+- payment start emails
+- payment success emails
+- payment error emails
+
+Checkout email sender resolution follows the same precedence as the notifications system:
+
+1. `NOTIFICATIONS_EMAIL_FROM`
+2. `EMAIL_FROM`
+3. `ADMIN_EMAIL`
+
+If only `ADMIN_EMAIL` is configured, it is used as the sender fallback, so it must be a valid address accepted by your mail provider.
+
+It also emits in-app notifications for:
+
+- completed transactions
+- failed transactions
+- links that reach their usage limit
+
+## Extensibility
+
+Checkout exposes stable UMES surfaces for extension without forking the module.
+
+### Injection spots
+
+- `data-table:payment_gateways.transactions.list:toolbar`
+- `admin.page:payment-gateways/transactions:after`
+- `checkout.pay-page:header:before`
+- `checkout.pay-page:header:after`
+- `checkout.pay-page:description:after`
+- `checkout.pay-page:customer-fields:before`
+- `checkout.pay-page:customer-fields:after`
+- `checkout.pay-page:pricing:before`
+- `checkout.pay-page:pricing:after`
+- `checkout.pay-page:summary:before`
+- `checkout.pay-page:summary:after`
+- `checkout.pay-page:legal-consent:before`
+- `checkout.pay-page:legal-consent:after`
+- `checkout.pay-page:submit:before`
+- `checkout.pay-page:submit:after`
+- `checkout.pay-page:payment:before`
+- `checkout.pay-page:payment:after`
+- `checkout.pay-page:help:before`
+- `checkout.pay-page:help:after`
+- `checkout.pay-page:footer:before`
+- `checkout.pay-page:footer:after`
+- `checkout.pay-page:gateway-widget:before`
+- `checkout.pay-page:gateway-widget:renderer:before`
+- `checkout.pay-page:gateway-widget:renderer:after`
+- `checkout.pay-page:gateway-widget:actions:before`
+- `checkout.pay-page:gateway-widget:actions:after`
+- `checkout.pay-page:gateway-widget:after`
+- `checkout.pay-page:form` (behavior spot for `onFieldChange`, `transformValidation`, `transformFormData`, `onBeforeSave`, `onSave`, `onAfterSave`)
+
+### Replacement handles
+
+- `page:checkout.pay-page`
+- `page:checkout.success-page`
+- `page:checkout.error-page`
+- `section:checkout.pay-page.header`
+- `section:checkout.pay-page.description`
+- `section:checkout.pay-page.summary`
+- `section:checkout.pay-page.pricing`
+- `section:checkout.pay-page.payment`
+- `section:checkout.pay-page.customer-form`
+- `section:checkout.pay-page.legal-consent`
+- `section:checkout.pay-page.gateway-form`
+- `section:checkout.pay-page.help`
+- `section:checkout.pay-page.footer`
+- `section:checkout.success-page.content`
+- `section:checkout.error-page.content`
+- `crud-form:checkout:link`
+- `crud-form:checkout:template`
+- `data-table:checkout-links`
+- `data-table:checkout-templates`
+- `data-table:checkout-transactions`
+
+Customization stops at payment-critical boundaries. Extensions can change layout and presentation, but they must not replace the server-side pricing, consent, password, or transaction-reconciliation rules.
+
+## Gateway-provider integration
+
+Checkout relies on the additive provider-descriptor surface from `payment_gateways`, not on provider-specific code. Gateway packages must publish safe descriptors that expose:
+
+- settings fields for the admin form
+- supported currencies
+- supported payment types
+- presentation capabilities (`embedded`, `redirect`, `either`)
+
+Checkout reads these descriptors through the descriptor service and the safe provider endpoints in `payment_gateways`. Credentials stay owned by the gateway package and its integration records.
+
+Provider-owned browser payment UI is auto-discovered from `widgets/payments/client.tsx` in each gateway package. Checkout never imports Stripe, PayU, or other provider UI directly; it resolves provider widgets through the shared payment renderer registry using the `clientSession` returned by the payment gateway layer.

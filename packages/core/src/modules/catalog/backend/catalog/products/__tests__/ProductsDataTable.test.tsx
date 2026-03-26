@@ -27,6 +27,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: (props: any) => (
     <div data-testid="data-table-mock">
       <div data-testid="data-table-title">{props.title}</div>
+      <div data-testid="data-table-cache-status">{props.pagination?.cacheStatus ?? ''}</div>
       <button data-testid="search-trigger" onClick={() => props.onSearchChange?.('widgets')}>
         trigger-search
       </button>
@@ -127,6 +128,7 @@ describe('ProductsDataTable', () => {
     jest.clearAllMocks()
     ;(apiCall as jest.Mock).mockResolvedValue({
       ok: true,
+      cacheStatus: 'hit',
       result: {
         items: [{ id: 'prod-1', title: 'Mock product', sku: 'SKU-001' }],
         total: 1,
@@ -146,7 +148,10 @@ describe('ProductsDataTable', () => {
   it('renders table title and loads catalog data', async () => {
     render(<ProductsDataTable />)
 
-    await waitFor(() => expect(apiCall).toHaveBeenCalled())
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalled()
+      expect(screen.getByTestId('data-table-cache-status')).toHaveTextContent('hit')
+    })
     expect(screen.getByTestId('data-table-title')).toHaveTextContent('Products & services')
     expect((apiCall as jest.Mock).mock.calls[0][0]).toContain('/api/catalog/products?page=1&pageSize=25')
     expect(applyCustomFieldVisibility).toHaveBeenCalled()

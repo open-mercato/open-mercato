@@ -1,0 +1,79 @@
+---
+title: Payment Transactions
+description: Track all payment gateway transactions, inspect webhook activity, and review provider logs from one admin screen.
+sidebar_label: Payment Transactions
+---
+
+The Payment Transactions screen gives you a unified view of every transaction processed through the payment hub — regardless of provider. Navigate to **External Systems → Payment Transactions**.
+
+![Payment Transactions](/screenshots/open-mercato-payment-transactions.png)
+
+## Transaction list
+
+The top section shows all transactions in a searchable, filterable data table:
+
+| Column | Description |
+|--------|-------------|
+| **Payment ID** | The internal payment reference (UUID). The smaller ID below is the transaction ID. |
+| **Provider** | Which gateway processed the transaction (e.g., Stripe, Mock). |
+| **Status** | Current hub status: `pending`, `authorized`, `captured`, `refunded`, `partially_refunded`, `cancelled`, `failed`, `expired`. |
+| **Amount** | The transaction amount in the original currency. |
+| **Session ID** | The provider-side session identifier (e.g., Stripe Payment Intent ID `pi_...`). |
+| **Updated at** | When the transaction was last modified. |
+
+Use **Filters** and **Perspectives** to narrow results by status, provider, date range, or amount. The search box supports payment ID, transaction ID, and session ID lookups.
+
+## Transaction details
+
+Click any row to expand the detail panel below the table. The detail view includes:
+
+### Status cards
+
+- **Status** — the Open Mercato hub status (e.g., `Refunded`).
+- **Gateway Status** — the raw status from the provider (e.g., `authorized` from Stripe before capture).
+- **Amount** — the original transaction amount and currency.
+- **Provider** — which gateway adapter handled the transaction.
+
+### Identifiers
+
+- **Transaction ID** — the hub-level unique identifier. Use this for all API operations (capture, refund, cancel, status).
+- **Payment ID** — the internal payment record reference.
+- **Session ID** — the provider session (e.g., Stripe Payment Intent ID).
+- **Gateway Payment ID** — provider-specific payment reference (if different from session).
+- **Gateway Refund ID** — populated after a refund (e.g., Stripe refund ID `re_...`).
+- **Redirect URL** — the hosted checkout URL, if the provider used a redirect flow.
+
+### Timestamps
+
+- **Created At** / **Updated At** — when the transaction was first created and last modified.
+- **Last Webhook** — when the most recent webhook event was received for this transaction.
+- **Last Poll** — when the status was last refreshed via polling.
+
+### Refresh status
+
+Click **Refresh status** to query the payment provider for the latest state and update the local record. This is useful when webhooks are delayed or you want to force a sync.
+
+### Gateway metadata
+
+The **Gateway metadata** panel shows the raw JSON returned by the provider. For Stripe this includes the Payment Intent ID, charge ID, publishable key, and any capture or refund results. Click **Copy** to grab the full payload.
+
+### Webhook activity
+
+The **Webhook activity** section lists every inbound webhook event received for this transaction, with timestamps and event types. This helps you verify that Stripe (or another provider) is delivering events correctly.
+
+### Gateway logs
+
+Below webhook activity, **Gateway logs** show the low-level request/response log for API calls made to the provider during this transaction's lifecycle.
+
+## Tips
+
+- Use the **Status** filter to quickly find transactions needing attention (e.g., `authorized` payments awaiting capture).
+- Cross-reference the **Session ID** with your Stripe Dashboard to match transactions between systems.
+- If a transaction shows an unexpected status, check **Webhook activity** first — missing events usually indicate a webhook configuration issue.
+- For programmatic access to transaction data, see the [Payment Gateways REST API](/api/payment-gateways).
+
+## Next steps
+
+- [Stripe Payment Gateway](./stripe-payments) — configure Stripe and test the full payment lifecycle.
+- [Integration Marketplace](./integrations) — manage provider credentials and health.
+- [Payment Gateways REST API](/api/payment-gateways) — automate payment operations via API.

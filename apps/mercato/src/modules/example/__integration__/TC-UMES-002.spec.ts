@@ -11,11 +11,11 @@ import { test, expect } from '@playwright/test'
 import {
   getAuthToken,
   apiRequest,
-} from '@open-mercato/core/modules/core/__integration__/helpers/api'
+} from '@open-mercato/core/helpers/integration/api'
 import {
   createPersonFixture,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+} from '@open-mercato/core/helpers/integration/crmFixtures'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 
@@ -99,6 +99,45 @@ test.describe('TC-UMES-002: Response Enrichers', () => {
       expect(item._example).toBeDefined()
       expect(typeof item._example.todoCount).toBe('number')
       expect(typeof item._example.openTodoCount).toBe('number')
+    }
+  })
+
+  test('TC-UMES-R07: multi-id query returns only requested IDs with enrichment metadata', async ({
+    request,
+  }) => {
+    let personIdA: string | null = null
+    let personIdB: string | null = null
+    try {
+      const testSuffix = Date.now()
+      personIdA = await createPersonFixture(request, token, {
+        firstName: `QA-UMES-R07A-${testSuffix}`,
+        lastName: 'Ids',
+        displayName: `QA UMES R07 A ${testSuffix}`,
+      })
+      personIdB = await createPersonFixture(request, token, {
+        firstName: `QA-UMES-R07B-${testSuffix}`,
+        lastName: 'Ids',
+        displayName: `QA UMES R07 B ${testSuffix}`,
+      })
+
+      const ids = `${personIdA},${personIdB}`
+      const response = await apiRequest(request, 'GET', `/api/customers/people?ids=${encodeURIComponent(ids)}&pageSize=50`, {
+        token,
+      })
+      expect(response.ok()).toBeTruthy()
+      const body = await response.json()
+      const items = body?.items ?? body?.data ?? []
+      const idsInResponse = items
+        .map((item: Record<string, unknown>) => item.id)
+        .filter((id: unknown): id is string => typeof id === 'string')
+
+      expect(idsInResponse).toContain(personIdA)
+      expect(idsInResponse).toContain(personIdB)
+      expect(body._meta?.enrichedBy ?? []).toContain('example.customer-todo-count')
+      expect(items.every((item: Record<string, unknown>) => item._example != null)).toBe(true)
+    } finally {
+      await deleteEntityIfExists(request, token, '/api/customers/people', personIdA)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personIdB)
     }
   })
 

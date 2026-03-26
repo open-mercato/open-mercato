@@ -1,4 +1,4 @@
-import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult } from '../types'
+import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions } from '../types'
 import { getRedisUrl, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 
 // BullMQ interface types - we define the shape we use to maintain type safety
@@ -6,7 +6,11 @@ import { getRedisUrl, parseRedisUrl } from '@open-mercato/shared/lib/redis/conne
 type ConnectionOptions = { host?: string; port?: number; password?: string; db?: number }
 
 interface BullQueueInterface<T> {
-  add: (name: string, data: T, opts?: { removeOnComplete?: boolean; removeOnFail?: number }) => Promise<{ id?: string }>
+  add: (
+    name: string,
+    data: T,
+    opts?: { removeOnComplete?: boolean; removeOnFail?: number; delay?: number },
+  ) => Promise<{ id?: string }>
   obliterate: (opts?: { force?: boolean }) => Promise<void>
   close: () => Promise<void>
   getJobCounts: (...states: string[]) => Promise<Record<string, number>>
@@ -104,7 +108,7 @@ export function createAsyncQueue<T = unknown>(
   // Queue Implementation
   // -------------------------------------------------------------------------
 
-  async function enqueue(data: T): Promise<string> {
+  async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
     const queue = await getQueue()
     const jobData: QueuedJob<T> = {
       id: crypto.randomUUID(),
@@ -113,6 +117,7 @@ export function createAsyncQueue<T = unknown>(
     }
 
     const job = await queue.add(jobData.id, jobData, {
+      delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
       removeOnFail: 1000, // Keep last 1000 failed jobs
     })

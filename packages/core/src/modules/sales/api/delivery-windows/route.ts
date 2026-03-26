@@ -4,7 +4,7 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesDeliveryWindow } from '../../data/entities'
 import { deliveryWindowCreateSchema, deliveryWindowUpdateSchema } from '../../data/validators'
-import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
+import { buildAggregateSearchFilter, parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/sales_delivery_window'
 import {
@@ -12,7 +12,6 @@ import {
   createSalesCrudOpenApi,
   defaultDeleteRequestSchema,
 } from '../openapi'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -59,14 +58,8 @@ const deliveryWindowListResponseSchema = createPagedListResponseSchema(deliveryW
 
 function buildFilters(query: z.infer<typeof listSchema>): Record<string, unknown> {
   const filters: Record<string, unknown> = {}
-  if (query.search && query.search.trim().length > 0) {
-    const term = `%${escapeLikePattern(query.search.trim())}%`
-    filters.$or = [
-      { name: { $ilike: term } },
-      { code: { $ilike: term } },
-      { description: { $ilike: term } },
-    ]
-  }
+  const searchFilter = buildAggregateSearchFilter(query.search)
+  if (searchFilter) Object.assign(filters, searchFilter)
   const isActive = parseBooleanToken(query.isActive)
   if (isActive !== null) filters.is_active = isActive
   return filters

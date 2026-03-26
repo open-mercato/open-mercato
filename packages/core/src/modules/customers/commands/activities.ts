@@ -6,6 +6,7 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
   requireId,
+  normalizeAuthorUserId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -53,8 +54,6 @@ const activityCrudEvents: CrudEventsConfig = {
     tenantId: ctx.identifiers.tenantId,
   }),
 }
-
-const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 type ActivitySnapshot = {
   activity: {
@@ -149,12 +148,7 @@ const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: s
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
 
-    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
-    const normalizedAuthor = (() => {
-      if (parsed.authorUserId) return parsed.authorUserId
-      if (!authSub) return null
-      return UUID_REGEX.test(authSub) ? authSub : null
-    })()
+    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const dictionaryEntry = await ensureDictionaryEntry(em, {
       tenantId: parsed.tenantId,

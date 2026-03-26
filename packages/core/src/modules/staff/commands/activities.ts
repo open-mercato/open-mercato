@@ -7,6 +7,7 @@ import {
   requireId,
   parseWithCustomFields,
   setCustomFieldsIfAny,
+  normalizeAuthorUserId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -20,6 +21,7 @@ import {
   type StaffTeamMemberActivityCreateInput,
   type StaffTeamMemberActivityUpdateInput,
 } from '../data/validators'
+import { staffTeamMemberActivityCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -115,13 +117,7 @@ const createActivityCommand: CommandHandler<
     const { parsed, custom } = parseWithCustomFields(staffTeamMemberActivityCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
-    const normalizedAuthor = (() => {
-      if (parsed.authorUserId) return parsed.authorUserId
-      if (!authSub) return null
-      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
-      return uuidRegex.test(authSub) ? authSub : null
-    })()
+    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
@@ -157,6 +153,7 @@ const createActivityCommand: CommandHandler<
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: staffTeamMemberActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -241,6 +238,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: staffTeamMemberActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -341,6 +339,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
         organizationId: activity.organizationId,
         tenantId: activity.tenantId,
       },
+      events: staffTeamMemberActivityCrudEvents,
       indexer: activityCrudIndexer,
     })
 
@@ -388,7 +387,8 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
-        indexer: activityCrudIndexer,
+        events: staffTeamMemberActivityCrudEvents,
+      indexer: activityCrudIndexer,
       })
       return { activityId: activity.id }
     },
@@ -458,7 +458,8 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
           organizationId: activity.organizationId,
           tenantId: activity.tenantId,
         },
-        indexer: activityCrudIndexer,
+        events: staffTeamMemberActivityCrudEvents,
+      indexer: activityCrudIndexer,
       })
 
       const resetValues = buildCustomFieldResetMap(before.custom, undefined)

@@ -52,6 +52,11 @@ jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
   emitInboxOpsEvent: (...args: unknown[]) => mockEmitInboxOpsEvent(...args),
 }))
 
+const mockCreateMessageRecordForEmail = jest.fn()
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/messagesIntegration', () => ({
+  createMessageRecordForEmail: (...args: unknown[]) => mockCreateMessageRecordForEmail(...args),
+}))
+
 const mockNativeUpdate = jest.fn()
 const mockFindOne = jest.fn()
 const mockFlush = jest.fn()
@@ -160,6 +165,7 @@ describe('extractionWorker', () => {
     mockEm.fork.mockReturnValue(mockEm)
     mockFlush.mockResolvedValue(undefined)
     mockEmitInboxOpsEvent.mockResolvedValue(undefined)
+    mockCreateMessageRecordForEmail.mockResolvedValue(null)
     mockCreate.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({ ...data }))
     mockMatchContacts.mockResolvedValue([])
     mockFetchCatalog.mockResolvedValue([])
@@ -802,6 +808,78 @@ describe('extractionWorker', () => {
         undefined,
         { organizationId: 'org-1', tenantId: 'tenant-1' },
       )
+    })
+  })
+
+  describe('messages integration', () => {
+    it('calls createMessageRecordForEmail with correct data after successful extraction', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+
+      mockMatchContacts.mockResolvedValueOnce([])
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult(),
+        totalTokens: 100,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockCreateMessageRecordForEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'email-1',
+          subject: 'Order request',
+          cleanedText: 'Hello, I would like to order 10 widgets.',
+          forwardedByAddress: 'john@example.com',
+          forwardedByName: 'John Doe',
+        }),
+        expect.objectContaining({
+          scope: expect.objectContaining({
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+          }),
+        }),
+      )
+    })
+
+    it('does not call createMessageRecordForEmail when extraction fails', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+
+      mockRunExtraction.mockRejectedValueOnce(new Error('LLM timeout'))
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(mockCreateMessageRecordForEmail).not.toHaveBeenCalled()
+    })
+
+    it('continues processing when messages integration fails', async () => {
+      mockNativeUpdate.mockResolvedValue(1)
+      const email = makeEmail()
+      mockFindOneWithDecryption.mockResolvedValueOnce(email)
+
+      mockMatchContacts.mockResolvedValueOnce([])
+      mockRunExtraction.mockResolvedValueOnce({
+        object: makeExtractionResult(),
+        totalTokens: 100,
+        modelWithProvider: 'anthropic:test-model',
+      })
+
+      mockCreateMessageRecordForEmail.mockRejectedValueOnce(new Error('Command bus unavailable'))
+
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+
+      await handle(basePayload, mockCtx as any)
+
+      expect(email.status).toBe('processed')
+      expect(mockEmitInboxOpsEvent).toHaveBeenCalledWith(
+        'inbox_ops.email.processed',
+        expect.objectContaining({ emailId: 'email-1' }),
+      )
+
+      consoleSpy.mockRestore()
     })
   })
 })

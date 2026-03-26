@@ -8,11 +8,14 @@
  */
 
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ExternalIdEnrichment } from '@open-mercato/shared/modules/integrations/types'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { SyncExternalIdMapping } from './entities'
 
 type EntityRecord = Record<string, unknown> & { id: string }
+type EnricherScope = EnricherContext & { targetEntity?: string; em: EntityManager }
 
 function buildIntegrationData(
   mappings: SyncExternalIdMapping[],
@@ -41,17 +44,24 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
   critical: false,
   fallback: {},
 
-  async enrichOne(record, context: EnricherContext & { targetEntity?: string }) {
-    const em = (context.em as any).fork()
-    const targetEntity = (context as any).targetEntity as string | undefined
+  async enrichOne(record, context: EnricherScope) {
+    const em = context.em.fork()
+    const targetEntity = context.targetEntity
     if (!targetEntity) return { ...record, _integrations: {} }
 
-    const mappings: SyncExternalIdMapping[] = await em.find(SyncExternalIdMapping, {
-      internalEntityType: targetEntity,
-      internalEntityId: record.id,
-      organizationId: context.organizationId,
-      deletedAt: null,
-    })
+    const mappings = await findWithDecryption(
+      em,
+      SyncExternalIdMapping,
+      {
+        internalEntityType: targetEntity,
+        internalEntityId: record.id,
+        organizationId: context.organizationId,
+        tenantId: context.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { organizationId: context.organizationId, tenantId: context.tenantId },
+    )
 
     if (mappings.length === 0) return { ...record, _integrations: {} }
 
@@ -61,18 +71,25 @@ const externalIdMappingEnricher: ResponseEnricher<EntityRecord, ExternalIdEnrich
     }
   },
 
-  async enrichMany(records, context: EnricherContext & { targetEntity?: string }) {
-    const em = (context.em as any).fork()
-    const targetEntity = (context as any).targetEntity as string | undefined
+  async enrichMany(records, context: EnricherScope) {
+    const em = context.em.fork()
+    const targetEntity = context.targetEntity
     if (!targetEntity || records.length === 0) return records.map((r) => ({ ...r, _integrations: {} }))
 
     const recordIds = records.map((r) => r.id)
-    const allMappings: SyncExternalIdMapping[] = await em.find(SyncExternalIdMapping, {
-      internalEntityType: targetEntity,
-      internalEntityId: { $in: recordIds },
-      organizationId: context.organizationId,
-      deletedAt: null,
-    })
+    const allMappings = await findWithDecryption(
+      em,
+      SyncExternalIdMapping,
+      {
+        internalEntityType: targetEntity,
+        internalEntityId: { $in: recordIds },
+        organizationId: context.organizationId,
+        tenantId: context.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { organizationId: context.organizationId, tenantId: context.tenantId },
+    )
 
     if (allMappings.length === 0) return records.map((r) => ({ ...r, _integrations: {} }))
 

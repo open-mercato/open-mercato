@@ -34,6 +34,7 @@ export class OnboardingService {
       existing.organizationName = input.organizationName
       existing.locale = input.locale ?? existing.locale ?? 'en'
       existing.termsAccepted = true
+      existing.marketingConsent = input.marketingConsent ?? false
       existing.passwordHash = passwordHash
       existing.expiresAt = expiresAt
       existing.completedAt = null
@@ -55,6 +56,7 @@ export class OnboardingService {
       organizationName: input.organizationName,
       locale: input.locale ?? 'en',
       termsAccepted: true,
+      marketingConsent: input.marketingConsent ?? false,
       passwordHash,
       expiresAt,
       processingStartedAt: null,

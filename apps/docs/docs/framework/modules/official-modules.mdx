@@ -1,0 +1,70 @@
+---
+title: Official Modules
+description: Community-reviewed, plug-and-play modules for Open Mercato — browse, install, and eject.
+---
+
+# Official Modules
+
+Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repository is where the community publishes those features.
+
+[![Official Modules Repository](/img/official-modules-repo.png)](https://github.com/open-mercato/official-modules)
+
+[![Watch: Official Modules](https://img.youtube.com/vi/alPsIVq7PKo/maxresdefault.jpg)](https://www.youtube.com/watch?v=alPsIVq7PKo)
+
+Every module there:
+
+- **Installs in one command** — no manual wiring, no config files to edit
+- **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
+- **Is ejectable** — run `--eject` to copy the module into your app and own it fully
+- **Gets reviewed** — every submission goes through core team review before reaching npm
+
+Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
+
+## Installing an official module
+
+```bash
+# Install and register in one step
+yarn mercato module add @open-mercato/<module-name>
+
+# Apply any new migrations introduced by the module
+yarn db:migrate
+```
+
+See the [`module add` CLI reference](/cli/module-add) for the full set of options including version pinning, multi-module packages, and ejection.
+
+## Ejecting a module
+
+If you need full control over a module's source code, eject it into your app:
+
+```bash
+yarn mercato module add @open-mercato/<module-name> --eject
+```
+
+The source is copied to `src/modules/<moduleId>/` and loaded locally. You can edit it freely — the framework treats it as an app-level module from that point on. See the [`eject` CLI reference](/cli/eject) for details.
+
+## Enabling an already-installed module
+
+If the package is already in `node_modules` (e.g., added as a dependency by another package), register it without reinstalling:
+
+```bash
+yarn mercato module enable @open-mercato/<module-name>
+```
+
+See the [`module enable` CLI reference](/cli/module-enable) for details.
+
+## Publishing your module
+
+Built something useful? The official modules repo is the place to share it with the community. You get:
+
+- **Visibility** — your module is listed alongside other community and core-team modules
+- **Discoverability** — users find and install it with a single CLI command
+- **Review and quality** — the core team reviews every submission before it reaches npm
+- **Credit** — you're recognized as the module author in the registry and on npm
+
+To contribute, fork the [official-modules repository](https://github.com/open-mercato/official-modules), follow the development workflow and conventions described in the repo README, and submit a pull request against the `develop` branch.
+
+## Browse available modules
+
+Visit the **[official-modules repository](https://github.com/open-mercato/official-modules)** to see the full list of available modules, their documentation, and contribution guidelines.
+
+[![Official Modules README](/img/official-modules-readme.png)](https://github.com/open-mercato/official-modules)

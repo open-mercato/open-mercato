@@ -13,6 +13,7 @@ import { run } from './mercato.js'
 // - help: just shows help text
 const BOOTSTRAP_FREE_COMMANDS = [
   'generate',
+  'module',
   'db',
   'init',
   'eject',
@@ -22,6 +23,9 @@ const BOOTSTRAP_FREE_COMMANDS = [
   'test:integration:spec-coverage',
   'test:ephemeral',
   'test:integration:interactive',
+  'umes:list',
+  'umes:inspect',
+  'umes:check',
   'help',
   '--help',
   '-h',

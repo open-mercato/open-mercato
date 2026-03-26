@@ -12,11 +12,13 @@ export const metadata = {
   requireFeatures: ['search.view'],
   pageTitle: 'Search Settings',
   pageTitleKey: 'search.config.nav.hybridSearch',
-  pageGroup: 'Configuration',
-  pageGroupKey: 'backend.nav.configuration',
+  pageGroup: 'Module Configs',
+  pageGroupKey: 'settings.sections.moduleConfigs',
   pageOrder: 425,
   icon: searchIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
     { label: 'Search Settings', labelKey: 'search.config.nav.hybridSearch' },
   ],
 } as const
+

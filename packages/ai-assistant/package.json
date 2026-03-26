@@ -1,13 +1,14 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.4.5",
+  "version": "0.4.9",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "mcp:dev": "mercato ai_assistant mcp:dev",
-    "mcp:serve": "mercato ai_assistant mcp:serve-http"
+    "mcp:serve": "mercato ai_assistant mcp:serve-http",
+    "test": "jest --config jest.config.cjs --forceExit"
   },
   "exports": {
     ".": "./dist/index.js",
@@ -82,7 +83,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.12",
-    "@ai-sdk/google": "^1.2.6",
+    "@ai-sdk/google": "^2.0.0",
     "@ai-sdk/openai": "^3.0.5",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "ai": "^6.0.33",

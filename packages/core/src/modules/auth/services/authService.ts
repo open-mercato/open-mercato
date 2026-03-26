@@ -59,7 +59,7 @@ export class AuthService {
     const links = await findWithDecryption(
       this.em,
       UserRole,
-      { user, role: { tenantId: resolvedTenantId } as any },
+      { user, deletedAt: null, role: { tenantId: resolvedTenantId, deletedAt: null } as any },
       { populate: ['role'] },
       { tenantId: resolvedTenantId, organizationId: user.organizationId ?? null },
     )
@@ -76,6 +76,10 @@ export class AuthService {
 
   async deleteSessionByToken(token: string) {
     await this.em.nativeDelete(Session, { token })
+  }
+
+  async deleteAllUserSessions(userId: string) {
+    await this.em.nativeDelete(Session, { user: userId })
   }
 
   async refreshFromSessionToken(token: string) {
@@ -107,6 +111,7 @@ export class AuthService {
     user.passwordHash = await hash(newPassword, 10)
     row.usedAt = new Date()
     await this.em.flush()
+    await this.deleteAllUserSessions(String(user.id))
     return user
   }
 }

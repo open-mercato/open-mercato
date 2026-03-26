@@ -71,6 +71,9 @@ export async function POST(req: Request) {
         if (auth.orgId !== undefined) {
           payload.organizationId = auth.orgId ?? null
         }
+        if (typeof auth.sub === 'string' && auth.sub.length > 0) {
+          payload.requestedByUserId = auth.sub
+        }
         return bus.emitEvent(
           'query_index.reindex',
           payload,

@@ -99,7 +99,7 @@ export default function CurrenciesPage() {
   const handleSetBase = React.useCallback(
     async (row: CurrencyRow) => {
       try {
-        const call = await apiCall('/api/currencies', {
+        const call = await apiCall('/api/currencies/currencies', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: row.id, isBase: true }),

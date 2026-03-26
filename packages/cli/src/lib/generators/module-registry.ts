@@ -12,6 +12,7 @@ import {
 import {
   scanModuleDir,
   resolveModuleFile,
+  resolveFirstModuleFile,
   SCAN_CONFIGS,
   type ModuleRoots,
   type ModuleImports,
@@ -110,7 +111,9 @@ function processPageFiles(options: {
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
     const routePath = type === 'frontend'
       ? '/' + (routeSegs.join('/') || '')
-      : '/backend/' + [modId, ...segs, name].filter(Boolean).join('/')
+      : '/backend/' + (segs[0] === modId
+          ? [...segs, name].filter(Boolean).join('/')
+          : [modId, ...segs, name].filter(Boolean).join('/'))
     const metaCandidates = [
       path.join(fromApp ? appDir : pkgDir, ...segs, `${name}.meta.ts`),
       path.join(fromApp ? appDir : pkgDir, ...segs, 'meta.ts'),
@@ -167,7 +170,7 @@ async function processApiRoutes(options: {
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
     imports.push(`import * as ${importName} from '${importPath}'`)
-    apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    apis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
   }
 
   // Single files (plain .ts, not route.ts, not tests, skip method dirs)
@@ -187,7 +190,7 @@ async function processApiRoutes(options: {
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
     imports.push(`import * as ${importName} from '${importPath}'`)
-    apis.push(`{ path: '${routePath}', metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    apis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
   }
 
   // Legacy per-method
@@ -217,7 +220,7 @@ async function processApiRoutes(options: {
       const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
       const docsPart = hasOpenApi ? `, docs: ${metaName}.openApi` : ''
       imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-      apis.push(`{ method: '${method}', path: '${routePath}', handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
+      apis.push(`{ method: '${method}', path: (${metaName}.metadata?.path ?? '${routePath}'), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
     }
   }
 
@@ -245,7 +248,7 @@ function processSubscribers(options: {
     imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
     const sid = [modId, ...segs, name].filter(Boolean).join(':')
     subscribers.push(
-      `{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, handler: ${importName} }`
+      `{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, sync: ((${metaName}.metadata) as any)?.sync, priority: ((${metaName}.metadata) as any)?.priority, handler: ${importName} }`
     )
   }
   return subscribers
@@ -391,6 +394,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const notificationsChecksumFile = path.join(outputDir, 'notifications.generated.checksum')
   const notificationsClientOutFile = path.join(outputDir, 'notifications.client.generated.ts')
   const notificationsClientChecksumFile = path.join(outputDir, 'notifications.client.generated.checksum')
+  const paymentsClientOutFile = path.join(outputDir, 'payments.client.generated.ts')
+  const paymentsClientChecksumFile = path.join(outputDir, 'payments.client.generated.checksum')
+  const notificationHandlersOutFile = path.join(outputDir, 'notification-handlers.generated.ts')
+  const notificationHandlersChecksumFile = path.join(outputDir, 'notification-handlers.generated.checksum')
   const messageTypesOutFile = path.join(outputDir, 'message-types.generated.ts')
   const messageTypesChecksumFile = path.join(outputDir, 'message-types.generated.checksum')
   const messageObjectsOutFile = path.join(outputDir, 'message-objects.generated.ts')
@@ -403,6 +410,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const eventsChecksumFile = path.join(outputDir, 'events.generated.checksum')
   const analyticsOutFile = path.join(outputDir, 'analytics.generated.ts')
   const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
+  const bootstrapRegsOutFile = path.join(outputDir, 'bootstrap-registrations.generated.ts')
+  const bootstrapRegsChecksumFile = path.join(outputDir, 'bootstrap-registrations.generated.checksum')
   const transFieldsOutFile = path.join(outputDir, 'translations-fields.generated.ts')
   const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
   const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
@@ -413,8 +422,41 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const componentOverridesChecksumFile = path.join(outputDir, 'component-overrides.generated.checksum')
   const inboxActionsOutFile = path.join(outputDir, 'inbox-actions.generated.ts')
   const inboxActionsChecksumFile = path.join(outputDir, 'inbox-actions.generated.checksum')
+  const guardsOutFile = path.join(outputDir, 'guards.generated.ts')
+  const guardsChecksumFile = path.join(outputDir, 'guards.generated.checksum')
+  const commandInterceptorsOutFile = path.join(outputDir, 'command-interceptors.generated.ts')
+  const commandInterceptorsChecksumFile = path.join(outputDir, 'command-interceptors.generated.checksum')
+  const frontendMiddlewareOutFile = path.join(outputDir, 'frontend-middleware.generated.ts')
+  const frontendMiddlewareChecksumFile = path.join(outputDir, 'frontend-middleware.generated.checksum')
+  const backendMiddlewareOutFile = path.join(outputDir, 'backend-middleware.generated.ts')
+  const backendMiddlewareChecksumFile = path.join(outputDir, 'backend-middleware.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+
+  // Pre-pass: collect generator plugins from each enabled module's generators.ts
+  const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>()
+  const pluginState = new Map<string, { imports: string[]; configs: string[] }>()
+  for (const entry of enabled) {
+    const roots = resolver.getModulePaths(entry)
+    const rawImps = resolver.getModuleImportBase(entry)
+    const isAppMod = entry.from === '@app'
+    const appImportBase = isAppMod ? `../../src/modules/${entry.id}` : rawImps.appBase
+    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    const resolved = resolveModuleFile(roots, imps, 'generators.ts')
+    if (!resolved) continue
+    try {
+      const pluginMod = await import(resolved.absolutePath)
+      const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
+        pluginMod.generatorPlugins ?? pluginMod.default ?? []
+      for (const plugin of plugins) {
+        if (!pluginRegistry.has(plugin.id)) {
+          pluginRegistry.set(plugin.id, plugin)
+          pluginState.set(plugin.id, { imports: [], configs: [] })
+        }
+      }
+    } catch {}
+  }
+
   const imports: string[] = []
   const moduleDecls: string[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
@@ -430,6 +472,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const notificationImports: string[] = []
   const notificationClientTypes: string[] = []
   const notificationClientImports: string[] = []
+  const paymentsClientImports: string[] = []
+  const notificationHandlerEntries: string[] = []
+  const notificationHandlerImports: string[] = []
   const messageTypeEntries: string[] = []
   const messageTypeImports: string[] = []
   const messageObjectTypeEntries: string[] = []
@@ -450,6 +495,22 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const componentOverrideImports: string[] = []
   const inboxActionsConfigs: string[] = []
   const inboxActionsImports: string[] = []
+  const guardConfigs: string[] = []
+  const guardImports: string[] = []
+  const commandInterceptorConfigs: string[] = []
+  const commandInterceptorImports: string[] = []
+  const frontendMiddlewareConfigs: string[] = []
+  const frontendMiddlewareImports: string[] = []
+  const backendMiddlewareConfigs: string[] = []
+  const backendMiddlewareImports: string[] = []
+
+  // UMES conflict detection: collect file paths during module processing
+  const umesConflictSources: Array<{
+    moduleId: string
+    componentOverridesPath?: string
+    interceptorsPath?: string
+    aclPath?: string
+  }> = []
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -482,6 +543,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const injectionWidgets: string[] = []
     let injectionTableImportName: string | null = null
     let setupImportName: string | null = null
+    let integrationImportName: string | null = null
 
     // === Processing order MUST match original import ID sequence ===
 
@@ -578,6 +640,25 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       standaloneImports: notificationClientImports,
       standaloneConfigs: notificationClientTypes,
       configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? []) }`,
+    })
+
+    {
+      const resolved = resolveFirstModuleFile(roots, imps, [
+        'widgets/payments/client.tsx',
+        'widgets/payments/client.ts',
+      ])
+      if (resolved) {
+        paymentsClientImports.push(`import '${resolved.importPath}'`)
+      }
+    }
+
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'notifications.handlers.ts',
+      prefix: 'NOTIF_HANDLERS',
+      standaloneImports: notificationHandlerImports,
+      standaloneConfigs: notificationHandlerEntries,
+      configExpr: (n, id) => `{ moduleId: '${id}', handlers: ((${n}.default ?? ${n}.notificationHandlers ?? []) as NotificationHandler[]) }`,
     })
     // Message types: module root message-types.ts
     {
@@ -680,6 +761,19 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       configExpr: (n, id) => `{ moduleId: '${id}', componentOverrides: ((${n} as any).componentOverrides ?? (${n} as any).default ?? []) }`,
     })
 
+    // Track file paths for UMES conflict detection
+    {
+      const compOverridesFile = resolveModuleFile(roots, imps, 'widgets/components.ts')
+      const interceptorsFile = resolveModuleFile(roots, imps, 'api/interceptors.ts')
+      const aclFile = resolveModuleFile(roots, imps, 'acl.ts')
+      umesConflictSources.push({
+        moduleId: modId,
+        componentOverridesPath: compOverridesFile?.absolutePath,
+        interceptorsPath: interceptorsFile?.absolutePath,
+        aclPath: aclFile?.absolutePath,
+      })
+    }
+
     // Translatable fields: translations.ts (also referenced in module declarations)
     let transFieldsImportName: string | null = null
     transFieldsImportName = processStandaloneConfig({
@@ -691,6 +785,18 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       sharedImports: imports,
       configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
     })
+
+    // Generator plugins: process each registered plugin's convention file
+    for (const plugin of pluginRegistry.values()) {
+      processStandaloneConfig({
+        roots, imps, modId, importIdRef,
+        relativePath: plugin.conventionFile,
+        prefix: plugin.importPrefix,
+        standaloneImports: pluginState.get(plugin.id)!.imports,
+        standaloneConfigs: pluginState.get(plugin.id)!.configs,
+        configExpr: plugin.configExpr,
+      })
+    }
 
     // Inbox Actions: inbox-actions.ts
     {
@@ -705,10 +811,60 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
+    // 10e. Mutation guards: data/guards.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'data/guards.ts',
+      prefix: 'GUARDS',
+      standaloneImports: guardImports,
+      standaloneConfigs: guardConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', guards: ((${n} as any).guards ?? (${n} as any).default ?? []) }`,
+    })
+
+    // 10f. Command interceptors: commands/interceptors.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'commands/interceptors.ts',
+      prefix: 'CMD_INTERCEPTORS',
+      standaloneImports: commandInterceptorImports,
+      standaloneConfigs: commandInterceptorConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', interceptors: ((${n} as any).interceptors ?? (${n} as any).default ?? []) }`,
+    })
+
+    // 10g. Frontend page middleware: frontend/middleware.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'frontend/middleware.ts',
+      prefix: 'FRONTEND_MIDDLEWARE',
+      standaloneImports: frontendMiddlewareImports,
+      standaloneConfigs: frontendMiddlewareConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
+    })
+
+    // 10h. Backend page middleware: backend/middleware.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'backend/middleware.ts',
+      prefix: 'BACKEND_MIDDLEWARE',
+      standaloneImports: backendMiddlewareImports,
+      standaloneConfigs: backendMiddlewareConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
+    })
+
     // 11. Setup: setup.ts
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
+    }
+
+    // 11b. Integration manifest: integration.ts
+    {
+      const resolved = resolveModuleFile(roots, imps, 'integration.ts')
+      if (resolved) {
+        const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
+        imports.push(`import * as ${importName} from '${resolved.importPath}'`)
+        integrationImportName = importName
+      }
     }
 
     // 12. Custom fields: data/fields.ts
@@ -883,7 +1039,107 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
+      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
+  }
+
+  // === UMES Conflict Detection ===
+  {
+    const { detectConflicts } = await import('@open-mercato/shared/lib/umes/conflict-detection')
+    const componentOverrideInputs: Array<{ moduleId: string; componentId: string; priority: number }> = []
+    const interceptorInputs: Array<{ moduleId: string; id: string; targetRoute: string; methods: string[]; priority: number }> = []
+    const declaredFeatures = new Set<string>()
+    const gatedExtensions: Array<{ moduleId: string; extensionId: string; features: string[] }> = []
+
+    for (const source of umesConflictSources) {
+      // Collect declared features from acl.ts
+      if (source.aclPath) {
+        try {
+          const aclMod = await import(source.aclPath)
+          const features = aclMod.features ?? aclMod.default ?? []
+          if (Array.isArray(features)) {
+            for (const feat of features) {
+              if (typeof feat === 'string') declaredFeatures.add(feat)
+              else if (feat?.id) declaredFeatures.add(feat.id)
+            }
+          }
+        } catch {}
+      }
+
+      // Collect component overrides
+      if (source.componentOverridesPath) {
+        try {
+          const overridesMod = await import(source.componentOverridesPath)
+          const overrides = overridesMod.componentOverrides ?? overridesMod.default ?? []
+          if (Array.isArray(overrides)) {
+            for (const override of overrides) {
+              const componentId = override?.target?.componentId
+              const priority = override?.priority ?? 0
+              if (componentId) {
+                componentOverrideInputs.push({ moduleId: source.moduleId, componentId, priority })
+              }
+              const features = override?.features
+              if (Array.isArray(features) && features.length > 0) {
+                gatedExtensions.push({
+                  moduleId: source.moduleId,
+                  extensionId: `component-override:${componentId}`,
+                  features,
+                })
+              }
+            }
+          }
+        } catch {}
+      }
+
+      // Collect interceptors
+      if (source.interceptorsPath) {
+        try {
+          const interceptorsMod = await import(source.interceptorsPath)
+          const interceptors = interceptorsMod.interceptors ?? interceptorsMod.default ?? []
+          if (Array.isArray(interceptors)) {
+            for (const interceptor of interceptors) {
+              if (interceptor?.id && interceptor?.targetRoute) {
+                interceptorInputs.push({
+                  moduleId: source.moduleId,
+                  id: interceptor.id,
+                  targetRoute: interceptor.targetRoute,
+                  methods: interceptor.methods ?? [],
+                  priority: interceptor.priority ?? 0,
+                })
+              }
+              const features = interceptor?.features
+              if (Array.isArray(features) && features.length > 0) {
+                gatedExtensions.push({
+                  moduleId: source.moduleId,
+                  extensionId: `interceptor:${interceptor.id}`,
+                  features,
+                })
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+
+    const conflictResult = detectConflicts({
+      componentOverrides: componentOverrideInputs,
+      interceptors: interceptorInputs,
+      gatedExtensions,
+      declaredFeatures,
+    })
+
+    for (const warning of conflictResult.warnings) {
+      console.warn(`\x1b[33m[UMES Warning]\x1b[0m ${warning.message}`)
+    }
+    for (const error of conflictResult.errors) {
+      console.error(`\x1b[31m[UMES Error]\x1b[0m ${error.message}`)
+    }
+    if (conflictResult.errors.length > 0) {
+      throw new Error(
+        `UMES conflict detection found ${conflictResult.errors.length} error(s). Fix conflicts before proceeding.`
+      )
+    }
   }
 
   const output = `// AUTO-GENERATED by mercato generate registry
@@ -1027,6 +1283,20 @@ export const notificationRenderers = renderers
 export function getNotificationRenderers(): NotificationRenderers {
   return renderers
 }
+`
+
+  const notificationHandlersEntriesLiteral = notificationHandlerEntries.join(',\n  ')
+  const notificationHandlersImportSection = notificationHandlerImports.join('\n')
+  const notificationHandlersOutput = `// AUTO-GENERATED by mercato generate registry
+import type { NotificationHandler } from '@open-mercato/shared/modules/notifications/handler'
+${notificationHandlersImportSection ? `\n${notificationHandlersImportSection}\n` : '\n'}type NotificationHandlerEntry = { moduleId: string; handlers: NotificationHandler[] }
+
+export const notificationHandlerEntries: NotificationHandlerEntry[] = [
+${notificationHandlersEntriesLiteral ? `  ${notificationHandlersEntriesLiteral}\n` : ''}]
+`
+
+  const paymentsClientOutput = `// AUTO-GENERATED by mercato generate registry
+${paymentsClientImports.length ? paymentsClientImports.join('\n') + '\n' : '\n'}export const paymentGatewayClientModuleCount = ${paymentsClientImports.length}
 `
 
   const messageTypeEntriesLiteral = messageTypeEntries.join(',\n  ')
@@ -1239,12 +1509,51 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   writeGeneratedFile({ outFile: aiToolsOutFile, checksumFile: aiToolsChecksumFile, content: aiToolsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: notificationsOutFile, checksumFile: notificationsChecksumFile, content: notificationsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: notificationsClientOutFile, checksumFile: notificationsClientChecksumFile, content: notificationsClientOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: paymentsClientOutFile, checksumFile: paymentsClientChecksumFile, content: paymentsClientOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: notificationHandlersOutFile, checksumFile: notificationHandlersChecksumFile, content: notificationHandlersOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: messageTypesOutFile, checksumFile: messageTypesChecksumFile, content: messageTypesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: messageObjectsOutFile, checksumFile: messageObjectsChecksumFile, content: messageObjectsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: messagesClientOutFile, checksumFile: messagesClientChecksumFile, content: messagesClientOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
+
+  // Generator plugin outputs (registered via modules' generators.ts)
+  for (const [pluginId, plugin] of pluginRegistry) {
+    const state = pluginState.get(pluginId)!
+    const importSection = state.imports.join('\n')
+    const entriesLiteral = state.configs.join(',\n  ')
+    const content = plugin.buildOutput({ importSection, entriesLiteral })
+    const outFile = path.join(outputDir, plugin.outputFileName)
+    const checksumFile = outFile.replace('.ts', '.checksum')
+    writeGeneratedFile({ outFile, checksumFile, content, structureChecksum, result, quiet })
+  }
+
+  // Bootstrap registrations: aggregate all plugin bootstrap-registration hooks into one file.
+  // Always written (even when empty) so bootstrap.ts can unconditionally import it.
+  {
+    const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
+    const allEntryImports: string[] = []
+    const allRegImports: string[] = []
+    const allCalls: string[] = []
+    for (const plugin of bootstrapPlugins) {
+      const reg = plugin.bootstrapRegistration!
+      const outputBase = plugin.outputFileName.replace('.ts', '')
+      allEntryImports.push(`import { ${reg.entriesExportName} } from './${outputBase}'`)
+      allRegImports.push(...reg.registrationImports)
+      allCalls.push(reg.buildCall(reg.entriesExportName))
+    }
+    const uniqueImports = [...new Set([...allEntryImports, ...allRegImports])]
+    const importSection = uniqueImports.join('\n')
+    const body = allCalls.length ? `  ${allCalls.join('\n  ')}` : ''
+    const bootstrapRegsOutput = `// AUTO-GENERATED by mercato generate registry
+${importSection ? `${importSection}\n` : ''}
+export function runBootstrapRegistrations(): void {
+${body}
+}
+`
+    writeGeneratedFile({ outFile: bootstrapRegsOutFile, checksumFile: bootstrapRegsChecksumFile, content: bootstrapRegsOutput, structureChecksum, result, quiet })
+  }
 
   // Enrichers generated file
   const enricherEntriesLiteral = enricherConfigs.join(',\n  ')
@@ -1312,6 +1621,68 @@ ${componentOverrideEntriesLiteral ? `  ${componentOverrideEntriesLiteral}\n` : '
     quiet,
   })
 
+  const guardEntriesLiteral = guardConfigs.join(',\n  ')
+  const guardImportSection = guardImports.join('\n')
+  const guardsOutput = `// AUTO-GENERATED by mercato generate registry
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+${guardImportSection ? `\n${guardImportSection}\n` : '\n'}type GuardEntry = { moduleId: string; guards: MutationGuard[] }
+
+export const guardEntries: GuardEntry[] = [
+${guardEntriesLiteral ? `  ${guardEntriesLiteral}\n` : ''}]
+`
+  writeGeneratedFile({ outFile: guardsOutFile, checksumFile: guardsChecksumFile, content: guardsOutput, structureChecksum, result, quiet })
+
+  const commandInterceptorEntriesLiteral = commandInterceptorConfigs.join(',\n  ')
+  const commandInterceptorImportSection = commandInterceptorImports.join('\n')
+  const commandInterceptorsOutput = `// AUTO-GENERATED by mercato generate registry
+import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
+${commandInterceptorImportSection ? `\n${commandInterceptorImportSection}\n` : '\n'}type CommandInterceptorEntry = { moduleId: string; interceptors: CommandInterceptor[] }
+
+export const commandInterceptorEntries: CommandInterceptorEntry[] = [
+${commandInterceptorEntriesLiteral ? `  ${commandInterceptorEntriesLiteral}\n` : ''}]
+`
+  writeGeneratedFile({ outFile: commandInterceptorsOutFile, checksumFile: commandInterceptorsChecksumFile, content: commandInterceptorsOutput, structureChecksum, result, quiet })
+
+  const frontendMiddlewareEntriesLiteral = frontendMiddlewareConfigs.join(',\n  ')
+  const frontendMiddlewareImportSection = frontendMiddlewareImports.join('\n')
+  const frontendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
+import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
+${frontendMiddlewareImportSection ? `\n${frontendMiddlewareImportSection}\n` : '\n'}type FrontendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
+
+const entriesRaw: FrontendMiddlewareEntry[] = [
+${frontendMiddlewareEntriesLiteral ? `  ${frontendMiddlewareEntriesLiteral}\n` : ''}]
+
+export const frontendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
+`
+  writeGeneratedFile({
+    outFile: frontendMiddlewareOutFile,
+    checksumFile: frontendMiddlewareChecksumFile,
+    content: frontendMiddlewareOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+
+  const backendMiddlewareEntriesLiteral = backendMiddlewareConfigs.join(',\n  ')
+  const backendMiddlewareImportSection = backendMiddlewareImports.join('\n')
+  const backendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
+import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
+${backendMiddlewareImportSection ? `\n${backendMiddlewareImportSection}\n` : '\n'}type BackendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
+
+const entriesRaw: BackendMiddlewareEntry[] = [
+${backendMiddlewareEntriesLiteral ? `  ${backendMiddlewareEntriesLiteral}\n` : ''}]
+
+export const backendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
+`
+  writeGeneratedFile({
+    outFile: backendMiddlewareOutFile,
+    checksumFile: backendMiddlewareChecksumFile,
+    content: backendMiddlewareOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+
   return result
 }
 
@@ -1362,6 +1733,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     let vectorImportName: string | null = null
     const dashboardWidgets: string[] = []
     let setupImportName: string | null = null
+    let integrationImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
 
     // Module metadata: index.ts (overrideable)
@@ -1385,6 +1757,16 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
+    }
+
+    // Integration manifest: integration.ts
+    {
+      const resolved = resolveModuleFile(roots, imps, 'integration.ts')
+      if (resolved) {
+        const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
+        imports.push(`import * as ${importName} from '${resolved.importPath}'`)
+        integrationImportName = importName
+      }
     }
 
     // Entity extensions: data/extensions.ts
@@ -1508,6 +1890,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${vectorImportName ? `vector: (${vectorImportName}.default ?? ${vectorImportName}.vectorConfig ?? ${vectorImportName}.config ?? undefined),` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
+      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
   }
 

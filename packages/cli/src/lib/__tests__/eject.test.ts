@@ -1,7 +1,15 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
-import { parseModuleMetadata, copyDirRecursive, rewriteCrossModuleImports, updateModulesTs } from '../eject'
+import {
+  parseModuleMetadata,
+  copyDirRecursive,
+  rewriteCrossModuleImports,
+  updateModulesTs,
+  listEjectableModules,
+  ejectModule,
+} from '../eject'
+import type { PackageResolver } from '../resolver'
 
 describe('eject', () => {
   let tmpDir: string
@@ -83,6 +91,23 @@ describe('eject', () => {
       expect(fs.existsSync(path.join(dest, '__mocks__'))).toBe(false)
       expect(fs.existsSync(path.join(dest, 'node_modules'))).toBe(false)
       expect(fs.existsSync(path.join(dest, 'keep.ts'))).toBe(true)
+    })
+
+    it('skips AppleDouble and Finder metadata files', () => {
+      const src = path.join(tmpDir, 'src')
+      const dest = path.join(tmpDir, 'dest')
+      fs.mkdirSync(path.join(src, 'nested'), { recursive: true })
+      fs.writeFileSync(path.join(src, '._setup.ts'), 'junk')
+      fs.writeFileSync(path.join(src, '.DS_Store'), 'junk')
+      fs.writeFileSync(path.join(src, 'nested', '._page.tsx'), 'junk')
+      fs.writeFileSync(path.join(src, 'setup.ts'), 'export const setup = true')
+
+      copyDirRecursive(src, dest)
+
+      expect(fs.existsSync(path.join(dest, '._setup.ts'))).toBe(false)
+      expect(fs.existsSync(path.join(dest, '.DS_Store'))).toBe(false)
+      expect(fs.existsSync(path.join(dest, 'nested', '._page.tsx'))).toBe(false)
+      expect(fs.existsSync(path.join(dest, 'setup.ts'))).toBe(true)
     })
   })
 
@@ -254,6 +279,87 @@ describe('eject', () => {
 
       const rewritten = fs.readFileSync(path.join(appSalesRoot, 'commands', 'dynamic.ts'), 'utf8')
       expect(rewritten).toContain("import('../../unknown/missing')")
+    })
+  })
+
+  describe('official module packages', () => {
+    function createOfficialModuleResolver(baseDir: string): PackageResolver {
+      const appDir = path.join(baseDir, 'apps', 'mercato')
+      const modulesTsPath = path.join(appDir, 'src', 'modules.ts')
+      const installedPackageRoot = path.join(baseDir, 'node_modules', '@open-mercato', 'test-package')
+
+      fs.mkdirSync(path.join(appDir, 'src'), { recursive: true })
+      fs.mkdirSync(path.join(installedPackageRoot, 'src', 'modules', 'test_package'), { recursive: true })
+      fs.mkdirSync(path.join(installedPackageRoot, 'dist', 'modules', 'test_package'), { recursive: true })
+
+      fs.writeFileSync(
+        path.join(appDir, 'src', 'modules.ts'),
+        "export const enabledModules = [{ id: 'test_package', from: '@open-mercato/test-package' }]\n",
+      )
+      fs.writeFileSync(
+        path.join(installedPackageRoot, 'package.json'),
+        JSON.stringify(
+          {
+            name: '@open-mercato/test-package',
+            version: '0.1.0',
+            peerDependencies: {
+              '@open-mercato/core': '>=0.4.7 <0.5.0',
+            },
+          },
+          null,
+          2,
+        ),
+      )
+      fs.writeFileSync(
+        path.join(installedPackageRoot, 'src', 'modules', 'test_package', 'index.ts'),
+        "export const metadata = { title: 'Test Package', description: 'Fixture package', ejectable: true }\n",
+      )
+      fs.writeFileSync(
+        path.join(installedPackageRoot, 'src', 'modules', 'test_package', 'widget.ts'),
+        'export const widget = true\n',
+      )
+      fs.writeFileSync(
+        path.join(installedPackageRoot, 'dist', 'modules', 'test_package', 'index.js'),
+        'export const metadata = {};\n',
+      )
+
+      return {
+        getAppDir: () => appDir,
+        getModulesConfigPath: () => modulesTsPath,
+        loadEnabledModules: () => [{ id: 'test_package', from: '@open-mercato/test-package' }],
+        getModulePaths: () => ({
+          appBase: path.join(appDir, 'src', 'modules', 'test_package'),
+          pkgBase: path.join(baseDir, 'packages', 'test-package', 'src', 'modules', 'test_package'),
+        }),
+        getPackageRoot: () => path.join(baseDir, 'packages', 'test-package'),
+      } as unknown as PackageResolver
+    }
+
+    it('lists module packages as ejectable from module index.ts metadata', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+
+      expect(listEjectableModules(resolver)).toEqual([
+        {
+          id: 'test_package',
+          title: 'Test Package',
+          description: 'Fixture package',
+          from: '@open-mercato/test-package',
+        },
+      ])
+    })
+
+    it('ejects module packages using module index.ts ejectable flag', () => {
+      const resolver = createOfficialModuleResolver(tmpDir)
+      const appModuleDir = path.join(tmpDir, 'apps', 'mercato', 'src', 'modules', 'test_package')
+      const modulesTsPath = path.join(tmpDir, 'apps', 'mercato', 'src', 'modules.ts')
+
+      ejectModule(resolver, 'test_package')
+
+      expect(fs.existsSync(path.join(appModuleDir, 'index.ts'))).toBe(true)
+      expect(fs.existsSync(path.join(appModuleDir, 'widget.ts'))).toBe(true)
+      expect(fs.readFileSync(modulesTsPath, 'utf8')).toContain(
+        "{ id: 'test_package', from: '@app' }",
+      )
     })
   })
 })

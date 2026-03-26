@@ -1,0 +1,119 @@
+---
+title: Custom Webhooks
+description: Enable the webhook integration, create endpoints, copy signing secrets, and monitor delivery logs.
+sidebar_label: Webhooks
+---
+
+This guide shows how to enable Custom Webhooks, create endpoint subscriptions, validate deliveries, and monitor failures from the Open Mercato admin UI.
+
+## Prerequisites
+
+- A publicly reachable HTTPS endpoint that can receive `POST` requests.
+- The `integrations.manage` feature if you need to enable or disable the integration.
+- The `webhooks.view` feature to inspect endpoints and deliveries.
+- The `webhooks.manage`, `webhooks.secrets`, and `webhooks.test` features if you need to create, edit, rotate secrets, or send test deliveries.
+
+## Step 1 — Enable the integration and review shared settings
+
+Go to **External Systems → Integrations** and open **Custom Webhooks**.
+
+![Custom Webhooks integration settings](/screenshots/open-mercato-webhooks-integration-settings.png)
+
+Use this screen for the integration-wide controls:
+
+- The **State** toggle enables or blocks outbound deliveries, retries, test sends, and inbound webhook receives.
+- The **Settings** tab links to the webhook list and lets you create a new endpoint quickly.
+- **Failed delivery notifications** can notify admin users when an endpoint exhausts all retry attempts.
+- The **Configured webhooks** section gives you shortcuts into existing endpoint detail pages.
+
+:::tip
+Use the integration toggle only when you want to pause the whole webhook subsystem. To stop a single destination, deactivate that specific webhook on its own detail page instead.
+:::
+
+## Step 2 — Create an endpoint
+
+Open **External Systems → Webhooks** and click **Create Webhook**.
+
+![Webhook list](/screenshots/open-mercato-webhooks-list.png)
+
+In the create form:
+
+- Enter a clear **Name** so operators can identify the consumer quickly.
+- Set the **Endpoint URL** to your receiving service.
+- Select exact events or wildcard patterns in **Subscribed Events**.
+- Keep the default retry and timeout values unless your receiver is known to be slow.
+- Add **Custom Headers** only for static metadata such as environment or source identifiers.
+
+## Step 3 — Store the signing secret immediately
+
+After creating a webhook, Open Mercato reveals the signing secret only once. The same one-time reveal appears again after a secret rotation.
+
+![Webhook secret reveal](/screenshots/open-mercato-webhooks-secret-reveal.png)
+
+Important rules:
+
+- Copy the `whsec_...` value into your receiving service before closing the panel.
+- Later reads only show a masked value.
+- If you lose the secret, rotate it and copy the new one from the reveal panel.
+- Your consumer should verify `webhook-id`, `webhook-timestamp`, and `webhook-signature` on every request.
+
+## Step 4 — Test the endpoint and inspect delivery details
+
+Open the webhook detail page and use **Send Test** before enabling broad event patterns in production.
+
+![Webhook detail page](/screenshots/open-mercato-webhooks-detail.png)
+
+The detail page is the main operator view for one endpoint. It shows:
+
+- Endpoint URL and subscribed events
+- Retry and auto-disable settings
+- Masked signing secret with an inline **Rotate Secret** action
+- Last delivery timestamp and consecutive failure count
+- A per-endpoint **Delivery Log** with request and response details
+
+Use this page when:
+
+- a single consumer is failing
+- you need to resend a specific delivery
+- you want to confirm the exact payload and response returned by that consumer
+
+## Step 5 — Monitor all deliveries from the integration logs tab
+
+The integration detail page also provides an aggregated delivery view across every configured webhook.
+
+![Aggregated webhook delivery log](/screenshots/open-mercato-webhooks-integration-logs.png)
+
+Use the **Logs** tab when you want to:
+
+- review delivery attempts across all webhook destinations in one place
+- filter by delivery status
+- identify which webhook is failing without opening each endpoint manually
+- jump from an aggregated log row to the corresponding webhook detail page
+
+## Event patterns
+
+Custom Webhooks support exact event names and wildcards:
+
+| Pattern | Matches |
+| --- | --- |
+| `catalog.product.deleted` | Only that event |
+| `customers.*` | All customer events |
+| `*` | All platform events |
+
+Prefer exact events when possible. Use broad wildcards only when your consumer is designed to handle a wider event surface.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| No deliveries appear | Confirm the integration is enabled and the webhook itself is active. Then verify the event pattern matches a real emitted event name. |
+| Test delivery stays pending or fails | Open the webhook detail page and inspect the delivery log for the HTTP status, response body, and retry state. |
+| Signature verification fails in the consumer | Make sure you copied the latest `whsec_...` value and verify the three Standard Webhooks headers exactly as sent. |
+| You closed the secret reveal panel | Rotate the secret and copy the new value immediately. |
+| You want alerts when retries are exhausted | Turn on **Failed delivery notifications** in the integration **Settings** tab. |
+
+## Next steps
+
+- [Integration Marketplace](./integrations) — overview of all external service integrations.
+- [Webhooks framework guide](/framework/webhooks/overview) — routing, signing, retries, API endpoints, and event flow.
+- [Integrations & Data Sync REST API](/api/integrations-data-sync) — integration state, credentials, and data-sync APIs.

@@ -1,5 +1,6 @@
 "use client"
 import * as React from 'react'
+import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChevronUp, ChevronDown } from 'lucide-react'
@@ -7,6 +8,7 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
+import { QueryProvider } from '../theme/QueryProvider'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
 import { LastOperationBanner } from './operations/LastOperationBanner'
@@ -23,8 +25,8 @@ import { mergeMenuItems } from './injection/mergeMenuItems'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
-import { SseEventIndicator } from './injection/SseEventIndicator'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
+import { UmesDevToolsPanel } from './devtools'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
   BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID,
@@ -248,6 +250,7 @@ function mergeSectionGroupsWithInjected(
         id: item.id,
         label,
         href: item.href,
+        icon: resolveInjectedIcon(item.icon) ?? undefined,
       }]
     })
     return {
@@ -266,7 +269,12 @@ function mergeSectionGroupsWithInjected(
     const items = sectionItems.flatMap((item) => {
       if (!item.href) return []
       const itemLabel = resolveInjectedMenuLabel(item, t)
-      return [{ id: item.id, label: itemLabel, href: item.href }]
+      return [{
+        id: item.id,
+        label: itemLabel,
+        href: item.href,
+        icon: resolveInjectedIcon(item.icon) ?? undefined,
+      }]
     })
     if (items.length === 0) continue
     nextSections.push({ id: sectionId, label, items })
@@ -287,13 +295,13 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   return item.href
 }
 
-const HeaderContext = React.createContext<{
+const HeaderContext = createContext<{
   setBreadcrumb: (b?: Breadcrumb) => void
   setTitle: (t?: string) => void
 } | null>(null)
 
 export function ApplyBreadcrumb({ breadcrumb, title, titleKey }: { breadcrumb?: Array<{ label: string; href?: string; labelKey?: string }>; title?: string; titleKey?: string }) {
-  const ctx = React.useContext(HeaderContext)
+  const ctx = useContext(HeaderContext)
   const t = useT()
   const resolvedBreadcrumb = React.useMemo<Breadcrumb | undefined>(() => {
     if (!breadcrumb) return undefined
@@ -694,8 +702,8 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   }, [])
 
   const asideWidth = effectiveCollapsed ? '72px' : expandedSidebarWidth
-  // Use min-h-svh so the border extends with tall content; keep overflow for long menus
-  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh overflow-y-auto`;
+  // Use min-h-svh so the border extends with tall content; no overflow so sticky bottom works
+  const asideClassesBase = `border-r bg-background/60 py-4 min-h-svh`;
 
   // Persist collapse state to localStorage and cookie
   React.useEffect(() => {
@@ -721,6 +729,16 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
     setHeaderTitle(currentTitle)
     setHeaderBreadcrumb(breadcrumb)
   }, [currentTitle, breadcrumb])
+  // Clear breadcrumb on client-side navigation so stale state doesn't persist;
+  // the new page's ApplyBreadcrumb (if any) will set the correct values
+  const prevPathname = React.useRef(pathname)
+  React.useEffect(() => {
+    if (pathname !== prevPathname.current) {
+      prevPathname.current = pathname
+      setHeaderTitle(undefined)
+      setHeaderBreadcrumb(undefined)
+    }
+  }, [pathname])
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
@@ -1196,7 +1214,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
             context={injectionContext}
           />
         ) : null}
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto pr-1">
+        <div className="flex flex-1 flex-col gap-3 pr-1">
           {customizing ? (
             customizationEditor
           ) : (
@@ -1316,82 +1334,80 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
                       )
                     })}
                   </nav>
-                  <div className="mt-4 pt-4 border-t">
-                    {shouldRenderSidebarInjectionSpots ? (
-                      <InjectionSpot
-                        spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
-                        context={injectionContext}
-                      />
-                    ) : null}
-                    <Link
-                      href="/backend/settings"
-                      className={`relative text-sm rounded inline-flex items-center w-full ${
-                        compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
-                      } ${
-                        pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')
-                          ? 'bg-background border shadow-sm font-medium'
-                          : 'hover:bg-accent hover:text-accent-foreground'
-                      }`}
-                      title={compact ? t('backend.nav.settings', 'Settings') : undefined}
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      {(pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')) && (
-                        <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
-                      )}
-                      <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="12" cy="12" r="3" />
-                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                        </svg>
-                      </span>
-                      {!compact && <span>{t('backend.nav.settings', 'Settings')}</span>}
-                    </Link>
-                  </div>
                 </>
               )
             })()
           )}
         </div>
-        {!customizing && (
-          <>
+        <div className="sticky bottom-0 pt-4 border-t bg-background/60 backdrop-blur-sm pb-1">
           {shouldRenderSidebarInjectionSpots ? (
-            <StatusBadgeInjectionSpot
-              spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
+            <InjectionSpot
+              spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
               context={injectionContext}
             />
           ) : null}
-          {compact || isMobileVariant ? (
-            <IconButton
-              variant="outline"
-              size="lg"
-              className="mt-auto"
-              onClick={startCustomization}
-              disabled={loadingPreferences}
-              aria-label={t('appShell.customizeSidebar')}
-            >
-              {CustomizeIcon}
-            </IconButton>
-          ) : (
-            <Button
-              variant="outline"
-              size="default"
-              className="mt-auto"
-              onClick={startCustomization}
-              disabled={loadingPreferences}
-              aria-label={t('appShell.customizeSidebar')}
-            >
-              {CustomizeIcon}
-              {loadingPreferences ? t('appShell.sidebarCustomizationLoading') : t('appShell.customizeSidebar')}
-            </Button>
+          <Link
+            href="/backend/settings"
+            className={`relative text-sm rounded inline-flex items-center w-full ${
+              compact ? 'w-10 h-10 justify-center' : 'px-2 py-1 gap-2'
+            } ${
+              pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')
+                ? 'bg-background border shadow-sm font-medium'
+                : 'hover:bg-accent hover:text-accent-foreground'
+            }`}
+            title={compact ? t('backend.nav.settings', 'Settings') : undefined}
+            onClick={() => setMobileOpen(false)}
+          >
+            {(pathname?.startsWith('/backend/settings') || pathname?.startsWith('/backend/config') || pathname?.startsWith('/backend/users') || pathname?.startsWith('/backend/roles') || pathname?.startsWith('/backend/api-keys') || pathname?.startsWith('/backend/entities') || pathname?.startsWith('/backend/query-indexes') || pathname?.startsWith('/backend/definitions') || pathname?.startsWith('/backend/instances') || pathname?.startsWith('/backend/tasks') || pathname?.startsWith('/backend/events') || pathname?.startsWith('/backend/rules') || pathname?.startsWith('/backend/sets') || pathname?.startsWith('/backend/logs') || pathname?.startsWith('/backend/directory') || pathname?.startsWith('/backend/feature-toggles')) && (
+              <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-foreground" />
+            )}
+            <span className={`flex items-center justify-center shrink-0 ${compact ? '' : 'text-muted-foreground'}`}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+            </span>
+            {!compact && <span>{t('backend.nav.settings', 'Settings')}</span>}
+          </Link>
+          {!customizing && (
+            <div className="mt-2">
+            {shouldRenderSidebarInjectionSpots ? (
+              <StatusBadgeInjectionSpot
+                spotId={GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID}
+                context={injectionContext}
+              />
+            ) : null}
+            {compact || isMobileVariant ? (
+              <IconButton
+                variant="outline"
+                size="lg"
+                onClick={startCustomization}
+                disabled={loadingPreferences}
+                aria-label={t('appShell.customizeSidebar')}
+              >
+                {CustomizeIcon}
+              </IconButton>
+            ) : (
+              <Button
+                variant="outline"
+                size="default"
+                onClick={startCustomization}
+                disabled={loadingPreferences}
+                aria-label={t('appShell.customizeSidebar')}
+              >
+                {CustomizeIcon}
+                {loadingPreferences ? t('appShell.sidebarCustomizationLoading') : t('appShell.customizeSidebar')}
+              </Button>
+            )}
+            </div>
           )}
-          </>
-        )}
-        {shouldRenderSidebarInjectionSpots ? (
-          <InjectionSpot
-            spotId={BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID}
-            context={injectionContext}
-          />
-        ) : null}
+          {shouldRenderSidebarInjectionSpots ? (
+            <InjectionSpot
+              spotId={BACKEND_SIDEBAR_FOOTER_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          ) : null}
+        </div>
       </div>
     )
   }
@@ -1437,6 +1453,7 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
   )
 
   return (
+    <QueryProvider>
     <HeaderContext.Provider value={headerCtxValue}>
     <div className={`min-h-svh lg:grid ${gridColsClass}`}>
       {/* Desktop sidebar */}
@@ -1520,7 +1537,6 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         <main className="flex-1 p-4 lg:p-6">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
-          <SseEventIndicator />
           <PartialIndexBanner />
           <UpgradeActionBanner />
           <LastOperationBanner />
@@ -1575,7 +1591,9 @@ export function AppShell({ productName, email, groups, rightHeaderSlot, children
         </div>
       )}
     </div>
+    <UmesDevToolsPanel />
     </HeaderContext.Provider>
+    </QueryProvider>
   )
 }
 

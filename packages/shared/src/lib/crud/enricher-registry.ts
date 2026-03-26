@@ -5,7 +5,19 @@
  * as injection widgets for HMR-safe storage.
  */
 
-import type { EnricherRegistryEntry, ResponseEnricher } from './response-enricher'
+import type { EnricherRegistryEntry, EnricherQueryEngineConfig, ResponseEnricher } from './response-enricher'
+
+/**
+ * Selector for filtering enrichers by execution surface.
+ *
+ * - `'api-response'`: returns all enrichers matching the entity (existing behavior).
+ * - `'query-engine'`: returns only enrichers with `queryEngine.enabled === true`
+ *   and matching the specified engine type.
+ */
+export interface EnricherSurfaceSelector {
+  surface: 'api-response' | 'query-engine'
+  engine?: 'basic' | 'hybrid'
+}
 
 const GLOBAL_ENRICHERS_KEY = '__openMercatoResponseEnrichers__'
 
@@ -60,9 +72,32 @@ export function getResponseEnrichers(): EnricherRegistryEntry[] {
 
 /**
  * Get enrichers targeting a specific entity, sorted by priority (higher first).
+ *
+ * When `selector` is omitted the function returns all enrichers for the entity
+ * (backward compatible with existing callers).
+ *
+ * When `selector.surface === 'api-response'` — same as omitted (all enrichers).
+ * When `selector.surface === 'query-engine'` — returns only enrichers with
+ * `queryEngine.enabled === true` and matching `engines` (defaults to both).
  */
-export function getEnrichersForEntity(targetEntity: string): EnricherRegistryEntry[] {
-  return getResponseEnrichers().filter(
+export function getEnrichersForEntity(
+  targetEntity: string,
+  selector?: EnricherSurfaceSelector,
+): EnricherRegistryEntry[] {
+  const entityEntries = getResponseEnrichers().filter(
     (entry) => entry.enricher.targetEntity === targetEntity,
   )
+
+  if (!selector || selector.surface === 'api-response') {
+    return entityEntries
+  }
+
+  return entityEntries.filter((entry) => {
+    const qeConfig: EnricherQueryEngineConfig | undefined = entry.enricher.queryEngine
+    if (!qeConfig || !qeConfig.enabled) return false
+    if (selector.engine && qeConfig.engines && qeConfig.engines.length > 0) {
+      return qeConfig.engines.includes(selector.engine)
+    }
+    return true
+  })
 }

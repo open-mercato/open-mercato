@@ -200,6 +200,98 @@ docker compose -f docker-compose.fullapp.dev.yml down -v
 docker compose -f docker-compose.fullapp.dev.yml up --build
 ```
 
+### Docker Wrapper Commands
+
+The repository also exposes root-level `yarn docker:*` commands that run the matching workflow inside the running `app` container. These wrappers exist so container-first contributors can use the same command surface without translating everything to `docker compose exec ...` manually.
+
+The wrappers are implemented by [`scripts/docker-exec.mjs`](https://github.com/open-mercato/open-mercato/blob/develop/scripts/docker-exec.mjs). The helper:
+
+- auto-detects the active compose profile
+- prefers `docker-compose.fullapp.dev.yml`, then falls back to `docker-compose.fullapp.yml`
+- lets you force a target compose file with `DOCKER_COMPOSE_FILE=...`
+- prints explicit guidance when no `app` container is running
+
+#### Dev stack wrappers
+
+Start the dev stack first:
+
+```bash
+yarn docker:dev:up
+```
+
+Then run monorepo workflows from the host:
+
+```bash
+yarn docker:build:packages
+yarn docker:generate
+yarn docker:initialize
+yarn docker:initialize -- --reinstall
+yarn docker:reinstall
+yarn docker:db:generate
+yarn docker:db:migrate
+yarn docker:lint
+yarn docker:typecheck
+yarn docker:test
+yarn docker:install-skills
+```
+
+Use `yarn docker:dev` when you want to restart the app service and immediately tail logs:
+
+```bash
+yarn docker:dev
+```
+
+For a faster restart that skips the install/build/generate phase handled by the dev entrypoint, pass the wrapper flag through to `docker-exec`:
+
+```bash
+yarn docker:dev -- --skip-rebuilt
+```
+
+This flow is the documented replacement for manually running:
+
+```bash
+docker compose -f docker-compose.fullapp.dev.yml restart app
+docker compose -f docker-compose.fullapp.dev.yml logs -f app
+```
+
+#### Fullapp stack wrappers
+
+The production-like fullapp profile is runtime-focused. It supports operational commands, but not monorepo development workflows such as `generate`, `build:packages`, `lint`, `typecheck`, `test`, or `install-skills`.
+
+Start the fullapp stack:
+
+```bash
+yarn docker:up
+```
+
+Supported runtime-oriented examples:
+
+```bash
+yarn docker:db:migrate
+yarn docker:mercato auth:list-users
+```
+
+If you run a dev-only wrapper against the fullapp stack, the helper fails closed and tells you to switch back to the dev profile:
+
+```bash
+DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
+```
+
+#### Forcing a compose file
+
+When both stacks exist, or when you want to target a specific profile regardless of auto-detection, set `DOCKER_COMPOSE_FILE` explicitly:
+
+```bash
+DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
+DOCKER_COMPOSE_FILE=docker-compose.fullapp.yml yarn docker:db:migrate
+```
+
+#### Wrapper troubleshooting
+
+- If you see `Error: No running Open Mercato app container found.`, start either `yarn docker:dev:up` or `yarn docker:up` first.
+- If you see `DOCKER_COMPOSE_FILE="..." does not exist.`, fix the path and re-run the command.
+- If a command is reported as unsupported in the production-like Docker profile, use the dev stack for that workflow.
+
 ### Environment Variables
 
 All environment variables are pre-configured with sensible defaults inside the compose file. To customize, edit `apps/mercato/.env` before starting — the compose file reads from it automatically.

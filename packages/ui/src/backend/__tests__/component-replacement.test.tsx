@@ -65,6 +65,44 @@ describe('component replacement', () => {
     expect(screen.getByText('wrapped rendered')).toBeInTheDocument()
   })
 
+  it('ignores invalid override entries when resolving registered components', () => {
+    const componentId = 'test.invalid.override'
+    const Base = ({ value }: { value: string }) => <span>{value}</span>
+
+    registerComponent({
+      id: componentId,
+      component: Base,
+      metadata: { module: 'test' },
+    })
+    registerComponentOverrides([
+      undefined,
+      { priority: 1 },
+      {
+        target: { componentId },
+        priority: 10,
+        metadata: { module: 'test' },
+        wrapper: (Original) => {
+          const Wrapped = (props: { value: string }) => (
+            <div data-testid="wrapped-invalid-safe">
+              <Original {...props} />
+            </div>
+          )
+          Wrapped.displayName = 'InvalidSafeWrapped'
+          return Wrapped
+        },
+      },
+    ] as unknown as Parameters<typeof registerComponentOverrides>[0])
+
+    function Consumer() {
+      const Resolved = useRegisteredComponent<{ value: string }>(componentId)
+      return <Resolved value="safe render" />
+    }
+
+    render(<Consumer />)
+    expect(screen.getByTestId('wrapped-invalid-safe')).toBeInTheDocument()
+    expect(screen.getByText('safe render')).toBeInTheDocument()
+  })
+
   it('renders section handle for DetailFieldsSection', () => {
     render(
       <DetailFieldsSection

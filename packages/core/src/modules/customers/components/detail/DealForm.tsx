@@ -90,8 +90,14 @@ const schema = z.object({
     .trim()
     .max(100, 'customers.people.detail.deals.pipelineTooLong')
     .optional(),
-  pipelineId: z.string().uuid().optional(),
-  pipelineStageId: z.string().uuid().optional(),
+  pipelineId: z.preprocess(
+    (v) => (typeof v === 'string' && !v.trim() ? undefined : v),
+    z.string().uuid('customers.people.detail.deals.pipelineIdInvalid').optional(),
+  ),
+  pipelineStageId: z.preprocess(
+    (v) => (typeof v === 'string' && !v.trim() ? undefined : v),
+    z.string().uuid('customers.people.detail.deals.pipelineStageIdInvalid').optional(),
+  ),
   valueAmount: z
     .preprocess((value) => {
       if (value === '' || value === null || value === undefined) return undefined

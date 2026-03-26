@@ -10,6 +10,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
 5. **MUST NOT break the standalone app template** — it's the user's first experience with Open Mercato
 6. **MUST sync template equivalents when app shell/layout files change** — when touching `apps/mercato/src/app/**` bootstrap/layout/provider wiring, update matching files in `packages/create-app/template/src/app/**` (and required template components) in the same task
+7. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
 
 ## Standalone App vs Monorepo
 
@@ -76,8 +77,8 @@ yarn dev
 
 ```bash
 ./scripts/release-snapshot.sh canary
-# Creates version like: 0.4.2-canary-abc1234567
-npx create-mercato-app@0.4.2-canary-abc1234567 my-test-app
+# Creates version like: 0.4.9-canary.1523.abc1234567
+npx create-mercato-app@0.4.9-canary.1523.abc1234567 my-test-app
 ```
 
 ### Cleanup
@@ -86,3 +87,44 @@ npx create-mercato-app@0.4.2-canary-abc1234567 my-test-app
 npm config delete @open-mercato:registry
 docker stop verdaccio && docker rm verdaccio
 ```
+
+## Agentic Setup Maintenance
+
+The `agentic/` directory contains standalone-app-specific AI coding tool configurations. This content is **purpose-built for standalone apps** — it is NOT a copy of the monorepo's `.ai/` folder.
+
+### Directory Structure
+
+```
+packages/create-app/agentic/
+├── shared/                      # Always generated (AGENTS.md, .ai/ structure)
+│   ├── AGENTS.md.template       # {{PROJECT_NAME}} placeholder substitution
+│   └── ai/specs/                # Spec templates for standalone apps
+├── claude-code/                 # Claude Code tool config
+│   ├── CLAUDE.md.template       # {{PROJECT_NAME}} placeholder substitution
+│   ├── settings.json            # PostToolUse hook registration
+│   ├── hooks/entity-migration-check.ts  # TypeScript hook (requires tsx)
+│   └── mcp.json.example
+├── codex/                       # Codex tool config
+│   ├── enforcement-rules.md     # Prepended to AGENTS.md with marker comments
+│   └── mcp.json.example
+└── cursor/                      # Cursor tool config
+    ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
+    ├── hooks.json               # afterFileEdit hook registration
+    ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
+    └── mcp.json.example
+```
+
+### When to Update `agentic/`
+
+- When module conventions change (entity lifecycle, migration workflow, `yarn generate` behavior)
+- When adding new auto-discovery paths or module files
+- When changing CLI commands that standalone apps use
+- When the entity-migration hook logic needs adjustment
+
+### Key Constraints
+
+- `agentic/` files are static assets copied to `dist/agentic/` by `build.mjs` — they are NOT bundled by esbuild
+- Generator code lives in `src/setup/tools/` — each tool has its own generator
+- The Codex generator patches `AGENTS.md` (created by shared generator) — ordering matters
+- `{{PROJECT_NAME}}` is the only placeholder; resolved from `path.basename(targetDir)`
+- Cursor hook is `.mjs` (no tsx dep); Claude Code hook is `.ts` (needs tsx in devDependencies)

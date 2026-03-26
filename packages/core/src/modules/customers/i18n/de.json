@@ -616,6 +616,8 @@
   "customers.people.detail.deals.loadMore": "Weitere Deals laden",
   "customers.people.detail.deals.loading": "Deals werden geladen…",
   "customers.people.detail.deals.openDeal": "Deal öffnen",
+  "customers.people.detail.deals.pipelineIdInvalid": "Wählen Sie eine gültige Pipeline.",
+  "customers.people.detail.deals.pipelineStageIdInvalid": "Wählen Sie eine gültige Pipeline-Phase.",
   "customers.people.detail.deals.pipelineTooLong": "Die Pipeline-Phase ist zu lang",
   "customers.people.detail.deals.probabilityInvalid": "Die Wahrscheinlichkeit muss zwischen 0 und 100 liegen",
   "customers.people.detail.deals.save": "Deal speichern (⌘/Ctrl + Enter)",

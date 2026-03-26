@@ -16,13 +16,13 @@ export type CrudEventsConfig<TEntity = unknown> = {
   module: string
   entity: string
   persistent?: boolean
-  buildPayload?: (ctx: CrudEmitContext<TEntity>) => unknown
+  buildPayload?(ctx: CrudEmitContext<TEntity>): unknown
 }
 
 export type CrudIndexerConfig<TEntity = unknown> = {
   entityType: string
-  buildUpsertPayload?: (ctx: CrudEmitContext<TEntity>) => unknown
-  buildDeletePayload?: (ctx: CrudEmitContext<TEntity>) => unknown
+  buildUpsertPayload?(ctx: CrudEmitContext<TEntity>): unknown
+  buildDeletePayload?(ctx: CrudEmitContext<TEntity>): unknown
   cacheAliases?: string[]
 }
 

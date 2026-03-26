@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
+import { ZodError } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy } from '../../data/entities'
+import { InboxProposal, InboxEmail, InboxProposalAction, InboxDiscrepancy, type InboxProposalCategory } from '../../data/entities'
 import { proposalListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
 
@@ -16,6 +17,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const query = proposalListQuerySchema.parse({
       status: url.searchParams.get('status') || undefined,
+      category: url.searchParams.get('category') || undefined,
       search: url.searchParams.get('search') || undefined,
       page: url.searchParams.get('page') || undefined,
       pageSize: url.searchParams.get('pageSize') || undefined,
@@ -32,6 +34,14 @@ export async function GET(req: Request) {
 
     if (query.status) {
       where.status = query.status
+    }
+    if (query.category) {
+      const categories = query.category.split(',').map((c) => c.trim()).filter(Boolean) as InboxProposalCategory[]
+      if (categories.length === 1) {
+        where.category = categories[0]
+      } else if (categories.length > 1) {
+        where.category = { $in: categories }
+      }
     }
     if (query.search) {
       where.summary = { $ilike: `%${escapeLikePattern(query.search)}%` }
@@ -93,6 +103,9 @@ export async function GET(req: Request) {
       totalPages: Math.ceil(total / query.pageSize),
     })
   } catch (err) {
+    if (err instanceof ZodError) {
+      return NextResponse.json({ error: 'Invalid query parameters' }, { status: 400 })
+    }
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

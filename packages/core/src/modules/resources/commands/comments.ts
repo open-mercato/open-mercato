@@ -1,6 +1,6 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
+import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId, normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -13,6 +13,7 @@ import {
   type ResourcesResourceCommentCreateInput,
   type ResourcesResourceCommentUpdateInput,
 } from '../data/validators'
+import { resourcesResourceCommentCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -60,13 +61,7 @@ const createCommentCommand: CommandHandler<
     const parsed = resourcesResourceCommentCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const authSub = ctx.auth?.isApiKey ? null : ctx.auth?.sub ?? null
-    const normalizedAuthor = (() => {
-      if (parsed.authorUserId) return parsed.authorUserId
-      if (!authSub) return null
-      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
-      return uuidRegex.test(authSub) ? authSub : null
-    })()
+    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const resource = await requireResource(em, parsed.entityId, 'Resource not found')
@@ -97,6 +92,7 @@ const createCommentCommand: CommandHandler<
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
 
@@ -177,6 +173,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
 
@@ -256,6 +253,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
   },
@@ -289,6 +287,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
     return { commentId: comment.id }
@@ -353,6 +352,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: resourcesResourceCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
   },

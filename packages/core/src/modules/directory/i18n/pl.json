@@ -33,6 +33,7 @@
   "directory.organizations.form.loading": "Ładowanie organizacji...",
   "directory.organizations.form.pathLabel": "Ścieżka: {path}",
   "directory.organizations.form.rootOption": "— Poziom główny —",
+  "directory.organizations.form.tenant.select": "Wybierz najemcę",
   "directory.organizations.form.title.edit": "Edytuj organizację",
   "directory.organizations.list.actions.create": "Utwórz",
   "directory.organizations.list.actions.delete": "Usuń",

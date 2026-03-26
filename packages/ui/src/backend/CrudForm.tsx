@@ -38,6 +38,7 @@ import {
   Gift,
   Globe,
   Heart,
+  Info,
   Key,
   Map as MapIcon,
   Palette,
@@ -69,6 +70,7 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
@@ -88,7 +90,7 @@ export type CrudFieldBase = {
   id: string
   label: string
   placeholder?: string
-  description?: string // inline field-level help
+  description?: React.ReactNode // inline field-level help
   required?: boolean
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
@@ -100,6 +102,7 @@ export type CrudFieldOption = { value: string; label: string }
 export type CrudBuiltinField = CrudFieldBase & {
   type:
     | 'text'
+    | 'password'
     | 'textarea'
     | 'checkbox'
     | 'select'
@@ -158,6 +161,15 @@ export type CrudField = CrudBuiltinField | CrudCustomField
 
 type CrudFormValues<TValues extends Record<string, unknown>> = Partial<TValues> & Record<string, unknown>
 
+export type CrudFormSubmitContext = {
+  submitter?: {
+    id?: string
+    name?: string
+    value?: string
+    dataset: Record<string, string>
+  }
+}
+
 export type CrudFormProps<TValues extends Record<string, unknown>> = {
   schema?: z.ZodType<TValues>
   fields: CrudField[]
@@ -169,7 +181,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   cancelHref?: string
   successRedirect?: string
   deleteRedirect?: string
-  onSubmit?: (values: TValues) => Promise<void> | void
+  onSubmit?: (values: TValues, context?: CrudFormSubmitContext) => Promise<void> | void
   onDelete?: () => Promise<void> | void
   // When true, shows Delete button whenever onDelete is provided, even without an id
   deleteVisible?: boolean
@@ -204,6 +216,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   hideFooterActions?: boolean
   // Optional custom content injected between the header actions and the form body
   contentHeader?: React.ReactNode
+  readOnly?: boolean
+  readOnlyOverlay?: React.ReactNode
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
   // Optional injection spot ID for widget injection
@@ -244,6 +258,20 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
     current = (current as Record<string, unknown>)[segment]
   }
   return current
+}
+
+function serializeIssuePath(path: ReadonlyArray<string | number | symbol>): string | null {
+  if (!Array.isArray(path) || path.length === 0) return null
+  const segments = path
+    .map((segment) => {
+      if (typeof segment === 'string' || typeof segment === 'number') {
+        const normalized = String(segment).trim()
+        return normalized.length > 0 ? normalized : null
+      }
+      return null
+    })
+    .filter((segment): segment is string => segment !== null)
+  return segments.length > 0 ? segments.join('.') : null
 }
 
 const FIELDSET_ICON_COMPONENTS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -335,6 +363,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   extraActions,
   versionHistory,
   contentHeader,
+  readOnly = false,
+  readOnlyOverlay,
   customFieldsetBindings,
   injectionSpotId,
   replacementHandle,
@@ -364,6 +394,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const saveErrorMessage = t('ui.forms.flash.saveError')
   const internalFormId = React.useId()
   const formId = providedFormId ?? internalFormId
+  const formReadOnly = Boolean(readOnly)
   const [values, setValues] = React.useState<CrudFormValues<TValues>>(
     () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
   )
@@ -428,6 +459,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       : String(versionHistory.resourceId).trim() || undefined
   )
 
+  const operation = recordId ? 'update' : 'create'
   const injectionContext = React.useMemo(() => ({
     formId,
     entityId: primaryEntityId,
@@ -436,7 +468,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     recordId: fallbackRecordId,
     isLoading,
     pending,
-  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending])
+    operation,
+  }), [formId, primaryEntityId, versionHistory?.resourceKind, versionHistory?.resourceId, recordId, fallbackRecordId, isLoading, pending, operation])
   const injectionContextRef = React.useRef(injectionContext)
   React.useEffect(() => {
     injectionContextRef.current = injectionContext
@@ -477,6 +510,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
     },
     [extendedInjectionEventsEnabled, triggerInjectionEvent],
+  )
+
+  const translateValidationMessage = React.useCallback(
+    (message: string | null | undefined): string => {
+      if (typeof message !== 'string') return ''
+      const trimmed = message.trim()
+      if (!trimmed) return ''
+      return t(trimmed, trimmed)
+    },
+    [t],
+  )
+
+  const translateValidationErrors = React.useCallback(
+    (fieldErrors: Record<string, string>): Record<string, string> =>
+      Object.fromEntries(
+        Object.entries(fieldErrors).map(([fieldId, message]) => [fieldId, translateValidationMessage(message)]),
+      ),
+    [translateValidationMessage],
   )
 
   const canNavigateTo = React.useCallback(
@@ -642,7 +693,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             }
             if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
               const transformedErrors = await transformValidationErrors(result.fieldErrors)
-              setErrors(transformedErrors)
+              setErrors(translateValidationErrors(transformedErrors))
             }
             const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
             flash(message, 'error')
@@ -922,6 +973,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         entitySettings[entityId]?.singleFieldsetPerRecord !== false
       const defsByFieldset = new globalThis.Map<string | null, CustomFieldDefDto[]>()
       defsForEntity.forEach((def) => {
+        const memberships = Array.isArray(def.fieldsets)
+          ? def.fieldsets
+              .filter((entry): entry is string => typeof entry === 'string')
+              .map((entry) => entry.trim())
+              .filter((entry) => entry.length > 0)
+          : []
+        if (memberships.length > 0) {
+          memberships.forEach((code) => {
+            const bucket = defsByFieldset.get(code) ?? []
+            bucket.push(def)
+            defsByFieldset.set(code, bucket)
+          })
+          return
+        }
         const code = typeof def.fieldset === 'string' && def.fieldset.trim().length > 0 ? def.fieldset.trim() : null
         const bucket = defsByFieldset.get(code) ?? []
         bucket.push(def)
@@ -1068,16 +1133,40 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const allFields = React.useMemo(() => {
     const base = [...fields, ...injectedCrudFields]
+
+    if (groups) {
+      const provided = new Set(base.map(f => f.id))
+      for (const group of groups) {
+        if (!group.fields) continue
+        for (const entry of group.fields) {
+          if (typeof entry === 'string') continue
+          if (!provided.has(entry.id)) {
+            provided.add(entry.id)
+            base.push(entry)
+          }
+        }
+      }
+    }
     if (!cfFields.length) return base
     const provided = new Set(base.map(f => f.id))
     const extras = cfFields.filter(f => !provided.has(f.id))
     return [...base, ...extras]
-  }, [fields, injectedCrudFields, cfFields])
+  }, [fields, injectedCrudFields, cfFields, groups])
 
   const fieldById = React.useMemo(() => {
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
-  
+
+  const allFieldsRef = React.useRef(allFields)
+  allFieldsRef.current = allFields
+
+  const dynamicOptionLoaderKey = React.useMemo(() => {
+    return allFields
+      .filter(f => f.type !== 'custom' && typeof (f as CrudBuiltinField).loadOptions === 'function')
+      .map(f => f.id)
+      .join('\0')
+  }, [allFields])
+
   const injectionGroupCards = React.useMemo<CrudFormGroup[]>(() => {
     if (!injectionWidgets || injectionWidgets.length === 0) return []
     const pairs = injectionWidgets
@@ -1208,10 +1297,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [allFields, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
 
   const requestSubmit = React.useCallback(() => {
+    if (formReadOnly) return
     if (typeof document === 'undefined') return
     const form = document.getElementById(formId) as HTMLFormElement | null
     form?.requestSubmit()
-  }, [formId])
+  }, [formId, formReadOnly])
 
   const lastFocusedFieldRef = React.useRef<string | null>(null)
   const lastErrorFieldRef = React.useRef<string | null>(null)
@@ -1219,7 +1309,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
 
-    if (isLoading || isLoadingCustomFields) {
+    if (isLoading || isLoadingCustomFields || formReadOnly) {
       lastFocusedFieldRef.current = null
       return
     }
@@ -1266,7 +1356,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         window.clearTimeout(frame as number)
       }
     }
-  }, [firstFieldId, formId, isLoading, isLoadingCustomFields])
+  }, [firstFieldId, formId, formReadOnly, isLoading, isLoadingCustomFields])
 
   React.useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
@@ -1305,6 +1395,40 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
       return nextData
     })
+    const clearedMessages: string[] = []
+    setErrors((prev) => {
+      if (!Object.keys(prev).length) return prev
+      let changed = false
+      const nextEntries = Object.entries(prev).filter(([fieldId, message]) => {
+        const shouldClear =
+          fieldId === id ||
+          fieldId.startsWith(`${id}.`) ||
+          id.startsWith(`${fieldId}.`)
+        if (shouldClear) {
+          changed = true
+          clearedMessages.push(message)
+        }
+        return !shouldClear
+      })
+      return changed ? Object.fromEntries(nextEntries) : prev
+    })
+    if (clearedMessages.length) {
+      const highlightedMessage = t('ui.forms.errors.highlighted')
+      const translatedMessages = new Set(
+        clearedMessages
+          .map((message) => translateValidationMessage(message))
+          .filter((message) => message.trim().length > 0),
+      )
+      setFormError((prev) => {
+        if (!prev) return prev
+        const normalized = prev.trim()
+        if (!normalized) return null
+        if (normalized === highlightedMessage || translatedMessages.has(normalized)) {
+          return null
+        }
+        return prev
+      })
+    }
     if (!nextData || !extendedInjectionEventsEnabled) return
     void triggerInjectionEvent('onFieldChange', nextData as TValues, injectionContextRef.current, {
       fieldId: id,
@@ -1335,7 +1459,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }).catch((err) => {
       console.error('[CrudForm] Error in onFieldChange:', err)
     })
-  }, [extendedInjectionEventsEnabled, flash, triggerInjectionEvent])
+  }, [extendedInjectionEventsEnabled, t, translateValidationMessage, triggerInjectionEvent])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -1426,6 +1550,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (formReadOnly) return
     setFormError(null)
     setErrors({})
 
@@ -1498,14 +1623,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             const mapped: Record<string, string> = {}
             for (const [ek, ev] of Object.entries(result.fieldErrors)) mapped[ek.replace(/^cf_/, '')] = String(ev)
             const transformedErrors = await transformValidationErrors(mapped)
-            setErrors((prev) => ({ ...prev, ...transformedErrors }))
+            setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
           } else {
             const transformedErrors = await transformValidationErrors(
               Object.fromEntries(
                 Object.entries(result.fieldErrors).map(([key, value]) => [key, String(value)]),
               ),
             )
-            setErrors((prev) => ({ ...prev, ...transformedErrors }))
+            setErrors((prev) => ({ ...prev, ...translateValidationErrors(transformedErrors) }))
           }
           flash(highlightedMessage, 'error')
           return
@@ -1530,13 +1655,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!res.success) {
         const fieldErrors: Record<string, string> = {}
         res.error.issues.forEach((issue) => {
-          if (issue.path && issue.path.length) fieldErrors[String(issue.path[0])] = issue.message
+          const path = serializeIssuePath(issue.path)
+          if (path) fieldErrors[path] = issue.message
         })
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[crud-form] Schema validation failed', res.error.issues)
         }
         const transformedErrors = await transformValidationErrors(fieldErrors)
-        setErrors(transformedErrors)
+        setErrors(translateValidationErrors(transformedErrors))
         flash(highlightedMessage, 'error')
         return
       }
@@ -1590,7 +1716,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           }
           if (result.fieldErrors && Object.keys(result.fieldErrors).length) {
             const transformedErrors = await transformValidationErrors(result.fieldErrors)
-            setErrors(transformedErrors)
+            setErrors(translateValidationErrors(transformedErrors))
           }
           const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
@@ -1607,6 +1733,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     setPending(true)
+
+    const nativeSubmitter = 'nativeEvent' in e ? (e.nativeEvent as SubmitEvent).submitter : null
+    const submitContext: CrudFormSubmitContext | undefined =
+      nativeSubmitter instanceof HTMLElement
+        ? {
+            submitter: {
+              id: nativeSubmitter.id || undefined,
+              name:
+                'name' in nativeSubmitter && typeof nativeSubmitter.name === 'string' && nativeSubmitter.name.trim().length > 0
+                  ? nativeSubmitter.name
+                  : undefined,
+              value:
+                'value' in nativeSubmitter && typeof nativeSubmitter.value === 'string' && nativeSubmitter.value.trim().length > 0
+                  ? nativeSubmitter.value
+                  : undefined,
+              dataset: Object.fromEntries(
+                Object.entries(nativeSubmitter.dataset).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+              ),
+            },
+          }
+        : undefined
     
     // Trigger onSave event for injection widgets
     if (resolvedInjectionSpotId) {
@@ -1623,10 +1770,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     try {
       if (injectionRequestHeaders && Object.keys(injectionRequestHeaders).length > 0) {
         await withScopedApiRequestHeaders(injectionRequestHeaders, async () => {
-          await onSubmit?.(coreSubmitValues)
+          await onSubmit?.(coreSubmitValues, submitContext)
         })
       } else {
-        await onSubmit?.(coreSubmitValues)
+        await onSubmit?.(coreSubmitValues, submitContext)
       }
       
       // Trigger onAfterSave event for injection widgets
@@ -1665,12 +1812,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             const firstKey = Object.keys(combinedFieldErrors)[0]
             if (!firstKey) return null
             const value = combinedFieldErrors[firstKey]
-            return typeof value === 'string' && value.trim().length ? value.trim() : null
+            if (typeof value !== 'string' || !value.trim().length) return null
+            return translateValidationMessage(value)
           })()
         : null
       if (hasFieldErrors) {
         const transformedErrors = await transformValidationErrors(combinedFieldErrors)
-        setErrors(transformedErrors)
+        setErrors(translateValidationErrors(transformedErrors))
         if (process.env.NODE_ENV !== 'production') {
           console.debug('[crud-form] Submission failed with field errors', transformedErrors)
         }
@@ -1698,11 +1846,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }
 
-  // Load dynamic options for fields that require it
+  // Stable key prevents infinite re-render loop (see #814) — do not depend on allFields directly.
   React.useEffect(() => {
     let cancelled = false
     const loadAll = async () => {
-      const loaders = allFields
+      const loaders = allFieldsRef.current
         .filter(
           (f): f is CrudBuiltinField & { loadOptions: NonNullable<CrudBuiltinField['loadOptions']> } =>
             f.type !== 'custom' && typeof f.loadOptions === 'function'
@@ -1721,7 +1869,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return () => {
       cancelled = true
     }
-  }, [allFields])
+  }, [dynamicOptionLoaderKey])
 
   const loadFieldOptions = React.useCallback(async (field: CrudField, query?: string): Promise<CrudFieldOption[]> => {
     if (!('type' in field) || field.type === 'custom') return EMPTY_OPTIONS
@@ -1818,7 +1966,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               setValue={setValue}
               values={values}
               loadFieldOptions={loadFieldOptions}
-              autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
+              autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
               onSubmitRequest={requestSubmit}
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
@@ -1868,7 +2016,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 {fieldsetSelectorLabel}
               </label>
               <select
-                className="h-9 rounded border px-2 text-sm"
+                className="h-9 rounded border pl-3 pr-8 text-sm"
                 value={entityLayout.activeFieldset ?? ''}
                 onChange={(event) =>
                   handleFieldsetSelectionChange(
@@ -2011,6 +2159,35 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     </Dialog>
   )
 
+  const handleReadOnlyFocusCapture = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    if (!formReadOnly) return
+    const target = event.target
+    if (target instanceof HTMLElement) target.blur()
+  }, [formReadOnly])
+
+  const handleReadOnlyKeyDownCapture = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!formReadOnly) return
+    event.preventDefault()
+  }, [formReadOnly])
+
+  const wrapFormBody = React.useCallback((children: React.ReactNode, className?: string) => {
+    if (!formReadOnly) return children
+    return (
+      <div
+        className={cn('relative', className)}
+        onFocusCapture={handleReadOnlyFocusCapture}
+        onKeyDownCapture={handleReadOnlyKeyDownCapture}
+      >
+        <div className="pointer-events-none select-none opacity-70">
+          {children}
+        </div>
+        <div className="absolute inset-0 z-10 flex items-start justify-center rounded-lg bg-background/60 p-4 backdrop-blur-[1px] sm:p-6">
+          {readOnlyOverlay ?? <div className="rounded-xl border border-border/70 bg-background/95 px-4 py-3 shadow-sm" />}
+        </div>
+      </div>
+    )
+  }, [formReadOnly, handleReadOnlyFocusCapture, handleReadOnlyKeyDownCapture, readOnlyOverlay])
+
   // If groups are provided, render the two-column grouped layout
   if (useGroupedLayout) {
 
@@ -2098,12 +2275,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             title={title}
             actions={{
               extraActions: headerExtraActions,
-              showDelete,
+              showDelete: !formReadOnly && showDelete,
               onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
               deleteLabel,
               cancelHref,
               cancelLabel,
-              submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
+              submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
             }}
           />
         ) : headerExtraActions ? (
@@ -2115,7 +2292,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           loadingMessage={resolvedLoadingMessage}
           spinnerSize="md"
           className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
-          >
+        >
+          {wrapFormBody(
             <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
             {resolvedInjectionSpotId ? (
               <InjectionSpot
@@ -2123,7 +2301,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 context={injectionContext}
                 data={values}
                 onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
-                disabled={pending}
+                disabled={pending || formReadOnly}
                 widgetsOverride={stackedInjectionWidgets}
               />
             ) : null}
@@ -2136,7 +2314,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            {hideFooterActions ? null : (
+            {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -2151,7 +2329,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 }}
               />
             )}
-          </form>
+            </form>,
+          )}
         </DataLoader>
         {fieldsetManagerDialog}
         {ConfirmDialogElement}
@@ -2170,12 +2349,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           title={title}
           actions={{
             extraActions: headerExtraActions,
-            showDelete,
+            showDelete: !formReadOnly && showDelete,
             onDelete: handleDelete, // NOSONAR — async→void assignment is valid TypeScript
             deleteLabel,
             cancelHref,
             cancelLabel,
-            submit: { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
+            submit: formReadOnly ? undefined : { formId, pending: pending, label: resolvedSubmitLabel, pendingLabel: savingLabel, icon: submitIcon },
           }}
         />
       ) : headerExtraActions ? (
@@ -2188,7 +2367,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         spinnerSize="md"
         className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
       >
-        <div>
+        {wrapFormBody(
+          <div>
           <form
             id={formId}
             onSubmit={handleSubmit}
@@ -2200,7 +2380,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 context={injectionContext}
                 data={values}
                 onDataChange={(newData) => setValues(newData as CrudFormValues<TValues>)}
-                disabled={pending}
+                disabled={pending || formReadOnly}
                 widgetsOverride={stackedInjectionWidgets}
               />
             ) : null}
@@ -2218,7 +2398,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     setValue={setValue}
                     values={values}
                     loadFieldOptions={loadFieldOptions}
-                    autoFocus={Boolean(firstFieldId && f.id === firstFieldId)}
+                    autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
                     onSubmitRequest={requestSubmit}
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
@@ -2228,7 +2408,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               })}
             </div>
             {formError ? <div className="text-sm text-red-600">{formError}</div> : null}
-            {hideFooterActions ? null : (
+            {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}
                 className={dialogFooterClass}
@@ -2244,7 +2424,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               />
             )}
           </form>
-        </div>
+          </div>,
+        )}
       </DataLoader>
       {fieldsetManagerDialog}
       {ConfirmDialogElement}
@@ -2321,6 +2502,7 @@ function TextInput({
   onSubmit,
   disabled,
   suggestions,
+  inputType = 'text',
 }: {
   value: string
   onChange: (v: string) => void
@@ -2329,6 +2511,7 @@ function TextInput({
   onSubmit?: () => void
   disabled?: boolean
   suggestions?: string[]
+  inputType?: 'text' | 'password'
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -2372,7 +2555,7 @@ function TextInput({
   return (
     <>
       <input
-        type="text"
+        type={inputType}
         className="w-full h-9 rounded border px-2 text-sm"
         placeholder={placeholder}
         value={local}
@@ -2833,6 +3016,17 @@ const FieldControl = React.memo(function FieldControlImpl({
           suggestions={field.type === 'text' ? field.suggestions : undefined}
         />
       )}
+      {field.type === 'password' && (
+        <TextInput
+          value={value == null ? '' : String(value)}
+          placeholder={placeholder}
+          onChange={(next) => fieldSetValue(next)}
+          autoFocus={autoFocusField}
+          onSubmit={onSubmitRequest}
+          disabled={disabled}
+          inputType="password"
+        />
+      )}
       {field.type === 'number' && (
         <NumberInput
           value={typeof value === 'number' || typeof value === 'string' ? value : null}
@@ -2925,12 +3119,12 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={(next) => fieldSetValue(next)}
           placeholder={placeholder}
           autoFocus={autoFocusField}
-          suggestions={options.map((opt) => opt.label)}
+          suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
           loadSuggestions={
             typeof builtin?.loadOptions === 'function'
               ? async (query?: string) => {
                   const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => opt.label)
+                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
                 }
               : undefined
           }
@@ -2974,7 +3168,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <select
-          className="w-full h-9 rounded border px-2 text-sm"
+          className="w-full h-9 rounded border pl-3 pr-8 text-sm"
           value={
             Array.isArray(value)
               ? String(value[0] ?? '')
@@ -3065,7 +3259,10 @@ const FieldControl = React.memo(function FieldControlImpl({
         </>
       )}
       {field.description ? (
-        <div className="text-xs text-muted-foreground">{field.description}</div>
+        <div className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div>{field.description}</div>
+        </div>
       ) : null}
       {error ? <div className="text-xs text-red-600">{error}</div> : null}
     </div>
@@ -3075,6 +3272,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.id === next.field.id &&
   prev.field.type === next.field.type &&
   prev.field.label === next.field.label &&
+  prev.field.description === next.field.description &&
   prev.field.required === next.field.required &&
   prev.value === next.value &&
   prev.error === next.error &&

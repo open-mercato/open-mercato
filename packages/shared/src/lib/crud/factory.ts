@@ -10,10 +10,15 @@ import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@ope
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import {
-  runCrudMutationGuardAfterSuccess,
-  validateCrudMutationGuard,
-  type CrudMutationGuardValidationResult,
-} from './mutation-guard'
+  runMutationGuards,
+  bridgeLegacyGuard,
+  type MutationGuard,
+  type MutationGuardAfterInput,
+} from './mutation-guard-registry'
+import { getAllMutationGuardInstances } from './mutation-guard-store'
+import { getAllSyncSubscribers } from './sync-subscriber-store'
+import { collectSyncSubscribers, runSyncBeforeEvent, runSyncAfterEvent } from './sync-event-runner'
+import type { SyncCrudEventPayload } from './sync-event-types'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
 import type {
   CrudEventAction,
@@ -28,7 +33,7 @@ import {
   loadCustomFieldDefinitionIndex,
 } from './custom-fields'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
-import { CrudHttpError } from './errors'
+import { CrudHttpError, isCrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -53,6 +58,8 @@ import { applyResponseEnrichers, applyResponseEnricherToRecord } from './enriche
 import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
+import { mergeIdFilter, parseIdsParam } from './ids'
+import { parseExtensionHeaders } from '../umes/extension-headers'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -347,8 +354,8 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   create?: CreateConfig<TCreate>
   update?: UpdateConfig<TUpdate>
   del?: DeleteConfig
-  events?: CrudEventsConfig
-  indexer?: CrudIndexerConfig
+  events?: CrudEventsConfig<any>
+  indexer?: CrudIndexerConfig<any>
   resolveIdentifiers?: CrudIdentifierResolver
   hooks?: CrudHooks<TCreate, TUpdate, TList>
   actions?: {
@@ -437,14 +444,9 @@ function attachOperationHeader(res: Response, logEntry: any) {
   return res
 }
 
-function buildMutationGuardErrorResponse(validation: CrudMutationGuardValidationResult): Response | null {
-  if (validation.ok) return null
-  return json(validation.body, { status: validation.status })
-}
-
 function handleError(err: unknown): Response {
   if (err instanceof Response) return err
-  if (err instanceof CrudHttpError) return json(err.body, { status: err.status })
+  if (isCrudHttpError(err)) return json(err.body, { status: err.status })
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
 
   const message = err instanceof Error ? err.message : undefined
@@ -456,6 +458,78 @@ function handleError(err: unknown): Response {
     message: 'Something went wrong. Please try again later.',
   }
   return json(body, { status: 500 })
+}
+
+const LIFECYCLE_ACTION_MAP: Record<string, { before: string; after: string }> = {
+  created: { before: 'creating', after: 'created' },
+  updated: { before: 'updating', after: 'updated' },
+  deleted: { before: 'deleting', after: 'deleted' },
+}
+
+function deriveLifecycleEventIds(events: CrudEventsConfig | undefined, action: 'created' | 'updated' | 'deleted'): { beforeEventId: string | null; afterEventId: string | null; entity: string | null } {
+  if (!events?.module || !events?.entity) return { beforeEventId: null, afterEventId: null, entity: null }
+  const mapping = LIFECYCLE_ACTION_MAP[action]
+  if (!mapping) return { beforeEventId: null, afterEventId: null, entity: null }
+  const entity = `${events.module}.${events.entity}`
+  return {
+    beforeEventId: `${entity}.${mapping.before}`,
+    afterEventId: `${entity}.${mapping.after}`,
+    entity,
+  }
+}
+
+function buildSyncPayload(
+  base: {
+    eventId: string
+    entity: string
+    operation: 'create' | 'update' | 'delete'
+    timing: 'before' | 'after'
+    resourceId: string | null
+    userId: string
+    organizationId: string | null
+    tenantId: string
+    em: EntityManager
+    request: Request
+  },
+  extra?: {
+    payload?: Record<string, unknown>
+    previousData?: Record<string, unknown>
+    entityData?: Record<string, unknown>
+  },
+): SyncCrudEventPayload {
+  return {
+    ...base,
+    payload: extra?.payload,
+    previousData: extra?.previousData,
+    entityData: extra?.entityData,
+  }
+}
+
+function collectAndRunGuards(
+  container: AwilixContainer,
+): { allGuards: MutationGuard[] } {
+  const allGuards = [...getAllMutationGuardInstances()]
+  const legacyGuard = bridgeLegacyGuard(container)
+  if (legacyGuard) allGuards.push(legacyGuard)
+  return { allGuards }
+}
+
+async function runGuardAfterSuccessCallbacks(
+  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
+  base: Omit<MutationGuardAfterInput, 'metadata'>,
+): Promise<void> {
+  for (const { guard, metadata: guardMeta } of callbacks) {
+    try {
+      await guard.afterSuccess!({ ...base, metadata: guardMeta })
+    } catch (error) {
+      console.error(`[mutation-guard] afterSuccess failed for guard ${guard.id}`, error)
+    }
+  }
+}
+
+function snapshotEntity(entity: unknown): Record<string, unknown> | undefined {
+  if (!entity || typeof entity !== 'object') return undefined
+  return safeClone(entity) as Record<string, unknown>
 }
 
 function normalizeInterceptorRoutePath(request: Request): string {
@@ -892,11 +966,15 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     if (!interceptorContext) {
       return { errorResponse: null, requestPayload, metadataByInterceptor: {} }
     }
+    const contextWithHeaders = {
+      ...interceptorContext,
+      extensionHeaders: parseExtensionHeaders(requestPayload.headers),
+    }
     const result = await runApiInterceptorsBefore({
       routePath: normalizeInterceptorRoutePath(args.request),
       method: args.method,
       request: requestPayload,
-      context: interceptorContext,
+      context: contextWithHeaders,
     })
     if (!result.ok) {
       return { errorResponse: json(result.body, { status: result.statusCode }), requestPayload, metadataByInterceptor: {} }
@@ -1078,6 +1156,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         ...rawQueryParams,
         ...(interceptorRequest.query ?? {}),
       } as Record<string, unknown>
+      const parsedIds = parseIdsParam(queryParams.ids)
 
       await opts.hooks?.beforeList?.(validated as any, ctx)
       profiler.mark('before_list_hook')
@@ -1261,6 +1340,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const filters = exportFullRequested
           ? ({} as Where<any>)
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+        const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
         if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
@@ -1304,7 +1384,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           includeCustomFields: true,
           sort,
           page,
-          filters,
+          filters: mergedFilters,
           withDeleted,
         }
         if (opts.list.customFieldSources) {
@@ -1524,8 +1604,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return response
       }
+      const fallbackFilters = exportFullRequested
+        ? ({} as Where<any>)
+        : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+      const mergedFallbackFilters = exportFullRequested
+        ? fallbackFilters
+        : mergeIdFilter(fallbackFilters, parsedIds)
       const where: any = buildScopedWhere(
-        {},
+        mergedFallbackFilters as Record<string, any>,
         {
           organizationId: ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
           organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
@@ -1678,8 +1764,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
         const interceptedBody = interceptorRequestPayload.body ?? {}
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
-        const input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
+        let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
+
+        // Sync before-event (*.creating) — command path
+        const createLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'created')
+        if (createLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: createLifecycleCmd.beforeEventId, entity: createLifecycleCmd.entity!, operation: 'create', timing: 'before', resourceId: null, userId: ctx.auth.sub, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined },
+            )
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+            if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+              input = { ...input as Record<string, unknown>, ...syncResult.modifiedPayload }
+            }
+          }
+        }
+
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null,
@@ -1688,6 +1795,20 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
         const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+
+        // Sync after-event (*.created) — command path
+        if (createLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: createLifecycleCmd.afterEventId, entity: createLifecycleCmd.entity!, operation: 'create', timing: 'after', resourceId: (result as Record<string, unknown>)?.id as string ?? null, userId: ctx.auth.sub, organizationId: ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined },
+            )
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
@@ -1730,8 +1851,56 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (interceptorRequestPayload.body) {
         input = createConfig.schema.parse(interceptorRequestPayload.body)
       }
+
+      // Sync before-event (*.creating)
+      const createLifecycle = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'created')
+      const scopeOrganizationId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
+      if (createLifecycle.beforeEventId && ctx.auth.tenantId) {
+        const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycle.beforeEventId)
+        if (syncSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: createLifecycle.beforeEventId, entity: createLifecycle.entity!, operation: 'create', timing: 'before', resourceId: null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined },
+          )
+          const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+          if (!syncResult.ok) {
+            return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+          }
+          if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+            input = createConfig.schema.parse({ ...input as Record<string, unknown>, ...syncResult.modifiedPayload })
+          }
+        }
+      }
+
       const modified = await opts.hooks?.beforeCreate?.(input as any, ctx)
       if (modified) input = modified
+
+      // Mutation guard registry (guards now run on create)
+      const userFeatures = await resolveUserFeatures(ctx)
+      const { allGuards } = collectAndRunGuards(ctx.container)
+      let createGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+      if (allGuards.length && ctx.auth.tenantId) {
+        const guardResult = await runMutationGuards(allGuards, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind,
+          resourceId: null,
+          operation: 'create',
+          requestMethod: request.method,
+          requestHeaders: request.headers,
+          mutationPayload: input && typeof input === 'object' ? (input as Record<string, unknown>) : null,
+        }, { userFeatures: userFeatures ?? [] })
+        if (!guardResult.ok) {
+          return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+        }
+        if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+          input = createConfig.schema.parse({ ...input as Record<string, unknown>, ...guardResult.modifiedPayload })
+        }
+        createGuardAfterCallbacks = guardResult.afterSuccessCallbacks
+      }
+
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       const entityData = createConfig.mapToEntity(input as any, ctx)
       // Inject org/tenant
@@ -1766,6 +1935,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
       await opts.hooks?.afterCreate?.(entity, { ...ctx, input: input as any })
 
+      // Guard afterSuccess callbacks
+      const createdEntityId = String((entity as any)[ormCfg.idField!])
+      if (createGuardAfterCallbacks?.length && ctx.auth.tenantId) {
+        await runGuardAfterSuccessCallbacks(createGuardAfterCallbacks, {
+          tenantId: ctx.auth.tenantId, organizationId: scopeOrganizationId, userId: ctx.auth.sub,
+          resourceKind, resourceId: createdEntityId, operation: 'create',
+          requestMethod: request.method, requestHeaders: request.headers,
+        })
+      }
+
+      // Sync after-event (*.created)
+      if (createLifecycle.afterEventId && ctx.auth.tenantId) {
+        const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), createLifecycle.afterEventId)
+        if (syncAfterSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: createLifecycle.afterEventId, entity: createLifecycle.entity!, operation: 'create', timing: 'after', resourceId: createdEntityId, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, entityData: snapshotEntity(entity) },
+          )
+          await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+        }
+      }
+
       const identifiers = identifierResolver(entity, 'created')
       de.markOrmEntityChange({
         action: 'created',
@@ -1777,7 +1969,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'created', resourceTargets)
 
-      let payload = createConfig.response ? createConfig.response(entity) : { id: String((entity as any)[ormCfg.idField!]) }
+      let payload = createConfig.response ? createConfig.response(entity) : { id: createdEntityId }
       if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
         const afterInterceptors = await applyInterceptorsAfter({
           ctx,
@@ -1837,12 +2029,40 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         interceptorMetadata = beforeInterceptors.metadataByInterceptor
         const interceptedBody = interceptorRequestPayload.body ?? {}
         const reparsed = action.schema ? action.schema.parse(interceptedBody) : interceptedBody
-        const input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
+        let input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: interceptedBody, ctx }) : reparsed
         const userMetadata = action.metadata ? await action.metadata({ input, parsed: reparsed, raw: interceptedBody, ctx }) : null
         const candidateId = normalizeIdentifierValue((input as Record<string, unknown> | null | undefined)?.id)
-        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
-        if (ctx.auth.tenantId && candidateId) {
-          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+
+        // Sync before-event (*.updating) — command path
+        const updateLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'updated')
+        let cmdUpdatePreviousData: Record<string, unknown> | undefined
+        if (updateLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            if (candidateId) {
+              const prevEntity = await em.findOne(ormCfg.entity as any, { [ormCfg.idField!]: candidateId } as any)
+              if (prevEntity) cmdUpdatePreviousData = snapshotEntity(prevEntity)
+            }
+            const syncPayload = buildSyncPayload(
+              { eventId: updateLifecycleCmd.beforeEventId, entity: updateLifecycleCmd.entity!, operation: 'update', timing: 'before', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: cmdUpdatePreviousData },
+            )
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+            if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+              input = { ...input as Record<string, unknown>, ...syncResult.modifiedPayload }
+            }
+          }
+        }
+
+        const updateUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
+        let cmdUpdateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        if (updateAllGuards.length && ctx.auth.tenantId && candidateId) {
+          const guardResult = await runMutationGuards(updateAllGuards, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -1854,11 +2074,14 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             mutationPayload: input && typeof input === 'object'
               ? (input as Record<string, unknown>)
               : null,
-          })
-          if (mutationGuardValidation) {
-            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
-            if (response) return response
+          }, { userFeatures: updateUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
           }
+          if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+            input = { ...input as Record<string, unknown>, ...guardResult.modifiedPayload }
+          }
+          cmdUpdateGuardAfterCallbacks = guardResult.afterSuccessCallbacks
         }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
@@ -1889,13 +2112,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        if (
-          mutationGuardValidation?.ok
-          && mutationGuardValidation.shouldRunAfterSuccess
-          && ctx.auth.tenantId
-          && candidateId
-        ) {
-          await runCrudMutationGuardAfterSuccess(ctx.container, {
+        if (cmdUpdateGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
+          await runGuardAfterSuccessCallbacks(cmdUpdateGuardAfterCallbacks, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -1904,9 +2122,22 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             operation: 'update',
             requestMethod: request.method,
             requestHeaders: request.headers,
-            metadata: mutationGuardValidation.metadata ?? null,
           })
         }
+
+        // Sync after-event (*.updated) — command path
+        if (updateLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: updateLifecycleCmd.afterEventId, entity: updateLifecycleCmd.entity!, operation: 'update', timing: 'after', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+              { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: cmdUpdatePreviousData },
+            )
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -1929,30 +2160,62 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (interceptorRequestPayload.body) {
         input = updateConfig.schema.parse(interceptorRequestPayload.body)
       }
+
+      // Sync before-event (*.updating)
+      const updateLifecycle = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'updated')
+      let updatePreviousData: Record<string, unknown> | undefined
+      if (updateLifecycle.beforeEventId && ctx.auth.tenantId) {
+        const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycle.beforeEventId)
+        if (syncSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const updateCandidateId = (input as Record<string, unknown>)?.id as string ?? null
+          if (updateCandidateId) {
+            const prevEntity = await em.findOne(ormCfg.entity as any, { [ormCfg.idField!]: updateCandidateId } as any)
+            if (prevEntity) updatePreviousData = snapshotEntity(prevEntity)
+          }
+          const syncPayload = buildSyncPayload(
+            { eventId: updateLifecycle.beforeEventId, entity: updateLifecycle.entity!, operation: 'update', timing: 'before', resourceId: updateCandidateId, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: updatePreviousData },
+          )
+          const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+          if (!syncResult.ok) {
+            return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+          }
+          if (syncResult.modifiedPayload && typeof input === 'object' && input) {
+            input = updateConfig.schema.parse({ ...input as Record<string, unknown>, ...syncResult.modifiedPayload })
+          }
+        }
+      }
+
       const modified = await opts.hooks?.beforeUpdate?.(input as any, ctx)
       if (modified) input = modified
 
       const id = updateConfig.getId ? updateConfig.getId(input as any) : (input as any).id
       if (!isUuid(id)) return json({ error: 'Invalid id' }, { status: 400 })
 
-      const mutationGuardValidation = ctx.auth.tenantId
-        ? await validateCrudMutationGuard(ctx.container, {
-            tenantId: ctx.auth.tenantId,
-            organizationId: scopeOrganizationId,
-            userId: ctx.auth.sub,
-            resourceKind,
-            resourceId: id,
-            operation: 'update',
-            requestMethod: request.method,
-            requestHeaders: request.headers,
-            mutationPayload: input && typeof input === 'object'
-              ? (input as Record<string, unknown>)
-              : null,
-          })
-        : null
-      if (mutationGuardValidation) {
-        const response = buildMutationGuardErrorResponse(mutationGuardValidation)
-        if (response) return response
+      // Mutation guard registry (multi-guard)
+      const updateUserFeatures = await resolveUserFeatures(ctx)
+      const { allGuards: updateAllGuards } = collectAndRunGuards(ctx.container)
+      let updateGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+      if (updateAllGuards.length && ctx.auth.tenantId) {
+        const guardResult = await runMutationGuards(updateAllGuards, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind,
+          resourceId: id,
+          operation: 'update',
+          requestMethod: request.method,
+          requestHeaders: request.headers,
+          mutationPayload: input && typeof input === 'object' ? (input as Record<string, unknown>) : null,
+        }, { userFeatures: updateUserFeatures ?? [] })
+        if (!guardResult.ok) {
+          return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+        }
+        if (guardResult.modifiedPayload && typeof input === 'object' && input) {
+          input = updateConfig.schema.parse({ ...input as Record<string, unknown>, ...guardResult.modifiedPayload })
+        }
+        updateGuardAfterCallbacks = guardResult.afterSuccessCallbacks
       }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
@@ -1996,6 +2259,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
 
       await opts.hooks?.afterUpdate?.(entity, { ...ctx, input: input as any })
+
+      // Guard afterSuccess callbacks (multi)
+      if (updateGuardAfterCallbacks.length && ctx.auth.tenantId) {
+        await runGuardAfterSuccessCallbacks(updateGuardAfterCallbacks, {
+          tenantId: ctx.auth.tenantId, organizationId: scopeOrganizationId, userId: ctx.auth.sub,
+          resourceKind, resourceId: id, operation: 'update',
+          requestMethod: request.method, requestHeaders: request.headers,
+        })
+      }
+
+      // Sync after-event (*.updated)
+      if (updateLifecycle.afterEventId && ctx.auth.tenantId) {
+        const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), updateLifecycle.afterEventId)
+        if (syncAfterSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: updateLifecycle.afterEventId, entity: updateLifecycle.entity!, operation: 'update', timing: 'after', resourceId: id, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { payload: input && typeof input === 'object' ? (input as Record<string, unknown>) : undefined, previousData: updatePreviousData, entityData: snapshotEntity(entity) },
+          )
+          await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+        }
+      }
+
       const identifiers = identifierResolver(entity, 'updated')
       de.markOrmEntityChange({
         action: 'updated',
@@ -2006,23 +2292,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       await de.flushOrmEntityChanges()
       await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'updated', resourceTargets)
-      if (
-        mutationGuardValidation?.ok
-        && mutationGuardValidation.shouldRunAfterSuccess
-        && ctx.auth.tenantId
-      ) {
-        await runCrudMutationGuardAfterSuccess(ctx.container, {
-          tenantId: ctx.auth.tenantId,
-          organizationId: scopeOrganizationId,
-            userId: ctx.auth.sub,
-            resourceKind,
-            resourceId: id,
-            operation: 'update',
-            requestMethod: request.method,
-            requestHeaders: request.headers,
-            metadata: mutationGuardValidation.metadata ?? null,
-          })
-      }
       const payload = updateConfig.response ? updateConfig.response(entity) : { success: true }
       if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {
         const afterInterceptors = await applyInterceptorsAfter({
@@ -2100,9 +2369,28 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             ?? (raw.query as Record<string, unknown> | null | undefined)?.id
             ?? (raw.body as Record<string, unknown> | null | undefined)?.id
         )
-        let mutationGuardValidation: CrudMutationGuardValidationResult | null = null
-        if (ctx.auth.tenantId && candidateId) {
-          mutationGuardValidation = await validateCrudMutationGuard(ctx.container, {
+
+        // Sync before-event (*.deleting) — command path
+        const deleteLifecycleCmd = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'deleted')
+        if (deleteLifecycleCmd.beforeEventId && ctx.auth.tenantId) {
+          const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycleCmd.beforeEventId)
+          if (syncSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: deleteLifecycleCmd.beforeEventId, entity: deleteLifecycleCmd.entity!, operation: 'delete', timing: 'before', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            )
+            const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+            if (!syncResult.ok) {
+              return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+            }
+          }
+        }
+
+        const deleteUserFeatures = await resolveUserFeatures(ctx)
+        const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container)
+        let cmdDeleteGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+        if (deleteAllGuards.length && ctx.auth.tenantId && candidateId) {
+          const guardResult = await runMutationGuards(deleteAllGuards, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -2111,11 +2399,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             operation: 'delete',
             requestMethod: request.method,
             requestHeaders: request.headers,
-          })
-          if (mutationGuardValidation) {
-            const response = buildMutationGuardErrorResponse(mutationGuardValidation)
-            if (response) return response
+          }, { userFeatures: deleteUserFeatures ?? [] })
+          if (!guardResult.ok) {
+            return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
           }
+          cmdDeleteGuardAfterCallbacks = guardResult.afterSuccessCallbacks
         }
         const baseMetadata: CommandLogMetadata = {
           tenantId: ctx.auth?.tenantId ?? null,
@@ -2146,13 +2434,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const status = action.status ?? 200
         const response = json(resolvedPayload, { status })
         attachOperationHeader(response, logEntry)
-        if (
-          mutationGuardValidation?.ok
-          && mutationGuardValidation.shouldRunAfterSuccess
-          && ctx.auth.tenantId
-          && candidateId
-        ) {
-          await runCrudMutationGuardAfterSuccess(ctx.container, {
+        if (cmdDeleteGuardAfterCallbacks.length && ctx.auth.tenantId && candidateId) {
+          await runGuardAfterSuccessCallbacks(cmdDeleteGuardAfterCallbacks, {
             tenantId: ctx.auth.tenantId,
             organizationId: scopeOrganizationId,
             userId: ctx.auth.sub,
@@ -2161,9 +2444,21 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             operation: 'delete',
             requestMethod: request.method,
             requestHeaders: request.headers,
-            metadata: mutationGuardValidation.metadata ?? null,
           })
         }
+
+        // Sync after-event (*.deleted) — command path
+        if (deleteLifecycleCmd.afterEventId && ctx.auth.tenantId) {
+          const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycleCmd.afterEventId)
+          if (syncAfterSubs.length) {
+            const em = ctx.container.resolve('em') as EntityManager
+            const syncPayload = buildSyncPayload(
+              { eventId: deleteLifecycleCmd.afterEventId, entity: deleteLifecycleCmd.entity!, operation: 'delete', timing: 'after', resourceId: candidateId ?? null, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            )
+            await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+          }
+        }
+
         // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
         // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
         // duplicate event emissions.
@@ -2186,21 +2481,43 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       interceptorRequestPayload = beforeInterceptors.requestPayload
       interceptorMetadata = beforeInterceptors.metadataByInterceptor
 
-      const mutationGuardValidation = ctx.auth.tenantId
-        ? await validateCrudMutationGuard(ctx.container, {
-            tenantId: ctx.auth.tenantId,
-            organizationId: scopeOrganizationId,
-            userId: ctx.auth.sub,
-            resourceKind,
-            resourceId: id,
-            operation: 'delete',
-            requestMethod: request.method,
-            requestHeaders: request.headers,
-          })
-        : null
-      if (mutationGuardValidation) {
-        const response = buildMutationGuardErrorResponse(mutationGuardValidation)
-        if (response) return response
+      // Sync before-event (*.deleting)
+      const deleteLifecycle = deriveLifecycleEventIds(opts.events as CrudEventsConfig | undefined, 'deleted')
+      if (deleteLifecycle.beforeEventId && ctx.auth.tenantId) {
+        const syncSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycle.beforeEventId)
+        if (syncSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: deleteLifecycle.beforeEventId, entity: deleteLifecycle.entity!, operation: 'delete', timing: 'before', resourceId: id, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+          )
+          const syncResult = await runSyncBeforeEvent(syncSubs, syncPayload, ctx.container)
+          if (!syncResult.ok) {
+            return json(syncResult.errorBody ?? { error: 'Operation blocked' }, { status: syncResult.errorStatus ?? 422 })
+          }
+        }
+      }
+
+      await opts.hooks?.beforeDelete?.(id!, ctx)
+
+      // Mutation guard registry (multi-guard)
+      const deleteUserFeatures = await resolveUserFeatures(ctx)
+      const { allGuards: deleteAllGuards } = collectAndRunGuards(ctx.container)
+      let deleteGuardAfterCallbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }> = []
+      if (deleteAllGuards.length && ctx.auth.tenantId) {
+        const guardResult = await runMutationGuards(deleteAllGuards, {
+          tenantId: ctx.auth.tenantId,
+          organizationId: scopeOrganizationId,
+          userId: ctx.auth.sub,
+          resourceKind,
+          resourceId: id,
+          operation: 'delete',
+          requestMethod: request.method,
+          requestHeaders: request.headers,
+        }, { userFeatures: deleteUserFeatures ?? [] })
+        if (!guardResult.ok) {
+          return json(guardResult.errorBody ?? { error: 'Operation blocked by guard' }, { status: guardResult.errorStatus ?? 422 })
+        }
+        deleteGuardAfterCallbacks = guardResult.afterSuccessCallbacks
       }
 
       const targetOrgId = ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null
@@ -2218,7 +2535,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           softDeleteField: ormCfg.softDeleteField,
         }
       )
-      await opts.hooks?.beforeDelete?.(id!, ctx)
       const entity = await de.deleteOrmEntity({
         entity: ormCfg.entity,
         where,
@@ -2227,6 +2543,29 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       if (!entity) return json({ error: 'Not found' }, { status: 404 })
       await opts.hooks?.afterDelete?.(id!, ctx)
+
+      // Guard afterSuccess callbacks (multi)
+      if (deleteGuardAfterCallbacks.length && ctx.auth.tenantId) {
+        await runGuardAfterSuccessCallbacks(deleteGuardAfterCallbacks, {
+          tenantId: ctx.auth.tenantId, organizationId: scopeOrganizationId, userId: ctx.auth.sub,
+          resourceKind, resourceId: id, operation: 'delete',
+          requestMethod: request.method, requestHeaders: request.headers,
+        })
+      }
+
+      // Sync after-event (*.deleted)
+      if (deleteLifecycle.afterEventId && ctx.auth.tenantId) {
+        const syncAfterSubs = collectSyncSubscribers(getAllSyncSubscribers(), deleteLifecycle.afterEventId)
+        if (syncAfterSubs.length) {
+          const em = ctx.container.resolve('em') as EntityManager
+          const syncPayload = buildSyncPayload(
+            { eventId: deleteLifecycle.afterEventId, entity: deleteLifecycle.entity!, operation: 'delete', timing: 'after', resourceId: id, userId: ctx.auth.sub, organizationId: scopeOrganizationId, tenantId: ctx.auth.tenantId!, em, request },
+            { entityData: snapshotEntity(entity) },
+          )
+          await runSyncAfterEvent(syncAfterSubs, syncPayload, ctx.container)
+        }
+      }
+
       if (entity) {
         const identifiers = identifierResolver(entity, 'deleted')
         de.markOrmEntityChange({
@@ -2238,23 +2577,6 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         await de.flushOrmEntityChanges()
         await invalidateCrudCache(ctx.container, resourceKind, identifiers, ctx.auth.tenantId ?? null, 'deleted', resourceTargets)
-      }
-      if (
-        mutationGuardValidation?.ok
-        && mutationGuardValidation.shouldRunAfterSuccess
-        && ctx.auth.tenantId
-      ) {
-        await runCrudMutationGuardAfterSuccess(ctx.container, {
-          tenantId: ctx.auth.tenantId,
-          organizationId: scopeOrganizationId,
-            userId: ctx.auth.sub,
-            resourceKind,
-            resourceId: id,
-            operation: 'delete',
-            requestMethod: request.method,
-            requestHeaders: request.headers,
-            metadata: mutationGuardValidation.metadata ?? null,
-          })
       }
       const payload = opts.del?.response ? opts.del.response(id) : { success: true }
       if (interceptorRequestPayload && payload && typeof payload === 'object' && !Array.isArray(payload)) {

@@ -33,6 +33,7 @@
   "directory.organizations.form.loading": "Cargando organización...",
   "directory.organizations.form.pathLabel": "Ruta: {path}",
   "directory.organizations.form.rootOption": "— Nivel raíz —",
+  "directory.organizations.form.tenant.select": "Seleccionar inquilino",
   "directory.organizations.form.title.edit": "Editar organización",
   "directory.organizations.list.actions.create": "Crear",
   "directory.organizations.list.actions.delete": "Eliminar",

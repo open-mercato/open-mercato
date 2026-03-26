@@ -42,6 +42,9 @@ jobs:
       - name: Rebuild packages with generated files
         run: yarn build:packages
 
+      - name: Check dependency version conflicts
+        run: yarn check:dep-versions
+
       - name: Check i18n sync
         run: yarn tsx scripts/i18n-check-sync.ts
 
@@ -62,6 +65,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
+      OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
+      OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -93,6 +100,8 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run ephemeral integration tests with code coverage
+        env:
+          OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180'
         run: yarn test:integration:coverage
 
       - name: Display integration coverage summary
@@ -146,7 +155,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: integration-test-results
-          path: .ai/qa/test-results/
+          path: |
+            .ai/qa/test-results/html/
+            .ai/qa/test-results/artifacts/
+            .ai/qa/test-results/results.json
           if-no-files-found: ignore
 
   docker-build:

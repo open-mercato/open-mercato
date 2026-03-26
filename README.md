@@ -269,6 +269,19 @@ Navigate to `http://localhost:3000/backend` and sign in with the default credent
 
 Full installation guide (including prerequisites, Docker setup, and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
+## Release Channels
+
+- `latest` is the stable npm channel published from `main`.
+- `develop` is the moving prerelease channel published from pushes to `develop`.
+- Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
+
+Examples:
+
+```bash
+yarn add @open-mercato/core@develop
+npx create-mercato-app@develop my-app
+```
+
 ## Docker Setup
 
 Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
@@ -286,6 +299,21 @@ docker compose -f docker-compose.fullapp.dev.yml up --build
 
 **Windows users:** Ensure WSL 2 backend is enabled in Docker Desktop and clone with `git config --global core.autocrlf input` to avoid line-ending issues.
 
+Once the dev stack is running, you can use the Docker wrapper scripts from the repo root instead of typing `docker compose exec` manually:
+
+```bash
+yarn docker:build:packages
+yarn docker:generate
+yarn docker:initialize
+yarn docker:initialize -- --reinstall
+yarn docker:db:migrate
+yarn docker:lint
+yarn docker:typecheck
+yarn docker:test
+yarn docker:install-skills
+yarn docker:dev -- --skip-rebuilt
+```
+
 ### Production mode
 
 ```bash
@@ -298,6 +326,13 @@ docker compose -f docker-compose.fullapp.yml up --build
 - Logs: `docker compose -f docker-compose.fullapp.yml logs -f app`
 - Stop: `docker compose -f docker-compose.fullapp.yml down`
 - Rebuild: `docker compose -f docker-compose.fullapp.yml up --build`
+
+For runtime-oriented tasks on the fullapp stack, use the Docker wrappers as well:
+
+```bash
+yarn docker:db:migrate
+yarn docker:mercato auth:list-users
+```
 
 Navigate to `http://localhost:3000/backend` and sign in with the default credentials (admin@example.com).
 
@@ -328,11 +363,64 @@ MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
 OPENAI_API_KEY=sk-...  # Optional, for AI features
 ```
 
+### Ephemeral Environments
+
+Spin up a self-contained, throwaway environment for quick testing or previewing a branch — no local database, or full dev setup required. Each run starts with a fresh database and is automatically reset on restart.
+
+```bash
+docker compose -f docker-compose.preview.yaml up --build
+```
+
+Navigate to `http://localhost:5000`.
+
+To stop the environment:
+
+```bash
+docker compose -f docker-compose.preview.yaml down
+```
+
+> **Attention:** This type of deployment is ephemeral and intended for testing purposes only. After stopping the containers, all data will be lost. Do not use this setup in production.
+
+### Official Modules
+
+Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repo is where the community publishes those features.
+
+Every module there:
+
+- 🔌 **Installs in one command** — no manual wiring, no config files to edit
+- 🔒 **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
+- 🧬 **Is ejectable** — run `--eject` to copy the module into your app and own it fully
+- 🤝 **Gets reviewed** — every submission goes through core team review before reaching npm
+
+Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
+
+[![Watch: Official Modules](https://img.youtube.com/vi/alPsIVq7PKo/maxresdefault.jpg)](https://www.youtube.com/watch?v=alPsIVq7PKo)
+
 ### VPS Deployment
 
 [![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
 
 For production deployments, ensure strong `JWT_SECRET`, secure database credentials, and consider managed database services. See the [full Docker deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for detailed configuration and production tips.
+
+### Dev Container (VS Code)
+
+The fastest way to get a fully working dev environment — no local toolchain required.
+
+**Prerequisites**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) (12 GB+ memory in Settings → Resources) + VS Code with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension.
+
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+code open-mercato
+# VS Code → Command Palette → "Dev Containers: Reopen in Container"
+# Wait for setup to complete (~3-5 min on first build), then:
+yarn dev
+```
+
+The container includes Node.js 24, Yarn 4, PostgreSQL (with pgvector), Redis, Meilisearch, and Claude Code CLI — all pre-configured and ready to use.
+
+- **Customize env vars**: create `apps/mercato/.env.local` (takes priority over `.env`, which is auto-generated)
+- **Claude Code CLI**: run `claude` inside the container and follow the OAuth login flow (works with Max plan subscriptions), or set `export ANTHROPIC_API_KEY=sk-...` in your host shell before opening the container for API key auth
+- **Rebuild**: if you need a fresh start, use Command Palette → "Dev Containers: Rebuild Container"
 
 ## Standalone App & Customization
 

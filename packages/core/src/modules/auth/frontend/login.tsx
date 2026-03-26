@@ -1,5 +1,6 @@
 "use client"
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -13,6 +14,9 @@ import { clearAllOperations } from '@open-mercato/ui/backend/operations/store'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { X } from 'lucide-react'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import type { AuthOverride, LoginFormWidgetContext } from './login-injection'
 
 const loginTenantKey = 'om_login_tenant'
 const loginTenantCookieMaxAge = 60 * 60 * 24 * 14
@@ -69,6 +73,21 @@ function looksLikeJsonString(value: string): boolean {
   return trimmed.startsWith('{') || trimmed.startsWith('[')
 }
 
+type LoginResponseEventDetail = Record<string, unknown> | null
+
+type LoginFormSectionProps = {
+  children: ReactNode
+}
+
+function LoginFormSectionDefault({ children }: LoginFormSectionProps) {
+  return <>{children}</>
+}
+
+function emitLoginResponseEvent(detail: LoginResponseEventDetail) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('om:auth:login-response', { detail }))
+}
+
 export default function LoginPage() {
   const t = useT()
   const translate = useCallback(
@@ -86,11 +105,23 @@ export default function LoginPage() {
   const translatedFeatures = requiredFeatures.map((feature) => translate(`features.${feature}`, feature))
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [authOverride, setAuthOverride] = useState<AuthOverride | null>(null)
+  const [authOverridePending, setAuthOverridePending] = useState(false)
+  const [clientReady, setClientReady] = useState(false)
+  const [email, setEmail] = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
   const [tenantLoading, setTenantLoading] = useState(false)
   const [tenantInvalid, setTenantInvalid] = useState<string | null>(null)
   const showTenantInvalid = tenantId != null && tenantInvalid === tenantId
+  const LoginFormSection = useRegisteredComponent<LoginFormSectionProps>(
+    'section:auth.login.form',
+    LoginFormSectionDefault,
+  )
+
+  useEffect(() => {
+    setClientReady(true)
+  }, [])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -129,7 +160,6 @@ export default function LoginPage() {
           setTenantName(result.tenant.name)
           return
         }
-        const message = translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')
         setTenantName(null)
         setTenantInvalid(tenantId)
         setError(null)
@@ -163,7 +193,14 @@ export default function LoginPage() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
+    if (!clientReady || authOverridePending) {
+      return
+    }
     setError(null)
+    if (authOverride) {
+      authOverride.onSubmit()
+      return
+    }
     setSubmitting(true)
     try {
       const form = new FormData(e.currentTarget)
@@ -221,9 +258,10 @@ export default function LoginPage() {
         return
       }
       // In case API returns 200 with JSON
-      const data = await res.json().catch(() => null)
+      const data = await res.json().catch(() => null) as LoginResponseEventDetail
+      emitLoginResponseEvent(data)
       clearAllOperations()
-      if (data && data.redirect) {
+      if (data && typeof data.redirect === 'string' && data.redirect.length > 0) {
         router.replace(data.redirect)
       }
     } catch (err: unknown) {
@@ -235,6 +273,17 @@ export default function LoginPage() {
     }
   }
 
+  const loginFormContext = useMemo<LoginFormWidgetContext>(() => ({
+    email,
+    tenantId,
+    searchParams,
+    setAuthOverride,
+    setAuthOverridePending,
+    setError,
+  }), [email, tenantId, searchParams])
+
+  const formReady = clientReady && !authOverridePending
+
   return (
     <div className="min-h-svh flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
@@ -244,77 +293,101 @@ export default function LoginPage() {
           <CardDescription>{translate('auth.login.subtitle', 'Access your workspace')}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-3" onSubmit={onSubmit} noValidate>
-            {tenantId ? (
-              <input type="hidden" name="tenantId" value={tenantId} />
-            ) : null}
-            {!!translatedRoles.length && (
-              <Notice compact className="text-center">
-                {translate(
-                  translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
-                  translatedRoles.length > 1
-                    ? 'Access requires one of the following roles: {roles}'
-                    : 'Access requires role: {roles}',
-                  { roles: translatedRoles.join(', ') },
-                )}
-              </Notice>
-            )}
-            {!!translatedFeatures.length && (
-              <Notice compact className="text-center">
-                {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
-                  feature: translatedFeatures.join(', '),
-                })}
-              </Notice>
-            )}
-            {showTenantInvalid ? (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
-                <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
-                <Button type="button" variant="outline" size="sm" className="mt-2 border-red-300 text-red-700" onClick={handleClearTenant}>
-                  <X className="mr-2 size-4" aria-hidden="true" />
-                  {translate('auth.login.tenantClear', 'Clear')}
-                </Button>
-              </div>
-            ) : tenantId ? (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-900">
-                <div className="font-medium">
-                  {tenantLoading
-                    ? translate('auth.login.tenantLoading', 'Loading tenant details...')
-                    : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
-                        tenant: tenantName || tenantId,
-                      })}
+          <LoginFormSection>
+            <form className="grid gap-3" onSubmit={onSubmit} noValidate data-auth-ready={formReady ? '1' : '0'}>
+              {tenantId ? (
+                <input type="hidden" name="tenantId" value={tenantId} />
+              ) : null}
+              {!!translatedRoles.length && (
+                <Notice compact className="text-center">
+                  {translate(
+                    translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
+                    translatedRoles.length > 1
+                      ? 'Access requires one of the following roles: {roles}'
+                      : 'Access requires role: {roles}',
+                    { roles: translatedRoles.join(', ') },
+                  )}
+                </Notice>
+              )}
+              {!!translatedFeatures.length && (
+                <Notice compact className="text-center">
+                  {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
+                    feature: translatedFeatures.join(', '),
+                  })}
+                </Notice>
+              )}
+              {showTenantInvalid ? (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
+                  <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-red-300 text-red-700" onClick={handleClearTenant}>
+                    <X className="mr-2 size-4" aria-hidden="true" />
+                    {translate('auth.login.tenantClear', 'Clear')}
+                  </Button>
                 </div>
-                <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
-                  <X className="mr-2 size-4" aria-hidden="true" />
-                  {translate('auth.login.tenantClear', 'Clear')}
-                </Button>
+              ) : tenantId ? (
+                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-900">
+                  <div className="font-medium">
+                    {tenantLoading
+                      ? translate('auth.login.tenantLoading', 'Loading tenant details...')
+                      : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
+                          tenant: tenantName || tenantId,
+                        })}
+                  </div>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
+                    <X className="mr-2 size-4" aria-hidden="true" />
+                    {translate('auth.login.tenantClear', 'Clear')}
+                  </Button>
+                </div>
+              ) : null}
+              {error && !showTenantInvalid && (
+                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
+                  {error}
+                </div>
+              )}
+              <div className="grid gap-1">
+                <Label htmlFor="email">{t('auth.email')}</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  aria-invalid={!!error}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onBlur={(e) => setEmail(e.target.value)}
+                />
               </div>
-            ) : null}
-            {error && !showTenantInvalid && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
-                {error}
-              </div>
-            )}
-            <div className="grid gap-1">
-              <Label htmlFor="email">{t('auth.email')}</Label>
-              <Input id="email" name="email" type="email" required aria-invalid={!!error} />
-            </div>
-            <div className="grid gap-1">
-              <Label htmlFor="password">{t('auth.password')}</Label>
-              <Input id="password" name="password" type="password" required aria-invalid={!!error} />
-            </div>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground">
-              <input type="checkbox" name="remember" className="accent-foreground" />
-              <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
-            </label>
-            <Button type="submit" className="mt-2 w-full" disabled={submitting}>
-              {submitting ? translate('auth.login.loading', 'Loading...') : translate('auth.signIn', 'Sign in')}
-            </Button>
-            <div className="text-xs text-muted-foreground mt-2">
-              <Link className="underline" href="/reset">
-                {translate('auth.login.forgotPassword', 'Forgot password?')}
-              </Link>
-            </div>
-          </form>
+              <InjectionSpot<LoginFormWidgetContext>
+                spotId="auth.login:form"
+                context={loginFormContext}
+              />
+              {authOverride?.hidePassword ? null : (
+                <div className="grid gap-1">
+                  <Label htmlFor="password">{t('auth.password')}</Label>
+                  <Input id="password" name="password" type="password" required={!authOverride} aria-invalid={!!error} />
+                </div>
+              )}
+              {!authOverride?.hideRememberMe && !authOverride?.hidePassword && (
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <input type="checkbox" name="remember" className="accent-foreground" />
+                  <span>{translate('auth.login.rememberMe', 'Remember me')}</span>
+                </label>
+              )}
+              <Button type="submit" disabled={submitting || !formReady} className="h-10 mt-2">
+                {submitting
+                  ? translate('auth.login.loading', 'Loading...')
+                  : authOverride
+                    ? authOverride.providerLabel
+                    : translate('auth.signIn', 'Sign in')}
+              </Button>
+              {!authOverride?.hideForgotPassword && (
+                <div className="text-xs text-muted-foreground mt-2">
+                  <Link className="underline" href="/reset">
+                    {translate('auth.login.forgotPassword', 'Forgot password?')}
+                  </Link>
+                </div>
+              )}
+            </form>
+          </LoginFormSection>
         </CardContent>
       </Card>
     </div>

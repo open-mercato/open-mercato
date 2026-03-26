@@ -18,6 +18,16 @@ export type ProgressJobCreatedPayload = {
   jobId: string
   jobType: string
   name: string
+  description?: string | null
+  status?: string
+  progressPercent?: number
+  processedCount?: number
+  totalCount?: number | null
+  etaSeconds?: number | null
+  cancellable?: boolean
+  startedAt?: string | null
+  finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   tenantId: string
   organizationId?: string | null
 }
@@ -25,36 +35,92 @@ export type ProgressJobCreatedPayload = {
 export type ProgressJobStartedPayload = {
   jobId: string
   jobType: string
+  name?: string
+  description?: string | null
+  status?: string
+  progressPercent?: number
+  processedCount?: number
+  totalCount?: number | null
+  etaSeconds?: number | null
+  cancellable?: boolean
+  startedAt?: string | null
+  finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   tenantId: string
+  organizationId?: string | null
 }
 
 export type ProgressJobUpdatedPayload = {
   jobId: string
   jobType?: string
+  name?: string
+  description?: string | null
+  status?: string
   progressPercent: number
   processedCount: number
   totalCount?: number | null
   etaSeconds?: number | null
   tenantId: string
+  organizationId?: string | null
+  cancellable?: boolean
+  startedAt?: string | null
+  finishedAt?: string | null
+  meta?: Record<string, unknown> | null
 }
 
 export type ProgressJobCompletedPayload = {
   jobId: string
   jobType: string
+  name?: string
+  description?: string | null
+  status?: string
+  progressPercent?: number
+  processedCount?: number
+  totalCount?: number | null
+  etaSeconds?: number | null
+  cancellable?: boolean
+  startedAt?: string | null
+  finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   resultSummary?: Record<string, unknown> | null
   tenantId: string
+  organizationId?: string | null
 }
 
 export type ProgressJobFailedPayload = {
   jobId: string
   jobType: string
+  name?: string
+  description?: string | null
+  status?: string
+  progressPercent?: number
+  processedCount?: number
+  totalCount?: number | null
+  etaSeconds?: number | null
+  cancellable?: boolean
+  startedAt?: string | null
+  finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   errorMessage: string
   tenantId: string
+  organizationId?: string | null
   stale?: boolean
 }
 
 export type ProgressJobCancelledPayload = {
   jobId: string
   jobType: string
+  name?: string
+  description?: string | null
+  status?: string
+  progressPercent?: number
+  processedCount?: number
+  totalCount?: number | null
+  etaSeconds?: number | null
+  cancellable?: boolean
+  startedAt?: string | null
+  finishedAt?: string | null
+  meta?: Record<string, unknown> | null
   tenantId: string
+  organizationId?: string | null
 }

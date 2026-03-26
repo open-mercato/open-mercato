@@ -26,6 +26,11 @@ describe('generators', () => {
       expect(typeof module.generateModuleDi).toBe('function')
     })
 
+    it('should export generateModulePackageSources', async () => {
+      const module = await import('../module-package-sources')
+      expect(typeof module.generateModulePackageSources).toBe('function')
+    })
+
     // Note: api-client uses openapi-typescript which is ESM-only
     // and doesn't work with Jest's CommonJS environment
     it.skip('should export generateApiClient', async () => {
@@ -170,6 +175,12 @@ describe('generator file output patterns', () => {
       const outputDir = '/project/generated'
       const expectedPath = `${outputDir}/injection-widgets.generated.ts`
       expect(expectedPath).toContain('injection-widgets.generated.ts')
+    })
+
+    it('should output module package CSS sources', () => {
+      const outputDir = '/project/generated'
+      const expectedPath = `${outputDir}/module-package-sources.css`
+      expect(expectedPath).toContain('module-package-sources.css')
     })
 
     it('should output search config', () => {

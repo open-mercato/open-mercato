@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult } from '../types'
+import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions } from '../types'
 
 type LocalState = {
   lastProcessedId?: string
@@ -9,7 +9,9 @@ type LocalState = {
   failedCount?: number
 }
 
-type StoredJob<T> = QueuedJob<T>
+type StoredJob<T> = QueuedJob<T> & {
+  availableAt?: string
+}
 
 /** Default polling interval in milliseconds */
 const DEFAULT_POLL_INTERVAL = 1000
@@ -81,18 +83,42 @@ export function createLocalQueue<T = unknown>(
     }
   }
 
+  function backupCorruptedQueueFile(content: string): string {
+    const backupFile = path.join(queueDir, `queue.corrupted.${Date.now()}.json`)
+    fs.writeFileSync(backupFile, content, 'utf8')
+    fs.writeFileSync(queueFile, '[]', 'utf8')
+    return backupFile
+  }
+
   function readQueue(): StoredJob<T>[] {
     ensureDir()
+    let content: string
+
     try {
-      const content = fs.readFileSync(queueFile, 'utf8')
-      return JSON.parse(content) as StoredJob<T>[]
+      content = fs.readFileSync(queueFile, 'utf8')
     } catch (error: unknown) {
-      const e = error as NodeJS.ErrnoException
-      if (e.code === 'ENOENT') {
+      const readError = error as NodeJS.ErrnoException
+      if (readError.code === 'ENOENT') {
         return []
       }
-      console.error(`[queue:${name}] Failed to read queue file:`, e.message)
-      throw new Error(`Queue file corrupted or unreadable: ${e.message}`)
+      console.error(`[queue:${name}] Failed to read queue file:`, readError.message)
+      throw new Error(`Queue file unreadable: ${readError.message}`)
+    }
+
+    try {
+      const parsed = JSON.parse(content) as unknown
+
+      if (!Array.isArray(parsed)) {
+        throw new Error('Queue file must contain a JSON array')
+      }
+
+      return parsed as StoredJob<T>[]
+    } catch (error: unknown) {
+      const parseError = error as Error
+      console.error(`[queue:${name}] Failed to read queue file:`, parseError.message)
+      const backupFile = backupCorruptedQueueFile(content)
+      console.error(`[queue:${name}] Backed up corrupted queue file to ${backupFile} and recreated queue.json`)
+      return []
     }
   }
 
@@ -124,12 +150,16 @@ export function createLocalQueue<T = unknown>(
   // Queue Implementation
   // -------------------------------------------------------------------------
 
-  async function enqueue(data: T): Promise<string> {
+  async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
     const jobs = readQueue()
+    const availableAt = options?.delayMs && options.delayMs > 0
+      ? new Date(Date.now() + options.delayMs).toISOString()
+      : undefined
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
       createdAt: new Date().toISOString(),
+      ...(availableAt ? { availableAt } : {}),
     }
     jobs.push(job)
     writeQueue(jobs)
@@ -151,7 +181,12 @@ export function createLocalQueue<T = unknown>(
       ? jobs.findIndex((j) => j.id === state.lastProcessedId)
       : -1
 
-    const pendingJobs = jobs.slice(lastProcessedIndex + 1)
+    const pendingJobs = jobs
+      .slice(lastProcessedIndex + 1)
+      .filter((job) => {
+        if (!job.availableAt) return true
+        return new Date(job.availableAt).getTime() <= Date.now()
+      })
     const jobsToProcess = options?.limit
       ? pendingJobs.slice(0, options.limit)
       : pendingJobs

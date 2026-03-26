@@ -1,6 +1,10 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
+import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
+export { registerCrossProcessEventListener } from './bridge'
+import { publishCrossProcessEvent } from './bridge'
 import type {
   EventBus,
   CreateBusOptions,
@@ -15,6 +19,11 @@ const EVENTS_QUEUE_NAME = 'events'
 
 type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
 const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
+
+function hasTenantScope(payload: EventPayload): boolean {
+  return typeof (payload as Record<string, unknown>)?.tenantId === 'string'
+    && String((payload as Record<string, unknown>).tenantId).trim().length > 0
+}
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
   const existing = (globalThis as Record<string, unknown>)[GLOBAL_EVENT_TAPS_KEY]
@@ -32,38 +41,6 @@ export function registerGlobalEventTap(handler: GlobalEventTap): () => void {
   return () => {
     taps.delete(handler)
   }
-}
-
-/**
- * Match an event name against a pattern.
- *
- * Supports:
- * - Exact match: `customers.people.created`
- * - Wildcard `*` matches single segment: `customers.*` matches `customers.people` but not `customers.people.created`
- * - Global wildcard: `*` alone matches all events
- *
- * @param eventName - The actual event name
- * @param pattern - The pattern to match against
- * @returns True if the event matches the pattern
- */
-function matchEventPattern(eventName: string, pattern: string): boolean {
-  // Global wildcard matches all events
-  if (pattern === '*') return true
-
-  // Exact match
-  if (pattern === eventName) return true
-
-  // No wildcards in pattern means we need exact match, which already failed
-  if (!pattern.includes('*')) return false
-
-  // Convert pattern to regex:
-  // - Escape regex special chars (except *)
-  // - Replace * with [^.]+ (match one or more non-dot chars)
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^.]+')
-  const regex = new RegExp(`^${regexPattern}$`)
-  return regex.test(eventName)
 }
 
 /** Job data structure for queued events */
@@ -193,6 +170,14 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
 
     // Always deliver to in-memory handlers first
     await deliver(event, payload)
+
+    if (isBroadcastEvent(event) && hasTenantScope(payload)) {
+      try {
+        await publishCrossProcessEvent(event, payload, options)
+      } catch (error) {
+        console.error(`[events] Cross-process publish error for "${event}":`, error)
+      }
+    }
 
     // If persistent, also enqueue for async processing
     if (options?.persistent) {

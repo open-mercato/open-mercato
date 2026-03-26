@@ -169,17 +169,6 @@ export async function buildProductFilters(
   if (query.id) {
     filters.id = { $eq: query.id };
   }
-  const term = sanitizeSearchTerm(query.search);
-  if (term) {
-    const like = `%${escapeLikePattern(term)}%`;
-    filters.$or = [
-      { title: { $ilike: like } },
-      { subtitle: { $ilike: like } },
-      { sku: { $ilike: like } },
-      { handle: { $ilike: like } },
-      { description: { $ilike: like } },
-    ];
-  }
   if (query.status && query.status.trim()) {
     filters.status_entry_id = { $eq: query.status.trim() };
   }
@@ -193,6 +182,12 @@ export async function buildProductFilters(
   }
   if (query.productType) {
     filters.product_type = { $eq: query.productType };
+  }
+  const term = sanitizeSearchTerm(query.search);
+  if (term) {
+    filters.search_text = {
+      $ilike: `%${escapeLikePattern(term)}%`,
+    };
   }
   const scope = {
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,

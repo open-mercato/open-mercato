@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { createContext, useContext } from 'react'
 
 export type ChartConfig = {
   [key: string]: {
@@ -13,10 +14,10 @@ type ChartContextProps = {
   config: ChartConfig
 }
 
-const ChartContext = React.createContext<ChartContextProps | null>(null)
+const ChartContext = createContext<ChartContextProps | null>(null)
 
 export function useChart() {
-  const context = React.useContext(ChartContext)
+  const context = useContext(ChartContext)
   if (!context) {
     throw new Error('useChart must be used within a ChartContainer')
   }

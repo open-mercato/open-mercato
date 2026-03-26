@@ -11,8 +11,19 @@ const crudFormExtendedEventsEnabled = parseBooleanWithDefault(
 )
 
 const alwaysEnabledInjectionTable: ModuleInjectionTable = {
+  // Portal dashboard widgets — showcase widget injection for customer portal
+  'portal:dashboard:sections': [
+    { widgetId: 'example.injection.portal-stats', priority: 5 },
+    { widgetId: 'example.injection.portal-recent-activity', priority: 10 },
+    { widgetId: 'example.injection.portal-quick-links', priority: 20 },
+  ],
+
   // Keep example module demo surfaces always available
   'crud-form:example.todo': 'example.injection.crud-validation',
+  'widget:example.injection.crud-validation:addon': {
+    widgetId: 'example.injection.crud-validation-addon',
+    priority: 50,
+  },
   'example:phase-c-handlers': 'example.injection.crud-validation',
   'menu:sidebar:main': {
     widgetId: 'example.injection.example-menus',

@@ -142,9 +142,18 @@ export async function buildCustomFieldFiltersFromQuery(opts: {
   const byKey: Record<string, { kind: string; multi?: boolean; entityId: string }> = {}
   for (const d of defs) {
     if (fieldsetFilter) {
+      const fieldsets = Array.isArray(d.configJson?.fieldsets)
+        ? d.configJson.fieldsets
+            .filter((entry: unknown): entry is string => typeof entry === 'string')
+            .map((entry: string) => entry.trim())
+            .filter((entry: string) => entry.length > 0)
+        : []
       const rawFieldset = typeof d.configJson?.fieldset === 'string' ? d.configJson.fieldset.trim() : ''
       const normalizedFieldset = rawFieldset.length ? rawFieldset : null
-      if (!fieldsetFilter.has(normalizedFieldset)) continue
+      const matches = fieldsets.length > 0
+        ? fieldsets.some((entry: string) => fieldsetFilter.has(entry))
+        : fieldsetFilter.has(normalizedFieldset)
+      if (!matches) continue
     }
     const key = d.key
     const entityId = String(d.entityId)
@@ -331,6 +340,7 @@ export async function loadCustomFieldDefinitionIndex(opts: {
   entityIds: string | string[]
   tenantId?: string | null | undefined
   organizationIds?: Array<string | null | undefined> | null
+  fieldset?: string | string[] | null
 }): Promise<CustomFieldDefinitionIndex> {
   const list = Array.isArray(opts.entityIds) ? opts.entityIds : [opts.entityIds]
   const entityIds = list
@@ -362,8 +372,25 @@ export async function loadCustomFieldDefinitionIndex(opts: {
     $and: scopeClauses,
   }
   const defs = await opts.em.find(CustomFieldDef, where as any)
+  const fieldsetFilter = normalizeFieldsetFilter(opts.fieldset)
   const index: CustomFieldDefinitionIndex = new Map()
   defs.forEach((def) => {
+    if (fieldsetFilter) {
+      const config = normalizeDefinitionConfig((def as any).configJson)
+      const fieldsets = Array.isArray(config.fieldsets)
+        ? config.fieldsets
+            .filter((entry: unknown): entry is string => typeof entry === 'string')
+            .map((entry: string) => entry.trim())
+            .filter((entry: string) => entry.length > 0)
+        : []
+      const fieldset = typeof config.fieldset === 'string' && config.fieldset.trim().length > 0
+        ? config.fieldset.trim()
+        : null
+      const matches = fieldsets.length > 0
+        ? fieldsets.some((entry: string) => fieldsetFilter.has(entry))
+        : fieldsetFilter.has(fieldset)
+      if (!matches) return
+    }
     const summary = summarizeDefinition(def)
     if (!summary) return
     const normalizedKey = normalizeDefinitionKey(summary.key)

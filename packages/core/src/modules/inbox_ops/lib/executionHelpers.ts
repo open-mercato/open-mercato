@@ -24,6 +24,22 @@ export interface ExecutionHelperContext {
   entities?: CrossModuleEntities
 }
 
+type OperationLogEntryLike = {
+  id?: string | null
+  undoToken?: string | null
+  commandId?: string | null
+  actionLabel?: string | null
+  resourceKind?: string | null
+  resourceId?: string | null
+  createdAt?: Date | string | null
+}
+
+const LAST_OPERATION_LOG_ENTRY = Symbol('inboxOps:lastOperationLogEntry')
+
+type OperationLogCarrier = {
+  [LAST_OPERATION_LOG_ENTRY]?: OperationLogEntryLike | null
+}
+
 /**
  * Cast InboxActionExecutionContext (from shared) to the concrete helper context.
  * The inbox-actions.ts handlers receive InboxActionExecutionContext but helpers
@@ -31,6 +47,32 @@ export interface ExecutionHelperContext {
  */
 export function asHelperContext(ctx: InboxActionExecutionContext): ExecutionHelperContext {
   return ctx as unknown as ExecutionHelperContext
+}
+
+export function clearLatestCommandLogEntry(ctx: object) {
+  ;(ctx as OperationLogCarrier)[LAST_OPERATION_LOG_ENTRY] = null
+}
+
+export function readLatestCommandLogEntry(ctx: object): OperationLogEntryLike | null {
+  return (ctx as OperationLogCarrier)[LAST_OPERATION_LOG_ENTRY] ?? null
+}
+
+interface FeatureCheckingRbacService {
+  userHasAllFeatures: (
+    userId: string,
+    features: string[],
+    scope: { tenantId: string; organizationId: string },
+  ) => Promise<boolean>
+}
+
+function hasSuperAdminAccess(auth: ExecutionHelperContext['auth']): boolean {
+  if (!auth || typeof auth !== 'object') return false
+  if ((auth as Record<string, unknown>).isSuperAdmin === true) return true
+  const roles = (auth as Record<string, unknown>).roles
+  if (!Array.isArray(roles)) return false
+  return roles.some(
+    (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin',
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -78,12 +120,38 @@ export async function executeCommand<TInput, TResult>(
     organizationIds: [ctx.organizationId],
   }
 
-  const { result } = await commandBus.execute<TInput, TResult>(commandId, {
+  const { result, logEntry } = await commandBus.execute<TInput, TResult>(commandId, {
     input,
     ctx: commandContext,
   })
 
+  if (logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+    ;(ctx as ExecutionHelperContext & OperationLogCarrier)[LAST_OPERATION_LOG_ENTRY] = logEntry
+  }
+
   return result
+}
+
+export async function userHasFeature(
+  ctx: ExecutionHelperContext,
+  feature: string,
+): Promise<boolean> {
+  if (!feature) return true
+  if (hasSuperAdminAccess(ctx.auth)) return true
+
+  try {
+    const rbacService = ctx.container.resolve('rbacService') as FeatureCheckingRbacService
+    if (!rbacService || typeof rbacService.userHasAllFeatures !== 'function') {
+      return false
+    }
+    return rbacService.userHasAllFeatures(
+      ctx.userId,
+      [feature],
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+    )
+  } catch {
+    return false
+  }
 }
 
 // ---------------------------------------------------------------------------

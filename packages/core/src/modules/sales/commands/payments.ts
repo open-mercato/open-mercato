@@ -73,6 +73,8 @@ export type PaymentSnapshot = {
 type PaymentUndoPayload = {
   before?: PaymentSnapshot | null
   after?: PaymentSnapshot | null
+  orderPaymentMethodIdBefore?: string | null
+  orderPaymentMethodCodeBefore?: string | null
 }
 
 const toNumber = (value: unknown): number => {
@@ -311,7 +313,7 @@ async function recomputeOrderPaymentTotals(
 
 const createPaymentCommand: CommandHandler<
   PaymentCreateInput,
-  { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } }
+  { paymentId: string; orderTotals?: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number }; orderPaymentMethodIdBefore?: string | null; orderPaymentMethodCodeBefore?: string | null }
 > = {
   id: 'sales.payments.create',
   async execute(rawInput, ctx) {
@@ -348,6 +350,14 @@ const createPaymentCommand: CommandHandler<
       )
       ensureSameScope(method, input.organizationId, input.tenantId)
       paymentMethod = method
+    }
+    const orderPaymentMethodIdBefore = order.paymentMethodId ?? null
+    const orderPaymentMethodCodeBefore = order.paymentMethodCode ?? null
+    if (paymentMethod && !order.paymentMethodId) {
+      order.paymentMethodId = paymentMethod.id
+      order.paymentMethodCode = paymentMethod.code ?? null
+      order.updatedAt = new Date()
+      em.persist(order)
     }
     if (input.documentStatusEntryId !== undefined) {
       const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
@@ -482,7 +492,7 @@ const createPaymentCommand: CommandHandler<
       console.error('[sales.payments.create] Failed to create notification:', err)
     }
 
-    return { paymentId: payment.id, orderTotals: totals }
+    return { paymentId: payment.id, orderTotals: totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -501,7 +511,7 @@ const createPaymentCommand: CommandHandler<
       tenantId: after.tenantId,
       organizationId: after.organizationId,
       snapshotAfter: after,
-      payload: { undo: { after } satisfies PaymentUndoPayload },
+      payload: { undo: { after, orderPaymentMethodIdBefore: result.orderPaymentMethodIdBefore ?? null, orderPaymentMethodCodeBefore: result.orderPaymentMethodCodeBefore ?? null } satisfies PaymentUndoPayload },
     }
   },
   undo: async ({ logEntry, ctx }) => {
@@ -539,6 +549,12 @@ const createPaymentCommand: CommandHandler<
       for (const id of orderIds) {
         const order = await em.findOne(SalesOrder, { id })
         if (!order) continue
+        if (id === after.orderId && 'orderPaymentMethodIdBefore' in (payload ?? {})) {
+          order.paymentMethodId = payload.orderPaymentMethodIdBefore ?? null
+          order.paymentMethodCode = payload.orderPaymentMethodCodeBefore ?? null
+          order.updatedAt = new Date()
+          await em.flush()
+        }
         await recomputeOrderPaymentTotals(em, order)
         await em.flush()
       }

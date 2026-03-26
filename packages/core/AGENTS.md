@@ -35,6 +35,8 @@ All module paths use `src/modules/<module>/` as shorthand.
 
 - Frontend pages: `frontend/<path>.tsx` → `/<path>`
 - Backend pages: `backend/<path>.tsx` → `/backend/<path>` (special: `backend/page.tsx` → `/backend/<module>`)
+- Frontend page middleware: `frontend/middleware.ts` — export `middleware` (or default) as `PageRouteMiddleware[]`
+- Backend page middleware: `backend/middleware.ts` — export `middleware` (or default) as `PageRouteMiddleware[]`
 - API routes: `api/<method>/<path>.ts` → `/api/<path>` dispatched by method
 - Subscribers: `subscribers/*.ts` — export default handler + `metadata` with `{ event: string, persistent?: boolean, id?: string }`
 - Workers: `workers/*.ts` — export default handler + `metadata` with `{ queue: string, id?: string, concurrency?: number }`
@@ -141,6 +143,7 @@ export default setup
 2. Never directly import another module's seed functions
 3. Access entity IDs with optional chaining: `(E as any).catalog?.catalog_product`
 4. Use `getEntityIds()` at runtime (not import-time) for cross-module lookups
+5. Integration provider packages that need bootstrap credentials or mappings SHOULD preconfigure themselves from env inside the provider module via `setup.ts` and provider-local helpers/CLI. Do not add provider-specific env bootstrapping to core setup orchestration.
 
 ### Testing with Disabled Modules
 
@@ -234,9 +237,21 @@ src/modules/<module>/
 ```
 
 - **Notification types**: Declare in `notifications.ts` exporting `notificationTypes: NotificationTypeDefinition[]`
+- **Reactive handlers**: Declare in `notifications.handlers.ts` exporting `notificationHandlers: NotificationHandler[]`
 - **Subscribers**: Create event subscribers in `subscribers/` to emit notifications on domain events
 - **Client renderers**: Declare in `notifications.client.ts`; store components in `widgets/notifications/`
 - **i18n**: Add translations to `i18n/<locale>.json` under `<module>.notifications.*` keys
+- **Handler behavior**: Keep handlers idempotent; use `ctx.emitEvent(...)` for cross-component updates and `ctx.toast(...)`/`ctx.popup(...)` for UX side-effects
+
+## Integrations & Data Sync
+
+> **Moved**: Detailed guides now live in dedicated module AGENTS.md files:
+> - `src/modules/integrations/AGENTS.md` — foundation layer (registry, credentials, state, health, logs, admin UI)
+> - `src/modules/data_sync/AGENTS.md` — sync hub (adapters, run lifecycle, workers, mappings, admin UI)
+>
+> Docs reference:
+> - `apps/docs/docs/framework/modules/integrations-data-sync.mdx`
+> - `apps/docs/docs/api/integrations-data-sync.mdx`
 
 ## Widget Injection
 
@@ -274,6 +289,10 @@ Define route interceptors in `api/interceptors.ts` and export `interceptors`.
 - Keep scope explicit with `targetRoute` + `methods`; use wildcards only when required.
 - `before`/`after` hooks must be fail-closed and timeout-safe.
 - If `before` rewrites body/query, return a schema-compatible payload (route handler re-validates it).
+- For CRUD list narrowing, prefer writing `query.ids` (comma-separated UUIDs). The CRUD factory merges/intersects `ids` with existing `id` filters.
+- Custom (non-CRUD) API routes are opt-in: call `runCustomRouteAfterInterceptors(...)` from `@open-mercato/shared/lib/crud/custom-route-interceptor`.
+- For unauthenticated custom routes (e.g. login), pass route-local context with empty identity values (`userId`, `tenantId`, `organizationId`) unless the route has a trusted authenticated principal.
+- Phase-1 custom-route contract supports `after` hooks only and JSON body mutation (`merge`/`replace`) without header/cookie mutation.
 
 ## Component Replacement
 

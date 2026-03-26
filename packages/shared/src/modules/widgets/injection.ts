@@ -38,6 +38,15 @@ export type AppEventPayload = {
 }
 
 /**
+ * Filter which operations trigger widget event handlers.
+ * When set, handlers only fire for the specified operations.
+ */
+export type WidgetInjectionEventFilter = {
+  /** Only run handlers for these operations. Omit to run for all. */
+  operations?: ('create' | 'update' | 'delete')[]
+}
+
+/**
  * Widget injection event handlers for lifecycle management.
  *
  * Handlers are classified into two categories:
@@ -45,6 +54,9 @@ export type AppEventPayload = {
  * - **Transformer events**: Pipeline handlers where output of widget N becomes input of widget N+1
  */
 export type WidgetInjectionEventHandlers<TContext = unknown, TData = unknown> = {
+  /** Filter which operations trigger these event handlers */
+  filter?: WidgetInjectionEventFilter
+
   // === Existing: Lifecycle Actions ===
 
   /**
@@ -238,10 +250,16 @@ export type InjectionBulkActionDefinition = {
   id: string
   label: string
   icon?: string
+  requiresSelection?: boolean
   onExecute: (
     selectedRows: unknown[],
     context: unknown,
-  ) => Promise<void | { ok: boolean; message?: string; affectedCount?: number }>
+  ) => Promise<void | {
+    ok: boolean
+    message?: string
+    affectedCount?: number
+    progressJobId?: string | null
+  }>
 }
 
 export type InjectionFilterDefinition = {

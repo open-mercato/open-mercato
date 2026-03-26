@@ -662,6 +662,15 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       profile.company = await resolveCompanyReference(em, parsed.companyEntityId, record.organizationId, record.tenantId)
     }
 
+    const profileFieldsUpdated = [
+      parsed.firstName, parsed.lastName, parsed.preferredName, parsed.jobTitle,
+      parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
+      parsed.twitterUrl, parsed.companyEntityId,
+    ].some((v) => v !== undefined)
+    if (profileFieldsUpdated) {
+      record.updatedAt = new Date()
+    }
+
     if (parsed.displayName !== undefined) {
       const nextDisplayName = parsed.displayName.trim()
       if (!nextDisplayName) {
@@ -988,6 +997,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      entity.deletedAt = null
 
       let profile = await em.findOne(CustomerPersonProfile, { entity })
       if (!profile) {

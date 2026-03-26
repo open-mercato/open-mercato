@@ -4,7 +4,7 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  * Integrations module injection table.
  *
  * The external-ids widget auto-appears on entity detail pages via wildcard spot matching.
- * Status badge widgets are registered by individual integration modules (e.g. sync_medusa).
+ * Status badge widgets are registered by individual integration provider modules.
  */
 export const injectionTable: ModuleInjectionTable = {
   // External IDs widget appears in detail page sidebars for all entities

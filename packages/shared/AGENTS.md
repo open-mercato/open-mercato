@@ -75,6 +75,52 @@ const { t } = await resolveTranslations()
 import { withScopedPayload, createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 ```
 
+### CRUD Multi-ID Filtering
+
+- Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
+- Keep `ids` format as comma-separated UUIDs (`?ids=uuid1,uuid2`) and intersect with existing `id` filters.
+
+### Query Engine Extensibility (UMES)
+
+Query engines support optional extension hooks via `QueryOptions.extensions`:
+
+```typescript
+import type { QueryExtensionsConfig } from '@open-mercato/shared/lib/query/types'
+
+const result = await queryEngine.query('customers:person', {
+  tenantId: auth.tenantId,
+  organizationId: auth.orgId,
+  extensions: {
+    userId: auth.userId,
+    container: diContainer,
+    userFeatures: auth.features,
+    resolve: (name) => diContainer.resolve(name),
+  },
+})
+```
+
+When `extensions` is provided:
+- Sync `*.querying` subscribers can block or modify query options.
+- Query-level enrichers (with `queryEngine.enabled: true`) run after the SQL query.
+- Sync `*.queried` subscribers can modify the final result.
+- Tenant/org scope guards are always re-applied after subscriber modifications.
+
+Key types:
+- `QueryExtensionsConfig` — Extension context (`@open-mercato/shared/lib/query/types`)
+- `EnricherQueryEngineConfig` — Enricher opt-in config (`@open-mercato/shared/lib/crud/response-enricher`)
+- `EnricherSurfaceSelector` — Registry selector (`@open-mercato/shared/lib/crud/enricher-registry`)
+- `SyncQueryEventPayload` / `SyncQueryEventResult` — Event contracts (`@open-mercato/shared/lib/query/sync-query-event-types`)
+
+To enable an enricher for query-engine pipelines, add `queryEngine` config:
+```typescript
+const enricher: ResponseEnricher = {
+  id: 'mymodule.enricher',
+  targetEntity: 'customers.person',
+  queryEngine: { enabled: true, engines: ['basic', 'hybrid'], applyOn: ['list', 'detail'] },
+  // ... enrichOne, enrichMany
+}
+```
+
 ## Before Adding a New Utility
 
 1. Search existing `src/lib/` directories for similar functionality

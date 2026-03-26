@@ -8,9 +8,11 @@ import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EventBus } from '@open-mercato/events/types'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit, resetAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/custom-route-interceptor'
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -62,10 +64,12 @@ export async function POST(req: Request) {
     user = users[0] ?? null
   }
   if (!user || !user.passwordHash) {
+    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'invalid_credentials' }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   const ok = await auth.verifyPassword(user, parsed.data.password)
   if (!ok) {
+    void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'invalid_password' }).catch(() => undefined)
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.invalidCredentials', 'Invalid email or password') }, { status: 401 })
   }
   // Optional role requirement
@@ -98,6 +102,7 @@ export async function POST(req: Request) {
     email: user.email,
     roles: userRoleNames
   })
+  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
@@ -109,12 +114,49 @@ export async function POST(req: Request) {
     const sess = await auth.createSession(user, expiresAt)
     responseData.refreshToken = sess.token
   }
-  const res = NextResponse.json(responseData)
-  res.cookies.set('auth_token', token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
-  if (remember && responseData.refreshToken) {
+  const em = container.resolve('em')
+  const interceptedResponse = await runCustomRouteAfterInterceptors({
+    routePath: 'auth/login',
+    method: 'POST',
+    request: {
+      method: 'POST',
+      url: req.url,
+      body: {
+        email: parsed.data.email,
+        tenantId: parsed.data.tenantId ?? undefined,
+        remember,
+        requireRole: requiredRoles.length > 0 ? requiredRoles : undefined,
+      },
+      headers: Object.fromEntries(req.headers.entries()),
+    },
+    response: {
+      statusCode: 200,
+      body: responseData,
+      headers: {},
+    },
+    context: {
+      em,
+      container,
+    },
+  })
+  if (!interceptedResponse.ok) {
+    return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode })
+  }
+
+  const interceptedBody = interceptedResponse.body
+  const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0
+    ? interceptedBody.token
+    : token
+  const refreshTokenForCookie = typeof interceptedBody.refreshToken === 'string'
+    ? interceptedBody.refreshToken
+    : undefined
+
+  const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
+  res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  if (remember && refreshTokenForCookie) {
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    res.cookies.set('session_token', responseData.refreshToken, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
+    res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
   }
   return res
 }

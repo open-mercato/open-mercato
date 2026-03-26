@@ -13,6 +13,7 @@ import type {
   SingleEnrichmentResult,
 } from './response-enricher'
 import { getEnrichersForEntity } from './enricher-registry'
+import { logEnricherTiming } from '../umes/enricher-timing'
 
 const DEFAULT_TIMEOUT = 2000
 const SLOW_WARN_MS = 100
@@ -44,17 +45,24 @@ function hasRequiredFeatures(
   return enricher.features.every((feature) => hasFeature(feature))
 }
 
-function getActiveEnrichers(
-  targetEntity: string,
+function filterByACLAndTenant(
+  entries: EnricherRegistryEntry[],
   context: EnricherContext,
 ): EnricherRegistryEntry[] {
-  const entries = getEnrichersForEntity(targetEntity)
   return entries.filter((entry) => {
     const enricher = entry.enricher
     if (!hasRequiredFeatures(enricher, context.userFeatures)) return false
     if (enricher.disabledTenantIds?.includes(context.tenantId)) return false
     return true
   })
+}
+
+function getActiveEnrichers(
+  targetEntity: string,
+  context: EnricherContext,
+): EnricherRegistryEntry[] {
+  const entries = getEnrichersForEntity(targetEntity)
+  return filterByACLAndTenant(entries, context)
 }
 
 type CacheLike = {
@@ -160,8 +168,11 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
   items: T[],
   targetEntity: string,
   context: EnricherContext,
+  preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<EnrichmentResult<T>> {
-  const activeEntries = getActiveEnrichers(targetEntity, context)
+  const activeEntries = preFilteredEntries
+    ? filterByACLAndTenant(preFilteredEntries, context)
+    : getActiveEnrichers(targetEntity, context)
 
   if (activeEntries.length === 0) {
     return { items, _meta: { enrichedBy: [] } }
@@ -212,6 +223,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
           `[UMES] Enricher ${enricher.id} took ${elapsedMs}ms (threshold: ${SLOW_WARN_MS}ms)`,
         )
       }
+      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
       currentItems = result
       if (shouldUseCache && cacheKey) {
@@ -260,8 +272,11 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
   record: T,
   targetEntity: string,
   context: EnricherContext,
+  preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<SingleEnrichmentResult<T>> {
-  const activeEntries = getActiveEnrichers(targetEntity, context)
+  const activeEntries = preFilteredEntries
+    ? filterByACLAndTenant(preFilteredEntries, context)
+    : getActiveEnrichers(targetEntity, context)
 
   if (activeEntries.length === 0) {
     return { record, _meta: { enrichedBy: [] } }
@@ -275,6 +290,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
   for (const entry of activeEntries) {
     const enricher = entry.enricher
     const timeout = enricher.timeout ?? DEFAULT_TIMEOUT
+    const startTime = Date.now()
 
     try {
       const recordId = extractRecordId(currentRecord)
@@ -292,6 +308,9 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
         enricher.enrichOne(currentRecord, context) as Promise<T>,
         timeoutPromise(timeout),
       ])
+
+      const elapsedMs = Date.now() - startTime
+      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
       currentRecord = result
       if (shouldUseCache && cacheKey) {
