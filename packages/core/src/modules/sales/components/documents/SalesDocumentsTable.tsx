@@ -720,6 +720,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
               ]}
             />
           )}
+          perspective={{ tableId: kind === 'order' ? 'sales.orders' : 'sales.quotes' }}
           onRowClick={handleRowClick}
           emptyState={
             <div className="py-10 text-center text-sm text-muted-foreground">

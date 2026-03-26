@@ -89,6 +89,30 @@ function FlashMessagesInner() {
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
   const locationKey = useLocationKey()
+  const dismissTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearDismissTimer = React.useCallback(() => {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current)
+      dismissTimerRef.current = null
+    }
+  }, [])
+
+  const showFlash = React.useCallback((message: string, type: FlashKind) => {
+    clearDismissTimer()
+    setMsg(message)
+    setKind(type)
+    dismissTimerRef.current = setTimeout(() => {
+      dismissTimerRef.current = null
+      setMsg(null)
+    }, 3000)
+  }, [clearDismissTimer])
+
+  React.useEffect(() => {
+    return () => {
+      clearDismissTimer()
+    }
+  }, [clearDismissTimer])
 
   // Read flash from URL on any navigation change (client-side too)
   React.useEffect(() => {
@@ -97,15 +121,12 @@ function FlashMessagesInner() {
     const message = url.searchParams.get('flash')
     const type = (url.searchParams.get('type') as FlashKind | null) || 'success'
     if (message) {
-      setMsg(message)
-      setKind(type)
+      showFlash(message, type)
       url.searchParams.delete('flash')
       url.searchParams.delete('type')
       window.history.replaceState({}, '', url.toString())
-      const timer = setTimeout(() => setMsg(null), 3000)
-      return () => clearTimeout(timer)
     }
-  }, [locationKey])
+  }, [locationKey, showFlash])
 
   // Listen for programmatic flash events
   React.useEffect(() => {
@@ -114,14 +135,11 @@ function FlashMessagesInner() {
       const text = ce.detail?.message
       const t = ce.detail?.type || 'info'
       if (!text) return
-      setMsg(text)
-      setKind(t)
-      const timer = setTimeout(() => setMsg(null), 3000)
-      return () => clearTimeout(timer)
+      showFlash(text, t)
     }
     window.addEventListener('flash', handler as EventListener)
     return () => window.removeEventListener('flash', handler as EventListener)
-  }, [])
+  }, [showFlash])
 
   if (!msg) return null
 

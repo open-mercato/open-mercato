@@ -31,10 +31,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
 
-  await em.nativeUpdate(CustomerUser, { id: result.userId }, { emailVerifiedAt: new Date() })
+  await em.nativeUpdate(CustomerUser, { id: result.userId, tenantId: result.tenantId }, { emailVerifiedAt: new Date() })
 
   void emitCustomerAccountsEvent('customer_accounts.email.verified', {
     userId: result.userId,
+    tenantId: result.tenantId,
   }).catch(() => undefined)
 
   return NextResponse.json({ ok: true })

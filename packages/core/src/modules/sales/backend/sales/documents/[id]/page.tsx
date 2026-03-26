@@ -4168,15 +4168,23 @@ export default function SalesDocumentDetailPage({
         )
       }
       return (
-        <SalesShipmentsSection
-          orderId={record.id}
-          currencyCode={record.currencyCode ?? null}
-          organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
-          tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
-          shippingAddressSnapshot={shippingSnapshot ?? null}
-          onActionChange={handleSectionActionChange}
-          onAddComment={appendShipmentComment}
-        />
+        <>
+          <SalesShipmentsSection
+            orderId={record.id}
+            currencyCode={record.currencyCode ?? null}
+            organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
+            tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
+            shippingAddressSnapshot={shippingSnapshot ?? null}
+            onActionChange={handleSectionActionChange}
+            onAddComment={appendShipmentComment}
+          />
+          <InjectionSpot
+            spotId="detail:sales.order:shipping"
+            context={detailInjectionContext}
+            data={record}
+            onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
+          />
+        </>
       )
     }
     if (activeTab === 'returns') {

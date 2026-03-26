@@ -13,6 +13,7 @@ import AdminNotificationEmail from '@open-mercato/onboarding/modules/onboarding/
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
   path: '/onboarding/onboarding',
@@ -22,7 +23,7 @@ export const metadata = {
 }
 
 export async function POST(req: Request) {
-  if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') {
+  if (parseBooleanToken(process.env.SELF_SERVICE_ONBOARDING_ENABLED ?? '') !== true) {
     return NextResponse.json({ ok: false, error: 'Self-service onboarding is disabled.' }, { status: 404 })
   }
   let payload: unknown
@@ -128,6 +129,10 @@ export async function POST(req: Request) {
     const verifyUrl = `${baseUrl}/api/onboarding/onboarding/verify?token=${token}`
 
     const firstName = request.firstName || parsed.data.firstName
+    const hasMarketingConsent = request.marketingConsent === true
+    const marketingConsentText = hasMarketingConsent
+      ? translate('onboarding.email.marketingConsentYes', 'Marketing consent: Yes')
+      : translate('onboarding.email.marketingConsentNo', 'Marketing consent: No')
     const subject = translate('onboarding.email.subject', 'Confirm your email to finish onboarding')
     const emailCopy = {
       preview: translate('onboarding.email.preview', 'Confirm your email to activate your Open Mercato workspace'),
@@ -143,6 +148,7 @@ export async function POST(req: Request) {
         'onboarding.email.expiry',
         "The link will expire in 24 hours. If you didn't request this, you can safely ignore this message.",
       ),
+      marketingConsent: marketingConsentText,
       footer: translate('onboarding.email.footer', 'Open Mercato · Tenant onboarding service'),
     }
     const emailReact = VerificationEmail({ verifyUrl, copy: emailCopy })
@@ -172,6 +178,7 @@ export async function POST(req: Request) {
         email: request.email,
         organizationName: request.organizationName,
       }),
+      marketingConsent: marketingConsentText,
       footer: translate('onboarding.email.adminFooter', 'You can review the tenant after verification is complete.'),
     }
     try {

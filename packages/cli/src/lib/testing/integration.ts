@@ -1,12 +1,13 @@
 import { GenericContainer } from 'testcontainers'
 import { spawn, type ChildProcess, type StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
+import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
-import { createResolver } from '../resolver'
+import { resolveEnvironment } from '../resolver'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
@@ -141,12 +142,13 @@ type EphemeralEnvironmentState = {
 
 type PlaywrightRunOptions = Pick<InteractiveIntegrationOptions, 'verbose' | 'captureScreenshots' | 'workers' | 'retries'>
 
-const APP_READY_TIMEOUT_MS = 90_000
+const DEFAULT_APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
 const DEFAULT_EPHEMERAL_APP_PORT = 5001
 const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 60_000
 const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
+const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
@@ -161,9 +163,50 @@ const PLAYWRIGHT_QUICK_FAILURE_THRESHOLD = 6
 const PLAYWRIGHT_QUICK_FAILURE_MAX_DURATION_MS = 1_500
 const PLAYWRIGHT_HEALTH_PROBE_INTERVAL_MS = 3_000
 const ANSI_ESCAPE_REGEX = /\x1b\[[0-?]*[ -/]*[@-~]/g // NOSONAR — ANSI escape sequence pattern
-const NEXT_STATIC_ASSET_PATTERN = /\/_next\/static\/[^"'`\s)]+?\.(?:js|css)/g
-const resolver = createResolver()
-const projectRootDirectory = resolver.getRootDir()
+const env = resolveEnvironment()
+const projectRootDirectory = env.rootDir
+const appDirectory = env.appDir
+const corePackageRootDirectory = env.packageRoot('@open-mercato/core')
+const uiPackageRootDirectory = env.packageRoot('@open-mercato/ui')
+
+function resolveFirstExistingPath(...candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate
+    }
+  }
+  return null
+}
+
+function collectExistingPaths(candidates: Array<string | null | undefined>): string[] {
+  const collected = new Set<string>()
+  for (const candidate of candidates) {
+    if (candidate && existsSync(candidate)) {
+      collected.add(candidate)
+    }
+  }
+  return Array.from(collected)
+}
+
+function readPackageScripts(packageRoot: string): Record<string, string> {
+  try {
+    const raw = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>
+    }
+    return raw.scripts ?? {}
+  } catch {
+    return {}
+  }
+}
+
+const projectScripts = readPackageScripts(projectRootDirectory)
+const appNextConfigPath = resolveFirstExistingPath(
+  path.join(appDirectory, 'next.config.ts'),
+  path.join(appDirectory, 'next.config.js'),
+  path.join(appDirectory, 'next.config.mjs'),
+)
+const APP_MODULES_CHECKSUM_PATH = path.join(appDirectory, '.mercato', 'generated', 'modules.generated.checksum')
+const PROJECT_SUPPORTS_PACKAGE_BUILDS = typeof projectScripts['build:packages'] === 'string'
 const EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.json')
 const EPHEMERAL_ENV_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.lock')
 const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-env.md')
@@ -172,26 +215,26 @@ const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
 const APP_BUILD_ARTIFACTS = [
-  path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'next', 'BUILD_ID'),
-  path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.ts'),
-  path.join(projectRootDirectory, 'packages', 'core', 'dist', 'index.js'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'dist', 'index.js'),
+  path.join(appDirectory, '.mercato', 'next', 'BUILD_ID'),
+  path.join(appDirectory, '.mercato', 'generated', 'modules.generated.ts'),
+  path.join(corePackageRootDirectory, 'dist', 'index.js'),
+  path.join(uiPackageRootDirectory, 'dist', 'index.js'),
 ]
-const APP_BUILD_INPUT_PATHS = [
-  path.join(projectRootDirectory, 'apps', 'mercato', 'src'),
-  path.join(projectRootDirectory, 'apps', 'mercato', 'package.json'),
-  path.join(projectRootDirectory, 'apps', 'mercato', 'next.config.ts'),
-  path.join(projectRootDirectory, 'apps', 'mercato', 'tsconfig.json'),
-  path.join(projectRootDirectory, 'packages', 'core', 'src'),
-  path.join(projectRootDirectory, 'packages', 'core', 'package.json'),
-  path.join(projectRootDirectory, 'packages', 'core', 'tsconfig.json'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'src'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'package.json'),
-  path.join(projectRootDirectory, 'packages', 'ui', 'tsconfig.json'),
+const APP_BUILD_INPUT_PATHS = collectExistingPaths([
+  path.join(appDirectory, 'src'),
+  path.join(appDirectory, 'package.json'),
+  appNextConfigPath,
+  path.join(appDirectory, 'tsconfig.json'),
+  resolveFirstExistingPath(path.join(corePackageRootDirectory, 'src'), path.join(corePackageRootDirectory, 'dist')),
+  path.join(corePackageRootDirectory, 'package.json'),
+  path.join(corePackageRootDirectory, 'tsconfig.json'),
+  resolveFirstExistingPath(path.join(uiPackageRootDirectory, 'src'), path.join(uiPackageRootDirectory, 'dist')),
+  path.join(uiPackageRootDirectory, 'package.json'),
+  path.join(uiPackageRootDirectory, 'tsconfig.json'),
   path.join(projectRootDirectory, 'package.json'),
   path.join(projectRootDirectory, 'tsconfig.base.json'),
   path.join(projectRootDirectory, 'yarn.lock'),
-]
+])
 const EXPECTED_TEST_FOLDERS = ['auth', 'catalog', 'crm', 'sales', 'admin', 'api', 'integration'] as const
 const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   admin: 'ADMIN',
@@ -250,6 +293,24 @@ type CommandMonitoringOptions = {
   playwrightFailureHealthCheck?: PlaywrightFailureHealthCheckOptions
 }
 
+type LoginPageProbeResult = {
+  status: number | null
+  healthy: boolean
+  detail: string
+}
+
+type BackendLoginProbeResult = {
+  status: number | null
+  healthy: boolean
+  detail: string
+}
+
+type ApplicationReadinessProbeResult = {
+  ready: boolean
+  frontend: LoginPageProbeResult
+  backend: BackendLoginProbeResult
+}
+
 type PlaywrightFailureHealthCheckOptions = {
   baseUrl: string
   consecutiveFailureThreshold?: number
@@ -277,8 +338,9 @@ function runYarnCommand(
   args: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): Promise<void> {
-  return runYarnRawCommand(['run', ...args], environment, opts)
+  return runYarnRawCommand(['run', ...args], environment, opts, cwd)
 }
 
 async function runTimedStep<T>(
@@ -525,11 +587,12 @@ function runYarnRawCommand(
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
     const command: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
-      cwd: projectRootDirectory,
+      cwd,
       env: environment,
       stdio: outputMode,
     })
@@ -575,24 +638,15 @@ function runNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<
   })
 }
 
-function runYarnWorkspaceCommand(
-  workspaceName: string,
-  commandName: string,
-  commandArgs: string[],
-  environment: NodeJS.ProcessEnv,
-  opts: { silent?: boolean } = {},
-): Promise<void> {
-  return runYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
-}
-
 function startYarnRawCommand(
   commandArgs: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): ChildProcess {
   const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
   const processHandle: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
-    cwd: projectRootDirectory,
+    cwd,
     env: environment,
     stdio: outputMode,
   })
@@ -603,14 +657,13 @@ function startYarnRawCommand(
   return processHandle
 }
 
-function startYarnWorkspaceCommand(
-  workspaceName: string,
-  commandName: string,
-  commandArgs: string[],
+function startYarnCommand(
+  args: string[],
   environment: NodeJS.ProcessEnv,
   opts: { silent?: boolean } = {},
+  cwd: string = projectRootDirectory,
 ): ChildProcess {
-  return startYarnRawCommand(['workspace', workspaceName, commandName, ...commandArgs], environment, opts)
+  return startYarnRawCommand(['run', ...args], environment, opts, cwd)
 }
 
 async function assertContainerRuntimeAvailable(): Promise<void> {
@@ -676,6 +729,21 @@ export function resolveBuildCacheTtlSeconds(logPrefix: string): number {
     return DEFAULT_BUILD_CACHE_TTL_SECONDS
   }
   return parsed
+}
+
+export function resolveAppReadyTimeoutMs(logPrefix: string): number {
+  const rawValue = process.env[APP_READY_TIMEOUT_ENV_VAR]
+  if (!rawValue) {
+    return DEFAULT_APP_READY_TIMEOUT_MS
+  }
+  const parsedSeconds = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsedSeconds) || parsedSeconds < 1) {
+    console.warn(
+      `[${logPrefix}] Invalid ${APP_READY_TIMEOUT_ENV_VAR} value "${rawValue}". Using default ${DEFAULT_APP_READY_TIMEOUT_MS / 1000}s.`,
+    )
+    return DEFAULT_APP_READY_TIMEOUT_MS
+  }
+  return parsedSeconds * 1000
 }
 
 function buildCacheDefaults(overrides: BuildCacheOptions = {}): {
@@ -1089,59 +1157,58 @@ export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironm
   }
 }
 
-async function isApplicationReachable(baseUrl: string): Promise<boolean> {
+function isLoginHtmlHealthy(html: string): boolean {
+  return !/Application error: a client-side exception has occurred/i.test(html)
+}
+
+function isSuccessfulBrowserNavigationStatus(status: number): boolean {
+  return status === 200 || (status >= 300 && status < 400)
+}
+
+async function probeLoginPage(baseUrl: string): Promise<LoginPageProbeResult> {
   try {
     const response = await fetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
     })
-    if (response.status === 302) {
-      return true
+    if (!isSuccessfulBrowserNavigationStatus(response.status)) {
+      return {
+        status: response.status,
+        healthy: false,
+        detail: `GET /login returned ${response.status}`,
+      }
     }
     if (response.status !== 200) {
-      return false
-    }
-    const html = await response.text()
-    return isLoginHtmlHealthy(html) && await areReferencedNextAssetsReachable(baseUrl, html)
-  } catch {
-    return false
-  }
-}
-
-function isLoginHtmlHealthy(html: string): boolean {
-  return !/Application error: a client-side exception has occurred/i.test(html)
-}
-
-function extractReferencedNextAssets(html: string, maxAssets = 8): string[] {
-  const matches = html.match(NEXT_STATIC_ASSET_PATTERN) ?? []
-  const unique = Array.from(new Set(matches))
-  return unique.slice(0, maxAssets)
-}
-
-async function areReferencedNextAssetsReachable(baseUrl: string, html: string): Promise<boolean> {
-  const assets = extractReferencedNextAssets(html)
-  if (assets.length === 0) {
-    return false
-  }
-
-  for (const assetPath of assets) {
-    try {
-      const response = await fetch(`${baseUrl}${assetPath}`, {
-        method: 'GET',
-        redirect: 'manual',
-      })
-      if (response.status !== 200 && response.status !== 304) {
-        return false
+      return {
+        status: response.status,
+        healthy: true,
+        detail: `GET /login returned redirect ${response.status}`,
       }
-    } catch {
-      return false
+    }
+    const html = await response.text().catch(() => '')
+    if (!isLoginHtmlHealthy(html)) {
+      return {
+        status: response.status,
+        healthy: false,
+        detail: 'GET /login returned client-side exception HTML',
+      }
+    }
+    return {
+      status: response.status,
+      healthy: true,
+      detail: 'GET /login returned healthy HTML',
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      status: null,
+      healthy: false,
+      detail: `GET /login failed: ${message}`,
     }
   }
-
-  return true
 }
 
-async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> {
+async function probeBackendLoginEndpoint(baseUrl: string): Promise<BackendLoginProbeResult> {
   try {
     const form = new URLSearchParams()
     form.set('email', 'integration-healthcheck@example.invalid')
@@ -1155,9 +1222,34 @@ async function isBackendLoginEndpointHealthy(baseUrl: string): Promise<boolean> 
       body: form.toString(),
     })
 
-    return response.status === 200 || response.status === 400 || response.status === 401 || response.status === 403
-  } catch {
-    return false
+    const healthy = response.status === 200 || response.status === 400 || response.status === 401 || response.status === 403
+    return {
+      status: response.status,
+      healthy,
+      detail: healthy
+        ? `POST /api/auth/login returned ${response.status}`
+        : `POST /api/auth/login returned unexpected ${response.status}`,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      status: null,
+      healthy: false,
+      detail: `POST /api/auth/login failed: ${message}`,
+    }
+  }
+}
+
+async function probeApplicationReadiness(baseUrl: string): Promise<ApplicationReadinessProbeResult> {
+  const [frontend, backend] = await Promise.all([
+    probeLoginPage(baseUrl),
+    probeBackendLoginEndpoint(baseUrl),
+  ])
+
+  return {
+    ready: frontend.healthy && backend.healthy,
+    frontend,
+    backend,
   }
 }
 
@@ -1265,9 +1357,14 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
   return buildEnvironment({
     BASE_URL: baseUrl,
+    APP_URL: baseUrl,
+    NEXT_PUBLIC_APP_URL: baseUrl,
     NODE_ENV: 'production',
+    JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+    OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
     OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
+    OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? 'false',
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
@@ -1338,46 +1435,27 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
   }
 }
 
-async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildProcess): Promise<void> {
+async function waitForApplicationReadiness(
+  baseUrl: string,
+  appProcess: ChildProcess,
+  options: { timeoutMs: number },
+): Promise<void> {
   const startTimestamp = Date.now()
   const exitPromise = getProcessExitPromise(appProcess)
   const readinessStabilizationMs = 600
+  let lastProbe: ApplicationReadinessProbeResult | null = null
 
-  while (Date.now() - startTimestamp < APP_READY_TIMEOUT_MS) {
-    const responsePromise = fetch(`${baseUrl}/login`, {
-      method: 'GET',
-      redirect: 'manual',
-    })
-      .then(async (response) => ({
-        response,
-        body: response.status === 200 ? await response.text().catch(() => '') : '',
-      }))
-      .catch(() => null)
+  while (Date.now() - startTimestamp < options.timeoutMs) {
     const result = await Promise.race([
-      responsePromise.then((payload) => {
-        if (!payload) {
-          return { kind: 'network_error' as const }
-        }
-        return {
-          kind: 'response' as const,
-          status: payload.response.status,
-          body: payload.body,
-        }
-      }),
+      probeApplicationReadiness(baseUrl).then((probe) => ({ kind: 'probe' as const, probe })),
       exitPromise.then((code) => ({ kind: 'exit' as const, code })),
       delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
     ])
 
-    if (result.kind === 'response' && (result.status === 200 || result.status === 302)) {
-      if (result.status === 200) {
-        const loginHtml = result.body ?? ''
-        if (!isLoginHtmlHealthy(loginHtml)) {
-          continue
-        }
-        const assetsReachable = await areReferencedNextAssetsReachable(baseUrl, loginHtml)
-        if (!assetsReachable) {
-          continue
-        }
+    if (result.kind === 'probe') {
+      lastProbe = result.probe
+      if (!result.probe.ready) {
+        continue
       }
       const processExited = await Promise.race([
         exitPromise.then(() => true),
@@ -1393,7 +1471,11 @@ async function waitForApplicationReadiness(baseUrl: string, appProcess: ChildPro
     }
   }
 
-  throw new Error(`Application did not become ready within ${APP_READY_TIMEOUT_MS / 1000} seconds`)
+  const lastFrontendDetail = lastProbe?.frontend.detail ?? 'GET /login was never observed'
+  const lastBackendDetail = lastProbe?.backend.detail ?? 'POST /api/auth/login was never observed'
+  throw new Error(
+    `Application did not become ready within ${options.timeoutMs / 1000} seconds. Last probe: ${lastFrontendDetail}; ${lastBackendDetail}`,
+  )
 }
 
 export function parseOptions(rawArgs: string[]): IntegrationOptions {
@@ -2304,11 +2386,8 @@ async function runIntegrationTestSuiteOnce(
 }
 
 async function isEnvironmentUnavailable(baseUrl: string): Promise<boolean> {
-  const [applicationReachable, backendHealthy] = await Promise.all([
-    isApplicationReachable(baseUrl),
-    isBackendLoginEndpointHealthy(baseUrl),
-  ])
-  return !applicationReachable || !backendHealthy
+  const readiness = await probeApplicationReadiness(baseUrl)
+  return !readiness.ready
 }
 
 function isEnvironmentUnavailableError(error: unknown): boolean {
@@ -2459,7 +2538,6 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       }
     }
 
-    const appWorkspace = '@open-mercato/app'
     const shouldUseIsolatedPort = shouldUseIsolatedPortForFreshEnvironment({
       reuseExisting: options.reuseExisting,
       existingStateBeforeReuseAttempt,
@@ -2496,7 +2574,10 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const commandEnvironment = buildEnvironment({
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
-      JWT_SECRET: 'om-ephemeral-integration-jwt-secret',
+      APP_URL: applicationBaseUrl,
+      NEXT_PUBLIC_APP_URL: applicationBaseUrl,
+      JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
+      OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
       DB_POOL_MIN: '0',
       DB_POOL_MAX: '5',
@@ -2506,6 +2587,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '30000',
       OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
       OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
+      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? 'false',
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
@@ -2537,6 +2619,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     }
 
     try {
+      const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
@@ -2562,9 +2645,9 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       console.log(`[${options.logPrefix}] Ephemeral database ready at ${databaseHost}:${databasePort}`)
       console.log(`[${options.logPrefix}] Initializing application data (includes migrations)...`)
       await runTimedStep(options.logPrefix, 'Initializing application data', { expectedSeconds: 45 }, async () =>
-        runYarnWorkspaceCommand(appWorkspace, 'initialize', [], commandEnvironment, {
+        runYarnCommand(['initialize'], commandEnvironment, {
           silent: !options.verbose,
-        }))
+        }, appDirectory))
 
       if (!needsBuild) {
         console.log(
@@ -2576,32 +2659,38 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         } else {
           console.log(`[${options.logPrefix}] Build artifacts missing, stale, or out of date; rebuilding artifacts.`)
         }
-        console.log(`[${options.logPrefix}] Building packages...`)
-        await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
-          runYarnCommand(['build:packages'], commandEnvironment, {
-            silent: !options.verbose,
-          }))
+        if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
+          console.log(`[${options.logPrefix}] Building packages...`)
+          await runTimedStep(options.logPrefix, 'Building packages', { expectedSeconds: 20 }, async () =>
+            runYarnCommand(['build:packages'], commandEnvironment, {
+              silent: !options.verbose,
+            }))
+        } else {
+          console.log(`[${options.logPrefix}] Skipping package build step (no build:packages script at project root).`)
+        }
 
         console.log(`[${options.logPrefix}] Regenerating module artifacts...`)
-        await rm(path.join(projectRootDirectory, 'apps', 'mercato', '.mercato', 'generated', 'modules.generated.checksum'), {
+        await rm(APP_MODULES_CHECKSUM_PATH, {
           force: true,
         })
         await runTimedStep(options.logPrefix, 'Regenerating module artifacts', { expectedSeconds: 8 }, async () =>
           runYarnCommand(['generate'], commandEnvironment, {
             silent: !options.verbose,
-          }))
+          }, appDirectory))
 
-        console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
-        await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
-          runYarnCommand(['build:packages'], commandEnvironment, {
-            silent: !options.verbose,
-          }))
+        if (PROJECT_SUPPORTS_PACKAGE_BUILDS) {
+          console.log(`[${options.logPrefix}] Rebuilding packages after generation...`)
+          await runTimedStep(options.logPrefix, 'Rebuilding packages after generation', { expectedSeconds: 20 }, async () =>
+            runYarnCommand(['build:packages'], commandEnvironment, {
+              silent: !options.verbose,
+            }))
+        }
 
         console.log(`[${options.logPrefix}] Building application...`)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
-          runYarnWorkspaceCommand(appWorkspace, 'build', [], commandEnvironment, {
+          runYarnCommand(['build'], commandEnvironment, {
             silent: !options.verbose,
-          }))
+          }, appDirectory))
       }
 
       if (shouldPersistBuildCache && sourceFingerprintValue) {
@@ -2609,13 +2698,20 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)
-      const startedAppProcess = startYarnWorkspaceCommand(appWorkspace, 'start', [], commandEnvironment, {
+      const startedAppProcess = startYarnCommand(['start'], commandEnvironment, {
         silent: !options.verbose,
-      })
+      }, appDirectory)
       applicationProcess = startedAppProcess
 
-      await runTimedStep(options.logPrefix, 'Waiting for application readiness', { expectedSeconds: 12 }, async () =>
-        waitForApplicationReadiness(applicationBaseUrl, startedAppProcess))
+      await runTimedStep(
+        options.logPrefix,
+        'Waiting for application readiness',
+        { expectedSeconds: Math.max(12, Math.ceil(appReadyTimeoutMs / 1000)) },
+        async () =>
+          waitForApplicationReadiness(applicationBaseUrl, startedAppProcess, {
+            timeoutMs: appReadyTimeoutMs,
+          }),
+      )
       console.log(`[${options.logPrefix}] Application is ready at ${applicationBaseUrl}`)
       await writeEphemeralEnvironmentState({
         baseUrl: applicationBaseUrl,

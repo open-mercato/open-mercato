@@ -1,5 +1,6 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
+import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
 export { registerCrossProcessEventListener } from './bridge'
@@ -40,38 +41,6 @@ export function registerGlobalEventTap(handler: GlobalEventTap): () => void {
   return () => {
     taps.delete(handler)
   }
-}
-
-/**
- * Match an event name against a pattern.
- *
- * Supports:
- * - Exact match: `customers.people.created`
- * - Wildcard `*` matches single segment: `customers.*` matches `customers.people` but not `customers.people.created`
- * - Global wildcard: `*` alone matches all events
- *
- * @param eventName - The actual event name
- * @param pattern - The pattern to match against
- * @returns True if the event matches the pattern
- */
-function matchEventPattern(eventName: string, pattern: string): boolean {
-  // Global wildcard matches all events
-  if (pattern === '*') return true
-
-  // Exact match
-  if (pattern === eventName) return true
-
-  // No wildcards in pattern means we need exact match, which already failed
-  if (!pattern.includes('*')) return false
-
-  // Convert pattern to regex:
-  // - Escape regex special chars (except *)
-  // - Replace * with [^.]+ (match one or more non-dot chars)
-  const regexPattern = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '[^.]+')
-  const regex = new RegExp(`^${regexPattern}$`)
-  return regex.test(eventName)
 }
 
 /** Job data structure for queued events */

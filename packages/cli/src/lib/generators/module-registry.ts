@@ -12,6 +12,7 @@ import {
 import {
   scanModuleDir,
   resolveModuleFile,
+  resolveFirstModuleFile,
   SCAN_CONFIGS,
   type ModuleRoots,
   type ModuleImports,
@@ -110,7 +111,9 @@ function processPageFiles(options: {
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
     const routePath = type === 'frontend'
       ? '/' + (routeSegs.join('/') || '')
-      : '/backend/' + [modId, ...segs, name].filter(Boolean).join('/')
+      : '/backend/' + (segs[0] === modId
+          ? [...segs, name].filter(Boolean).join('/')
+          : [modId, ...segs, name].filter(Boolean).join('/'))
     const metaCandidates = [
       path.join(fromApp ? appDir : pkgDir, ...segs, `${name}.meta.ts`),
       path.join(fromApp ? appDir : pkgDir, ...segs, 'meta.ts'),
@@ -391,6 +394,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const notificationsChecksumFile = path.join(outputDir, 'notifications.generated.checksum')
   const notificationsClientOutFile = path.join(outputDir, 'notifications.client.generated.ts')
   const notificationsClientChecksumFile = path.join(outputDir, 'notifications.client.generated.checksum')
+  const paymentsClientOutFile = path.join(outputDir, 'payments.client.generated.ts')
+  const paymentsClientChecksumFile = path.join(outputDir, 'payments.client.generated.checksum')
   const notificationHandlersOutFile = path.join(outputDir, 'notification-handlers.generated.ts')
   const notificationHandlersChecksumFile = path.join(outputDir, 'notification-handlers.generated.checksum')
   const messageTypesOutFile = path.join(outputDir, 'message-types.generated.ts')
@@ -405,6 +410,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const eventsChecksumFile = path.join(outputDir, 'events.generated.checksum')
   const analyticsOutFile = path.join(outputDir, 'analytics.generated.ts')
   const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
+  const bootstrapRegsOutFile = path.join(outputDir, 'bootstrap-registrations.generated.ts')
+  const bootstrapRegsChecksumFile = path.join(outputDir, 'bootstrap-registrations.generated.checksum')
   const transFieldsOutFile = path.join(outputDir, 'translations-fields.generated.ts')
   const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
   const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
@@ -419,8 +426,37 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const guardsChecksumFile = path.join(outputDir, 'guards.generated.checksum')
   const commandInterceptorsOutFile = path.join(outputDir, 'command-interceptors.generated.ts')
   const commandInterceptorsChecksumFile = path.join(outputDir, 'command-interceptors.generated.checksum')
+  const frontendMiddlewareOutFile = path.join(outputDir, 'frontend-middleware.generated.ts')
+  const frontendMiddlewareChecksumFile = path.join(outputDir, 'frontend-middleware.generated.checksum')
+  const backendMiddlewareOutFile = path.join(outputDir, 'backend-middleware.generated.ts')
+  const backendMiddlewareChecksumFile = path.join(outputDir, 'backend-middleware.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+
+  // Pre-pass: collect generator plugins from each enabled module's generators.ts
+  const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>()
+  const pluginState = new Map<string, { imports: string[]; configs: string[] }>()
+  for (const entry of enabled) {
+    const roots = resolver.getModulePaths(entry)
+    const rawImps = resolver.getModuleImportBase(entry)
+    const isAppMod = entry.from === '@app'
+    const appImportBase = isAppMod ? `../../src/modules/${entry.id}` : rawImps.appBase
+    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    const resolved = resolveModuleFile(roots, imps, 'generators.ts')
+    if (!resolved) continue
+    try {
+      const pluginMod = await import(resolved.absolutePath)
+      const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
+        pluginMod.generatorPlugins ?? pluginMod.default ?? []
+      for (const plugin of plugins) {
+        if (!pluginRegistry.has(plugin.id)) {
+          pluginRegistry.set(plugin.id, plugin)
+          pluginState.set(plugin.id, { imports: [], configs: [] })
+        }
+      }
+    } catch {}
+  }
+
   const imports: string[] = []
   const moduleDecls: string[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
@@ -436,6 +472,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const notificationImports: string[] = []
   const notificationClientTypes: string[] = []
   const notificationClientImports: string[] = []
+  const paymentsClientImports: string[] = []
   const notificationHandlerEntries: string[] = []
   const notificationHandlerImports: string[] = []
   const messageTypeEntries: string[] = []
@@ -462,6 +499,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const guardImports: string[] = []
   const commandInterceptorConfigs: string[] = []
   const commandInterceptorImports: string[] = []
+  const frontendMiddlewareConfigs: string[] = []
+  const frontendMiddlewareImports: string[] = []
+  const backendMiddlewareConfigs: string[] = []
+  const backendMiddlewareImports: string[] = []
 
   // UMES conflict detection: collect file paths during module processing
   const umesConflictSources: Array<{
@@ -601,6 +642,16 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? []) }`,
     })
 
+    {
+      const resolved = resolveFirstModuleFile(roots, imps, [
+        'widgets/payments/client.tsx',
+        'widgets/payments/client.ts',
+      ])
+      if (resolved) {
+        paymentsClientImports.push(`import '${resolved.importPath}'`)
+      }
+    }
+
     processStandaloneConfig({
       roots, imps, modId, importIdRef,
       relativePath: 'notifications.handlers.ts',
@@ -735,6 +786,18 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
     })
 
+    // Generator plugins: process each registered plugin's convention file
+    for (const plugin of pluginRegistry.values()) {
+      processStandaloneConfig({
+        roots, imps, modId, importIdRef,
+        relativePath: plugin.conventionFile,
+        prefix: plugin.importPrefix,
+        standaloneImports: pluginState.get(plugin.id)!.imports,
+        standaloneConfigs: pluginState.get(plugin.id)!.configs,
+        configExpr: plugin.configExpr,
+      })
+    }
+
     // Inbox Actions: inbox-actions.ts
     {
       const resolved = resolveModuleFile(roots, imps, 'inbox-actions.ts')
@@ -766,6 +829,26 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       standaloneImports: commandInterceptorImports,
       standaloneConfigs: commandInterceptorConfigs,
       configExpr: (n, id) => `{ moduleId: '${id}', interceptors: ((${n} as any).interceptors ?? (${n} as any).default ?? []) }`,
+    })
+
+    // 10g. Frontend page middleware: frontend/middleware.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'frontend/middleware.ts',
+      prefix: 'FRONTEND_MIDDLEWARE',
+      standaloneImports: frontendMiddlewareImports,
+      standaloneConfigs: frontendMiddlewareConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
+    })
+
+    // 10h. Backend page middleware: backend/middleware.ts
+    processStandaloneConfig({
+      roots, imps, modId, importIdRef,
+      relativePath: 'backend/middleware.ts',
+      prefix: 'BACKEND_MIDDLEWARE',
+      standaloneImports: backendMiddlewareImports,
+      standaloneConfigs: backendMiddlewareConfigs,
+      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
     })
 
     // 11. Setup: setup.ts
@@ -1212,6 +1295,10 @@ export const notificationHandlerEntries: NotificationHandlerEntry[] = [
 ${notificationHandlersEntriesLiteral ? `  ${notificationHandlersEntriesLiteral}\n` : ''}]
 `
 
+  const paymentsClientOutput = `// AUTO-GENERATED by mercato generate registry
+${paymentsClientImports.length ? paymentsClientImports.join('\n') + '\n' : '\n'}export const paymentGatewayClientModuleCount = ${paymentsClientImports.length}
+`
+
   const messageTypeEntriesLiteral = messageTypeEntries.join(',\n  ')
   const messageTypeImportSection = messageTypeImports.join('\n')
   const messageTypesOutput = `// AUTO-GENERATED by mercato generate registry
@@ -1422,6 +1509,7 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   writeGeneratedFile({ outFile: aiToolsOutFile, checksumFile: aiToolsChecksumFile, content: aiToolsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: notificationsOutFile, checksumFile: notificationsChecksumFile, content: notificationsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: notificationsClientOutFile, checksumFile: notificationsClientChecksumFile, content: notificationsClientOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: paymentsClientOutFile, checksumFile: paymentsClientChecksumFile, content: paymentsClientOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: notificationHandlersOutFile, checksumFile: notificationHandlersChecksumFile, content: notificationHandlersOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: messageTypesOutFile, checksumFile: messageTypesChecksumFile, content: messageTypesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: messageObjectsOutFile, checksumFile: messageObjectsChecksumFile, content: messageObjectsOutput, structureChecksum, result, quiet })
@@ -1429,6 +1517,43 @@ export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
   writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
+
+  // Generator plugin outputs (registered via modules' generators.ts)
+  for (const [pluginId, plugin] of pluginRegistry) {
+    const state = pluginState.get(pluginId)!
+    const importSection = state.imports.join('\n')
+    const entriesLiteral = state.configs.join(',\n  ')
+    const content = plugin.buildOutput({ importSection, entriesLiteral })
+    const outFile = path.join(outputDir, plugin.outputFileName)
+    const checksumFile = outFile.replace('.ts', '.checksum')
+    writeGeneratedFile({ outFile, checksumFile, content, structureChecksum, result, quiet })
+  }
+
+  // Bootstrap registrations: aggregate all plugin bootstrap-registration hooks into one file.
+  // Always written (even when empty) so bootstrap.ts can unconditionally import it.
+  {
+    const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
+    const allEntryImports: string[] = []
+    const allRegImports: string[] = []
+    const allCalls: string[] = []
+    for (const plugin of bootstrapPlugins) {
+      const reg = plugin.bootstrapRegistration!
+      const outputBase = plugin.outputFileName.replace('.ts', '')
+      allEntryImports.push(`import { ${reg.entriesExportName} } from './${outputBase}'`)
+      allRegImports.push(...reg.registrationImports)
+      allCalls.push(reg.buildCall(reg.entriesExportName))
+    }
+    const uniqueImports = [...new Set([...allEntryImports, ...allRegImports])]
+    const importSection = uniqueImports.join('\n')
+    const body = allCalls.length ? `  ${allCalls.join('\n  ')}` : ''
+    const bootstrapRegsOutput = `// AUTO-GENERATED by mercato generate registry
+${importSection ? `${importSection}\n` : ''}
+export function runBootstrapRegistrations(): void {
+${body}
+}
+`
+    writeGeneratedFile({ outFile: bootstrapRegsOutFile, checksumFile: bootstrapRegsChecksumFile, content: bootstrapRegsOutput, structureChecksum, result, quiet })
+  }
 
   // Enrichers generated file
   const enricherEntriesLiteral = enricherConfigs.join(',\n  ')
@@ -1517,6 +1642,46 @@ export const commandInterceptorEntries: CommandInterceptorEntry[] = [
 ${commandInterceptorEntriesLiteral ? `  ${commandInterceptorEntriesLiteral}\n` : ''}]
 `
   writeGeneratedFile({ outFile: commandInterceptorsOutFile, checksumFile: commandInterceptorsChecksumFile, content: commandInterceptorsOutput, structureChecksum, result, quiet })
+
+  const frontendMiddlewareEntriesLiteral = frontendMiddlewareConfigs.join(',\n  ')
+  const frontendMiddlewareImportSection = frontendMiddlewareImports.join('\n')
+  const frontendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
+import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
+${frontendMiddlewareImportSection ? `\n${frontendMiddlewareImportSection}\n` : '\n'}type FrontendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
+
+const entriesRaw: FrontendMiddlewareEntry[] = [
+${frontendMiddlewareEntriesLiteral ? `  ${frontendMiddlewareEntriesLiteral}\n` : ''}]
+
+export const frontendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
+`
+  writeGeneratedFile({
+    outFile: frontendMiddlewareOutFile,
+    checksumFile: frontendMiddlewareChecksumFile,
+    content: frontendMiddlewareOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+
+  const backendMiddlewareEntriesLiteral = backendMiddlewareConfigs.join(',\n  ')
+  const backendMiddlewareImportSection = backendMiddlewareImports.join('\n')
+  const backendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
+import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
+${backendMiddlewareImportSection ? `\n${backendMiddlewareImportSection}\n` : '\n'}type BackendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
+
+const entriesRaw: BackendMiddlewareEntry[] = [
+${backendMiddlewareEntriesLiteral ? `  ${backendMiddlewareEntriesLiteral}\n` : ''}]
+
+export const backendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
+`
+  writeGeneratedFile({
+    outFile: backendMiddlewareOutFile,
+    checksumFile: backendMiddlewareChecksumFile,
+    content: backendMiddlewareOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
 
   return result
 }

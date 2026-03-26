@@ -3,7 +3,6 @@ import type { SearchService } from '@open-mercato/search/service'
 import { registerMcpTool, getToolRegistry } from './tool-registry'
 import type { McpToolDefinition, McpToolContext } from './types'
 import { ToolSearchService } from './tool-search'
-import { loadApiDiscoveryTools } from './api-discovery-tools'
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -68,154 +67,21 @@ export async function loadAllModuleTools(): Promise<void> {
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
   console.error('[MCP Tools] Registered built-in context_whoami tool')
 
-  // 2. Register entity graph tools
+  // 2. Register Code Mode tools (search + execute)
+  // These two tools replace the previous api_discover, call_api, discover_schema,
+  // and all module-specific AI tools. The AI writes JavaScript that runs in a
+  // node:vm sandbox with access to the OpenAPI spec and api.request().
   try {
-    const { entityGraphTools } = await import('./entity-graph-tools')
-    for (const tool of entityGraphTools) {
-      registerMcpTool(tool, { moduleId: 'schema' })
-    }
-    console.error(`[MCP Tools] Registered ${entityGraphTools.length} entity graph tools`)
+    const { loadCodeModeTools } = await import('./codemode-tools')
+    const toolCount = await loadCodeModeTools()
+    console.error(`[MCP Tools] Registered ${toolCount} Code Mode tools`)
   } catch (error) {
-    console.error('[MCP Tools] Could not load entity graph tools:', error)
+    console.error('[MCP Tools] Could not load Code Mode tools:', error)
   }
 
-  // 3. Load auto-discovered ai-tools.ts files from modules
-  // Tools are discovered by the generator and registered in ai-tools.generated.ts
-  try {
-    const pathModule = await import('node:path')
-    const path = pathModule.default
-    const { pathToFileURL } = await import('node:url')
-    const fsModule = await import('node:fs')
-    const fs = fsModule.default
-    const { findAppRoot, findAllApps } = await import('@open-mercato/shared/lib/bootstrap/appResolver')
-
-    // Find the app root (contains .mercato/generated/)
-    let appRoot = findAppRoot()
-
-    // Fallback: Try monorepo structure if not found
-    if (!appRoot) {
-      let current = process.cwd()
-      while (current !== path.dirname(current)) {
-        const appsDir = path.join(current, 'apps')
-        if (fs.existsSync(appsDir)) {
-          const apps = findAllApps(current)
-          if (apps.length > 0) {
-            appRoot = apps[0]
-            break
-          }
-        }
-        current = path.dirname(current)
-      }
-    }
-
-    if (!appRoot) {
-      console.error(`[MCP Tools] Could not find app root with .mercato/generated directory`)
-      return
-    }
-
-    const tsPath = path.join(appRoot.generatedDir, 'ai-tools.generated.ts')
-
-    // Check if file exists
-    if (!fs.existsSync(tsPath)) {
-      console.error(`[MCP Tools] No auto-discovered tools (run npm run modules:prepare to generate)`)
-    } else {
-      // Compile TypeScript to JavaScript using esbuild (same approach as dynamicLoader)
-      const jsPath = tsPath.replace(/\.ts$/, '.mjs')
-      const jsExists = fs.existsSync(jsPath)
-
-      const needsCompile = !jsExists ||
-        fs.statSync(tsPath).mtimeMs > fs.statSync(jsPath).mtimeMs
-
-      if (needsCompile) {
-        console.error(`[MCP Tools] Compiling ai-tools.generated.ts...`)
-        const esbuild = await import('esbuild')
-        const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
-
-        // Plugin to resolve @/ alias to app root
-        const aliasPlugin: import('esbuild').Plugin = {
-          name: 'alias-resolver',
-          setup(build) {
-            build.onResolve({ filter: /^@\// }, (args) => {
-              const resolved = path.join(appRoot, args.path.slice(2))
-              if (!fs.existsSync(resolved) && fs.existsSync(resolved + '.ts')) {
-                return { path: resolved + '.ts' }
-              }
-              if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory() && fs.existsSync(path.join(resolved, 'index.ts'))) {
-                return { path: path.join(resolved, 'index.ts') }
-              }
-              return { path: resolved }
-            })
-          },
-        }
-
-        // Plugin to mark non-JSON package imports as external
-        const externalNonJsonPlugin: import('esbuild').Plugin = {
-          name: 'external-non-json',
-          setup(build) {
-            // Filter matches paths that don't start with . or / (package imports)
-            build.onResolve({ filter: /^[^./]/ }, (args) => {
-              // Skip Windows absolute paths (e.g., C:\...) - they're local files, not packages
-              if (/^[a-zA-Z]:/.test(args.path)) {
-                return null
-              }
-              if (args.path.endsWith('.json')) {
-                return null
-              }
-              return { path: args.path, external: true }
-            })
-          },
-        }
-
-        await esbuild.build({
-          entryPoints: [tsPath],
-          outfile: jsPath,
-          bundle: true,
-          format: 'esm',
-          platform: 'node',
-          target: 'node18',
-          plugins: [aliasPlugin, externalNonJsonPlugin],
-          loader: { '.json': 'json' },
-        })
-        console.error(`[MCP Tools] Compiled to ${jsPath}`)
-      }
-
-      // Import the compiled JavaScript
-      const fileUrl = pathToFileURL(jsPath).href
-      const { aiToolConfigEntries } = (await import(fileUrl)) as {
-        aiToolConfigEntries: Array<{ moduleId: string; tools: unknown[] }>
-      }
-
-      let totalTools = 0
-      for (const { moduleId, tools } of aiToolConfigEntries) {
-        if (Array.isArray(tools) && tools.length > 0) {
-          loadModuleTools(moduleId, tools as ModuleAiTool[])
-          totalTools += tools.length
-          console.error(`[MCP Tools] Loaded ${tools.length} tools from ${moduleId}`)
-        }
-      }
-      if (totalTools === 0) {
-        console.error(`[MCP Tools] No module tools found in generated registry`)
-      }
-    }
-  } catch (error) {
-    // Generated file might not exist yet (first run) or be empty
-    // This is expected when no modules have ai-tools.ts files
-    const errorMessage = error instanceof Error ? error.message : String(error)
-    console.error(`[MCP Tools] Error loading auto-discovered tools:`, errorMessage)
-    if (errorMessage.includes('Cannot find module') || errorMessage.includes('ENOENT')) {
-      console.error(`[MCP Tools] No auto-discovered tools (run npm run modules:prepare to generate)`)
-    } else {
-      console.error(`[MCP Tools] Could not load auto-discovered tools:`, error)
-    }
-  }
-
-  // 4. Load API discovery tools (api_discover, api_execute)
-  try {
-    const apiToolCount = await loadApiDiscoveryTools()
-    console.error(`[MCP Tools] Loaded ${apiToolCount} API discovery tools`)
-  } catch (error) {
-    console.error('[MCP Tools] Could not load API discovery tools:', error)
-  }
+  // Note: Auto-discovered module AI tools (from ai-tools.generated.ts) and
+  // legacy API discovery tools (find_api, call_api, discover_schema) are no
+  // longer loaded. Code Mode's search + execute tools cover all use cases.
 }
 
 /**

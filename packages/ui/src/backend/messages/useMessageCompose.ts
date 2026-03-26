@@ -131,6 +131,7 @@ export function useMessageCompose({
   const t = useT()
   const variant = variantProp
   const isOpen = inline ? true : Boolean(open)
+  const recipientSuggestionsCacheRef = React.useRef<TagsInputOption[] | null>(null)
 
   const [recipientIds, setRecipientIds] = React.useState<string[]>([])
   const [recipientMap, setRecipientMap] = React.useState<Record<string, TagsInputOption>>({})
@@ -342,6 +343,11 @@ export function useMessageCompose({
     setRecipientIds([])
   }, [variant, visibility])
 
+  React.useEffect(() => {
+    if (isOpen) return
+    recipientSuggestionsCacheRef.current = null
+  }, [isOpen])
+
   const resolveRecipientLabel = React.useCallback((id: string) => {
     return recipientMap[id]?.label ?? id
   }, [recipientMap])
@@ -350,13 +356,16 @@ export function useMessageCompose({
     return recipientIds.map((id) => recipientMap[id] ?? { value: id, label: id })
   }, [recipientIds, recipientMap])
 
-  const loadRecipientSuggestions = React.useCallback(async (query?: string) => {
+  const loadRecipientSuggestions = React.useCallback(async (_query?: string) => {
+    const cachedOptions = recipientSuggestionsCacheRef.current
+    if (cachedOptions) {
+      return cachedOptions
+    }
+
     const params = new URLSearchParams()
     params.set('page', '1')
-    params.set('pageSize', '20')
-    if (query && query.trim().length) {
-      params.set('search', query.trim())
-    }
+    params.set('pageSize', '100')
+    // Recipient lookup is filtered in TagsInput because incremental auth user search is unreliable.
 
     const call = await apiCall<{ items?: UserListItem[] }>(`/api/auth/users?${params.toString()}`)
     if (!call.ok) {
@@ -390,6 +399,7 @@ export function useMessageCompose({
       })
     }
 
+    recipientSuggestionsCacheRef.current = options
     return options
   }, [])
 

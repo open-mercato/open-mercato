@@ -411,9 +411,11 @@ async function ensureDefaultRoleAcls(
   const employeeRole = await findRoleByName(em, 'employee', roleTenantId)
 
   // Merge features from all enabled modules' setup configs
+  const builtInRoles = ['superadmin', 'admin', 'employee'] as const
   const superadminFeatures: string[] = []
   const adminFeatures: string[] = []
   const employeeFeatures: string[] = []
+  const customRoleFeatures = new Map<string, string[]>()
 
   for (const mod of modules) {
     const roleFeatures = mod.setup?.defaultRoleFeatures
@@ -421,12 +423,24 @@ async function ensureDefaultRoleAcls(
     if (roleFeatures.superadmin) superadminFeatures.push(...roleFeatures.superadmin)
     if (roleFeatures.admin) adminFeatures.push(...roleFeatures.admin)
     if (roleFeatures.employee) employeeFeatures.push(...roleFeatures.employee)
+
+    // Collect features for custom roles (any key not in builtInRoles)
+    for (const [roleName, features] of Object.entries(roleFeatures)) {
+      if ((builtInRoles as readonly string[]).includes(roleName)) continue
+      if (!Array.isArray(features)) continue
+      const existing = customRoleFeatures.get(roleName) ?? []
+      existing.push(...features)
+      customRoleFeatures.set(roleName, existing)
+    }
   }
 
   console.log('✅ Seeded default role features', {
     superadmin: superadminFeatures,
     admin: adminFeatures,
     employee: employeeFeatures,
+    ...(customRoleFeatures.size > 0
+      ? Object.fromEntries(customRoleFeatures)
+      : {}),
   })
 
   if (includeSuperadminRole && superadminRole) {
@@ -437,6 +451,59 @@ async function ensureDefaultRoleAcls(
   }
   if (employeeRole) {
     await ensureRoleAclFor(em, employeeRole, tenantId, employeeFeatures)
+  }
+
+  // Seed ACLs for custom roles defined by app modules.
+  // NOTE: Custom roles may not exist yet if they are created in seedDefaults
+  // (which runs after this function). In that case, use ensureCustomRoleAcls()
+  // after seedDefaults to pick them up.
+  for (const [roleName, features] of customRoleFeatures) {
+    const role = await findRoleByName(em, roleName, roleTenantId)
+    if (role) {
+      await ensureRoleAclFor(em, role, tenantId, features)
+    }
+  }
+}
+
+/**
+ * Seed ACLs for custom roles defined in module defaultRoleFeatures.
+ * Call this AFTER seedDefaults to pick up roles created by app modules.
+ * Safe to call multiple times — ensureRoleAclFor merges features idempotently.
+ */
+export async function ensureCustomRoleAcls(
+  em: EntityManager,
+  tenantId: string,
+  modules?: Module[],
+): Promise<void> {
+  const resolvedModules = modules ?? tryGetModules()
+  const roleTenantId = normalizeTenantId(tenantId) ?? null
+  const builtInRoles = ['superadmin', 'admin', 'employee']
+  const customRoleFeatures = new Map<string, string[]>()
+
+  for (const mod of resolvedModules) {
+    const roleFeatures = mod.setup?.defaultRoleFeatures
+    if (!roleFeatures) continue
+    for (const [roleName, features] of Object.entries(roleFeatures)) {
+      if (builtInRoles.includes(roleName)) continue
+      if (!Array.isArray(features)) continue
+      const existing = customRoleFeatures.get(roleName) ?? []
+      existing.push(...features)
+      customRoleFeatures.set(roleName, existing)
+    }
+  }
+
+  if (customRoleFeatures.size === 0) return
+
+  let seeded = 0
+  for (const [roleName, features] of customRoleFeatures) {
+    const role = await findRoleByName(em, roleName, roleTenantId)
+    if (role) {
+      await ensureRoleAclFor(em, role, tenantId, features)
+      seeded++
+    }
+  }
+  if (seeded > 0) {
+    console.log(`✅ Seeded custom role ACLs (${seeded} roles)`)
   }
 }
 

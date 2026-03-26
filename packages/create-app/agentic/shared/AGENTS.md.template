@@ -1,17 +1,21 @@
 # Agent Context Routing — {{PROJECT_NAME}}
 
-Read this file before any task. Load ONLY the files listed for your task type.
+**MANDATORY CONTEXT LOADING** — see Critical Rule #5 below.
+Before writing code, find your task below and `Read` the listed files.
 Do NOT load the entire src/ tree — Open Mercato apps can have many modules.
 
 ## What This Project Is
 
 A standalone Open Mercato application built ON TOP of the framework.
 The framework lives in `node_modules/@open-mercato/*`. Never edit `node_modules` directly.
+Install official packages with `yarn mercato module add @open-mercato/<package>`.
 To customise a built-in module beyond extensions, eject with `yarn mercato eject <module>`.
 
 ## Task → Context Map
 
-Match your task, then load the listed file(s) BEFORE writing code. A task may match multiple rows.
+Match your task below, then **STOP and Read the listed file(s)** before writing
+any code. A task may match multiple rows — load all of them. If you skip this
+step, you WILL produce incorrect imports and miss required patterns.
 
 ### Module Development
 
@@ -37,7 +41,7 @@ Match your task, then load the listed file(s) BEFORE writing code. A task may ma
 
 | Task | Load |
 |---|---|
-| Add/modify an entity, create migration | `.ai/guides/core.md` → Module Files, then `yarn db:generate` |
+| Add/modify an entity, create migration | `.ai/guides/core.md` → Module Files, then `yarn mercato db generate` |
 | Add a REST API endpoint | `.ai/guides/core.md` → API Routes |
 | Add a backend page | `.ai/guides/ui.md` → CrudForm / DataTable |
 | Add event subscribers or emit events | `.ai/guides/events.md` |
@@ -97,14 +101,24 @@ src/modules/<id>/
 
 Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 
-## Critical Conventions
+## CRITICAL rules — always follow without exception
 
-- After any module/entity change: `yarn generate`
-- After any entity edit: `yarn db:generate` (never hand-write migrations)
-- NEVER edit `.mercato/generated/*` — auto-generated
-- NEVER edit `node_modules/@open-mercato/*` — eject instead
+1. **After editing any entity file**: run `yarn mercato db generate` (never hand-write migrations)
+2. **After editing `src/modules.ts`** or any module file: run `yarn generate`
+3. **Never edit `.mercato/generated/*`** — auto-generated. Never edit `node_modules/@open-mercato/*` — eject instead.
+4. **Confirm migrations with user** before running `yarn mercato db migrate`
+5. **BEFORE writing ANY code**, you MUST:
+   - Match your task against the **Task → Context Map** above
+   - `Read` every file listed in the "Load" column for your task type
+   - Only then proceed to implementation
+   - If your task matches multiple rows, load ALL listed files
+   - **Do NOT skip this step.** The guides contain canonical import paths, required patterns, and conventions that CANNOT be reliably inferred from existing code alone. Skipping leads to wrong imports, missing conventions, and rework.
+
+## Additional Conventions
+
 - Custom modules use `from: '@app'` in `src/modules.ts`
-- Confirm migrations with user before `yarn db:migrate`
+- Sidebar icons MUST use `lucide-react` components — never inline SVG via `React.createElement`
+- DataTable MUST wire pagination props (`page`, `pageSize`, `totalCount`, `onPageChange`)
 
 ## Naming Conventions
 
@@ -158,8 +172,9 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 |---|---|
 | `yarn dev` | Start dev server |
 | `yarn generate` | Regenerate `.mercato/generated/` |
-| `yarn db:generate` | Create migration for entity changes |
-| `yarn db:migrate` | Apply pending migrations |
+| `yarn mercato module add <package>` | Install and enable an official module package |
+| `yarn mercato db generate` | Create migration for entity changes |
+| `yarn mercato db migrate` | Apply pending migrations |
 | `yarn initialize` | Bootstrap DB + first admin account |
 | `yarn build` | Build for production |
 | `yarn mercato eject <module>` | Copy a core module into `src/modules/` |

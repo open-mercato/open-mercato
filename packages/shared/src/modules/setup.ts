@@ -18,6 +18,7 @@ export type DefaultRoleFeatures = {
   superadmin?: string[]
   admin?: string[]
   employee?: string[]
+  [customRole: string]: string[] | undefined
 }
 
 export type DefaultCustomerRoleFeatures = {

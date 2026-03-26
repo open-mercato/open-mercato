@@ -263,7 +263,7 @@ const executeActionCommand: CommandHandler<
     }
 
     if (shouldRecordActionTaken) {
-      await commandBus.execute('messages.actions.record_terminal', {
+      const terminalResult = await commandBus.execute('messages.actions.record_terminal', {
         input: {
           messageId: message.id,
           actionId: action.id,
@@ -280,6 +280,9 @@ const executeActionCommand: CommandHandler<
           organizationIds: input.organizationId ? [input.organizationId] : null,
         },
       })
+      if (!operationLogEntry) {
+        operationLogEntry = terminalResult.logEntry ?? null
+      }
       await emitMessagesEvent(
         'messages.message.action_taken',
         {

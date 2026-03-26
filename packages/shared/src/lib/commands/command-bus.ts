@@ -269,7 +269,9 @@ export class CommandBus {
       }
     }
 
-    await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+    if (!effectiveOptions.skipCacheInvalidation) {
+      await this.invalidateCacheAfterExecute(commandId, effectiveOptions, finalResult, mergedMeta)
+    }
     await this.flushCrudSideEffects(effectiveOptions.ctx.container)
     return { result: finalResult, logEntry }
   }
@@ -352,7 +354,15 @@ export class CommandBus {
 
   private resolveHandler<TInput, TResult>(commandId: string): CommandHandler<TInput, TResult> {
     const handler = commandRegistry.get<TInput, TResult>(commandId)
-    if (!handler) throw new Error(`Command handler not registered for id ${commandId}`)
+    if (!handler) {
+      const moduleName = commandId.split('.')[0]
+      const registered = commandRegistry.list()
+      const sameModule = registered.filter((id) => id.split('.')[0] === moduleName)
+      const hint = sameModule.length > 0
+        ? ` Registered commands for module "${moduleName}": [${sameModule.join(', ')}].`
+        : ` No commands registered for module "${moduleName}". Ensure the command file is imported (side-effect) in the module's index.ts.`
+      throw new Error(`Command handler not registered for id ${commandId}.${hint}`)
+    }
     return handler
   }
 

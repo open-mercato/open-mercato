@@ -1,0 +1,95 @@
+---
+title: mercato module enable
+sidebar_label: module enable
+description: Registers an already-installed official module package in your app, with optional source ejection, without reinstalling dependencies.
+---
+
+`yarn mercato module enable` registers an official module package that is already present in `node_modules` into your app's `src/modules.ts` and runs the code generators. It does **not** install any npm dependencies. Pass `--eject` if you want the module copied into `src/modules/<moduleId>/` and loaded as a local `@app` module instead of directly from the installed package.
+
+This command is useful when you pin a module package directly in your workspace `package.json` (for example, in a monorepo where a package is already a workspace dependency) and only need to activate it in the app.
+
+## Usage
+
+```bash
+# Single-module package — module is selected automatically
+yarn mercato module enable <packageName>
+
+# Multi-module package — select which module to enable
+yarn mercato module enable <packageName> --module <moduleId>
+
+# Copy the installed module source into src/modules/<moduleId>/
+yarn mercato module enable <packageName> --eject
+```
+
+`<packageName>` is the full npm package name (e.g., `@open-mercato/test-package`), without a version suffix.
+
+## Options
+
+| Option | Description |
+| --- | --- |
+| `<packageName>` | Full npm package name of the already-installed official module. Must be scoped under `@open-mercato/*` and present in `node_modules`. |
+| `--module <moduleId>` | Select a specific module from a package that contains multiple modules. Required when the package exposes more than one module; omit for single-module packages. |
+| `--eject` | Copy the selected module source into `src/modules/<moduleId>/`, rewrite cross-module imports to the origin package, and register it as `from: '@app'`. Omit this flag to keep loading the module from `node_modules`. |
+
+## When to Use `module enable` vs `module add`
+
+| Situation | Command |
+| --- | --- |
+| Package is not yet installed | `mercato module add <packageSpec>` |
+| Package is already in `node_modules` and just needs registering | `mercato module enable <packageName>` |
+| Package has multiple modules | `mercato module enable <packageName> --module <moduleId>` |
+| Package is already installed and you want local source ownership | `mercato module enable <packageName> --eject` |
+| Package is not installed and you want local source ownership immediately | `mercato module add <packageSpec> --eject` |
+
+## What the Command Does
+
+1. Resolves `<packageName>` from the current workspace `node_modules`.
+2. Scans the package's `src/modules/` directory (falling back to `dist/modules/`) to discover available modules.
+3. If `--module` is provided, selects that module; if the package has exactly one module, selects it automatically; otherwise errors with the list of available module IDs.
+4. If `--eject` is used, verifies that the selected module is marked `ejectable` in its `index.ts`, then copies the module directory into `src/modules/<moduleId>/`.
+5. Registers the module in `src/modules.ts`:
+   - **Default flow**: adds an entry with `from: '<packageName>'`.
+   - **With `--eject`**: adds an entry with `from: '@app'`.
+6. Runs `mercato generate` to regenerate the module registry, entity IDs, DI bindings, and API client.
+
+## Examples
+
+Register a single-module package already installed in the workspace:
+
+```bash
+yarn mercato module enable @open-mercato/test-package
+```
+
+Enable one specific module from a multi-module package (e.g. `@open-mercato/core`):
+
+```bash
+yarn mercato module enable @open-mercato/core --module currencies
+yarn mercato module enable @open-mercato/core --module portal
+```
+
+Enable an already-installed package and copy its source locally:
+
+```bash
+yarn mercato module enable @open-mercato/test-package --eject
+```
+
+## Post-Enable Steps
+
+```bash
+# 1. Apply any new database migrations introduced by the module
+yarn db:migrate
+
+# 2. Start the dev server
+yarn dev
+```
+
+## Troubleshooting
+
+- **Package not found in node_modules** — the package must already be installed. Run `yarn mercato module add <packageSpec>` to install and register in one step.
+- **No modules found** — the package has no `src/modules/` or `dist/modules/` directory. Only `@open-mercato/*` packages that expose at least one module directory are supported.
+- **Multiple modules, --module required** — the package contains more than one module. Rerun with `--module <moduleId>`. The error message lists the available IDs.
+- **Module already registered** — the module is already present in `src/modules.ts` from the same source. Nothing to do — it is already active.
+- **Module registered from a different source** — the module exists in `src/modules.ts` but with a different `from` value. Remove the existing entry first, or use [`mercato module eject`](./eject) if the package-backed module is already enabled and you want to switch it to local ownership.
+- **Package not marked as ejectable** (`--eject`) — only modules whose `index.ts` exports `ejectable: true` can be copied into `src/modules/`.
+- **Destination directory already exists** (`--eject`) — remove `src/modules/<moduleId>/` before running the command again with `--eject`.
+- **Build errors after enabling** — run `yarn mercato generate` to regenerate all artifacts, then verify with `yarn build`.

@@ -6,8 +6,18 @@ Check `.ai/specs/` and `.ai/specs/enterprise/` before modifying any module. Crea
 
 - `.ai/specs/` contains Open Source edition specifications.
 - `.ai/specs/enterprise/` contains commercial Enterprise Edition specifications.
-- Enterprise specs are numbered independently and use the `SPEC-ENT-{number}` format, starting from `SPEC-ENT-001` within `.ai/specs/enterprise/`.
+- New enterprise specs use the same `{date}-{title}.md` filename convention as OSS specs; the directory path, not a filename prefix, defines the scope.
 - Enterprise specifications are not distributed under the open source license. For commercial licensing and partnership details, see [`packages/enterprise/README.md`](../../packages/enterprise/README.md).
+
+## Spec Lifecycle States
+
+Specs are organized by implementation status:
+- **Root** (`.ai/specs/`): Pending, draft, in-progress, or partially implemented specs
+- **Implemented** (`.ai/specs/implemented/`): Fully implemented and deployed specs
+- **Enterprise Root** (`.ai/specs/enterprise/`): Pending enterprise specs
+- **Enterprise Implemented** (`.ai/specs/enterprise/implemented/`): Fully implemented enterprise specs
+
+Move a spec to `implemented/` when all phases are complete and the feature is deployed. Use `git mv` to preserve history. Update all cross-references when moving.
 
 ## Detailed Guidance
 
@@ -23,16 +33,16 @@ For detailed spec writing and review, use the spec-writing skill:
 ## File Naming Convention
 
 Use the naming format that matches scope:
-- OSS: `SPEC-{number}-{date}-{title}.md`
-- Enterprise: `SPEC-ENT-{number}-{date}-{title}.md`
-- `number`: sequential zero-padded ID (`001`, `002`, ...)
+- OSS: `{date}-{title}.md`
+- Enterprise: `{date}-{title}.md`
 - `date`: `YYYY-MM-DD`
 - `title`: kebab-case summary
+- Legacy numbered filenames may remain in the repo until they are intentionally normalized, but new specs MUST NOT introduce `SPEC-*` or `SPEC-ENT-*` filename prefixes.
 
 Examples:
-- `SPEC-023-2026-02-11-confirmation-dialog-migration.md`
-- `SPEC-024-2026-02-12-example-module.md`
-- `SPEC-ENT-001-2026-02-17-security-module-enterprise-mfa.md`
+- `2026-02-11-confirmation-dialog-migration.md`
+- `2026-02-12-example-module.md`
+- `2026-02-17-security-module-enterprise-mfa.md`
 
 ## Workflow Triggers
 

@@ -109,4 +109,34 @@ describe('integration discovery', () => {
       'packages/create-app/template/src/modules/auth/__integration__/TC-AUTH-001.spec.ts',
     ])
   })
+
+  it('discovers standalone app integration tests from src/modules', async () => {
+    await writeTestFile(tempRoot, 'src/modules/auth/.gitkeep')
+    await writeTestFile(tempRoot, 'src/modules/sales/.gitkeep')
+    await writeTestFile(
+      tempRoot,
+      'src/modules/sales/__integration__/TC-SALES-020.spec.ts',
+      'export {}\n',
+    )
+
+    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([
+      'src/modules/sales/__integration__/TC-SALES-020.spec.ts',
+    ])
+  })
+
+  it('discovers standalone package integration tests from node_modules/@open-mercato', async () => {
+    await writeTestFile(tempRoot, 'src/modules/customers/.gitkeep')
+    await writeTestFile(tempRoot, 'node_modules/@open-mercato/core/src/modules/customers/.gitkeep')
+    await writeTestFile(
+      tempRoot,
+      'node_modules/@open-mercato/core/src/modules/customers/__integration__/TC-CRM-020.spec.ts',
+      'export {}\n',
+    )
+
+    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([
+      'node_modules/@open-mercato/core/src/modules/customers/__integration__/TC-CRM-020.spec.ts',
+    ])
+  })
 })

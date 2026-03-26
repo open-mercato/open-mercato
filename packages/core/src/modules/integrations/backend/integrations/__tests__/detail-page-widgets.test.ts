@@ -77,8 +77,9 @@ describe('integration detail widget helpers', () => {
   })
 
   it('resolves requested tab ids with custom tabs ahead of built-in fallbacks', () => {
-    expect(resolveRequestedIntegrationDetailTab('stripe-settings', true, ['stripe-settings'])).toBe('stripe-settings')
-    expect(resolveRequestedIntegrationDetailTab('version', false, ['stripe-settings'])).toBe('credentials')
-    expect(resolveRequestedIntegrationDetailTab('logs', true, ['stripe-settings'])).toBe('logs')
+    expect(resolveRequestedIntegrationDetailTab('stripe-settings', ['credentials', 'stripe-settings', 'logs'])).toBe('stripe-settings')
+    expect(resolveRequestedIntegrationDetailTab('version', ['settings', 'logs'])).toBe('settings')
+    expect(resolveRequestedIntegrationDetailTab('logs', ['settings', 'logs'])).toBe('logs')
+    expect(resolveRequestedIntegrationDetailTab(undefined, ['settings', 'logs'])).toBe('settings')
   })
 })

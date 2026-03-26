@@ -15,6 +15,7 @@ import {
   buildOptionSchemaDefinition,
   convertSchemaToProductOptions,
   buildVariantCombinations,
+  isConfigurableProductType,
 } from '../productForm'
 
 describe('product form measurement normalizers', () => {
@@ -504,5 +505,80 @@ describe('buildVariantCombinations', () => {
     ]
     const result = buildVariantCombinations(options)
     expect(result).toEqual([])
+  })
+})
+
+describe('BASE_INITIAL_VALUES SKU and product type defaults', () => {
+  it('has empty sku default', () => {
+    expect(BASE_INITIAL_VALUES.sku).toBe('')
+  })
+
+  it('has simple productType default', () => {
+    expect(BASE_INITIAL_VALUES.productType).toBe('simple')
+  })
+})
+
+describe('isConfigurableProductType', () => {
+  it('returns true for configurable', () => {
+    expect(isConfigurableProductType('configurable')).toBe(true)
+  })
+
+  it('returns true for virtual', () => {
+    expect(isConfigurableProductType('virtual')).toBe(true)
+  })
+
+  it('returns true for downloadable', () => {
+    expect(isConfigurableProductType('downloadable')).toBe(true)
+  })
+
+  it('returns false for simple', () => {
+    expect(isConfigurableProductType('simple')).toBe(false)
+  })
+
+  it('returns false for bundle', () => {
+    expect(isConfigurableProductType('bundle')).toBe(false)
+  })
+
+  it('returns false for grouped', () => {
+    expect(isConfigurableProductType('grouped')).toBe(false)
+  })
+
+  it('returns false for empty string', () => {
+    expect(isConfigurableProductType('')).toBe(false)
+  })
+})
+
+describe('productFormSchema SKU validation', () => {
+  it('accepts omitted sku', () => {
+    const result = productFormSchema.safeParse({ title: 'Test' })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts empty sku', () => {
+    const result = productFormSchema.safeParse({ title: 'Test', sku: '' })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts valid alphanumeric sku', () => {
+    const result = productFormSchema.safeParse({ title: 'Test', sku: 'PROD-001_v2.3' })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects sku with spaces', () => {
+    const result = productFormSchema.safeParse({ title: 'Test', sku: 'PROD 001' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((issue) => issue.path.join('.'))
+      expect(paths).toContain('sku')
+    }
+  })
+
+  it('rejects sku with special characters', () => {
+    const result = productFormSchema.safeParse({ title: 'Test', sku: 'PROD@001' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((issue) => issue.path.join('.'))
+      expect(paths).toContain('sku')
+    }
   })
 })

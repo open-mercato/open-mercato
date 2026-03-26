@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers'
+import { cookies } from 'next/headers.js'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { verifyJwt } from './jwt'
 
@@ -21,6 +21,11 @@ export type AuthContext = {
 } | null
 
 type CookieOverride = { applied: boolean; value: string | null }
+type AuthResolutionStatus = 'authenticated' | 'missing' | 'invalid'
+type AuthResolution = {
+  auth: AuthContext
+  status: AuthResolutionStatus
+}
 
 function decodeCookieValue(raw: string | undefined): string | null {
   if (raw === undefined) return null
@@ -113,7 +118,8 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
-    const { Role } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Role, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
 
     const record = await findApiKeyBySecret(em, secret)
     if (!record) return null
@@ -122,7 +128,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       ? record.rolesJson.filter((value): value is string => typeof value === 'string' && value.length > 0)
       : []
     const roles = roleIds.length
-      ? await em.find(Role, { id: { $in: roleIds } })
+      ? await em.find(Role, { id: { $in: roleIds }, deletedAt: null })
       : []
     const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
 
@@ -135,6 +141,23 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
 
     // For session keys, use sessionUserId; for regular keys, use createdBy
     const actualUserId = record.sessionUserId ?? record.createdBy ?? null
+
+    if (actualUserId) {
+      const user = await em.findOne(User, { id: actualUserId, deletedAt: null })
+      if (!user) return null
+      if ((user.tenantId ?? null) !== (record.tenantId ?? null)) return null
+      if ((user.organizationId ?? null) !== (record.organizationId ?? null)) return null
+    } else {
+      if (record.tenantId) {
+        const tenant = await em.findOne(Tenant, { id: record.tenantId, deletedAt: null, isActive: true })
+        if (!tenant) return null
+      }
+      if (record.organizationId) {
+        const organization = await em.findOne(Organization, { id: record.organizationId, deletedAt: null, isActive: true })
+        if (!organization) return null
+        if (record.tenantId && String(organization.tenant.id) !== record.tenantId) return null
+      }
+    }
 
     return {
       sub: `api_key:${record.id}`,
@@ -161,28 +184,55 @@ function extractApiKey(req: Request): string | null {
   return null
 }
 
-export async function getAuthFromCookies(): Promise<AuthContext> {
-  const cookieStore = await cookies()
-  const token = cookieStore.get('auth_token')?.value
-  if (!token) return null
+async function resolveCanonicalInteractiveAuthContext(auth: AuthContext): Promise<AuthContext> {
+  if (!auth || auth.isApiKey) return auth
+  if (typeof auth.sub !== 'string' || auth.sub.trim().length === 0) return null
+
   try {
-    const payload = verifyJwt(token) as AuthContext
-    if (!payload) return null
-    if ((payload as any).type === 'customer') return null
-    const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
-    const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
-    return applySuperAdminScope(payload, tenantCookie, orgCookie)
+    const [{ createRequestContainer }, { resolveCanonicalStaffAuthContext }] = await Promise.all([
+      import('@open-mercato/shared/lib/di/container'),
+      import('@open-mercato/core/modules/auth/lib/sessionIntegrity'),
+    ])
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    return await resolveCanonicalStaffAuthContext(em, auth)
   } catch {
     return null
   }
 }
 
-export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
+export async function resolveAuthFromCookiesDetailed(): Promise<AuthResolution> {
+  const cookieStore = await cookies()
+  const token = cookieStore.get('auth_token')?.value
+  if (!token) return { auth: null, status: 'missing' }
+  try {
+    const payload = verifyJwt(token) as AuthContext
+    if (!payload) return { auth: null, status: 'invalid' }
+    if (payload.type === 'customer') return { auth: null, status: 'invalid' }
+    const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
+    if (!canonicalAuth) return { auth: null, status: 'invalid' }
+    const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
+    const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
+    return {
+      auth: applySuperAdminScope(canonicalAuth, tenantCookie, orgCookie),
+      status: 'authenticated',
+    }
+  } catch {
+    return { auth: null, status: 'invalid' }
+  }
+}
+
+export async function getAuthFromCookies(): Promise<AuthContext> {
+  return (await resolveAuthFromCookiesDetailed()).auth
+}
+
+export async function resolveAuthFromRequestDetailed(req: Request): Promise<AuthResolution> {
   const cookieHeader = req.headers.get('cookie') || ''
   const tenantCookie = readCookieFromHeader(cookieHeader, TENANT_COOKIE_NAME)
   const orgCookie = readCookieFromHeader(cookieHeader, ORGANIZATION_COOKIE_NAME)
   const authHeader = (req.headers.get('authorization') || '').trim()
   let token: string | undefined
+  let hadInvalidInteractiveToken = false
   if (authHeader.toLowerCase().startsWith('bearer ')) token = authHeader.slice(7).trim()
   if (!token) {
     const match = cookieHeader.match(/(?:^|;\s*)auth_token=([^;]+)/)
@@ -191,16 +241,36 @@ export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
   if (token) {
     try {
       const payload = verifyJwt(token) as AuthContext
-      if (payload && (payload as any).type === 'customer') return null
-      if (payload) return applySuperAdminScope(payload, tenantCookie, orgCookie)
+      if (payload && payload.type === 'customer') return { auth: null, status: 'invalid' }
+      if (payload) {
+        const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
+        if (canonicalAuth) {
+          return {
+            auth: applySuperAdminScope(canonicalAuth, tenantCookie, orgCookie),
+            status: 'authenticated',
+          }
+        }
+        hadInvalidInteractiveToken = true
+      }
     } catch {
-      // fall back to API key detection
+      hadInvalidInteractiveToken = true
     }
   }
 
   const apiKey = extractApiKey(req)
-  if (!apiKey) return null
+  if (!apiKey) {
+    return { auth: null, status: hadInvalidInteractiveToken ? 'invalid' : 'missing' }
+  }
   const apiAuth = await resolveApiKeyAuth(apiKey)
-  if (!apiAuth) return null
-  return applySuperAdminScope(apiAuth, tenantCookie, orgCookie)
+  if (!apiAuth) {
+    return { auth: null, status: hadInvalidInteractiveToken ? 'invalid' : 'missing' }
+  }
+  return {
+    auth: applySuperAdminScope(apiAuth, tenantCookie, orgCookie),
+    status: 'authenticated',
+  }
+}
+
+export async function getAuthFromRequest(req: Request): Promise<AuthContext> {
+  return (await resolveAuthFromRequestDetailed(req)).auth
 }

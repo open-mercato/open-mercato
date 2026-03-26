@@ -138,6 +138,22 @@ export interface IntegrationDetailPageConfig {
    * or additional tabs via `placement.kind`.
    */
   widgetSpotId?: string
+  /**
+   * Built-in tabs to hide for this integration detail page.
+   * Provider modules can replace these with injected tabs using the same spot.
+   */
+  hiddenTabs?: IntegrationDetailBuiltInTab[]
+}
+
+export type IntegrationDetailBuiltInTab =
+  | 'credentials'
+  | 'version'
+  | 'health'
+  | 'logs'
+  | 'data-sync-schedule'
+
+export interface IntegrationDefaultStateConfig {
+  isEnabled?: boolean
 }
 
 export interface IntegrationDefinition {
@@ -159,6 +175,7 @@ export interface IntegrationDefinition {
   license?: string
   tags?: string[]
   detailPage?: IntegrationDetailPageConfig
+  defaultState?: IntegrationDefaultStateConfig
   credentials?: IntegrationCredentialsSchema
   healthCheck?: IntegrationHealthCheckConfig
 }

@@ -58,6 +58,7 @@ export type CommandExecutionOptions<TInput> = {
   input: TInput
   ctx: CommandRuntimeContext
   metadata?: CommandLogMetadata | null
+  skipCacheInvalidation?: boolean
 }
 
 export function defaultUndoToken(): string {

@@ -103,6 +103,22 @@ The `ShippingCarrierService` (resolved via DI as `shippingCarrierService`) provi
 | `getTracking(input)` | Fetch tracking info and update stored status |
 | `cancelShipment(input)` | Cancel shipment and update status |
 
+## Admin UI entry points
+
+The carrier shipment flow is intentionally order-driven:
+
+- operators start from **Sales → Orders**
+- the carrier module injects a **Create shipment** row action for a specific order
+- the wizard reads `orderId` from the route and pre-fills shipment context from that order
+
+This means the standalone `/backend/shipping-carriers/create` page is an implementation route, not a first-class sidebar destination. The supported operator flow is to launch shipment creation from an order row action or another order-scoped entry point.
+
+Practical implications:
+
+- a carrier shipment can be created without first assigning a sales shipping method on the order
+- the wizard still requires an order context
+- at least one configured carrier provider must be available for the flow to be useful
+
 ## Events
 
 - `shipping_carriers.shipment.created` — new shipment created

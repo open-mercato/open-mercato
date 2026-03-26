@@ -848,6 +848,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
+      entity.deletedAt = null
 
       let profile = await em.findOne(CustomerCompanyProfile, { entity })
       if (!profile) {

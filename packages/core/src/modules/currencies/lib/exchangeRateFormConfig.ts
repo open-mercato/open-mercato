@@ -106,7 +106,6 @@ export function exchangeRateGroups(
           required: false,
           description: t('exchangeRates.form.field.typeHelp'),
           options: [
-            { value: '', label: t('exchangeRates.form.field.typeNone') },
             { value: 'buy', label: t('exchangeRates.form.field.typeBuy') },
             { value: 'sell', label: t('exchangeRates.form.field.typeSell') },
           ],

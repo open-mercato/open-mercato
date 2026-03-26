@@ -27,6 +27,7 @@
   "search.dialog.actions.search": "Szukaj",
   "search.dialog.empty.hint": "Wpisz co najmniej dwa znaki, aby przeszukać zindeksowane rekordy.",
   "search.dialog.empty.none": "Brak wyników.",
+  "search.dialog.errors.noPermission": "Nie masz uprawnień do korzystania z wyszukiwania globalnego.",
   "search.dialog.errors.searchFailed": "Wyszukiwanie nie powiodło się.",
   "search.dialog.input.placeholder": "Szukaj klientów, notatek, szans, zadań...",
   "search.dialog.instructions": "Wpisz tekst, aby przeszukać zindeksowane rekordy. Użyj strzałek do nawigacji po wynikach.",

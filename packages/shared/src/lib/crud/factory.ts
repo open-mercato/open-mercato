@@ -33,7 +33,7 @@ import {
   loadCustomFieldDefinitionIndex,
 } from './custom-fields'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
-import { CrudHttpError } from './errors'
+import { CrudHttpError, isCrudHttpError } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -354,8 +354,8 @@ export type CrudFactoryOptions<TCreate, TUpdate, TList> = {
   create?: CreateConfig<TCreate>
   update?: UpdateConfig<TUpdate>
   del?: DeleteConfig
-  events?: CrudEventsConfig
-  indexer?: CrudIndexerConfig
+  events?: CrudEventsConfig<any>
+  indexer?: CrudIndexerConfig<any>
   resolveIdentifiers?: CrudIdentifierResolver
   hooks?: CrudHooks<TCreate, TUpdate, TList>
   actions?: {
@@ -446,7 +446,7 @@ function attachOperationHeader(res: Response, logEntry: any) {
 
 function handleError(err: unknown): Response {
   if (err instanceof Response) return err
-  if (err instanceof CrudHttpError) return json(err.body, { status: err.status })
+  if (isCrudHttpError(err)) return json(err.body, { status: err.status })
   if (err instanceof z.ZodError) return json({ error: 'Invalid input', details: err.issues }, { status: 400 })
 
   const message = err instanceof Error ? err.message : undefined

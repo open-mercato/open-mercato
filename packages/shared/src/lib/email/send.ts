@@ -1,6 +1,7 @@
 import { Resend } from 'resend'
 import React from 'react'
 import { parseBooleanWithDefault } from '../boolean'
+import { resolveDefaultEmailFromAddress } from './config'
 
 export type SendEmailOptions = {
   to: string
@@ -24,7 +25,10 @@ export async function sendEmail({ to, subject, react, from, replyTo, attachments
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('RESEND_API_KEY is not set')
   const resend = new Resend(apiKey)
-  const fromAddr = from || process.env.EMAIL_FROM || 'no-reply@localhost'
+  const fromAddr = from || resolveDefaultEmailFromAddress()
+  if (!fromAddr) {
+    throw new Error('EMAIL_FROM_NOT_CONFIGURED: set NOTIFICATIONS_EMAIL_FROM, EMAIL_FROM, or ADMIN_EMAIL')
+  }
   const payload = {
     to,
     subject,

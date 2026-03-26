@@ -19,6 +19,7 @@
   "payment_gateways.status.pending": "Pending",
   "payment_gateways.status.refunded": "Refunded",
   "payment_gateways.status.unknown": "Unknown",
+  "payment_gateways.transactions.actions.capture": "Capture payment",
   "payment_gateways.transactions.actions.hideDetails": "Hide details",
   "payment_gateways.transactions.actions.refreshStatus": "Refresh status",
   "payment_gateways.transactions.actions.showDetails": "Show details",
@@ -54,6 +55,7 @@
   "payment_gateways.transactions.detail.title": "Transaction details",
   "payment_gateways.transactions.detail.webhooks": "Webhook activity",
   "payment_gateways.transactions.detail.webhooksEmpty": "No webhook events have been recorded for this transaction yet.",
+  "payment_gateways.transactions.error.capture": "Failed to capture payment",
   "payment_gateways.transactions.error.load": "Failed to load payment transactions",
   "payment_gateways.transactions.error.loadDetail": "Failed to load transaction details",
   "payment_gateways.transactions.error.refreshStatus": "Failed to refresh transaction status",
@@ -71,6 +73,7 @@
   "payment_gateways.transactions.log.runId": "Run ID",
   "payment_gateways.transactions.log.time": "Time",
   "payment_gateways.transactions.searchPlaceholder": "Search by payment, transaction, session, or gateway id",
+  "payment_gateways.transactions.success.capture": "Payment captured",
   "payment_gateways.transactions.success.refreshStatus": "Transaction status refreshed",
   "payment_gateways.transactions.tableTitle": "Transactions",
   "payment_gateways.transactions.title": "Payment Transactions"

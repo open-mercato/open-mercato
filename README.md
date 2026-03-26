@@ -269,6 +269,19 @@ Navigate to `http://localhost:3000/backend` and sign in with the default credent
 
 Full installation guide (including prerequisites, Docker setup, and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
 
+## Release Channels
+
+- `latest` is the stable npm channel published from `main`.
+- `develop` is the moving prerelease channel published from pushes to `develop`.
+- Exact snapshot versions remain installable for debugging or rollback when you need to pin one specific build.
+
+Examples:
+
+```bash
+yarn add @open-mercato/core@develop
+npx create-mercato-app@develop my-app
+```
+
 ## Docker Setup
 
 Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
@@ -368,16 +381,20 @@ docker compose -f docker-compose.preview.yaml down
 
 > **Attention:** This type of deployment is ephemeral and intended for testing purposes only. After stopping the containers, all data will be lost. Do not use this setup in production.
 
+### Official Modules
 
-### Deploy on Railway
+Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repo is where the community publishes those features.
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/TKvo95)
+Every module there:
 
-One-click deployment on [Railway](https://railway.com) with PostgreSQL (pgvector), Redis, and Meilisearch provisioned automatically.
+- 🔌 **Installs in one command** — no manual wiring, no config files to edit
+- 🔒 **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
+- 🧬 **Is ejectable** — run `--eject` to copy the module into your app and own it fully
+- 🤝 **Gets reviewed** — every submission goes through core team review before reaching npm
 
-> **Note:** Open Mercato requires at least **2 GB of memory**. The Railway **Hobby plan** (or higher) is required — the free tier is not sufficient.
+Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
 
-See the [Railway deployment guide](https://docs.openmercato.com/installation/railway) for environment variables, first-boot setup, and custom domain configuration.
+[![Watch: Official Modules](https://img.youtube.com/vi/alPsIVq7PKo/maxresdefault.jpg)](https://www.youtube.com/watch?v=alPsIVq7PKo)
 
 ### VPS Deployment
 

@@ -250,3 +250,49 @@ export class UserAcl {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+@Entity({ tableName: 'user_consents' })
+@Unique({ properties: ['userId', 'tenantId', 'consentType'] })
+export class UserConsent {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'consent_type', type: 'text' })
+  consentType!: string
+
+  @Property({ name: 'is_granted', type: 'boolean', default: false })
+  isGranted: boolean = false
+
+  @Property({ name: 'granted_at', type: Date, nullable: true })
+  grantedAt?: Date | null
+
+  @Property({ name: 'withdrawn_at', type: Date, nullable: true })
+  withdrawnAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  source?: string | null
+
+  @Property({ name: 'ip_address', type: 'text', nullable: true })
+  ipAddress?: string | null
+
+  @Property({ name: 'integrity_hash', type: 'text', nullable: true })
+  integrityHash?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  updatedAt?: Date
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

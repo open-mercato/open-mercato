@@ -15,6 +15,7 @@ import {
   type StaffTeamCreateInput,
   type StaffTeamUpdateInput,
 } from '../data/validators'
+import { staffTeamCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -103,6 +104,7 @@ const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      events: staffTeamCrudEvents,
       indexer: teamCrudIndexer,
     })
 
@@ -156,6 +158,7 @@ const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }
           organizationId: team.organizationId,
           tenantId: team.tenantId,
         },
+        events: staffTeamCrudEvents,
         indexer: teamCrudIndexer,
       })
     }
@@ -211,6 +214,7 @@ const updateTeamCommand: CommandHandler<StaffTeamUpdateInput, { teamId: string }
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      events: staffTeamCrudEvents,
       indexer: teamCrudIndexer,
     })
 
@@ -290,6 +294,7 @@ const updateTeamCommand: CommandHandler<StaffTeamUpdateInput, { teamId: string }
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      events: staffTeamCrudEvents,
       indexer: teamCrudIndexer,
     })
   },
@@ -348,6 +353,7 @@ const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      events: staffTeamCrudEvents,
       indexer: teamCrudIndexer,
     })
     return { teamId: team.id }
@@ -422,6 +428,7 @@ const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
         organizationId: team.organizationId,
         tenantId: team.tenantId,
       },
+      events: staffTeamCrudEvents,
       indexer: teamCrudIndexer,
     })
   },

@@ -24,6 +24,8 @@ import { E } from '#generated/entities.ids.generated'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { staffLeaveRequestCrudEvents } from '../lib/crud'
+import { plannerAvailabilityRuleCrudEvents } from '../../planner/lib/crud'
 
 const leaveRequestCrudIndexer: CrudIndexerConfig<StaffLeaveRequest> = {
   entityType: E.staff.staff_leave_request,
@@ -258,6 +260,7 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
 
@@ -338,7 +341,8 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
           organizationId: request.organizationId,
           tenantId: request.tenantId,
         },
-        indexer: leaveRequestCrudIndexer,
+        events: staffLeaveRequestCrudEvents,
+      indexer: leaveRequestCrudIndexer,
       })
     }
   },
@@ -385,6 +389,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
 
@@ -457,6 +462,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
   },
@@ -486,6 +492,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
 
@@ -536,6 +543,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
   },
@@ -589,6 +597,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
     if (createdRuleIds.length) {
@@ -603,6 +612,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
             organizationId: rule.organizationId,
             tenantId: rule.tenantId,
           },
+          events: plannerAvailabilityRuleCrudEvents,
           indexer: availabilityRuleCrudIndexer,
         })
       }
@@ -701,6 +711,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
 
@@ -724,6 +735,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
             organizationId: rule.organizationId,
             tenantId: rule.tenantId,
           },
+          events: plannerAvailabilityRuleCrudEvents,
           indexer: availabilityRuleCrudIndexer,
         })
       }
@@ -764,6 +776,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
 
@@ -853,6 +866,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
         organizationId: request.organizationId,
         tenantId: request.tenantId,
       },
+      events: staffLeaveRequestCrudEvents,
       indexer: leaveRequestCrudIndexer,
     })
   },

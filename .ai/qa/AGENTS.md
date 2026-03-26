@@ -59,25 +59,31 @@ packages/enterprise/modules/<module>/__integration__/      # Optional enterprise
 
 ## Reusable Helpers
 
-Use shared helpers directly from `@open-mercato/core/modules/core/__integration__/helpers/*` instead of creating module-local re-export wrappers.
+Use shared helpers from `@open-mercato/core/helpers/integration/*`. These are published in the npm package and available to both monorepo and standalone app developers.
+
+> **Legacy path**: `@open-mercato/core/modules/core/__integration__/helpers/*` still works in the monorepo via re-exports but is NOT available from npm. New code should use the `@open-mercato/core/helpers/integration/*` path.
 
 | Helper Import | Main Exports | Typical Use |
 |------|-------|--------|
-| `@open-mercato/core/modules/core/__integration__/helpers/auth` | `login`, `DEFAULT_CREDENTIALS` | UI authentication and role-based login (`admin`, `employee`, `superadmin`) |
-| `@open-mercato/core/modules/core/__integration__/helpers/api` | `getAuthToken`, `apiRequest` | Authenticated API setup and raw API calls in integration tests |
-| `@open-mercato/core/modules/core/__integration__/helpers/authUi` | `createUserViaUi` | Auth module UI flows for user creation/edit smoke coverage |
-| `@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures` | `createProductFixture`, `deleteCatalogProductIfExists` | Catalog fixture lifecycle for setup/cleanup |
-| `@open-mercato/core/modules/core/__integration__/helpers/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists`, `readJsonSafe` | Customers/CRM fixture creation and cleanup; `readJsonSafe` for parsing Playwright APIResponse body to JSON |
-| `@open-mercato/core/modules/core/__integration__/helpers/salesFixtures` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
-| `@open-mercato/core/modules/core/__integration__/helpers/salesUi` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
-| `packages/create-app/template/src/modules/auth/__integration__/helpers/auth.ts` | `login` | Template-local helper for generated apps (kept local to template) |
+| `@open-mercato/core/helpers/integration/auth` | `login`, `DEFAULT_CREDENTIALS` | UI authentication and role-based login (`admin`, `employee`, `superadmin`) |
+| `@open-mercato/core/helpers/integration/api` | `getAuthToken`, `apiRequest` | Authenticated API setup and raw API calls in integration tests |
+| `@open-mercato/core/helpers/integration/authUi` | `createUserViaUi` | Auth module UI flows for user creation/edit smoke coverage |
+| `@open-mercato/core/helpers/integration/catalogFixtures` | `createProductFixture`, `deleteCatalogProductIfExists` | Catalog fixture lifecycle for setup/cleanup |
+| `@open-mercato/core/helpers/integration/crmFixtures` | `createCompanyFixture`, `createPersonFixture`, `createDealFixture`, `deleteEntityIfExists`, `readJsonSafe` | Customers/CRM fixture creation and cleanup; `readJsonSafe` for parsing Playwright APIResponse body to JSON |
+| `@open-mercato/core/helpers/integration/salesFixtures` | `createSalesQuoteFixture`, `createSalesOrderFixture`, `createOrderLineFixture`, `deleteSalesEntityIfExists` | Sales API fixture lifecycle |
+| `@open-mercato/core/helpers/integration/salesUi` | `createSalesDocument`, `addCustomLine`, `updateLineQuantity`, `deleteLine`, `addAdjustment`, `addPayment`, `addShipment`, `readGrandTotalGross` | Sales document UI interactions and totals assertions |
+| `@open-mercato/core/helpers/integration/authFixtures` | `createRoleFixture`, `deleteRoleIfExists`, `createUserFixture`, `deleteUserIfExists` | Role and user fixture lifecycle |
+| `@open-mercato/core/helpers/integration/generalFixtures` | `readJsonSafe`, `getTokenContext`, `expectId`, `deleteEntityByPathIfExists` | General-purpose test utilities |
+| `@open-mercato/core/helpers/integration/dictionariesFixtures` | `createDictionaryFixture` | Dictionary fixture creation |
 
 Import pattern from module tests:
 
 ```ts
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 ```
+
+> **Barrel import** (subset): `@open-mercato/core/testing/integration` re-exports the most common helpers as a single import for convenience.
 
 ---
 
@@ -87,7 +93,7 @@ Markdown test scenarios (`.ai/qa/scenarios/TC-*.md`) are **optional reference ma
 
 | Path | Input | Output |
 |------|-------|--------|
-| **From spec** | `.ai/specs/SPEC-*.md` | `.spec.ts` directly (no scenario needed) |
+| **From spec** | `.ai/specs/*.md` or `.ai/specs/enterprise/*.md` | `.spec.ts` directly (no scenario needed) |
 | **From scenario** | `.ai/qa/scenarios/TC-*.md` | `.spec.ts` mapped from scenario steps |
 | **From description** | Verbal/written feature description | `.spec.ts` directly |
 | **From skill** | `/integration-tests` | `.spec.ts` + optional scenario markdown |
@@ -158,7 +164,7 @@ The skill reads the related spec, explores the running app via Playwright MCP, a
 #### Step 1 — Understand What to Test
 
 Read one of:
-- A spec from `.ai/specs/SPEC-*.md`
+- A spec from `.ai/specs/*.md` or `.ai/specs/enterprise/*.md`
 - A scenario from `.ai/qa/scenarios/TC-*.md` (if one exists)
 - A feature description from the user
 
@@ -292,7 +298,7 @@ export const integrationMeta = {
 - Keep tests data-independent — do not rely on seeded/demo records being present
 - Create required fixtures per test (prefer API setup), and always clean up created data in `finally`/teardown
 - Ensure tests are deterministic/stable across retries and run order (no cross-test state coupling)
-- Keep reusable helpers centralized (recommended: `packages/core/src/modules/core/__integration__/helpers/`), and re-export from module-local helper files when needed
+- Keep reusable helpers centralized in `packages/core/src/helpers/integration/` (importable as `@open-mercato/core/helpers/integration/*`), and re-export from module-local helper files when needed
 - One `.spec.ts` file per test case
 - MUST NOT leave broken tests — fix or skip with `test.skip()` and a reason
 

@@ -251,6 +251,15 @@ export async function handleOpenCodeMessageStreaming(
   const { message, sessionId, model } = request
   const startTime = Date.now()
 
+  // Accumulators for usage summary
+  const usageStats = {
+    toolCalls: 0,
+    toolNames: [] as string[],
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    messageCount: 0,
+  }
+
   if (!message) {
     await onEvent({ type: 'error', error: 'Message is required' })
     return
@@ -332,6 +341,8 @@ export async function handleOpenCodeMessageStreaming(
             } else if (status.status === 'idle') {
               // Session is explicitly idle and no questions - complete
               resolved = true
+              const durationMs = Date.now() - startTime
+              console.error(`[AI Usage] Session complete (heartbeat): sessionId=${targetSessionId.slice(0, 16)}... duration=${durationMs}ms tokens={in:${usageStats.totalInputTokens},out:${usageStats.totalOutputTokens}} toolCalls=${usageStats.toolCalls} tools=[${usageStats.toolNames.join(',')}] messages=${usageStats.messageCount}`)
               try {
                 await onEvent({ type: 'done', sessionId: targetSessionId })
               } catch (err) {
@@ -457,6 +468,8 @@ export async function handleOpenCodeMessageStreaming(
                         } else {
                           // Truly idle - complete the stream
                           resolved = true
+                          const durationMs = Date.now() - startTime
+                          console.error(`[AI Usage] Session complete: sessionId=${targetSessionId.slice(0, 16)}... duration=${durationMs}ms tokens={in:${usageStats.totalInputTokens},out:${usageStats.totalOutputTokens}} toolCalls=${usageStats.toolCalls} tools=[${usageStats.toolNames.join(',')}] messages=${usageStats.messageCount}`)
                           await onEvent({ type: 'done', sessionId: targetSessionId })
                           cleanup()
                           clearTimeout(timeout)
@@ -517,6 +530,15 @@ export async function handleOpenCodeMessageStreaming(
                       provider: info.providerID,
                       tokens: info.tokens,
                     }
+
+                    // Accumulate token usage
+                    usageStats.messageCount++
+                    if (info.tokens) {
+                      usageStats.totalInputTokens += info.tokens.input || 0
+                      usageStats.totalOutputTokens += info.tokens.output || 0
+                      console.error(`[AI Usage] Tokens (message ${usageStats.messageCount}): input=${info.tokens.input} output=${info.tokens.output} model=${info.modelID || 'unknown'}`)
+                    }
+
                     // Emit intermediate metadata for visibility
                     await onEvent({
                       type: 'debug',
@@ -548,8 +570,16 @@ export async function handleOpenCodeMessageStreaming(
                       await onEvent({ type: 'text', content: delta })
                     }
                     break
+                  case 'thinking':
+                    // Extended thinking blocks — route to debug panel only, never to chat
+                    console.error(`[OpenCode SSE] Thinking block received (${(delta || part.text || '').length} chars)`)
+                    await onEvent({ type: 'debug', partType: 'thinking', data: { text: delta || part.text } })
+                    break
                   case 'tool_use':
                     if (part.name) {
+                      usageStats.toolCalls++
+                      usageStats.toolNames.push(part.name)
+                      console.error(`[AI Usage] Tool call #${usageStats.toolCalls}: ${part.name}`)
                       await onEvent({
                         type: 'tool-call',
                         id: part.id,
@@ -569,6 +599,16 @@ export async function handleOpenCodeMessageStreaming(
                   case 'step-finish':
                     await onEvent({ type: 'debug', partType: part.type, data: part })
                     break
+                }
+                break
+              }
+
+              case 'message.part.delta': {
+                const part = properties.part as { type?: string } | undefined
+                const delta = properties.delta as string | undefined
+                // Filter out thinking deltas — only stream text part deltas to chat
+                if (delta && part?.type !== 'thinking') {
+                  await onEvent({ type: 'text', content: delta })
                 }
                 break
               }

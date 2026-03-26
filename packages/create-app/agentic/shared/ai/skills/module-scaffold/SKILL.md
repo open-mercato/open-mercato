@@ -279,6 +279,23 @@ export const openApi = {
 
 Use `CrudForm` and `DataTable` from `@open-mercato/ui`. See the `backend-ui-design` skill for full component reference.
 
+### Page Metadata & Sidebar Icons
+
+**File**: `src/modules/<module_id>/backend/page.meta.ts`
+
+Icons for the admin sidebar MUST use components from `lucide-react`. Never use inline `React.createElement('svg', ...)` — it is fragile in bundler contexts and can produce broken/wrong icons after `yarn generate`.
+
+```tsx
+import { Trophy } from 'lucide-react'
+
+export const metadata = {
+  title: '<Module Name>',
+  icon: <Trophy className="size-4" />,
+  requireAuth: true,
+  features: ['<module_id>.view'],
+}
+```
+
 ### List Page
 
 **File**: `src/modules/<module_id>/backend/page.tsx`
@@ -588,6 +605,7 @@ yarn dev               # Start dev server
 - [ ] Validators use zod with `z.infer` for types
 - [ ] All API routes export `openApi`
 - [ ] Backend pages use `CrudForm` and `DataTable`
+- [ ] Sidebar icon uses `lucide-react` component (not inline SVG / `React.createElement`)
 - [ ] ACL features declared and wired in `setup.ts`
 - [ ] Module registered in `src/modules.ts` with `from: '@app'`
 - [ ] `yarn generate` run after creating files

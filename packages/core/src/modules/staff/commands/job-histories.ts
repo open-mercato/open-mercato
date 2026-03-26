@@ -10,6 +10,7 @@ import {
   type StaffTeamMemberJobHistoryCreateInput,
   type StaffTeamMemberJobHistoryUpdateInput,
 } from '../data/validators'
+import { staffTeamMemberJobHistoryCrudEvents } from '../lib/crud'
 import {
   ensureOrganizationScope,
   ensureTenantScope,
@@ -95,6 +96,7 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: staffTeamMemberJobHistoryCrudEvents,
       indexer: jobHistoryCrudIndexer,
     })
 
@@ -175,6 +177,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: staffTeamMemberJobHistoryCrudEvents,
       indexer: jobHistoryCrudIndexer,
     })
 
@@ -259,6 +262,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: staffTeamMemberJobHistoryCrudEvents,
       indexer: jobHistoryCrudIndexer,
     })
   },
@@ -293,7 +297,8 @@ const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; 
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
-        indexer: jobHistoryCrudIndexer,
+        events: staffTeamMemberJobHistoryCrudEvents,
+      indexer: jobHistoryCrudIndexer,
       })
       return { jobHistoryId: record.id }
     },
@@ -359,7 +364,8 @@ const deleteJobHistoryCommand: CommandHandler<{ body?: Record<string, unknown>; 
           organizationId: record.organizationId,
           tenantId: record.tenantId,
         },
-        indexer: jobHistoryCrudIndexer,
+        events: staffTeamMemberJobHistoryCrudEvents,
+      indexer: jobHistoryCrudIndexer,
       })
     },
   }

@@ -38,17 +38,22 @@ export async function POST(req: Request) {
       successUrl: parsed.data.successUrl,
       cancelUrl: parsed.data.cancelUrl,
       metadata: parsed.data.metadata,
+      presentation: parsed.data.presentation,
       organizationId: auth.orgId as string,
       tenantId: auth.tenantId,
     })
+
+    const redirectUrl = session.redirectUrl
+      ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null)
 
     return NextResponse.json({
       transactionId: transaction.id,
       sessionId: session.sessionId,
       providerKey: transaction.providerKey,
       clientSecret: session.clientSecret,
-      redirectUrl: session.redirectUrl,
+      redirectUrl,
       providerData: session.providerData ?? null,
+      clientSession: session.clientSession ?? null,
       status: session.status,
       paymentId: transaction.paymentId,
     }, { status: 201 })

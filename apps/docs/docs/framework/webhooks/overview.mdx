@@ -7,7 +7,7 @@ description: Send and receive webhooks using the Standard Webhooks specification
 
 Open Mercato provides a built-in webhook system compliant with the [Standard Webhooks](https://www.standardwebhooks.com/) specification. The webhooks module enables:
 
-1. **Outbound webhooks** — push domain events to external HTTP endpoints, SQS queues, or SNS topics
+1. **Outbound webhooks** — push domain events to external HTTP endpoints
 2. **Inbound webhooks** — receive and verify webhooks from external systems via a generic adapter pattern
 
 ## How It Works
@@ -56,6 +56,19 @@ content-type: application/json
 ```
 
 ## Webhook Management
+
+### Integration-level controls
+
+The module also registers a **Custom Webhooks** integration in the Integration Marketplace. That integration acts as the global control plane for the webhook subsystem:
+
+- The integration **State** switch enables or blocks outbound deliveries, retries, test sends, and inbound receives.
+- The integration **Settings** tab exposes quick links to `/backend/webhooks`, a create action, and the **Notify admins on failed delivery** setting.
+- The integration **Logs** tab shows an aggregated delivery log across all configured webhook endpoints.
+
+This means webhook operations have two scopes:
+
+- **Integration scope** — global on/off and shared notification behavior.
+- **Endpoint scope** — per-webhook URL, event patterns, retries, activation state, and secret lifecycle.
 
 ### Creating a Webhook
 
@@ -172,11 +185,11 @@ Webhook secrets use the Standard Webhooks format:
 
 ## Delivery Strategies
 
-| Strategy | Use Case | Phase |
-|----------|----------|-------|
-| `http` | Standard HTTP/HTTPS endpoints (default) | 1 |
-| `sqs` | AWS SQS queues for async processing | 2 |
-| `sns` | AWS SNS topics for fan-out | 2 |
+| Strategy | Use Case | Status |
+|----------|----------|--------|
+| `http` | Standard HTTP/HTTPS endpoints (default) | Available today |
+| `sqs` | AWS SQS queues for async processing | Planned |
+| `sns` | AWS SNS topics for fan-out | Planned |
 
 ## Inbound Webhooks
 
@@ -220,10 +233,34 @@ import {
 ## Admin UI
 
 The webhook management dashboard is available at `/backend/webhooks` with:
-- Webhook list with status, event count, and delivery health indicators
-- Create/edit forms with event subscription picker
-- Delivery log viewer with request/response details
-- Secret rotation and test delivery controls
+
+- A webhook list with status, event patterns, last delivery, and quick actions
+- Create/edit forms with event selection, retry controls, timeout, rate limiting, and custom headers
+- One-time secret reveal after create or rotate
+- Per-endpoint detail pages with test sends, secret rotation, and delivery drilldown
+- Aggregated delivery visibility from the integration detail page at `/backend/integrations/webhook_custom`
+
+### Primary operator routes
+
+| Route | Purpose |
+|-------|---------|
+| `/backend/integrations/webhook_custom` | Global webhook settings, failed-delivery notifications, configured endpoint shortcuts, aggregated delivery log |
+| `/backend/webhooks` | Endpoint list and create entry point |
+| `/backend/webhooks/create` | Create a new webhook endpoint |
+| `/backend/webhooks/:id` | Endpoint detail, send test, rotate secret, inspect delivery history |
+
+### Failed delivery notifications
+
+When **Notify admins on failed delivery** is enabled in the integration **Settings** tab, the module creates in-app notifications for admin-capable users after a delivery exhausts all retry attempts. This notification layer is independent from HTTP retry logic and is meant to surface operational issues early.
+
+### Secret lifecycle UX
+
+Secrets are generated automatically and revealed in plaintext only:
+
+- immediately after webhook creation
+- immediately after secret rotation
+
+After that, the admin UI only shows a masked value. Operators must copy the secret during the reveal window or rotate it again later.
 
 ## RBAC Features
 
@@ -236,6 +273,7 @@ The webhook management dashboard is available at `/backend/webhooks` with:
 
 ## Related
 
+- [User Guide: Custom Webhooks](/user-guide/webhooks) — operator-facing walkthrough with screenshots
 - [Events & Subscribers](../events/overview.mdx) — the event system that powers webhook dispatching
 - [Queue & Workers](../events/queue-workers.mdx) — the queue infrastructure used for delivery processing
 - [SPEC-057 — Webhooks Module](https://github.com/open-mercato/open-mercato/issues/257) — full technical specification

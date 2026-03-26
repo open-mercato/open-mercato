@@ -51,6 +51,8 @@ async function readJsonSafe<T>(response: { text(): Promise<string> }): Promise<T
  */
 test.describe('TC-ADMIN-011: User Widget Override And Dashboard Enablement', () => {
   test('should enable widgets for current admin user and switch them on in dashboard', async ({ page, request }) => {
+    test.slow();
+
     const token = await getAuthToken(request, 'admin');
 
     let adminUserId: string | null = null;
@@ -105,7 +107,7 @@ test.describe('TC-ADMIN-011: User Widget Override And Dashboard Enablement', () 
       }
 
       await login(page, 'admin');
-      await page.goto(`/backend/users/${encodeURIComponent(String(adminUserId))}/edit`);
+      await page.goto(`/backend/users/${encodeURIComponent(String(adminUserId))}/edit`, { waitUntil: 'domcontentloaded' });
 
       await expect(page.getByText('Dashboard Widgets')).toBeVisible();
       await page.getByRole('radio', { name: 'Override for this user' }).check();
@@ -114,7 +116,7 @@ test.describe('TC-ADMIN-011: User Widget Override And Dashboard Enablement', () 
       await page.getByRole('button', { name: 'Save widgets' }).click();
       await expect(page.getByText('Dashboard widgets updated').first()).toBeVisible();
 
-      await page.goto('/backend');
+      await page.goto('/backend', { waitUntil: 'domcontentloaded' });
       await expect(page.getByText('No widgets selected yet.')).toBeVisible();
 
       await page.getByRole('button', { name: 'Customize', exact: true }).click();

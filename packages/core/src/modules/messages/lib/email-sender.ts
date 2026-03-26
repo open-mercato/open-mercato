@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { promises as fs } from 'fs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
@@ -192,7 +193,7 @@ export async function sendMessageEmailToRecipient(params: {
     hasViewUrl: Boolean(viewUrl),
     attachmentsCount: resendAttachments.length,
     hasApiKey: Boolean(process.env.RESEND_API_KEY),
-    from: process.env.EMAIL_FROM ?? null,
+    from: resolveDefaultEmailFromAddress() ?? null,
   })
 
   await sendEmail({
@@ -229,7 +230,7 @@ export async function sendMessageEmailToExternal(params: {
     email,
     attachmentsCount: resendAttachments.length,
     hasApiKey: Boolean(process.env.RESEND_API_KEY),
-    from: process.env.EMAIL_FROM ?? null,
+    from: resolveDefaultEmailFromAddress() ?? null,
   })
 
   await sendEmail({

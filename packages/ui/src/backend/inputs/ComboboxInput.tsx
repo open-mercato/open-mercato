@@ -92,12 +92,12 @@ export function ComboboxInput({
 
   const filteredSuggestions = React.useMemo(() => {
     const query = input.toLowerCase().trim()
-    if (!query) return availableOptions.slice(0, 8)
+    if (!query) return availableOptions
     return availableOptions.filter((option) => {
       const labelMatch = option.label.toLowerCase().includes(query)
       const descMatch = option.description?.toLowerCase().includes(query)
       return labelMatch || Boolean(descMatch)
-    }).slice(0, 8)
+    })
   }, [availableOptions, input])
 
   React.useEffect(() => {

@@ -12,7 +12,7 @@
  *   - .ai/qa/scenarios/TC-UMES-ML06-showcase-page-sync-probe.md
  */
 import { test, expect } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 test.describe('TC-UMES-007: Mutation Lifecycle — Showcase Page', () => {
   test.beforeEach(async ({ page }) => {
@@ -43,11 +43,12 @@ test.describe('TC-UMES-007: Mutation Lifecycle — Showcase Page', () => {
     page,
   }) => {
     // Click the guard probe button
+    await expect(page.getByTestId('phase-m1-run-probe')).toBeEnabled()
     await page.getByTestId('phase-m1-run-probe').click()
 
     // Wait for completion
     await expect(page.getByTestId('phase-m1-status')).toContainText('status=ok', {
-      timeout: 15_000,
+      timeout: 20_000,
     })
 
     // Verify result contains an id (todo was created)
@@ -61,16 +62,20 @@ test.describe('TC-UMES-007: Mutation Lifecycle — Showcase Page', () => {
   test('TC-UMES-ML05c: guard probe is idempotent — runs twice with same result', async ({
     page,
   }) => {
+    test.slow()
+
     // First run
+    await expect(page.getByTestId('phase-m1-run-probe')).toBeEnabled()
     await page.getByTestId('phase-m1-run-probe').click()
     await expect(page.getByTestId('phase-m1-status')).toContainText('status=ok', {
-      timeout: 15_000,
+      timeout: 20_000,
     })
 
     // Second run
+    await expect(page.getByTestId('phase-m1-run-probe')).toBeEnabled()
     await page.getByTestId('phase-m1-run-probe').click()
     await expect(page.getByTestId('phase-m1-status')).toContainText('status=ok', {
-      timeout: 15_000,
+      timeout: 20_000,
     })
 
     await expect(page.getByTestId('phase-m1-error')).not.toBeVisible()

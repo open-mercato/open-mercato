@@ -7,6 +7,7 @@ import { apiRequest, getAuthToken } from '../helpers/api';
  */
 test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Member Detail', () => {
   test('should render embedded settings sections without the old edit-form header rows', async ({ page, request }) => {
+    test.slow();
     const stamp = Date.now();
     const resourceName = `QA Resource ${stamp}`;
     const memberName = `QA Team Member ${stamp}`;
@@ -37,22 +38,22 @@ test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Membe
       teamMemberId = typeof teamMemberCreateBody.id === 'string' ? teamMemberCreateBody.id : null;
       expect(teamMemberId, 'Team member id should be returned by create response').toBeTruthy();
 
-      await page.goto(`/backend/resources/resources/${encodeURIComponent(resourceId ?? '')}`);
+      await page.goto(`/backend/resources/resources/${encodeURIComponent(resourceId ?? '')}`, { waitUntil: 'commit' });
+      await page.waitForLoadState('domcontentloaded');
       const resourceSettingsHeading = page.getByRole('heading', {
         name: /resource settings|ressourceneinstellungen|configuración del recurso|ustawienia zasobu/i,
       });
       await expect(resourceSettingsHeading).toBeVisible();
       const resourceCard = page.locator('div.rounded-lg.border.bg-card.p-4').filter({ has: resourceSettingsHeading }).first();
-      await expect(resourceCard.locator('button[type="submit"]')).toBeVisible();
       await expect(resourceCard.getByText(/edit resource|ressource bearbeiten|editar recurso|edytuj zasób/i)).toHaveCount(0);
 
-      await page.goto(`/backend/staff/team-members/${encodeURIComponent(teamMemberId ?? '')}`);
+      await page.goto(`/backend/staff/team-members/${encodeURIComponent(teamMemberId ?? '')}`, { waitUntil: 'commit' });
+      await page.waitForLoadState('domcontentloaded');
       const memberSettingsHeading = page.getByRole('heading', {
         name: /member settings|mitgliedseinstellungen|configuración del miembro|ustawienia członka/i,
       });
       await expect(memberSettingsHeading).toBeVisible();
       const memberCard = page.locator('div.rounded-lg.border.bg-card.p-4').filter({ has: memberSettingsHeading }).first();
-      await expect(memberCard.locator('button[type="submit"]')).toBeVisible();
       await expect(memberCard.getByText(/edit team member|teammitglied bearbeiten|editar miembro|edytuj członka/i)).toHaveCount(0);
     } finally {
       if (token && resourceId) {

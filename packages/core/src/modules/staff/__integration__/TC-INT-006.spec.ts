@@ -7,7 +7,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__inte
  */
 test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Member Detail', () => {
   test('should render embedded settings sections without the old edit-form header rows', async ({ page, request }) => {
-    test.setTimeout(25_000);
+    test.slow();
     const stamp = Date.now();
     const resourceName = `QA Resource ${stamp}`;
     const memberName = `QA Team Member ${stamp}`;
@@ -38,7 +38,7 @@ test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Membe
       teamMemberId = typeof teamMemberCreateBody.id === 'string' ? teamMemberCreateBody.id : null;
       expect(teamMemberId, 'Team member id should be returned by create response').toBeTruthy();
 
-      await page.goto(`/backend/resources/resources/${encodeURIComponent(resourceId ?? '')}`);
+      await page.goto(`/backend/resources/resources/${encodeURIComponent(resourceId ?? '')}`, { waitUntil: 'domcontentloaded' });
       const resourceSettingsHeading = page.getByRole('heading', {
         name: /resource settings|ressourceneinstellungen|configuraci\u00f3n del recurso|ustawienia zasobu/i,
       });
@@ -47,7 +47,7 @@ test.describe('TC-INT-006: Embedded Settings Headings on Resource and Team Membe
       await expect(resourceCard.locator('button[type="submit"]')).toBeVisible({ timeout: 45_000 });
       await expect(resourceCard.getByText(/edit resource|ressource bearbeiten|editar recurso|edytuj zas\u00f3b/i)).toHaveCount(0);
 
-      await page.goto(`/backend/staff/team-members/${encodeURIComponent(teamMemberId ?? '')}`);
+      await page.goto(`/backend/staff/team-members/${encodeURIComponent(teamMemberId ?? '')}`, { waitUntil: 'domcontentloaded' });
       const memberSettingsHeading = page.getByRole('heading', {
         name: /member settings|mitgliedseinstellungen|configuraci\u00f3n del miembro|ustawienia cz\u0142onka/i,
       });

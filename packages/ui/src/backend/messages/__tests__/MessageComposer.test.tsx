@@ -225,6 +225,84 @@ describe('MessageComposer draft flow', () => {
     })
   })
 
+  it('keeps recipient suggestions available for multi-character input when backend search is unreliable', async () => {
+    ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string, body?: string }) => {
+      if (url.startsWith('/api/messages/types')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            items: [{
+              type: 'default',
+              module: 'messages',
+              labelKey: 'messages.types.default',
+              icon: 'mail',
+              allowReply: true,
+              allowForward: true,
+            }],
+          },
+          response: { status: 200 },
+        })
+      }
+
+      if (url.startsWith('/api/auth/users?')) {
+        const requestUrl = new URL(url, 'http://localhost')
+        const search = requestUrl.searchParams.get('search') ?? ''
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            items: search.length <= 1
+              ? [{ id: 'user-1', email: 'alice@example.com' }]
+              : [],
+          },
+          response: { status: 200 },
+        })
+      }
+
+      if (url === '/api/messages' && options?.method === 'POST') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: { id: 'message-1' },
+          response: { status: 200 },
+        })
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        result: { items: [] },
+        response: { status: 200 },
+      })
+    })
+
+    renderWithProviders(
+      <MessageComposer inline variant="compose" />,
+      { dict: {} },
+    )
+
+    const input = await screen.findByPlaceholderText('Search recipients...')
+
+    fireEvent.mouseDown(input)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'alice@example.com' })).toBeInTheDocument()
+    })
+
+    fireEvent.change(input, { target: { value: 'ali' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'alice@example.com' })).toBeInTheDocument()
+    })
+
+    const authUserCalls = (apiCall as jest.Mock).mock.calls
+      .filter((call) => typeof call[0] === 'string' && call[0].startsWith('/api/auth/users?'))
+      .map((call) => call[0] as string)
+
+    expect(authUserCalls.every((call) => !call.includes('search='))).toBe(true)
+  })
+
   it('changes priority selection on click', async () => {
     renderWithProviders(
       <MessageComposer inline variant="compose" />,

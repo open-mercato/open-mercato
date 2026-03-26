@@ -10,6 +10,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
 5. **MUST NOT break the standalone app template** — it's the user's first experience with Open Mercato
 6. **MUST sync template equivalents when app shell/layout files change** — when touching `apps/mercato/src/app/**` bootstrap/layout/provider wiring, update matching files in `packages/create-app/template/src/app/**` (and required template components) in the same task
+7. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
 
 ## Standalone App vs Monorepo
 
@@ -76,8 +77,8 @@ yarn dev
 
 ```bash
 ./scripts/release-snapshot.sh canary
-# Creates version like: 0.4.2-canary-abc1234567
-npx create-mercato-app@0.4.2-canary-abc1234567 my-test-app
+# Creates version like: 0.4.9-canary.1523.abc1234567
+npx create-mercato-app@0.4.9-canary.1523.abc1234567 my-test-app
 ```
 
 ### Cleanup

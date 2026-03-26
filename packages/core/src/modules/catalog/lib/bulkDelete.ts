@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { createQueue, type Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
@@ -23,6 +24,8 @@ export type CatalogProductBulkDeleteJobPayload = {
 export type CatalogProductBulkDeleteSummary = {
   affectedCount: number
 }
+
+const BULK_DELETE_CACHE_ALIASES = ['catalog.products']
 
 export function getCatalogQueue(queueName: string): Queue<Record<string, unknown>> {
   const existing = queues.get(queueName)
@@ -81,13 +84,16 @@ export async function deleteCatalogProductsWithProgress(params: {
 
   const commandContext = buildCommandContext(scope, container)
   let affectedCount = 0
+  const deletedIds = new Set<string>()
 
   for (const [index, id] of ids.entries()) {
     await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.products.delete', {
       input: { body: { id } },
       ctx: commandContext,
+      skipCacheInvalidation: true,
     })
     affectedCount += 1
+    deletedIds.add(id)
 
     await progressService.updateProgress(
       progressJobId,
@@ -100,6 +106,20 @@ export async function deleteCatalogProductsWithProgress(params: {
   }
 
   const summary: CatalogProductBulkDeleteSummary = { affectedCount }
+  for (const id of deletedIds) {
+    await invalidateCrudCache(
+      container,
+      'catalog.product',
+      {
+        id,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      },
+      scope.tenantId,
+      'bulk-delete:catalog.products',
+      BULK_DELETE_CACHE_ALIASES,
+    )
+  }
   await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
 
   return summary

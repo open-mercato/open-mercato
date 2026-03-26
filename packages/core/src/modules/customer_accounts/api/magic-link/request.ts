@@ -46,15 +46,14 @@ export async function POST(req: Request) {
 
   const user = await customerUserService.findByEmail(email, tenantId)
   if (user) {
-    const token = await customerTokenService.createMagicLink(user.id, tenantId)
-    // Token would be sent via email; emit event for subscribers
+    await customerTokenService.createMagicLink(user.id, tenantId)
+    // Token is stored in DB; email delivery should be handled by a direct service call,
+    // NOT via the event bus — raw tokens must never travel through events.
     void import('@open-mercato/core/modules/customer_accounts/events').then(({ emitCustomerAccountsEvent }) =>
-      emitCustomerAccountsEvent('customer_accounts.login.success', {
-        id: user.id,
-        email: user.email,
+      emitCustomerAccountsEvent('customer_accounts.magic_link.requested', {
+        userId: user.id,
         tenantId,
         organizationId: user.organizationId,
-        magicLinkToken: token,
       })
     ).catch(() => undefined)
   }

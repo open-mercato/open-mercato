@@ -4,6 +4,15 @@ import * as React from 'react'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { useInjectionDataWidgets } from '../../backend/injection/useInjectionDataWidgets'
 import { apiCall } from '../../backend/utils/apiCall'
+import { usePortalContext } from '../PortalContext'
+
+function useOptionalOrgSlug(): string {
+  try {
+    return usePortalContext().orgSlug
+  } catch {
+    return ''
+  }
+}
 
 export type PortalMenuSurfaceId =
   | 'menu:portal:sidebar:main'
@@ -62,6 +71,7 @@ export function usePortalInjectedMenuItems(surfaceId: PortalMenuSurfaceId): {
   isLoading: boolean
 } {
   const { widgets, isLoading } = useInjectionDataWidgets(surfaceId)
+  const orgSlug = useOptionalOrgSlug()
   const [grantedFeatures, setGrantedFeatures] = React.useState<Set<string>>(new Set())
 
   const rawItems = React.useMemo(() => {
@@ -100,11 +110,18 @@ export function usePortalInjectedMenuItems(surfaceId: PortalMenuSurfaceId): {
 
   const items = React.useMemo(
     () =>
-      rawItems.filter((item) => {
-        const features = item.features ?? []
-        return features.length === 0 || features.every((feature) => grantedFeatures.has(feature))
-      }),
-    [rawItems, grantedFeatures],
+      rawItems
+        .filter((item) => {
+          const features = item.features ?? []
+          return features.length === 0 || features.every((feature) => grantedFeatures.has(feature))
+        })
+        .map((item) => ({
+          ...item,
+          href: item.href && orgSlug && item.href.startsWith('/portal/')
+            ? `/${orgSlug}${item.href}`
+            : item.href,
+        })),
+    [rawItems, grantedFeatures, orgSlug],
   )
 
   return { items, isLoading }

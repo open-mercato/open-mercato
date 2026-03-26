@@ -6,6 +6,7 @@ import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shar
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PlannerAvailabilityRule } from '../data/entities'
+import { plannerAvailabilityRuleCrudEvents } from '../lib/crud'
 import { plannerAvailabilityRuleCreateSchema, plannerAvailabilityRuleUpdateSchema } from '../data/validators'
 import { E } from '#generated/entities.ids.generated'
 import { createPlannerCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
@@ -69,6 +70,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  events: plannerAvailabilityRuleCrudEvents,
   indexer: { entityType: E.planner.planner_availability_rule },
   list: {
     schema: listSchema,

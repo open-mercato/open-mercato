@@ -116,6 +116,11 @@ describe('AppShell', () => {
         async text() { return this._body }
       } as unknown as typeof Response
     }
+    if (!globalThis.fetch) {
+      globalThis.fetch = jest.fn().mockResolvedValue(
+        new Response(JSON.stringify([]), { status: 200, headers: { 'content-type': 'application/json' } }),
+      ) as typeof fetch
+    }
   })
 
   it('renders navigation and breadcrumbs with translations applied via ApplyBreadcrumb', async () => {

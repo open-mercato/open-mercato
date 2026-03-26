@@ -19,6 +19,7 @@
   "payment_gateways.status.pending": "Oczekująca",
   "payment_gateways.status.refunded": "Zwrócona",
   "payment_gateways.status.unknown": "Nieznany",
+  "payment_gateways.transactions.actions.capture": "Przechwyć płatność",
   "payment_gateways.transactions.actions.hideDetails": "Ukryj szczegóły",
   "payment_gateways.transactions.actions.refreshStatus": "Odśwież status",
   "payment_gateways.transactions.actions.showDetails": "Pokaż szczegóły",
@@ -54,6 +55,7 @@
   "payment_gateways.transactions.detail.title": "Szczegóły transakcji",
   "payment_gateways.transactions.detail.webhooks": "Aktywność webhooków",
   "payment_gateways.transactions.detail.webhooksEmpty": "Dla tej transakcji nie zapisano jeszcze żadnych zdarzeń webhooka.",
+  "payment_gateways.transactions.error.capture": "Nie udało się przechwycić płatności",
   "payment_gateways.transactions.error.load": "Nie udało się załadować transakcji płatności",
   "payment_gateways.transactions.error.loadDetail": "Nie udało się załadować szczegółów transakcji",
   "payment_gateways.transactions.error.refreshStatus": "Nie udało się odświeżyć statusu transakcji",
@@ -71,6 +73,7 @@
   "payment_gateways.transactions.log.runId": "ID uruchomienia",
   "payment_gateways.transactions.log.time": "Czas",
   "payment_gateways.transactions.searchPlaceholder": "Szukaj po płatności, transakcji, sesji lub identyfikatorze bramki",
+  "payment_gateways.transactions.success.capture": "Płatność została przechwycona",
   "payment_gateways.transactions.success.refreshStatus": "Status transakcji odświeżony",
   "payment_gateways.transactions.tableTitle": "Transakcje",
   "payment_gateways.transactions.title": "Transakcje płatności"

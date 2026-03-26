@@ -5,5 +5,6 @@ export const metadata: ModuleInfo = {
   title: 'Customer Portal',
   version: '0.1.0',
   description: 'Self-service customer portal framework with login, signup, dashboard, sidebar navigation, and extensible widget system.',
+  ejectable: true,
   requires: ['customer_accounts'],
 }

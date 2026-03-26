@@ -34,9 +34,14 @@ test.describe('TC-CAT-011: Configure Product Pricing', () => {
       await priceInputs.nth(1).fill('24.99');
       await page.getByRole('button', { name: 'Create variant' }).last().click();
 
-      await expect(page).toHaveURL(/\/backend\/catalog\/products\/[0-9a-f-]{36}\/variants\/[0-9a-f-]{36}$/i);
-      await expect(priceInputs.nth(0)).toHaveValue('19.9900');
-      await expect(priceInputs.nth(1)).toHaveValue('24.9900');
+      await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}`));
+
+      // Navigate to the newly created variant to verify prices were saved
+      await page.getByRole('link', { name: 'Edit' }).first().click();
+      await expect(page).toHaveURL(/\/variants\/[0-9a-f-]{36}$/i);
+      const editPriceInputs = page.getByRole('textbox', { name: '0.00' });
+      await expect(editPriceInputs.nth(0)).toHaveValue('19.9900');
+      await expect(editPriceInputs.nth(1)).toHaveValue('24.9900');
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);
     }

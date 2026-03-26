@@ -13,6 +13,7 @@ import {
   type StaffTeamMemberCommentCreateInput,
   type StaffTeamMemberCommentUpdateInput,
 } from '../data/validators'
+import { staffTeamMemberCommentCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -91,6 +92,7 @@ const createCommentCommand: CommandHandler<
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: staffTeamMemberCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
 
@@ -170,6 +172,7 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: staffTeamMemberCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
 
@@ -252,6 +255,7 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
         organizationId: comment.organizationId,
         tenantId: comment.tenantId,
       },
+      events: staffTeamMemberCommentCrudEvents,
       indexer: commentCrudIndexer,
     })
   },
@@ -286,7 +290,8 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: comment.organizationId,
           tenantId: comment.tenantId,
         },
-        indexer: commentCrudIndexer,
+        events: staffTeamMemberCommentCrudEvents,
+      indexer: commentCrudIndexer,
       })
       return { commentId: comment.id }
     },
@@ -350,7 +355,8 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
           organizationId: comment.organizationId,
           tenantId: comment.tenantId,
         },
-        indexer: commentCrudIndexer,
+        events: staffTeamMemberCommentCrudEvents,
+      indexer: commentCrudIndexer,
       })
     },
   }

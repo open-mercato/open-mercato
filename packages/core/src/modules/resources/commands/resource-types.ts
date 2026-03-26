@@ -15,6 +15,7 @@ import {
   type ResourcesResourceTypeCreateInput,
   type ResourcesResourceTypeUpdateInput,
 } from '../data/validators'
+import { resourcesResourceTypeCrudEvents } from '../lib/crud'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
@@ -110,6 +111,7 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: resourcesResourceTypeCrudEvents,
       indexer: resourceTypeCrudIndexer,
     })
     return { resourceTypeId: record.id }
@@ -163,7 +165,8 @@ const createResourceTypeCommand: CommandHandler<ResourcesResourceTypeCreateInput
           organizationId: resourceType.organizationId,
           tenantId: resourceType.tenantId,
         },
-        indexer: resourceTypeCrudIndexer,
+        events: resourcesResourceTypeCrudEvents,
+      indexer: resourceTypeCrudIndexer,
       })
     }
   },
@@ -219,6 +222,7 @@ const updateResourceTypeCommand: CommandHandler<ResourcesResourceTypeUpdateInput
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: resourcesResourceTypeCrudEvents,
       indexer: resourceTypeCrudIndexer,
     })
     return { resourceTypeId: record.id }
@@ -305,6 +309,7 @@ const updateResourceTypeCommand: CommandHandler<ResourcesResourceTypeUpdateInput
         organizationId: resourceType.organizationId,
         tenantId: resourceType.tenantId,
       },
+      events: resourcesResourceTypeCrudEvents,
       indexer: resourceTypeCrudIndexer,
     })
   },
@@ -358,6 +363,7 @@ const deleteResourceTypeCommand: CommandHandler<{ id?: string }, { resourceTypeI
         organizationId: record.organizationId,
         tenantId: record.tenantId,
       },
+      events: resourcesResourceTypeCrudEvents,
       indexer: resourceTypeCrudIndexer,
     })
     return { resourceTypeId: record.id }
@@ -434,6 +440,7 @@ const deleteResourceTypeCommand: CommandHandler<{ id?: string }, { resourceTypeI
         organizationId: resourceType.organizationId,
         tenantId: resourceType.tenantId,
       },
+      events: resourcesResourceTypeCrudEvents,
       indexer: resourceTypeCrudIndexer,
     })
   },

@@ -18,14 +18,14 @@ const shieldIcon = React.createElement(
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['customer_accounts.view'],
-  pageTitle: 'Customer Roles',
+  pageTitle: 'Roles',
   pageTitleKey: 'customer_accounts.nav.roles',
-  pageGroup: 'Customers',
-  pageGroupKey: 'customer_accounts.nav.group',
-  pageOrder: 156,
+  pageGroup: 'Customer Portal',
+  pageGroupKey: 'customer_accounts.settings.section',
+  pageOrder: 2,
   icon: shieldIcon,
+  pageContext: 'settings' as const,
   breadcrumb: [
-    { label: 'Customer Accounts', labelKey: 'customer_accounts.nav.users', href: '/backend/customer_accounts' },
     { label: 'Roles', labelKey: 'customer_accounts.nav.roles' },
   ],
 } as const

@@ -13,6 +13,7 @@ import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/
 import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
 
 type EditUserFormValues = {
   email: string
@@ -30,6 +31,7 @@ type LoadedUser = {
   tenantName: string | null
   organizationName: string | null
   roles: string[]
+  roleIds: string[]
 }
 
 type UserApiItem = {
@@ -40,6 +42,7 @@ type UserApiItem = {
   tenantName?: string | null
   organizationName?: string | null
   roles?: unknown
+  roleIds?: unknown
 }
 
 type UserListResponse = {
@@ -91,7 +94,7 @@ function TenantAwareOrganizationSelectInput({
       onChange={handleChange}
       required
       includeEmptyOption
-      className="w-full h-9 rounded border px-2 text-sm"
+      className="w-full h-9 rounded border pl-2 pr-7 text-sm truncate"
       includeInactiveIds={includeInactiveIds}
       tenantId={tenantId}
     />
@@ -101,6 +104,8 @@ function TenantAwareOrganizationSelectInput({
 export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const tRef = React.useRef(t)
+  tRef.current = t
   const [initialUser, setInitialUser] = React.useState<LoadedUser | null>(null)
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -124,7 +129,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   React.useEffect(() => {
     if (!id) {
       setLoading(false)
-      setError(t('auth.users.form.errors.noId', 'No user ID provided'))
+      setError(tRef.current('auth.users.form.errors.noId', 'No user ID provided'))
       return
     }
     let cancelled = false
@@ -141,11 +146,19 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
           if (!item) {
-            setError(t('auth.users.form.errors.notFound', 'User not found'))
+            setError(tRef.current('auth.users.form.errors.notFound', 'User not found'))
             setCustomFieldValues({})
             setInitialUser(null)
             setSelectedTenantId(null)
           } else {
+            const roleNames = Array.isArray(item.roles)
+              ? item.roles
+                  .map((role) => (typeof role === 'string' ? role : role == null ? '' : String(role)))
+                  .filter((role) => role.trim().length > 0)
+              : []
+            const roleIds = Array.isArray(item.roleIds)
+              ? (item.roleIds as string[]).filter((rid) => typeof rid === 'string' && rid.trim().length > 0)
+              : []
             setInitialUser({
               id: item.id ? String(item.id) : String(id),
               email: item.email ? String(item.email) : '',
@@ -153,11 +166,8 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               tenantId: item.tenantId ? String(item.tenantId) : null,
               tenantName: item.tenantName ? String(item.tenantName) : null,
               organizationName: item.organizationName ? String(item.organizationName) : null,
-              roles: Array.isArray(item.roles)
-                ? item.roles
-                    .map((role) => (typeof role === 'string' ? role : role == null ? '' : String(role)))
-                    .filter((role) => role.trim().length > 0)
-                : [],
+              roles: roleNames,
+              roleIds: roleIds.length > 0 ? roleIds : roleNames,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
             const custom: Record<string, unknown> = {}
@@ -170,9 +180,10 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         }
       } catch (err) {
         console.error('Failed to load user:', err)
-        if (!cancelled) setError(t('auth.users.form.errors.load', 'Failed to load user data'))
+        if (!cancelled) setError(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         if (!cancelled) setCustomFieldValues({})
       }
+      if (!cancelled) setLoading(false)
       try {
         const featureCheck = await apiCall<FeatureCheckResponse>(
           '/api/auth/feature-check',
@@ -187,11 +198,10 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       } catch (err) {
         console.error('Failed to check features:', err)
       }
-      if (!cancelled) setLoading(false)
     }
     load()
     return () => { cancelled = true }
-  }, [id, t])
+  }, [id])
 
   const selectedOrgId = initialUser?.organizationId ? String(initialUser.organizationId) : null
   const preloadedTenants = React.useMemo(() => {
@@ -241,7 +251,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
                 setAclData({ isSuperAdmin: false, features: [], organizations: null })
               }}
               includeEmptyOption
-              className="w-full h-9 rounded border px-2 text-sm"
+              className="w-full h-9 rounded border pl-2 pr-7 text-sm truncate"
               required
               tenants={preloadedTenants}
             />
@@ -314,6 +324,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         ) : null
       ),
     },
+    {
+      id: 'consents',
+      title: t('auth.users.form.group.consents', 'Consents'),
+      column: 2,
+      component: () => (id ? <UserConsentsPanel userId={String(id)} /> : null),
+    },
   ], [aclData, actorIsSuperAdmin, canEditOrgs, detailFieldIds, id, initialUser, selectedTenantId, t])
 
   const initialValues = React.useMemo(() => {
@@ -323,7 +339,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         password: '',
         tenantId: initialUser.tenantId,
         organizationId: initialUser.organizationId,
-        roles: initialUser.roles,
+        roles: initialUser.roleIds,
         ...customFieldValues,
       }
     }

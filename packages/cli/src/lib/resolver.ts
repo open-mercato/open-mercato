@@ -3,6 +3,25 @@ import fs from 'node:fs'
 import ts from 'typescript'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
+/**
+ * Resolved execution environment for the CLI.
+ * Produced once by resolveEnvironment() and consumed by all subsystems.
+ * Eliminates per-subsystem isMonorepo() branching and hardcoded path segments.
+ */
+export type CliEnvironment = {
+  /** Whether the CLI is running inside a Yarn/npm workspace monorepo. */
+  mode: 'monorepo' | 'standalone'
+  /** Workspace or project root (where package.json / node_modules live). */
+  rootDir: string
+  /** Next.js application directory (contains src/, package.json, next.config.*). */
+  appDir: string
+  /**
+   * Resolve the root directory of an installed @open-mercato package.
+   * Monorepo: packages/<pkg>/   Standalone: node_modules/<pkg>/
+   */
+  packageRoot: (packageName: string) => string
+}
+
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
@@ -419,18 +438,24 @@ function detectMonorepoFromNodeModules(appDir: string): { isMonorepo: boolean; m
 
 export function createResolver(cwd: string = process.cwd()): PackageResolver {
   // First detect if we're in a monorepo by checking if node_modules packages are symlinks
-  const { isMonorepo: _isMonorepo, monorepoRoot } = detectMonorepoFromNodeModules(cwd)
-  const rootDir = monorepoRoot ?? cwd
+  const { isMonorepo: _isMonorepo, monorepoRoot, nodeModulesRoot } = detectMonorepoFromNodeModules(cwd)
+  // In workspaces with hoisted real directories, package sources live under the discovered node_modules root.
+  const rootDir = monorepoRoot ?? nodeModulesRoot ?? cwd
+
+  // shouldResolveAppFromRoot: true when we have a workspace/install root that differs from cwd
+  // (monorepo symlinks detected, or node_modules root found above cwd)
+  const shouldResolveAppFromRoot =
+    _isMonorepo || (nodeModulesRoot !== null && path.resolve(nodeModulesRoot) !== path.resolve(cwd))
 
   // The app directory depends on context:
   // - In monorepo: use detectAppDir to find apps/mercato or similar
   // - When symlinks not detected (e.g. Docker volume node_modules): still use apps/mercato if present at rootDir
   // - Otherwise: app is at cwd
-  const candidateAppDir = detectAppDir(rootDir, true)
+  const candidateAppDir = shouldResolveAppFromRoot ? detectAppDir(rootDir, true) : rootDir
   const appDir =
     _isMonorepo
       ? candidateAppDir
-      : candidateAppDir !== rootDir && fs.existsSync(candidateAppDir)
+      : shouldResolveAppFromRoot && candidateAppDir !== rootDir && fs.existsSync(candidateAppDir)
         ? candidateAppDir
         : cwd
 
@@ -484,5 +509,22 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
     getPackageRoot: (from?: string) => {
       return pkgRootFor(rootDir, from, _isMonorepo)
     },
+  }
+}
+
+/**
+ * Resolve the CLI execution environment as a plain value-object.
+ * Call once at subsystem init; use the returned object for all path decisions.
+ */
+export function resolveEnvironment(cwd: string = process.cwd()): CliEnvironment {
+  const resolver = createResolver(cwd)
+  const _isMonorepo = resolver.isMonorepo()
+  const rootDir = resolver.getRootDir()
+  const appDir = resolver.getAppDir()
+  return {
+    mode: _isMonorepo ? 'monorepo' : 'standalone',
+    rootDir,
+    appDir,
+    packageRoot: (packageName: string) => pkgRootFor(rootDir, packageName, _isMonorepo),
   }
 }
