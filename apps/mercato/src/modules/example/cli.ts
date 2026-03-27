@@ -196,5 +196,6 @@ const seedTodos: ModuleCli = {
   },
 }
 
-export default [hello, seedTodos]
+const commands = [hello, seedTodos]
+export default commands
 export type { TodoSeedArgs as ExampleTodoSeedArgs }
