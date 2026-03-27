@@ -21,6 +21,9 @@ export interface BuildHistoryEntryOptions {
 
 export function buildHistoryEntry(opts: BuildHistoryEntryOptions): Omit<CatalogPriceHistoryEntry, 'id'> {
   const { snapshot, changeType, source, announce, metadata } = opts
+  if (!snapshot.productId) {
+    throw new Error('[catalog:omnibus] buildHistoryEntry requires a non-null productId')
+  }
   const recordedAt = new Date()
 
   const isAnnounced = snapshot.startsAt != null || snapshot.offerId != null || announce === true
@@ -31,7 +34,7 @@ export function buildHistoryEntry(opts: BuildHistoryEntryOptions): Omit<CatalogP
     tenantId: snapshot.tenantId,
     organizationId: snapshot.organizationId,
     priceId: snapshot.id,
-    productId: snapshot.productId ?? '',
+    productId: snapshot.productId,
     variantId: snapshot.variantId ?? null,
     offerId: snapshot.offerId ?? null,
     channelId: snapshot.channelId ?? null,

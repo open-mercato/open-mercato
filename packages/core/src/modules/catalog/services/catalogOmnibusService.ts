@@ -10,6 +10,7 @@ import type {
   OmnibusLowestPriceResult,
   OmnibusBlock,
   OmnibusHistoryRow,
+  OmnibusApplicabilityReason,
 } from '../lib/omnibusTypes'
 
 export type {
@@ -57,10 +58,10 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     presentedPriceEntry?: OmnibusHistoryRow | null,
   ): Promise<OmnibusLowestPriceResult> {
     const config = await this.getConfig({ organizationId: ctx.organizationId })
-    return this._computeLowestPrice(em, ctx, config, presentedPriceEntry)
+    return this.computeLowestPrice(em, ctx, config, presentedPriceEntry)
   }
 
-  private async _computeLowestPrice(
+  private async computeLowestPrice(
     em: EntityManager,
     ctx: OmnibusResolutionContext,
     config: OmnibusConfig,
@@ -99,7 +100,6 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       firstOfferEntry = await this.fetchFirstOfferEntry(em, ctx, resolvedOfferId)
     }
 
-    // 3. Progressive reduction rule — only when enabled per channel config
     if (ctx.offerId && firstOfferEntry && channelConfig?.progressiveReductionRule === true) {
       const progressiveResult = await this.resolveProgressiveReduction(em, ctx, firstOfferEntry, axis, lookbackDays)
       if (progressiveResult) {
@@ -108,11 +108,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       }
     }
 
-    // 4. Perishable goods rule
     const perishableResult = await this.resolvePerishableRule(em, ctx, channelConfig, lookbackDays, axis)
     if (perishableResult) return perishableResult
 
-    // 5. New arrival lookback adjustment
     const newArrivalAdj = this.resolveNewArrivalAdjustment(channelConfig, ctx, lookbackDays)
     const effectiveLookbackDays = newArrivalAdj?.lookbackDays ?? lookbackDays
 
@@ -196,7 +194,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
 
     let result: OmnibusLowestPriceResult
     try {
-      result = await this._computeLowestPrice(em, ctx, config, presentedPriceEntry)
+      result = await this.computeLowestPrice(em, ctx, config, presentedPriceEntry)
     } catch (err) {
       console.error('[catalog:omnibus] resolveOmnibusBlock failed', { productId: ctx.productId, channelId: ctx.channelId, err })
       return null
@@ -216,7 +214,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       presentedPriceEntry?.isAnnounced === true ||
       priceKindIsPromotion === true
 
-    let applicabilityReason: string
+    let applicabilityReason: OmnibusApplicabilityReason
     if (result.applicabilityReason) {
       applicabilityReason = result.applicabilityReason
     } else if (result.insufficientHistory) {
@@ -276,7 +274,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
       em,
       CatalogPriceHistoryEntry,
       filters as Record<string, unknown>,
-      { orderBy: { recordedAt: 'DESC', id: 'DESC' } },
+      { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: 1000 },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     return rows.map(mapRow)
@@ -425,7 +423,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     channelConfig: OmnibusChannelConfig | undefined,
     ctx: OmnibusResolutionContext,
     lookbackDays: number,
-  ): { lookbackDays: number; applicabilityReason: string } | null {
+  ): { lookbackDays: number; applicabilityReason: OmnibusApplicabilityReason } | null {
     if (channelConfig?.newArrivalRule !== 'shorter_window') return null
     if (!ctx.firstListedAt) return null
     const now = new Date()
@@ -493,7 +491,7 @@ function buildEmptyBlock(
   presentedPriceKindId: string,
   currencyCode: string,
   result: OmnibusLowestPriceResult,
-  applicabilityReason: string,
+  applicabilityReason: OmnibusApplicabilityReason,
 ): OmnibusBlock {
   return {
     presentedPriceKindId,
@@ -525,7 +523,7 @@ function getPriceValue(row: OmnibusHistoryRow, axis: 'gross' | 'net'): number {
   return parseFloat((axis === 'gross' ? row.unitPriceGross : row.unitPriceNet) ?? 'Infinity')
 }
 
-function earlyExitResult(reason: string, lookbackDays: number, axis: 'gross' | 'net'): OmnibusLowestPriceResult {
+function earlyExitResult(reason: OmnibusApplicabilityReason, lookbackDays: number, axis: 'gross' | 'net'): OmnibusLowestPriceResult {
   const now = new Date()
   const windowStart = subtractDays(now, lookbackDays)
   return {

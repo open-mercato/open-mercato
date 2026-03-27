@@ -11,7 +11,7 @@ import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
 import { E } from '#generated/entities.ids.generated'
-import { PriceEditorOmnibusRow } from '@open-mercato/core/modules/catalog/components/PriceEditorOmnibusRow'
+import { PriceEditorOmnibusRow } from '../PriceEditorOmnibusRow'
 
 type VariantBuilderProps = {
   values: VariantFormValues
@@ -415,31 +415,33 @@ function DimensionInput({
   )
 }
 
-function normalizeMetadata(input: unknown): Record<string, any> {
+function normalizeMetadata(input: unknown): Record<string, unknown> {
   return typeof input === 'object' && input ? { ...(input as Record<string, unknown>) } : {}
 }
 
-function normalizeDimensions(metadata: Record<string, any>) {
+function normalizeDimensions(metadata: Record<string, unknown>) {
   const raw = metadata.dimensions
   if (!raw || typeof raw !== 'object') return {}
+  const dims = raw as Record<string, unknown>
   return {
-    width: typeof raw.width === 'number' ? raw.width : undefined,
-    height: typeof raw.height === 'number' ? raw.height : undefined,
-    depth: typeof raw.depth === 'number' ? raw.depth : undefined,
-    unit: typeof raw.unit === 'string' ? raw.unit : undefined,
+    width: typeof dims.width === 'number' ? dims.width : undefined,
+    height: typeof dims.height === 'number' ? dims.height : undefined,
+    depth: typeof dims.depth === 'number' ? dims.depth : undefined,
+    unit: typeof dims.unit === 'string' ? dims.unit : undefined,
   }
 }
 
-function normalizeWeight(metadata: Record<string, any>) {
+function normalizeWeight(metadata: Record<string, unknown>) {
   const raw = metadata.weight
   if (!raw || typeof raw !== 'object') return {}
+  const weight = raw as Record<string, unknown>
   return {
-    value: typeof raw.value === 'number' ? raw.value : undefined,
-    unit: typeof raw.unit === 'string' ? raw.unit : undefined,
+    value: typeof weight.value === 'number' ? weight.value : undefined,
+    unit: typeof weight.unit === 'string' ? weight.unit : undefined,
   }
 }
 
-function applyDimension(metadata: Record<string, any>, field: 'width' | 'height' | 'depth' | 'unit', raw: string) {
+function applyDimension(metadata: Record<string, unknown>, field: 'width' | 'height' | 'depth' | 'unit', raw: string) {
   const dims = normalizeDimensions(metadata)
   if (field === 'unit') {
     dims.unit = raw
@@ -454,7 +456,7 @@ function applyDimension(metadata: Record<string, any>, field: 'width' | 'height'
   return copy
 }
 
-function applyWeight(metadata: Record<string, any>, field: 'value' | 'unit', raw: string) {
+function applyWeight(metadata: Record<string, unknown>, field: 'value' | 'unit', raw: string) {
   const weight = normalizeWeight(metadata)
   if (field === 'unit') weight.unit = raw
   else {
@@ -484,7 +486,7 @@ function cleanupWeight(weight: { value?: number; unit?: string }) {
   return Object.keys(clean).length ? clean : null
 }
 
-function stripSystemMetadata(metadata: Record<string, any>) {
+function stripSystemMetadata(metadata: Record<string, unknown>) {
   const copy: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(metadata)) {
     if (key === 'dimensions' || key === 'weight') continue
@@ -493,7 +495,7 @@ function stripSystemMetadata(metadata: Record<string, any>) {
   return copy
 }
 
-function extractSystemMetadata(metadata: Record<string, any>) {
+function extractSystemMetadata(metadata: Record<string, unknown>) {
   const system: Record<string, unknown> = {}
   if (metadata.dimensions) system.dimensions = metadata.dimensions
   if (metadata.weight) system.weight = metadata.weight

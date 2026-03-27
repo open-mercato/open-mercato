@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
 type OmnibusBlock = {
@@ -32,6 +32,7 @@ export function PriceEditorOmnibusRow({
   channelId,
 }: Props) {
   const t = useT()
+  const locale = useLocale()
   const [block, setBlock] = React.useState<OmnibusBlock | null | undefined>(undefined)
   const [loading, setLoading] = React.useState(false)
 
@@ -67,10 +68,10 @@ export function PriceEditorOmnibusRow({
 
   const lowestPrice = block.lowestPriceGross ?? block.lowestPriceNet
   const coverageDate = block.coverageStartAt
-    ? new Date(block.coverageStartAt).toLocaleDateString()
+    ? new Date(block.coverageStartAt).toLocaleDateString(locale)
     : null
   const anchorDate = block.promotionAnchorAt
-    ? new Date(block.promotionAnchorAt).toLocaleDateString()
+    ? new Date(block.promotionAnchorAt).toLocaleDateString(locale)
     : null
 
   return (

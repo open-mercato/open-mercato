@@ -1,3 +1,20 @@
+import { z } from 'zod'
+
+export const omnibusApplicabilityReasonSchema = z.enum([
+  'no_history',
+  'not_in_eu_market',
+  'missing_channel_context',
+  'insufficient_history',
+  'announced_promotion',
+  'not_announced',
+  'progressive_reduction_frozen',
+  'perishable_exempt',
+  'perishable_last_price',
+  'new_arrival_reduced_window',
+])
+
+export type OmnibusApplicabilityReason = z.infer<typeof omnibusApplicabilityReasonSchema>
+
 export type PriceHistorySnapshot = {
   id: string
   variantId: string | null
@@ -61,7 +78,7 @@ export type OmnibusLowestPriceResult = {
   insufficientHistory: boolean
   promotionAnchorAt: string | null
   coverageStartAt: string | null
-  applicabilityReason?: string
+  applicabilityReason?: OmnibusApplicabilityReason
   windowStart: string
   windowEnd: string
   lookbackDays: number
@@ -82,5 +99,5 @@ export type OmnibusBlock = {
   previousPriceGross: string | null
   currencyCode: string
   applicable: boolean
-  applicabilityReason: string
+  applicabilityReason: OmnibusApplicabilityReason
 }

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Switch } from '@open-mercato/ui/primitives/switch'
@@ -44,6 +44,7 @@ export function OmnibusSettings() {
   const [config, setConfig] = React.useState<OmnibusConfig | null>(null)
   const [priceKinds, setPriceKinds] = React.useState<PriceKind[]>([])
   const [loading, setLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [form, setForm] = React.useState<OmnibusConfig>({})
 
@@ -60,7 +61,10 @@ export function OmnibusSettings() {
       setPriceKinds(pk?.items ?? [])
       setLoading(false)
     }).catch(() => {
-      if (!cancelled) setLoading(false)
+      if (!cancelled) {
+        setLoading(false)
+        setLoadError(true)
+      }
     })
     return () => { cancelled = true }
   }, [])
@@ -87,6 +91,7 @@ export function OmnibusSettings() {
   }
 
   if (loading) return <LoadingMessage label={t('catalog.omnibus.settings.loading', 'Loading Omnibus settings...')} />
+  if (loadError) return <ErrorMessage label={t('catalog.omnibus.settings.loadError', 'Failed to load Omnibus settings')} />
 
   const backfillWarningChannels = Object.entries(form.channels ?? {}).filter(([id, ch]) => {
     const channelLookbackDays = ch.lookbackDays ?? form.lookbackDays ?? 30
@@ -171,7 +176,7 @@ export function OmnibusSettings() {
                 <div className="space-y-4">
                   {Object.entries(form.channels ?? {}).map(([channelId, ch]) => (
                     <div key={channelId} className="rounded-lg border p-3 space-y-3">
-                      <p className="text-xs font-medium text-muted-foreground">{t('catalog.omnibus.settings.channelOverrides', 'Channel')}: {channelId}</p>
+                      <p className="text-xs font-medium text-muted-foreground">{t('catalog.omnibus.settings.channel', 'Channel')}: {channelId}</p>
 
                       <div className="flex items-center gap-2">
                         <Switch
@@ -200,9 +205,9 @@ export function OmnibusSettings() {
                             channels: { ...f.channels, [channelId]: { ...ch, perishableGoodsRule: e.target.value as 'standard' | 'exempt' | 'last_price' } },
                           }))}
                         >
-                          <option value="standard">Standard</option>
-                          <option value="exempt">Exempt</option>
-                          <option value="last_price">Use last price</option>
+                          <option value="standard">{t('catalog.omnibus.settings.perishableGoodsRule.standard', 'Standard')}</option>
+                          <option value="exempt">{t('catalog.omnibus.settings.perishableGoodsRule.exempt', 'Exempt')}</option>
+                          <option value="last_price">{t('catalog.omnibus.settings.perishableGoodsRule.lastPrice', 'Use last price')}</option>
                         </select>
                       </div>
 
@@ -220,8 +225,8 @@ export function OmnibusSettings() {
                               channels: { ...f.channels, [channelId]: { ...ch, newArrivalRule: e.target.value as 'standard' | 'shorter_window' } },
                             }))}
                           >
-                            <option value="standard">Standard</option>
-                            <option value="shorter_window">Shorter window</option>
+                            <option value="standard">{t('catalog.omnibus.settings.newArrivalRule.standard', 'Standard')}</option>
+                            <option value="shorter_window">{t('catalog.omnibus.settings.newArrivalRule.shorterWindow', 'Shorter window')}</option>
                           </select>
                         </div>
                         {ch.newArrivalRule === 'shorter_window' && (

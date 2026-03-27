@@ -908,6 +908,27 @@ export const POST = crud.POST;
 export const PUT = crud.PUT;
 export const DELETE = crud.DELETE;
 
+const omnibusBlockSchema = z.object({
+  presentedPriceKindId: z.string().uuid(),
+  lookbackDays: z.number(),
+  minimizationAxis: z.enum(['gross', 'net']),
+  promotionAnchorAt: z.string().nullable(),
+  windowStart: z.string(),
+  windowEnd: z.string(),
+  coverageStartAt: z.string().nullable(),
+  lowestPriceNet: z.string().nullable(),
+  lowestPriceGross: z.string().nullable(),
+  previousPriceNet: z.string().nullable(),
+  previousPriceGross: z.string().nullable(),
+  currencyCode: z.string(),
+  applicable: z.boolean(),
+  applicabilityReason: z.enum([
+    'no_history', 'not_in_eu_market', 'missing_channel_context', 'insufficient_history',
+    'announced_promotion', 'not_announced', 'progressive_reduction_frozen',
+    'perishable_exempt', 'perishable_last_price', 'new_arrival_reduced_window',
+  ]),
+})
+
 const productListItemSchema = z.object({
   id: z.string().uuid(),
   title: z.string().nullable().optional(),
@@ -954,7 +975,7 @@ const productListItemSchema = z.object({
   categoryIds: z.array(z.string()).optional(),
   tags: z.array(z.string()).optional(),
   pricing: z.record(z.string(), z.unknown()).nullable().optional(),
-  omnibus: z.record(z.string(), z.unknown()).nullable().optional(),
+  omnibus: omnibusBlockSchema.nullable().optional(),
 });
 
 export const openApi = createCatalogCrudOpenApi({
