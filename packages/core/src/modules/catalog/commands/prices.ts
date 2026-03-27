@@ -100,12 +100,18 @@ async function resolveSnapshotAssociations(
   return { variant, product, offer }
 }
 
-async function loadPriceSnapshot(em: EntityManager, id: string): Promise<PriceSnapshot | null> {
+async function loadPriceSnapshot(
+  em: EntityManager,
+  id: string,
+  tenantId?: string | null,
+  organizationId?: string | null,
+): Promise<PriceSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
     CatalogProductPrice,
     { id },
     { populate: ['priceKind', 'product', 'variant', 'offer'] },
+    tenantId ? { tenantId, organizationId: organizationId ?? undefined } : undefined,
   )
   if (!record) return null
   const variantId =
@@ -351,7 +357,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
       'create',
       'api',
       { announce: (rawInput as Record<string, unknown>).announce === true },
-    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', { priceId: record.id, err }) })
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_price,
@@ -376,7 +382,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadPriceSnapshot(em, result.priceId)
+    return loadPriceSnapshot(em, result.priceId, ctx.auth?.tenantId, ctx.auth?.orgId)
   },
   buildLog: async ({ result, snapshots }) => {
     const after = snapshots.after as PriceSnapshot | undefined
@@ -426,7 +432,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id)
+    const snapshot = await loadPriceSnapshot(em, id, ctx.auth?.tenantId, ctx.auth?.orgId)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -660,7 +666,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       'update',
       'api',
       { announce: (rawInput as Record<string, unknown>).announce === true },
-    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', { priceId: record.id, err }) })
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
@@ -687,7 +693,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadPriceSnapshot(em, result.priceId)
+    return loadPriceSnapshot(em, result.priceId, ctx.auth?.tenantId, ctx.auth?.orgId)
   },
   buildLog: async ({ snapshots }) => {
     const before = snapshots.before as PriceSnapshot | undefined
@@ -782,7 +788,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       },
       'undo',
       'api',
-    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', { priceId: before.id, err }) })
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
       after?.custom ?? undefined
@@ -808,7 +814,7 @@ const deletePriceCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id)
+    const snapshot = await loadPriceSnapshot(em, id, ctx.auth?.tenantId, ctx.auth?.orgId)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -825,7 +831,7 @@ const deletePriceCommand: CommandHandler<
     const { product } = await resolvePriceRecordAssociations(em, record)
 
     const baseEm = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(baseEm, id)
+    const snapshot = await loadPriceSnapshot(baseEm, id, record.tenantId, record.organizationId)
 
     em.remove(record)
     await em.flush()
@@ -855,7 +861,7 @@ const deletePriceCommand: CommandHandler<
         },
         'delete',
         'api',
-      ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
+      ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', { priceId: snapshot.id, err }) })
     }
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
@@ -968,7 +974,7 @@ const deletePriceCommand: CommandHandler<
       },
       'undo',
       'api',
-    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', err) })
+    ).catch((err: unknown) => { console.error('[catalog:history] Failed to record price history entry', { priceId: before.id, err }) })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

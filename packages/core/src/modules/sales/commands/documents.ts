@@ -2074,8 +2074,9 @@ async function applyOrderLineResults(params: {
         }
         lineEntity.isPersonalized = personalizationMeta.isPersonalized;
         lineEntity.personalizationReason = personalizationMeta.personalizationReason;
-      } catch {
+      } catch (err) {
         // Omnibus capture is non-critical — don't fail order creation
+        console.error('[sales:omnibus] Failed to capture omnibus block for order line', { productId: sourceLine.product, err })
       }
     }
     em.persist(lineEntity)
@@ -2187,8 +2188,9 @@ async function applyQuoteLineResults(params: {
         }
         lineEntity.isPersonalized = personalizationMeta.isPersonalized;
         lineEntity.personalizationReason = personalizationMeta.personalizationReason;
-      } catch {
+      } catch (err) {
         // Omnibus capture is non-critical — don't fail quote creation
+        console.error('[sales:omnibus] Failed to capture omnibus block for quote line', { productId: sourceLine.productId, err })
       }
     }
     em.persist(lineEntity)
@@ -2287,8 +2289,9 @@ async function replaceQuoteLines(
         }
         lineEntity.isPersonalized = personalizationMeta.isPersonalized;
         lineEntity.personalizationReason = personalizationMeta.personalizationReason;
-      } catch {
+      } catch (err) {
         // Omnibus capture is non-critical — don't fail quote creation
+        console.error('[sales:omnibus] Failed to capture omnibus block for quote line', { productId: sourceLine.productId, err })
       }
     }
     em.persist(lineEntity)

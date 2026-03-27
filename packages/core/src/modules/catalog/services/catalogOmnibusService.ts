@@ -197,7 +197,8 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     let result: OmnibusLowestPriceResult
     try {
       result = await this._computeLowestPrice(em, ctx, config, presentedPriceEntry)
-    } catch {
+    } catch (err) {
+      console.error('[catalog:omnibus] resolveOmnibusBlock failed', { productId: ctx.productId, channelId: ctx.channelId, err })
       return null
     }
 

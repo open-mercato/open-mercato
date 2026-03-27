@@ -25,7 +25,7 @@ export function buildHistoryEntry(opts: BuildHistoryEntryOptions): Omit<CatalogP
 
   const isAnnounced = snapshot.startsAt != null || snapshot.offerId != null || announce === true
 
-  const idempotencyKey = computeIdempotencyKey(snapshot.id, changeType, recordedAt)
+  const idempotencyKey = computeIdempotencyKey(snapshot, changeType)
 
   return {
     tenantId: snapshot.tenantId,
@@ -56,11 +56,17 @@ export function buildHistoryEntry(opts: BuildHistoryEntryOptions): Omit<CatalogP
 }
 
 function computeIdempotencyKey(
-  priceId: string,
+  snapshot: PriceHistorySnapshot,
   changeType: CatalogPriceHistoryChangeType,
-  recordedAt: Date
 ): string {
-  const raw = `${priceId}|${changeType}|${recordedAt.toISOString()}`
+  const raw = [
+    snapshot.id,
+    changeType,
+    snapshot.unitPriceNet?.toString() ?? 'null',
+    snapshot.unitPriceGross?.toString() ?? 'null',
+    snapshot.channelId ?? 'null',
+    snapshot.offerId ?? 'null',
+  ].join('|')
   return createHash('sha256').update(raw).digest('hex')
 }
 

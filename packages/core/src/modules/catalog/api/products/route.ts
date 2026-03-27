@@ -42,6 +42,7 @@ import {
 import type { CatalogPricingService } from '../../services/catalogPricingService'
 import { detectPersonalization } from '../../services/catalogPricingService'
 import type { CatalogOmnibusService } from '../../services/catalogOmnibusService'
+import type { OmnibusResolutionContext } from '../../lib/omnibusTypes'
 import { fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import { SalesChannel } from '@open-mercato/core/modules/sales/data/entities'
 import {
@@ -614,6 +615,9 @@ async function decorateProductsAfterList(
     const tenantId = ctx.auth?.tenantId ?? null
     const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
 
+    type OmnibusTask = { item: Record<string, unknown>; omnibusCtx: OmnibusResolutionContext; priceKindIsPromotion: boolean }
+    const omnibusQueue: OmnibusTask[] = []
+
     for (const item of items) {
       const id = typeof item.id === "string" ? item.id : null;
       if (!id) continue;
@@ -710,7 +714,7 @@ async function decorateProductsAfterList(
           tenantId &&
           organizationId
         ) {
-          const omnibusCtx = {
+          const omnibusCtx: OmnibusResolutionContext = {
             tenantId,
             organizationId,
             productId: id,
@@ -723,7 +727,7 @@ async function decorateProductsAfterList(
             omnibusExempt: typeof item.omnibusExempt === 'boolean' ? item.omnibusExempt : null,
             firstListedAt: item.firstListedAt instanceof Date ? item.firstListedAt : (item.firstListedAt ? new Date(item.firstListedAt as string | number) : null),
           }
-          item.omnibus = await catalogOmnibusService.resolveOmnibusBlock(em, omnibusCtx, null, priceKindIsPromotion)
+          omnibusQueue.push({ item: item as Record<string, unknown>, omnibusCtx, priceKindIsPromotion })
         } else {
           item.omnibus = null
         }
@@ -731,6 +735,16 @@ async function decorateProductsAfterList(
         item.pricing = null
         item.omnibus = null
       }
+    }
+
+    // Resolve all omnibus blocks in parallel to avoid N+1 sequential DB round-trips
+    const omnibusResults = await Promise.all(
+      omnibusQueue.map(({ omnibusCtx, priceKindIsPromotion }) =>
+        catalogOmnibusService.resolveOmnibusBlock(em, omnibusCtx, null, priceKindIsPromotion)
+      )
+    )
+    for (let i = 0; i < omnibusQueue.length; i++) {
+      omnibusQueue[i]!.item.omnibus = omnibusResults[i]
     }
   } catch (error) {
     console.error(
