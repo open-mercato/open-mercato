@@ -842,6 +842,7 @@ Standalone rollout note:
 
 - standalone support can ship in the same spec, but only for phases 1, 7, 8, 9, 10, and 12
 - phases 2, 3, 5, 6, and 11 are monorepo-oriented and do not directly apply to generated standalone apps
+- standalone apps do not have the underlying bottlenecks targeted by phases 2, 3, 5, and 6 because framework packages are already compiled and installed from npm
 
 ## Integration Test Coverage
 
@@ -914,6 +915,8 @@ Documentation should distinguish:
 - `yarn dev` / `yarn dev:legacy`: manual `yarn generate` behavior remains unchanged
 - `yarn dev:optimized`: structural changes should auto-regenerate supported generated outputs
 - standalone generated apps: default `yarn dev` remains `mercato server dev`, while standalone `yarn dev:optimized` may auto-regenerate supported generated outputs for app-local module changes
+
+The docs should also state plainly that standalone apps do not have the monorepo package-build/package-watch bottlenecks this spec targets, because official framework packages are already compiled when installed from npm.
 
 ## Final Compliance Report
 
