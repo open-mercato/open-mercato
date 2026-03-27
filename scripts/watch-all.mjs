@@ -20,6 +20,7 @@ import {
   loadBuildConfig,
   copyJsonFiles,
 } from './build-shared.mjs'
+import { watchLog, watchWarn, watchError } from './watch-log.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT_DIR = resolvePath(__dirname, '..')
@@ -116,7 +117,7 @@ async function createPackageWatcher(packageDir) {
     }
 
     if (options.entryPoints.length === 0) {
-      console.log(`[watch-all] ${pkgName}: no source files, skipping`)
+      watchLog('watch', `${pkgName}: no source files, skipping`)
       setPackageStatus(pkgName, 'ready')
       return
     }
@@ -128,7 +129,7 @@ async function createPackageWatcher(packageDir) {
       setup(build) {
         build.onEnd(async (result) => {
           if (result.errors.length > 0) {
-            console.error(`[watch-all] ${pkgName}: build failed (${result.errors.length} errors)`)
+            watchError('watch', `${pkgName}: build failed (${result.errors.length} errors)`)
             setPackageStatus(pkgName, 'failed', {
               error: result.errors.map(e => e.text).join('; '),
             })
@@ -144,7 +145,7 @@ async function createPackageWatcher(packageDir) {
               await copyJsonFiles(packageDir, { ignore })
             }
           } catch (err) {
-            console.error(`[watch-all] ${pkgName}: post-build failed:`, err.message)
+            watchError('watch', `${pkgName}: post-build failed: ${err.message}`)
           }
 
           manifest.packageRunSeq++
@@ -153,7 +154,7 @@ async function createPackageWatcher(packageDir) {
             lastSuccessAt: new Date().toISOString(),
             error: null,
           })
-          console.log(`[watch-all] ${pkgName}: ready`)
+          watchLog('watch', `${pkgName}: ready`)
 
           // Check if structural change needs generator rerun (Phase 8)
           checkGeneratorTrigger(pkgName)
@@ -178,7 +179,7 @@ async function createPackageWatcher(packageDir) {
       await extraCtx.watch()
     }
   } catch (err) {
-    console.error(`[watch-all] ${pkgName}: failed to create watcher:`, err.message)
+    watchError('watch', `${pkgName}: failed to create watcher: ${err.message}`)
     setPackageStatus(pkgName, 'failed', { error: err.message })
   }
 }
@@ -246,7 +247,7 @@ async function runGenerator() {
   manifest.generatorRunSeq++
   writeManifest()
 
-  console.log('[watch-all] generator: running...')
+  watchLog('generator', 'running...')
 
   try {
     await new Promise((resolve, reject) => {
@@ -274,15 +275,15 @@ async function runGenerator() {
     manifest.generator.status = 'ready'
     manifest.generator.lastSuccessAt = new Date().toISOString()
     manifest.generator.error = null
-    console.log('[watch-all] generator: complete')
+    watchLog('generator', 'complete')
   } catch (err) {
-    console.error('[watch-all] generator: failed:', err.message)
+    watchError('generator', `failed: ${err.message}`)
     manifest.generator.status = 'failed'
     manifest.generator.error = err.message
 
     if (manifest.status === 'ready') {
       manifest.status = 'degraded'
-      console.warn('[watch-all] session degraded — generator failed. Fix the issue and save to retry.')
+      watchWarn('session', 'degraded: generator failed. Fix the issue and save to retry.')
     }
   }
 
@@ -326,7 +327,7 @@ function watchModuleSources() {
         if (filename.includes('__tests__')) return
 
         if (isGeneratorTriggerFile(filename)) {
-          console.log(`[watch-all] structural change: ${filename} in ${pkgName || 'app'}`)
+          watchLog('watch', `structural change: ${filename} in ${pkgName || 'app'}`)
           if (isPackage && pkgName) {
             // Phase 8: wait for package rebuild before running generator
             pendingStructuralPackages.add(pkgName)
@@ -338,7 +339,7 @@ function watchModuleSources() {
       })
       fsWatchers.push(watcher)
     } catch (err) {
-      console.warn(`[watch-all] cannot watch ${dir}: ${err.message}`)
+      watchWarn('watch', `cannot watch ${dir}: ${err.message}`)
     }
   }
 
@@ -348,13 +349,13 @@ function watchModuleSources() {
       const modulesTsDir = dirname(modulesTs)
       const watcher = fsWatch(modulesTsDir, (eventType, filename) => {
         if (filename === 'modules.ts') {
-          console.log('[watch-all] structural change: modules.ts')
+          watchLog('watch', 'structural change: modules.ts')
           scheduleGeneratorRun()
         }
       })
       fsWatchers.push(watcher)
     } catch (err) {
-      console.warn(`[watch-all] cannot watch modules.ts: ${err.message}`)
+      watchWarn('watch', `cannot watch modules.ts: ${err.message}`)
     }
   }
 }
@@ -390,9 +391,9 @@ async function start() {
   // Clean stale manifest from previous sessions
   mkdirSync(MANIFEST_DIR, { recursive: true })
 
-  console.log(`[watch-all] session: ${SESSION_ID}`)
+  watchLog('session', SESSION_ID)
   const packageDirs = resolveRuntimePackageDirs(ROOT_DIR)
-  console.log(`[watch-all] starting unified watcher for ${packageDirs.length} packages...`)
+  watchLog('session', `starting unified watcher for ${packageDirs.length} packages...`)
 
   writeManifest()
 
@@ -403,7 +404,7 @@ async function start() {
   try {
     await waitForAllPackages()
   } catch (err) {
-    console.error(`[watch-all] ${err.message}`)
+    watchError('session', err.message)
     manifest.status = 'failed'
     writeManifest()
     // Keep running so developers can fix and save
@@ -411,14 +412,14 @@ async function start() {
 
   if (!anyPackageFailed()) {
     // Run initial generator pass
-    console.log('[watch-all] all packages ready, running initial generator pass...')
+    watchLog('session', 'all packages ready, running initial generator pass...')
     await runGenerator()
 
     if (manifest.generator.status === 'ready') {
       manifest.status = 'ready'
-      console.log('[watch-all] session ready')
+      watchLog('session', 'ready')
     } else {
-      console.error('[watch-all] initial generator failed — session blocked')
+      watchError('session', 'initial generator failed: session blocked')
       manifest.status = 'failed'
     }
   }
@@ -432,7 +433,7 @@ async function start() {
 // ── Cleanup ──
 
 async function cleanup(signal) {
-  console.log(`\n[watch-all] received ${signal}, shutting down...`)
+  watchLog('session', `received ${signal}, shutting down...`)
   clearInterval(heartbeatInterval)
   if (generatorDebounceTimer) clearTimeout(generatorDebounceTimer)
 
@@ -458,7 +459,7 @@ async function cleanup(signal) {
 process.on('SIGINT', () => cleanup('SIGINT'))
 process.on('SIGTERM', () => cleanup('SIGTERM'))
 process.on('uncaughtException', (err) => {
-  console.error('[watch-all] uncaught exception:', err)
+  watchError('session', 'uncaught exception:', err)
   clearInterval(heartbeatInterval)
   manifest.status = 'dead'
   manifest.generator.error = err.message

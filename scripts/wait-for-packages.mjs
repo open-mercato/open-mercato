@@ -11,6 +11,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { watchLog, watchError } from './watch-log.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT_DIR = resolve(__dirname, '..')
@@ -88,28 +89,28 @@ async function waitForReady() {
 
     if (result.ready) {
       const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
-      console.log(`[wait] all packages and generator ready (${elapsed}s)`)
+      watchLog('wait', `all packages and generator ready (${elapsed}s)`)
       process.exit(0)
     }
 
     if (result.fatal) {
-      console.error(`[wait] fatal: ${result.reason}`)
+      watchError('wait', `fatal: ${result.reason}`)
       process.exit(1)
     }
 
     if (result.reason !== lastReason) {
-      console.log(`[wait] ${result.reason}`)
+      watchLog('wait', result.reason)
       lastReason = result.reason
     }
 
     await new Promise(r => setTimeout(r, 300))
   }
 
-  console.error(`[wait] timed out after ${timeoutMs / 1000}s`)
+  watchError('wait', `timed out after ${timeoutMs / 1000}s`)
   const m = readManifest()
   if (m) {
-    console.error(`[wait] final state: ${JSON.stringify(m.packages, null, 2)}`)
-    console.error(`[wait] generator: ${JSON.stringify(m.generator, null, 2)}`)
+    watchError('wait', `final state: ${JSON.stringify(m.packages, null, 2)}`)
+    watchError('wait', `generator: ${JSON.stringify(m.generator, null, 2)}`)
   }
   process.exit(1)
 }

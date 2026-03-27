@@ -14,6 +14,7 @@
 import { glob } from 'glob'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync, statSync } from 'node:fs'
 import { dirname, join, relative, basename } from 'node:path'
+import { watchLog } from './watch-log.mjs'
 
 // Phase 2 — runtime package set (excludes create-app)
 export const RUNTIME_PACKAGES = [
@@ -156,7 +157,7 @@ export function createIncrementalJsExtensionPlugin(packageDir) {
 
         if (processed > 0) {
           const pkgName = basename(packageDir)
-          console.log(`  [rewrite] ${pkgName}: processed ${processed}/${outputFiles.length} files (incremental)`)
+          watchLog('rewrite', `${pkgName}: processed ${processed}/${outputFiles.length} files (incremental)`)
         }
       })
     },
