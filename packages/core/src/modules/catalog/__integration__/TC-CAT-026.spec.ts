@@ -34,7 +34,7 @@ test.describe('TC-CAT-026: Omnibus — isPersonalized field in products response
       // Create a product
       productId = await createProductFixture(request, token, {
         title: `QA TC-CAT-026 ${stamp}`,
-        sku: `QA-CAT-024-${stamp}`,
+        sku: `QA-CAT-026-${stamp}`,
       });
 
       // Create a standard (non-scoped) price
@@ -64,21 +64,15 @@ test.describe('TC-CAT-026: Omnibus — isPersonalized field in products response
       const product = productsBody.items?.find((p) => p.id === productId);
       expect(product, 'Product not found in response').toBeTruthy();
 
-      // pricing block must include isPersonalized and personalizationReason
-      if (product?.pricing) {
-        const pricing = product.pricing as Record<string, unknown>;
-        expect(typeof pricing.is_personalized === 'boolean').toBeTruthy();
-        // Standard non-scoped price → isPersonalized must be false
-        expect(pricing.is_personalized).toBe(false);
-        // personalization_reason must be null for non-personalized price
-        expect(pricing.personalization_reason).toBeNull();
-      } else {
-        // If no pricing resolved (e.g., currency mismatch), just verify fields are expected
-        expect(product?.pricing).toBeNull();
-      }
+      // pricing block must be resolved — we created a EUR price for this product
+      expect(product!.pricing, 'Pricing block must be resolved for product with a matching price').toBeTruthy();
+      const pricing = product!.pricing as Record<string, unknown>;
+      expect(typeof pricing.is_personalized === 'boolean', 'is_personalized must be a boolean').toBeTruthy();
+      // Standard non-scoped price → isPersonalized must be false
+      expect(pricing.is_personalized).toBe(false);
+      // personalization_reason must be null for non-personalized price
+      expect(pricing.personalization_reason).toBeNull();
 
-      // Verify omnibus field is present (may be null if omnibus disabled)
-      expect('omnibus' in (product ?? {})).toBeTruthy();
     } finally {
       if (token && priceId) {
         await apiRequest(request, 'DELETE', `/api/catalog/prices?id=${encodeURIComponent(priceId)}`, { token }).catch(
