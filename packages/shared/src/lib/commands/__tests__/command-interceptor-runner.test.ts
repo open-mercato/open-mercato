@@ -130,6 +130,19 @@ describe('runCommandInterceptorsBefore', () => {
     const withFeature = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, ['premium.audit'])
     expect(withFeature.ok).toBe(false)
   })
+
+  it('accepts wildcard ACL features', async () => {
+    const interceptor = makeInterceptor({
+      id: 'i1',
+      features: ['premium.audit'],
+      beforeExecute: jest.fn().mockResolvedValue({ ok: false, message: 'Blocked by wildcard' }),
+    })
+
+    const withWildcard = await runCommandInterceptorsBefore([interceptor], 'customers.create-person', {}, baseContext, ['premium.*'])
+
+    expect(withWildcard.ok).toBe(false)
+    expect(withWildcard.error?.message).toBe('Blocked by wildcard')
+  })
 })
 
 describe('runCommandInterceptorsAfter', () => {

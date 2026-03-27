@@ -351,6 +351,8 @@ When extending another module's data, add a separate extension entity — never 
 - Features declared per module in `acl.ts`, naming: `<module>.<action>`
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
 - Special flags: `isSuperAdmin` (all features), organization visibility list
+- Treat wildcard grants as part of the ACL contract: `module.*` and `*` satisfy matching concrete features.
+- When a runtime helper evaluates raw granted feature arrays directly (for example nav builders, notification handlers, mutation guards, command interceptors, or AI tools), MUST use the shared wildcard-aware matcher instead of exact string comparisons.
 
 ```typescript
 // acl.ts
