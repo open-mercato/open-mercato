@@ -15,7 +15,7 @@ Keep the current `yarn dev` behavior intact and introduce additive commands for 
 
 The optimized path targets package build/watch overhead only. Worker spawning remains enabled and is not reduced or disabled in this spec.
 
-It also must support dev-time structural changes that currently require `modules:prepare`, such as adding pages, routes, subscribers, workers, widgets, or other auto-discovered module files.
+It also must support dev-time structural changes that currently require `yarn generate` (via `mercato generate`), such as adding pages, routes, subscribers, workers, widgets, or other auto-discovered module files.
 
 ## Overview
 
@@ -39,7 +39,7 @@ This spec changes the rollout strategy:
 - preserve the existing command for full backward compatibility
 - add a parallel optimized command path
 - add built-in measurement tooling so the repo can compare old and new behavior with the same runtime shape
-- add automatic generator invalidation so new auto-discovered files become available during `dev:optimized` without manual `modules:prepare`
+- add automatic generator invalidation so new auto-discovered files become available during `dev:optimized` without manual `yarn generate`
 
 ## Problem Statement
 
@@ -141,11 +141,18 @@ The cache key must reflect the real build graph used today. At minimum, the spec
 
 Current packages that need special coverage include:
 
-- [`packages/core/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/core/build.mjs): `generated/**`, `src/**/*.json`
-- [`packages/cli/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/cli/build.mjs): copied `../create-app/agentic/**`
-- [`packages/create-app/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/create-app/build.mjs): `agentic/**`, copied sibling standalone guides
-- [`packages/shared/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/shared/build.mjs): version injection from `package.json`
-- [`packages/search/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/search/build.mjs), [`packages/enterprise/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/enterprise/build.mjs), [`packages/ai-assistant/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/ai-assistant/build.mjs), [`packages/scheduler/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/scheduler/build.mjs): `src/**/*.json`
+- [`packages/core/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/core/build.mjs): `generated/**`, `src/**/*.json`, two-pass build (source → `dist/`, then generated → `dist/generated/`)
+- [`packages/cli/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/cli/build.mjs): copied `../create-app/agentic/**` — cross-package dependency that Turbo cannot express with per-package `inputs` alone
+- [`packages/create-app/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/create-app/build.mjs): `agentic/**`, plus dynamic scan of `packages/*/agentic/standalone-guide.md` from all sibling packages at build time — any new package adding a guide file is invisible to static cache keys
+- [`packages/shared/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/shared/build.mjs): version injection from `package.json` via esbuild plugin (`injectVersion`) that bakes `APP_VERSION` into `lib/version.ts` at build time
+- [`packages/search/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/search/build.mjs), [`packages/enterprise/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/enterprise/build.mjs), [`packages/ai-assistant/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/ai-assistant/build.mjs), [`packages/scheduler/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/scheduler/build.mjs): `src/**/*.json` (runtime JSON copied to `dist/`, not bundled)
+- [`packages/webhooks/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/webhooks/build.mjs): standard esbuild package (base inputs only)
+- [`packages/sync-akeneo/build.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/sync-akeneo/build.mjs): standard esbuild package (base inputs only)
+
+Cross-package cache invalidation risks:
+
+- `packages/cli` copies from `packages/create-app/agentic/` at build time. A change in the source package will not automatically invalidate cli's Turbo cache. Mitigation: declare `cli`'s `build` task as depending on `create-app#build` in `turbo.json` pipeline, or add a `globalDependencies` entry for `packages/create-app/agentic/**`.
+- `packages/create-app` auto-discovers `standalone-guide.md` from all sibling packages. This dynamic scan cannot be expressed as a static Turbo input glob. Mitigation: either make `create-app` depend on all packages in Turbo, or accept that guide changes require a manual `turbo clean` for `create-app` (low frequency, acceptable trade-off). Document this limitation.
 
 Expected impact:
 
@@ -179,11 +186,25 @@ Create [`scripts/watch-all.mjs`](/Users/piotrkarwatka/Projects/mercato-developme
 
 Responsibilities:
 
-1. discover workspace packages that have a `src/` directory
+1. discover workspace packages that have a `src/` directory and a `build.mjs`
 2. create one esbuild watch context per package inside a single Node.js process
 3. isolate per-package failures so one package error does not terminate all watchers
 4. emit package lifecycle events to a readiness manifest
 5. dispose cleanly on `SIGINT` and `SIGTERM`
+
+Package discovery and watch-mode coverage:
+
+All 18 packages with `build.mjs` must be discovered. However, three packages currently lack a `watch.mjs` or `watch` script:
+
+- `packages/create-app` — build-only (scaffolding tool, not a runtime dependency during dev)
+- `packages/webhooks` — has `build.mjs` but no `watch.mjs`; must be included in the unified watcher
+- `packages/sync-akeneo` — has `build.mjs` but no `watch.mjs`; must be included in the unified watcher
+
+The unified watcher must generate esbuild watch contexts for these packages by reading their `build.mjs` configuration (entry points, plugins, external dependencies) directly, rather than delegating to a missing `watch.mjs`.
+
+Divergent watch pattern — `packages/checkout`:
+
+`packages/checkout` uses `node build.mjs --watch` (flag-based watch) instead of a separate `watch.mjs` that delegates to `scripts/watch.mjs`. The unified watcher must handle this by extracting the esbuild configuration from `checkout`'s `build.mjs` rather than assuming the shared `watch.mjs` convention.
 
 Fault-isolation requirements:
 
@@ -213,7 +234,8 @@ Generator-trigger classes:
 
 Generator-derived trigger contract:
 
-- the optimized implementation must derive structural invalidation from the same generator conventions and scanner rules used by the generator pipeline itself, especially the scanner definitions in [`packages/cli/src/lib/generators/scanner.ts`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/cli/src/lib/generators/scanner.ts)
+- the optimized implementation must derive structural invalidation from the same generator conventions and scanner rules used by the generator pipeline itself, especially the scanner definitions in [`packages/cli/src/lib/generators/scanner.ts`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/cli/src/lib/generators/scanner.ts) and the convention-based file detection in [`packages/cli/src/lib/generators/module-registry.ts`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/cli/src/lib/generators/module-registry.ts)
+- `module-registry.ts` (~91KB) is the largest generator and contains its own convention-based file lookups for `index.ts`, `di.ts`, `acl.ts`, `setup.ts`, `ce.ts`, etc. — these go beyond what `scanner.ts` covers and must also be reflected in the invalidation logic
 - the manual table above is explanatory, not authoritative
 - if generator discovery conventions change, optimized invalidation must update automatically from the same source of truth rather than from a second handwritten list
 
@@ -271,7 +293,7 @@ Generated outputs that must remain current during optimized mode include at leas
 - `interceptors.generated.ts`
 - `enrichers.generated.ts`
 - `module-package-sources.css`
-- OpenAPI output generated by the current generator pipeline
+- `openapi.generated.json` and any related OpenAPI path outputs generated by `openapi.ts` and `openapi-paths.ts`
 
 ### Phase 6 — Coordinate package rebuild and generator rerun ordering
 
@@ -286,6 +308,8 @@ The optimized mode needs an explicit invalidation matrix so structural edits do 
 | Add/remove subscriber or worker | Yes for package modules; no for app-local modules | Yes | No |
 | Add/change `events.ts`, `search.ts`, `translations.ts`, `notifications.ts`, `ai-tools.ts`, `generators.ts` | Yes for package modules; no for app-local modules | Yes | No |
 | Change `apps/mercato/src/modules.ts` enabled module list | Maybe, depending on selected packages | Yes | No |
+| Change `packages/shared/package.json` version field | Yes (version injection via `injectVersion` plugin) | No | No |
+| Edit app-local module source that references package-module entities via widgets/extensions | No package rebuild, but generator pass must wait for any in-flight package rebuild before running | Depends on file type | No |
 | Add a brand-new workspace package under `packages/*` | Yes | Yes | Yes, unless dynamic watcher attachment is implemented |
 | Change root workspace layout or root script wiring | Possibly | Possibly | Yes |
 
@@ -358,6 +382,12 @@ Required generator-level fields:
 - `lastEventAt`
 - `error`
 
+Initial startup failure rules:
+
+- if any package build fails during the initial startup (before session ever reaches `ready`), the session must block and NOT start the app; status remains `starting` with the failed package clearly reported
+- if the generator fails during the initial startup, the session must block and NOT start the app; stale generated files from a previous session must not be silently reused because they may reference modules/entities that no longer exist
+- the waiter script must distinguish "never reached ready" from "was ready but degraded" and fail with distinct error messages for each case
+
 Operational state rules after startup:
 
 - if package rebuild fails after the session was previously `ready`, keep the last good outputs in place and mark session `degraded`
@@ -374,11 +404,24 @@ Anti-stall rules:
 - if generators remain `running` too long, they are marked `failed`
 - on shutdown or crash, the session status becomes `dead`
 
+Next.js HMR interaction:
+
+- when the generator rewrites files in `apps/mercato/.mercato/generated/`, Next.js will detect those changes and trigger its own HMR/recompilation cycle
+- structural changes may therefore cause a cascade: package rebuild → generator rerun → Next.js HMR → browser reload
+- the implementation should minimize unnecessary generator-output writes by comparing new generated content to existing files and only writing when content actually changed (same skip-identical-writes strategy as Phase 3)
+- the benchmark `generatorRefreshMs` metric should measure until the generator write completes, but the test plan should also observe the downstream Next.js recompilation cost to ensure the total loop remains acceptable
+
+App readiness detection for benchmarks:
+
+- the benchmark's `coldStartMs` metric is defined as "process start to first successful app readiness check" but the spec does not define what that check is
+- implementation must define a concrete readiness signal for the Next.js app itself (e.g., HTTP 200 from `localhost:<port>/api/health`, or Next.js `ready` stdout marker)
+- this signal must be consistent between legacy and optimized scenarios to ensure comparable measurements
+
 This readiness contract is used only by `yarn dev:optimized`. The existing `yarn dev` keeps its current startup behavior unchanged.
 
 ### Phase 8 — Scope memory options to the optimized command only
 
-Do not add global `NODE_OPTIONS` defaults to `.env.example`.
+Do not add global `NODE_OPTIONS` defaults to any shared env file or root configuration.
 
 Instead, `yarn dev:optimized` may set a scoped memory ceiling internally, for example:
 
@@ -398,9 +441,15 @@ Update package build and watch scripts from `node18` to `node24` to match the wo
 
 This applies to:
 
-- package `build.mjs` files
+- package `build.mjs` files (all 18 packages)
 - shared watch configuration in [`scripts/watch.mjs`](/Users/piotrkarwatka/Projects/mercato-development-two/scripts/watch.mjs)
 - any auxiliary esbuild compile steps still targeting `node18`
+
+Consumer safety check:
+
+- `packages/create-app` scaffolds standalone template projects that users run independently. Before changing the target, verify that `create-app` templates either (a) also declare `engines.node >= 24` or (b) do not consume `dist/` output from workspace packages directly.
+- the docs app (`apps/docs`) must also be verified to run on Node 24.
+- if any downstream consumer cannot be upgraded, the target change must be scoped to packages that are only consumed within the monorepo, and `create-app`/`docs` must keep their current target until their consumers are verified.
 
 ## Architecture
 
@@ -448,6 +497,13 @@ New tooling artifacts are limited to local benchmark and watch-state files, for 
 
 These are implementation details, not application contracts.
 
+Implementation must add `.gitignore` entries for:
+
+- `.mercato/dev-watch/` — watch-state manifests and lock files
+- `.ai/benchmarks/` — benchmark result artifacts
+
+Without these entries, the files would pollute `git status` or get accidentally committed.
+
 ## API Contracts
 
 No HTTP API changes.
@@ -484,11 +540,14 @@ Rules:
 
 Rollback strategy:
 
-- Phase 2: disable cache changes or run `turbo clean`
-- Phase 3: set `OM_DEV_FORCE_FULL_JS_REWRITE=true`
-- Phase 4/5: keep using `yarn dev` or `yarn dev:legacy`
-- Phase 6: bypass optimized-only memory flags
-- Phase 7: revert target updates if a Node 24 issue is discovered
+- Phase 2: revert `turbo.json` cache changes or run `turbo clean` to reset
+- Phase 3: set `OM_DEV_FORCE_FULL_JS_REWRITE=true` to force full-scan rewrite
+- Phase 4: keep using `yarn dev` or `yarn dev:legacy` (per-package watchers)
+- Phase 5: keep using `yarn dev` or `yarn dev:legacy` (manual `yarn generate` for structural changes); if auto-regeneration produces corrupted generated files, run `yarn generate` manually to restore correct state
+- Phase 6: ordering rules are internal to `dev:optimized` — no rollback needed beyond falling back to `yarn dev`
+- Phase 7: readiness manifest is only used by `dev:optimized` — no rollback needed beyond falling back to `yarn dev`
+- Phase 8: bypass optimized-only memory flags by setting `OM_DEV_MAX_OLD_SPACE_SIZE` override or using `yarn dev`
+- Phase 9: revert esbuild target to `node18` if a Node 24 syntax issue is discovered in any consumer
 
 ## Measurement & Acceptance Criteria
 
@@ -552,6 +611,13 @@ If one or more targets are missed but the optimized path is still materially bet
 | Benchmark baseline drifts over time | `dev:legacy` stops representing the original path | Medium | Measurement quality | Keep `dev:legacy` as a literal baseline command and test it against the spec contract | Low |
 | Scoped memory cap is too aggressive | Optimized mode OOMs on large workspaces | Medium | Dev workflow | Allow override and preserve user-provided `NODE_OPTIONS` | Low |
 | Node 24 target exposes unsupported syntax to outdated local environments | Contributor sees runtime failure on old Node | Low | Local setup | Node 24 is already the declared engine; document requirement in the benchmark summary and docs | Low |
+| Cross-package cache dependency missed | `cli` cache hit reuses stale `create-app/agentic/` copy; `create-app` misses new sibling `standalone-guide.md` | High | Build correctness | Declare explicit Turbo task dependencies for cross-package copies; document `create-app` dynamic scan as a known cache limitation | Medium |
+| Next.js HMR cascade after generator rewrite | Structural change triggers package rebuild → generator rerun → Next.js recompilation → browser reload; total latency exceeds acceptable dev loop | Medium | Dev UX | Skip generator writes when content is identical; measure end-to-end latency including Next.js recompile in benchmarks | Low |
+| Benchmark leaves orphan processes between samples | Leaked watcher/worker from sample N skews memory/timing of sample N+1 | High | Measurement quality | Benchmark runner must kill entire process tree (watchers, workers, scheduler, Next.js) between samples and verify no orphans before starting next sample | Low |
+| Packages without watch scripts are silently skipped | `webhooks` or `sync-akeneo` source changes are not picked up during optimized dev | High | Dev workflow | Unified watcher must discover all packages with `build.mjs` + `src/`, not only those with `watch.mjs` | Low |
+| Checkout divergent watch pattern breaks unified watcher | `packages/checkout` uses `build.mjs --watch` flag instead of `watch.mjs`; unified watcher ignores it or misconfigures it | Medium | Dev workflow | Detect and handle the flag-based watch pattern explicitly in `watch-all.mjs` | Low |
+| Shared package version change not triggering rebuild in watch mode | `packages/shared/package.json` version bumped but watcher only watches `src/` — `APP_VERSION` stays stale | Medium | Runtime correctness | Include `package.json` in the watch inputs for `packages/shared` specifically | Low |
+| Generator failure during initial startup uses stale files | Generator fails on first run; app starts with leftover generated files from a previous session that reference removed modules/entities | High | Startup correctness | Block app startup entirely if generator has never succeeded in the current session; do not fall back to stale generated output during initial startup | Low |
 
 ## Non-Goals
 
@@ -598,6 +664,12 @@ Automated coverage for this spec should include:
 9. Tests that `dev:legacy` remains a literal baseline command and does not delegate to `dev`.
 10. Tests that generator invalidation handles create/delete/rename cases, not only content edits.
 11. Tests that degraded mode preserves last good generated state after generator failure.
+12. Tests that the unified watcher discovers and rebuilds packages without `watch.mjs` (`webhooks`, `sync-akeneo`, `create-app`).
+13. Tests that the unified watcher handles the `checkout` flag-based watch pattern.
+14. Tests that cross-package Turbo cache dependencies are declared correctly (`cli` → `create-app`).
+15. Tests that generator writes are skipped when output content is identical (no unnecessary Next.js HMR triggers).
+16. Tests that the benchmark runner kills the full process tree between samples (no orphan processes).
+17. Tests that initial startup blocks (does not start app) when generator fails before first success.
 
 What remains manual or benchmark-driven:
 
@@ -618,11 +690,18 @@ What remains manual or benchmark-driven:
 - Verify `yarn dev` still behaves exactly as before.
 - Verify `yarn dev:legacy` matches `yarn dev`.
 - Verify `yarn dev:optimized` starts the normal app runtime with workers enabled.
+- In optimized mode, edit a source file in `packages/webhooks/src/` and verify the unified watcher rebuilds it (package has no `watch.mjs`).
+- In optimized mode, edit a source file in `packages/checkout/src/` and verify the unified watcher rebuilds it (package uses flag-based `--watch` pattern).
+- Bump `packages/shared/package.json` version field during optimized watch and verify `APP_VERSION` is re-injected.
+- Observe the full cascade latency for a structural change: package rebuild → generator rerun → Next.js HMR → browser reflects the change. Document total time.
+- Run the benchmark twice in sequence and verify no orphan processes remain between runs (check with `ps` or `pgrep`).
+- During initial startup of `dev:optimized`, simulate a generator failure (e.g., corrupt a generator source) and verify the app does NOT start with stale generated files.
+- Verify `.mercato/dev-watch/` and `.ai/benchmarks/` are listed in `.gitignore` and do not appear in `git status`.
 - Run `yarn test` after implementing the command and helper changes.
 
 ## Documentation Updates
 
-Implementation must review and update user-facing guidance that currently tells contributors to run `modules:prepare` manually when optimized mode can handle the change automatically.
+Implementation must review and update user-facing guidance that currently tells contributors to run `yarn generate` (or `mercato generate`) manually when optimized mode can handle the change automatically. Note: there is no `modules:prepare` script in the repo — the actual command is `yarn generate` at root (which runs `turbo run generate --filter=@open-mercato/app`) or `yarn mercato generate` directly.
 
 At minimum review:
 
@@ -632,7 +711,7 @@ At minimum review:
 
 Documentation should distinguish:
 
-- `yarn dev` / `yarn dev:legacy`: manual `modules:prepare` behavior remains unchanged
+- `yarn dev` / `yarn dev:legacy`: manual `yarn generate` behavior remains unchanged
 - `yarn dev:optimized`: structural changes should auto-regenerate supported generated outputs
 
 ## Final Compliance Report
@@ -655,6 +734,7 @@ Documentation should distinguish:
 ## Changelog
 
 | Date | Change |
-|------|--------|
+| ------ | -------- |
 | 2026-03-26 | Initial draft |
 | 2026-03-27 | Reworked spec around additive `legacy` / `optimized` / `benchmark` commands; preserved `yarn dev`; kept worker spawning enabled; added BC, measurement, readiness, and automated coverage requirements |
+| 2026-03-27 | Gap fill: added cross-package cache invalidation risks (cli↔create-app); documented 3 packages without watch scripts (webhooks, sync-akeneo, create-app) and checkout divergent pattern; added initial startup failure rules; added Next.js HMR cascade handling and app readiness signal; added benchmark process cleanup; fixed `modules:prepare` references to `yarn generate`; added `.gitignore` requirements; added Phase 5 rollback; fixed Phase 8/9 numbering in rollback table; added consumer safety check for node24 target; added shared version-injection watch trigger; added 8 new risks and 6 new integration test items |
