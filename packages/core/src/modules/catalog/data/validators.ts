@@ -435,10 +435,10 @@ export const priceHistoryListQuerySchema = z.object({
   channelId: uuid().optional(),
   currencyCode: z.string().optional(),
   changeType: z.enum(['create', 'update', 'delete', 'undo']).optional(),
-  from: z.string().optional(),
-  to: z.string().optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
   cursor: z.string().optional(),
-  pageSize: z.coerce.number().int().min(1).max(200).optional().default(50),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(50),
   includeTotal: z.preprocess((v) => v === 'true' || v === true, z.boolean()).optional(),
 })
 

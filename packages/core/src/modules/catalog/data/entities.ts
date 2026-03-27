@@ -841,16 +841,16 @@ export class CatalogPriceHistoryEntry {
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
-  @Property({ name: 'unit_price_net', type: 'numeric', precision: 14, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
   unitPriceNet?: string | null
 
-  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 14, scale: 4, nullable: true })
+  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
   unitPriceGross?: string | null
 
-  @Property({ name: 'tax_rate', type: 'numeric', precision: 6, scale: 4, nullable: true })
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
-  @Property({ name: 'tax_amount', type: 'numeric', precision: 14, scale: 4, nullable: true })
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
   taxAmount?: string | null
 
   @Property({ name: 'min_quantity', type: 'integer', nullable: true })

@@ -90,8 +90,6 @@ export async function GET(req: NextRequest) {
 function serializeHistoryEntry(entry: CatalogPriceHistoryEntry) {
   return {
     id: entry.id,
-    tenantId: entry.tenantId,
-    organizationId: entry.organizationId,
     priceId: entry.priceId,
     productId: entry.productId,
     variantId: entry.variantId ?? null,

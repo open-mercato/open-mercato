@@ -1985,6 +1985,54 @@ function convertAdjustmentResultToEntityInput(
   }
 }
 
+async function applyOmnibusToLine(
+  em: EntityManager,
+  omnibusService: CatalogOmnibusService,
+  lineEntity: any,
+  sourceLine: any,
+  document: { tenantId: string; organizationId: string; channelId?: string | null; currencyCode: string },
+  logContext: string,
+): Promise<void> {
+  try {
+    const priceId = sourceLine.priceId ?? null
+    let priceKindId: string | null = null
+    let isPromotion = false
+    let personalizationMeta = { isPersonalized: false, personalizationReason: null as string | null }
+    if (priceId) {
+      const catalogPrice = await em.findOne(CatalogProductPrice, { id: priceId, organizationId: document.organizationId, tenantId: document.tenantId }, { populate: ['priceKind'] })
+      if (catalogPrice) {
+        priceKindId = catalogPrice.priceKind.id
+        isPromotion = catalogPrice.priceKind.isPromotion ?? false
+        personalizationMeta = detectPersonalization(catalogPrice as any)
+      }
+    }
+    if (priceKindId) {
+      const omnibusCtx = {
+        tenantId: document.tenantId,
+        organizationId: document.organizationId,
+        productId: sourceLine.productId,
+        variantId: sourceLine.productVariantId ?? null,
+        offerId: null,
+        priceKindId,
+        currencyCode: sourceLine.currencyCode ?? document.currencyCode,
+        channelId: document.channelId ?? null,
+        isStorefront: false,
+      }
+      const omnibusBlock = await omnibusService.resolveOmnibusBlock(em, omnibusCtx, null, isPromotion)
+      if (omnibusBlock) {
+        lineEntity.omnibusReferenceNet = omnibusBlock.lowestPriceNet ?? null
+        lineEntity.omnibusReferenceGross = omnibusBlock.lowestPriceGross ?? null
+        lineEntity.omnibusPromotionAnchorAt = omnibusBlock.promotionAnchorAt ? new Date(omnibusBlock.promotionAnchorAt) : null
+        lineEntity.omnibusApplicabilityReason = omnibusBlock.applicabilityReason ?? null
+      }
+    }
+    lineEntity.isPersonalized = personalizationMeta.isPersonalized
+    lineEntity.personalizationReason = personalizationMeta.personalizationReason
+  } catch (err) {
+    console.error(`[sales:omnibus] Failed to capture omnibus block for ${logContext}`, { productId: sourceLine.productId, err })
+  }
+}
+
 async function applyOrderLineResults(params: {
   em: EntityManager
   order: SalesOrder
@@ -2039,45 +2087,7 @@ async function applyOrderLineResults(params: {
       status: statusValue,
     })
     if (isNew && omnibusService && sourceLine.productId) {
-      try {
-        const priceId = (sourceLine as any).priceId ?? null;
-        let priceKindId: string | null = null;
-        let isPromotion = false;
-        let personalizationMeta = { isPersonalized: false, personalizationReason: null as string | null };
-        if (priceId) {
-          const catalogPrice = await em.findOne(CatalogProductPrice, { id: priceId, organizationId: order.organizationId, tenantId: order.tenantId }, { populate: ['priceKind'] });
-          if (catalogPrice) {
-            priceKindId = catalogPrice.priceKind.id;
-            isPromotion = catalogPrice.priceKind.isPromotion ?? false;
-            personalizationMeta = detectPersonalization(catalogPrice as any);
-          }
-        }
-        if (priceKindId) {
-          const omnibusCtx = {
-            tenantId: order.tenantId,
-            organizationId: order.organizationId,
-            productId: sourceLine.productId,
-            variantId: (sourceLine as any).productVariantId ?? null,
-            offerId: null,
-            priceKindId,
-            currencyCode: (sourceLine as any).currencyCode ?? order.currencyCode,
-            channelId: order.channelId ?? null,
-            isStorefront: false,
-          };
-          const omnibusBlock = await omnibusService.resolveOmnibusBlock(em, omnibusCtx, null, isPromotion);
-          if (omnibusBlock) {
-            lineEntity.omnibusReferenceNet = omnibusBlock.lowestPriceNet ?? null;
-            lineEntity.omnibusReferenceGross = omnibusBlock.lowestPriceGross ?? null;
-            lineEntity.omnibusPromotionAnchorAt = omnibusBlock.promotionAnchorAt ? new Date(omnibusBlock.promotionAnchorAt) : null;
-            lineEntity.omnibusApplicabilityReason = omnibusBlock.applicabilityReason ?? null;
-          }
-        }
-        lineEntity.isPersonalized = personalizationMeta.isPersonalized;
-        lineEntity.personalizationReason = personalizationMeta.personalizationReason;
-      } catch (err) {
-        // Omnibus capture is non-critical — don't fail order creation
-        console.error('[sales:omnibus] Failed to capture omnibus block for order line', { productId: sourceLine.product, err })
-      }
+      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, order, 'order line')
     }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
@@ -2153,45 +2163,7 @@ async function applyQuoteLineResults(params: {
       status: statusValue,
     })
     if (isNew && omnibusService && sourceLine.productId) {
-      try {
-        const priceId = (sourceLine as any).priceId ?? null;
-        let priceKindId: string | null = null;
-        let isPromotion = false;
-        let personalizationMeta = { isPersonalized: false, personalizationReason: null as string | null };
-        if (priceId) {
-          const catalogPrice = await em.findOne(CatalogProductPrice, { id: priceId, organizationId: quote.organizationId, tenantId: quote.tenantId }, { populate: ['priceKind'] });
-          if (catalogPrice) {
-            priceKindId = catalogPrice.priceKind.id;
-            isPromotion = catalogPrice.priceKind.isPromotion ?? false;
-            personalizationMeta = detectPersonalization(catalogPrice as any);
-          }
-        }
-        if (priceKindId) {
-          const omnibusCtx = {
-            tenantId: quote.tenantId,
-            organizationId: quote.organizationId,
-            productId: sourceLine.productId,
-            variantId: (sourceLine as any).productVariantId ?? null,
-            offerId: null,
-            priceKindId,
-            currencyCode: (sourceLine as any).currencyCode ?? quote.currencyCode,
-            channelId: quote.channelId ?? null,
-            isStorefront: false,
-          };
-          const omnibusBlock = await omnibusService.resolveOmnibusBlock(em, omnibusCtx, null, isPromotion);
-          if (omnibusBlock) {
-            lineEntity.omnibusReferenceNet = omnibusBlock.lowestPriceNet ?? null;
-            lineEntity.omnibusReferenceGross = omnibusBlock.lowestPriceGross ?? null;
-            lineEntity.omnibusPromotionAnchorAt = omnibusBlock.promotionAnchorAt ? new Date(omnibusBlock.promotionAnchorAt) : null;
-            lineEntity.omnibusApplicabilityReason = omnibusBlock.applicabilityReason ?? null;
-          }
-        }
-        lineEntity.isPersonalized = personalizationMeta.isPersonalized;
-        lineEntity.personalizationReason = personalizationMeta.personalizationReason;
-      } catch (err) {
-        // Omnibus capture is non-critical — don't fail quote creation
-        console.error('[sales:omnibus] Failed to capture omnibus block for quote line', { productId: sourceLine.productId, err })
-      }
+      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, quote, 'quote line')
     }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
@@ -2254,45 +2226,7 @@ async function replaceQuoteLines(
       updatedAt: new Date(),
     })
     if (omnibusService && sourceLine.productId) {
-      try {
-        const priceId = (sourceLine as any).priceId ?? null;
-        let priceKindId: string | null = null;
-        let isPromotion = false;
-        let personalizationMeta = { isPersonalized: false, personalizationReason: null as string | null };
-        if (priceId) {
-          const catalogPrice = await em.findOne(CatalogProductPrice, { id: priceId, organizationId: quote.organizationId, tenantId: quote.tenantId }, { populate: ['priceKind'] });
-          if (catalogPrice) {
-            priceKindId = catalogPrice.priceKind.id;
-            isPromotion = catalogPrice.priceKind.isPromotion ?? false;
-            personalizationMeta = detectPersonalization(catalogPrice as any);
-          }
-        }
-        if (priceKindId) {
-          const omnibusCtx = {
-            tenantId: quote.tenantId,
-            organizationId: quote.organizationId,
-            productId: sourceLine.productId,
-            variantId: (sourceLine as any).productVariantId ?? null,
-            offerId: null,
-            priceKindId,
-            currencyCode: (sourceLine as any).currencyCode ?? quote.currencyCode,
-            channelId: quote.channelId ?? null,
-            isStorefront: false,
-          };
-          const omnibusBlock = await omnibusService.resolveOmnibusBlock(em, omnibusCtx, null, isPromotion);
-          if (omnibusBlock) {
-            lineEntity.omnibusReferenceNet = omnibusBlock.lowestPriceNet ?? null;
-            lineEntity.omnibusReferenceGross = omnibusBlock.lowestPriceGross ?? null;
-            lineEntity.omnibusPromotionAnchorAt = omnibusBlock.promotionAnchorAt ? new Date(omnibusBlock.promotionAnchorAt) : null;
-            lineEntity.omnibusApplicabilityReason = omnibusBlock.applicabilityReason ?? null;
-          }
-        }
-        lineEntity.isPersonalized = personalizationMeta.isPersonalized;
-        lineEntity.personalizationReason = personalizationMeta.personalizationReason;
-      } catch (err) {
-        // Omnibus capture is non-critical — don't fail quote creation
-        console.error('[sales:omnibus] Failed to capture omnibus block for quote line', { productId: sourceLine.productId, err })
-      }
+      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, quote, 'quote line')
     }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
@@ -2383,9 +2317,18 @@ async function replaceOrderLines(
   em: EntityManager,
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
-  lineInputs: OrderLineCreateInput[]
+  lineInputs: OrderLineCreateInput[],
+  container?: any,
 ): Promise<void> {
   await em.nativeDelete(SalesOrderLine, { order: order.id })
+  let omnibusService: CatalogOmnibusService | null = null
+  if (container) {
+    try {
+      omnibusService = container.resolve('catalogOmnibusService') as CatalogOmnibusService
+    } catch {
+      omnibusService = null
+    }
+  }
   const statusCache = new Map<string, string | null>()
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null
@@ -2410,6 +2353,9 @@ async function replaceOrderLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     })
+    if (omnibusService && (sourceLine as any).productId) {
+      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, order, 'order line')
+    }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -4315,7 +4261,7 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { orderId: string }> 
       existingTotals: resolveExistingPaymentTotals(order),
     })
 
-    await replaceOrderLines(em, order, calculation, lineInputs)
+    await replaceOrderLines(em, order, calculation, lineInputs, ctx.container)
     await replaceOrderAdjustments(em, order, calculation, adjustmentInputs)
     applyOrderTotals(order, calculation.totals, calculation.lines.length)
     let eventBus: EventBus | null = null
