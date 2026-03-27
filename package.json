@@ -12,6 +12,9 @@
   ],
   "scripts": {
     "dev": "yarn build:packages && yarn watch:packages & sleep 3 && yarn dev:app",
+    "dev:legacy": "yarn build:packages && yarn watch:packages & sleep 3 && yarn dev:app",
+    "dev:optimized": "node scripts/dev-optimized.mjs",
+    "dev:benchmark": "node scripts/dev-benchmark.mjs --mode both",
     "dev:ephemeral": "tsx scripts/dev-ephemeral.ts",
     "dev:greenfield": "yarn build:packages && yarn generate && yarn build:packages && yarn initialize -- --reinstall && yarn dev",
     "dev:app": "turbo run dev --filter=@open-mercato/app",

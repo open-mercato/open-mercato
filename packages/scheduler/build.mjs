@@ -53,7 +53,7 @@ await esbuild.build({
   outdir: 'dist',
   format: 'esm',
   platform: 'node',
-  target: 'node18',
+  target: 'node24',
   sourcemap: true,
   plugins: [addJsExtension],
 })

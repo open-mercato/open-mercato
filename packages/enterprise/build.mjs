@@ -66,7 +66,7 @@ await esbuild.build({
   outbase: join(__dirname, 'src'),
   format: 'esm',
   platform: 'node',
-  target: 'node18',
+  target: 'node24',
   sourcemap: true,
   jsx: 'automatic',
   plugins: [addJsExtension],

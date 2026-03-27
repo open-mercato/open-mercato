@@ -133,7 +133,7 @@ await esbuild.build({
   outbase: join(__dirname, 'src'),
   format: 'esm',
   platform: 'node',
-  target: 'node18',
+  target: 'node24',
   sourcemap: true,
   jsx: 'automatic',
   plugins: [addJsExtension],
@@ -160,7 +160,7 @@ if (generatedEntryPoints.length > 0) {
     outbase: join(__dirname, 'generated'),
     format: 'esm',
     platform: 'node',
-    target: 'node18',
+    target: 'node24',
     sourcemap: true,
     plugins: [addJsExtension],
   })

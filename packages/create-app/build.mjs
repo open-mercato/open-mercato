@@ -8,7 +8,7 @@ await esbuild.build({
   entryPoints: ['src/index.ts'],
   bundle: true,
   platform: 'node',
-  target: 'node18',
+  target: 'node24',
   format: 'esm',
   outdir: 'dist',
   packages: 'external',

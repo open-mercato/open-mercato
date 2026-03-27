@@ -104,7 +104,7 @@ export async function watch(packageDir) {
     outbase: join(packageDir, 'src'),
     format: 'esm',
     platform: 'node',
-    target: 'node18',
+    target: 'node24',
     sourcemap: true,
     jsx: 'automatic',
     plugins: [createAddJsExtensionPlugin(packageDir)],

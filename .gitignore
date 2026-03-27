@@ -120,3 +120,7 @@ docker/opencode/opencode.jsonc
 .ai/qa/ephemeral*
 .ai/dev-ephemeral-envs.json
 .agents/
+
+# Optimized dev pipeline state and benchmark artifacts
+.mercato/dev-watch/
+.ai/benchmarks/

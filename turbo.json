@@ -1,10 +1,20 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalPassThroughEnv": ["*"],
+  "globalDependencies": ["packages/create-app/agentic/**"],
   "tasks": {
     "build": {
-      "cache": false,
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+      "inputs": [
+        "src/**/*.{ts,tsx}",
+        "generated/**/*.{ts,tsx}",
+        "src/**/*.json",
+        "build.mjs",
+        "build.config.mjs",
+        "package.json",
+        "tsconfig.json"
+      ],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
+      "dependsOn": ["^build"]
     },
     "start": {
       "cache": false,
