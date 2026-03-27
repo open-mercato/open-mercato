@@ -22,7 +22,7 @@ export type {
 const CACHE_TTL_MS = 5 * 60 * 1000
 
 export interface CatalogOmnibusService {
-  getConfig(): Promise<OmnibusConfig>
+  getConfig(context?: { organizationId?: string | null }): Promise<OmnibusConfig>
   getLowestPrice(
     em: EntityManager,
     ctx: OmnibusResolutionContext,
@@ -42,11 +42,11 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     private readonly cache: CacheStrategy,
   ) {}
 
-  async getConfig(): Promise<OmnibusConfig> {
+  async getConfig(context?: { organizationId?: string | null }): Promise<OmnibusConfig> {
     const value = await this.moduleConfigService.getValue<OmnibusConfig>(
       OMNIBUS_MODULE_ID,
       OMNIBUS_CONFIG_KEY,
-      { defaultValue: {} },
+      { defaultValue: {}, context },
     )
     return value ?? {}
   }
@@ -56,7 +56,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     ctx: OmnibusResolutionContext,
     presentedPriceEntry?: OmnibusHistoryRow | null,
   ): Promise<OmnibusLowestPriceResult> {
-    const config = await this.getConfig()
+    const config = await this.getConfig({ organizationId: ctx.organizationId })
     return this._computeLowestPrice(em, ctx, config, presentedPriceEntry)
   }
 
@@ -187,7 +187,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     presentedPriceEntry: OmnibusHistoryRow | null,
     priceKindIsPromotion: boolean,
   ): Promise<OmnibusBlock | null> {
-    const config = await this.getConfig()
+    const config = await this.getConfig({ organizationId: ctx.organizationId })
     if (!config.enabled) return null
 
     const presentedPriceKindId = config.channels?.[ctx.channelId ?? '']?.presentedPriceKindId
@@ -344,7 +344,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     }
     if (!isProgressive) return null
 
-    const lowestRow = entries[0]!
+    const lowestRow = entries[entries.length - 1]!
 
     const baselineFilters = buildScopeFilters({ ...ctx, offerId: undefined })
     baselineFilters.offerId = null

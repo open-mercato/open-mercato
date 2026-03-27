@@ -243,6 +243,12 @@ type QuoteLineSnapshot = {
   metadata: Record<string, unknown> | null
   customFieldSetId: string | null
   customFields: Record<string, unknown> | null
+  omnibusReferenceNet: string | null
+  omnibusReferenceGross: string | null
+  omnibusPromotionAnchorAt: string | null
+  omnibusApplicabilityReason: string | null
+  isPersonalized: boolean | null
+  personalizationReason: string | null
 }
 
 type QuoteAdjustmentSnapshot = {
@@ -362,6 +368,12 @@ type OrderLineSnapshot = {
   metadata: Record<string, unknown> | null
   customFieldSetId: string | null
   customFields: Record<string, unknown> | null
+  omnibusReferenceNet: string | null
+  omnibusReferenceGross: string | null
+  omnibusPromotionAnchorAt: string | null
+  omnibusApplicabilityReason: string | null
+  isPersonalized: boolean | null
+  personalizationReason: string | null
 }
 
 type OrderAdjustmentSnapshot = {
@@ -1196,6 +1208,12 @@ async function loadQuoteSnapshot(em: EntityManager, id: string): Promise<QuoteGr
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
       customFields: lineCustomFields[line.id] ? cloneJson(lineCustomFields[line.id]) : null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt ? line.omnibusPromotionAnchorAt.toISOString() : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -1411,6 +1429,12 @@ async function loadOrderSnapshot(em: EntityManager, id: string): Promise<OrderGr
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
       customFields: lineCustomFields[line.id] ? cloneJson(lineCustomFields[line.id]) : null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt ? line.omnibusPromotionAnchorAt.toISOString() : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -2933,6 +2957,12 @@ async function restoreQuoteGraph(
       promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt ? new Date(line.omnibusPromotionAnchorAt) : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -3210,6 +3240,12 @@ async function restoreOrderGraph(
       promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt ? new Date(line.omnibusPromotionAnchorAt) : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -4656,6 +4692,12 @@ const convertQuoteToOrderCommand: CommandHandler<
         promotionSnapshot: line.promotionSnapshot ? cloneJson(line.promotionSnapshot) : null,
         metadata: line.metadata ? cloneJson(line.metadata) : null,
         customFieldSetId: line.customFieldSetId ?? null,
+        omnibusReferenceNet: (line as QuoteLineSnapshot).omnibusReferenceNet ?? null,
+        omnibusReferenceGross: (line as QuoteLineSnapshot).omnibusReferenceGross ?? null,
+        omnibusPromotionAnchorAt: (line as QuoteLineSnapshot).omnibusPromotionAnchorAt ? new Date((line as QuoteLineSnapshot).omnibusPromotionAnchorAt!) : null,
+        omnibusApplicabilityReason: (line as QuoteLineSnapshot).omnibusApplicabilityReason ?? null,
+        isPersonalized: (line as QuoteLineSnapshot).isPersonalized ?? null,
+        personalizationReason: (line as QuoteLineSnapshot).personalizationReason ?? null,
         createdAt: new Date(),
         updatedAt: new Date(),
       })

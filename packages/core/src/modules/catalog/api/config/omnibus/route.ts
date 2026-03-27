@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     }
 
     const moduleConfigService = container.resolve<ModuleConfigService>('moduleConfigService')
-    const value = await moduleConfigService.getValue(OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, { defaultValue: {} })
+    const value = await moduleConfigService.getValue(OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, { defaultValue: {}, context: { organizationId: auth.orgId } })
     return NextResponse.json(value ?? {})
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }
@@ -40,8 +40,9 @@ export async function PATCH(req: NextRequest) {
     const parsed = omnibusConfigSchema.parse(body)
 
     const moduleConfigService = container.resolve<ModuleConfigService>('moduleConfigService')
+    const orgContext = { organizationId: auth.orgId }
 
-    const existing = (await moduleConfigService.getValue(OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, { defaultValue: {} })) ?? {}
+    const existing = (await moduleConfigService.getValue(OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, { defaultValue: {}, context: orgContext })) ?? {}
 
     if (parsed.enabled === true) {
       const enabledCountryCodes = parsed.enabledCountryCodes ?? (existing as Record<string, unknown>).enabledCountryCodes ?? []
@@ -66,7 +67,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const merged = { ...(existing as Record<string, unknown>), ...parsed }
-    await moduleConfigService.setValue(OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, merged)
+    await moduleConfigService.setValue(OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, merged, orgContext)
     return NextResponse.json(merged)
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }
