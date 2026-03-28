@@ -15,6 +15,13 @@ if ! curl -s "$REGISTRY_URL/-/ping" > /dev/null 2>&1; then
   exit 1
 fi
 
+# Check auth before spending time on builds
+if ! npm whoami --registry "$REGISTRY_URL" > /dev/null 2>&1; then
+  echo "Error: Not authenticated to Verdaccio at $REGISTRY_URL"
+  echo "Run: npm login --registry $REGISTRY_URL"
+  exit 1
+fi
+
 # Define packages in dependency order
 PACKAGES=(
   "shared"
@@ -52,9 +59,10 @@ for pkg in "${PACKAGES[@]}"; do
 done
 echo ""
 
-# Step 2: Build all packages
+# Step 2: Build all packages (nuke turbo cache to avoid stale dist/)
 echo "Step 2: Building packages..."
 cd "$ROOT_DIR"
+rm -rf "$ROOT_DIR/.turbo" "$ROOT_DIR/node_modules/.cache/turbo"
 yarn build:packages
 echo ""
 
@@ -75,7 +83,7 @@ for pkg in "${PACKAGES[@]}"; do
     yarn pack --out "package.tgz" >/dev/null 2>&1
 
     if [ -f "package.tgz" ]; then
-      npm publish "package.tgz" --registry "$REGISTRY_URL" --access public 2>/dev/null
+      npm publish "package.tgz" --registry "$REGISTRY_URL" --access public
       rm -f "package.tgz"
       echo "    ✓ Published"
     else
