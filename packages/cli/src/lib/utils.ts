@@ -178,9 +178,21 @@ export function toSnake(s: string): string {
 }
 
 export async function moduleHasExport(filePath: string, exportName: string): Promise<boolean> {
+  // First try reading the source file directly (works for .ts and .js app-level files)
+  const absPath = path.isAbsolute(filePath) ? filePath : null
+  if (absPath) {
+    try {
+      const source = fs.readFileSync(absPath, 'utf-8')
+      const namedExport = new RegExp(`export\\s+(?:const|let|var|function|class|async\\s+function)\\s+${exportName}\\b`)
+      const reExport = new RegExp(`export\\s+\\{[^}]*\\b${exportName}\\b`)
+      if (namedExport.test(source) || reExport.test(source)) return true
+    } catch {
+      // File not readable — fall through to dynamic import
+    }
+  }
+
+  // Fallback: dynamic import (works for compiled package exports)
   try {
-    // On Windows, absolute paths must be file:// URLs for ESM imports
-    // But package imports (starting with @ or not starting with . or /) should be used as-is
     const isAbsolutePath = path.isAbsolute(filePath)
     const importUrl = isAbsolutePath ? pathToFileURL(filePath).href : filePath
     const mod = await import(importUrl)
