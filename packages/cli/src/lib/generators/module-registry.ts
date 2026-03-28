@@ -268,7 +268,8 @@ async function processWorkers(options: {
     const file = segs.pop()!
     const name = file.replace(/\.ts$/, '')
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
-    if (!(await moduleHasExport(importPath, 'metadata'))) continue
+    const checkPath = fromApp ? path.join(roots.appBase, 'workers', ...segs, file) : importPath
+    if (!(await moduleHasExport(checkPath, 'metadata'))) continue
     const importName = `Worker${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
     const metaName = `WorkerMeta${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
     imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
