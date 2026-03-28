@@ -265,6 +265,26 @@ async function main(): Promise<void> {
       copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
     }
 
+    // When using Verdaccio, rewrite @open-mercato/* deps to "*" so yarn resolves
+    // whatever version is published locally (including prerelease tags)
+    if (options.verdaccio) {
+      const appPkgPath = join(targetDir, 'package.json')
+      if (existsSync(appPkgPath)) {
+        const appPkg = JSON.parse(readFileSync(appPkgPath, 'utf-8'))
+        for (const depType of ['dependencies', 'devDependencies'] as const) {
+          const deps = appPkg[depType]
+          if (!deps) continue
+          for (const name of Object.keys(deps)) {
+            if (name.startsWith('@open-mercato/')) {
+              deps[name] = '*'
+            }
+          }
+        }
+        writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + '\n')
+        console.log(pc.dim('  Rewrote @open-mercato/* deps to "*" for Verdaccio'))
+      }
+    }
+
     // Create an empty placeholder so globals.css @import resolves before generators run
     const generatedDir = join(targetDir, '.mercato', 'generated')
     mkdirSync(generatedDir, { recursive: true })
