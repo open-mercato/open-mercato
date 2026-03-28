@@ -42,7 +42,7 @@ export function parseExampleUrl(input: string, options?: { branch?: string }): E
       )
     }
 
-    // When --example-branch is provided, skip the branch segments in the URL path
+    // When --app-branch is provided, skip the branch segments in the URL path
     // (avoids ambiguity with branches containing '/' like feat/my-feature)
     if (options?.branch) {
       const branchSegments = options.branch.split('/').length
@@ -67,7 +67,7 @@ export function parseExampleUrl(input: string, options?: { branch?: string }): E
   }
 
   throw new Error(
-    `Invalid example: "${input}". Use a plain name (e.g., "prm") or a GitHub URL (e.g., "https://github.com/owner/repo")`
+    `Invalid app: "${input}". Use a plain name (e.g., "prm") or a GitHub URL (e.g., "https://github.com/owner/repo")`
   )
 }
 
@@ -89,7 +89,7 @@ export async function checkExampleExists(info: ExampleInfo, token?: string): Pro
 
   if (response.status === 404) {
     throw new Error(
-      `Example not found: "${info.filePath}" does not exist in ${info.owner}/${info.repo} (branch: ${info.branch})`
+      `App not found: "${info.filePath}" does not exist in ${info.owner}/${info.repo} (branch: ${info.branch})`
     )
   }
 
@@ -107,7 +107,7 @@ export async function checkExampleExists(info: ExampleInfo, token?: string): Pro
 
   if (!response.ok) {
     throw new Error(
-      `GitHub API error (${response.status}): Could not verify example at ${info.owner}/${info.repo}/${info.filePath}`
+      `GitHub API error (${response.status}): Could not verify app at ${info.owner}/${info.repo}/${info.filePath}`
     )
   }
 }
@@ -138,7 +138,7 @@ export async function downloadAndExtract(info: ExampleInfo, targetDir: string, t
   const url = `https://codeload.github.com/${info.owner}/${info.repo}/tar.gz/${info.branch}`
   const headers = getGithubHeaders(token)
 
-  console.log(pc.dim(`  Downloading example from ${info.owner}/${info.repo}...`))
+  console.log(pc.dim(`  Downloading app from ${info.owner}/${info.repo}...`))
 
   const response = await fetchWithRetry(url, headers)
 

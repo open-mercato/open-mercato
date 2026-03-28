@@ -75,15 +75,15 @@ describe('parseExampleUrl', () => {
     })
 
     it('rejects non-GitHub URL', () => {
-      expect(() => parseExampleUrl('https://gitlab.com/owner/repo')).toThrow('Invalid example')
+      expect(() => parseExampleUrl('https://gitlab.com/owner/repo')).toThrow('Invalid app')
     })
 
     it('rejects names with uppercase', () => {
-      expect(() => parseExampleUrl('MyApp')).toThrow('Invalid example')
+      expect(() => parseExampleUrl('MyApp')).toThrow('Invalid app')
     })
 
     it('rejects names with special characters', () => {
-      expect(() => parseExampleUrl('my_app')).toThrow('Invalid example')
+      expect(() => parseExampleUrl('my_app')).toThrow('Invalid app')
     })
   })
 
@@ -128,7 +128,7 @@ describe('checkExampleExists', () => {
 
   it('throws on 404 with descriptive message', async () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 })
-    await expect(checkExampleExists(mockInfo)).rejects.toThrow('Example not found')
+    await expect(checkExampleExists(mockInfo)).rejects.toThrow('App not found')
   })
 
   it('throws on 403 with rate limit message', async () => {
