@@ -79,7 +79,7 @@ Implement a Use-Case Examples framework with two tiers:
 - No use-case-specific KPI ownership or API logic in the core frameworks.
 
 ## User Stories / Use Cases
-- An Engineer wants to bootstrap a new B2B PRM application. They run `npx create-mercato-app my-prm --example b2b-prm` and get a complete, demo-ready PRM app.
+- An Engineer wants to bootstrap a new B2B PRM application. They run `npx create-mercato-app my-prm --example prm` and get a complete, demo-ready PRM app.
 - An Engineer wants to use a community example. They run `npx create-mercato-app my-app --example https://github.com/some-agency/their-example`.
 - A Partner Agency wants to distribute their specialized marketplace workflows. They maintain a GitHub repository with a complete Open Mercato app that includes their UMES extensions, widgets, and seeds.
 - An Engineer wants a blank app with no example. They run `npx create-mercato-app my-app` (unchanged behavior).
@@ -92,7 +92,7 @@ New flag for `create-mercato-app`: `--example` (alias `-e`)
 
 ```bash
 # Official example — fetches from open-mercato/ready-apps repo
-npx create-mercato-app my-prm --example b2b-prm
+npx create-mercato-app my-prm --example prm
 
 # Community example — fetches from any public GitHub repo
 npx create-mercato-app my-app --example https://github.com/some-agency/their-example
@@ -102,7 +102,7 @@ npx create-mercato-app my-app
 ```
 
 Resolution logic:
-- Plain name (e.g., `b2b-prm`) → fetches the `b2b-prm/` subdirectory from `open-mercato/ready-apps` GitHub repo
+- Plain name (e.g., `prm`) → fetches the `apps/prm/` subdirectory from `open-mercato/ready-apps` GitHub repo
 - URL → fetches the full repo at that URL
 
 Backward compatibility: the no-flag invocation remains unchanged. `--example` is purely additive. Existing `--registry` and `--verdaccio` flags continue to work for npm package resolution.
@@ -112,8 +112,8 @@ Backward compatibility: the no-flag invocation remains unchanged. `--example` is
 Official examples live in `open-mercato/ready-apps`:
 
 ```text
-examples/
-├── b2b-prm/                  # Complete standalone app
+apps/
+├── prm/                       # Complete standalone app
 │   ├── src/modules/           # PRM-specific modules
 │   ├── package.json
 │   ├── .env.example
@@ -136,8 +136,8 @@ Examples use the same `.template` file convention and placeholder set (`{{APP_NA
 
 ### Reference Flow
 ```text
-developer runs `npx create-mercato-app my-b2b-app --example b2b-prm` →
-create-mercato-app fetches b2b-prm/ from open-mercato/ready-apps via GitHub API tarball →
+developer runs `npx create-mercato-app my-prm-app --example prm` →
+create-mercato-app fetches apps/prm/ from open-mercato/ready-apps via GitHub API tarball →
 extracts to target directory, runs placeholder substitution →
 agentic setup wizard runs →
 developer runs `yarn install` → `yarn initialize` (setup.ts hooks run seedDefaults/seedExamples) →
@@ -189,7 +189,7 @@ Each example declares compatible core versions through `@open-mercato/*` depende
 
 ### Phase 2 — Examples Repository
 1. Create `open-mercato/ready-apps` repository.
-2. Add B2B PRM as first official example (`b2b-prm/`).
+2. Add PRM as first official example (`apps/prm/`).
 3. Add CI to validate each example builds.
 4. Add README with index of available examples.
 
@@ -199,7 +199,7 @@ Each example declares compatible core versions through `@open-mercato/*` depende
 |------|------|--------|---------|
 | `packages/create-app/src/index.ts` | open-mercato | Modify | Add `--example` flag, fetch logic |
 | `packages/create-app/AGENTS.md` | open-mercato | Modify | Document `--example` flag |
-| `examples/b2b-prm/` | open-mercato/ready-apps | Create | First official example |
+| `apps/prm/` | open-mercato/ready-apps | Create | First official example |
 | `README.md` | open-mercato/ready-apps | Create | Example index and usage docs |
 | `.github/workflows/ci.yml` | open-mercato/ready-apps | Create | Validate examples build |
 

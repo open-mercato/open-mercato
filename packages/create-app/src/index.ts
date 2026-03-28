@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, statSync, readFileSync, writeFileSync, copyFileSync, renameSync, unlinkSync, rmSync } from 'node:fs'
 import { join, dirname, basename, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
 import pc from 'picocolors'
 import { runAgenticSetup } from './setup/wizard.js'
+import { parseExampleUrl, checkExampleExists, downloadAndExtract } from './example.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
@@ -12,6 +13,8 @@ const TEMPLATE_DIR = join(__dirname, '..', 'template')
 
 interface Options {
   registry?: string
+  example?: string
+  exampleBranch?: string
   verdaccio: boolean
   help: boolean
   version: boolean
@@ -28,6 +31,8 @@ ${pc.bold('Arguments:')}
   app-name           Name of the application (will create folder with this name)
 
 ${pc.bold('Options:')}
+  --app, -a <name|url>      Use a ready app as the starting point
+  --app-branch <branch>     Override the branch for --app (e.g., feat/my-branch)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -35,8 +40,9 @@ ${pc.bold('Options:')}
 
 ${pc.bold('Examples:')}
   npx create-mercato-app my-store
+  npx create-mercato-app my-prm --app prm
+  npx create-mercato-app my-app --app https://github.com/some-agency/their-app
   npx create-mercato-app my-store --verdaccio
-  npx create-mercato-app my-store --registry http://localhost:4873
 `)
 }
 
@@ -47,6 +53,8 @@ function showVersion(): void {
 function parseArgs(args: string[]): { appName: string | null; options: Options } {
   const options: Options = {
     registry: undefined,
+    example: undefined,
+    exampleBranch: undefined,
     verdaccio: false,
     help: false,
     version: false,
@@ -64,6 +72,10 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.verdaccio = true
     } else if (arg === '--registry') {
       options.registry = args[++i]
+    } else if (arg === '--app' || arg === '-a') {
+      options.example = args[++i]
+    } else if (arg === '--app-branch') {
+      options.exampleBranch = args[++i]
     } else if (!arg.startsWith('-')) {
       appName = arg
     }
@@ -131,6 +143,44 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
   }
 }
 
+function processTemplateFiles(dir: string, placeholders: Record<string, string>): void {
+  const entries = readdirSync(dir)
+
+  for (const entry of entries) {
+    const fullPath = join(dir, entry)
+    const stat = statSync(fullPath)
+
+    if (stat.isDirectory()) {
+      processTemplateFiles(fullPath, placeholders)
+      const renamed = FILE_RENAMES[entry]
+      if (renamed) {
+        const renamedPath = join(dirname(fullPath), renamed)
+        renameSync(fullPath, renamedPath)
+      }
+      continue
+    }
+
+    const renamed = FILE_RENAMES[entry]
+    if (renamed) {
+      const renamedPath = join(dirname(fullPath), renamed)
+      renameSync(fullPath, renamedPath)
+    }
+
+    if (entry.endsWith('.template')) {
+      const finalName = entry.replace('.template', '')
+      const finalPath = join(dirname(fullPath), finalName)
+      let content = readFileSync(fullPath, 'utf-8')
+
+      for (const [key, value] of Object.entries(placeholders)) {
+        content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
+      }
+
+      writeFileSync(finalPath, content)
+      unlinkSync(fullPath)
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
   const { appName: appNameArg, options } = parseArgs(args)
@@ -167,7 +217,8 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  if (!existsSync(TEMPLATE_DIR)) {
+  // Template path guard (before try — matches existing behavior)
+  if (!options.example && !existsSync(TEMPLATE_DIR)) {
     console.error(pc.red('Error: Template directory not found'))
     console.error(`Expected: ${TEMPLATE_DIR}`)
     process.exit(1)
@@ -197,7 +248,42 @@ async function main(): Promise<void> {
   }
 
   try {
-    copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+    if (options.example) {
+      // Example path: fetch from GitHub
+      const token = process.env.GITHUB_TOKEN
+      const exampleInfo = parseExampleUrl(options.example, { branch: options.exampleBranch })
+
+      console.log(pc.dim(`  Resolving app: ${options.example}`))
+
+      await checkExampleExists(exampleInfo, token)
+
+      mkdirSync(targetDir, { recursive: true })
+      await downloadAndExtract(exampleInfo, targetDir, token)
+      processTemplateFiles(targetDir, placeholders)
+    } else {
+      // Template path: copy built-in template
+      copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+    }
+
+    // When using Verdaccio, rewrite @open-mercato/* deps to "*" so yarn resolves
+    // whatever version is published locally (including prerelease tags)
+    if (options.verdaccio) {
+      const appPkgPath = join(targetDir, 'package.json')
+      if (existsSync(appPkgPath)) {
+        const appPkg = JSON.parse(readFileSync(appPkgPath, 'utf-8'))
+        for (const depType of ['dependencies', 'devDependencies'] as const) {
+          const deps = appPkg[depType]
+          if (!deps) continue
+          for (const name of Object.keys(deps)) {
+            if (name.startsWith('@open-mercato/')) {
+              deps[name] = '*'
+            }
+          }
+        }
+        writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + '\n')
+        console.log(pc.dim('  Rewrote @open-mercato/* deps to "*" for Verdaccio'))
+      }
+    }
 
     // Create an empty placeholder so globals.css @import resolves before generators run
     const generatedDir = join(targetDir, '.mercato', 'generated')
@@ -231,7 +317,15 @@ async function main(): Promise<void> {
     console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
     console.log('')
   } catch (error) {
-    console.error(pc.red('Error creating app:'), error)
+    // Cleanup on failure if target dir was created
+    if (existsSync(targetDir) && options.example) {
+      try {
+        rmSync(targetDir, { recursive: true, force: true })
+      } catch {
+        // Best effort cleanup
+      }
+    }
+    console.error(pc.red('Error creating app:'), error instanceof Error ? error.message : error)
     process.exit(1)
   }
 }

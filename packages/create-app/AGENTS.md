@@ -42,6 +42,25 @@ my-app/
 └── package.json
 ```
 
+### `--app` Flag
+
+Bootstrap from a ready app instead of the bare scaffold template.
+
+```bash
+# Official app — fetches from open-mercato/ready-apps repo
+npx create-mercato-app my-prm --app prm
+
+# Community app — fetches from any public GitHub repo
+npx create-mercato-app my-app --app https://github.com/some-agency/their-app
+
+# With branch and subdirectory
+npx create-mercato-app my-app --app https://github.com/owner/repo/tree/main/apps/custom
+```
+
+- Uses `GITHUB_TOKEN` env var for private repos and to avoid rate limits
+- Apps must follow the same `.template` placeholder convention as the bare scaffold
+- Official apps live in `open-mercato/ready-apps` under `apps/`
+
 ## Testing with Verdaccio
 
 ### Initial Setup
