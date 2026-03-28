@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { Plus, Settings, Save } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
@@ -15,6 +16,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
 import { DictionaryValue, renderDictionaryColor, renderDictionaryIcon } from './dictionaryAppearance'
 import { AppearanceSelector, type AppearanceSelectorLabels, useAppearanceState } from './AppearanceSelector'
 
@@ -90,6 +92,8 @@ export function DictionaryEntrySelect({
   showLabelInput = true,
   showManage = true,
 }: DictionaryEntrySelectProps) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const [options, setOptions] = React.useState<DictionaryOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
@@ -216,6 +220,15 @@ export function DictionaryEntrySelect({
 
   const disabled = disabledProp || loading || saving
   const manageLink = manageHref ?? '/backend/config/dictionaries'
+  const returnTo = React.useMemo(() => {
+    const query = searchParams?.toString() ?? ''
+    if (!pathname) return null
+    return query.length ? `${pathname}?${query}` : pathname
+  }, [pathname, searchParams])
+  const manageLinkWithReturnTo = React.useMemo(
+    () => buildHrefWithReturnTo(manageLink, returnTo),
+    [manageLink, returnTo],
+  )
 
   return (
     <div className="space-y-2">
@@ -230,10 +243,11 @@ export function DictionaryEntrySelect({
           value={value ?? ''}
           onChange={(event) => onChange(event.target.value ? event.target.value : undefined)}
           disabled={disabled}
+          title={activeOption?.label ?? undefined}
         >
           <option value="">{labels.placeholder}</option>
           {options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option key={option.value} value={option.value} title={option.label}>
               {option.label}
             </option>
           ))}
@@ -317,7 +331,7 @@ export function DictionaryEntrySelect({
           ) : null}
           {showManage ? (
             <Button asChild variant="ghost" size="icon" title={labels.manageTitle} aria-label={labels.manageTitle}>
-              <Link href={manageLink}>
+              <Link href={manageLinkWithReturnTo}>
                 <Settings className="h-4 w-4" />
                 <span className="sr-only">{labels.manageTitle}</span>
               </Link>

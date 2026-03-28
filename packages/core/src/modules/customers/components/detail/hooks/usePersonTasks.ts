@@ -38,6 +38,9 @@ export type TaskFormPayload = {
   base: {
     title: string
     is_done?: boolean
+    description?: string | null
+    priority?: number | null
+    scheduledAt?: string | null
   }
   custom: Record<string, unknown>
 }
@@ -73,6 +76,7 @@ function mapRowToSummary(row: CustomerTodoRow): TodoLinkSummary {
     createdAt: row.createdAt,
     title: row.todoTitle ?? null,
     isDone: row.todoIsDone ?? null,
+    status: row.todoIsDone ? 'done' : 'planned',
     priority: row.todoPriority ?? null,
     severity: row.todoSeverity ?? null,
     description: row.todoDescription ?? null,
@@ -132,6 +136,29 @@ function normalizeString(value: unknown): string | null | undefined {
     return trimmed.length ? trimmed : null
   }
   return String(value)
+}
+
+function buildLegacyTaskCustomValues(
+  payload: TaskFormPayload,
+  options?: { includeEmptyFields?: boolean },
+): Record<string, unknown> {
+  const includeEmptyFields = options?.includeEmptyFields === true
+  const custom = { ...payload.custom }
+
+  const assignValue = (key: string, value: unknown) => {
+    if (value === undefined) return
+    if (value === null) {
+      if (includeEmptyFields) custom[key] = null
+      return
+    }
+    custom[key] = value
+  }
+
+  assignValue('priority', payload.base.priority ?? null)
+  assignValue('description', payload.base.description ?? null)
+  assignValue('due_at', payload.base.scheduledAt ?? null)
+
+  return custom
 }
 
 export function usePersonTasks({
@@ -266,13 +293,14 @@ export function usePersonTasks({
       if (!entityId) throw new Error('Task creation requires an entity id')
       setIsMutating(true)
       try {
+        const customValues = buildLegacyTaskCustomValues({ base, custom })
         const payload: Record<string, unknown> = {
           entityId,
           title: base.title,
         }
         const normalizedDone = normalizeBoolean(base.is_done)
         if (normalizedDone !== undefined) payload.isDone = normalizedDone
-        if (Object.keys(custom).length) payload.todoCustom = custom
+        if (Object.keys(customValues).length) payload.todoCustom = customValues
 
         const response = await apiCallOrThrow<{ linkId?: string; todoId?: string }>(
           '/api/customers/todos',
@@ -287,10 +315,10 @@ export function usePersonTasks({
         const linkId = typeof body.linkId === 'string' && body.linkId.length ? body.linkId : generateTempId()
         const todoId = typeof body.todoId === 'string' && body.todoId.length ? body.todoId : generateTempId()
         const createdAt = new Date().toISOString()
-        const customValues = Object.keys(custom).length ? { ...custom } : null
-        const priority = normalizeNumber(custom.priority)
-        const severity = normalizeString(custom.severity) ?? null
-        const description = normalizeString(custom.description) ?? null
+        const persistedCustomValues = Object.keys(customValues).length ? { ...customValues } : null
+        const priority = normalizeNumber(base.priority ?? customValues.priority)
+        const severity = normalizeString(customValues.severity) ?? null
+        const description = normalizeString(base.description ?? customValues.description) ?? null
         const newTask: TodoLinkSummary = {
           id: linkId,
           todoId,
@@ -298,12 +326,13 @@ export function usePersonTasks({
           createdAt,
           title: base.title,
           isDone: normalizedDone ?? false,
+          status: normalizedDone ? 'done' : 'planned',
           priority: priority === undefined ? null : priority,
           severity,
           description,
-          dueAt: normalizeString(custom.due_at) ?? normalizeString(custom.dueAt) ?? null,
+          dueAt: normalizeString(base.scheduledAt ?? customValues.due_at) ?? normalizeString(customValues.dueAt) ?? null,
           todoOrganizationId: null,
-          customValues,
+          customValues: persistedCustomValues,
         }
         setTasks((prev) => [newTask, ...prev])
         setPageInfo((prev) => ({
@@ -326,16 +355,18 @@ export function usePersonTasks({
       if (!apiPath) throw new Error('Unsupported task source')
       setIsMutating(true)
       try {
+        const customValues = buildLegacyTaskCustomValues({ base, custom }, { includeEmptyFields: true })
         const body: Record<string, unknown> = {
           id: task.todoId,
+          linkId: task.id,
         }
         if (typeof base.title === 'string' && base.title.trim().length) {
           body.title = base.title.trim()
         }
         const normalizedDone = normalizeBoolean(base.is_done)
         if (normalizedDone !== undefined) body.is_done = normalizedDone
-        if (Object.keys(custom).length) {
-          body.customFields = custom
+        if (Object.keys(customValues).length) {
+          body.customFields = customValues
         }
         await apiCallOrThrow(
           apiPath,
@@ -350,21 +381,29 @@ export function usePersonTasks({
           prev.map((item) => {
             if (item.id !== task.id) return item
             const nextCustomValues = { ...(item.customValues ?? {}) }
-            for (const [key, value] of Object.entries(custom)) {
+            for (const [key, value] of Object.entries(customValues)) {
               nextCustomValues[key] = value === undefined ? null : value
             }
             return {
               ...item,
               title: typeof base.title === 'string' && base.title.trim().length ? base.title.trim() : item.title,
               isDone: normalizedDone !== undefined ? normalizedDone : item.isDone,
-              priority: normalizeNumber(custom.priority) ?? (custom.priority === undefined ? item.priority ?? null : null),
-              severity: normalizeString(custom.severity) ?? (custom.severity === undefined ? item.severity ?? null : null),
+              status: normalizedDone !== undefined ? (normalizedDone ? 'done' : 'planned') : item.status ?? null,
+              priority:
+                normalizeNumber(base.priority ?? customValues.priority) ??
+                (base.priority === undefined && customValues.priority === undefined ? item.priority ?? null : null),
+              severity:
+                normalizeString(customValues.severity) ??
+                (customValues.severity === undefined ? item.severity ?? null : null),
               description:
-                normalizeString(custom.description) ?? (custom.description === undefined ? item.description ?? null : null),
+                normalizeString(base.description ?? customValues.description) ??
+                (base.description === undefined && customValues.description === undefined ? item.description ?? null : null),
               dueAt:
-                normalizeString(custom.due_at) ??
-                normalizeString(custom.dueAt) ??
-                (custom.due_at === undefined && custom.dueAt === undefined ? item.dueAt ?? null : null),
+                normalizeString(base.scheduledAt ?? customValues.due_at) ??
+                normalizeString(customValues.dueAt) ??
+                (base.scheduledAt === undefined && customValues.due_at === undefined && customValues.dueAt === undefined
+                  ? item.dueAt ?? null
+                  : null),
               customValues: Object.keys(nextCustomValues).length ? nextCustomValues : null,
             }
           }),

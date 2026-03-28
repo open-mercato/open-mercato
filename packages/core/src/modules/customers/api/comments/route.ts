@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerComment, CustomerDeal } from '../../data/entities'
 import { commentCreateSchema, commentUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
@@ -141,7 +142,11 @@ const crud = makeCrudRoute({
       if (!dealIds.length) return
       try {
         const em = (ctx.container.resolve('em') as EntityManager)
-        const deals = await em.find(CustomerDeal, { id: { $in: dealIds } })
+        const tenantId = ctx.auth?.tenantId ?? null
+        const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+        const deals = tenantId && organizationId
+          ? await findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, { tenantId, organizationId })
+          : await em.find(CustomerDeal, { id: { $in: dealIds } })
         const map = new Map<string, string>()
         deals.forEach((deal: CustomerDeal) => {
           if (deal.id) map.set(deal.id, deal.title ?? '')

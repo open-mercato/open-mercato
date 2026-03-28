@@ -205,6 +205,10 @@ export function CustomerAddressTiles({
     }),
     [t]
   )
+  const line1FieldLabel = React.useMemo(
+    () => (format === 'street_first' ? fieldLabels.street : fieldLabels.addressLine1),
+    [fieldLabels.addressLine1, fieldLabels.street, format],
+  )
 
 
 
@@ -298,7 +302,7 @@ export function CustomerAddressTiles({
       const message = t(
         'customers.people.detail.addresses.validation.required',
         undefined,
-        { field: fieldLabels.addressLine1 }
+        { field: line1FieldLabel }
       )
       setFieldErrors((prev) => ({ ...prev, addressLine1: message }))
       setGeneralError(message)
@@ -347,7 +351,11 @@ export function CustomerAddressTiles({
           const path = Array.isArray(detail.path) ? detail.path : []
           const targetKey = path.length ? serverFieldMap[String(path[0])] : undefined
           if (!targetKey) continue
-          const message = resolveFieldMessage(detail, fieldLabels[targetKey], t)
+          const message = resolveFieldMessage(
+            detail,
+            targetKey === 'addressLine1' ? line1FieldLabel : fieldLabels[targetKey],
+            t,
+          )
           if (message) nextErrors[targetKey] = message
         }
         if (Object.keys(nextErrors).length) {
@@ -366,7 +374,7 @@ export function CustomerAddressTiles({
     } finally {
       setSaving(false)
     }
-  }, [draft, fieldLabels, onCreate, onUpdate, resetForm, t, editingId])
+  }, [draft, editingId, fieldLabels, line1FieldLabel, onCreate, onUpdate, resetForm, t])
 
   const handleDelete = React.useCallback(
     async (id: string) => {

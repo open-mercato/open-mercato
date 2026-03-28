@@ -36,6 +36,13 @@ export function DetailTabsLayout<TId extends string = string>({
   navClassName,
   children,
 }: DetailTabsLayoutProps<TId>) {
+  const handleTabChange = React.useCallback(
+    (id: TId) => {
+      onTabChange(id)
+    },
+    [onTabChange],
+  )
+
   return (
     <div className={cn('space-y-4', className)}>
       <div className={cn('flex flex-wrap items-center justify-between gap-3', headerClassName)}>
@@ -47,15 +54,16 @@ export function DetailTabsLayout<TId extends string = string>({
           {tabs.map((tab) => (
             <Button
               key={tab.id}
+              type="button"
               variant="ghost"
               size="sm"
               role="tab"
               aria-selected={activeTab === tab.id}
-              onClick={() => onTabChange(tab.id)}
+              onClick={() => handleTabChange(tab.id)}
               className={cn(
                 'h-auto rounded-none border-b-2 px-0 py-1',
                 activeTab === tab.id
-                  ? 'border-primary text-foreground'
+                  ? 'border-primary text-foreground hover:bg-transparent'
                   : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
               )}
             >

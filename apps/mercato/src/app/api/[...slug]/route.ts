@@ -272,6 +272,7 @@ async function handleRequest(
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
   const api = findApi(modules, method, pathname)
   if (!api) {
+    console.error('[api:404]', { method, pathname, moduleCount: modules.length, apiPaths: modules.flatMap(m => (m.apis ?? []).map(a => ('handlers' in a ? a.path : (a as any).path))).filter(p => pathname.startsWith(p?.split('/').slice(0, 3).join('/') ?? '')) })
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
       ...receivedPayload,

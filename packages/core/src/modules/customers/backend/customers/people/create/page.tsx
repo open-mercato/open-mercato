@@ -27,6 +27,7 @@ export default function CreatePersonPage() {
   const formSchema = React.useMemo(() => createPersonFormSchema(), [])
   const fields = React.useMemo(() => createPersonFormFields(t), [t])
   const groups = React.useMemo(() => createPersonFormGroups(t), [t])
+  const returnTo = searchParams.get('returnTo')
   const companyParam = searchParams.get('companyId')
   const companyEntityId = React.useMemo(() => {
     if (!companyParam) return undefined
@@ -46,13 +47,13 @@ export default function CreatePersonPage() {
       <PageBody>
         <CrudForm<PersonFormValues>
           title={t('customers.people.create.title')}
-          backHref="/backend/customers/people"
+          backHref={returnTo ?? '/backend/customers/people'}
           fields={fields}
           groups={groups}
           initialValues={initialValues}
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
           submitLabel={t('customers.people.form.submit')}
-          cancelHref="/backend/customers/people"
+          cancelHref={returnTo ?? '/backend/customers/people'}
           schema={formSchema}
           onSubmit={async (values) => {
             const addresses = Array.isArray(values.addresses) ? values.addresses : []
@@ -124,7 +125,8 @@ export default function CreatePersonPage() {
             }
 
             flash(t('customers.people.form.success'), 'success')
-            if (newId) router.push(`/backend/customers/people/${newId}`)
+            if (returnTo) router.push(returnTo)
+            else if (newId) router.push(`/backend/customers/people-v2/${newId}`)
             else router.push('/backend/customers/people')
           }}
         />

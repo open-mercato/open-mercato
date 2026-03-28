@@ -32,6 +32,15 @@ export const entities = [
     defaultEditor:  false,
     fields: [],
   },
+  {
+    id: 'customers:customer_interaction',
+    label: 'Customer Interaction',
+    description: 'Unified interaction record combining activities and scheduled tasks.',
+    labelField: 'title',
+    showInSidebar: false,
+    defaultEditor: false,
+    fields: [],
+  },
 ]
 
 export default entities

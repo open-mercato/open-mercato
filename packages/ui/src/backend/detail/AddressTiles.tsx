@@ -210,6 +210,10 @@ export function AddressTiles<C = unknown>({
     }),
     [label],
   )
+  const line1FieldLabel = React.useMemo(
+    () => (format === 'street_first' ? fieldLabels.street : fieldLabels.addressLine1),
+    [fieldLabels.addressLine1, fieldLabels.street, format],
+  )
 
   const resetForm = React.useCallback(() => {
     setDraft(defaultDraft)
@@ -284,14 +288,14 @@ export function AddressTiles<C = unknown>({
   const validate = React.useCallback((): boolean => {
     const errors: Partial<Record<DraftFieldKey, string>> = {}
     if (!draft.addressLine1.trim()) {
-      errors.addressLine1 = label('validation.required', '{{field}} is required').replace('{{field}}', fieldLabels.addressLine1)
+      errors.addressLine1 = label('validation.required', '{{field}} is required').replace('{{field}}', line1FieldLabel)
     }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
       return false
     }
     return true
-  }, [draft.addressLine1, fieldLabels.addressLine1, label])
+  }, [draft.addressLine1, label, line1FieldLabel])
 
   const handleSave = React.useCallback(async () => {
     if (!validate()) return
@@ -329,7 +333,7 @@ export function AddressTiles<C = unknown>({
           if (!key) return
           const fieldKey = serverFieldMap[key]
           if (!fieldKey) return
-          const fieldLabel = fieldLabels[fieldKey] ?? key
+          const fieldLabel = fieldKey === 'addressLine1' ? line1FieldLabel : (fieldLabels[fieldKey] ?? key)
           nextErrors[fieldKey] = resolveFieldMessage(detail, fieldLabel, t, labelPrefix)
         })
         setFieldErrors(nextErrors)
