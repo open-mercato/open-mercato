@@ -32,10 +32,14 @@ const passwordSchema = buildPasswordSchema()
 
 const userCreateSchema = z.object({
   email: z.string().email(),
-  password: passwordSchema,
+  password: passwordSchema.optional(),
+  sendInviteEmail: z.boolean().optional(),
   organizationId: z.string().uuid(),
   roles: z.array(z.string()).optional(),
-})
+}).refine(
+  (data) => data.password || data.sendInviteEmail,
+  { message: 'Either password or sendInviteEmail is required', path: ['password'] },
+)
 
 const userUpdateSchema = z.object({
   id: z.string().uuid(),
