@@ -14,12 +14,30 @@ type SyncExcelUploadPreview = JsonRecord & {
   }
 }
 
+type SyncRunSummary = {
+  status: string
+  createdCount: number
+  updatedCount: number
+  skippedCount: number
+  failedCount: number
+}
+
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const ENTITY_TYPE = 'customers.person'
 const INTEGRATION_ID = 'sync_excel'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
+}
+
+function asRunSummary(value: JsonRecord): SyncRunSummary {
+  return {
+    status: String(value.status ?? ''),
+    createdCount: Number(value.createdCount ?? 0),
+    updatedCount: Number(value.updatedCount ?? 0),
+    skippedCount: Number(value.skippedCount ?? 0),
+    failedCount: Number(value.failedCount ?? 0),
+  }
 }
 
 function asUploadPreview(value: JsonRecord): SyncExcelUploadPreview {
@@ -134,6 +152,34 @@ async function restoreSyncExcelMapping(
   }
 }
 
+async function findPersonByEmail(
+  request: APIRequestContext,
+  token: string,
+  email: string,
+): Promise<JsonRecord | null> {
+  const normalizedEmail = email.trim().toLowerCase()
+
+  for (let page = 1; page <= 4; page += 1) {
+    const response = await apiRequest(
+      request,
+      'GET',
+      `/api/customers/people?page=${page}&pageSize=50&sortField=createdAt&sortDir=desc`,
+      { token },
+    )
+    expect(response.status()).toBe(200)
+    const body = await readJson(response)
+    const items = Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
+    const matching = items.find((item) => {
+      const primaryEmail = typeof item.primary_email === 'string' ? item.primary_email.trim().toLowerCase() : ''
+      return primaryEmail === normalizedEmail
+    })
+    if (matching) return matching
+    if (items.length < 50) break
+  }
+
+  return null
+}
+
 test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
   test('authorization is enforced for upload, preview, and import endpoints', async ({ request }) => {
     const noTokenUpload = await request.fetch(`${BASE_URL}/api/sync_excel/upload`, {
@@ -246,17 +292,20 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         return String(runBody.status ?? '')
       }, { timeout: 15_000, intervals: [500, 1_000, 2_000] }).toBe('completed')
 
-      const createdPersonList = await apiRequest(
-        request,
-        'GET',
-        `/api/customers/people?email=${encodeURIComponent(email)}&pageSize=10`,
-        { token },
-      )
-      expect(createdPersonList.status()).toBe(200)
-      const createdPersonListBody = await readJson(createdPersonList)
-      const createdItems = Array.isArray(createdPersonListBody.items) ? createdPersonListBody.items as JsonRecord[] : []
-      expect(createdItems).toHaveLength(1)
-      createdPersonId = String(createdItems[0].id)
+      const firstRunResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(firstRunId)}`, { token })
+      expect(firstRunResponse.status()).toBe(200)
+      expect(asRunSummary(await readJson(firstRunResponse))).toMatchObject({
+        status: 'completed',
+        createdCount: 1,
+        updatedCount: 0,
+        skippedCount: 0,
+        failedCount: 0,
+      })
+
+      const createdPerson = await findPersonByEmail(request, token, email)
+      expect(createdPerson).not.toBeNull()
+      createdPersonId = String(createdPerson?.id ?? '')
+      expect(createdPersonId).toMatch(/^[0-9a-f-]{36}$/i)
 
       const createdDetailResponse = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(createdPersonId)}`, { token })
       expect(createdDetailResponse.status()).toBe(200)
@@ -293,6 +342,16 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         const runBody = await readJson(runResponse)
         return String(runBody.status ?? '')
       }, { timeout: 15_000, intervals: [500, 1_000, 2_000] }).toBe('completed')
+
+      const secondRunResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(secondRunId)}`, { token })
+      expect(secondRunResponse.status()).toBe(200)
+      expect(asRunSummary(await readJson(secondRunResponse))).toMatchObject({
+        status: 'completed',
+        createdCount: 0,
+        updatedCount: 1,
+        skippedCount: 0,
+        failedCount: 0,
+      })
 
       const updatedDetailResponse = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(createdPersonId)}`, { token })
       expect(updatedDetailResponse.status()).toBe(200)
