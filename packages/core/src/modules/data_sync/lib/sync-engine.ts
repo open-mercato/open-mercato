@@ -128,7 +128,7 @@ export function createSyncEngine(deps: EngineDeps) {
         ? item.data.sourceIdentifier.trim()
         : null
       const message = [
-        `Failed to import Akeneo product ${item.externalId}`,
+        `Failed to import item ${item.externalId}`,
         sourceProductUuid ? `(uuid: ${sourceProductUuid})` : null,
         sourceIdentifier ? `(identifier: ${sourceIdentifier})` : null,
         `: ${errorMessage}`,
@@ -298,6 +298,7 @@ export function createSyncEngine(deps: EngineDeps) {
           credentials,
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+          runId: run.id,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
             await finalizeRun(run.id, 'cancelled', scope)
@@ -426,6 +427,7 @@ export function createSyncEngine(deps: EngineDeps) {
           credentials,
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+          runId: run.id,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
             await finalizeRun(run.id, 'cancelled', scope)
