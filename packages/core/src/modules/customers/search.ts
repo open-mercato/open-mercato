@@ -173,10 +173,11 @@ async function loadCustomerEntityBundle(ctx: SearchContext, opts: CustomerEntity
   const resolvedEntityId = typeof opts.entityId === 'string' && opts.entityId.length ? opts.entityId : null
   const resolvedProfileId =
     opts.profileId != null && String(opts.profileId).trim().length > 0 ? String(opts.profileId).trim() : null
+  const shouldJoinProfileSource = Boolean(opts.profileKind && resolvedProfileId && !resolvedEntityId)
   if (resolvedEntityId) {
     filters.id = { $eq: resolvedEntityId }
   }
-  if (opts.profileKind && resolvedProfileId) {
+  if (shouldJoinProfileSource) {
     const alias = opts.profileKind === 'person' ? 'person_profile' : 'company_profile'
     filters[`${alias}.id`] = { $eq: resolvedProfileId }
   }
@@ -187,7 +188,7 @@ async function loadCustomerEntityBundle(ctx: SearchContext, opts: CustomerEntity
       organizationId: ctx.organizationId ?? undefined,
       filters,
       includeCustomFields: true,
-      customFieldSources: CUSTOMER_CUSTOM_FIELD_SOURCES,
+      ...(shouldJoinProfileSource ? { customFieldSources: CUSTOMER_CUSTOM_FIELD_SOURCES } : {}),
       fields: CUSTOMER_ENTITY_FIELDS,
       page: { page: 1, pageSize: 1 },
     })
