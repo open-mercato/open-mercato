@@ -80,17 +80,10 @@ function normalizeEmail(value: unknown): string | null {
   return normalized ? normalized.toLowerCase() : null
 }
 
-function buildCommandContext(container: Container, scope: TenantScope, userId?: string | null): CommandRuntimeContext {
-  const subject = normalizeOptionalString(userId) ?? 'sync_excel'
-
+function buildCommandContext(container: Container, scope: TenantScope): CommandRuntimeContext {
   return {
     container,
-    auth: {
-      sub: subject,
-      userId: subject,
-      tenantId: scope.tenantId,
-      orgId: scope.organizationId,
-    },
+    auth: null,
     organizationScope: {
       selectedId: scope.organizationId,
       filterIds: [scope.organizationId],

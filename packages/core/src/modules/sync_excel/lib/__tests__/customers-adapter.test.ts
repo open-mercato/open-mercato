@@ -167,6 +167,9 @@ describe('sync_excel customers adapter', () => {
         displayName: 'Ada Lovelace',
         primaryEmail: 'ada@example.com',
       }),
+      ctx: expect.objectContaining({
+        auth: null,
+      }),
     }))
     expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledWith(
       'sync_excel',
@@ -223,6 +226,9 @@ describe('sync_excel customers adapter', () => {
         id: 'existing-person-id',
         primaryEmail: 'ada@example.com',
         displayName: 'Ada Lovelace',
+      }),
+      ctx: expect.objectContaining({
+        auth: null,
       }),
     }))
   })
