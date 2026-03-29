@@ -195,6 +195,19 @@ function formatTargetLabel(targetField: string, t: ReturnType<typeof useT>): str
   return option ? t(option.labelKey, option.fallback) : targetField
 }
 
+function getMatchStrategyLabel(
+  matchStrategy: SuggestedMapping['matchStrategy'],
+  t: ReturnType<typeof useT>,
+): string {
+  if (matchStrategy === 'externalId') {
+    return t('sync_excel.widget.matchStrategy.externalId', 'Source record ID (Recommended)')
+  }
+  if (matchStrategy === 'email') {
+    return t('sync_excel.widget.matchStrategy.email', 'Email address')
+  }
+  return t('sync_excel.widget.matchStrategy.custom', 'Custom matching')
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -537,11 +550,7 @@ export default function SyncExcelUploadConfigWidget({
               />
               <MetricCard
                 label={t('sync_excel.widget.metrics.identity', 'Identity strategy')}
-                value={matchStrategy === 'externalId'
-                  ? t('sync_excel.widget.matchStrategy.externalId', 'External ID')
-                  : matchStrategy === 'email'
-                    ? t('sync_excel.widget.matchStrategy.email', 'Email')
-                    : t('sync_excel.widget.matchStrategy.custom', 'Custom')}
+                value={getMatchStrategyLabel(matchStrategy, t)}
               />
               <MetricCard
                 label={t('sync_excel.widget.metrics.entity', 'Target entity')}
@@ -589,7 +598,15 @@ export default function SyncExcelUploadConfigWidget({
 
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="sync-excel-match-strategy">{t('sync_excel.widget.matchStrategy.label', 'Match strategy')}</Label>
+                  <Label htmlFor="sync-excel-match-strategy">
+                    {t('sync_excel.widget.matchStrategy.label', 'How to match existing people')}
+                  </Label>
+                  <p className="text-sm text-muted-foreground">
+                    {t(
+                      'sync_excel.widget.matchStrategy.help',
+                      'This decides whether imported rows update existing people or create new ones.',
+                    )}
+                  </p>
                   <select
                     id="sync-excel-match-strategy"
                     className={SELECT_CLASS_NAME}
@@ -597,10 +614,28 @@ export default function SyncExcelUploadConfigWidget({
                     onChange={(event) => setMatchStrategy(event.target.value as SuggestedMapping['matchStrategy'])}
                     disabled={isStartingImport || isRunActive}
                   >
-                    <option value="externalId">{t('sync_excel.widget.matchStrategy.externalId', 'External ID')}</option>
-                    <option value="email">{t('sync_excel.widget.matchStrategy.email', 'Email')}</option>
-                    <option value="custom">{t('sync_excel.widget.matchStrategy.custom', 'Custom')}</option>
+                    <option value="externalId">
+                      {t('sync_excel.widget.matchStrategy.externalId', 'Source record ID (Recommended)')}
+                    </option>
+                    <option value="email">{t('sync_excel.widget.matchStrategy.email', 'Email address')}</option>
+                    <option value="custom">{t('sync_excel.widget.matchStrategy.custom', 'Custom matching')}</option>
                   </select>
+                  <p className="text-sm text-muted-foreground">
+                    {matchStrategy === 'externalId'
+                      ? t(
+                          'sync_excel.widget.matchStrategy.externalIdDescription',
+                          'Best for repeated imports from the same source. Future imports update the same people instead of creating duplicates.',
+                        )
+                      : matchStrategy === 'email'
+                        ? t(
+                            'sync_excel.widget.matchStrategy.emailDescription',
+                            'Matches people by email. Works best when each person has one reliable, unique email address.',
+                          )
+                        : t(
+                            'sync_excel.widget.matchStrategy.customDescription',
+                            'Advanced option. Use only if you know how existing records should be identified in this import.',
+                          )}
+                  </p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -615,6 +650,17 @@ export default function SyncExcelUploadConfigWidget({
                       : t('sync_excel.widget.actions.start', 'Start import')}
                   </Button>
                 </div>
+
+                {matchStrategy === 'custom' ? (
+                  <Notice
+                    variant="warning"
+                    title={t('sync_excel.widget.matchStrategy.customWarningTitle', 'Use custom matching with care')}
+                    message={t(
+                      'sync_excel.widget.matchStrategy.customWarningMessage',
+                      'Custom matching may create duplicates if the mapped fields do not uniquely identify a person.',
+                    )}
+                  />
+                ) : null}
 
                 {diagnostics.duplicateTargets.length > 0 ? (
                   <Notice
