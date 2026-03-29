@@ -1,0 +1,8 @@
+{
+  "sync_excel.integration.title": "Excel / CSV Import",
+  "sync_excel.integration.description": "Upload CSV files, preview mappings, and run file-based imports through Data Sync.",
+  "sync_excel.upload.errors.fileRequired": "Select a CSV file to upload.",
+  "sync_excel.upload.errors.invalidType": "Only CSV uploads are supported in this foundation slice.",
+  "sync_excel.upload.errors.invalidPayload": "Invalid upload payload.",
+  "sync_excel.preview.errors.notFound": "Upload preview not found."
+}

@@ -90,6 +90,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Webhooks](2026-03-23-inbound-webhook-handlers.md) | 2026-03-23 | Inbound Webhook Handlers | Inbound webhook handler architecture and registration |
 | [Build Check](2026-03-25-safe-build-dev-coexistence.md) | 2026-03-25 | Safe Package Verification Build | Isolated `build:check` output so verification builds never touch live `dist/` artifacts |
 | [Not Found](2026-03-23-unified-record-not-found-ui-state.md) | 2026-03-23 | Unified Record Not-Found UI State | Consistent UI state for missing/deleted records |
+| [Sync Excel Customers Import Foundation](2026-03-29-sync-excel-customers-import-foundation.md) | 2026-03-29 | Sync Excel Customers Import Foundation | First upstream slice for file-upload-based CSV imports via `data_sync`, including additive adapter support for `runId` and richer field mapping semantics |
 
 ### Implemented Specifications
 

@@ -1,0 +1,8 @@
+{
+  "sync_excel.integration.title": "Import Excel / CSV",
+  "sync_excel.integration.description": "Przesyłaj pliki CSV, podglądaj mapowanie i uruchamiaj importy plikowe przez Data Sync.",
+  "sync_excel.upload.errors.fileRequired": "Wybierz plik CSV do przesłania.",
+  "sync_excel.upload.errors.invalidType": "W tym etapie wspierane są tylko importy CSV.",
+  "sync_excel.upload.errors.invalidPayload": "Nieprawidłowe dane przesłania.",
+  "sync_excel.preview.errors.notFound": "Nie znaleziono podglądu przesłanego pliku."
+}

@@ -1,0 +1,229 @@
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  buildPersonPayload,
+  parseCursor,
+  syncExcelCustomersAdapter,
+} from '../adapters/customers'
+
+const mockReadSyncExcelUploadBuffer = jest.fn()
+const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+
+const mockCommandBus = {
+  execute: jest.fn(),
+}
+
+const mockExternalIdMappingService = {
+  lookupLocalId: jest.fn(),
+  storeExternalIdMapping: jest.fn(),
+}
+
+const uploadRecord = {
+  id: '11111111-1111-4111-8111-111111111111',
+  attachmentId: '22222222-2222-4222-8222-222222222222',
+  status: 'uploaded',
+  syncRunId: null as string | null,
+}
+
+const mappingRecord = {
+  mapping: {
+    entityType: 'customers.person',
+    matchStrategy: 'externalId',
+    matchField: 'person.externalId',
+    fields: [
+      { externalField: 'Record Id', localField: 'person.externalId', mappingKind: 'external_id', dedupeRole: 'primary' },
+      { externalField: 'First Name', localField: 'person.firstName', mappingKind: 'core' },
+      { externalField: 'Last Name', localField: 'person.lastName', mappingKind: 'core' },
+      { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+      { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+    ],
+  },
+}
+
+const mockEm = {
+  findOne: jest.fn(),
+  flush: jest.fn(async () => undefined),
+}
+
+const mockContainer = {
+  resolve: jest.fn((token: string) => {
+    if (token === 'em') return mockEm
+    if (token === 'commandBus') return mockCommandBus
+    if (token === 'externalIdMappingService') return mockExternalIdMappingService
+    return undefined
+  }),
+}
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+jest.mock('../upload-storage', () => ({
+  readSyncExcelUploadBuffer: (...args: unknown[]) => mockReadSyncExcelUploadBuffer(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
+}))
+
+describe('sync_excel customers adapter', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    uploadRecord.status = 'uploaded'
+    uploadRecord.syncRunId = null
+    mockEm.findOne.mockImplementation(async (_entity: unknown, criteria: Record<string, unknown>) => {
+      if (criteria?.syncRunId === 'run-1') return uploadRecord
+      if (criteria?.id === uploadRecord.id) return uploadRecord
+      if (criteria?.id === uploadRecord.attachmentId) {
+        return {
+          id: uploadRecord.attachmentId,
+          partitionCode: 'privateAttachments',
+          storagePath: 'uploads/leads.csv',
+          storageDriver: 'local',
+        }
+      }
+      if (criteria?.integrationId === 'sync_excel') return mappingRecord
+      return null
+    })
+    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+      'Record Id,First Name,Last Name,Lead Name,Email',
+      'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com',
+    ].join('\n')))
+    mockExternalIdMappingService.lookupLocalId.mockResolvedValue(null)
+    mockExternalIdMappingService.storeExternalIdMapping.mockResolvedValue(undefined)
+    mockCommandBus.execute.mockResolvedValue({
+      result: {
+        entityId: '33333333-3333-4333-8333-333333333333',
+        personId: '44444444-4444-4444-8444-444444444444',
+      },
+    })
+    mockFindOneWithDecryption.mockResolvedValue(null)
+  })
+
+  it('parses persisted cursors', () => {
+    expect(parseCursor('{"uploadId":"abc","offset":12}')).toEqual({ uploadId: 'abc', offset: 12 })
+    expect(parseCursor('not-json')).toBeNull()
+  })
+
+  it('builds create payloads from mapped rows', () => {
+    const payload = buildPersonPayload(
+      {
+        'Record Id': 'ext-1',
+        'Lead Name': 'Ada Lovelace',
+        Email: 'ADA@example.com',
+      },
+      mappingRecord.mapping as any,
+      {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+    )
+
+    expect(payload.values.externalId).toBe('ext-1')
+    expect(payload.values.primaryEmail).toBe('ada@example.com')
+    expect(payload.createInput).toMatchObject({
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      firstName: 'Ada',
+      lastName: 'Lovelace',
+      displayName: 'Ada Lovelace',
+      primaryEmail: 'ada@example.com',
+    })
+  })
+
+  it('imports rows and creates people with external-id mappings', async () => {
+    const batches = []
+    for await (const batch of syncExcelCustomersAdapter.streamImport!({
+      entityType: 'customers.person',
+      batchSize: 50,
+      credentials: {},
+      mapping: mappingRecord.mapping as any,
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      runId: 'run-1',
+    })) {
+      batches.push(batch)
+    }
+
+    expect(batches).toHaveLength(1)
+    expect(batches[0]).toMatchObject({
+      totalEstimate: 1,
+      processedCount: 1,
+      hasMore: false,
+    })
+    expect(batches[0].items[0]).toMatchObject({
+      externalId: 'ext-1',
+      action: 'create',
+      data: expect.objectContaining({
+        localId: '33333333-3333-4333-8333-333333333333',
+        sourceIdentifier: 'ext-1',
+      }),
+    })
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.people.create', expect.objectContaining({
+      input: expect.objectContaining({
+        firstName: 'Ada',
+        lastName: 'Lovelace',
+        displayName: 'Ada Lovelace',
+        primaryEmail: 'ada@example.com',
+      }),
+    }))
+    expect(mockExternalIdMappingService.storeExternalIdMapping).toHaveBeenCalledWith(
+      'sync_excel',
+      'customers.person',
+      '33333333-3333-4333-8333-333333333333',
+      'ext-1',
+      {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+    )
+    expect(uploadRecord.status).toBe('completed')
+  })
+
+  it('falls back to email dedupe and updates existing people', async () => {
+    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+      'Email,Lead Name',
+      'ada@example.com,Ada Lovelace',
+    ].join('\n')))
+    mockFindOneWithDecryption.mockResolvedValue({ id: 'existing-person-id' } as any)
+    mockCommandBus.execute.mockResolvedValue({ result: { entityId: 'existing-person-id' } })
+
+    const batches = []
+    for await (const batch of syncExcelCustomersAdapter.streamImport!({
+      entityType: 'customers.person',
+      batchSize: 50,
+      credentials: {},
+      mapping: {
+        entityType: 'customers.person',
+        matchStrategy: 'email',
+        matchField: 'person.primaryEmail',
+        fields: [
+          { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+          { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+        ],
+      },
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      runId: 'run-1',
+    })) {
+      batches.push(batch)
+    }
+
+    expect(batches[0].items[0]).toMatchObject({
+      action: 'update',
+      data: expect.objectContaining({
+        localId: 'existing-person-id',
+      }),
+    })
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.people.update', expect.objectContaining({
+      input: expect.objectContaining({
+        id: 'existing-person-id',
+        primaryEmail: 'ada@example.com',
+        displayName: 'Ada Lovelace',
+      }),
+    }))
+  })
+})
