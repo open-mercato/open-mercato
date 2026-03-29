@@ -5,6 +5,7 @@
 | **Status** | Draft |
 | **Created** | 2026-03-29 |
 | **Builds on** | SPEC-045 (Integration Marketplace), SPEC-045b (Data Sync Hub), SPEC-045c (Payment/Shipping Hubs) |
+| **Extended by** | [Integration Commands & Events](./2026-03-29-integration-commands-events.md) (project-aware command execution), [Google Workspace](./2026-03-29-google-workspace-integration.md) (per-project OAuth tokens) |
 
 ## TLDR
 
@@ -277,11 +278,102 @@ Table: `integration_projects`
 
 ### New: Project CRUD
 
-#### `GET /api/integrations/:id/projects`
+#### Route: `api/[id]/projects/route.ts` — `makeCrudRoute`
 
-List all projects for an integration (resolves bundle scope automatically).
+The project CRUD endpoints use the standard `makeCrudRoute` factory pattern. Route file lives at `packages/core/src/modules/integrations/api/[id]/projects/route.ts`.
 
-**Response:**
+```typescript
+const querySchema = z.object({
+  id: z.string().uuid().optional(),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
+  sortField: z.string().optional().default('name'),
+  sortDir: z.enum(['asc', 'desc']).optional().default('asc'),
+  name: z.string().optional(),
+})
+
+const createSchema = z.object({
+  name: z.string().min(1).max(100).trim(),
+  slug: z.string().min(1).max(60).regex(/^[a-z0-9_]+$/).optional(),
+  // slug auto-generated from name if omitted
+})
+
+const updateSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(100).trim(),
+  // slug is immutable — not accepted on update
+})
+
+export const { metadata, GET, POST, PUT, DELETE } = makeCrudRoute({
+  metadata: {
+    GET:    { requireAuth: true, requireFeatures: ['integrations.view'] },
+    POST:   { requireAuth: true, requireFeatures: ['integrations.manage'] },
+    PUT:    { requireAuth: true, requireFeatures: ['integrations.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['integrations.manage'] },
+  },
+  orm: {
+    entity: IntegrationProject,
+    idField: 'id',
+    orgField: 'organizationId',
+    tenantField: 'tenantId',
+    softDeleteField: 'deletedAt',
+  },
+  list: {
+    schema: querySchema,
+    fields: ['id', 'scopeType', 'scopeId', 'name', 'slug', 'isDefault', 'createdAt', 'updatedAt'],
+    sortFieldMap: { name: 'name', slug: 'slug', createdAt: 'createdAt' },
+    buildFilters: async (q, ctx) => ({
+      scopeId: resolveScopeId(ctx),  // from parent :id param
+      ...(q.name && { name: { $ilike: `%${q.name}%` } }),
+    }),
+  },
+  actions: {
+    create: {
+      commandId: 'integrations.project.create',
+      schema: createSchema,
+      mapInput: ({ parsed, ctx }) => ({
+        ...parsed,
+        scopeId: resolveScopeId(ctx),
+        scopeType: resolveScopeType(ctx),
+        slug: parsed.slug ?? generateSlug(parsed.name),
+      }),
+      response: ({ result }) => ({ id: result.id, slug: result.slug }),
+      status: 201,
+    },
+    update: {
+      commandId: 'integrations.project.update',
+      schema: updateSchema,
+      mapInput: ({ parsed }) => ({ id: parsed.id, name: parsed.name }),
+      response: () => ({ ok: true }),
+    },
+    delete: {
+      commandId: 'integrations.project.delete',
+      response: () => ({ ok: true }),
+    },
+  },
+  hooks: {
+    beforeCreate: async (input, ctx) => {
+      // Reject reserved slug 'default'
+      if (input.slug === 'default') throw createCrudFormError('Slug "default" is reserved')
+      // Validate slug uniqueness within scope+tenant
+      await assertSlugUnique(input.slug, input.scopeId, ctx)
+      return input
+    },
+    beforeDelete: async (id, ctx) => {
+      // Block deletion of the default project
+      const project = await findProject(id, ctx)
+      if (project.isDefault) throw createCrudFormError('Cannot delete the default project')
+      // Block deletion if active references exist
+      const refs = await findActiveReferences(id, ctx)
+      if (refs.length > 0) throw createCrudFormError('Project is in use', { references: refs })
+    },
+  },
+  events: { entityId: 'integrations.project' },
+})
+```
+
+**Response shape (GET list):**
+
 ```json
 {
   "items": [
@@ -297,61 +389,26 @@ List all projects for an integration (resolves bundle scope automatically).
     },
     {
       "id": "uuid",
+      "scopeType": "integration",
+      "scopeId": "sync_akeneo",
       "name": "EU Production",
       "slug": "eu_production",
       "isDefault": false,
-      ...
+      "createdAt": "2026-03-29T00:00:00Z",
+      "updatedAt": "2026-03-29T00:00:00Z"
     }
-  ]
+  ],
+  "total": 2,
+  "page": 1,
+  "pageSize": 50,
+  "totalPages": 1
 }
 ```
 
-**ACL:** `integrations.view`
-
-#### `POST /api/integrations/:id/projects`
-
-Create a new project.
-
-**Request:**
-```json
-{
-  "name": "EU Production",
-  "slug": "eu_production"  // optional — auto-generated from name if omitted
-}
-```
-
-**Response:** `201` with project object.
-
-**Validation:**
-- `name`: required, 1–100 chars
-- `slug`: optional, 1–60 chars, lowercase alphanumeric + underscores, unique per scope+tenant
-- Cannot create a project with slug `default` (reserved)
-
-**ACL:** `integrations.manage`
-
-#### `PATCH /api/integrations/:id/projects/:projectId`
-
-Update a project's display name. Slug is immutable.
-
-**Request:**
-```json
-{
-  "name": "EU Production (Legacy)"
-}
-```
-
-**ACL:** `integrations.manage`
-
-#### `DELETE /api/integrations/:id/projects/:projectId`
-
-Soft-delete a project. Project-scoped credentials and integration state are soft-deleted with it. Historical runs, cursors, mappings, external ID mappings, webhook records, and logs remain intact for auditability.
-
-**Guards:**
-- Cannot delete the `default` project (400 error)
-- Cannot delete a project that is referenced by active sync mappings, schedules, running sync runs, or active webhooks (409 Conflict with list of referencing entities)
+**Delete guards:**
+- Cannot delete the `default` project (400 via `beforeDelete` hook)
+- Cannot delete a project referenced by active sync mappings, schedules, running sync runs, or active webhooks (409 Conflict — `beforeDelete` hook returns list of referencing entities)
 - Historical rows alone do not block delete; they retain their `project_id` reference to the soft-deleted project
-
-**ACL:** `integrations.manage`
 
 ### Modified: Existing Integration Endpoints
 
@@ -438,48 +495,703 @@ All existing integration events gain an optional `projectId` field:
 
 ## UI Design
 
-### Integration Detail Page — Project Selector
+### 1. Integration Detail Page — Single Project (Default Only)
 
-Located at the top of the integration detail page, below the integration title/icon header:
+When the integration has only the auto-created `default` project, the project selector is **hidden**. A subtle `[+ Add Project]` link appears in the page header area so the user can opt into multi-project mode.
 
 ```
-┌──────────────────────────────────────────────────────┐
-│  🔌 Akeneo                                    [Back] │
-│                                                      │
-│  Project: [ ▼ EU Production      ] [+ New] [⚙ Edit] │
-│                                                      │
-│  ┌──────────┬─────────┬────────┬──────┐              │
-│  │Credentials│ Version │ Health │ Logs │              │
-│  └──────────┴─────────┴────────┴──────┘              │
-│  (tab content scoped to selected project)            │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  ← Back to Integrations                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────┐  Akeneo                                                  │
+│  │ LOGO │  Data Sync · Enabled ✓              [+ Add Project]      │
+│  └──────┘                                                          │
+│                                                                     │
+│  ┌─────────────┬──────────┬──────────┬────────┬──────────────────┐  │
+│  │ Credentials │ Version  │  Health  │  Logs  │ (provider tabs)  │  │
+│  ╞═════════════╧══════════╧══════════╧════════╧══════════════════╡  │
+│  │                                                               │  │
+│  │  API URL         [ https://akeneo.example.com/api       ]     │  │
+│  │  Client ID       [ my-client-id                         ]     │  │
+│  │  Client Secret   [ ••••••••••••                         ]     │  │
+│  │  Username         [ admin                                ]     │  │
+│  │  Password         [ ••••••••••••                         ]     │  │
+│  │                                                               │  │
+│  │                                    [ Save Credentials ]       │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Notes:**
+- This is the **current UX** — zero visual change for users who don't need multi-project.
+- The `[+ Add Project]` link is the only addition. Placed right-aligned in the header row, styled as a secondary/text button (not prominent).
+- All tab content reads from the `default` project implicitly.
+
+---
+
+### 2. Integration Detail Page — Multiple Projects
+
+When ≥2 projects exist, a project selector combobox appears between the header and the tabs. The selected project scopes **all** tab content below it.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ← Back to Integrations                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────┐  Akeneo                                                  │
+│  │ LOGO │  Data Sync · Enabled ✓                                   │
+│  └──────┘                                                          │
+│                                                                     │
+│  ┌─ Project ────────────────────────────────────────────────────┐   │
+│  │                                                              │   │
+│  │  [ ▼ EU Production              ]  [+ New]  [✎]  [🗑]      │   │
+│  │                                                              │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────┬──────────┬──────────┬────────┬──────────────────┐  │
+│  │ Credentials │ Version  │  Health  │  Logs  │ (provider tabs)  │  │
+│  ╞═════════════╧══════════╧══════════╧════════╧══════════════════╡  │
+│  │                                                               │  │
+│  │  API URL         [ https://eu.akeneo.example.com/api    ]     │  │
+│  │  Client ID       [ eu-client-id                         ]     │  │
+│  │  Client Secret   [ ••••••••••••                         ]     │  │
+│  │                                                               │  │
+│  │                                    [ Save Credentials ]       │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Project bar elements:**
+- **Combobox** — lists all projects by name. Selected project slug stored in URL `?project=eu_production` for deep-linking/refresh persistence.
+- **[+ New]** — opens the Create Project dialog (see mockup 4).
+- **[✎] (Edit)** — opens the Edit Project dialog (see mockup 5). Disabled for `default` project name editing if desired, or allowed (only slug is immutable).
+- **[🗑] (Delete)** — opens the Delete Confirmation dialog (see mockup 6). Hidden/disabled for the `default` project.
+
+---
+
+### 3. Project Combobox — Open Dropdown
+
+When the user clicks the project combobox, it expands to show all projects with status indicators.
+
+```
+  [ ▼ EU Production              ]  [+ New]  [✎]  [🗑]
+  ┌──────────────────────────────────┐
+  │  ● Default                       │  ← green dot = healthy
+  │  ◉ EU Production                 │  ← selected, highlighted
+  │  ○ US Staging                    │  ← gray dot = no health check yet
+  │  ◗ Asia Pacific                  │  ← yellow dot = degraded
+  ├──────────────────────────────────┤
+  │  + Create new project...         │
+  └──────────────────────────────────┘
+```
+
+**Status dots** reflect the project's `lastHealthStatus`:
+- `●` Green = healthy
+- `◗` Yellow = degraded
+- `○` Gray = unknown / never checked
+- `●` Red = unhealthy
+
+The `+ Create new project...` option at the bottom is a convenience shortcut (same as the `[+ New]` button).
+
+---
+
+### 4. Create New Project Dialog — `CrudForm`
+
+Opened via `[+ New]` button or dropdown shortcut. Uses `CrudForm` embedded in a dialog with `embedded: true` to suppress outer chrome.
+
+```
+  ┌──────────────────────────────────────────────────┐
+  │  Create New Project                         [✕]  │
+  ├──────────────────────────────────────────────────┤
+  │                                                  │
+  │  ┌─ CrudForm (embedded) ─────────────────────┐   │
+  │  │                                           │   │
+  │  │  Name *                                   │   │
+  │  │  [ EU Production                    ]     │   │
+  │  │                                           │   │
+  │  │  Slug                                     │   │
+  │  │  [ eu_production                    ]     │   │
+  │  │  ↳ Auto-generated from name. Cannot be    │   │
+  │  │    changed after creation.                │   │
+  │  │                                           │   │
+  │  └───────────────────────────────────────────┘   │
+  │                                                  │
+  │  ┌────────────────────────────────────────────┐  │
+  │  │ ℹ The new project will start with empty    │  │
+  │  │   credentials. Configure them after        │  │
+  │  │   creation in the Credentials tab.         │  │
+  │  └────────────────────────────────────────────┘  │
+  │                                                  │
+  │              [ Cancel ]  [ Create Project ]       │
+  │                          ↑ Cmd+Enter              │
+  └──────────────────────────────────────────────────┘
+```
+
+**CrudForm wiring:**
+
+```typescript
+const fields = React.useMemo<CrudField[]>(() => [
+  {
+    id: 'name',
+    label: t('integrations.projects.form.name'),
+    type: 'text',
+    required: true,
+    placeholder: t('integrations.projects.form.name.placeholder'),
+  },
+  {
+    id: 'slug',
+    label: t('integrations.projects.form.slug'),
+    type: 'text',
+    required: false,
+    description: t('integrations.projects.form.slug.description'),
+    // auto-populated via onFieldChange; user can override
+  },
+], [t])
+
+<CrudForm
+  embedded
+  fields={fields}
+  schema={createProjectSchema}
+  submitLabel={t('integrations.projects.form.create.submit')}
+  onSubmit={async (vals) => {
+    const result = await createCrud(
+      `integrations/${integrationId}/projects`,
+      vals
+    )
+    onCreated(result.data)  // auto-select new project in combobox
+  }}
+/>
 ```
 
 **Behavior:**
-- **Single project (default only):** Combobox hidden. Only `[+ New Project]` button visible.
-- **Multiple projects:** Combobox shown with all projects. Selecting switches all tabs to that project's data.
-- **[+ New Project]:** Opens dialog with name input. Slug auto-generated, shown as preview. User can override slug before creation.
-- **[Edit]:** Opens dialog to rename the selected project. Slug shown as read-only.
-- **Delete:** Available in the edit dialog for non-default projects. Shows referencing consumers before confirming.
+- **Name** — required, free text, 1–100 chars. As user types, slug auto-updates in real time (via a custom field or `onFieldChange` handler).
+- **Slug** — auto-generated from name (`toLowerCase`, replace spaces/hyphens with `_`, strip non-alphanumeric). Editable before creation (user can override). Shown with a hint that it becomes immutable.
+- **Validation errors** — inline below the field via `CrudForm` error handling (e.g., "Slug already exists" from `raiseCrudError`).
+- **Submit** — `Cmd/Ctrl+Enter` or click `[Create Project]`.
+- **Cancel** — `Escape` or click `[Cancel]`.
+- After creation, the combobox auto-selects the new project and the Credentials tab is shown.
 
-### Consumer Project Selector (Data Sync, Payments, Webhooks)
+---
 
-When configuring a consumer that references an integration:
+### 5. Edit Project Dialog — `CrudForm`
+
+Opened via `[✎]` button. Uses `CrudForm` with `initialValues` loaded from the selected project.
 
 ```
-┌────────────────────────────────────────────┐
-│  Integration:  [ ▼ Akeneo              ]   │
-│  Project:      [ ▼ EU Production       ]   │  ← only shown when ≥2 projects
-│                                            │
-│  Entity type:  [ ▼ Products            ]   │
-│  Direction:    [ ▼ Import              ]   │
-└────────────────────────────────────────────┘
+  ┌──────────────────────────────────────────────────┐
+  │  Edit Project                               [✕]  │
+  ├──────────────────────────────────────────────────┤
+  │                                                  │
+  │  ┌─ CrudForm (embedded) ─────────────────────┐   │
+  │  │                                           │   │
+  │  │  Name *                                   │   │
+  │  │  [ EU Production (Legacy)           ]     │   │
+  │  │                                           │   │
+  │  │  Slug                                     │   │
+  │  │  ┌───────────────────────────────────┐    │   │
+  │  │  │  eu_production                    │    │   │
+  │  │  └───────────────────────────────────┘    │   │
+  │  │  ↳ Read-only. Used in API references and  │   │
+  │  │    sync configurations.                   │   │
+  │  │                                           │   │
+  │  │  Created: 2026-03-15 14:30                │   │
+  │  │                                           │   │
+  │  └───────────────────────────────────────────┘   │
+  │                                                  │
+  │              [ Cancel ]  [ Save Changes ]         │
+  │                          ↑ Cmd+Enter              │
+  └──────────────────────────────────────────────────┘
+```
+
+**CrudForm wiring:**
+
+```typescript
+const fields = React.useMemo<CrudField[]>(() => [
+  {
+    id: 'name',
+    label: t('integrations.projects.form.name'),
+    type: 'text',
+    required: true,
+  },
+  {
+    id: 'slug',
+    label: t('integrations.projects.form.slug'),
+    type: 'text',
+    readOnly: true,
+    description: t('integrations.projects.form.slug.readOnly'),
+  },
+], [t])
+
+<CrudForm
+  embedded
+  fields={fields}
+  schema={updateProjectSchema}
+  initialValues={{ id: project.id, name: project.name, slug: project.slug }}
+  submitLabel={t('integrations.projects.form.edit.submit')}
+  onSubmit={async (vals) => {
+    await updateCrud(`integrations/${integrationId}/projects`, {
+      id: project.id,
+      name: vals.name,
+    })
+    onUpdated()
+  }}
+  onDelete={!project.isDefault ? async () => {
+    await deleteCrud(`integrations/${integrationId}/projects`, project.id)
+    onDeleted()
+  } : undefined}
+/>
 ```
 
 **Behavior:**
-- When integration has **1 project**: project field hidden, `default` auto-selected silently.
-- When integration has **≥2 projects**: project combobox required, no default pre-selected (user must choose).
-- Changing integration clears the project selection.
+- **Name** — editable. The only mutable field.
+- **Slug** — `CrudField` with `readOnly: true`. Muted styling. Description text: "Cannot be changed after creation to preserve API and sync references."
+- **Delete** — rendered by `CrudForm`'s built-in delete button. Only shown when `onDelete` is provided (i.e., not the `default` project). Triggers the delete confirmation dialog (mockup 6).
+- `default` project: name is editable (user might want to rename "Default" to "Main Production"). `isDefault` flag is not exposed in UI.
+
+---
+
+### 6. Delete Project — Confirmation Dialog
+
+Opened via `[🗑]` button. Shows impact analysis before confirming.
+
+**6a. No active references — safe to delete:**
+
+```
+  ┌──────────────────────────────────────────────────┐
+  │  Delete Project                             [✕]  │
+  ├──────────────────────────────────────────────────┤
+  │                                                  │
+  │  ⚠ Are you sure you want to delete the project   │
+  │  "US Staging" (us_staging)?                      │
+  │                                                  │
+  │  This will permanently remove:                   │
+  │  • Stored credentials for this project           │
+  │  • Integration state (enabled/disabled, health)  │
+  │                                                  │
+  │  Historical sync runs and logs will be retained  │
+  │  for auditing.                                   │
+  │                                                  │
+  │              [ Cancel ]  [ Delete Project ]       │
+  │                           ↑ destructive/red      │
+  └──────────────────────────────────────────────────┘
+```
+
+**6b. Active references exist — deletion blocked:**
+
+```
+  ┌──────────────────────────────────────────────────┐
+  │  Cannot Delete Project                      [✕]  │
+  ├──────────────────────────────────────────────────┤
+  │                                                  │
+  │  ⛔ The project "EU Production" (eu_production)   │
+  │  is actively used by:                            │
+  │                                                  │
+  │  ┌────────────────────────────────────────────┐  │
+  │  │  Data Sync                                 │  │
+  │  │  • Products import mapping                 │  │
+  │  │  • Categories import mapping               │  │
+  │  │                                            │  │
+  │  │  Scheduled Syncs                           │  │
+  │  │  • Daily product sync (every 6h)           │  │
+  │  │                                            │  │
+  │  │  Webhooks                                  │  │
+  │  │  • order.created → EU endpoint             │  │
+  │  └────────────────────────────────────────────┘  │
+  │                                                  │
+  │  Remove or reassign these references before      │
+  │  deleting the project.                           │
+  │                                                  │
+  │                                    [ Close ]      │
+  └──────────────────────────────────────────────────┘
+```
+
+**Behavior:**
+- DELETE API returns `409 Conflict` with the list of referencing entities.
+- UI renders the reference list in a scrollable box grouped by consumer type.
+- No delete button shown when blocked — only `[Close]`.
+
+---
+
+### 7. Integration Marketplace — Project Count Badge
+
+The integration marketplace listing page shows a subtle project count when an integration has more than one project.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Integration Marketplace                            [ Search... ]   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  DATA SYNC                                                          │
+│  ┌───────────────────────┐  ┌───────────────────────┐               │
+│  │  ┌──────┐             │  │  ┌──────┐             │               │
+│  │  │ LOGO │  Akeneo     │  │  │ LOGO │  Shopify    │               │
+│  │  └──────┘             │  │  └──────┘             │               │
+│  │  Enabled · 3 projects │  │  Enabled              │               │
+│  │  ● Healthy            │  │  ● Healthy            │               │
+│  └───────────────────────┘  └───────────────────────┘               │
+│                                                                     │
+│  PAYMENT GATEWAYS                                                   │
+│  ┌───────────────────────┐  ┌───────────────────────┐               │
+│  │  ┌──────┐             │  │  ┌──────┐             │               │
+│  │  │ LOGO │  Stripe     │  │  │ LOGO │  PayPal     │               │
+│  │  └──────┘             │  │  └──────┘             │               │
+│  │  Enabled · 2 projects │  │  Not configured       │               │
+│  │  ● Healthy            │  │                       │               │
+│  └───────────────────────┘  └───────────────────────┘               │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Notes:**
+- Project count only shown when > 1 (e.g., "3 projects"). Single-project integrations just show "Enabled" as today.
+- Health dot reflects the **worst** health status across all projects (e.g., if one project is unhealthy, the card shows unhealthy).
+
+---
+
+### 8. Data Sync — Run Configuration with Project Selector
+
+When starting a manual sync run or configuring a sync mapping, the project selector appears after the integration choice.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Start Import Run                                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Integration *                                                      │
+│  [ ▼ Akeneo                                                   ]    │
+│                                                                     │
+│  Project *                                                          │
+│  [ ▼ EU Production                                             ]    │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │  Default                                                     │   │
+│  │  ◉ EU Production                                             │   │
+│  │  US Staging                                                  │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  Entity Type *                                                      │
+│  [ ▼ Products                                                  ]    │
+│                                                                     │
+│  Direction *                                                        │
+│  [ ▼ Import                                                    ]    │
+│                                                                     │
+│  ☐ From beginning (ignore cursor)                                   │
+│                                                                     │
+│                                      [ Cancel ]  [ Start Run ]      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**When integration has 1 project:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Start Import Run                                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Integration *                                                      │
+│  [ ▼ Akeneo                                                   ]    │
+│                                                                     │
+│  Entity Type *                    ← project field hidden entirely   │
+│  [ ▼ Products                                                  ]    │
+│                                                                     │
+│  Direction *                                                        │
+│  [ ▼ Import                                                    ]    │
+│                                                                     │
+│  ☐ From beginning (ignore cursor)                                   │
+│                                                                     │
+│                                      [ Cancel ]  [ Start Run ]      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 9. Data Sync — Run History with Project Column
+
+The sync run history table gains a "Project" column when any integration in the list has multiple projects.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Sync Runs                                              [ Filters ▼ ]      │
+├──────────┬───────────────┬──────────┬──────────┬───────────┬───────────────┤
+│  Status  │  Integration  │  Project │  Entity  │  Records  │  Started      │
+├──────────┼───────────────┼──────────┼──────────┼───────────┼───────────────┤
+│  ✓ Done  │  Akeneo       │  EU Prod │ Products │  1,204    │  10 min ago   │
+│  ✓ Done  │  Akeneo       │  US Stg  │ Products │    856    │  25 min ago   │
+│  ⟳ Running│  Akeneo      │  EU Prod │ Categs   │    --     │  2 min ago    │
+│  ✗ Failed │  Shopify     │  —       │ Products │    0      │  1 hour ago   │
+│  ✓ Done  │  Stripe       │  EU      │ Payments │  3,401    │  2 hours ago  │
+├──────────┴───────────────┴──────────┴──────────┴───────────┴───────────────┤
+│  Showing 1-5 of 23                              [ ← Prev ] [ Next → ]      │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Notes:**
+- **Project column** shows the project name. Shows "—" for legacy runs with no project (pre-migration) or single-project integrations.
+- Column is **hidden** if no integration in the current view has multiple projects (keeps the table compact for simple setups).
+- The `[ Filters ]` dropdown gains a "Project" filter option.
+
+---
+
+### 10. Data Sync — Mappings per Project
+
+The data sync mappings page is scoped by integration **and** project. Each project has its own independent field mappings, cursors, and external ID mappings.
+
+**Multiple projects — mappings table shows project column:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Sync Mappings                                          [ + New Mapping ]   │
+├──────────┬───────────────┬──────────────┬───────────┬───────────────────────┤
+│  Entity  │  Integration  │  Project     │ Direction │  Fields Mapped        │
+├──────────┼───────────────┼──────────────┼───────────┼───────────────────────┤
+│ Products │  Akeneo       │  EU Prod     │  Import   │  12 / 24              │
+│ Products │  Akeneo       │  US Staging  │  Import   │   8 / 24              │
+│ Categs   │  Akeneo       │  EU Prod     │  Import   │   4 / 6               │
+│ Products │  Shopify      │  —           │  Export   │  18 / 24              │
+├──────────┴───────────────┴──────────────┴───────────┴───────────────────────┤
+│  Showing 1-4 of 4                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Mapping detail / edit page — project shown as read-only context:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Edit Mapping: Products Import                                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Integration     Akeneo                                             │
+│  Project         EU Production (eu_production)                      │
+│  Entity Type     Products                                           │
+│  Direction       Import                                             │
+│                                                                     │
+│  ┌─ Field Mappings ─────────────────────────────────────────────┐   │
+│  │                                                              │   │
+│  │  Source (Akeneo)          →    Target (Mercato)              │   │
+│  │  ──────────────────────────────────────────────────          │   │
+│  │  values.name              →    title                        │   │
+│  │  values.description       →    description                  │   │
+│  │  values.sku               →    sku                          │   │
+│  │  values.price.amount      →    price                        │   │
+│  │  values.ean               →    barcode                      │   │
+│  │  ...                                                         │   │
+│  │                                                              │   │
+│  │                                       [ + Add Field ]        │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│                                  [ Cancel ]  [ Save Mapping ]       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Notes:**
+- Integration + Project are shown as **read-only context** on the mapping detail page (set at creation time, not changeable — changing project means creating a new mapping).
+- Each project has completely independent mappings. "EU Prod" may map 12 fields while "US Staging" maps only 8 for the same entity type.
+- Cursors are also per-project: a sync run for "EU Prod" does not advance "US Staging"'s cursor.
+- External ID mappings are per-project: the same internal product can have different external IDs in each Akeneo instance.
+
+---
+
+### 11. Data Sync — Schedules per Project
+
+Scheduled syncs are scoped per project. The schedules list shows which project each schedule targets.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  Sync Schedules                                        [ + New Schedule ]   │
+├──────────────┬───────────────┬──────────────┬───────────┬───────┬──────────┤
+│  Name        │  Integration  │  Project     │  Entity   │ Freq  │ Status   │
+├──────────────┼───────────────┼──────────────┼───────────┼───────┼──────────┤
+│ EU Products  │  Akeneo       │  EU Prod     │ Products  │  6h   │ Active   │
+│ EU Categs    │  Akeneo       │  EU Prod     │ Categs    │  24h  │ Active   │
+│ US Products  │  Akeneo       │  US Staging  │ Products  │  12h  │ Paused   │
+│ Shopify Sync │  Shopify      │  —           │ Products  │  1h   │ Active   │
+├──────────────┴───────────────┴──────────────┴───────────┴───────┴──────────┤
+│  Showing 1-4 of 4                                                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Create schedule form — project selector:**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Create Sync Schedule                                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Name *                                                             │
+│  [ EU Products Daily Sync                                      ]    │
+│                                                                     │
+│  Integration *                                                      │
+│  [ ▼ Akeneo                                                   ]    │
+│                                                                     │
+│  Project *                                                          │
+│  [ ▼ EU Production                                             ]    │
+│                                                                     │
+│  Entity Type *                                                      │
+│  [ ▼ Products                                                  ]    │
+│                                                                     │
+│  Direction *           Frequency *                                  │
+│  [ ▼ Import       ]   [ ▼ Every 6 hours                       ]    │
+│                                                                     │
+│                              [ Cancel ]  [ Create Schedule ]        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Notes:**
+- Project selector follows the same visibility rules: hidden when integration has 1 project, required when ≥2.
+- Each schedule runs against a specific project's credentials and advances that project's cursor independently.
+- Pausing/resuming a schedule only affects that project — other projects' schedules are unaffected.
+
+---
+
+### 12. Payment Link / Payment Method — Project Selector
+
+When creating a payment link or configuring a payment method with a gateway that has multiple projects:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Create Payment Link                                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Amount *            Currency *                                     │
+│  [ 99.00         ]   [ ▼ EUR                ]                       │
+│                                                                     │
+│  Payment Provider *                                                 │
+│  [ ▼ Stripe                                                   ]    │
+│                                                                     │
+│  Stripe Account *                                                   │
+│  [ ▼ EU Production                                             ]    │
+│  ↳ Select which Stripe account to use for this payment link.       │
+│                                                                     │
+│  Description                                                        │
+│  [ Invoice #2026-0342                                          ]    │
+│                                                                     │
+│  Expiration                                                         │
+│  [ ▼ 7 days                                                   ]    │
+│                                                                     │
+│                                  [ Cancel ]  [ Create Link ]        │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Notes:**
+- The label says **"Stripe Account"** (not "Project") — context-sensitive labeling using the integration name for clarity.
+- When Stripe has only the `default` project → field hidden entirely; payment link uses the sole configuration.
+- The help text below the selector provides context for non-technical users.
+
+---
+
+### 13. Webhook Configuration — Project Selector
+
+When configuring an outbound webhook tied to an integration:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Configure Webhook                                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Event *                                                            │
+│  [ ▼ order.created                                             ]    │
+│                                                                     │
+│  Integration (optional)                                             │
+│  [ ▼ Akeneo                                                   ]    │
+│                                                                     │
+│  Project *                                                          │
+│  [ ▼ EU Production                                             ]    │
+│  ↳ Webhook will use this project's credentials for signing.        │
+│                                                                     │
+│  Endpoint URL *                                                     │
+│  [ https://eu.webhook.example.com/orders                       ]    │
+│                                                                     │
+│  ☑ Active                                                           │
+│                                                                     │
+│                                  [ Cancel ]  [ Save Webhook ]       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 14. Bundle Integration Page — Project Management
+
+For bundled integrations, the project management happens at the bundle level. The bundle config page shows projects and per-child enable/disable toggles within the selected project.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ← Back to Integrations                                            │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ┌──────┐  MedusaJS Bundle                                        │
+│  │ LOGO │  5 integrations                                          │
+│  └──────┘                                                          │
+│                                                                     │
+│  ┌─ Project ────────────────────────────────────────────────────┐   │
+│  │                                                              │   │
+│  │  [ ▼ EU Production              ]  [+ New]  [✎]  [🗑]      │   │
+│  │                                                              │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                     │
+│  ┌─────────────┬──────────┬──────────────────────────────────────┐  │
+│  │ Credentials │  Health  │  Child Integrations                  │  │
+│  ╞═════════════╧══════════╧══════════════════════════════════════╡  │
+│  │                                                               │  │
+│  │  Shared credentials for "EU Production":                      │  │
+│  │                                                               │  │
+│  │  API Key        [ ••••••••••••                          ]     │  │
+│  │  API Secret     [ ••••••••••••                          ]     │  │
+│  │  API URL        [ https://eu.medusa.example.com         ]     │  │
+│  │                                                               │  │
+│  │                                    [ Save Credentials ]       │  │
+│  └───────────────────────────────────────────────────────────────┘  │
+│                                                                     │
+│  Child Integrations (within "EU Production"):                       │
+│  ┌───────────────────────────────┬──────────┬────────────────────┐  │
+│  │  Integration                  │  Status  │  Health            │  │
+│  ├───────────────────────────────┼──────────┼────────────────────┤  │
+│  │  MedusaJS Products            │  [✓ On]  │  ● Healthy         │  │
+│  │  MedusaJS Orders              │  [✓ On]  │  ● Healthy         │  │
+│  │  MedusaJS Customers           │  [  Off] │  ○ Not checked     │  │
+│  │  MedusaJS Inventory           │  [✓ On]  │  ◗ Degraded        │  │
+│  │  MedusaJS Payments            │  [✓ On]  │  ● Healthy         │  │
+│  └───────────────────────────────┴──────────┴────────────────────┘  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Notes:**
+- Credentials are shared across all child integrations in the project (bundle-level).
+- Each child has its own enable/disable toggle and health status **per project**.
+- Switching projects in the combobox refreshes both credentials and the child integration table.
+- The "Child Integrations" tab shows the per-child state for the selected project.
+
+---
+
+### UI Component Summary
+
+| Component | Location | Visibility Rule |
+|-----------|----------|----------------|
+| `[+ Add Project]` link | Integration detail header | Only when 1 project (default) |
+| `ProjectSelector` combobox | Integration detail, between header and tabs | Only when ≥2 projects |
+| `[+ New]` button | Next to ProjectSelector | Always when ≥2 projects |
+| `[✎]` edit button | Next to ProjectSelector | Always when ≥2 projects |
+| `[🗑]` delete button | Next to ProjectSelector | When selected project is not default |
+| `CreateProjectDialog` | Modal | On `[+ Add Project]` or `[+ New]` click |
+| `EditProjectDialog` | Modal | On `[✎]` click |
+| `DeleteProjectDialog` | Modal | On `[🗑]` click |
+| `ConsumerProjectSelector` | Data sync / payment / webhook forms | Only when selected integration has ≥2 projects |
+| Project column in DataTable | Sync run history, webhook list | Only when any row has a non-default project |
+| Project count badge | Marketplace cards | Only when integration has ≥2 projects |
+
+### URL Deep-Linking
+
+Project selection is persisted in the URL query parameter for bookmark/share support:
+
+| Page | URL Pattern |
+|------|------------|
+| Integration detail | `/backend/integrations/[id]?project=eu_production` |
+| Bundle detail | `/backend/integrations/bundle/[id]?project=eu_production` |
+| Sync runs (filtered) | `/backend/data-sync/runs?integrationId=sync_akeneo&project=eu_production` |
+
+When `?project` is omitted, the UI defaults to the first project (typically `default`). When the slug in URL doesn't match any project, the UI falls back to `default` and shows a transient flash message: "Project not found, showing default."
 
 ---
 
@@ -674,21 +1386,17 @@ create or reuse one default project for the resolved scope:
 
 **Testable:** State resolution per project. Health check updates correct project's state.
 
-#### Step 1.5: Project CRUD API Routes
+#### Step 1.5: Project CRUD API Routes via `makeCrudRoute`
 
-- Implement write operations via commands:
-  - `integrations.project.create`
-  - `integrations.project.update`
-  - `integrations.project.delete`
+- Create route file at `api/[id]/projects/route.ts` using `makeCrudRoute` factory (see API Contracts section for full config)
+- Wire command IDs: `integrations.project.create`, `integrations.project.update`, `integrations.project.delete`
 - Commands capture before/after snapshots for auditability; delete uses soft-delete semantics
-- `GET /api/integrations/:id/projects` — list projects
-- `POST /api/integrations/:id/projects` — create project
-- `PATCH /api/integrations/:id/projects/:projectId` — update name
-- `DELETE /api/integrations/:id/projects/:projectId` — soft-delete with reference check
-- All routes export `openApi`
+- `beforeCreate` hook: validate slug uniqueness, reject reserved `default` slug
+- `beforeDelete` hook: block default project deletion, check active references (409 Conflict)
+- Export `openApi` with list/create/update/delete schemas
 - ACL: `integrations.view` for GET, `integrations.manage` for mutations
 
-**Testable:** API integration tests for full CRUD lifecycle. 409 on delete with references.
+**Testable:** API integration tests for full CRUD lifecycle via standard `makeCrudRoute` response shape (`{ items, total, page }`). 409 on delete with references.
 
 #### Step 1.6: Update Existing Integration API Routes
 
@@ -729,13 +1437,14 @@ create or reuse one default project for the resolved scope:
 
 **Testable:** Component renders, switches projects, URL updates.
 
-#### Step 2.2: Project Create/Edit/Delete Dialogs
+#### Step 2.2: Project Create/Edit/Delete Dialogs via `CrudForm`
 
-- **Create dialog:** Name input, slug preview (auto-generated), optional slug override. `Cmd+Enter` to submit, `Escape` to cancel.
-- **Edit dialog:** Name input (editable), slug (read-only). Delete button for non-default projects.
-- **Delete confirmation:** Shows list of referencing consumers (sync mappings, schedules, webhooks). Blocked if references exist (user must reassign first).
+- **Create dialog:** Embedded `CrudForm` with `name` (text, required) and `slug` (text, auto-generated) fields. `onSubmit` calls `createCrud('integrations/:id/projects', vals)`. `Cmd+Enter` to submit, `Escape` to cancel.
+- **Edit dialog:** Embedded `CrudForm` with `name` (text, editable) and `slug` (text, `readOnly: true`) fields. `onSubmit` calls `updateCrud(...)`. `onDelete` wired for non-default projects, calls `deleteCrud(...)`.
+- **Delete confirmation:** Triggered by `CrudForm`'s built-in delete button. Shows list of referencing consumers from 409 response. Blocked if references exist (user must reassign first).
+- Both dialogs use `embedded: true` on `CrudForm` to suppress outer page chrome.
 
-**Testable:** Full CRUD flow in UI. Delete blocked with active references.
+**Testable:** Full CRUD flow in UI via standard `CrudForm` patterns (`createCrud`/`updateCrud`/`deleteCrud`). Delete blocked with active references.
 
 #### Step 2.3: Per-Project Tab Content
 
@@ -797,14 +1506,17 @@ create or reuse one default project for the resolved scope:
 
 **Testable:** API accepts `projectId`, routes to correct project credentials, and existing callers that omit it continue to work against `default`.
 
-#### Step 3.4: Data Sync UI — Project Selector
+#### Step 3.4: Data Sync UI — Per-Project Scoping
 
-- Sync configuration pages: add project selector combobox after integration selector
-- Hidden when integration has only `default` project
-- Required when ≥2 projects exist
-- Changing integration resets project selection
+- **Run config form:** Add project selector combobox after integration selector (mockup 8). Hidden when integration has only `default` project. Required when ≥2 projects exist. Changing integration resets project selection.
+- **Mappings table:** Add "Project" column (mockup 10). Each row is scoped to a specific project — the same entity type can have different mappings per project. Mapping create form includes project selector.
+- **Mapping detail/edit page:** Integration + Project shown as read-only context (set at creation, not changeable). Field mappings are per-project.
+- **Schedules table:** Add "Project" column (mockup 11). Schedule create form includes project selector. Each schedule runs independently against its project's credentials and cursor.
+- **Run history table:** Add "Project" column (mockup 9). Filterable by project.
+- **Cursors:** Fully isolated per project — a sync run for "EU Prod" does not advance "US Staging"'s cursor.
+- **External ID mappings:** Isolated per project — the same internal product can have different external IDs in each project's external system.
 
-**Testable:** UI shows/hides selector correctly. Sync runs use selected project's credentials.
+**Testable:** Two projects for the same integration have fully independent mappings, schedules, cursors, run history, and external ID mappings. UI shows/hides project selector correctly.
 
 ---
 

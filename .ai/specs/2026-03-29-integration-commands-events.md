@@ -5,7 +5,7 @@
 | **Status** | Draft |
 | **Created** | 2026-03-29 |
 | **Builds on** | SPEC-045 (Integration Marketplace), SPEC-045a (Foundation), SPEC-045b (Data Sync Hub), 2026-03-29-integration-projects |
-| **Related** | SPEC-041 (UMES), SPEC-057 (Webhooks), SPEC-045g (Google Workspace), ANALYSIS-007 (Akeneo), 2026-03-23-inbound-webhook-handlers |
+| **Related** | SPEC-041 (UMES), SPEC-057 (Webhooks), 2026-03-29-google-workspace-integration, ANALYSIS-007 (Akeneo), 2026-03-23-inbound-webhook-handlers |
 
 ## TLDR
 
@@ -24,7 +24,7 @@
 - Project-aware command execution (builds on integration-projects spec)
 
 **Provider examples reworked in this spec:**
-- **Google Sheets/Worksheets**: commands (`read-sheet`, `write-row`, `list-spreadsheets`), events (`row.added`, `row.updated`), credential-level mode toggle (import products vs API-only), `catalog` dependency like Akeneo
+- **Google Sheets**: Bundle with 2 children — `sync_google_sheets` (Connector: commands `read-sheet`, `write-row`, `list-spreadsheets`; events `row.added`, `row.updated`, `row.deleted`) and `sync_google_sheets_products` (Product Import: DataSyncAdapter, requires catalog). See [2026-03-29-google-workspace-integration](./2026-03-29-google-workspace-integration.md) for full spec.
 - **Akeneo PIM**: commands (`get-product`, `list-products`, `get-family`, `get-category`, `list-families`), events per data sync, automatic graceful degradation when catalog module absent
 
 **Concerns:**
@@ -90,7 +90,7 @@ Today's integrations are **opaque data-sync pipelines** — they import/export d
 | 1 | Command output format | **Native external format** | Commands return the external system's raw data. Normalized data is what `data_sync` is for. Callers accept the source format. Optional `outputSchema` (zod) provides type documentation. |
 | 2 | Where to declare commands/events | **Extend existing `integration.ts`** | New optional `commands` and `integrationEvents` arrays on `IntegrationDefinition`. Avoids a new convention file. Handlers live in separate `commands/*.ts` files. |
 | 3 | Command handler file structure | **Separate files in `commands/` directory** | One file per command, auto-discovered with metadata export (like workers/subscribers). Follows existing convention patterns. |
-| 4 | Worksheets API-only mode | **DataSyncAdapter always registered; sync UI gated by setting** | Setting stored in credentials (`importMode: 'sync' | 'api_only'`). Adapter registered regardless — avoids dynamic registration complexity. |
+| 4 | Google Sheets mode flexibility | **Structural separation via bundle children** | The connector (`sync_google_sheets`) and product importer (`sync_google_sheets_products`) are separate child integrations. This avoids runtime mode toggles and keeps commands available without catalog sync. |
 | 5 | Catalog module dependency (Akeneo) | **Automatic runtime check** | `isModuleEnabled('catalog')` at boot. If catalog absent, DataSyncAdapter not registered but commands still work (they talk to external API directly). |
 | 6 | Event naming convention | **`<integrationId>.<entity>.<action>`** | Integration-scoped events follow the same `module.entity.action` convention. E.g., `sync_akeneo.product.fetched`, `sync_google_sheets.row.added`. |
 | 7 | Session scoping | **`sessionId` in event payload** | UUID generated per operation (command batch or sync run). All events in that operation carry the same `sessionId` + `integrationId` + `projectId`. Browser filters by session. |
@@ -224,6 +224,7 @@ interface IntegrationGateway {
 interface GatewayOptions {
   project?: string        // Project slug, defaults to 'default'
   sessionId?: string      // Caller-provided sessionId for event correlation; auto-generated if omitted
+  idempotencyKey?: string // Caller-provided idempotency key for write/action commands
   scope?: IntegrationScope // Caller scope; usually resolved from auth context
 }
 
@@ -299,29 +300,23 @@ useAppEvent('sync_akeneo.*', (event) => {
 - For data sync runs: matches the `SyncRun.id` (existing runs already have unique IDs)
 - For inbound webhooks: generated per webhook receipt
 
-### 6. Provider Mode Setting (Worksheets)
+### 6. Rollout Dependency & Default-Project Fallback
 
-Integration credentials gain an `importMode` field for integrations that support dual modes:
+This spec **builds on** [2026-03-29-integration-projects](./2026-03-29-integration-projects.md). Multi-project command execution, per-project readiness, and per-project webhook correlation MUST NOT ship before the project model exists in core services.
 
-```typescript
-// In integration.ts credentials schema
-{
-  key: 'importMode',
-  label: 'Integration Mode',
-  type: 'select',
-  options: [
-    { value: 'sync', label: 'Full Sync — Import products from spreadsheets' },
-    { value: 'api_only', label: 'API Only — Expose read/write commands without product sync' },
-  ],
-  required: true,
-  helpText: 'Choose whether to sync products or only expose spreadsheet commands.',
-}
-```
+Until that spec lands, Phase 1 may ship in **default-project compatibility mode** only:
 
-When `importMode === 'api_only'`:
-- DataSyncAdapter is registered (for potential future use) but sync UI and scheduled syncs are hidden
-- Commands remain fully functional
-- Events from webhooks still fire
+- `IntegrationGateway.execute()` and `isReady()` may accept `options.project`, but core resolution collapses to `'default'`
+- `listProjects()` returns a synthetic single-item list: `{ slug: 'default', isDefault: true }`
+- capability APIs may expose the `project` parameter, but providers MUST treat omitted or unknown project values as `'default'`
+- webhook-originated integration events MUST still include `projectSlug: 'default'`; `projectId` may remain unset until the projects spec is implemented
+
+Once integration-projects lands:
+
+- credentials/state/health resolution becomes project-aware in core services
+- gateway project selection becomes authoritative
+- webhook adapters MUST resolve project identity before emitting integration events
+- API examples in this spec become the real multi-project contract rather than compatibility shims
 
 ---
 
@@ -414,6 +409,27 @@ DataSyncEngine.runImport()
        SSE → browser → useAppEvent('sync_akeneo.*', filterBySession)
 ```
 
+### Event Registration Contract
+
+Integration events are author-defined in `integration.ts`, but they MUST become first-class declared platform events at runtime so the existing event bus, workflow event picker, and SSE bridge continue to work without special cases.
+
+The registration contract is:
+
+1. Provider authors declare static `integrationEvents` on `IntegrationDefinition`
+2. The CLI generator reads those definitions while building module metadata
+3. The generator appends **synthetic `EventModuleConfig` entries** to `events.generated.ts`
+4. App bootstrap continues to call `registerEventModuleConfigs(eventModuleConfigs)` exactly once
+5. `isBroadcastEvent()`, `getDeclaredEvents()`, `/api/events`, and SSE all work through the existing event registry with no alternate path
+
+Important constraints:
+
+- Provider modules MUST NOT create a second copy of the same integration events in `events.ts`
+- Integration event IDs remain frozen once published, like any other event ID
+- `emitIntegrationEvent()` MUST reject event IDs not present in the integration's declared `integrationEvents`
+- Synthetic event configs use the provider module's module id for discoverability, but keep the integration event id exactly as declared
+
+This preserves the current authoring rule from `packages/events/AGENTS.md` in spirit: all emitted events are declared before runtime emission. The declaration source is `integration.ts`, but the effective runtime registration path is still the generated event-config pipeline.
+
 ### Module Boundaries
 
 | Component | Package | Rationale |
@@ -423,6 +439,35 @@ DataSyncEngine.runImport()
 | Command handler files (`commands/*.ts`) | Provider packages (e.g., `@open-mercato/sync-akeneo`) | Provider-specific implementation |
 | Generator for `commands/*.ts` auto-discovery | `@open-mercato/cli` | Build tooling |
 | Capabilities UI tab | `@open-mercato/ui` (via UMES widget injection) | UI layer |
+
+### Graceful Degradation Without Target Modules
+
+Integration commands talk to **external APIs directly** — they do not depend on local platform modules. This means commands work even when the integration's primary target module (e.g., `catalog` for Akeneo) is not installed.
+
+The degradation pattern is:
+
+1. **At boot** — provider `di.ts` checks `isModuleEnabled('catalog')` (or other target module)
+2. **If present** — registers both command handlers AND `DataSyncAdapter` (full functionality)
+3. **If absent** — registers only command handlers (commands + events work; sync does not)
+
+This is **automatic** — no user setting needed. The `IntegrationGateway` reports accurate capabilities via `getCapabilities()`: commands are always listed, but sync-related features only appear when the target module is available.
+
+Providers that conditionally register adapters MUST declare the dependency in their command definitions via `requiredModules` so the Capabilities tab can show which commands need which modules.
+
+### Generated Bootstrap Wiring
+
+This spec adds generated runtime wiring in two places:
+
+- `commands.generated.ts` — imports auto-discovered command handlers and registers them via `registerIntegrationCommandHandler()`
+- `events.generated.ts` — includes synthetic `EventModuleConfig` entries for `integrationEvents`
+
+Bootstrap contract:
+
+- `bootstrap-registrations.generated.ts` imports `commands.generated.ts` for side-effect registration so app bootstrap code does not need a new manual import
+- existing bootstrap code keeps calling `registerEventModuleConfigs(eventModuleConfigs)`; integration events participate through the same generated array
+- the standalone app template MUST mirror the same generated bootstrap registrations in the same PR to avoid template drift
+
+This avoids adding a bespoke bootstrap path for commands while keeping generated file contracts additive-only.
 
 ---
 
@@ -488,6 +533,8 @@ export interface IntegrationCommandContext {
   projectSlug: string
   /** Session ID for event correlation */
   sessionId: string
+  /** Optional idempotency key forwarded by the caller for write/action commands */
+  idempotencyKey?: string
   /** Tenant scope */
   scope: IntegrationScope
   /** DI container resolver */
@@ -518,6 +565,8 @@ export interface GatewayOptions {
   project?: string
   /** Session ID for event correlation; auto-generated if omitted */
   sessionId?: string
+  /** Caller-provided idempotency key for write/action commands */
+  idempotencyKey?: string
   /** Caller scope; resolved from auth context if omitted */
   scope?: IntegrationScope
 }
@@ -586,6 +635,13 @@ Returns the full capability catalog for an integration.
 
 **Query params:**
 - `project` (optional, string) — project slug for readiness check. Default: `'default'`
+
+**Readiness semantics:**
+
+- `ready = true` means: integration exists, is enabled for the resolved project, required credentials are present, and all `requiredModules` for the declared command/event set are enabled
+- `ready = false` does **not** imply the last health check failed; health is reported separately
+- `isReady()` is a fast, local preflight and MUST NOT perform provider network I/O
+- explicit provider connectivity checks remain the job of the existing health-check route/service
 
 **Response (200):**
 ```json
@@ -682,7 +738,8 @@ Execute an integration command.
   "input": {
     "identifier": "SKU-12345"
   },
-  "sessionId": "optional-caller-session-id"
+  "sessionId": "optional-caller-session-id",
+  "idempotencyKey": "optional-for-write-and-action-commands"
 }
 ```
 
@@ -700,6 +757,17 @@ Execute an integration command.
 - `404` — Integration not found
 - `409` — Integration not ready (disabled or credentials missing)
 - `500` — Command execution failed (external API error)
+
+**Execution semantics:**
+
+- `read` commands may be retried by callers
+- `write` and `action` commands MUST be treated as non-retriable by default unless the caller supplies an `idempotencyKey`
+- the gateway MUST pass `idempotencyKey` into `IntegrationCommandContext` unchanged
+- provider handlers for `write`/`action` commands MUST either:
+  - forward the key to the external provider when supported, or
+  - document best-effort semantics and avoid automatic retries
+- the gateway MUST NOT persist raw credential values, auth tokens, or full native write payloads in logs
+- success logs should capture command id, execution time, project, and compact metadata only; large/native results stay in the HTTP response, not the audit log
 
 **ACL:** `integrations.manage`
 
@@ -774,6 +842,13 @@ interface IntegrationEventBasePayload {
 }
 ```
 
+**Broadcast payload budget:**
+
+- events with `clientBroadcast: true` MUST stay below the SSE bridge payload limit with margin; target payload size is **<= 2 KB**
+- payloads intended for browser progress UI MUST contain summaries, counters, identifiers, and small previews only
+- native external documents, large row arrays, binary blobs, or full webhook bodies MUST NOT be broadcast to SSE clients
+- when repeated events of the same type may occur inside 500ms, payloads SHOULD include a differentiator such as `batchIndex`, `sequence`, or `rowKey` to avoid client dedup collisions
+
 ### Akeneo Events
 
 | Event ID | Category | Source | Broadcast | Payload (additional) |
@@ -790,8 +865,26 @@ interface IntegrationEventBasePayload {
 | `sync_google_sheets.row.added` | webhook | webhook | `clientBroadcast: true` | `{ spreadsheetId, sheetName, rowIndex, values }` |
 | `sync_google_sheets.row.updated` | webhook | webhook | `clientBroadcast: true` | `{ spreadsheetId, sheetName, rowIndex, oldValues?, values }` |
 | `sync_google_sheets.row.deleted` | webhook | webhook | `clientBroadcast: true` | `{ spreadsheetId, sheetName, rowIndex }` |
-| `sync_google_sheets.import.started` | sync | internal | `clientBroadcast: true` | `{ runId, spreadsheetId, sheetName }` |
-| `sync_google_sheets.import.completed` | sync | internal | `clientBroadcast: true` | `{ runId, stats }` |
+| `sync_google_sheets_products.import.started` | sync | internal | `clientBroadcast: true` | `{ runId, spreadsheetId, sheetName }` |
+| `sync_google_sheets_products.import.completed` | sync | internal | `clientBroadcast: true` | `{ runId, stats }` |
+
+### Webhook Project Correlation & Google Event Derivation
+
+Inbound webhook routing remains provider-owned. The current webhooks hub resolves adapters by `endpointId`, then hands provider code `{ eventType, payload, tenantId?, organizationId? }`.
+
+Project-aware integrations therefore MUST supply their own correlation strategy:
+
+- the provider owns how `endpointId` maps to project/account context
+- `verifyWebhook()` or `processInbound()` MUST resolve the target project before calling `emitIntegrationEvent()`
+- until integration-projects lands, providers emit webhook events with `projectSlug: 'default'`
+
+For Google Sheets specifically, row-level events are **derived events**, not native webhook facts:
+
+- Google's push notification indicates that a spreadsheet changed; it does not authoritatively classify the change as row-added / row-updated / row-deleted
+- the provider MUST fetch the changed sheet range, compare it with provider-owned row-state snapshots, and then emit the derived row event(s)
+- row-state storage and hashing remain provider-owned and are specified in the Google Workspace spec
+- derivation MUST be idempotent: replaying the same inbound notification must not emit duplicate row mutations after reconciliation
+- if the provider cannot safely classify the change, it SHOULD emit no row event and write a warning log rather than guessing
 
 ### SSE Bridge Integration
 
@@ -917,22 +1010,28 @@ Integration cards in the marketplace gain capability badges:
 └──────────────────────────────────────┘
 ```
 
-### Worksheets Mode Toggle
+### Capabilities Tab Injection Strategy for Bundles
 
-In the Google Sheets integration credentials tab:
+For bundled integrations with multiple children (e.g., Google Workspace), the Capabilities tab is injected **per child integration**, not per bundle. Each child has its own detail page with its own widget spot ID, so:
 
-```
-┌──────────────────────────────────────────────────────┐
-│  Integration Mode                                    │
-│  [ ▼ Full Sync — Import products from spreadsheets ] │
-│     ○ Full Sync — Import products from spreadsheets  │
-│     ○ API Only — Expose read/write commands without  │
-│       product sync                                   │
-│                                                      │
-│  When "API Only" is selected, the Data Sync tab is   │
-│  hidden and scheduled syncs are paused.              │
-└──────────────────────────────────────────────────────┘
-```
+- **`sync_google_sheets` (Connector)** detail page → Capabilities tab shows 3 commands + 3 events
+- **`sync_google_sheets_products` (Product Import)** detail page → Capabilities tab shows 0 commands + 4 events
+- **`sync_akeneo`** (standalone) detail page → Capabilities tab shows 5 commands + 4 events
+
+The Capabilities tab widget checks `definition.commands?.length > 0 || definition.integrationEvents?.length > 0` for the **specific child integration** whose detail page it is injected into. If neither is present, the tab is hidden for that child.
+
+This means:
+- Provider-owned detail pages (via UMES widget spots) render the Capabilities tab alongside provider tabs — no conflict
+- The tab fetches `GET /api/integrations/:childIntegrationId/capabilities` scoped to the child
+- Bundle-level detail pages (`/backend/integrations/bundle/:id`) do NOT show a Capabilities tab (bundles don't declare commands/events themselves)
+
+### Google Workspace Presentation
+
+The detail UI reflects the structural split from the Google Workspace spec:
+
+- the connector child shows commands/events and account status
+- the product-import child shows sync-specific tabs such as source, mapping, and schedule
+- there is no runtime `importMode` selector in this spec
 
 ---
 
@@ -946,23 +1045,25 @@ This spec introduces **no database changes**. All new state is:
 - API endpoints (additive)
 - UI widgets (injected via UMES)
 
+Project-aware persistence and project entities are defined in [2026-03-29-integration-projects](./2026-03-29-integration-projects.md), not here. This spec may rely on that foundation but does not duplicate its schema changes.
+
 ### Backward Compatibility Surface Checklist
 
 | # | BC Surface | Impact | Mitigation |
 |---|-----------|--------|------------|
 | 1 | Auto-discovery conventions | **ADDITIVE** | New `commands/*.ts` auto-discovery added; all existing conventions unchanged |
 | 2 | Type definitions | **ADDITIVE** | 2 new optional fields on `IntegrationDefinition`; no removed/narrowed fields |
-| 3 | Function signatures | **NONE** | No existing functions modified |
+| 3 | Function signatures | **ADDITIVE / DEPENDENT** | Existing public APIs remain callable without project arguments; project-aware service growth is owned by the integration-projects spec and must remain optional/default-compatible |
 | 4 | Import paths | **ADDITIVE** | New exports from `@open-mercato/shared/modules/integrations/types`; no moved modules |
 | 5 | Event IDs | **ADDITIVE** | New integration events; no existing events renamed/removed |
 | 6 | Widget injection spot IDs | **ADDITIVE** | New capabilities tab widget; no existing spots changed |
 | 7 | API route URLs | **ADDITIVE** | 5 new endpoints; existing list endpoint gains additive fields only |
-| 8 | Database schema | **NONE** | No database changes |
+| 8 | Database schema | **NONE in this spec** | Project-aware schema changes, where needed, come from the integration-projects spec |
 | 9 | DI service names | **ADDITIVE** | New `integrationGateway` service; no renames |
 | 10 | ACL feature IDs | **NONE** | Reuses existing `integrations.view` and `integrations.manage` |
 | 11 | Notification type IDs | **NONE** | No new notification types |
 | 12 | CLI commands | **NONE** | Generator updated but no CLI command changes |
-| 13 | Generated file contracts | **ADDITIVE** | New `commands.generated.ts` file; existing generated files unchanged |
+| 13 | Generated file contracts | **ADDITIVE** | New `commands.generated.ts`; `events.generated.ts` gains synthetic integration event entries via the existing bootstrap path |
 
 ---
 
@@ -1011,6 +1112,35 @@ export function register(container) {
 }
 ```
 
+### Project-Aware Credential Resolution in Command Handlers
+
+Command handlers do **not** resolve credentials themselves. The `IntegrationGateway.execute()` method handles all project/credential resolution before calling the handler. The handler receives a fully populated `IntegrationCommandContext` with decrypted credentials for the resolved project:
+
+```typescript
+// commands/get-product.ts — handler receives pre-resolved context
+export default async function handle(
+  input: { identifier: string },
+  ctx: IntegrationCommandContext
+): Promise<unknown> {
+  // ctx.credentials — already decrypted for the correct project
+  // ctx.projectId — UUID of the resolved project
+  // ctx.projectSlug — slug (e.g., 'eu_production' or 'default')
+  const client = createAkeneoClient(ctx.credentials as AkeneoCredentialShape)
+  return client.getProduct(input.identifier)
+}
+```
+
+The caller specifies the project at the gateway level:
+```typescript
+// Consumer code in another module
+const product = await gateway.execute('sync_akeneo', 'get-product',
+  { identifier: 'SKU-123' },
+  { project: 'eu_production' }  // resolved by gateway before handler is called
+)
+```
+
+When `project` is omitted, the gateway defaults to `'default'` — matching the integration-projects spec.
+
 ### File Manifest (Akeneo changes)
 
 | File | Action | Purpose |
@@ -1030,64 +1160,51 @@ export function register(container) {
 
 ## Google Sheets Provider Spec Extension
 
-### Commands
+> **Full spec:** [2026-03-29-google-workspace-integration](./2026-03-29-google-workspace-integration.md)
 
-| Command ID | Label | Category | Input | Output (native) | Required Modules |
-|-----------|-------|----------|-------|-----------------|-----------------|
-| `read-sheet` | Read Sheet | read | `{ spreadsheetId: string, sheetName: string, range?: string }` | `{ headers: string[], rows: string[][] }` | — |
-| `write-row` | Write Row | write | `{ spreadsheetId: string, sheetName: string, values: string[] }` | `{ updatedRange: string, updatedRows: number }` | — |
-| `list-spreadsheets` | List Spreadsheets | read | `{ limit?: number }` | `{ items: { id: string, name: string }[] }` | — |
+The Google Workspace integration is restructured as a **bundle with two child integrations**:
 
-### Events
+### Bundle: `sync_google_workspace`
+
+Shared OAuth client credentials (`clientId`, `clientSecret`). Per-project Google account connections (one project = one Google account, per integration-projects spec).
+
+### Child 1: `sync_google_sheets` (Connector)
+
+Commands on the **connector** child (always available, no module dependencies):
+
+| Command ID | Label | Category | Input | Output (native) |
+|-----------|-------|----------|-------|-----------------|
+| `read-sheet` | Read Sheet | read | `{ spreadsheetId, sheetName, range?, limit? }` | `{ headers: string[], rows: string[][], totalRows }` |
+| `write-row` | Write Row | write | `{ spreadsheetId, sheetName, values: string[] }` | `{ updatedRange, updatedRows }` |
+| `list-spreadsheets` | List Spreadsheets | read | `{ search?, limit? }` | `{ items: { id, name, modifiedTime, sheetCount }[] }` |
+
+Events on the connector (webhook-based):
 
 | Event ID | Label | Category | Source |
 |----------|-------|----------|--------|
 | `sync_google_sheets.row.added` | Row Added | webhook | webhook |
 | `sync_google_sheets.row.updated` | Row Updated | webhook | webhook |
 | `sync_google_sheets.row.deleted` | Row Deleted | webhook | webhook |
-| `sync_google_sheets.import.started` | Import Started | sync | internal |
-| `sync_google_sheets.import.completed` | Import Completed | sync | internal |
 
-### Mode Toggle
+### Child 2: `sync_google_sheets_products` (Product Import)
 
-New credential field in `integration.ts`:
+Separate child integration for product sync. Requires `catalog` module (automatic `isModuleEnabled('catalog')` check — if absent, this child's DataSyncAdapter is not registered).
 
-```typescript
-{
-  key: 'importMode',
-  label: 'Integration Mode',
-  type: 'select' as const,
-  options: [
-    { value: 'sync', label: 'Full Sync — Import products from spreadsheets' },
-    { value: 'api_only', label: 'API Only — Expose read/write commands without product sync' },
-  ],
-  required: true,
-  helpText: 'Choose whether to sync products or only expose spreadsheet commands for other modules.',
-}
-```
+Events:
 
-### Catalog Module Dependency
+| Event ID | Label | Category | Source |
+|----------|-------|----------|--------|
+| `sync_google_sheets_products.import.started` | Import Started | sync | internal |
+| `sync_google_sheets_products.import.completed` | Import Completed | sync | internal |
+| `sync_google_sheets_products.import.failed` | Import Failed | sync | internal |
+| `sync_google_sheets_products.record.imported` | Record Imported | sync | internal |
 
-Same pattern as Akeneo — `catalog` listed in module `requires`, DataSyncAdapter registration conditional on `isModuleEnabled('catalog')` AND `importMode !== 'api_only'`.
+### Key Architectural Change from Archived SPEC-045g
 
-### Inbound Webhook for Events
-
-Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Google's push notification API:
-
-1. Integration registers a `WebhookEndpointAdapter` for Google Sheets push notifications
-2. `processInbound()` maps Google's change notification to typed integration events
-3. Events emitted with `clientBroadcast: true` into the event bus
-
-### File Manifest (Google Sheets changes)
-
-| File | Action | Purpose |
-|------|--------|---------|
-| `packages/sync-google-workspace/src/modules/sync_google_sheets/integration.ts` | Create/Modify | Add `commands`, `integrationEvents`, `importMode` credential field |
-| `packages/sync-google-workspace/src/modules/sync_google_sheets/commands/read-sheet.ts` | Create | Read sheet data |
-| `packages/sync-google-workspace/src/modules/sync_google_sheets/commands/write-row.ts` | Create | Write row to sheet |
-| `packages/sync-google-workspace/src/modules/sync_google_sheets/commands/list-spreadsheets.ts` | Create | List accessible spreadsheets |
-| `packages/sync-google-workspace/src/modules/sync_google_sheets/lib/webhook-adapter.ts` | Create | Inbound webhook handler for Google push notifications |
-| `packages/sync-google-workspace/src/modules/sync_google_sheets/di.ts` | Create/Modify | Register command handlers, conditional adapter |
+The original spec had a single `sync_google_sheets_products` integration with an `importMode` toggle. The new design replaces the toggle with proper separation:
+- **Connector** is default and always available — any module can call `gateway.execute('sync_google_sheets', 'read-sheet', ...)` without product import being configured
+- **Product Import** is an opt-in child that admin enables separately when they want catalog sync
+- No `importMode` credential field needed — the separation is structural
 
 ---
 
@@ -1110,6 +1227,7 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 - Update generator in `packages/cli/` to discover `commands/*.ts` files in integration modules
 - Each file must export `metadata: IntegrationCommandHandlerMeta` and a default handler function
 - Generator produces `commands.generated.ts` that imports and registers all handlers
+- `bootstrap-registrations.generated.ts` imports `commands.generated.ts` so runtime registration happens through the existing bootstrap hook
 - Update `yarn generate` to include command discovery
 
 **Testable:** Generator discovers command files and produces valid output.
@@ -1118,7 +1236,7 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 
 - Create `packages/core/src/modules/integrations/lib/gateway.ts`
 - Implement `execute()`: resolve definition → validate commandId → validate input (zod) → resolve project → resolve credentials → build context → delegate to handler → log execution
-- Implement `isReady()`: resolve state (enabled?) → resolve credentials (all required fields present?)
+- Implement `isReady()`: resolve state (enabled?) → resolve credentials (all required fields present?) → verify `requiredModules` availability without provider network I/O
 - Implement `listCommands()`, `listEvents()`, `getCapabilities()`, `listProjects()`
 - Register as `integrationGateway` in DI (`di.ts`)
 
@@ -1152,7 +1270,7 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 #### Step 2.1: Integration Event Registration
 
 - Integration events declared in `integrationEvents` are registered in the global event registry at module boot
-- Generator aggregates all integration definitions' `integrationEvents` and produces registration calls
+- Generator aggregates all integration definitions' `integrationEvents` into synthetic `EventModuleConfig` entries inside `events.generated.ts`
 - Events use `clientBroadcast` / `portalBroadcast` from their definitions
 
 **Testable:** Integration events appear in `getDeclaredEvents()`. `isBroadcastEvent()` returns true for `clientBroadcast: true` events.
@@ -1191,11 +1309,13 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 #### Step 3.1: Capabilities Tab Widget
 
 - Create UMES widget for the integration detail page
-- Injected via `widgets/injection-table.ts` into the `LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID`
-- Only rendered when integration has `commands.length > 0` or `integrationEvents.length > 0`
-- Fetches capabilities from `GET /api/integrations/:id/capabilities`
+- Injected via `widgets/injection-table.ts` into **both** the `LEGACY_INTEGRATION_DETAIL_TABS_SPOT_ID` (platform-rendered pages) and per-integration widget spots (`buildIntegrationDetailWidgetSpotId(id)`) for provider-owned pages
+- Only rendered when the specific child integration has `commands.length > 0` or `integrationEvents.length > 0`
+- Fetches capabilities from `GET /api/integrations/:id/capabilities` where `:id` is the child integration ID
+- For bundle children: each child's detail page gets its own Capabilities tab showing only that child's commands/events
+- Bundle-level pages (`/backend/integrations/bundle/:id`) do NOT show the Capabilities tab
 
-**Testable:** Tab appears for integrations with commands. Hidden for integrations without.
+**Testable:** Tab appears for integrations with commands. Hidden for integrations without. Works on both platform-rendered and provider-owned detail pages.
 
 #### Step 3.2: Command List & Schema Display
 
@@ -1275,11 +1395,19 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 
 ---
 
-### Phase 5: Google Sheets Provider — Commands, Events, Mode Toggle
+### Phase 5: Google Sheets Provider — Bundle with Connector + Product Import
 
-**Goal:** Google Sheets integration exposes 3 commands, 5 events, and a mode toggle. (Note: this builds on SPEC-045g which may not yet be implemented.)
+**Goal:** Google Sheets integration restructured as a bundle with two children. See [2026-03-29-google-workspace-integration](./2026-03-29-google-workspace-integration.md) for full spec.
 
-#### Step 5.1: Command Handler Files
+#### Step 5.1: Bundle + Two Children
+
+- Update `integration.ts` to define bundle (`sync_google_workspace`) + connector child (`sync_google_sheets`) + product import child (`sync_google_sheets_products`)
+- Connector child declares 3 commands and 3 webhook events
+- Product import child declares 4 sync lifecycle events
+
+**Testable:** Both children appear in marketplace under bundle grouping.
+
+#### Step 5.2: Connector Command Handlers
 
 - `read-sheet.ts` — uses Google Sheets API to read a range
 - `write-row.ts` — appends a row to a sheet
@@ -1287,29 +1415,67 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 
 **Testable:** Commands return expected data shapes.
 
-#### Step 5.2: Integration Definition Update
-
-- Add `commands`, `integrationEvents` arrays
-- Add `importMode` credential field (select: sync / api_only)
-- Add `catalog` to module `requires` array
-
-**Testable:** Capabilities API returns correct catalog.
-
 #### Step 5.3: Inbound Webhook Adapter
 
 - Create `WebhookEndpointAdapter` for Google Sheets push notifications
-- `processInbound()` maps Google's change notification to `sync_google_sheets.row.added`, `row.updated`, `row.deleted`
+- `processInbound()` maps Google's change notification to derived `sync_google_sheets.row.added`, `row.updated`, `row.deleted` events after project resolution and row-state reconciliation
 - Events emitted with `clientBroadcast: true`
 
 **Testable:** Webhook payload correctly maps to integration events.
 
-#### Step 5.4: Mode Toggle Behavior
+#### Step 5.4: Conditional Product Import
 
-- When `importMode === 'api_only'`: hide data sync schedule tab, pause scheduled syncs
-- DataSyncAdapter always registered but sync UI conditionally hidden
-- Commands always available regardless of mode
+- `isModuleEnabled('catalog')` check in `di.ts` — only register DataSyncAdapter when catalog present
+- Connector commands always registered regardless
+- Product import child has its own detail page with source config, mapping, schedule tabs
 
-**Testable:** API-only mode hides sync UI; commands still work.
+**Testable:** Without catalog: connector works, product import child not available. With catalog: both work.
+
+---
+
+## Integration Test Coverage
+
+The implementation MUST ship with integration coverage for the following paths.
+
+### API Paths
+
+- `GET /api/integrations`
+  verifies additive `commandCount` / `eventCount` fields without breaking existing shape
+- `GET /api/integrations/:id/capabilities`
+  verifies command/event catalogs, readiness semantics, and project summaries
+- `GET /api/integrations/:id/ready`
+  verifies `enabled`, `credentialsConfigured`, `ready`, and command/event counts
+- `POST /api/integrations/:id/commands/:commandId/execute`
+  verifies read command success, validation failure, disabled integration rejection, missing credentials rejection, and optional `idempotencyKey` passthrough
+- `POST /api/webhooks/inbound/:endpointId`
+  verifies provider webhook verification, deduplication, tenant scoping, and downstream integration event emission
+
+### UI Paths
+
+- Integration detail page shows the Capabilities tab only when commands/events exist
+- Capabilities tab renders commands, events, schema summaries, and project selector state
+- "Try It" dialog executes a command, shows the result, and supports `Cmd/Ctrl+Enter` submit plus `Escape` cancel
+- Marketplace cards render capability badges only when counts are non-zero
+
+### Event / Worker Paths
+
+- Integration events declared in `integration.ts` appear in `/api/events` and `getDeclaredEvents()`
+- `clientBroadcast: true` integration events reach the DOM Event Bridge and are filterable by `sessionId`
+- sync-originated integration events emitted from workers propagate across the cross-process event bridge
+- repeated events in the same session include a differentiator (`batchIndex` or equivalent) and are not collapsed incorrectly by client deduplication
+
+### Provider-Specific Scenarios
+
+- Akeneo command handlers work without `catalog` enabled
+- Akeneo sync events emit only when the sync adapter is registered
+- Google Sheets webhook processing resolves the correct project/account context
+- Google Sheets row events are emitted only after reconciliation can classify the change safely
+
+### Safety Assertions
+
+- write/action command logs do not contain secrets or full native payload dumps
+- oversized event payloads are summarized rather than sent raw over SSE
+- project-aware calls fall back safely to `'default'` until the integration-projects foundation is enabled in core
 
 ---
 
@@ -1321,8 +1487,15 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 - **Scenario**: External system (Akeneo, Google) returns error or times out during command execution
 - **Severity**: Medium
 - **Affected area**: Command execution API, consumer modules
-- **Mitigation**: Gateway catches errors, logs to IntegrationLog, returns 500 with structured error. Consumer modules should handle errors gracefully. No local state mutations during command execution (read-through only for initial commands).
-- **Residual risk**: Low — commands are stateless read operations initially.
+- **Mitigation**: Gateway catches errors, logs compact metadata only, returns structured errors, and avoids auto-retrying `write` / `action` commands. `idempotencyKey` is forwarded when supplied.
+- **Residual risk**: Medium — external systems may still apply writes even when the local request times out.
+
+#### Duplicate External Writes
+- **Scenario**: Browser retry, proxy retry, or user re-submit executes a `write-row`-style command twice
+- **Severity**: High
+- **Affected area**: External provider state, auditability
+- **Mitigation**: `write` / `action` commands accept an optional `idempotencyKey`; gateway does not auto-retry mutating commands; providers forward the key when supported and document best-effort behavior otherwise.
+- **Residual risk**: Medium — some providers do not support idempotent writes natively.
 
 ### Cascading Failures & Side Effects
 
@@ -1330,8 +1503,15 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 - **Scenario**: External system sends hundreds of webhook events in seconds (e.g., bulk spreadsheet update), causing SSE flood and subscriber overload
 - **Severity**: Medium
 - **Affected area**: Event bus, SSE connections, persistent subscribers
-- **Mitigation**: Inbound webhook rate limiting (existing, per-endpoint). Persistent subscribers process via queue with bounded concurrency. SSE deduplication (existing 500ms window). Integration events with `source: 'webhook'` are always persistent (queued, not immediate).
-- **Residual risk**: Low — existing rate limiting and queuing handle this.
+- **Mitigation**: Inbound webhook rate limiting (existing, per-endpoint). Persistent subscribers process via queue with bounded concurrency. Browser-facing payloads stay compact and summarized. Repeated event payloads include differentiators to avoid accidental dedup collapse.
+- **Residual risk**: Medium — providers may still need debounce/coalescing for very noisy sources.
+
+#### Impossible or Wrongly Classified Google Row Events
+- **Scenario**: A Google change notification cannot be safely classified as row-added / updated / deleted, or is attributed to the wrong account/project
+- **Severity**: High
+- **Affected area**: Google Sheets connector, downstream workflows
+- **Mitigation**: Provider-owned project correlation and row-state reconciliation are mandatory before row events are emitted. If classification is ambiguous, emit no row event and log a warning.
+- **Residual risk**: Medium — eventual consistency windows can still delay or suppress row-level events.
 
 #### Command Handler Accessing Unavailable Module
 - **Scenario**: Command handler tries to use a module that's not installed (e.g., Akeneo command tries to resolve a catalog service)
@@ -1346,16 +1526,17 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 - **Scenario**: Command is executed with wrong tenant's credentials
 - **Severity**: Critical
 - **Affected area**: Credential resolution
-- **Mitigation**: Gateway resolves credentials through `CredentialsService` which is tenant-scoped. Credentials are keyed by `(integrationId, projectId, organizationId, tenantId)`. The gateway's `execute()` requires `scope` (derived from auth context) — no cross-tenant credential access is possible.
+- **Mitigation**: Gateway resolves credentials through tenant-scoped core services. Project-aware execution is blocked on the integration-projects foundation; before that rollout, all project selection collapses to `'default'` to avoid accidental cross-project access.
 - **Residual risk**: Negligible — same isolation as existing credential reads.
 
 ### Migration & Deployment Risks
 
-#### No Database Migration
-- **Scenario**: N/A — this spec has no database changes
-- **Severity**: N/A
-- **Mitigation**: N/A
-- **Residual risk**: None.
+#### Rollout Ordering With Integration Projects
+- **Scenario**: Commands & Events ships before integration-projects service/schema changes, but callers start sending explicit project slugs
+- **Severity**: High
+- **Affected area**: Readiness, execution, webhook correlation
+- **Mitigation**: Ship this spec in default-project compatibility mode first, or ship after integration-projects. Multi-project behavior must stay feature-flagged until core project resolution is live.
+- **Residual risk**: Low when rollout order is enforced.
 
 ### Operational Risks
 
@@ -1365,6 +1546,13 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 - **Affected area**: Development workflow
 - **Mitigation**: Document in AGENTS.md. `yarn dev` already watches for file changes and regenerates. CI/CD pipeline runs `yarn generate` before build.
 - **Residual risk**: Negligible — same risk as workers/subscribers today.
+
+#### SSE Payload Truncation
+- **Scenario**: Provider emits large native payloads with `clientBroadcast: true`; SSE truncates or drops them
+- **Severity**: Medium
+- **Affected area**: Real-time browser UX
+- **Mitigation**: Only summary payloads are broadcast. Large/native responses stay on command HTTP responses or provider logs, not SSE.
+- **Residual risk**: Low.
 
 ---
 
@@ -1399,7 +1587,7 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 | Root AGENTS | Keep pageSize ≤ 100 | ✅ PASS | Command list responses are small (static definitions) |
 | BC Contract | Auto-discovery conventions FROZEN | ✅ PASS | `commands/*.ts` is a new convention, not a change to existing ones |
 | BC Contract | Type definitions STABLE | ✅ PASS | 2 new optional fields on IntegrationDefinition; no removed/narrowed fields |
-| BC Contract | Function signatures STABLE | ✅ PASS | No existing function signatures modified |
+| BC Contract | Function signatures STABLE | ✅ PASS | Existing public signatures stay valid; project-aware growth remains optional/default-compatible |
 | BC Contract | Import paths STABLE | ✅ PASS | New exports added; no moved modules |
 | BC Contract | Event IDs FROZEN | ✅ PASS | New events only; no existing events changed |
 | BC Contract | Widget injection spot IDs FROZEN | ✅ PASS | Uses existing tabs spot; no spots renamed/removed |
@@ -1407,7 +1595,7 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 | BC Contract | Database schema ADDITIVE-ONLY | ✅ PASS | No database changes |
 | BC Contract | DI service names STABLE | ✅ PASS | New `integrationGateway` service; no renames |
 | BC Contract | ACL feature IDs FROZEN | ✅ PASS | No new features; reuses existing |
-| BC Contract | Generated file contracts STABLE | ✅ PASS | New `commands.generated.ts`; existing files unchanged |
+| BC Contract | Generated file contracts STABLE | ✅ PASS | `commands.generated.ts` is additive; `events.generated.ts` grows via the existing bootstrap registration path |
 
 ### Internal Consistency Check
 
@@ -1415,7 +1603,7 @@ Google Sheets events (`row.added`, `row.updated`, `row.deleted`) come from Googl
 |-------|--------|-------|
 | Data models match API contracts | ✅ Pass | Types map directly to API response shapes |
 | API contracts match UI/UX section | ✅ Pass | Capabilities tab consumes capabilities API; Try It dialog calls execute API |
-| Risks cover all write operations | ✅ Pass | Command execution (external writes) covered; mode toggle covered |
+| Risks cover all write operations | ✅ Pass | External write commands now include idempotency/retry and log-safety guidance |
 | Commands defined for all mutations | ✅ Pass | Execute is the only mutation; uses gateway service (not CRUD pattern — appropriate for proxy commands) |
 | Events cover all state changes | ✅ Pass | Integration events declared; sync lifecycle events mapped |
 
@@ -1435,3 +1623,5 @@ None.
 |------|--------|--------|
 | 2026-03-29 | AI | Initial skeleton with Open Questions |
 | 2026-03-29 | AI | Full spec: architecture, types, API contracts, events, SSE, UI, 5-phase implementation plan, Akeneo + Google Sheets provider extensions, compliance review |
+| 2026-03-29 | AI | Updated Google Sheets section to match new bundle architecture (connector + product import children). Removed `importMode` toggle — replaced by structural separation. Added reference to new google-workspace-integration spec. |
+| 2026-03-29 | AI | Filled remaining readiness-review gaps: explicit event registration contract, default-project rollout semantics, webhook project correlation, write-command idempotency rules, SSE payload constraints, generated bootstrap wiring, and integration test coverage. |
