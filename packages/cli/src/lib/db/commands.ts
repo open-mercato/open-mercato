@@ -44,6 +44,41 @@ function getClientUrl(): string {
   return url
 }
 
+export function getDatabaseName(clientUrl: string): string {
+  try {
+    const parsed = new URL(clientUrl)
+    const databaseName = parsed.pathname.split('/').filter(Boolean).at(-1)
+    return databaseName && databaseName.length > 0 ? decodeURIComponent(databaseName) : 'database'
+  } catch {
+    return 'database'
+  }
+}
+
+export function getSnapshotPath(migrationsPath: string, clientUrl: string): string {
+  return path.join(migrationsPath, `.snapshot-${getDatabaseName(clientUrl)}.json`)
+}
+
+export function hasModuleMigrationHistory(migrationsPath: string, clientUrl: string): boolean {
+  if (fs.existsSync(getSnapshotPath(migrationsPath, clientUrl))) return true
+  if (!fs.existsSync(migrationsPath)) return false
+  return fs.readdirSync(migrationsPath).some((file) => file.startsWith('Migration') && file.endsWith('.ts'))
+}
+
+export function ensureInitialSnapshot(migrationsPath: string, clientUrl: string): void {
+  if (hasModuleMigrationHistory(migrationsPath, clientUrl)) return
+  const snapshotPath = getSnapshotPath(migrationsPath, clientUrl)
+  fs.writeFileSync(snapshotPath, JSON.stringify({
+    namespaces: ['public'],
+    name: 'public',
+    tables: [],
+    nativeEnums: {},
+  }, null, 2) + '\n', 'utf8')
+}
+
+export function resolveGeneratedMigrationPath(fileName: string, migrationsPath: string): string {
+  return path.isAbsolute(fileName) ? fileName : path.join(migrationsPath, fileName)
+}
+
 function sortModules(mods: ModuleEntry[]): ModuleEntry[] {
   // Sort modules alphabetically since they are now isomorphic
   return mods.slice().sort((a, b) => a.id.localeCompare(b.id))
@@ -204,6 +239,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
 
     const migrationsPath = getMigrationsPath(entry, resolver)
     fs.mkdirSync(migrationsPath, { recursive: true })
+    ensureInitialSnapshot(migrationsPath, getClientUrl())
 
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
@@ -242,7 +278,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const diff = await migrator.createMigration()
     if (diff && diff.fileName) {
       try {
-        const orig = diff.fileName
+        const orig = resolveGeneratedMigrationPath(diff.fileName, migrationsPath)
         const base = path.basename(orig)
         const dir = path.dirname(orig)
         const ext = path.extname(base)

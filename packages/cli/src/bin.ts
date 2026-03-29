@@ -4,7 +4,6 @@
  * Called from within a Next.js app directory as: yarn mercato <command>
  * Uses dynamic app resolution to find generated files at .mercato/generated/
  */
-import { run } from './mercato.js'
 
 // Commands that can run without bootstrap (without generated files)
 // - generate: creates the generated files
@@ -52,6 +51,34 @@ function needsBootstrap(argv: string[]): boolean {
   return !BOOTSTRAP_FREE_COMMANDS.includes(first)
 }
 
+async function runDirectDb(argv: string[]): Promise<number> {
+  const [, , , dbCommand, ...rest] = argv
+  const { createResolver } = await import('./lib/resolver.js')
+  const resolver = createResolver()
+
+  if (dbCommand === 'generate') {
+    const { dbGenerate } = await import('./lib/db/index.js')
+    await dbGenerate(resolver)
+    return 0
+  }
+
+  if (dbCommand === 'migrate') {
+    const { dbMigrate } = await import('./lib/db/index.js')
+    await dbMigrate(resolver)
+    return 0
+  }
+
+  if (dbCommand === 'greenfield') {
+    const { dbGreenfield } = await import('./lib/db/index.js')
+    const yes = rest.includes('--yes') || rest.includes('-y')
+    await dbGreenfield(resolver, { yes })
+    return 0
+  }
+
+  console.error(`Unknown db command: ${dbCommand ?? ''}`)
+  return 1
+}
+
 async function tryBootstrap(): Promise<boolean> {
   try {
     const { bootstrapFromAppRoot } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
@@ -80,6 +107,13 @@ async function tryBootstrap(): Promise<boolean> {
 
 async function main(): Promise<void> {
   assertNode24Runtime()
+  const [, , first] = process.argv
+
+  if (first === 'db') {
+    const code = await runDirectDb(process.argv)
+    process.exit(code ?? 0)
+  }
+
   const requiresBootstrap = needsBootstrap(process.argv)
 
   if (requiresBootstrap) {
@@ -98,6 +132,7 @@ async function main(): Promise<void> {
     }
   }
 
+  const { run } = await import('./mercato.js')
   const code = await run(process.argv)
   process.exit(code ?? 0)
 }

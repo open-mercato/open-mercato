@@ -98,6 +98,33 @@ async function handleDirectEjectCommand(args: string[]): Promise<number> {
   return 0
 }
 
+async function handleDirectDbCommand(commandName?: string): Promise<number> {
+  const { createResolver } = await import('./lib/resolver')
+  const resolver = createResolver()
+
+  if (commandName === 'generate') {
+    const { dbGenerate } = await import('./lib/db')
+    await dbGenerate(resolver)
+    return 0
+  }
+
+  if (commandName === 'migrate') {
+    const { dbMigrate } = await import('./lib/db')
+    await dbMigrate(resolver)
+    return 0
+  }
+
+  if (commandName === 'greenfield') {
+    const { dbGreenfield } = await import('./lib/db')
+    const yes = process.argv.includes('--yes') || process.argv.includes('-y')
+    await dbGreenfield(resolver, { yes })
+    return 0
+  }
+
+  console.error(`🤔 Unknown command "${commandName ?? ''}". Available: generate, migrate, greenfield`)
+  return 1
+}
+
 // Helper to run a CLI command directly (without spawning a process)
 async function runModuleCommand(
   allModules: Module[],
@@ -568,6 +595,10 @@ export async function run(argv = process.argv) {
       }
       return 1
     }
+  }
+
+  if (first === 'db') {
+    return await handleDirectDbCommand(second)
   }
 
   // Handle agentic:init command (bootstrap-free)
