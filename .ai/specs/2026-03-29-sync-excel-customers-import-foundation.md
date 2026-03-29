@@ -2,226 +2,286 @@
 
 ## TL;DR
 
-Introduce the first upstreamable slice of `sync_excel` as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. This slice adds a spec-first contract for provider-owned upload sessions and requires one additive `data_sync` foundation change: sync adapter inputs may carry an optional `runId`, and field mappings may carry optional semantic metadata (`mappingKind`, `dedupeRole`) without breaking existing providers.
+Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
 
 ## Overview
 
-THST-134 requires CSV import capability for Open Mercato with background processing, reusable field mapping, and future upstream contribution viability. The upstream architecture already reserves `sync_excel` in the `data_sync` hub as the file-upload reference implementation. This spec defines the first incremental change needed to implement that path safely: establish the `sync_excel` foundation and extend the `data_sync` adapter contract additively so file-backed providers can resolve provider-owned upload state from the sync run lifecycle.
+THST-134 requires CSV import capability that fits Open Mercato upstream rules: background execution, reusable mapping, additive-only contracts, and alignment with the existing `data_sync` hub. Upstream already reserves `sync_excel` as the file-upload reference provider. This spec captures the first real implementation slice for that architecture.
 
 ## Problem Statement
 
-The current `data_sync` contract assumes API-style providers that can fully derive import/export state from integration credentials, mapping, cursor, and tenant scope. File-upload-driven providers need an additional, provider-owned way to associate a `SyncRun` with an uploaded file session and its preview/mapping state. Without that hook:
+Open Mercato already has a generic `data_sync` hub, but before this slice it lacked a clean way to associate a sync run with transient provider-owned file upload state. That made file-backed imports awkward and encouraged one of three bad options:
 
-- `sync_excel` would have to overload `credentials` with transient file identifiers
-- provider-specific upload state would leak into generic `data_sync` routes
-- future file-based providers would have no clean contract for run-linked state
+- overload long-lived integration credentials with temporary file identifiers
+- leak provider-specific upload payloads into generic `data_sync` endpoints
+- build a parallel import subsystem outside the existing sync architecture
 
-At the same time, the existing `FieldMapping` type is too narrow for no-loss CSV mapping flows that need to distinguish core mappings from ignored columns, external IDs, or metadata-only mappings. We need a backward-compatible way to enrich mappings without breaking existing providers.
+At the same time, a CSV import UI needs richer field mapping semantics than the legacy `FieldMapping` contract exposed.
 
 ## Proposed Solution
 
-1. Keep the architecture aligned with the implemented `data_sync` hub reference:
-   - `sync_excel` remains a provider built on top of `data_sync`
-   - `customers.person` is the first target entity in the follow-up implementation slices
-2. Add an optional `runId` field to `StreamImportInput` and `StreamExportInput`
-3. Add optional `mappingKind` and `dedupeRole` fields to `FieldMapping`
-4. Preserve backward compatibility by:
-   - making every new field optional
-   - keeping existing adapter call sites valid
-   - treating undefined `mappingKind` as the existing default behavior
+Implement `sync_excel` as a first-class `data_sync` provider with these capabilities:
 
-This PR does not yet implement the `sync_excel` module itself. It only establishes the contracts required by the upcoming `sync_excel` upload/preview/import flow.
+1. Add optional `runId` to `StreamImportInput` and `StreamExportInput`
+2. Add optional `mappingKind` and `dedupeRole` to `FieldMapping`
+3. Introduce provider-owned `SyncExcelUpload` state backed by attachments
+4. Expose provider APIs for upload, preview, and import start
+5. Reuse `data_sync` runs, queue orchestration, and progress lifecycle for background execution
+6. Scope the first target adapter to `customers.person`
+7. Expose an integration detail tab for upload, mapping, preview, and run status
+
+This keeps the architecture aligned with upstream `SPEC-045b` and avoids a standalone imports subsystem.
 
 ## Architecture
 
-### Current
+### Data Sync foundation changes
 
-`data_sync` starts a `SyncRun`, resolves credentials and mapping, and calls the registered adapter with:
+`packages/core/src/modules/data_sync/lib/adapter.ts`
 
-- `entityType`
-- `cursor`
-- `batchSize`
-- `credentials`
-- `mapping`
-- `scope`
+- `StreamImportInput.runId?: string`
+- `StreamExportInput.runId?: string`
+- `FieldMapping.mappingKind?`
+- `FieldMapping.dedupeRole?`
 
-### Target
+`packages/core/src/modules/data_sync/lib/sync-engine.ts`
 
-`data_sync` will additionally pass:
+- forwards `runId` to provider adapters for both import and export
+- keeps existing providers backward compatible because all new fields are optional
 
-- `runId`
+### Provider module
 
-to both import and export adapters. File-backed providers such as `sync_excel` can then:
+`packages/core/src/modules/sync_excel/`
 
-1. receive a `runId` from the generic sync engine
-2. resolve provider-owned upload session state using that run ID
-3. stream rows without leaking upload-specific state into the generic core routes
+- integration registration (`providerKey: excel`, hub/category `data_sync`)
+- ACL + setup + DI wiring
+- attachment-backed upload storage
+- CSV preview parser and mapping suggestion helpers
+- `customers.person` import adapter
+- provider routes for upload, preview, and import start
+- backend integration-detail widget injection
 
-### Mapping semantics
+### Execution model
 
-`FieldMapping` gains two optional semantics fields:
-
-- `mappingKind`
-  - `core`
-  - `relation`
-  - `external_id`
-  - `custom_field`
-  - `metadata`
-  - `ignore`
-- `dedupeRole`
-  - `primary`
-  - `secondary`
-
-These semantics are initially advisory for `sync_excel` and future providers. Existing providers remain unaffected.
+1. Admin uploads a CSV file to `sync_excel`
+2. Provider stores the file via `attachments` and persists a `SyncExcelUpload` record
+3. Provider returns headers, sample rows, row count, and suggested mapping
+4. Admin confirms mapping and starts import
+5. Provider persists/updates `SyncMapping`, creates a `SyncRun`, links it to the upload session, and enqueues a normal `data_sync` run
+6. `data_sync` worker invokes the `sync_excel` adapter with `runId`
+7. Adapter resolves upload session state, parses the CSV document, and streams imports to `customers.person`
+8. Progress and cancellation continue to flow through existing `data_sync` / `progress` contracts
 
 ## Data Models
 
-No database schema changes are part of this foundation slice.
+### `SyncExcelUpload`
 
-Future `sync_excel` work will introduce a provider-owned upload session entity and reuse `SyncRun` to bind background execution to uploaded files.
+Introduced in `packages/core/src/modules/sync_excel/data/entities.ts`.
+
+Fields:
+
+- `id`
+- `attachmentId`
+- `filename`
+- `mimeType`
+- `fileSize`
+- `entityType`
+- `headers` (JSON)
+- `sampleRows` (JSON)
+- `totalRows`
+- `status` (`uploaded | previewed | importing | completed | failed`)
+- `syncRunId?`
+- tenant scope columns and timestamps
+
+### Existing reused models
+
+- `SyncRun`
+- `SyncMapping`
+- external ID mapping storage from `data_sync/lib/id-mapping.ts`
 
 ## API Contracts
 
-This foundation slice does not add or modify HTTP routes.
+### `POST /api/sync_excel/upload`
 
-It changes the internal adapter contract additively:
+Request:
 
-```ts
-interface StreamImportInput {
-  entityType: string
-  cursor?: string
-  batchSize: number
-  credentials: Record<string, unknown>
-  mapping: DataMapping
-  scope: TenantScope
-  runId?: string
-}
+- multipart `file`
+- optional `entityType` (currently only `customers.person`)
 
-interface StreamExportInput {
-  entityType: string
-  cursor?: string
-  batchSize: number
-  credentials: Record<string, unknown>
-  mapping: DataMapping
-  scope: TenantScope
-  filter?: Record<string, unknown>
-  runId?: string
-}
+Response:
 
-interface FieldMapping {
-  externalField: string
-  localField: string
-  transform?: string
-  required?: boolean
-  defaultValue?: unknown
-  mappingKind?: 'core' | 'relation' | 'external_id' | 'custom_field' | 'metadata' | 'ignore'
-  dedupeRole?: 'primary' | 'secondary'
-}
-```
+- `uploadId`
+- file metadata
+- `headers`
+- `sampleRows`
+- `totalRows`
+- `suggestedMapping`
+
+### `GET /api/sync_excel/preview`
+
+Query:
+
+- `uploadId`
+- `entityType`
+
+Response:
+
+- preview payload for the saved upload
+- rematerialized mapping suggestions
+
+### `POST /api/sync_excel/import`
+
+Body:
+
+- `uploadId`
+- `entityType`
+- `mapping`
+
+Behavior:
+
+- validates requested mapping
+- upserts the matching `SyncMapping`
+- creates a `SyncRun`
+- links `syncRunId` back to the upload session
+- enqueues a background import through the existing `data_sync` flow
 
 ## UI/UX
 
-No UI changes are included in this slice.
+The current slice adds a `sync_excel` integration detail tab with:
 
-Future slices will add an integration detail tab for `sync_excel` with upload, preview, mapping, and background-run status.
+1. CSV file upload
+2. preview summary (headers, row count, sample rows)
+3. editable column mapping table for `customers.person`
+4. import start button guarded by mapping diagnostics
+5. run status / progress / cancel affordances backed by `data_sync` run detail
+
+This slice intentionally does **not** yet add an Import button directly to customers DataTables.
 
 ## Configuration
 
-No new environment variables or feature flags are introduced in this slice.
+No new env vars are introduced by the feature itself.
+
+Local merge blocker:
+
+- `yarn db:generate` still requires `DATABASE_URL`
+- the current worktree has no reachable Postgres instance, so the migration for `sync_excel_uploads` has not yet been generated locally
 
 ## Alternatives Considered
 
-### 1. New standalone `imports` module
+### 1. Standalone `imports` module
 
-Rejected because upstream already defines `sync_excel` as the file-upload reference implementation for `data_sync`. A new parallel import subsystem would fragment the architecture.
+Rejected because upstream already treats `sync_excel` as the file-upload reference implementation for `data_sync`.
 
-### 2. Encode upload identity in generic credentials
+### 2. Encode upload identity in integration credentials
 
-Rejected because credentials are integration-owned long-lived settings, while upload sessions are transient provider-owned state. Mixing them would be semantically wrong and harder to reason about.
+Rejected because credentials represent long-lived integration state, while upload sessions are transient provider state.
 
-### 3. Extend generic `POST /api/data_sync/run` with provider-specific payload
+### 3. Extend generic `POST /api/data_sync/run` with upload-specific payload
 
-Rejected because provider-owned upload routes should create and bind their own run context without polluting the core `data_sync` route contract.
+Rejected because provider-owned upload flows should remain behind provider APIs and reuse generic run orchestration only after upload state exists.
 
 ## Implementation Approach
 
-### Phase 1 — foundation
+### Completed in current branch
 
-1. Add this spec and update the specs index
-2. Extend `packages/core/src/modules/data_sync/lib/adapter.ts`
-3. Pass `runId` through `packages/core/src/modules/data_sync/lib/sync-engine.ts`
-4. Add focused tests proving the sync engine forwards `runId`
-5. Verify compatibility with existing providers and tests
+1. Spec + `data_sync` additive contract changes
+2. `sync_excel` provider scaffolding
+3. `SyncExcelUpload` entity and validators
+4. CSV parser, column detector, and mapping helpers
+5. upload + preview routes
+6. `customers.person` import adapter with external ID / email dedupe
+7. import start route wired into `data_sync`
+8. integration-detail admin tab
+9. unit and integration test coverage
 
-### Follow-up phases
+### Still required before merge
 
-1. Scaffold `packages/core/src/modules/sync_excel/`
-2. Add upload session entity + CSV preview parser
-3. Add upload/preview/import routes
-4. Add `customers.person` adapter
-5. Add integration-detail UI and integration tests
+1. generate and commit the DB migration for `sync_excel_uploads`
+2. run full verification that depends on a working DB-backed local environment
 
 ## Risks & Impact Review
 
 | Risk | Severity | Affected Area | Mitigation | Residual Risk |
 | --- | --- | --- | --- | --- |
-| Existing providers accidentally depend on exact input shape | Low | `data_sync` adapters | New fields are optional and additive only | Low |
-| Mapping metadata is misused as hard behavior before provider support exists | Low | Future provider implementations | Keep new fields optional and advisory until provider logic explicitly consumes them | Low |
-| `runId` is added to import only and export stays asymmetric | Low | Adapter ergonomics | Add to both import and export inputs now for consistency | Low |
+| Existing providers accidentally depend on exact adapter input shape | Low | `data_sync` adapters | New adapter fields are optional and additive-only | Low |
+| CSV mapping UI drops unmapped columns | Medium | `sync_excel` preview/import | Preview preserves all headers and distinguishes unmapped columns explicitly | Low |
+| File-backed imports create duplicate people | Medium | `customers.person` import | Prefer external ID mapping, fallback to email dedupe, keep scope limited to one entity type in v1 | Low |
+| First PR scope grows into company/address/deals | Medium | reviewability / upstream acceptance | Current slice limits target support to `customers.person` only | Low |
+| Missing migration blocks merge even though code compiles | High | release readiness | Explicit blocker tracked in this spec; migration must be generated once DB is available | Medium |
 
 ## Migration & Backward Compatibility
 
-This change touches **type definitions and function input shapes**, which are stable contract surfaces under `BACKWARD_COMPATIBILITY.md`.
+This slice touches multiple stable contract surfaces under `BACKWARD_COMPATIBILITY.md`:
+
+- type definitions / adapter inputs
+- API routes
+- database schema
+- generated artifacts / integration registration
 
 Compatibility strategy:
 
-- do not remove or rename any existing fields
-- add only optional fields
-- preserve all current call sites
-- preserve all current adapter implementations without modification
+- `data_sync` changes are additive only
+- new API routes are additive only (`/api/sync_excel/*`)
+- no existing route IDs, event IDs, ACL feature IDs, or widget spot IDs were renamed or removed
+- schema change is additive only (`sync_excel_uploads`)
 
-No deprecation or migration guide is required because the change is purely additive.
+The branch is **not merge-ready until the generated DB migration is added**.
 
 ## Test Plan
 
-### Unit
+### Unit / focused tests
 
-- sync engine passes `runId` to import adapters
-- sync engine passes `runId` to export adapters
-- existing adapter resolution continues to work with optional mapping metadata present
+- `sync-engine-run-id.test.ts`
+- CSV parser tests
+- column detector tests
+- `customers` adapter tests
+- import route tests
 
 ### Integration
 
-This slice does not add new HTTP routes, so no new integration API coverage is required yet.
+- `packages/core/src/modules/sync_excel/__integration__/TC-SX-001.spec.ts`
+  - auth/forbidden coverage
+  - upload + preview
+  - import run start
+  - polling `data_sync` run completion
+  - person create + reimport update by external ID
+  - mapping restore / cleanup
 
-Future `sync_excel` slices must include integration coverage for:
+### Repo health checks already verified in current branch
 
-- upload route
-- preview route
-- import start route
-- run detail / progress visibility
+- `git diff --check`
+- `yarn generate`
+- `yarn build:packages`
+- `yarn typecheck`
 
 ## Success Metrics
 
-- `data_sync` adapters can receive a `runId` without breaking existing providers
-- the additive mapping metadata compiles and remains backward compatible
-- targeted tests confirm the new fields flow through the sync engine
+- `sync_excel` is discoverable as an integration provider
+- admins can upload CSV files and preview mappings
+- `customers.person` import runs in the background via `data_sync`
+- reimport updates existing records by external ID, with email fallback in adapter logic
+- current contracts remain backward compatible for existing sync providers
 
 ## Open Questions
 
-- Should `sync_excel` upload sessions link to `SyncRun` only by `runId`, or also persist `integrationId` + `entityType` for defensive validation?
-- Should future provider-owned upload APIs upsert a `SyncMapping` before creating a `SyncRun`, or only persist mapping after successful preview confirmation?
+- Should follow-up slices persist unmapped provider columns as metadata/custom-field candidates instead of keeping them preview-only?
+- Should the next slice add `customers.company` / address support before or after a DataTable import entry point?
+- Should a future UI slice deep-link from customers DataTables into the `sync_excel` integration with preselected entity type?
 
 ## Final Compliance Report
 
-- Aligned with Task Router guidance for `data_sync` and specs
-- Matches the implemented upstream direction from `SPEC-045b`
-- Backward compatibility reviewed: additive only
-- No API route, event ID, ACL feature ID, or DB schema contracts changed in this slice
+- Aligned with Task Router guidance for `data_sync`, `integrations`, `customers`, `ui`, and specs
+- Preserves backward compatibility through additive-only changes
+- Keeps `sync_excel` inside the upstream `data_sync` architecture instead of creating a parallel subsystem
+- Integration and unit coverage added for the implemented API paths and primary happy path
+- Remaining blocker is explicit: DB migration generation requires a working local `DATABASE_URL`
 
 ## Changelog
 
 ### 2026-03-29
 
-- Added foundation spec for the first `sync_excel` upstream contribution slice
-- Defined additive `data_sync` contract changes for file-backed providers and richer field mapping semantics
+- Added `sync_excel` provider foundation for CSV upload, preview, and import via `data_sync`
+- Added `SyncExcelUpload` provider-owned upload session entity
+- Added `customers.person` import adapter with external ID / email dedupe
+- Added integration-detail UI tab for CSV import administration
+- Added unit and integration coverage for the first upstream slice
+- Recorded local merge blocker: missing DB migration generation because `DATABASE_URL` is unavailable in the current environment

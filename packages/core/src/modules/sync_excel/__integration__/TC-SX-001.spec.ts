@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 type JsonRecord = Record<string, unknown>
 type SyncExcelUploadPreview = JsonRecord & {
