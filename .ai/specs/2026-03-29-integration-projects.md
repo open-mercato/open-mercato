@@ -10,6 +10,8 @@
 
 Allow tenants to create **multiple named configurations ("projects")** per integration. Today, each integration supports exactly one set of credentials per tenant (`UNIQUE(integrationId, organizationId, tenantId)`). This spec introduces an `IntegrationProject` entity — a named configuration envelope holding its own credentials, state, health status, and logs. A system-created `default` project ensures full backward compatibility. Consumers (data sync, scheduled jobs, payment links, webhooks) gain the ability to target a specific project when multiple exist. For bundled integrations, projects are scoped at the **bundle level** — all child integrations in a bundle share the same set of projects and credentials.
 
+Existing integrations and provider packages MUST continue to work **without any code changes** after this extension. Existing service signatures, existing route URLs, and existing provider setup/CLI flows continue to target the `default` project automatically. Provider updates to expose project selection are additive follow-up work, not a rollout requirement.
+
 ---
 
 ## Problem Statement
@@ -31,6 +33,16 @@ Without multi-config support, tenants resort to workarounds (manual credential s
 
 ---
 
+## User Stories
+
+- **Tenant admin** wants to **connect two Akeneo instances (staging + production) to the same integration** so that **they can sync catalog data from both without swapping credentials manually**.
+- **Tenant admin** wants to **configure separate Stripe accounts per region** so that **payments are routed to the correct regional account**.
+- **Tenant admin** wants to **delete a decommissioned project** so that **stale credentials and state don't accumulate**, and the system **prevents deletion when active sync mappings or webhooks still reference it**.
+- **Integration consumer (data sync / webhooks / payments)** wants to **select which project to use when triggering an operation** so that **the correct credentials and external ID mappings are resolved**.
+- **Existing API consumer** wants to **continue calling integration endpoints without changes** so that **all existing workflows keep working via the auto-created default project**.
+
+---
+
 ## Design Decisions
 
 | # | Decision | Resolution | Rationale |
@@ -41,6 +53,7 @@ Without multi-config support, tenants resort to workarounds (manual credential s
 | 4 | External ID mapping scoping | **Add projectId** | Two Akeneo instances may map the same product to different external IDs |
 | 5 | Project identifier | **UUID PK + name + slug** | UUID for FK references, name for display, slug for stable API references; slug immutable after creation |
 | 6 | Single-project consumer UX | **Hidden selector** | Less noise — only show project picker when ≥2 projects exist |
+| 7 | Undoability of project mutations | **Command pattern + soft-delete** | Project mutations still follow the platform command pattern. Delete becomes a guarded soft-delete, which preserves history and keeps undo technically possible if the platform requires it later. |
 
 ---
 
@@ -50,7 +63,7 @@ Without multi-config support, tenants resort to workarounds (manual credential s
 
 1. **New `IntegrationProject` entity** — named configuration container scoped by `(scopeId, organizationId, tenantId)` where `scopeId` is either an `integrationId` (standalone) or `bundleId` (bundled).
 
-2. **Automatic `default` project** — migrated from existing data. All current credentials/state rows become the `default` project. API consumers that omit `project` implicitly use `default`.
+2. **Automatic `default` project** — migrated from existing data. All current credentials/state rows become the `default` project. API consumers that omit `project` implicitly use `default`. For fresh tenants or legacy provider setup flows, core services lazily create the `default` project on first write when needed.
 
 3. **Project selector in integration settings UI** — combobox at the top of the integration detail page. Users can add, rename, and delete projects. The `default` project cannot be deleted.
 
@@ -89,6 +102,32 @@ resolve(integrationId, scope, projectSlug = 'default') →
 
 The existing `resolve(integrationId, scope)` signature remains valid — omitting `projectSlug` defaults to `'default'`, preserving full backward compatibility.
 
+### 100% Backward Compatibility for Existing Integrations and Providers
+
+The rollout requirement is:
+
+> **Stripe, Akeneo, existing custom providers, and any other integration package MUST keep working after this change even if their code is not updated.**
+
+That is achieved by keeping the current contracts and default behavior intact:
+
+- `integrationCredentialsService.resolve(integrationId, scope)` remains valid and resolves the `default` project.
+- `integrationCredentialsService.save(integrationId, credentials, scope)` remains valid and writes to the `default` project.
+- `integrationCredentialsService.saveField(integrationId, fieldKey, value, scope)` remains valid and writes to the `default` project.
+- `integrationStateService.resolveState(integrationId, scope)`, `upsert(...)`, `resolveApiVersion(...)`, and `setReauthRequired(...)` remain valid and target the `default` project.
+- `integrationHealthService.check(integrationId, scope)` remains valid and checks the `default` project.
+- Existing integration API routes keep the same URLs and methods. Omitting a project selector means `default`.
+- Existing provider-owned setup and CLI flows such as `packages/gateway-stripe/src/modules/gateway_stripe/setup.ts`, `packages/gateway-stripe/src/modules/gateway_stripe/cli.ts`, `packages/sync-akeneo/src/modules/sync_akeneo/setup.ts`, and `packages/sync-akeneo/src/modules/sync_akeneo/cli.ts` continue to work unchanged because they already call the stable core service signatures.
+
+To guarantee this, the integrations module adds one internal invariant:
+
+- `integrationProjectService.getOrCreateDefault(scopeId, scopeType, scope)` is used by credentials/state/health write paths and by migration fallbacks. If a default project is missing for a valid integration scope, the core service layer recreates it before persisting project-scoped state.
+
+Provider updates are still desirable and in scope for this feature, but only as additive improvements:
+
+- expose explicit project pickers in provider-owned UI where helpful
+- add project-aware CLI flags in provider packages
+- add provider integration tests that prove both unchanged default behavior and optional project-aware behavior
+
 ---
 
 ## Architecture
@@ -125,6 +164,16 @@ All project logic lives in the **integrations** module (`packages/core/src/modul
 | `integrationHealthService` | `check()` gains optional `projectSlug`. Resolves credentials and updates state for the specific project. |
 | **NEW** `integrationProjectService` | CRUD for projects. Enforces: slug uniqueness per scope+tenant, `default` project protection, slug immutability after creation. |
 
+### Transaction Boundaries
+
+| Operation | Transaction scope | Rationale |
+|-----------|------------------|-----------|
+| **Create project** | Single transaction: insert `IntegrationProject` | Credentials and state rows are created lazily on first write. Keeping project creation lightweight preserves backward compatibility and avoids storing empty encrypted blobs. |
+| **Delete project** | Single transaction: soft-delete `IntegrationCredentials`, `IntegrationState`, and `IntegrationProject` | Soft-delete must be atomic — partial soft-deletion would leak active secrets/state and confuse health checks. Reference check (sync mappings, schedules, webhooks, active runs) runs **before** the transaction; if references exist, the request is rejected with 409 before any delete begins. |
+| **Update project** | Single statement (name update only) | No cascading side effects — slug is immutable, only display name changes. |
+| **Credential save** | Single transaction: upsert `IntegrationCredentials` + update `IntegrationProject.updated_at` | Ensures credential write is reflected in project's timestamp for UI freshness. |
+| **Migration backfill** | One transaction per tenant | Keeps migration resumable per-tenant on failure without leaving partially migrated tenants. |
+
 ---
 
 ## Data Model
@@ -145,16 +194,18 @@ Table: `integration_projects`
 | `tenant_id` | uuid | NOT NULL | Tenant isolation |
 | `created_at` | timestamptz | NOT NULL | |
 | `updated_at` | timestamptz | NOT NULL | |
+| `deleted_at` | timestamptz | NULL | Soft-delete marker. Historical rows may continue to reference deleted projects for auditability. |
 
 **Indices:**
 - `UNIQUE(scope_id, slug, organization_id, tenant_id)` — one slug per scope per tenant
-- `INDEX(scope_id, organization_id, tenant_id)` — list projects for a scope
+- `INDEX(scope_id, organization_id, tenant_id, deleted_at)` — list active projects for a scope
 
 **Slug rules:**
 - Lowercase alphanumeric + underscores, 1–60 chars
 - Auto-generated from `name` at creation (kebab→snake conversion)
 - Immutable after creation (API rejects updates to `slug`)
 - Reserved slug: `default`
+- Deleted project slugs remain reserved. Reusing a deleted slug is not allowed; this preserves audit references and deep-link stability.
 
 ### Modified Entity: `IntegrationCredentials`
 
@@ -293,40 +344,70 @@ Update a project's display name. Slug is immutable.
 
 #### `DELETE /api/integrations/:id/projects/:projectId`
 
-Delete a project and all associated credentials, state, and logs.
+Soft-delete a project. Project-scoped credentials and integration state are soft-deleted with it. Historical runs, cursors, mappings, external ID mappings, webhook records, and logs remain intact for auditability.
 
 **Guards:**
 - Cannot delete the `default` project (400 error)
-- Cannot delete a project that is referenced by active sync mappings, schedules, or webhooks (409 Conflict with list of referencing entities)
+- Cannot delete a project that is referenced by active sync mappings, schedules, running sync runs, or active webhooks (409 Conflict with list of referencing entities)
+- Historical rows alone do not block delete; they retain their `project_id` reference to the soft-deleted project
 
 **ACL:** `integrations.manage`
 
-### Modified: Existing Endpoints
+### Modified: Existing Integration Endpoints
 
-All existing integration settings endpoints gain an optional `project` query parameter:
+All existing integration routes keep their current URLs and methods. Additive project support is introduced via optional query parameters and additive response fields only.
 
-| Endpoint | Change |
+| Current Endpoint | Additive Change |
 |----------|--------|
-| `PUT /api/integrations/:id/credentials?project=<slug>` | Save credentials for specific project. Default: `default`. |
-| `GET /api/integrations/:id/credentials?project=<slug>` | Read credentials for specific project. |
-| `PUT /api/integrations/:id/state?project=<slug>` | Update state for specific project. |
-| `PUT /api/integrations/:id/version?project=<slug>` | Change API version for specific project. |
-| `POST /api/integrations/:id/health?project=<slug>` | Trigger health check for specific project. |
-| `GET /api/integrations/:id/logs?project=<slug>` | Filter logs by project. When omitted, returns all logs. |
+| `GET /api/integrations/:id?project=<slug>` | Resolve `hasCredentials`, state, and bundle-child state for the selected project. Default: `default`. |
+| `GET /api/integrations/:id/credentials?project=<slug>` | Read credentials for a specific project. Default: `default`. |
+| `PUT /api/integrations/:id/credentials?project=<slug>` | Save credentials for a specific project. Default: `default`. |
+| `PUT /api/integrations/:id/state?project=<slug>` | Update enable/reauth state for a specific project. Default: `default`. |
+| `PUT /api/integrations/:id/version?project=<slug>` | Change API version for a specific project. Default: `default`. |
+| `POST /api/integrations/:id/health?project=<slug>` | Trigger health check for a specific project. Default: `default`. |
+| `GET /api/integrations/logs?integrationId=<id>&project=<slug>` | Filter logs by project for a given integration. When `project` is omitted, return all logs for that integration. Historical logs with `project_id = null` remain visible only in the unscoped view. |
 
-**Backward compatibility:** Omitting `project` parameter resolves to `default` project. All existing API clients continue to work unchanged.
+**Backward compatibility:** Existing clients keep calling the same URLs. Omitting `project` resolves to the `default` project, so all current integrations and admin pages continue to behave exactly as they do today.
 
-### Modified: Consumer Endpoints
+### Modified: Existing Data Sync Endpoints
 
-Data sync endpoints gain optional `projectId` body/query param:
+The `data_sync` module keeps its current underscore route naming. No route is renamed.
 
-| Endpoint | Change |
+| Current Endpoint | Additive Change |
 |----------|--------|
-| `POST /api/data-sync/runs` | Add optional `projectId` in body. Defaults to default project of the integration. |
-| `PUT /api/data-sync/mappings` | Add optional `projectId` in body. |
-| `PUT /api/data-sync/schedules` | Add optional `projectId` in body. |
+| `GET /api/data_sync/options` | Response shape stays compatible. UI may continue fetching project lists separately from integrations project APIs. Optional additive fields like `projectCount` may be added later but are not required for phase 1. |
+| `POST /api/data_sync/validate` | Add optional `projectId` in body. When omitted, validates against the `default` project. |
+| `POST /api/data_sync/run` | Add optional `projectId` in body. When omitted, starts the run against the `default` project. |
+| `GET /api/data_sync/runs` | Add optional `projectId` filter. Response rows gain additive `projectId` and `projectSlug` fields. |
+| `GET /api/data_sync/runs/:id` | Response gains additive `projectId` and `projectSlug` fields. |
+| `POST /api/data_sync/runs/:id/retry` | No new field required. Retries inherit the original run's `projectId`; `fromBeginning` semantics are unchanged. |
+| `GET /api/data_sync/mappings` | Add optional `projectId` query filter. |
+| `POST /api/data_sync/mappings` | Add optional `projectId` in body. Omitted means `default`. Upsert uniqueness becomes `(integrationId, projectId, entityType, organizationId, tenantId)`. |
+| `GET /api/data_sync/schedules` | Add optional `projectId` query filter. |
+| `POST /api/data_sync/schedules` | Add optional `projectId` in body. Omitted means `default`. |
+| `GET /api/data_sync/schedules/:id` | Response gains additive `projectId` and `projectSlug` fields. |
+| `PUT /api/data_sync/schedules/:id` | Add optional `projectId` in body; omitted preserves the current project's value. |
 
-**OpenAPI:** All modified endpoints update their `openApi` exports to document the new parameter.
+### Modified: Existing Webhook Endpoints
+
+The webhooks package keeps its current CRUD routes and adds additive project support:
+
+| Current Endpoint | Additive Change |
+|----------|--------|
+| `GET /api/webhooks/webhooks` | Response gains additive `projectId` and `projectSlug` for integration-bound webhooks. |
+| `POST /api/webhooks/webhooks` | Add optional nullable `projectId` in body. Required only when `integrationId` points to an integration with multiple projects. |
+| `PUT /api/webhooks/webhooks` | Add optional nullable `projectId` in body with the same rules as create. |
+
+**OpenAPI:** Every modified route updates its existing `openApi` export. No public route aliases are removed.
+
+### Security
+
+- **Authentication & authorization:** All project endpoints require `requireAuth`. Mutations require `requireFeatures('integrations.manage')`; reads require `requireFeatures('integrations.view')`.
+- **Tenant isolation:** Every query filters by `organization_id` + `tenant_id`. Project slug lookups always include tenant scope — a valid slug from tenant A cannot resolve in tenant B.
+- **Credential exposure:** Project list and detail responses never include credential values. Credentials are only returned via the dedicated `GET /api/integrations/:id/credentials?project=<slug>` endpoint, which applies its own ACL. No other route exposes credential payloads.
+- **Input validation:** All project inputs validated with zod before persistence — `name` (1–100 chars, trimmed), `slug` (1–60 chars, `^[a-z0-9_]+$`), `projectId` (UUID format). Invalid slugs and UUIDs rejected at the validation layer before reaching the database.
+- **Secrets in logs/errors:** `projectId` may appear in log entries and error messages (it's a UUID, not sensitive). Credential values are never logged — existing `integrationLogService` policy applies unchanged.
+- **Slug enumeration:** Project slugs are tenant-scoped and only visible to authenticated users with `integrations.view`. No public endpoint exposes project existence.
 
 ---
 
@@ -408,9 +489,21 @@ When configuring a consumer that references an integration:
 
 **Step 1 — Create `integration_projects` table** (empty).
 
-**Step 2 — Add `project_id` columns** (nullable) to all affected tables.
+**Step 2 — Add `project_id` columns** (nullable) to all affected tables and add `deleted_at` to `integration_projects`.
 
-**Step 3 — Seed default projects.** For each distinct `(integration_id, organization_id, tenant_id)` in `IntegrationCredentials` and `IntegrationState`:
+**Step 3 — Seed default projects from the union of all integration-scoped records.** For each distinct `(integration_id, organization_id, tenant_id)` appearing in:
+
+- `IntegrationCredentials`
+- `IntegrationState`
+- `SyncRun`
+- `SyncCursor`
+- `SyncMapping`
+- `SyncSchedule`
+- `SyncExternalIdMapping`
+- `WebhookEntity` where `integration_id IS NOT NULL`
+
+create or reuse one default project for the resolved scope:
+
 1. Determine `scopeType`: if integration definition has `bundleId` → `'bundle'`, scopeId = `bundleId`; else → `'integration'`, scopeId = `integrationId`
 2. Create `IntegrationProject` with `name: 'Default'`, `slug: 'default'`, `isDefault: true`
 3. Deduplicate: if multiple children in a bundle, create only ONE bundle-scoped default project
@@ -419,10 +512,14 @@ When configuring a consumer that references an integration:
 - `IntegrationCredentials.project_id` = matching default project
 - `IntegrationState.project_id` = matching default project
 - `SyncRun.project_id`, `SyncCursor.project_id`, `SyncMapping.project_id`, `SyncSchedule.project_id`, `SyncExternalIdMapping.project_id` = matching default project (resolved via `integrationId` → project lookup)
+- `WebhookEntity.project_id` = matching default project when `integration_id IS NOT NULL`; remains `NULL` for webhooks that are not integration-bound
+- `IntegrationLog.project_id` remains `NULL` for pre-existing rows; new writes after rollout always populate it when a concrete project is known
 
 **Step 5 — Make `project_id` NOT NULL** on all columns except `IntegrationLog.project_id` and `WebhookEntity.project_id`.
 
 **Step 6 — Update unique indices** (drop old, create new).
+
+**Step 7 — Add lazy default-project creation in core services.** If a valid integration scope receives a legacy-style write with no explicit project and no `default` row exists yet, the core service layer creates the `default` project before writing. This guarantees compatibility for provider setup hooks, CLI commands, and future packages that still use the legacy signatures.
 
 ### Backward Compatibility Surface Checklist
 
@@ -434,8 +531,8 @@ When configuring a consumer that references an integration:
 | 4 | Import paths | NONE | No moved modules |
 | 5 | Event IDs | ADDITIVE | 3 new events; existing payloads gain optional `projectId` |
 | 6 | Widget injection spot IDs | ADDITIVE | New spot `integrations.detail:projects` for project selector area |
-| 7 | API route URLs | COMPATIBLE | New endpoints added; existing endpoints gain optional query param |
-| 8 | Database schema | ADDITIVE | New table + new columns with migration backfill; no removes |
+| 7 | API route URLs | COMPATIBLE | Existing route URLs and methods stay unchanged; additive query/body params and additive response fields only |
+| 8 | Database schema | ADDITIVE | New table + new columns + soft-delete marker; existing column names preserved; unique-index replacement done only after backfill |
 | 9 | DI service names | ADDITIVE | New `integrationProjectService` registration |
 | 10 | ACL feature IDs | NONE | Reuses existing `integrations.view` and `integrations.manage` |
 | 11 | Notification type IDs | NONE | No new notification types |
@@ -446,14 +543,87 @@ When configuring a consumer that references an integration:
 
 ## Risks & Impact Review
 
-| # | Scenario | Severity | Affected Area | Mitigation | Residual Risk |
-|---|----------|----------|---------------|------------|---------------|
-| 1 | Migration fails mid-way on large tenant with many integrations | High | Data integrity | Wrap migration in transaction. Idempotent steps — rerunnable. Test on snapshot of production data. | Low after testing |
-| 2 | Consumer code calls `credentialsService.resolve(integrationId, scope)` without project param — gets wrong credentials after user creates multiple projects | Medium | All integration consumers | Default to `default` project when param omitted. Document that explicit project selection is needed for multi-project setups. | Low — matches current behavior |
-| 3 | User deletes a project that's referenced by active sync schedules | Medium | Data sync | DELETE endpoint checks for active references and returns 409 Conflict. UI shows affected consumers before confirming. | Low |
-| 4 | Bundle project assumes all children want the same credentials — user needs different creds per child | Low | Bundle integrations | This is the current behavior (bundle fallthrough). If a user needs different per-child creds, they override at the integration level today. Future: allow per-child credential overrides within a project. | Accepted |
-| 5 | Slug collision during auto-generation from name | Low | Project creation | Append numeric suffix (`_2`, `_3`) on collision. Validate uniqueness before persisting. | Negligible |
-| 6 | Existing third-party subscribers destructure event payloads strictly and fail on new `projectId` field | Low | Event consumers | TypeScript types use optional field. JSON payloads are additive — extra fields don't break well-written consumers. | Negligible |
+### Data Integrity Failures
+
+#### Migration fails mid-way on large tenant
+
+- **Scenario**: Migration step 3–4 (seed default projects, backfill `project_id`) crashes or times out partway through a tenant with hundreds of integrations.
+- **Severity**: High
+- **Affected area**: All integration functionality for the partially migrated tenant — credential resolution, state lookups, health checks.
+- **Mitigation**: Migration runs one transaction per tenant (see Transaction Boundaries). If a tenant's transaction fails, no rows are committed for that tenant — the migration can be rerun. Steps are idempotent (INSERT … ON CONFLICT DO NOTHING for default projects, UPDATE … WHERE project_id IS NULL for backfill). Test on a snapshot of production data before deploy.
+- **Residual risk**: Low after testing. Extremely large tenants (>10k integrations) may need extended lock timeout — monitor migration duration.
+
+#### Race between project deletion and credential resolution
+
+- **Scenario**: User deletes a project while a sync run is in-flight and resolving credentials for that project.
+- **Severity**: Medium
+- **Affected area**: Active sync runs, payment transactions mid-flight.
+- **Mitigation**: DELETE checks for active references (sync runs in `running`/`pending` state) and returns 409. Credential resolution that finds no project returns a clear error (`ProjectNotFoundError`) rather than falling back silently. The deletion transaction does not begin until the reference check passes.
+- **Residual risk**: Low — a narrow race window remains if a sync run starts between reference check and delete commit. Acceptable because the sync run will fail with a clear error on its next credential fetch and can be retried.
+
+### Cascading Failures & Side Effects
+
+#### Consumer resolves wrong credentials after multi-project setup
+
+- **Scenario**: Consumer code calls `credentialsService.resolve(integrationId, scope)` without `projectSlug` after a tenant creates multiple projects. The consumer silently uses `default` credentials instead of the intended project.
+- **Severity**: Medium
+- **Affected area**: All integration consumers (data sync, payments, webhooks).
+- **Mitigation**: Omitting `projectSlug` always resolves to `default` — this matches current behavior exactly. No consumer gets different credentials than before. For multi-project awareness, consumer UIs show the project selector when ≥2 projects exist, making explicit selection required.
+- **Residual risk**: Low — matches current behavior. Consumers that never adopt the `projectSlug` param simply always use `default`.
+
+#### Event subscriber failure on project.deleted
+
+- **Scenario**: A third-party subscriber listening to `integrations.project.deleted` throws an error (e.g., cleanup logic fails).
+- **Severity**: Low
+- **Affected area**: Subscriber's own cleanup logic; project deletion itself is already committed.
+- **Mitigation**: Project events use the standard event bus — subscriber failures do not block the emitting operation. Failed subscribers are retried per the event bus retry policy. The project deletion transaction is independent of event delivery.
+- **Residual risk**: Negligible — subscriber failure is isolated from the mutation.
+
+### Tenant & Data Isolation Risks
+
+#### Cross-tenant project slug resolution
+
+- **Scenario**: A bug in slug lookup omits `organization_id` / `tenant_id`, allowing tenant A to resolve tenant B's project by slug.
+- **Severity**: Critical (if it occurred)
+- **Affected area**: Credential leakage across tenants.
+- **Mitigation**: All `projectService` queries include `organization_id` + `tenant_id` in the WHERE clause. The unique index `(scope_id, slug, organization_id, tenant_id)` enforces isolation at the database level — even if application code is buggy, the DB cannot return a cross-tenant row for a scoped lookup.
+- **Residual risk**: Negligible — defense in depth (application + database).
+
+### Migration & Deployment Risks
+
+#### Backfill duration on large datasets
+
+- **Scenario**: Step 4 (backfill `project_id` across 6 consumer tables) takes too long on tenants with millions of sync runs / external ID mappings, causing extended downtime or lock contention.
+- **Severity**: Medium
+- **Affected area**: Database availability during migration.
+- **Mitigation**: Per-tenant transactions limit lock scope. Backfill uses UPDATE … WHERE project_id IS NULL (index-friendly). Consumer tables (SyncRun, SyncExternalIdMapping) are the largest — monitor per-table timing. If any table exceeds 60s per tenant, switch to batched updates (1000 rows per batch) with short pauses.
+- **Residual risk**: Low — per-tenant scoping and NULL-filtering keep row counts manageable.
+
+### Operational Risks
+
+#### Project deletion orphans referencing data
+
+- **Scenario**: User deletes a project that has dangling references in consumer tables not covered by the reference check.
+- **Severity**: Medium
+- **Affected area**: Data sync, webhooks.
+- **Mitigation**: Reference check scans all active persistent consumer tables (`SyncRun` in active states, `SyncMapping`, `SyncSchedule`, `WebhookEntity`, `IntegrationState`). Historical rows (`SyncCursor`, completed/failed `SyncRun`, `IntegrationLog`, `SyncExternalIdMapping`) do not block delete and keep their `project_id` for audit. The check list is maintained alongside the entity — adding a new persistent consumer table requires adding it to the reference check.
+- **Residual risk**: Low — new persistent consumer tables added in future phases must remember to register with the reference check. Documented in implementation notes.
+
+#### Additive event payload breaks strict subscribers
+
+- **Scenario**: Third-party subscriber destructures event payloads with strict schema validation and rejects the new optional `projectId` field.
+- **Severity**: Low
+- **Affected area**: Third-party event consumers.
+- **Mitigation**: TypeScript types declare `projectId` as optional. JSON payloads are additive — well-written consumers ignore unknown fields. This is the standard backward-compatibility contract for events (BC surface #5).
+- **Residual risk**: Negligible.
+
+#### Existing provider setup/CLI flows stop working
+
+- **Scenario**: Existing provider setup hooks or CLI commands (`gateway_stripe`, `sync_akeneo`, custom packages) keep calling the old core service signatures and fail because projects are now required.
+- **Severity**: High
+- **Affected area**: Tenant bootstrap, provider preconfiguration, operator CLI workflows.
+- **Mitigation**: Core service signatures remain stable and implicitly target `default`. The service layer lazily creates the `default` project if it does not exist. Regression tests cover unchanged provider setup and CLI flows without any provider code changes.
+- **Residual risk**: Low after route/service regression coverage.
 
 ---
 
@@ -477,25 +647,28 @@ When configuring a consumer that references an integration:
 
 - Create `packages/core/src/modules/integrations/lib/project-service.ts`
 - Implement: `list(integrationId, scope)`, `getBySlug(integrationId, slug, scope)`, `getById(projectId, scope)`, `create(integrationId, input, scope)`, `update(projectId, input, scope)`, `remove(projectId, scope)`
-- Slug generation from name, uniqueness validation, default project protection
+- Add `getOrCreateDefault(scopeId, scopeType, scope)` for migration fallbacks and legacy write compatibility
+- Slug generation from name, uniqueness validation, default project protection, soft-delete semantics
 - Reference check on delete (scan consumer tables for `project_id` usage)
 - Register in DI (`di.ts`)
 
-**Testable:** Unit tests for CRUD operations, slug generation, default protection, reference-check guard.
+**Testable:** Unit tests for CRUD operations, slug generation, default protection, lazy default creation, and reference-check guard.
 
 #### Step 1.3: Update Credential Resolution
 
 - Update `credentialsService.resolve(integrationId, scope, projectSlug?)` — add optional third parameter
 - Internal: resolve project via `projectService.getBySlug()`, then fetch credentials by `project_id`
 - Bundle fallthrough replaced by project scope resolution (`scopeId = bundleId ?? integrationId`)
-- `save()` and `remove()` updated to accept `projectId`
+- `save()` and `saveField()` keep their current signatures and write to `default` when no project is specified
+- Optional project-aware overloads/helpers may be added, but the legacy signatures remain the primary BC surface
 - Existing callers (no `projectSlug` arg) → default to `'default'`
 
-**Testable:** Existing credential tests still pass. New tests for multi-project credential isolation.
+**Testable:** Existing credential tests still pass. New tests cover multi-project isolation and unchanged legacy save/resolve behavior.
 
 #### Step 1.4: Update State & Health Services
 
 - Update `stateService.resolveState(integrationId, scope, projectSlug?)` — resolve by `(integrationId, projectId)`
+- Keep `upsert(...)`, `resolveApiVersion(...)`, and `setReauthRequired(...)` BC-safe: when no project is provided they target `default`
 - Update `healthService.check(integrationId, scope, projectSlug?)` — resolve project, check, update project-scoped state
 - Update `logService.write(input)` — accept optional `projectId`; `query()` supports `projectId` filter
 
@@ -503,10 +676,15 @@ When configuring a consumer that references an integration:
 
 #### Step 1.5: Project CRUD API Routes
 
+- Implement write operations via commands:
+  - `integrations.project.create`
+  - `integrations.project.update`
+  - `integrations.project.delete`
+- Commands capture before/after snapshots for auditability; delete uses soft-delete semantics
 - `GET /api/integrations/:id/projects` — list projects
 - `POST /api/integrations/:id/projects` — create project
 - `PATCH /api/integrations/:id/projects/:projectId` — update name
-- `DELETE /api/integrations/:id/projects/:projectId` — delete with reference check
+- `DELETE /api/integrations/:id/projects/:projectId` — soft-delete with reference check
 - All routes export `openApi`
 - ACL: `integrations.view` for GET, `integrations.manage` for mutations
 
@@ -514,11 +692,19 @@ When configuring a consumer that references an integration:
 
 #### Step 1.6: Update Existing Integration API Routes
 
-- Add optional `?project=<slug>` query param to credentials, state, version, health, and logs endpoints
+- Add optional `?project=<slug>` query param to the current integration routes:
+  - `GET /api/integrations/:id`
+  - `GET /api/integrations/:id/credentials`
+  - `PUT /api/integrations/:id/credentials`
+  - `PUT /api/integrations/:id/state`
+  - `PUT /api/integrations/:id/version`
+  - `POST /api/integrations/:id/health`
+  - `GET /api/integrations/logs`
+- Keep current route URLs and methods exactly as they are today
 - Default to `'default'` when omitted
-- Update `openApi` exports
+- Update existing `openApi` exports with additive params and additive response fields only
 
-**Testable:** Existing API calls without `project` param still work identically. Calls with `project=<slug>` target correct project.
+**Testable:** Existing API calls without `project` still work identically. Calls with `project=<slug>` target the correct project.
 
 #### Step 1.7: Events
 
@@ -592,13 +778,24 @@ When configuring a consumer that references an integration:
 
 #### Step 3.3: Data Sync API Updates
 
-- `POST /api/data-sync/runs`: accept optional `projectId` in body
-- `PUT /api/data-sync/mappings`: accept optional `projectId`
-- `PUT /api/data-sync/schedules`: accept optional `projectId`
-- Default to `default` project when omitted
-- Update `openApi` exports
+- Keep existing route URLs and methods:
+  - `POST /api/data_sync/validate`
+  - `POST /api/data_sync/run`
+  - `GET /api/data_sync/runs`
+  - `GET /api/data_sync/runs/:id`
+  - `POST /api/data_sync/runs/:id/retry`
+  - `GET /api/data_sync/mappings`
+  - `POST /api/data_sync/mappings`
+  - `GET /api/data_sync/schedules`
+  - `POST /api/data_sync/schedules`
+  - `GET /api/data_sync/schedules/:id`
+  - `PUT /api/data_sync/schedules/:id`
+- Add optional `projectId` where configuration or execution needs explicit project selection
+- Default to the `default` project when omitted
+- Retries inherit the original run's `projectId`
+- Update `openApi` exports with additive params and additive response fields only
 
-**Testable:** API accepts `projectId`, routes to correct project credentials.
+**Testable:** API accepts `projectId`, routes to correct project credentials, and existing callers that omit it continue to work against `default`.
 
 #### Step 3.4: Data Sync UI — Project Selector
 
@@ -613,31 +810,111 @@ When configuring a consumer that references an integration:
 
 ### Phase 4: Other Consumer Integration
 
-**Goal:** All remaining integration consumers support project selection.
+**Goal:** All remaining integration consumers support project selection while preserving unchanged behavior for existing providers.
+
+#### Step 4.0: Provider Compatibility Foundation
+
+- Treat provider compatibility as a release blocker: no provider package update is required for correctness
+- Core services preserve the current signatures used by provider packages
+- `gateway_stripe`, `sync_akeneo`, and all existing/custom providers continue to read and write the `default` project automatically
+- Provider package updates to expose explicit project selection are additive follow-up work
+
+**Testable:** Existing Stripe and Akeneo setup/CLI flows work unchanged and populate the `default` project.
 
 #### Step 4.1: Payment Provider Integration
 
-- Payment link creation / payment method config: add optional `projectId` field
-- When selecting a payment gateway integration with multiple projects → show project selector
+- Update current payment gateway consumers explicitly:
+  - `payment_gateways/lib/gateway-service.ts`
+  - `payment_gateways/lib/descriptor-service.ts`
+  - payment gateway session/status/capture/refund/webhook routes that resolve credentials or state
+- Preserve unchanged behavior when no project is specified: payment operations continue using the `default` project
+- Additive enhancement: payment method configuration and payment-session creation may accept optional `projectId` where persistent selection is stored
+- When selecting a payment gateway integration with multiple projects in admin UI, show a project selector
 - Resolve payment credentials via `credentialsService.resolve(integrationId, scope, projectSlug)`
 
-**Testable:** Payment operations use correct project credentials.
+**Testable:** Payment operations use correct project credentials when selected and continue to work unchanged against `default` otherwise.
 
-#### Step 4.2: Webhook Integration
+#### Step 4.2: Shipping Carrier Integration
+
+- Update current shipping carrier consumers explicitly:
+  - `shipping_carriers/lib/shipping-service.ts`
+  - provider webhook and polling flows that resolve carrier credentials
+- Preserve unchanged behavior when no project is specified: shipping operations continue using the `default` project
+- Optional additive enhancement: persistent shipment/carrier settings may store `projectId` later if a concrete use case requires it
+
+**Testable:** Shipping calculations and shipment creation continue to work unchanged against `default` and can opt into explicit project routing later.
+
+#### Step 4.3: Webhook Integration
 
 - `WebhookEntity`: add nullable `project_id` column
-- Webhook config UI: add optional project selector when integration is selected
-- Webhook delivery: resolve credentials from the project
+- Update webhook CRUD validators, CRUD routes, serializers, and admin UI in `packages/webhooks`
+- Backfill integration-bound webhooks to the `default` project during migration
+- Webhook config UI: add optional project selector when `integrationId` is selected and that integration exposes multiple projects
+- Outbound delivery and integration settings resolution continue to work unchanged against `default` when `projectId` is not set
 
-**Testable:** Webhook delivery uses project-specific credentials.
+**Testable:** Webhook delivery uses project-specific credentials when configured and continues to work unchanged for legacy webhooks.
 
-#### Step 4.3: Remaining Consumers
+#### Step 4.4: Provider Packages and Remaining Consumers
 
-- Audit all `credentialsService.resolve()` call sites
-- Add project param where relevant (notification integrations, export jobs, etc.)
-- Ensure all consumers default to `'default'` when no project is specified
+- Audit and optionally enhance current provider packages:
+  - `packages/gateway-stripe`
+  - `packages/sync-akeneo`
+  - any other package calling `integrationCredentialsService`, `integrationStateService`, or `integrationLogService`
+- Preserve unchanged behavior for setup hooks, CLI `configure-from-env`, and env preset application
+- Add explicit project-aware support only where it materially improves operator workflows
+- Ensure all remaining consumers default to `'default'` when no project is specified
 
-**Testable:** Full regression — no credential resolution breaks for any consumer.
+**Testable:** Full regression — no credential resolution breaks for any existing provider or consumer, and provider-specific project support remains additive.
+
+---
+
+## Integration Test Coverage
+
+All integration tests for this feature MUST be self-contained and MUST NOT require real third-party credentials. Use fake integrations, fake adapters, mocked env presets, and in-process provider stubs only.
+
+### Core Integration API Coverage
+
+1. `GET /api/integrations/:id/credentials` without `project` returns the `default` project credentials after migration.
+2. `PUT /api/integrations/:id/credentials?project=<slug>` writes isolated credentials for the selected project and does not affect `default`.
+3. `GET /api/integrations/:id?project=<slug>` returns selected-project `hasCredentials` and state while preserving current response shape.
+4. `GET /api/integrations/logs?integrationId=<id>&project=<slug>` filters only project-scoped logs; omitting `project` returns all logs including historical rows with `project_id = null`.
+5. Project CRUD lifecycle: create, rename, soft-delete, and delete-guard behavior for `default`, active references, and historical-only references.
+
+### Migration & Backward Compatibility Coverage
+
+1. Migration from a legacy tenant with only `IntegrationCredentials` and `IntegrationState` creates one `default` project and backfills all new `project_id` columns.
+2. Migration from a legacy tenant with `SyncSchedule` or `SyncMapping` but no credentials/state still creates the required `default` project and backfills correctly.
+3. Migration backfills integration-bound `WebhookEntity` rows to `default` and leaves non-integration webhooks with `project_id = null`.
+4. Legacy provider-style service calls (`save`, `saveField`, `resolve`, `upsert`, `resolveState`, `resolveApiVersion`) continue to work without an explicit project parameter.
+5. Soft-deleted projects remain referenced by historical runs/logs after active references are removed.
+
+### Data Sync Coverage
+
+1. `POST /api/data_sync/run` without `projectId` starts a run against `default`.
+2. `POST /api/data_sync/run` with `projectId` starts a run against the selected project and writes `SyncRun.project_id`.
+3. `POST /api/data_sync/validate` validates against the selected project when `projectId` is present.
+4. `POST /api/data_sync/mappings` and `POST /api/data_sync/schedules` support two rows for the same integration/entity when the projects differ.
+5. `POST /api/data_sync/runs/:id/retry` preserves the original run's project.
+
+### Webhook Coverage
+
+1. Webhook CRUD create/update supports nullable `projectId` and enforces project selection only when the chosen integration has multiple projects.
+2. Legacy webhook records without `projectId` continue to resolve integration settings and deliveries against `default`.
+3. Project-scoped webhooks resolve credentials from the selected project.
+
+### Provider Compatibility Coverage
+
+1. `gateway_stripe` env preset tests prove `setup.ts` and `configure-from-env` still populate the `default` project using the unchanged core service signatures.
+2. `sync_akeneo` env preset tests prove `setup.ts` and `configure-from-env` still populate the `default` project using the unchanged core service signatures.
+3. Payment gateway descriptor and gateway service tests prove the absence of an explicit project keeps existing `default` behavior.
+4. Shipping carrier service tests prove the absence of an explicit project keeps existing `default` behavior.
+
+### UI Coverage
+
+1. Integration detail page hides the project selector when only `default` exists and shows it when 2 or more projects exist.
+2. Switching the selected project updates credentials/version/health/log tabs without changing route structure.
+3. Data sync configuration UI shows project selection only when the chosen integration has multiple projects.
+4. Webhook create/edit UI shows project selection only for integration-bound webhooks with multiple projects.
 
 ---
 
@@ -649,9 +926,23 @@ When configuring a consumer that references an integration:
 - `packages/core/AGENTS.md` — module development, entities, API routes, events, setup
 - `packages/core/src/modules/integrations/AGENTS.md` — integration-specific patterns
 - `packages/core/src/modules/data_sync/AGENTS.md` — data sync entities, adapters
+- `packages/webhooks/AGENTS.md` — webhook CRUD/admin/API rules
 - `packages/shared/AGENTS.md` — shared utilities, types
 - `packages/ui/AGENTS.md` — UI components, forms, data tables
 - `BACKWARD_COMPATIBILITY.md` — 13 contract surfaces
+
+### Current Contracts Audited
+
+- `packages/core/src/modules/payment_gateways/lib/gateway-service.ts`
+- `packages/core/src/modules/payment_gateways/lib/descriptor-service.ts`
+- `packages/core/src/modules/shipping_carriers/lib/shipping-service.ts`
+- `packages/gateway-stripe/src/modules/gateway_stripe/setup.ts`
+- `packages/gateway-stripe/src/modules/gateway_stripe/cli.ts`
+- `packages/sync-akeneo/src/modules/sync_akeneo/setup.ts`
+- `packages/sync-akeneo/src/modules/sync_akeneo/cli.ts`
+- `packages/webhooks/src/modules/webhooks/data/entities.ts`
+- `packages/webhooks/src/modules/webhooks/data/validators.ts`
+- `packages/webhooks/src/modules/webhooks/api/webhooks/route.ts`
 
 ### Compliance Matrix
 
@@ -667,12 +958,14 @@ When configuring a consumer that references an integration:
 | Root AGENTS | UUID PKs, explicit FKs | ✅ PASS | IntegrationProject uses UUID PK, all FKs explicit |
 | Root AGENTS | Command pattern for write operations | ✅ PASS | Project CRUD via commands |
 | Root AGENTS | Every dialog: Cmd+Enter submit, Escape cancel | ✅ PASS | Specified for create/edit dialogs |
+| Root AGENTS | Existing providers must remain stable across contract changes | ✅ PASS | Legacy core service signatures and current routes remain valid; `default` project is automatic |
 | BC Contract | Auto-discovery conventions FROZEN | ✅ PASS | No changes |
 | BC Contract | Event IDs FROZEN | ✅ PASS | No renamed/removed events; 3 new events; existing payloads additive only |
 | BC Contract | Widget injection spot IDs FROZEN | ✅ PASS | No renamed/removed spots; 1 new spot |
-| BC Contract | API route URLs STABLE | ✅ PASS | No renamed/removed routes; new routes + optional params |
-| BC Contract | Database schema ADDITIVE-ONLY | ✅ PASS | New table + new columns; no removes/renames |
+| BC Contract | API route URLs STABLE | ✅ PASS | No renamed/removed routes; existing URLs/methods preserved exactly; additive params only |
+| BC Contract | Database schema ADDITIVE-ONLY | ✅ PASS | New table + new columns + soft-delete marker; existing column names preserved |
 | BC Contract | Function signatures STABLE | ✅ PASS | New optional params only; no removed/reordered params |
+| BC Contract | CLI commands STABLE | ✅ PASS | Existing provider CLI commands stay unchanged and continue to target `default` |
 | BC Contract | DI service names STABLE | ✅ PASS | New service added; no renames |
 
 ### Internal Consistency Check
@@ -682,6 +975,7 @@ When configuring a consumer that references an integration:
 - **Risks coverage:** All high-severity scenarios have mitigations ✅
 - **Commands:** Write operations use command pattern ✅
 - **Events:** All mutations emit events ✅
+- **Provider BC:** Stripe, Akeneo, and existing/custom integrations keep working without code changes ✅
 
 ### Non-Compliant Items
 
@@ -689,7 +983,7 @@ None.
 
 ### Verdict
 
-**Fully compliant** — ready for implementation.
+**Compliant after this revision** — ready for implementation with 100% backward compatibility as a release requirement.
 
 ---
 
@@ -699,3 +993,4 @@ None.
 |------|--------|--------|
 | 2026-03-29 | AI | Initial skeleton with open questions |
 | 2026-03-29 | AI | Full spec after Q&A resolution: architecture, data model, API contracts, UI design, migration strategy, 4-phase implementation plan, compliance review |
+| 2026-03-29 | AI | Filled spec gaps: exact current-route contracts, migration/backfill fixes, soft-delete semantics, provider BC strategy for Stripe/Akeneo/custom integrations, and explicit no-real-credentials integration test coverage |
