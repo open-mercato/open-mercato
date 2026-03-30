@@ -91,6 +91,30 @@ function validateAppName(name: string): { valid: boolean; error?: string } {
   return { valid: true }
 }
 
+function buildRegistryConfig(registryUrl: string): string {
+  let parsedRegistryUrl: URL
+
+  try {
+    parsedRegistryUrl = new URL(registryUrl)
+  } catch {
+    console.error(pc.red(`Error: Invalid registry URL "${registryUrl}"`))
+    process.exit(1)
+  }
+
+  const configLines: string[] = []
+
+  if (parsedRegistryUrl.protocol === 'http:') {
+    configLines.push('unsafeHttpWhitelist:')
+    configLines.push(`  - "${parsedRegistryUrl.hostname}"`)
+  }
+
+  configLines.push('npmScopes:')
+  configLines.push('  open-mercato:')
+  configLines.push(`    npmRegistryServer: "${registryUrl}"`)
+
+  return configLines.join('\n')
+}
+
 // Files that need to be renamed (npm ignores .gitignore during pack)
 const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
@@ -176,13 +200,9 @@ async function main(): Promise<void> {
   // Determine registry config
   let registryConfig = ''
   if (options.verdaccio) {
-    registryConfig = `npmScopes:
-  open-mercato:
-    npmRegistryServer: "http://localhost:4873"`
+    registryConfig = buildRegistryConfig('http://localhost:4873')
   } else if (options.registry) {
-    registryConfig = `npmScopes:
-  open-mercato:
-    npmRegistryServer: "${options.registry}"`
+    registryConfig = buildRegistryConfig(options.registry)
   }
 
   console.log('')

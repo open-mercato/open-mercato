@@ -18,7 +18,7 @@ yarn generate
 yarn build:packages
 
 cd /app/apps/mercato
-INIT_COMMAND="yarn mercato init" /app/docker/scripts/init-or-migrate.sh
+INIT_COMMAND="yarn mercato init" sh /app/docker/scripts/init-or-migrate.sh
 
 cd /app
 exec yarn dev

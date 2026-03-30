@@ -11,6 +11,6 @@ if [ ! -d node_modules ] \
   yarn install
 fi
 
-/app/docker/scripts/init-or-migrate.sh
+sh /app/docker/scripts/init-or-migrate.sh
 
 exec yarn dev
