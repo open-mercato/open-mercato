@@ -48,6 +48,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
+function isCheckoutLinkRecord(record: CheckoutLinkTemplate | CheckoutLink): record is CheckoutLink {
+  return typeof (record as { slug?: unknown }).slug === 'string'
+}
+
 export function pickExplicitParsedOverrides<TInput extends Record<string, unknown>>(
   rawInput: unknown,
   parsed: TInput,
@@ -168,7 +172,7 @@ export function toTemplateOrLinkMutationInput(
     maxCompletions: record.maxCompletions ?? null,
     status: record.status,
     checkoutType: record.checkoutType,
-    ...(record instanceof CheckoutLink ? { slug: record.slug, templateId: record.templateId ?? null } : {}),
+    ...(isCheckoutLinkRecord(record) ? { slug: record.slug, templateId: record.templateId ?? null } : {}),
     ...overrides,
   }
 }
@@ -429,7 +433,7 @@ export function serializeTemplateOrLink(record: CheckoutLinkTemplate | CheckoutL
     checkoutType: record.checkoutType,
     createdAt: toIsoString(record.createdAt),
     updatedAt: toIsoString(record.updatedAt),
-    ...(record instanceof CheckoutLink ? {
+    ...(isCheckoutLinkRecord(record) ? {
       slug: record.slug,
       templateId: record.templateId ?? null,
       completionCount: record.completionCount,

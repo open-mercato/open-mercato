@@ -4,7 +4,7 @@ import * as React from 'react'
 import { Forward, Reply, Send } from 'lucide-react'
 import { CrudForm } from '../CrudForm'
 import { Button } from '../../primitives/button'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../primitives/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../../primitives/dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
 import { getMessageObjectType } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
@@ -166,6 +166,9 @@ export function MessageComposer(props: MessageComposerProps) {
       <DialogContent className="sm:max-w-3xl [&>button]:hidden">
         <DialogHeader className="sr-only">
           <DialogTitle>{compose.composerTitle}</DialogTitle>
+          <DialogDescription>
+            {compose.t('messages.composer.dialogDescription', 'Compose and send a message.')}
+          </DialogDescription>
         </DialogHeader>
         {composePanel}
         <div className="flex items-center justify-end gap-2 border-t pt-4">

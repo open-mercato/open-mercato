@@ -21,15 +21,16 @@ services:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     user: "0"
-    command: >
-      sh -c "if [ ! -f /tmp/init-marker/.seeded ]; then
-        echo 'First run: full initialization...';
-        yarn mercato init && mkdir -p /tmp/init-marker && touch /tmp/init-marker/.seeded;
-      else
-        echo 'Subsequent run: migrations only...';
-        yarn db:migrate;
-      fi &&
-      yarn start"
+    command:
+      - /bin/sh
+      - -lc
+      - |
+        if [ ! -f /app/docker/scripts/init-or-migrate.sh ]; then
+          echo "ERROR: init-or-migrate.sh not found. Please rebuild the container: docker compose build --no-cache app"
+          exit 1
+        fi
+        INIT_COMMAND='yarn mercato init' sh /app/docker/scripts/init-or-migrate.sh
+        yarn start
     volumes:
       - init_marker:/tmp/init-marker
       - attachments_storage:/app/apps/mercato/storage
@@ -120,7 +121,7 @@ services:
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
       interval: 10s
       timeout: 5s
       retries: 5

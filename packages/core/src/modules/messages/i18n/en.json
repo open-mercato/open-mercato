@@ -34,6 +34,7 @@
   "messages.composer.attachmentPicker.title": "Attach files",
   "messages.composer.attachmentPicker.upload": "Upload files",
   "messages.composer.confirm.incompatibleObjects": "Changing message type will remove {count} incompatible attached objects. Continue?",
+  "messages.composer.dialogDescription": "Compose and send a message.",
   "messages.composer.hints.actionExpiry": "Actions for this type expire after {hours} hours.",
   "messages.composer.maxObjectsWarning": "You reached the recommended limit of 25 attached objects.",
   "messages.composer.noAttachments": "No files attached yet.",

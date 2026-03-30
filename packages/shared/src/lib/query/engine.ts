@@ -104,6 +104,33 @@ export function resolveEntityTableName(em: EntityManager | undefined, entity: En
   return fallback
 }
 
+function buildFilterableCustomFieldJoins(
+  sources: QueryCustomFieldSource[] | undefined,
+): Array<{
+  alias: string
+  table?: string
+  entityId: EntityId
+  from: { field: string }
+  to: { field: string }
+  type: 'left' | 'inner'
+}> {
+  if (!sources || sources.length === 0) return []
+  return sources.flatMap((source, index) => {
+    if (!source.join) return []
+    const alias = typeof source.alias === 'string' && source.alias.trim().length > 0
+      ? source.alias.trim()
+      : `cfs_${index}`
+    return [{
+      alias,
+      table: source.table,
+      entityId: source.entityId,
+      from: { field: source.join.fromField },
+      to: { field: source.join.toField },
+      type: source.join.type === 'inner' ? 'inner' : 'left',
+    }]
+  })
+}
+
 
 // Minimal default implementation placeholder.
 // For now, only supports basic base-entity querying by table name inferred from EntityId ('<module>:<entity>' -> '<entities>') via convention.
@@ -187,7 +214,11 @@ export class BasicQueryEngine implements QueryEngine {
     }
 
     const normalizedFilters = normalizeFilters(opts.filters)
-    const resolvedJoins = resolveJoins(table, opts.joins, (entityId) => resolveEntityTableName(this.em, entityId as any))
+    const resolvedJoins = resolveJoins(
+      table,
+      [...(opts.joins ?? []), ...buildFilterableCustomFieldJoins(opts.customFieldSources)],
+      (entityId) => resolveEntityTableName(this.em, entityId as any),
+    )
     const joinMap = new Map<string, ResolvedJoin>()
     const aliasTables = new Map<string, string>()
     aliasTables.set(table, table)
