@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "node ./scripts/setup.mjs",
+    "setup:reinstall": "node ./scripts/setup.mjs --reinstall",
     "dev": "mercato server dev",
     "build": "next build",
     "start": "NODE_OPTIONS='-r newrelic' mercato server start",
@@ -11,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
     "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
+    "test:integration:ephemeral": "mercato test:integration",
     "generate": "mercato generate",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",

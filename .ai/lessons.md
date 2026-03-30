@@ -58,6 +58,26 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/template/src/modules.ts`, `packages/create-app/template/package.json.template`, template lockfiles, and standalone app smoke tests.
 
+## Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry
+
+**Context**: `create-mercato-app` advertised `yarn setup` as the first command, but the scaffold only shipped an empty `yarn.lock`.
+
+**Problem**: Yarn 4 resolves package scripts through the lockfile. In a fresh scaffold, `yarn setup` failed before `scripts/setup.mjs` could call `yarn install` with `This package doesn't seem to be present in your lockfile`.
+
+**Rule**: Standalone templates that expect a pre-install Yarn script to run must ship a templated `yarn.lock` containing the root `"{{APP_NAME}}@workspace:."` entry. Keep the standalone smoke test exercising at least one trivial Yarn script before the first install so the regression is caught immediately.
+
+**Applies to**: `packages/create-app/template/yarn.lock.template`, `packages/create-app/src/index.ts`, and `scripts/test-create-app.ts`.
+
+## Standalone scaffolding and generators must not assume monorepo-only paths
+
+**Context**: Separately, the standalone `yarn generate` OpenAPI bundle still looked for `packages/shared`, `apps/mercato`, and `tsconfig.base.json`.
+
+**Problem**: Newly scaffolded apps - `yarn generate` printed noisy OpenAPI bundle resolution errors before falling back.
+
+**Rule**: For standalone app flows, do not hardcode monorepo paths; CLI generators must resolve app/package paths through the shared resolver (`getRootDir()`, `getAppDir()`, `getPackageRoot()`) instead of constructing `packages/*` or `apps/mercato/*` paths directly.
+
+**Applies to**: `packages/create-app/**`, `packages/cli/**`, standalone app smoke tests, and any generator/bundler that runs inside installed npm packages.
+
 ## Store global event bus in `globalThis` to survive module duplication in dev
 
 **Context**: `record_locks` notifications stopped while banners still worked. Banner logic uses direct API polling, but notifications depend on `emitRecordLocksEvent()` from `createModuleEvents()` and the global event bus wiring.
@@ -468,3 +488,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Inside a package's own CLI/runtime entrypoints, prefer local relative imports for same-package modules instead of going back through the package alias, unless that alias path is explicitly part of the public runtime contract.
 
 **Applies to**: `cli.ts`, bootstrap helpers, package-local scripts, and other runtime entrypoints executed directly from dist.
+
+## Global registries in publishable packages must use `globalThis`, not module-local state
+
+**Context**: Standalone `create-mercato-app` loaded `@open-mercato/shared/lib/db/mikro` through multiple server chunk/module instances while the monorepo dev app used a single source-tree instance.
+
+**Problem**: Bootstrap registered ORM entities in one module instance, but `/api/events/stream` created a request container through another instance. Because the entity registry lived in a module-local variable, the second instance saw an empty registry and crashed with `[Bootstrap] ORM entities not registered`.
+
+**Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
+
+**Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.

@@ -440,6 +440,23 @@ yarn dev
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
+### Test `create-mercato-app` locally from the monorepo
+
+If you are changing the scaffold itself and want to validate it before publishing:
+
+```bash
+# Scaffold a temporary standalone app and drop into it
+yarn test:create-app
+
+# Or only print the temp path without opening a shell
+yarn test:create-app --no-shell
+
+# Run full standalone integration parity against a temporary app
+yarn test:create-app:integration
+```
+
+`yarn test:create-app` builds current-branch packages, scaffolds a temporary app, and rewrites `@open-mercato/*` dependencies to fresh local tarballs so `yarn install` inside that app exercises your branch instead of published packages. `yarn test:create-app:integration` goes further and runs the standalone app integration suite in the same ephemeral style used by CI.
+
 ### Add custom modules
 
 Drop your own modules into `src/modules/` and register them in `src/modules.ts` with `from: '@app'`:
