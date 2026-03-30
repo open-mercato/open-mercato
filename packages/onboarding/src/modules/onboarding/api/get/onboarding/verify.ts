@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { SearchIndexer } from '@open-mercato/search'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { onboardingVerifySchema } from '@open-mercato/onboarding/modules/onboarding/data/validators'
 import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/lib/service'
@@ -14,7 +15,6 @@ import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { getModules } from '@open-mercato/shared/lib/modules/registry'
-import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
@@ -50,6 +50,38 @@ function redirectToLogin(baseUrl: string, tenantId: string | null) {
     })
   }
   return response
+}
+
+const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
+
+function createTimeoutPromise(label: string, timeoutMs: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs)
+  })
+}
+
+async function enqueueVectorReindex(args: {
+  container: { resolve: <T = unknown>(name: string) => T }
+  tenantId: string
+  organizationId: string | null
+}) {
+  let searchIndexer: SearchIndexer | null = null
+  try {
+    searchIndexer = args.container.resolve<SearchIndexer>('searchIndexer')
+  } catch {
+    searchIndexer = null
+  }
+  if (!searchIndexer) return
+
+  await Promise.race([
+    searchIndexer.reindexAllToVector({
+      tenantId: args.tenantId,
+      organizationId: args.organizationId,
+      purgeFirst: true,
+      useQueue: true,
+    }),
+    createTimeoutPromise('vector reindex enqueue', VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS),
+  ])
 }
 
 export async function GET(req: Request) {
@@ -164,12 +196,6 @@ export async function GET(req: Request) {
       }
     }
     if (tenantId) {
-      let vectorService: VectorIndexService | null = null
-      try {
-        vectorService = container.resolve<VectorIndexService>('vectorIndexService')
-      } catch {
-        vectorService = null
-      }
       const coverageRefreshKeys = new Set<string>()
       try {
         const allEntities = getEntityIds()
@@ -198,14 +224,6 @@ export async function GET(req: Request) {
         console.error('[onboarding.verify] failed to rebuild query indexes', { tenantId, error })
       }
 
-      if (vectorService) {
-        try {
-          await vectorService.reindexAll({ tenantId, organizationId, purgeFirst: true })
-        } catch (error) {
-          console.error('[onboarding.verify] failed to rebuild vector indexes', { tenantId, organizationId, error })
-        }
-      }
-
       if (coverageRefreshKeys.size) {
         for (const entry of coverageRefreshKeys) {
           const [entityType, tenantKey, orgKey] = entry.split('|')
@@ -230,6 +248,18 @@ export async function GET(req: Request) {
           }
         }
       }
+
+      void enqueueVectorReindex({
+        container,
+        tenantId,
+        organizationId,
+      }).catch((error) => {
+        console.warn('[onboarding.verify] vector reindex enqueue did not complete promptly', {
+          tenantId,
+          organizationId,
+          reason: error instanceof Error ? error.message : String(error),
+        })
+      })
     }
 
     await service.markCompleted(request, { tenantId, organizationId, userId: resolvedUserId })
