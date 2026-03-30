@@ -222,6 +222,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Root `docker-compose*.yml`, standalone app templates in `packages/create-app/template/`, and any future dev/test container compose files that run Meilisearch.
 
+## Docker entrypoints must verify required binaries, not just non-empty node_modules
+
+**Context**: The standalone app dev entrypoint only checked whether `node_modules` existed and was non-empty before skipping `yarn install`.
+
+**Problem**: A stale named volume from another app can leave `node_modules` populated but incomplete, with `node_modules/.bin/mercato` and `@open-mercato/cli` missing. Startup then fails later with `/bin/sh: mercato: not found`.
+
+**Rule**: Docker startup scripts must verify the specific required package/binary for the next command (for example `node_modules/@open-mercato/cli` and `node_modules/.bin/mercato` before `yarn initialize`), not just the presence of a non-empty `node_modules` directory.
+
+**Applies to**: `packages/create-app/template/docker/scripts/*.sh` and any future container entrypoints that rely on installed CLI binaries.
+
 ## Keep injected namespaces DataTable-owned, not page-owned
 
 **Context**: Injected datatable values (for example `_example.priority`) were visible in API payloads and saved correctly, but list columns still rendered fallback values like `normal`.
