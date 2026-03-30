@@ -58,6 +58,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/template/src/modules.ts`, `packages/create-app/template/package.json.template`, template lockfiles, and standalone app smoke tests.
 
+## Standalone scaffolding and generators must not assume monorepo-only paths
+
+**Context**: Separately, the standalone `yarn generate` OpenAPI bundle still looked for `packages/shared`, `apps/mercato`, and `tsconfig.base.json`.
+
+**Problem**: Newly scaffolded apps - `yarn generate` printed noisy OpenAPI bundle resolution errors before falling back.
+
+**Rule**: For standalone app flows, do not hardcode monorepo paths; CLI generators must resolve app/package paths through the shared resolver (`getRootDir()`, `getAppDir()`, `getPackageRoot()`) instead of constructing `packages/*` or `apps/mercato/*` paths directly.
+
+**Applies to**: `packages/create-app/**`, `packages/cli/**`, standalone app smoke tests, and any generator/bundler that runs inside installed npm packages.
+
 ## Store global event bus in `globalThis` to survive module duplication in dev
 
 **Context**: `record_locks` notifications stopped while banners still worked. Banner logic uses direct API polling, but notifications depend on `emitRecordLocksEvent()` from `createModuleEvents()` and the global event bus wiring.
