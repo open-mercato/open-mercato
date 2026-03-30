@@ -7,6 +7,7 @@ Create a new Open Mercato application with a single command.
 ```bash
 npx create-mercato-app my-app
 cd my-app
+yarn setup
 ```
 
 ## Usage
@@ -50,33 +51,38 @@ npx create-mercato-app my-store --registry http://localhost:4873
    cd my-app
    ```
 
-2. Copy and configure your environment:
+2. Fast path:
+   ```bash
+   yarn setup
+   ```
+
+3. Manual alternative if you want to edit the environment first:
    ```bash
    cp .env.example .env
    # Edit .env with your database credentials
    ```
 
-3. Install dependencies:
+4. Install dependencies:
    ```bash
    yarn install
    ```
 
-4. Generate required files:
+5. Generate required files:
    ```bash
    yarn generate
    ```
 
-5. Run database migrations:
+6. Run database migrations:
    ```bash
    yarn db:migrate
    ```
 
-6. Initialize the application:
+7. Initialize the application:
    ```bash
    yarn initialize
    ```
 
-7. Start the development server:
+8. Start the development server:
    ```bash
    yarn dev
    ```

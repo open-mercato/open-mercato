@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "node ./scripts/setup.mjs",
     "dev": "mercato server dev",
     "build": "next build",
     "start": "NODE_OPTIONS='-r newrelic' mercato server start",
