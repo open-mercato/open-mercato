@@ -15,11 +15,33 @@ const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
 
+function readJson<T>(filePath: string): T {
+  return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
+}
+
+function writeJson(filePath: string, value: unknown): void {
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`)
+}
+
 function assertExists(filePath: string, label: string): void {
   if (!fs.existsSync(filePath)) {
     throw new Error(`${label} is missing: ${filePath}`)
   }
   console.log(green(`✔ ${label}`))
+}
+
+function addPreinstallScriptProbe(appDir: string): void {
+  const packageJsonPath = path.join(appDir, 'package.json')
+  const packageJson = readJson<{
+    scripts?: Record<string, string>
+  }>(packageJsonPath)
+
+  packageJson.scripts = {
+    ...(packageJson.scripts ?? {}),
+    'verify:yarn-script-resolution': 'node -e "console.log(\'preinstall-script-resolution-ok\')"',
+  }
+
+  writeJson(packageJsonPath, packageJson)
 }
 
 async function main(): Promise<void> {
@@ -39,6 +61,11 @@ async function main(): Promise<void> {
 
     assertExists(path.join(appDir, 'package.json'), 'Scaffolded app package.json created')
     assertExists(path.join(appDir, 'src', 'modules.ts'), 'Scaffolded app modules.ts created')
+    assertExists(path.join(appDir, '.yarnrc.yml'), 'Scaffolded app Yarn config created')
+
+    addPreinstallScriptProbe(appDir)
+    runCommand('yarn', ['verify:yarn-script-resolution'], { cwd: appDir })
+
     runCommand('yarn', ['install'], { cwd: appDir })
 
     console.log(green('\ncreate-mercato-app scaffold test passed'))

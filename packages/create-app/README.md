@@ -149,7 +149,7 @@ What it does:
 - republishes the current branch packages to Verdaccio
 - scaffolds a temporary standalone app configured for that registry
 - installs the standalone app from Verdaccio, including enterprise for the parity run
-- runs the standalone app integration suite via the local CLI
+- runs the standalone app's ephemeral integration suite via `yarn test:integration:ephemeral`
 
 This command requires Docker because the ephemeral integration environment boots the standalone app and its services.
 

@@ -8,7 +8,6 @@ import { createAppBin, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } fro
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
 const CREATE_APP_BIN = createAppBin(ROOT)
-const CLI_BIN = path.join(ROOT, 'packages', 'cli', 'dist', 'bin.js')
 const ROOT_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version as string
 
 const green = (value: string) => `\x1b[32m${value}\x1b[0m`
@@ -108,14 +107,10 @@ async function main(): Promise<void> {
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)
     runCommand('yarn', ['install'], { cwd: appDir })
-    runCommand(
-      process.execPath,
-      [CLI_BIN, 'test', 'integration', '--no-reuse-env'],
-      {
-        cwd: appDir,
-        env: integrationEnv,
-      },
-    )
+    runCommand('yarn', ['test:integration:ephemeral', '--no-reuse-env'], {
+      cwd: appDir,
+      env: integrationEnv,
+    })
 
     assertExists(
       path.join(appDir, '.ai', 'qa', 'test-results', 'results.json'),
