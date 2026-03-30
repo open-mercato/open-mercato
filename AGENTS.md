@@ -32,6 +32,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding custom fields/entities, using DSL helpers (`defineLink`, `cf.*`), declaring `ce.ts` | `packages/core/AGENTS.md` → Custom Fields |
 | Adding entity extensions, cross-module data links, `data/extensions.ts` | `packages/core/AGENTS.md` → Extensions |
 | Configuring RBAC features in `acl.ts`, declarative guards, permission checks | `packages/core/AGENTS.md` → Access Control |
+| Fixing wildcard ACL handling in feature-gated runtime helpers (menu items, nav sections, notification handlers, mutation guards, command interceptors, AI tools) | `packages/core/AGENTS.md` → Access Control + `packages/shared/AGENTS.md` + `packages/ui/AGENTS.md` + `packages/core/src/modules/auth/AGENTS.md` (+ `packages/core/src/modules/customer_accounts/AGENTS.md` for portal/customer RBAC) |
 | Using encrypted queries (`findWithDecryption`), encryption defaults, GDPR fields | `packages/core/AGENTS.md` → Encryption |
 | Adding response enrichers to enrich other modules' API responses | `packages/core/AGENTS.md` → Response Enrichers |
 | Filtering CRUD list APIs by multiple IDs (`?ids=uuid1,uuid2`), including interceptor-driven ID narrowing | `packages/core/AGENTS.md` → API Interceptors + `packages/shared/AGENTS.md` |

@@ -3,6 +3,7 @@ import type {
   CommandInterceptorContext,
   CommandInterceptorUndoContext,
 } from './command-interceptor'
+import { hasAllFeatures } from '../../security/features'
 
 // ---------------------------------------------------------------------------
 // Command pattern matching
@@ -29,7 +30,7 @@ function collectMatching(
 ): CommandInterceptor[] {
   return interceptors
     .filter((i) => matchesCommandPattern(i.targetCommand, commandId))
-    .filter((i) => !i.features?.length || i.features.every((f) => userFeatures.includes(f)))
+    .filter((i) => hasAllFeatures(userFeatures, i.features))
     .sort((a, b) => (a.priority ?? 50) - (b.priority ?? 50))
 }
 

@@ -130,6 +130,8 @@ Effective permissions = User ACL (if exists) OR aggregated Role ACLs.
 
 Customer portal features use the `portal.<area>.<action>` naming convention (e.g., `portal.orders.view`, `portal.catalog.view`).
 
+Treat `portal.*` and `*` as first-class ACL grants. When portal code reads raw feature arrays directly (for example menu filtering, injected portal navigation, or local runtime guards), use shared wildcard-aware matching instead of exact `includes(...)` checks.
+
 ### Cross-Module Feature Merging
 
 Other modules can declare `defaultCustomerRoleFeatures` in their `setup.ts`. During `seedDefaults`, the customer_accounts module collects these from all enabled modules and merges them into the corresponding `CustomerRoleAcl` records.
@@ -149,6 +151,8 @@ Other modules can declare `defaultCustomerRoleFeatures` in their `setup.ts`. Dur
 const customerRbacService = container.resolve('customerRbacService')
 const hasAccess = await customerRbacService.userHasAllFeatures(userId, ['portal.orders.view'], { tenantId, organizationId })
 ```
+
+When a portal UI/client helper needs batch checks, prefer `/api/customer_accounts/portal/feature-check`. If it evaluates raw granted features directly, it must preserve wildcard semantics.
 
 ## Services and DI
 
