@@ -216,6 +216,7 @@ async function main(): Promise<void> {
     console.log('Next steps:')
     console.log('')
     console.log(pc.cyan(`  cd ${appName}`))
+    console.log('')
     console.log(pc.green('Suggested quick start:'))
     console.log(pc.cyan('  yarn setup'))
     console.log(pc.dim('  # Copies .env.example to .env if needed, installs deps, migrates, initializes, and starts dev'))
