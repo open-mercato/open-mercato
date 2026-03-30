@@ -5589,16 +5589,13 @@ const convertQuoteToOrderCommand: CommandHandler<
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
     ) as SalesDocumentNumberGenerator;
-    const generatedNumber =
-      snapshot.quote.quoteNumber && snapshot.quote.quoteNumber.trim().length
-        ? snapshot.quote.quoteNumber
-        : (
-            await generator.generate({
-              kind: "order",
-              organizationId: snapshot.quote.organizationId,
-              tenantId: snapshot.quote.tenantId,
-            })
-          ).number;
+    const generatedNumber = (
+      await generator.generate({
+        kind: "order",
+        organizationId: snapshot.quote.organizationId,
+        tenantId: snapshot.quote.tenantId,
+      })
+    ).number;
     const orderNumber =
       typeof payload.orderNumber === "string" &&
       payload.orderNumber.trim().length
