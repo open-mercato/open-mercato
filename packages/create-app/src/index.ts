@@ -104,8 +104,17 @@ function buildRegistryConfig(registryUrl: string): string {
   const configLines: string[] = []
 
   if (parsedRegistryUrl.protocol === 'http:') {
+    const unsafeHttpHosts = new Set([parsedRegistryUrl.hostname])
+
+    if (parsedRegistryUrl.hostname === 'localhost' || parsedRegistryUrl.hostname === '127.0.0.1') {
+      unsafeHttpHosts.add('host.docker.internal')
+    }
+
     configLines.push('unsafeHttpWhitelist:')
-    configLines.push(`  - "${parsedRegistryUrl.hostname}"`)
+
+    for (const host of unsafeHttpHosts) {
+      configLines.push(`  - "${host}"`)
+    }
   }
 
   configLines.push('npmScopes:')

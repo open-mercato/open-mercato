@@ -4,8 +4,13 @@ services:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
+        - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
     image: open-mercato/app:${DEPLOY_ENV:-local}
     user: "0"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command:
       - /bin/sh
       - -lc
@@ -83,6 +88,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      OPEN_MERCATO_DOCKER_REGISTRY_HOST: ${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}
     depends_on:
       postgres:
         condition: service_healthy

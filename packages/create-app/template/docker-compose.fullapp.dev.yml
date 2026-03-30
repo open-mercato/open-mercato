@@ -6,9 +6,15 @@ services:
     build:
       context: .
       target: dev
+      args:
+        - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
     user: "0"
     command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules
@@ -48,6 +54,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      OPEN_MERCATO_DOCKER_REGISTRY_HOST: ${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}
     depends_on:
       postgres:
         condition: service_healthy
