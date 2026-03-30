@@ -232,6 +232,26 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/template/docker/scripts/*.sh` and any future container entrypoints that rely on installed CLI binaries.
 
+## Docker initialization should treat the existing-users CLI abort as already initialized
+
+**Context**: The CLI intentionally aborts `init` when the database already contains users, printing `Initialization aborted: found N existing user(s) in the database.`
+
+**Problem**: Docker first-run boot paths used marker files only. When the marker was missing but the database was already initialized, containers exited instead of continuing with migrations and startup.
+
+**Rule**: Docker init/startup wrappers must treat the specific existing-users initialization abort as a successful already-initialized state: run migrations, write the init marker, and continue boot. Do not broaden this to ignore other init failures.
+
+**Applies to**: `docker/scripts/*.sh`, root `docker-compose.fullapp*.yml`, and standalone template Docker startup files in `packages/create-app/template/docker/**`.
+
+## Standalone scaffolds must pin the same Yarn version as the monorepo
+
+**Context**: `node:24-alpine` exposes Yarn `1.22.22` by default. The monorepo uses Yarn `4.12.0` via the root `packageManager` field and explicit Corepack activation in some environments.
+
+**Problem**: The standalone template had no `packageManager` field and its Dockerfile only ran `corepack enable`, so Docker-based standalone flows could stay on Yarn 1 instead of Yarn 4.
+
+**Rule**: Keep `packages/create-app/template/package.json.template` aligned with the monorepo `packageManager` version and have the template Dockerfile explicitly run `corepack prepare yarn@<version> --activate`.
+
+**Applies to**: `packages/create-app/template/package.json.template`, `packages/create-app/template/Dockerfile`, and any scaffolded environment that relies on Corepack.
+
 ## Keep injected namespaces DataTable-owned, not page-owned
 
 **Context**: Injected datatable values (for example `_example.priority`) were visible in API payloads and saved correctly, but list columns still rendered fallback values like `normal`.

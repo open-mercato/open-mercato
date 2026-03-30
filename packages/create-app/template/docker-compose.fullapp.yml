@@ -6,15 +6,10 @@ services:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     user: "0"
-    command: >
-      sh -c "if [ ! -f /tmp/init-marker/.seeded ]; then
-        echo 'First run: full initialization...';
-        yarn initialize && mkdir -p /tmp/init-marker && touch /tmp/init-marker/.seeded;
-      else
-        echo 'Subsequent run: migrations only...';
-        yarn db:migrate;
-      fi &&
-      yarn start"
+    command:
+      - /bin/sh
+      - -lc
+      - /app/docker/scripts/init-or-migrate.sh && yarn start
     working_dir: /app
     volumes:
       - init_marker:/tmp/init-marker

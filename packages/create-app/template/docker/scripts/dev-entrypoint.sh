@@ -11,14 +11,6 @@ if [ ! -d node_modules ] \
   yarn install
 fi
 
-if [ ! -f /tmp/init-marker/.seeded ]; then
-  echo "First run: full initialization..."
-  yarn initialize
-  mkdir -p /tmp/init-marker
-  touch /tmp/init-marker/.seeded
-else
-  echo "Subsequent run: migrations only..."
-  yarn db:migrate
-fi
+/app/docker/scripts/init-or-migrate.sh
 
 exec yarn dev

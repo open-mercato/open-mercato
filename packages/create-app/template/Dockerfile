@@ -5,7 +5,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
 
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
-RUN corepack enable
+RUN corepack enable && corepack prepare yarn@4.12.0 --activate
 
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN yarn install
@@ -22,7 +22,7 @@ ENV NODE_ENV=development \
 WORKDIR /app
 
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
-RUN corepack enable
+RUN corepack enable && corepack prepare yarn@4.12.0 --activate
 
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN yarn install
@@ -30,7 +30,9 @@ RUN yarn install
 COPY . .
 
 COPY docker/scripts/dev-entrypoint.sh /app/docker/scripts/dev-entrypoint.sh
+COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
 RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
+RUN chmod +x /app/docker/scripts/init-or-migrate.sh
 
 EXPOSE 3000
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
@@ -46,7 +48,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 RUN apk add --no-cache ca-certificates openssl
-RUN corepack enable
+RUN corepack enable && corepack prepare yarn@4.12.0 --activate
 
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN yarn install --production=true
@@ -60,6 +62,8 @@ COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/postcss.config.mjs ./postcss.config.mjs
 COPY --from=builder /app/components.json ./components.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
+RUN chmod +x /app/docker/scripts/init-or-migrate.sh
 
 RUN adduser -D -u 1001 omuser \
  && chown -R omuser:omuser /app
