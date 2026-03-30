@@ -2,47 +2,19 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+
+import { createAppBin, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
-const CREATE_APP_BIN = path.join(ROOT, 'packages', 'create-app', 'dist', 'index.js')
+const CREATE_APP_BIN = createAppBin(ROOT)
 const CLI_BIN = path.join(ROOT, 'packages', 'cli', 'dist', 'bin.js')
+const ROOT_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version as string
 
 const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
-
-type RunOptions = {
-  cwd: string
-  input?: string
-  env?: NodeJS.ProcessEnv
-  silent?: boolean
-}
-
-function runCommand(command: string, args: string[], options: RunOptions): string {
-  const label = [command, ...args].join(' ')
-  if (!options.silent) {
-    console.log(cyan(`\n$ ${label}`))
-  }
-
-  const result = spawnSync(command, args, {
-    cwd: options.cwd,
-    env: { ...process.env, ...options.env },
-    input: options.input,
-    encoding: 'utf8',
-  })
-
-  if (result.stdout && !options.silent) process.stdout.write(result.stdout)
-  if (result.stderr && !options.silent) process.stderr.write(result.stderr)
-
-  if (result.status !== 0) {
-    throw new Error(`Command failed (${result.status ?? 'unknown'}): ${label}`)
-  }
-
-  return `${result.stdout ?? ''}${result.stderr ?? ''}`
-}
 
 function assertExists(filePath: string, label: string): void {
   if (!fs.existsSync(filePath)) {
@@ -59,60 +31,13 @@ function writeJson(filePath: string, value: unknown): void {
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`)
 }
 
-function listLocalPackages(): Map<string, string> {
-  const packagesRoot = path.join(ROOT, 'packages')
-  const packageMap = new Map<string, string>()
-
-  for (const entry of fs.readdirSync(packagesRoot, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue
-    const packageDir = path.join(packagesRoot, entry.name)
-    const manifestPath = path.join(packageDir, 'package.json')
-    if (!fs.existsSync(manifestPath)) continue
-    const manifest = readJson<{ name?: string }>(manifestPath)
-    if (!manifest.name) continue
-    packageMap.set(manifest.name, packageDir)
-  }
-
-  return packageMap
-}
-
-function packLocalPackage(packageName: string, packageDir: string, tarballsDir: string): string {
-  const normalized = packageName.replace(/^@/, '').replace(/\//g, '-')
-  const tarballPath = path.join(tarballsDir, `${normalized}.tgz`)
-  runCommand('yarn', ['pack', '--out', tarballPath], {
-    cwd: packageDir,
-    silent: true,
-  })
-  return tarballPath
-}
-
-function rewriteStandaloneDependencies(appDir: string, tarballsDir: string): void {
-  const packageMap = listLocalPackages()
+function ensureEnterpriseDependency(appDir: string): void {
   const packageJsonPath = path.join(appDir, 'package.json')
   const packageJson = readJson<{
     dependencies?: Record<string, string>
-    devDependencies?: Record<string, string>
   }>(packageJsonPath)
-
   const dependencies = { ...(packageJson.dependencies ?? {}) }
-
-  for (const packageName of Object.keys(dependencies)) {
-    const packageDir = packageMap.get(packageName)
-    if (!packageDir) continue
-    const tarballPath = packLocalPackage(packageName, packageDir, tarballsDir)
-    dependencies[packageName] = `file:${tarballPath}`
-  }
-
-  // Enterprise is injected unconditionally when present in the monorepo so that
-  // the integration run covers enterprise modules (OM_ENABLE_ENTERPRISE_MODULES=true
-  // is set in the env below). The scaffolded template may not declare it, so we
-  // add it here rather than relying on the template's dependency list.
-  const enterpriseDir = packageMap.get('@open-mercato/enterprise')
-  if (enterpriseDir) {
-    const enterpriseTarball = packLocalPackage('@open-mercato/enterprise', enterpriseDir, tarballsDir)
-    dependencies['@open-mercato/enterprise'] = `file:${enterpriseTarball}`
-  }
-
+  dependencies['@open-mercato/enterprise'] = ROOT_VERSION
   packageJson.dependencies = dependencies
   writeJson(packageJsonPath, packageJson)
 }
@@ -143,12 +68,10 @@ function writeStandaloneEnv(appDir: string): void {
   fs.writeFileSync(envPath, `${envLines.join('\n')}\n`)
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const cleanup = process.argv.includes('--cleanup')
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-integration-'))
   const appDir = path.join(tempRoot, 'standalone-app')
-  const tarballsDir = path.join(tempRoot, 'tarballs')
-  fs.mkdirSync(tarballsDir, { recursive: true })
 
   const integrationEnv: NodeJS.ProcessEnv = {
     JWT_SECRET: 'ci-standalone-test-jwt-secret',
@@ -172,11 +95,9 @@ function main(): void {
   console.log(cyan(`Using temporary app directory: ${appDir}`))
 
   try {
-    runCommand('yarn', ['build:packages'], { cwd: ROOT })
-    runCommand('yarn', ['generate'], { cwd: ROOT })
-    runCommand('yarn', ['build:packages'], { cwd: ROOT })
+    await ensureVerdaccioPublished(ROOT)
 
-    runCommand(process.execPath, [CREATE_APP_BIN, appDir], {
+    runCommand(process.execPath, [CREATE_APP_BIN, appDir, '--verdaccio'], {
       cwd: ROOT,
       input: '5\n',
     })
@@ -185,8 +106,7 @@ function main(): void {
     assertExists(path.join(appDir, '.ai', 'qa', 'tests', 'playwright.config.ts'), 'Standalone QA config present')
 
     writeStandaloneEnv(appDir)
-    rewriteStandaloneDependencies(appDir, tarballsDir)
-
+    ensureEnterpriseDependency(appDir)
     runCommand('yarn', ['install'], { cwd: appDir })
     runCommand(
       process.execPath,
@@ -204,6 +124,7 @@ function main(): void {
 
     console.log(green('\ncreate-mercato-app standalone integration test passed'))
     console.log(cyan(`App path: ${appDir}`))
+    console.log(yellow(`Standalone app dependencies were installed from Verdaccio at ${VERDACCIO_URL}.`))
 
     if (cleanup) {
       fs.rmSync(tempRoot, { recursive: true, force: true })
@@ -219,4 +140,4 @@ function main(): void {
   }
 }
 
-main()
+void main()

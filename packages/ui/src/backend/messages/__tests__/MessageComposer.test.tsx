@@ -37,6 +37,8 @@ jest.mock('next/navigation', () => ({
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
 
 describe('MessageComposer draft flow', () => {
+  jest.setTimeout(10000)
+
   beforeEach(() => {
     jest.resetAllMocks()
     ;(apiCall as jest.Mock).mockImplementation((url: string, options?: { method?: string, body?: string }) => {

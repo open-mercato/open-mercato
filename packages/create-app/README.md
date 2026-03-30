@@ -103,7 +103,17 @@ npx create-mercato-app my-store --registry http://localhost:4873
 
 ## Test Locally From The Monorepo
 
-If you are developing `create-mercato-app` inside the Open Mercato monorepo, use the root-level test commands to validate the standalone scaffold without publishing packages first.
+If you are developing `create-mercato-app` inside the Open Mercato monorepo, use a local Verdaccio registry to validate the standalone scaffold. Both paths below use Verdaccio.
+
+Optional one-time setup if you want npm auth stored for Verdaccio:
+
+```bash
+yarn registry:setup-user
+```
+
+### Fast path via root scripts
+
+Use the root scripts when you want the quickest repeatable flow.
 
 ### Scaffold-only smoke test
 
@@ -114,10 +124,11 @@ yarn test:create-app
 ```
 
 What it does:
-- builds the current branch packages
-- scaffolds a fresh standalone app in a temporary directory
-- rewrites `@open-mercato/*` dependencies to local tarballs built from your current branch
-- opens a shell in that generated app directory so you can continue manually as if you were a standalone user
+- starts Verdaccio if needed
+- republishes the current branch packages to Verdaccio
+- scaffolds a fresh standalone app configured for that local registry
+- installs dependencies in the generated app
+- opens a shell in that generated app directory so you can continue with `yarn setup`
 
 If you only want the path without opening a shell:
 
@@ -134,12 +145,35 @@ yarn test:create-app:integration
 ```
 
 What it does:
-- builds local package artifacts
-- scaffolds a temporary standalone app
-- installs local packed `@open-mercato/*` tarballs into that app
+- starts Verdaccio if needed
+- republishes the current branch packages to Verdaccio
+- scaffolds a temporary standalone app configured for that registry
+- installs the standalone app from Verdaccio, including enterprise for the parity run
 - runs the standalone app integration suite via the local CLI
 
 This command requires Docker because the ephemeral integration environment boots the standalone app and its services.
+
+### Manual Verdaccio workflow
+
+Use this path when you want to keep a standalone app around and iterate on it directly.
+
+```bash
+docker compose up -d verdaccio
+yarn registry:publish
+node packages/create-app/dist/index.js /tmp/my-test-app --verdaccio
+cd /tmp/my-test-app
+yarn install
+yarn setup
+```
+
+To rerun against newly published packages in an existing standalone app:
+
+```bash
+cd /tmp/my-test-app
+rm -rf node_modules .mercato/next
+yarn install
+yarn dev
+```
 
 ## Learn More
 
