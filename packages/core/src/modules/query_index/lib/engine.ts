@@ -22,6 +22,33 @@ import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 
+function buildFilterableCustomFieldJoins(
+  sources: QueryCustomFieldSource[] | undefined,
+): Array<{
+  alias: string
+  table?: string
+  entityId: EntityId
+  from: { field: string }
+  to: { field: string }
+  type: 'left' | 'inner'
+}> {
+  if (!sources || sources.length === 0) return []
+  return sources.flatMap((source, index) => {
+    if (!source.join) return []
+    const alias = typeof source.alias === 'string' && source.alias.trim().length > 0
+      ? source.alias.trim()
+      : `cfs_${index}`
+    return [{
+      alias,
+      table: source.table,
+      entityId: source.entityId,
+      from: { field: source.join.fromField },
+      to: { field: source.join.toField },
+      type: source.join.type === 'inner' ? 'inner' : 'left',
+    }]
+  })
+}
+
 function resolveBooleanEnv(names: readonly string[], defaultValue: boolean): boolean {
   for (const name of names) {
     const raw = process.env[name]
@@ -315,7 +342,11 @@ export class HybridQueryEngine implements QueryEngine {
     const canOptimizeCount = !hasCustomFieldFilters
     let optimizedCountBuilder: ResultBuilder | null = canOptimizeCount ? knex({ b: baseTable }) : null
 
-    const resolvedJoinsConfig = resolveJoins(baseTable, opts.joins, (entityId) => resolveEntityTableName(this.em, entityId as any))
+    const resolvedJoinsConfig = resolveJoins(
+      baseTable,
+      [...(opts.joins ?? []), ...buildFilterableCustomFieldJoins(opts.customFieldSources)],
+      (entityId) => resolveEntityTableName(this.em, entityId as any),
+    )
     const joinMap = new Map<string, ResolvedJoin>()
     const aliasTables = new Map<string, string>()
     aliasTables.set('b', baseTable)

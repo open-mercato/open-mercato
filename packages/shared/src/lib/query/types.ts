@@ -136,5 +136,5 @@ export type QueryResult<T = any> = {
 }
 
 export interface QueryEngine {
-  query<T = any>(entity: EntityId, opts?: QueryOptions): Promise<QueryResult<T>>
+  i query<T = any>(entity: EntityId, opts?: QueryOptions): Promise<QueryResult<T>>
 }

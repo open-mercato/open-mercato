@@ -357,7 +357,7 @@ export function GlobalSearchDialog({
             {t('search.dialog.instructions')}
           </span>
           <div className="flex flex-col gap-3 border-b px-4 pb-3 pt-12">
-            <div className="flex items-center gap-2 rounded border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring">
+            <div className="flex items-center gap-2 rounded border border-border bg-background px-3 py-2 transition-colors focus-within:border-primary">
               <Search className="h-4 w-4 text-muted-foreground" />
               <TypedInput
                 ref={inputRef}
@@ -365,7 +365,7 @@ export function GlobalSearchDialog({
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={t('search.dialog.input.placeholder')}
-                className="border-none px-0 shadow-none focus-visible:ring-0"
+                className="border-none px-0 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
                 autoFocus
               />
               {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
