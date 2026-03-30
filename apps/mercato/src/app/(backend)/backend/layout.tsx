@@ -1,6 +1,6 @@
 import { cookies, headers } from 'next/headers'
 import type { ReactNode } from 'react'
-import { modules } from '@/.mercato/generated/modules.generated'
+import { backendModules } from '@/.mercato/generated/backend-routes.generated'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
@@ -176,7 +176,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   }
 
   const entries = await buildAdminNav(
-    modules,
+    backendModules,
     ctx,
     userEntities,
     (key, fallback) => (key ? translate(key, fallback) : fallback),
@@ -330,7 +330,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   )
   const current = allEntries.find((item) => path.startsWith(item.href))
   const currentTitle = current?.title || ''
-  const match = findBackendMatch(modules, path)
+  const match = findBackendMatch(backendModules, path)
   const rawBreadcrumb = match?.route.breadcrumb
   const breadcrumb = rawBreadcrumb?.map((item) => {
     const fallback = item.label

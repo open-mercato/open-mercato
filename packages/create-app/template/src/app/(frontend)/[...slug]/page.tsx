@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { findFrontendMatch } from '@open-mercato/shared/modules/registry'
-import { modules } from '@/.mercato/generated/modules.generated'
+import { frontendModules } from '@/.mercato/generated/frontend-routes.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -10,7 +10,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { Metadata } from 'next'
-import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
+import { resolveLocalizedTitleMetadata } from '../../../lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { frontendMiddlewareEntries } from '@/.mercato/generated/frontend-middleware.generated'
 
@@ -34,7 +34,7 @@ async function renderAccessDenied() {
 export async function generateMetadata({ params }: FrontendParams): Promise<Metadata> {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findFrontendMatch(modules, pathname)
+  const match = findFrontendMatch(frontendModules, pathname)
   if (!match) {
     return {}
   }
@@ -48,7 +48,7 @@ export async function generateMetadata({ params }: FrontendParams): Promise<Meta
 export default async function SiteCatchAll({ params }: FrontendParams) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findFrontendMatch(modules, pathname)
+  const match = findFrontendMatch(frontendModules, pathname)
   if (!match) return notFound()
 
   // Customer portal auth gate — separate from staff auth

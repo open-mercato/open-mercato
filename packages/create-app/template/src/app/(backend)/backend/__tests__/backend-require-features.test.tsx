@@ -3,8 +3,8 @@
  */
 import React from 'react'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-// Avoid loading the full generated modules (which pull example modules and DSL)
-jest.mock('@/generated/modules.generated', () => ({ modules: [] }))
+// Avoid loading generated route manifests from disk during the test.
+jest.mock('@/.mercato/generated/backend-routes.generated', () => ({ backendModules: [] }))
 
 import BackendCatchAll from '@/app/(backend)/backend/[...slug]/page'
 

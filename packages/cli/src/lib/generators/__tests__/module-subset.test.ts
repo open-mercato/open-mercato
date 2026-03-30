@@ -147,6 +147,58 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain("id: 'empty_mod'")
   })
 
+  it('emits split route manifests with lazy wrappers when page metadata lives in sidecar files', async () => {
+    scaffoldModule(tmpDir, 'split_mod', 'pkg', [
+      'frontend/page.tsx',
+      'frontend/page.meta.ts',
+      'backend/page.tsx',
+      'backend/page.meta.ts',
+      'api/route.ts',
+    ])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'split_mod', from: '@open-mercato/core' },
+    ])
+
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const modulesOutput = readGenerated(tmpDir, 'modules.generated.ts')!
+    const backendOutput = readGenerated(tmpDir, 'backend-routes.generated.ts')!
+    const frontendOutput = readGenerated(tmpDir, 'frontend-routes.generated.ts')!
+    const bootstrapOutput = readGenerated(tmpDir, 'bootstrap-modules.generated.ts')!
+
+    expect(modulesOutput).toContain("from '@open-mercato/core/modules/split_mod/backend/page'")
+    expect(modulesOutput).toContain("from '@open-mercato/core/modules/split_mod/frontend/page'")
+
+    expect(backendOutput).toContain("await import('@open-mercato/core/modules/split_mod/backend/page')")
+    expect(backendOutput).not.toContain("from '@open-mercato/core/modules/split_mod/backend/page'")
+    expect(frontendOutput).toContain("await import('@open-mercato/core/modules/split_mod/frontend/page')")
+    expect(frontendOutput).not.toContain("from '@open-mercato/core/modules/split_mod/frontend/page'")
+
+    expect(bootstrapOutput).toContain("await import('@open-mercato/core/modules/split_mod/backend/page')")
+    expect(bootstrapOutput).toContain("await import('@open-mercato/core/modules/split_mod/frontend/page')")
+    expect(bootstrapOutput).toContain('apis:')
+  })
+
+  it('keeps eager imports in split manifests when page metadata is inline', async () => {
+    scaffoldModule(tmpDir, 'inline_meta', 'pkg', [
+      'frontend/page.tsx',
+      'backend/page.tsx',
+    ])
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'inline_meta', from: '@open-mercato/core' },
+    ])
+
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const backendOutput = readGenerated(tmpDir, 'backend-routes.generated.ts')!
+    const frontendOutput = readGenerated(tmpDir, 'frontend-routes.generated.ts')!
+
+    expect(backendOutput).toContain("from '@open-mercato/core/modules/inline_meta/backend/page'")
+    expect(backendOutput).not.toContain("await import('@open-mercato/core/modules/inline_meta/backend/page')")
+    expect(frontendOutput).toContain("from '@open-mercato/core/modules/inline_meta/frontend/page'")
+    expect(frontendOutput).not.toContain("await import('@open-mercato/core/modules/inline_meta/frontend/page')")
+  })
+
   it('handles module with only subscribers — no pages or APIs', async () => {
     scaffoldModule(tmpDir, 'notifications_only', 'pkg', [
       'subscribers/on-order.ts',
@@ -415,6 +467,9 @@ describe('all generated files are valid with varying subsets', () => {
 
     const expectedFiles = [
       'modules.generated.ts',
+      'backend-routes.generated.ts',
+      'frontend-routes.generated.ts',
+      'bootstrap-modules.generated.ts',
       'dashboard-widgets.generated.ts',
       'injection-widgets.generated.ts',
       'injection-tables.generated.ts',

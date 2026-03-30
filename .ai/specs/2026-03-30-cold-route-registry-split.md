@@ -459,6 +459,24 @@ None.
 
 - **Fully compliant**: Approved — ready for implementation
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Additive Route Manifest Split | Done | 2026-03-30 | Added `backend-routes.generated.ts` and `frontend-routes.generated.ts` with lazy wrappers for sidecar-metadata pages and eager fallback for inline metadata pages |
+| Phase 2 — Bootstrap Path Separation | Done | 2026-03-30 | Added `bootstrap-modules.generated.ts` and switched app/template bootstrap to consume it |
+| Phase 3 — Backend Layout Slimming | Done | 2026-03-30 | Backend layout and catch-all routes now consume split manifests instead of `modules.generated.ts` |
+| Phase 4 — Optional API Registry Split | Not Started | — | Deferred; existing API dispatcher still uses `modules.generated.ts` |
+
+### Phase 1-3 Detailed Progress
+- [x] Extend the generator to emit backend, frontend, and bootstrap split manifests
+- [x] Emit lazy route component wrappers when page metadata is provided by sidecar files
+- [x] Preserve eager fallback for inline-metadata pages
+- [x] Keep `modules.generated.ts` export path and names unchanged
+- [x] Update app and template cold-path consumers to use split manifests
+- [x] Add generator regression coverage for lazy-wrapper and eager-fallback behavior
+- [x] Regenerate app outputs and verify package/app builds
+
 ## Changelog
 ### 2026-03-30
 - Initial specification for additive route registry split to reduce cold catch-all page compilation while preserving backward compatibility.

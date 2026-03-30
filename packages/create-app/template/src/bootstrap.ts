@@ -29,7 +29,7 @@ registerAppDictionaryLoader(async (locale: Locale): Promise<Record<string, unkno
 })
 
 // Generated imports (static - works with bundlers)
-import { modules } from '@/.mercato/generated/modules.generated'
+import { bootstrapModules } from '@/.mercato/generated/bootstrap-modules.generated'
 import { entities } from '@/.mercato/generated/entities.generated'
 import { diRegistrars } from '@/.mercato/generated/di.generated'
 import { E } from '@/.mercato/generated/entities.ids.generated'
@@ -66,7 +66,7 @@ import { createBootstrap, isBootstrapped } from '@open-mercato/shared/lib/bootst
 
 // Create bootstrap function with app's generated data
 export const bootstrap = createBootstrap({
-  modules,
+  modules: bootstrapModules,
   entities,
   diRegistrars,
   entityIds: E,
