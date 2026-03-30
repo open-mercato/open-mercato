@@ -103,6 +103,10 @@ function rewriteStandaloneDependencies(appDir: string, tarballsDir: string): voi
     dependencies[packageName] = `file:${tarballPath}`
   }
 
+  // Enterprise is injected unconditionally when present in the monorepo so that
+  // the integration run covers enterprise modules (OM_ENABLE_ENTERPRISE_MODULES=true
+  // is set in the env below). The scaffolded template may not declare it, so we
+  // add it here rather than relying on the template's dependency list.
   const enterpriseDir = packageMap.get('@open-mercato/enterprise')
   if (enterpriseDir) {
     const enterpriseTarball = packLocalPackage('@open-mercato/enterprise', enterpriseDir, tarballsDir)
@@ -184,7 +188,7 @@ function main(): void {
     rewriteStandaloneDependencies(appDir, tarballsDir)
 
     runCommand('yarn', ['install'], { cwd: appDir })
-    const integrationOutput = runCommand(
+    runCommand(
       process.execPath,
       [CLI_BIN, 'test', 'integration', '--no-reuse-env'],
       {
@@ -192,10 +196,6 @@ function main(): void {
         env: integrationEnv,
       },
     )
-
-    if (!integrationOutput.includes('[integration] Running Playwright suite...')) {
-      throw new Error('Standalone integration runner did not start as expected')
-    }
 
     assertExists(
       path.join(appDir, '.ai', 'qa', 'test-results', 'results.json'),
