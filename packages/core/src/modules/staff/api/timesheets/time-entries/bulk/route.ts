@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     const staffMember = await findOneWithDecryption(
       em,
       StaffTeamMember,
-      { userId: auth.userId, tenantId, organizationId, deletedAt: null },
+      { userId: auth.sub, tenantId, organizationId, deletedAt: null },
       {},
       scopeCtx,
     )
@@ -91,7 +91,8 @@ export async function POST(req: Request) {
           updated++
         }
       } else {
-        const newEntry = em.create(StaffTimeEntry, {
+        const now = new Date()
+        em.create(StaffTimeEntry, {
           tenantId,
           organizationId,
           staffMemberId,
@@ -100,6 +101,8 @@ export async function POST(req: Request) {
           durationMinutes: entry.durationMinutes,
           notes: entry.notes ?? null,
           source: 'manual',
+          createdAt: now,
+          updatedAt: now,
         })
         created++
       }
