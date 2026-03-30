@@ -274,6 +274,8 @@ export class RbacService {
           if (organizations !== null) {
             if (acl.organizationsJson == null) {
               organizations = null
+            } else if (Array.isArray(acl.organizationsJson) && acl.organizationsJson.includes('__all__')) {
+              organizations = null
             } else {
               organizations = Array.from(new Set([...(organizations || []), ...acl.organizationsJson]))
             }
@@ -335,11 +337,12 @@ export class RbacService {
         if (Array.isArray(r.featuresJson)) for (const f of r.featuresJson) if (!features.includes(f)) features.push(f)
         if (organizations !== null) {
           if (r.organizationsJson == null) organizations = null
+          else if (Array.isArray(r.organizationsJson) && r.organizationsJson.includes('__all__')) organizations = null
           else organizations = Array.from(new Set([...(organizations || []), ...r.organizationsJson]))
         }
       }
     }
-    if (organizations && orgId && !organizations.includes(orgId)) {
+    if (organizations && orgId && !organizations.includes(orgId) && !organizations.includes('__all__')) {
       // Out-of-scope org; caller will enforce
     }
     const result = { isSuperAdmin: isSuper, features, organizations }
@@ -386,7 +389,7 @@ export class RbacService {
     if (!required.length) return true
     const acl = await this.loadAcl(userId, scope)
     if (acl.isSuperAdmin) return true
-    if (acl.organizations && scope.organizationId && !acl.organizations.includes(scope.organizationId)) return false
+    if (acl.organizations && scope.organizationId && !acl.organizations.includes(scope.organizationId) && !acl.organizations.includes('__all__')) return false
     return this.hasAllFeatures(required, acl.features)
   }
 }
