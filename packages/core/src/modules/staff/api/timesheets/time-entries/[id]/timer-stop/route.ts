@@ -10,11 +10,22 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 
+function extractEntryIdFromUrl(request?: Request): string | null {
+  if (!request?.url) return null
+  try {
+    const url = new URL(request.url)
+    const match = url.pathname.match(/\/time-entries\/([^/]+)\/timer-stop/)
+    return match?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
 }
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request) {
   try {
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
@@ -31,10 +42,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const em = (container.resolve('em') as EntityManager).fork()
     const scopeCtx = { tenantId, organizationId }
 
+    const entryId = extractEntryIdFromUrl(req)
+    if (!entryId) {
+      throw new CrudHttpError(400, { error: translate('staff.timesheets.errors.missingEntryId', 'Missing entry ID.') })
+    }
+
     const entry = await findOneWithDecryption(
       em,
       StaffTimeEntry,
-      { id: params.id, tenantId, organizationId, deletedAt: null },
+      { id: entryId, tenantId, organizationId, deletedAt: null },
       {},
       scopeCtx,
     )

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -13,30 +13,26 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-type RouteParams = { id: string; segmentId: string }
-type RouteContext = { params: Promise<RouteParams> }
-
-async function resolveParams(ctx: RouteContext): Promise<RouteParams | null> {
+function extractIdsFromUrl(request?: Request): { entryId: string; segmentId: string } | null {
+  if (!request?.url) return null
   try {
-    const params = await ctx.params
-    if (typeof params.id === 'string' && params.id.trim().length > 0 &&
-        typeof params.segmentId === 'string' && params.segmentId.trim().length > 0) {
-      return params
-    }
-    return null
+    const url = new URL(request.url)
+    const match = url.pathname.match(/\/time-entries\/([^/]+)\/segments\/([^/]+)/)
+    if (!match?.[1] || !match?.[2]) return null
+    return { entryId: match[1], segmentId: match[2] }
   } catch {
     return null
   }
 }
 
-export async function PATCH(req: NextRequest, ctx: RouteContext) {
+export async function PATCH(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const params = await resolveParams(ctx)
-  if (!params) {
+  const ids = extractIdsFromUrl(req)
+  if (!ids) {
     return NextResponse.json({ error: 'Segment id is required' }, { status: 400 })
   }
 
@@ -45,7 +41,7 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
 
-  const parsed = staffTimeEntrySegmentUpdateSchema.safeParse({ ...rawBody, id: params.segmentId })
+  const parsed = staffTimeEntrySegmentUpdateSchema.safeParse({ ...rawBody, id: ids.segmentId })
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
   }
@@ -54,8 +50,8 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const em = resolve('em') as EntityManager
 
   const segment = await em.findOne(StaffTimeEntrySegment, {
-    id: params.segmentId,
-    timeEntryId: params.id,
+    id: ids.segmentId,
+    timeEntryId: ids.entryId,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
     deletedAt: null,
