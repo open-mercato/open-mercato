@@ -231,6 +231,46 @@ describe('customers todos adapter route', () => {
           interactionType: 'task',
           title: 'Create adapter task',
           source: 'adapter:todo',
+          customValues: expect.objectContaining({
+            priority: 3,
+          }),
+          priority: 3,
+        }),
+      }),
+    )
+  })
+
+  it('forwards todoCustom values to the canonical task create command', async () => {
+    mockCommandBus.execute.mockResolvedValueOnce({ interactionId: TODO_ID })
+
+    await POST(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          entityId: ENTITY_ID,
+          title: 'Create adapter task with due date',
+          todoCustom: {
+            due_at: '2026-04-10T15:00:00.000Z',
+            description: 'legacy due date check',
+            priority: 3,
+          },
+        }),
+      }),
+    )
+
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'customers.interactions.create',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          customValues: expect.objectContaining({
+            due_at: '2026-04-10T15:00:00.000Z',
+            description: 'legacy due date check',
+            priority: 3,
+          }),
+          body: 'legacy due date check',
+          scheduledAt: '2026-04-10T15:00:00.000Z',
+          priority: 3,
         }),
       }),
     )

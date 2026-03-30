@@ -203,6 +203,57 @@ describe('CompanyPeopleSection', () => {
     )
   })
 
+  it('does not trigger a setState-in-render warning when the parent syncs linked people', async () => {
+    const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [
+        {
+          id: 'person-2',
+          display_name: 'Ada Lovelace',
+        },
+      ],
+    })
+    apiCallOrThrowMock.mockResolvedValue({ ok: true })
+
+    function Harness() {
+      const [people, setPeople] = React.useState<CompanyPersonSummary[]>([])
+      return (
+        <CompanyPeopleSection
+          companyId="company-123"
+          initialPeople={people}
+          addActionLabel="Add person"
+          emptyLabel="No linked people yet."
+          emptyState={emptyState}
+          onPeopleChange={setPeople}
+          runGuardedMutation={runGuardedMutation}
+        />
+      )
+    }
+
+    try {
+      renderWithProviders(<Harness />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'Ada Lovelace' }))
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Link person' }))
+      })
+
+      await waitFor(() => {
+        expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+      })
+
+      const stateUpdateWarnings = consoleErrorSpy.mock.calls.filter((call) =>
+        call.some((value) => typeof value === 'string' && value.includes('Cannot update a component'))
+      )
+      expect(stateUpdateWarnings).toHaveLength(0)
+    } finally {
+      consoleErrorSpy.mockRestore()
+    }
+  })
+
   it('unlinks a person through the guarded mutation path', async () => {
     const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
     const onPeopleChange = jest.fn()
@@ -244,7 +295,9 @@ describe('CompanyPeopleSection', () => {
     })
   })
 
-  it('shows an inline add-person action after the first person is linked', () => {
+  it('keeps the add-person section action configured after the first person is linked', () => {
+    const onActionChange = jest.fn()
+
     renderWithProviders(
       <CompanyPeopleSection
         companyId="company-123"
@@ -257,13 +310,15 @@ describe('CompanyPeopleSection', () => {
         addActionLabel="Add person"
         emptyLabel="No linked people yet."
         emptyState={emptyState}
+        onActionChange={onActionChange}
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add person' }))
-
-    expect(pushMock).toHaveBeenCalledWith(
-      '/backend/customers/people/create?companyId=company-123&returnTo=%2Fbackend%2Fcustomers%2Fcompanies-v2%2Fcompany-123%3Ftab%3Dpeople',
+    expect(onActionChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        label: 'Add person',
+        onClick: expect.any(Function),
+      }),
     )
   })
 })

@@ -153,6 +153,7 @@ export function CompanyPeopleSection({
   const [selectedPersonId, setSelectedPersonId] = React.useState<string | null>(null)
   const [linking, setLinking] = React.useState(false)
   const candidatePeopleRef = React.useRef<Map<string, CompanyPersonSummary>>(new Map())
+  const pendingPeopleChangeRef = React.useRef(false)
   const createPersonHref = React.useMemo(() => buildCompanyPersonCreateHref(companyId), [companyId])
 
   const runWriteMutation = React.useCallback(
@@ -179,8 +180,15 @@ export function CompanyPeopleSection({
   }, [addActionLabel, createPersonHref, onActionChange, router])
 
   React.useEffect(() => {
+    pendingPeopleChangeRef.current = false
     setPeople(initialPeople)
   }, [initialPeople])
+
+  React.useEffect(() => {
+    if (!pendingPeopleChangeRef.current) return
+    pendingPeopleChangeRef.current = false
+    onPeopleChange?.(people)
+  }, [onPeopleChange, people])
 
   const linkedIds = React.useMemo(() => new Set(people.map((person) => person.id)), [people])
 
@@ -219,11 +227,13 @@ export function CompanyPeopleSection({
     (updater: (current: CompanyPersonSummary[]) => CompanyPersonSummary[]) => {
       setPeople((current) => {
         const next = updater(current)
-        onPeopleChange?.(next)
+        if (next !== current) {
+          pendingPeopleChangeRef.current = true
+        }
         return next
       })
     },
-    [onPeopleChange],
+    [],
   )
 
   const handleLink = React.useCallback(async () => {
@@ -398,7 +408,6 @@ export function CompanyPeopleSection({
     <>
       <div className="space-y-3">
         <div className="flex flex-wrap justify-end gap-2">
-          {addPersonAction}
           {linkAction}
         </div>
         <div className="rounded border bg-muted/20">

@@ -716,6 +716,8 @@
   "customers.people.detail.fields.twitter": "Twitter",
   "customers.people.detail.highlights.company": "Unternehmen",
   "customers.people.detail.highlights.nextInteraction": "Nächste Interaktion",
+  "customers.people.detail.highlights.nextInteractionHint": "Zeigt die nächste geplante Interaktion an. Erstelle eine Aufgabe mit Fälligkeitsdatum, damit sie hier erscheint.",
+  "customers.people.detail.highlights.nextInteractionLegacyHint": "Verfügbar, wenn die vereinheitlichten Interaktionen aktiviert sind. Erstelle Aufgaben mit Fälligkeitsdatum, um die nächste geplante Interaktion zu sehen.",
   "customers.people.detail.highlights.primaryEmail": "E-Mail",
   "customers.people.detail.highlights.primaryPhone": "Telefon",
   "customers.people.detail.highlights.status": "Status",

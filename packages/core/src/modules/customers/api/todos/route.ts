@@ -189,6 +189,9 @@ function collectTodoCustomValues(
     body.customValues && typeof body.customValues === 'object'
       ? { ...(body.customValues as Record<string, unknown>) }
       : {}
+  if (body.todoCustom && typeof body.todoCustom === 'object') {
+    Object.assign(direct, body.todoCustom as Record<string, unknown>)
+  }
   if (body.customFields && typeof body.customFields === 'object') {
     Object.assign(direct, body.customFields as Record<string, unknown>)
   }

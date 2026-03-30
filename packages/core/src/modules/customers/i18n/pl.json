@@ -716,6 +716,8 @@
   "customers.people.detail.fields.twitter": "Twitter",
   "customers.people.detail.highlights.company": "Firma",
   "customers.people.detail.highlights.nextInteraction": "Następna interakcja",
+  "customers.people.detail.highlights.nextInteractionHint": "Pokazuje najbliższą zaplanowaną interakcję. Utwórz zadanie z terminem, aby pojawiło się tutaj.",
+  "customers.people.detail.highlights.nextInteractionLegacyHint": "Dostępne, gdy włączone są ujednolicone interakcje. Utwórz zadania z terminem, aby zobaczyć najbliższą zaplanowaną interakcję.",
   "customers.people.detail.highlights.primaryEmail": "E-mail",
   "customers.people.detail.highlights.primaryPhone": "Telefon",
   "customers.people.detail.highlights.status": "Status",

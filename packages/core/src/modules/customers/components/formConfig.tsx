@@ -223,7 +223,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
   id: 'primaryEmail',
   label: t('customers.people.form.primaryEmail'),
   type: 'custom',
-  component: function PrimaryEmailField({ value, setValue, error, autoFocus, disabled }: CrudCustomFieldRenderProps) {
+  component: function PrimaryEmailField({ value, setValue, error, autoFocus, disabled, recordId }: CrudCustomFieldRenderProps) {
     const [inputValue, setInputValue] = React.useState(() => (typeof value === 'string' ? value : ''))
     const trimmedInput = inputValue.trim()
     const isValidEmail = React.useMemo(
@@ -231,6 +231,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
       [trimmedInput]
     )
     const { duplicate, checking } = useEmailDuplicateCheck(inputValue, {
+      recordId: typeof recordId === 'string' ? recordId : null,
       disabled: disabled || !!error || !isValidEmail,
       debounceMs: EMAIL_CHECK_DEBOUNCE_MS,
       matchMode: 'prefix',

@@ -350,6 +350,50 @@ export function ActivitiesSection({
     previewEmptyLabel: t('customers.config.dictionaries.dialog.previewEmpty', 'No appearance selected'),
   }), [t])
 
+  const sortActivitiesSoonestFirst = React.useCallback((items: ActivitySummary[]): ActivitySummary[] => {
+    const toTimestamp = (value: string | null | undefined): number | null => {
+      if (!value) return null
+      const timestamp = Date.parse(value)
+      return Number.isNaN(timestamp) ? null : timestamp
+    }
+
+    const referenceTime = Date.now()
+
+    const getSortKey = (activity: ActivitySummary): { bucket: number; time: number; createdAt: number } => {
+      const primaryTimestamp = toTimestamp(activity.occurredAt ?? activity.createdAt)
+      const createdAtTimestamp = toTimestamp(activity.createdAt) ?? Number.POSITIVE_INFINITY
+
+      if (primaryTimestamp === null) {
+        return { bucket: 2, time: Number.POSITIVE_INFINITY, createdAt: createdAtTimestamp }
+      }
+
+      if (primaryTimestamp >= referenceTime) {
+        return { bucket: 0, time: primaryTimestamp, createdAt: createdAtTimestamp }
+      }
+
+      return { bucket: 1, time: -primaryTimestamp, createdAt: createdAtTimestamp }
+    }
+
+    return [...items].sort((left, right) => {
+      const leftKey = getSortKey(left)
+      const rightKey = getSortKey(right)
+      if (leftKey.bucket !== rightKey.bucket) return leftKey.bucket - rightKey.bucket
+      if (leftKey.time !== rightKey.time) return leftKey.time - rightKey.time
+      if (leftKey.createdAt !== rightKey.createdAt) return leftKey.createdAt - rightKey.createdAt
+      return left.id.localeCompare(right.id)
+    })
+  }, [])
+
+  const sortedActivitiesAdapter = React.useMemo<ActivitiesDataAdapter>(() => ({
+    ...activitiesAdapter,
+    list: async (params) => sortActivitiesSoonestFirst(await activitiesAdapter.list(params)),
+  }), [activitiesAdapter, sortActivitiesSoonestFirst])
+
+  const customFieldEntityIds = React.useMemo(
+    () => [useCanonicalInteractions ? CUSTOMER_INTERACTION_ENTITY_ID : 'customers:customer_activity'],
+    [useCanonicalInteractions],
+  )
+
   return (
     <SharedActivitiesSection
       entityId={entityId}
@@ -361,7 +405,7 @@ export function ActivitiesSection({
       emptyState={emptyState}
       onActionChange={onActionChange}
       onLoadingChange={onLoadingChange}
-      dataAdapter={activitiesAdapter}
+      dataAdapter={sortedActivitiesAdapter}
       activityTypeLabels={activityTypeLabels}
       loadActivityOptions={loadActivityOptions}
       createActivityOption={createActivityOption}
@@ -371,7 +415,7 @@ export function ActivitiesSection({
       renderColor={renderDictionaryColor}
       manageHref="/backend/config/customers"
       appearanceLabels={appearanceLabels}
-      customFieldEntityIds={[useCanonicalInteractions ? CUSTOMER_INTERACTION_ENTITY_ID : 'customers:customer_activity']}
+      customFieldEntityIds={customFieldEntityIds}
     />
   )
 }

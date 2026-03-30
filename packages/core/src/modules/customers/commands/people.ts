@@ -6,6 +6,7 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
   requireId,
+  snapshotsEqual,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -780,6 +781,9 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const before = snapshots.before as PersonSnapshot | undefined
     if (!before) return null
     const afterSnapshot = snapshots.after as PersonSnapshot | undefined
+    if (afterSnapshot && snapshotsEqual(before, afterSnapshot)) {
+      return { skipLog: true }
+    }
     return {
       actionLabel: translate('customers.audit.people.update', 'Update person'),
       resourceKind: 'customers.person',

@@ -1,7 +1,13 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
-import { seedCustomerDictionaries, seedCurrencyDictionary, seedCustomerExamples, seedDefaultPipeline } from './cli'
+import {
+  ensureCustomerCustomFieldDefinitions,
+  seedCustomerDictionaries,
+  seedCurrencyDictionary,
+  seedCustomerExamples,
+  seedDefaultPipeline,
+} from './cli'
 
 const interactionFeatureToggles = [
   {
@@ -53,6 +59,7 @@ export const setup: ModuleSetupConfig = {
     await seedCustomerDictionaries(ctx.em, scope)
     await seedCurrencyDictionary(ctx.em, scope)
     await seedDefaultPipeline(ctx.em, scope)
+    await ensureCustomerCustomFieldDefinitions(ctx.em, ctx.tenantId)
     await seedInteractionFeatureToggles(ctx.em)
   },
 

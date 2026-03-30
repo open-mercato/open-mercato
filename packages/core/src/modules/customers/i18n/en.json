@@ -716,6 +716,8 @@
   "customers.people.detail.fields.twitter": "Twitter",
   "customers.people.detail.highlights.company": "Company",
   "customers.people.detail.highlights.nextInteraction": "Next interaction",
+  "customers.people.detail.highlights.nextInteractionHint": "Shows the nearest planned interaction. Create a task with a due date to populate this.",
+  "customers.people.detail.highlights.nextInteractionLegacyHint": "Available when unified interactions are enabled. Create tasks with a due date to see the next planned interaction.",
   "customers.people.detail.highlights.primaryEmail": "Primary email",
   "customers.people.detail.highlights.primaryPhone": "Primary phone",
   "customers.people.detail.highlights.status": "Status",

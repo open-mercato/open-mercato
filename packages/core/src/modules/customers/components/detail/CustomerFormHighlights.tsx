@@ -78,8 +78,12 @@ export function CompanyHighlightsSummary({ data }: { data: CompanyOverview }) {
 export function PersonHighlightsSummary({ data }: { data: PersonOverview }) {
   const t = useT()
   const { person, company } = data
+  const isLegacy = data.interactionMode !== 'canonical'
+  const nextInteractionHint = isLegacy
+    ? t('customers.people.detail.highlights.nextInteractionLegacyHint', 'Available when unified interactions are enabled. Create tasks with a due date to see the next planned interaction.')
+    : t('customers.people.detail.highlights.nextInteractionHint', 'Shows the nearest planned interaction. Create a task with a due date to populate this.')
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
       <HighlightItem
         label={t('customers.people.detail.highlights.primaryEmail', 'Email')}
         value={person.primaryEmail}
@@ -93,6 +97,11 @@ export function PersonHighlightsSummary({ data }: { data: PersonOverview }) {
       <HighlightItem
         label={t('customers.people.detail.highlights.status', 'Status')}
         value={person.status}
+      />
+      <HighlightItem
+        label={t('customers.people.detail.highlights.nextInteraction', 'Next interaction')}
+        value={formatNextInteraction(person.nextInteractionAt, person.nextInteractionName)}
+        hint={nextInteractionHint}
       />
       <HighlightItem
         label={t('customers.people.detail.highlights.company', 'Company')}

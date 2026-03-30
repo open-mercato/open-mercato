@@ -1,6 +1,5 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
-import { cf } from '@open-mercato/shared/modules/dsl'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -35,6 +34,7 @@ import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
 } from './lib/interactionCompatibility'
+import { CUSTOMER_CUSTOM_FIELD_SETS } from './customFieldDefaults'
 
 type SeedArgs = {
   tenantId: string
@@ -1325,11 +1325,7 @@ async function seedCustomerExamples(
   }
 
   try {
-    await ensureCustomFieldDefinitions(
-      em,
-      CUSTOMER_CUSTOM_FIELD_SETS,
-      { organizationId: null, tenantId }
-    )
+    await ensureCustomerCustomFieldDefinitions(em, tenantId)
   } catch (err) {
     console.warn('[customers.cli] Failed to ensure customer custom field definitions', err)
   }
@@ -1716,7 +1712,7 @@ async function seedCustomerStressTest(
       console.warn('[customers.cli] Failed to install custom entities before stress-test seeding', err)
     }
     try {
-      await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
+      await ensureCustomerCustomFieldDefinitions(em, tenantId)
     } catch (err) {
       console.warn('[customers.cli] Failed to ensure custom field definitions for stress-test seeding', err)
     }
@@ -3095,92 +3091,12 @@ const interactionsBackfill: ModuleCli = {
 const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill]
 
 export default customersCliCommands
-const CUSTOMER_CUSTOM_FIELD_SETS = [
-  {
-    entity: CoreEntities.customers.customer_person_profile,
-    fields: [
-      cf.select('buying_role', ['economic_buyer', 'champion', 'technical_evaluator', 'influencer'], {
-        label: 'Buying role',
-        description: 'Contact role within the buying committee.',
-        filterable: true,
-      }),
-      cf.text('preferred_pronouns', {
-        label: 'Preferred pronouns',
-        description: 'How the contact prefers to be addressed.',
-      }),
-      cf.boolean('newsletter_opt_in', {
-        label: 'Newsletter opt-in',
-        description: 'Indicates whether marketing newsletters are permitted.',
-        defaultValue: false,
-      }),
-    ],
-  },
-  {
-    entity: CoreEntities.customers.customer_company_profile,
-    fields: [
-      cf.select('relationship_health', ['healthy', 'monitor', 'at_risk'], {
-        label: 'Relationship health',
-        description: 'Overall account health assessment.',
-        filterable: true,
-      }),
-      cf.select('renewal_quarter', ['Q1', 'Q2', 'Q3', 'Q4'], {
-        label: 'Renewal quarter',
-        description: 'Expected renewal quarter for subscription accounts.',
-        filterable: true,
-      }),
-      cf.multiline('executive_notes', {
-        label: 'Executive notes',
-        description: 'Context shared during executive reviews.',
-        listVisible: false,
-      }),
-      cf.boolean('customer_marketing_case', {
-        label: 'Marketing case study ready',
-        description: 'The customer has approved participation in marketing collateral.',
-        defaultValue: false,
-      }),
-    ],
-  },
-  {
-    entity: CoreEntities.customers.customer_deal,
-    fields: [
-      cf.select('competitive_risk', ['low', 'medium', 'high'], {
-        label: 'Competitive risk',
-        description: 'Perceived threat level from competitors.',
-        filterable: true,
-      }),
-      cf.select('implementation_complexity', ['light', 'standard', 'complex'], {
-        label: 'Implementation complexity',
-        description: 'Expected level of effort for delivery.',
-      }),
-      cf.integer('estimated_seats', {
-        label: 'Estimated seats/licenses',
-        description: 'Projected seat count for the opportunity.',
-        filterable: true,
-      }),
-      cf.boolean('requires_legal_review', {
-        label: 'Requires legal review',
-        description: 'Deal includes terms that need legal approval.',
-        defaultValue: false,
-      }),
-    ],
-  },
-  {
-    entity: CoreEntities.customers.customer_activity,
-    fields: [
-      cf.select('engagement_sentiment', ['positive', 'neutral', 'negative'], {
-        label: 'Engagement sentiment',
-        description: 'Tone of the interaction based on the latest touchpoint.',
-        filterable: true,
-      }),
-      cf.boolean('shared_with_leadership', {
-        label: 'Shared with leadership',
-        description: 'Activity summary was shared with leadership or executives.',
-        defaultValue: false,
-      }),
-      cf.text('follow_up_owner', {
-        label: 'Follow-up owner',
-        description: 'Team member responsible for the next follow-up.',
-      }),
-    ],
-  },
-]
+export async function ensureCustomerCustomFieldDefinitions(
+  em: EntityManager,
+  tenantId: string | null,
+): Promise<void> {
+  await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, {
+    organizationId: null,
+    tenantId,
+  })
+}

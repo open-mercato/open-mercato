@@ -6,6 +6,7 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
   requireId,
+  snapshotsEqual,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -598,6 +599,9 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
     const before = snapshots.before as CompanySnapshot | undefined
     if (!before) return null
     const afterSnapshot = snapshots.after as CompanySnapshot | undefined
+    if (afterSnapshot && snapshotsEqual(before, afterSnapshot)) {
+      return { skipLog: true }
+    }
     return {
       actionLabel: translate('customers.audit.companies.update', 'Update company'),
       resourceKind: 'customers.company',
