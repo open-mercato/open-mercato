@@ -2,9 +2,20 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
-import { StaffTimeProjectMember } from '../../../../data/entities'
-import { staffTimeProjectMemberAssignSchema } from '../../../../data/validators'
-import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../../openapi'
+import { StaffTimeProjectMember } from '../../../../../data/entities'
+import { staffTimeProjectMemberAssignSchema } from '../../../../../data/validators'
+import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../../../openapi'
+
+function extractProjectIdFromUrl(request?: Request): string | null {
+  if (!request?.url) return null
+  try {
+    const url = new URL(request.url)
+    const match = url.pathname.match(/\/time-projects\/([^/]+)\/employees/)
+    return match?.[1] ?? null
+  } catch {
+    return null
+  }
+}
 
 const F = {
   id: 'id',
@@ -75,7 +86,7 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
-      const projectId = query.timeProjectId ?? ctx?.params?.id ?? null
+      const projectId = query.timeProjectId ?? extractProjectIdFromUrl(ctx?.request) ?? null
       if (typeof projectId === 'string' && projectId.trim().length > 0) {
         filters[F.time_project_id] = projectId.trim()
       }
@@ -91,7 +102,7 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const projectId = ctx?.params?.id ?? null
+        const projectId = extractProjectIdFromUrl(ctx?.request) ?? null
         const body = { ...raw, timeProjectId: raw?.timeProjectId ?? projectId }
         return parseScopedCommandInput(staffTimeProjectMemberAssignSchema, body, ctx, translate)
       },

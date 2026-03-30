@@ -3,10 +3,9 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { StaffTimeEntrySegment } from '../../../../../data/entities'
-import { staffTimeEntrySegmentUpdateSchema } from '../../../../../data/validators'
+import { StaffTimeEntrySegment } from '../../../../../../data/entities'
+import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 
 const routeMetadata = {
   PATCH: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -54,21 +53,13 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
 
-  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
-
-  const segment = await findOneWithDecryption(
-    em,
-    StaffTimeEntrySegment,
-    {
-      id: params.segmentId,
-      timeEntryId: params.id,
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      deletedAt: null,
-    },
-    {},
-    scope,
-  )
+  const segment = await em.findOne(StaffTimeEntrySegment, {
+    id: params.segmentId,
+    timeEntryId: params.id,
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    deletedAt: null,
+  })
 
   if (!segment) {
     return NextResponse.json({ error: 'Segment not found' }, { status: 404 })
@@ -104,8 +95,8 @@ const errorSchema = z.object({ error: z.string() })
 const segmentResponseSchema = z.object({
   ok: z.literal(true),
   item: z.object({
-    id: z.string().uuid(),
-    timeEntryId: z.string().uuid(),
+    id: z.string(),
+    timeEntryId: z.string(),
     startedAt: z.string(),
     endedAt: z.string().nullable(),
     segmentType: z.enum(['work', 'break']),
