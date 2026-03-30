@@ -1,7 +1,6 @@
 FROM node:24-alpine AS builder
 
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1
 
 WORKDIR /app
 
@@ -12,7 +11,8 @@ COPY package.json yarn.lock .yarnrc.yml ./
 RUN yarn install
 
 COPY . .
-RUN yarn build
+RUN yarn generate
+RUN NODE_ENV=production yarn build
 
 FROM node:24-alpine AS dev
 
@@ -51,7 +51,7 @@ RUN corepack enable
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN yarn install --production=true
 
-COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/.mercato/next ./.mercato/next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/types ./types
