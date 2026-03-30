@@ -9,7 +9,47 @@ services:
     command:
       - /bin/sh
       - -lc
-      - /app/docker/scripts/init-or-migrate.sh && yarn start
+      - |
+        run_init_or_migrate() {
+          MARKER_FILE="$$1"
+          INIT_COMMAND="$$2"
+          MIGRATE_COMMAND="$$3"
+          ALREADY_INITIALIZED_PATTERN='Initialization aborted: found [0-9][0-9]* existing user\(s\) in the database\.'
+
+          if [ ! -f "$${MARKER_FILE}" ]; then
+            echo "First run: full initialization..."
+            LOG_FILE="$$(mktemp)"
+            if sh -lc "$${INIT_COMMAND}" >"$${LOG_FILE}" 2>&1; then
+              cat "$${LOG_FILE}"
+              rm -f "$${LOG_FILE}"
+              mkdir -p "$$(dirname "$${MARKER_FILE}")"
+              touch "$${MARKER_FILE}"
+            else
+              STATUS=$$?
+              cat "$${LOG_FILE}"
+              if grep -Eq "$${ALREADY_INITIALIZED_PATTERN}" "$${LOG_FILE}"; then
+                rm -f "$${LOG_FILE}"
+                echo "Initialization reported existing users; treating database as already initialized."
+                echo "Running migrations..."
+                sh -lc "$${MIGRATE_COMMAND}"
+                mkdir -p "$$(dirname "$${MARKER_FILE}")"
+                touch "$${MARKER_FILE}"
+              else
+                rm -f "$${LOG_FILE}"
+                return "$${STATUS}"
+              fi
+            fi
+          else
+            echo "Subsequent run: migrations only..."
+            sh -lc "$${MIGRATE_COMMAND}"
+          fi
+        }
+        if [ -x /app/docker/scripts/init-or-migrate.sh ]; then
+          /app/docker/scripts/init-or-migrate.sh
+        else
+          run_init_or_migrate /tmp/init-marker/.seeded 'yarn initialize' 'yarn db:migrate'
+        fi
+        yarn start
     working_dir: /app
     volumes:
       - init_marker:/tmp/init-marker
