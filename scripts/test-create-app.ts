@@ -147,6 +147,7 @@ function main(): void {
       console.log(green('You are now in the generated app directory.'))
       console.log(yellow('Suggested next step:'))
       console.log('  yarn setup')
+      console.log('  # If you need to reset the DB and seed from scratch: yarn setup --reinstall')
       console.log(yellow('Manual alternative:'))
       console.log('  cp .env.example .env')
       console.log('  yarn install')

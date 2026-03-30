@@ -305,6 +305,7 @@ export async function run(argv = process.argv) {
               console.error(
                 '   To reset and initialize from scratch, run: yarn mercato init --reinstall',
               )
+              console.error('   Standalone shortcut: yarn setup --reinstall')
               console.error('   Shortcut script: yarn reinstall')
               return 1
             }

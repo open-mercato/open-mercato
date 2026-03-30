@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import { spawnSync } from 'node:child_process'
 
+const reinstall = process.argv.includes('--reinstall')
+
 function run(command, args) {
   const result = spawnSync(command, args, {
     stdio: 'inherit',
@@ -22,5 +24,5 @@ if (!fs.existsSync('.env') && fs.existsSync('.env.example')) {
 run('yarn', ['install'])
 run('yarn', ['generate'])
 run('yarn', ['db:migrate'])
-run('yarn', ['initialize'])
+run('yarn', reinstall ? ['initialize', '--reinstall'] : ['initialize'])
 run('yarn', ['dev'])
