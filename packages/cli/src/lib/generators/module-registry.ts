@@ -61,12 +61,31 @@ function processPageFiles(options: {
   pkgImportBase: string
   imports: string[]
   importIdRef: { value: number }
+  lazyComponents?: boolean
+  lazyComponentUsedRef?: { value: boolean }
 }): string[] {
-  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, imports, importIdRef } = options
+  const {
+    files,
+    type,
+    modId,
+    appDir,
+    pkgDir,
+    appImportBase,
+    pkgImportBase,
+    imports,
+    importIdRef,
+    lazyComponents = false,
+    lazyComponentUsedRef,
+  } = options
   const prefix = type === 'frontend' ? 'C' : 'B'
   const modPrefix = type === 'frontend' ? 'CM' : 'BM'
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
   const routes: string[] = []
+
+  const buildLazyComponentExpr = (importPath: string) => {
+    if (lazyComponentUsedRef) lazyComponentUsedRef.value = true
+    return `async (props) => { const mod = await import('${importPath}'); const Component = mod.default; return createElement(Component, props) }`
+  }
 
   // Next-style page.tsx files
   for (const { relPath, fromApp } of files.filter(({ relPath: f }) => f.endsWith('/page.tsx') || f === 'page.tsx')) {
@@ -85,19 +104,24 @@ function processPageFiles(options: {
     ]
     const metaPath = metaCandidates.find((p) => fs.existsSync(p))
     let metaExpr = 'undefined'
+    let componentExpr = importName
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
       imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
       metaExpr = `(${metaImportName}.metadata as any)`
-      imports.push(`import ${importName} from '${importPath}'`)
+      if (lazyComponents) {
+        componentExpr = buildLazyComponentExpr(importPath)
+      } else {
+        imports.push(`import ${importName} from '${importPath}'`)
+      }
     } else {
       metaExpr = `(${pageModName} as any).metadata`
       imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
     }
     const baseProps = `pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb`
     const extraProps = type === 'backend' ? `, pageContext: (${metaExpr})?.pageContext` : ''
-    routes.push(`{ ${baseProps}${extraProps}, Component: ${importName} }`)
+    routes.push(`{ ${baseProps}${extraProps}, Component: ${componentExpr} }`)
   }
 
   // Back-compat direct files (old-style pages like login.tsx instead of login/page.tsx)
@@ -120,6 +144,7 @@ function processPageFiles(options: {
     ]
     const metaPath = metaCandidates.find((p) => fs.existsSync(p))
     let metaExpr = 'undefined'
+    let componentExpr = importName
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       const metaBase = path.basename(metaPath)
@@ -127,14 +152,18 @@ function processPageFiles(options: {
       const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, metaImportSub].join('/')}`
       imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
       metaExpr = type === 'frontend' ? `(${metaImportName}.metadata as any)` : `${metaImportName}.metadata`
-      imports.push(`import ${importName} from '${importPath}'`)
+      if (lazyComponents) {
+        componentExpr = buildLazyComponentExpr(importPath)
+      } else {
+        imports.push(`import ${importName} from '${importPath}'`)
+      }
     } else {
       metaExpr = `(${pageModName} as any).metadata`
       imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
     }
     const baseProps = `pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey`
     const extraFe = type === 'frontend' ? `, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled` : `, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext`
-    routes.push(`{ ${baseProps}${extraFe}, Component: ${importName} }`)
+    routes.push(`{ ${baseProps}${extraFe}, Component: ${componentExpr} }`)
   }
 
   return routes
@@ -382,6 +411,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const outputDir = resolver.getOutputDir()
   const outFile = path.join(outputDir, 'modules.generated.ts')
   const checksumFile = path.join(outputDir, 'modules.generated.checksum')
+  const backendRoutesOutFile = path.join(outputDir, 'backend-routes.generated.ts')
+  const backendRoutesChecksumFile = path.join(outputDir, 'backend-routes.generated.checksum')
+  const frontendRoutesOutFile = path.join(outputDir, 'frontend-routes.generated.ts')
+  const frontendRoutesChecksumFile = path.join(outputDir, 'frontend-routes.generated.checksum')
+  const bootstrapModulesOutFile = path.join(outputDir, 'bootstrap-modules.generated.ts')
+  const bootstrapModulesChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
   const widgetsOutFile = path.join(outputDir, 'dashboard-widgets.generated.ts')
   const widgetsChecksumFile = path.join(outputDir, 'dashboard-widgets.generated.checksum')
   const injectionWidgetsOutFile = path.join(outputDir, 'injection-widgets.generated.ts')
@@ -459,8 +494,20 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
   const imports: string[] = []
   const moduleDecls: string[] = []
+  const backendRouteImports: string[] = []
+  const backendModuleDecls: string[] = []
+  const frontendRouteImports: string[] = []
+  const frontendModuleDecls: string[] = []
+  const bootstrapImports: string[] = []
+  const bootstrapModuleDecls: string[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
+  const backendRouteImportIdRef = { value: 0 }
+  const frontendRouteImportIdRef = { value: 0 }
+  const bootstrapImportIdRef = { value: 0 }
+  const backendRoutesUseLazyRef = { value: false }
+  const frontendRoutesUseLazyRef = { value: false }
+  const bootstrapModulesUseLazyRef = { value: false }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const allDashboardWidgets = new Map<string, { moduleId: string; source: 'app' | 'package'; importPath: string }>()
@@ -525,25 +572,43 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
+    const lazyFrontendRoutes: string[] = []
+    const lazyBackendRoutes: string[] = []
+    const bootstrapFrontendRoutes: string[] = []
+    const bootstrapBackendRoutes: string[] = []
     const apis: string[] = []
+    const bootstrapApis: string[] = []
     let cliImportName: string | null = null
+    let bootstrapCliImportName: string | null = null
     const translations: string[] = []
+    const bootstrapTranslations: string[] = []
     const subscribers: string[] = []
+    const bootstrapSubscribers: string[] = []
     const workers: string[] = []
+    const bootstrapWorkers: string[] = []
     let infoImportName: string | null = null
+    let bootstrapInfoImportName: string | null = null
     let extensionsImportName: string | null = null
+    let bootstrapExtensionsImportName: string | null = null
     let fieldsImportName: string | null = null
+    let bootstrapFieldsImportName: string | null = null
     let featuresImportName: string | null = null
+    let bootstrapFeaturesImportName: string | null = null
     let customEntitiesImportName: string | null = null
+    let bootstrapCustomEntitiesImportName: string | null = null
     let searchImportName: string | null = null
     let eventsImportName: string | null = null
     let analyticsImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
+    let bootstrapCustomFieldSetsExpr: string = '[]'
     const dashboardWidgets: string[] = []
+    const bootstrapDashboardWidgets: string[] = []
     const injectionWidgets: string[] = []
     let injectionTableImportName: string | null = null
     let setupImportName: string | null = null
+    let bootstrapSetupImportName: string | null = null
     let integrationImportName: string | null = null
+    let bootstrapIntegrationImportName: string | null = null
 
     // === Processing order MUST match original import ID sequence ===
 
@@ -555,6 +620,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
       imports.push(`import * as ${infoImportName} from '${importPath}'`)
+      bootstrapInfoImportName = `I${bootstrapImportIdRef.value++}_${toVar(modId)}`
+      bootstrapImports.push(`import * as ${bootstrapInfoImportName} from '${importPath}'`)
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require(indexTs)
@@ -581,6 +648,32 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           imports,
           importIdRef,
         }))
+        lazyFrontendRoutes.push(...processPageFiles({
+          files: feFiles,
+          type: 'frontend',
+          modId,
+          appDir: feApp,
+          pkgDir: fePkg,
+          appImportBase,
+          pkgImportBase: imps.pkgBase,
+          imports: frontendRouteImports,
+          importIdRef: frontendRouteImportIdRef,
+          lazyComponents: true,
+          lazyComponentUsedRef: frontendRoutesUseLazyRef,
+        }))
+        bootstrapFrontendRoutes.push(...processPageFiles({
+          files: feFiles,
+          type: 'frontend',
+          modId,
+          appDir: feApp,
+          pkgDir: fePkg,
+          appImportBase,
+          pkgImportBase: imps.pkgBase,
+          imports: bootstrapImports,
+          importIdRef: bootstrapImportIdRef,
+          lazyComponents: true,
+          lazyComponentUsedRef: bootstrapModulesUseLazyRef,
+        }))
       }
     }
 
@@ -588,6 +681,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     {
       const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports)
       if (ext) extensionsImportName = ext.importName
+      const bootstrapExt = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, bootstrapImportIdRef, bootstrapImports)
+      if (bootstrapExt) bootstrapExtensionsImportName = bootstrapExt.importName
     }
 
     // 4. RBAC: acl.ts
@@ -601,6 +696,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
         imports.push(`import * as ${importName} from '${importPath}'`)
         featuresImportName = importName
+        const bootstrapImportName = `ACL_${toVar(modId)}_${bootstrapImportIdRef.value++}`
+        bootstrapImports.push(`import * as ${bootstrapImportName} from '${importPath}'`)
+        bootstrapFeaturesImportName = bootstrapImportName
       }
     }
 
@@ -608,6 +706,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     {
       const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports)
       if (ce) customEntitiesImportName = ce.importName
+      const bootstrapCe = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, bootstrapImportIdRef, bootstrapImports)
+      if (bootstrapCe) bootstrapCustomEntitiesImportName = bootstrapCe.importName
     }
 
     // 6. Search: search.ts
@@ -855,6 +955,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
+      const bootstrapSetup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, bootstrapImportIdRef, bootstrapImports)
+      if (bootstrapSetup) bootstrapSetupImportName = bootstrapSetup.importName
     }
 
     // 11b. Integration manifest: integration.ts
@@ -864,6 +966,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
         imports.push(`import * as ${importName} from '${resolved.importPath}'`)
         integrationImportName = importName
+        const bootstrapImportName = `INTEGRATION_${toVar(modId)}_${bootstrapImportIdRef.value++}`
+        bootstrapImports.push(`import * as ${bootstrapImportName} from '${resolved.importPath}'`)
+        bootstrapIntegrationImportName = bootstrapImportName
       }
     }
 
@@ -871,6 +976,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     {
       const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports)
       if (fields) fieldsImportName = fields.importName
+      const bootstrapFields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, bootstrapImportIdRef, bootstrapImports)
+      if (bootstrapFields) bootstrapFieldsImportName = bootstrapFields.importName
     }
 
     // 13. Pages: backend
@@ -890,6 +997,32 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           imports,
           importIdRef,
         }))
+        lazyBackendRoutes.push(...processPageFiles({
+          files: beFiles,
+          type: 'backend',
+          modId,
+          appDir: beApp,
+          pkgDir: bePkg,
+          appImportBase,
+          pkgImportBase: imps.pkgBase,
+          imports: backendRouteImports,
+          importIdRef: backendRouteImportIdRef,
+          lazyComponents: true,
+          lazyComponentUsedRef: backendRoutesUseLazyRef,
+        }))
+        bootstrapBackendRoutes.push(...processPageFiles({
+          files: beFiles,
+          type: 'backend',
+          modId,
+          appDir: beApp,
+          pkgDir: bePkg,
+          appImportBase,
+          pkgImportBase: imps.pkgBase,
+          imports: bootstrapImports,
+          importIdRef: bootstrapImportIdRef,
+          lazyComponents: true,
+          lazyComponentUsedRef: bootstrapModulesUseLazyRef,
+        }))
       }
     }
 
@@ -902,6 +1035,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       imports,
       importIdRef,
     }))
+    bootstrapApis.push(...await processApiRoutes({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports: bootstrapImports,
+      importIdRef: bootstrapImportIdRef,
+    }))
 
     // 15. CLI
     {
@@ -913,6 +1054,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
         imports.push(`import ${importName} from '${importPath}'`)
         cliImportName = importName
+        const bootstrapImportName = `CLI_${toVar(modId)}_${bootstrapImportIdRef.value++}`
+        bootstrapImports.push(`import ${bootstrapImportName} from '${importPath}'`)
+        bootstrapCliImportName = bootstrapImportName
       }
     }
 
@@ -924,6 +1068,13 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       pkgImportBase: imps.pkgBase,
       imports,
     }))
+    bootstrapTranslations.push(...processTranslations({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports: bootstrapImports,
+    }))
 
     // 17. Subscribers
     subscribers.push(...processSubscribers({
@@ -934,6 +1085,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       imports,
       importIdRef,
     }))
+    bootstrapSubscribers.push(...processSubscribers({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports: bootstrapImports,
+      importIdRef: bootstrapImportIdRef,
+    }))
 
     // 18. Workers
     workers.push(...await processWorkers({
@@ -943,6 +1102,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       pkgImportBase: imps.pkgBase,
       imports,
       importIdRef,
+    }))
+    bootstrapWorkers.push(...await processWorkers({
+      roots,
+      modId,
+      appImportBase,
+      pkgImportBase: imps.pkgBase,
+      imports: bootstrapImports,
+      importIdRef: bootstrapImportIdRef,
     }))
 
     // Build combined customFieldSets expression
@@ -955,6 +1122,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           `((( ${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || []).filter((e: any) => Array.isArray(e.fields) && e.fields.length).map((e: any) => ({ entity: e.id, fields: e.fields, source: '${modId}' }))`
         )
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
+      const bootstrapParts: string[] = []
+      if (bootstrapFieldsImportName)
+        bootstrapParts.push(`(( ${bootstrapFieldsImportName}.default ?? ${bootstrapFieldsImportName}.fieldSets) as any) || []`)
+      if (bootstrapCustomEntitiesImportName)
+        bootstrapParts.push(
+          `((( ${bootstrapCustomEntitiesImportName}.default ?? ${bootstrapCustomEntitiesImportName}.entities) as any) || []).filter((e: any) => Array.isArray(e.fields) && e.fields.length).map((e: any) => ({ entity: e.id, fields: e.fields, source: '${modId}' }))`
+        )
+      bootstrapCustomFieldSetsExpr = bootstrapParts.length ? `[...${bootstrapParts.join(', ...')}]` : '[]'
     }
 
     // 19. Dashboard widgets
@@ -967,6 +1142,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       })
       for (const entry of entries) {
         dashboardWidgets.push(
+          `{ moduleId: '${entry.moduleId}', key: '${entry.key}', source: '${entry.source}', loader: () => import('${entry.importPath}').then((mod) => mod.default ?? mod) }`
+        )
+        bootstrapDashboardWidgets.push(
           `{ moduleId: '${entry.moduleId}', key: '${entry.key}', source: '${entry.source}', loader: () => import('${entry.importPath}').then((mod) => mod.default ?? mod) }`
         )
         const existing = allDashboardWidgets.get(entry.key)
@@ -1041,6 +1219,33 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
       ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+    }`)
+    frontendModuleDecls.push(`{
+      id: '${modId}',
+      ${lazyFrontendRoutes.length ? `frontendRoutes: [${lazyFrontendRoutes.join(', ')}],` : ''}
+    }`)
+    backendModuleDecls.push(`{
+      id: '${modId}',
+      ${lazyBackendRoutes.length ? `backendRoutes: [${lazyBackendRoutes.join(', ')}],` : ''}
+    }`)
+    bootstrapModuleDecls.push(`{
+      id: '${modId}',
+      ${bootstrapInfoImportName ? `info: ${bootstrapInfoImportName}.metadata,` : ''}
+      ${bootstrapFrontendRoutes.length ? `frontendRoutes: [${bootstrapFrontendRoutes.join(', ')}],` : ''}
+      ${bootstrapBackendRoutes.length ? `backendRoutes: [${bootstrapBackendRoutes.join(', ')}],` : ''}
+      ${bootstrapApis.length ? `apis: [${bootstrapApis.join(', ')}],` : ''}
+      ${bootstrapCliImportName ? `cli: ${bootstrapCliImportName},` : ''}
+      ${bootstrapTranslations.length ? `translations: { ${bootstrapTranslations.join(', ')} },` : ''}
+      ${bootstrapSubscribers.length ? `subscribers: [${bootstrapSubscribers.join(', ')}],` : ''}
+      ${bootstrapWorkers.length ? `workers: [${bootstrapWorkers.join(', ')}],` : ''}
+      ${bootstrapExtensionsImportName ? `entityExtensions: ((${bootstrapExtensionsImportName}.default ?? ${bootstrapExtensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
+      customFieldSets: ${bootstrapCustomFieldSetsExpr},
+      ${bootstrapFeaturesImportName ? `features: ((${bootstrapFeaturesImportName}.default ?? ${bootstrapFeaturesImportName}.features) as any) || [],` : ''}
+      ${bootstrapCustomEntitiesImportName ? `customEntities: ((${bootstrapCustomEntitiesImportName}.default ?? ${bootstrapCustomEntitiesImportName}.entities) as any) || [],` : ''}
+      ${bootstrapDashboardWidgets.length ? `dashboardWidgets: [${bootstrapDashboardWidgets.join(', ')}],` : ''}
+      ${bootstrapSetupImportName ? `setup: (${bootstrapSetupImportName}.default ?? ${bootstrapSetupImportName}.setup) || undefined,` : ''}
+      ${bootstrapIntegrationImportName ? `integrations: (( ${bootstrapIntegrationImportName}.integrations ?? (${bootstrapIntegrationImportName}.integration ? [${bootstrapIntegrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${bootstrapIntegrationImportName ? `bundles: (( ${bootstrapIntegrationImportName}.bundles ?? (${bootstrapIntegrationImportName}.bundle ? [${bootstrapIntegrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
   }
 
@@ -1151,6 +1356,30 @@ export const modules: Module[] = [
 ]
 export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 export default modules
+`
+  const backendRoutesOutput = `// AUTO-GENERATED by mercato generate registry
+${backendRoutesUseLazyRef.value ? `import { createElement } from 'react'\n` : ''}import type { Module } from '@open-mercato/shared/modules/registry'
+${backendRouteImports.join('\n')}
+
+export const backendModules: Pick<Module, 'id' | 'backendRoutes'>[] = [
+  ${backendModuleDecls.join(',\n  ')}
+]
+`
+  const frontendRoutesOutput = `// AUTO-GENERATED by mercato generate registry
+${frontendRoutesUseLazyRef.value ? `import { createElement } from 'react'\n` : ''}import type { Module } from '@open-mercato/shared/modules/registry'
+${frontendRouteImports.join('\n')}
+
+export const frontendModules: Pick<Module, 'id' | 'frontendRoutes'>[] = [
+  ${frontendModuleDecls.join(',\n  ')}
+]
+`
+  const bootstrapModulesOutput = `// AUTO-GENERATED by mercato generate registry
+${bootstrapModulesUseLazyRef.value ? `import { createElement } from 'react'\n` : ''}import type { Module } from '@open-mercato/shared/modules/registry'
+${bootstrapImports.join('\n')}
+
+export const bootstrapModules: Module[] = [
+  ${bootstrapModuleDecls.join(',\n  ')}
+]
 `
   const widgetEntriesList = Array.from(allDashboardWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
   const widgetDecls = widgetEntriesList.map(
@@ -1463,6 +1692,30 @@ configureMessageUiComponentRegistry(registry)
   ])
 
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
+  writeGeneratedFile({
+    outFile: backendRoutesOutFile,
+    checksumFile: backendRoutesChecksumFile,
+    content: backendRoutesOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+  writeGeneratedFile({
+    outFile: frontendRoutesOutFile,
+    checksumFile: frontendRoutesChecksumFile,
+    content: frontendRoutesOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+  writeGeneratedFile({
+    outFile: bootstrapModulesOutFile,
+    checksumFile: bootstrapModulesChecksumFile,
+    content: bootstrapModulesOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
   writeGeneratedFile({ outFile: widgetsOutFile, checksumFile: widgetsChecksumFile, content: widgetsOutput, structureChecksum, result, quiet })
 
   const injectionWidgetEntriesList = Array.from(allInjectionWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))

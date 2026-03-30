@@ -2,7 +2,7 @@ import { notFound, redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import Link from 'next/link'
 import { findBackendMatch } from '@open-mercato/shared/modules/registry'
-import { modules } from '@/.mercato/generated/modules.generated'
+import { backendModules } from '@/.mercato/generated/backend-routes.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { ApplyBreadcrumb } from '@open-mercato/ui/backend/AppShell'
@@ -13,7 +13,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { ComponentReplacementHandles, resolveRegisteredComponent } from '@open-mercato/shared/modules/widgets/component-registry'
 import type { Metadata } from 'next'
-import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
+import { resolveLocalizedTitleMetadata } from '../../../../lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { backendMiddlewareEntries } from '@/.mercato/generated/backend-middleware.generated'
 
@@ -39,7 +39,7 @@ async function renderAccessDenied() {
 export async function generateMetadata(props: BackendParams): Promise<Metadata> {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
-  const match = findBackendMatch(modules, pathname)
+  const match = findBackendMatch(backendModules, pathname)
   if (!match) {
     return {}
   }
@@ -53,7 +53,7 @@ export async function generateMetadata(props: BackendParams): Promise<Metadata> 
 export default async function BackendCatchAll(props: BackendParams) {
   const params = await props.params
   const pathname = '/backend/' + (params.slug?.join('/') ?? '')
-  const match = findBackendMatch(modules, pathname)
+  const match = findBackendMatch(backendModules, pathname)
   if (!match) return notFound()
   let auth: AuthContext = null
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null

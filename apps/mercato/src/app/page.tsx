@@ -1,7 +1,7 @@
 import { modules } from '@/.mercato/generated/modules.generated'
 import { StartPageContent } from '@/components/StartPageContent'
 import type { Metadata } from 'next'
-import { resolveLocalizedAppMetadata } from '@/lib/metadata'
+import { resolveLocalizedAppMetadata } from '../lib/metadata'
 import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'

@@ -234,7 +234,10 @@ function getPattern(r: ModuleRoute) {
   return r.pattern ?? r.path ?? '/'
 }
 
-export function findFrontendMatch(modules: Module[], pathname: string): { route: ModuleRoute; params: Record<string, string | string[]> } | undefined {
+export function findFrontendMatch(
+  modules: Array<Pick<Module, 'frontendRoutes'>>,
+  pathname: string,
+): { route: ModuleRoute; params: Record<string, string | string[]> } | undefined {
   for (const m of modules) {
     const routes = m.frontendRoutes ?? []
     for (const r of routes) {
@@ -244,7 +247,10 @@ export function findFrontendMatch(modules: Module[], pathname: string): { route:
   }
 }
 
-export function findBackendMatch(modules: Module[], pathname: string): { route: ModuleRoute; params: Record<string, string | string[]> } | undefined {
+export function findBackendMatch(
+  modules: Array<Pick<Module, 'backendRoutes'>>,
+  pathname: string,
+): { route: ModuleRoute; params: Record<string, string | string[]> } | undefined {
   for (const m of modules) {
     const routes = m.backendRoutes ?? []
     for (const r of routes) {
