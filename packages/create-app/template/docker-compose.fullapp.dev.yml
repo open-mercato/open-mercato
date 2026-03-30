@@ -6,9 +6,14 @@ services:
     build:
       context: .
       target: dev
-    image: open-mercato/app:${DEPLOY_ENV:-local}-dev
+      args:
+        - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
     user: "0"
     command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules
@@ -48,6 +53,7 @@ services:
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
+      OPEN_MERCATO_DOCKER_REGISTRY_HOST: ${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,7 +66,6 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17-trixie
-    container_name: mercato-postgres-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -78,7 +83,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: mercato-redis-${DEPLOY_ENV:-local}
     volumes:
       - redis_data:/data
     healthcheck:
@@ -91,7 +95,6 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.11
-    container_name: mercato-meilisearch-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       MEILI_ENV: development
@@ -109,21 +112,13 @@ services:
 
 volumes:
   postgres_data:
-    name: mercato-postgres-data-${DEPLOY_ENV:-local}
   redis_data:
-    name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
-    name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
   init_marker:
-    name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
-    name: mercato-attachments-storage-${DEPLOY_ENV:-local}
   app_node_modules:
-    name: mercato-app-node-modules-${DEPLOY_ENV:-local}
   app_next:
-    name: mercato-app-next-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:
-    name: mercato-network-${DEPLOY_ENV:-local}
     driver: bridge
