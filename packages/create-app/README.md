@@ -59,6 +59,10 @@ npx create-mercato-app my-store --registry http://localhost:4873
    ```bash
    yarn setup --reinstall
    ```
+   Alias:
+   ```bash
+   yarn setup:reinstall
+   ```
 
 3. Manual alternative if you want to edit the environment first:
    ```bash

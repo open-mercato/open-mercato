@@ -220,6 +220,7 @@ async function main(): Promise<void> {
     console.log(pc.cyan('  yarn setup'))
     console.log(pc.dim('  # Copies .env.example to .env if needed, installs deps, migrates, initializes, and starts dev'))
     console.log(pc.dim('  # If you need a clean reset first: yarn setup --reinstall'))
+    console.log(pc.dim('  # Alias: yarn setup:reinstall'))
     console.log('')
     console.log('Manual alternative:')
     console.log(pc.cyan('  cp .env.example .env'))
