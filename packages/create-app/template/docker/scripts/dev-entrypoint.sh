@@ -3,7 +3,10 @@ set -e
 
 CONTAINER_REGISTRY_HOST="${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}"
 YARNRC_BACKUP=""
+<<<<<<< fix/standalone_app_fixes
 INSTALL_STATE_FILE="/app/node_modules/.open-mercato-install-state"
+=======
+>>>>>>> develop
 
 restore_yarn_config() {
   if [ -n "${YARNRC_BACKUP}" ] && [ -f "${YARNRC_BACKUP}" ]; then
@@ -33,6 +36,7 @@ prepare_container_yarn_config() {
   mv /app/.yarnrc.yml.container /app/.yarnrc.yml
 }
 
+<<<<<<< fix/standalone_app_fixes
 compute_install_state() {
   for file in /app/package.json /app/yarn.lock /app/.yarnrc.yml; do
     if [ -f "${file}" ]; then
@@ -78,17 +82,29 @@ record_install_state() {
   compute_install_state > "${INSTALL_STATE_FILE}"
 }
 
+=======
+>>>>>>> develop
 trap restore_yarn_config EXIT
 
 cd /app
 
+<<<<<<< fix/standalone_app_fixes
 if should_install_dependencies; then
+=======
+if [ ! -d node_modules ] \
+  || [ -z "$(ls -A node_modules 2>/dev/null)" ] \
+  || [ ! -d node_modules/@open-mercato/cli ] \
+  || [ ! -x node_modules/.bin/mercato ]; then
+>>>>>>> develop
   prepare_container_yarn_config
   echo "Installing dependencies..."
   reset_node_modules
   yarn install
   restore_yarn_config
+<<<<<<< fix/standalone_app_fixes
   record_install_state
+=======
+>>>>>>> develop
 fi
 
 sh /app/docker/scripts/init-or-migrate.sh
