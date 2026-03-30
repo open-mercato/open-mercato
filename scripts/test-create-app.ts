@@ -14,6 +14,10 @@ const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
+const standaloneInstallEnv: NodeJS.ProcessEnv = {
+  ...process.env,
+  YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
+}
 
 function readJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
@@ -66,7 +70,10 @@ async function main(): Promise<void> {
     addPreinstallScriptProbe(appDir)
     runCommand('yarn', ['verify:yarn-script-resolution'], { cwd: appDir })
 
-    runCommand('yarn', ['install'], { cwd: appDir })
+    runCommand('yarn', ['install'], {
+      cwd: appDir,
+      env: standaloneInstallEnv,
+    })
 
     console.log(green('\ncreate-mercato-app scaffold test passed'))
     console.log(cyan(`App path: ${appDir}`))

@@ -3,6 +3,7 @@ import {
   getCliModules,
   hasCliModules,
   padByCodePointWidth,
+  run,
 } from '../mercato'
 
 describe('mercato CLI module registration', () => {
@@ -104,5 +105,44 @@ describe('padByCodePointWidth', () => {
   it('does not trim or pad when value meets or exceeds target width', () => {
     expect(padByCodePointWidth('1234567890123', 13)).toBe('1234567890123')
     expect(padByCodePointWidth('12345678901234', 13)).toBe('12345678901234')
+  })
+})
+
+describe('db command failure output', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@127.0.0.1:5432/open_mercato'
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  it('shows a targeted message when db:migrate cannot reach postgres', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const migrateError = new AggregateError(
+      [Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })],
+      'AggregateError',
+    )
+
+    registerCliModules([
+      {
+        id: 'db',
+        cli: [{ command: 'migrate', run: jest.fn().mockRejectedValue(migrateError) }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'db', 'migrate'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '💥 Failed: PostgreSQL at 127.0.0.1:5432/open_mercato is not reachable: it refused the connection. Start the database service or fix DATABASE_URL in .env, then retry `yarn db:migrate`.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
   })
 })

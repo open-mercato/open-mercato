@@ -262,6 +262,25 @@ describe('checkout utils', () => {
     })
   })
 
+  it('serializes link-only fields even when the record is a plain object', () => {
+    const link = {
+      ...createLink({
+        templateId: 'template_1',
+        completionCount: 1,
+        activeReservationCount: 2,
+        isLocked: true,
+      }),
+    } as CheckoutLink
+
+    expect(serializeTemplateOrLink(link)).toMatchObject({
+      slug: 'test-link',
+      templateId: 'template_1',
+      completionCount: 1,
+      activeReservationCount: 2,
+      isLocked: true,
+    })
+  })
+
   it('keeps template values when create-link input only provides explicit overrides', () => {
     expect(pickExplicitParsedOverrides(
       {
