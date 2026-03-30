@@ -14,7 +14,11 @@ RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \
       sed \
         -e "s#http://localhost:#http://${OPEN_MERCATO_DOCKER_REGISTRY_HOST}:#g" \
         -e "s#http://127.0.0.1:#http://${OPEN_MERCATO_DOCKER_REGISTRY_HOST}:#g" \
-        .yarnrc.yml > .yarnrc.yml.container && mv .yarnrc.yml.container .yarnrc.yml; \
+        .yarnrc.yml > .yarnrc.yml.container; \
+      if ! grep -Eq '^checksumBehavior:' .yarnrc.yml.container; then \
+        printf '\nchecksumBehavior: update\n' >> .yarnrc.yml.container; \
+      fi; \
+      mv .yarnrc.yml.container .yarnrc.yml; \
     fi
 RUN yarn install
 
@@ -39,7 +43,11 @@ RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \
       sed \
         -e "s#http://localhost:#http://${OPEN_MERCATO_DOCKER_REGISTRY_HOST}:#g" \
         -e "s#http://127.0.0.1:#http://${OPEN_MERCATO_DOCKER_REGISTRY_HOST}:#g" \
-        .yarnrc.yml > .yarnrc.yml.container && mv .yarnrc.yml.container .yarnrc.yml; \
+        .yarnrc.yml > .yarnrc.yml.container; \
+      if ! grep -Eq '^checksumBehavior:' .yarnrc.yml.container; then \
+        printf '\nchecksumBehavior: update\n' >> .yarnrc.yml.container; \
+      fi; \
+      mv .yarnrc.yml.container .yarnrc.yml; \
     fi
 RUN yarn install
 
@@ -73,7 +81,11 @@ RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \
       sed \
         -e "s#http://localhost:#http://${OPEN_MERCATO_DOCKER_REGISTRY_HOST}:#g" \
         -e "s#http://127.0.0.1:#http://${OPEN_MERCATO_DOCKER_REGISTRY_HOST}:#g" \
-        .yarnrc.yml > .yarnrc.yml.container && mv .yarnrc.yml.container .yarnrc.yml; \
+        .yarnrc.yml > .yarnrc.yml.container; \
+      if ! grep -Eq '^checksumBehavior:' .yarnrc.yml.container; then \
+        printf '\nchecksumBehavior: update\n' >> .yarnrc.yml.container; \
+      fi; \
+      mv .yarnrc.yml.container .yarnrc.yml; \
     fi
 RUN yarn workspaces focus --all --production
 

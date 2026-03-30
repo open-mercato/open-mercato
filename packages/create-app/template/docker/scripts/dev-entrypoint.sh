@@ -26,6 +26,9 @@ prepare_container_yarn_config() {
     -e "s#http://localhost:#http://${CONTAINER_REGISTRY_HOST}:#g" \
     -e "s#http://127.0.0.1:#http://${CONTAINER_REGISTRY_HOST}:#g" \
     /app/.yarnrc.yml > /app/.yarnrc.yml.container
+  if ! grep -Eq '^checksumBehavior:' /app/.yarnrc.yml.container; then
+    printf '\nchecksumBehavior: update\n' >> /app/.yarnrc.yml.container
+  fi
   mv /app/.yarnrc.yml.container /app/.yarnrc.yml
 }
 

@@ -7,7 +7,6 @@ services:
         - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
       extra_hosts:
         - "host.docker.internal:host-gateway"
-    image: open-mercato/app:${DEPLOY_ENV:-local}
     user: "0"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -101,7 +100,6 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17-trixie
-    container_name: mercato-postgres-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -119,7 +117,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: mercato-redis-${DEPLOY_ENV:-local}
     volumes:
       - redis_data:/data
     healthcheck:
@@ -132,7 +129,6 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.11
-    container_name: mercato-meilisearch-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
       MEILI_ENV: development
@@ -150,17 +146,11 @@ services:
 
 volumes:
   postgres_data:
-    name: mercato-postgres-data-${DEPLOY_ENV:-local}
   redis_data:
-    name: mercato-redis-data-${DEPLOY_ENV:-local}
   meilisearch_data:
-    name: mercato-meilisearch-data-${DEPLOY_ENV:-local}
   init_marker:
-    name: mercato-init-marker-${DEPLOY_ENV:-local}
   attachments_storage:
-    name: mercato-attachments-storage-${DEPLOY_ENV:-local}
 
 networks:
   mercato-network-fullapp:
-    name: mercato-network-${DEPLOY_ENV:-local}
     driver: bridge
