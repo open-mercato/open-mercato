@@ -1,4 +1,5 @@
 # Full stack with app in dev mode: mounted source + yarn dev (watch).
+# Before first run: cp .env.example .env && yarn install
 # Usage: docker compose -f docker-compose.fullapp.dev.yml up --build
 
 services:

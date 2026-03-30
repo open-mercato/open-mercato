@@ -68,6 +68,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/template/yarn.lock.template`, `packages/create-app/src/index.ts`, and `scripts/test-create-app.ts`.
 
+## Generated standalone app installs in CI must opt out of immutable lockfiles
+
+**Context**: Snapshot parity scaffolds a fresh standalone app from `create-mercato-app` and then runs `yarn install` inside that generated directory.
+
+**Problem**: On CI, Yarn enables immutable installs by default. Because the scaffold intentionally ships only a minimal root workspace `yarn.lock`, the first standalone `yarn install` needs to materialize the real lockfile and otherwise fails with `YN0028`.
+
+**Rule**: When CI or smoke tests run the first `yarn install` inside a freshly scaffolded standalone app, set `YARN_ENABLE_IMMUTABLE_INSTALLS=0`. Do this only for the generated app install/add steps, not for the monorepo install.
+
+**Applies to**: `.github/workflows/snapshot.yml`, `scripts/test-create-app.ts`, and `scripts/test-create-app-integration.ts`.
+
 ## Standalone scaffolding and generators must not assume monorepo-only paths
 
 **Context**: Separately, the standalone `yarn generate` OpenAPI bundle still looked for `packages/shared`, `apps/mercato`, and `tsconfig.base.json`.

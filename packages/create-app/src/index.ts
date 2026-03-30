@@ -262,6 +262,8 @@ async function main(): Promise<void> {
     console.log(pc.cyan('  yarn dev'))
     console.log('')
     console.log('Docker alternatives:')
+    console.log(pc.dim('  # Before Docker: cp .env.example .env && yarn install'))
+    console.log(pc.dim('  # Docker expects your local app env and dependencies to be prepared first'))
     console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
     console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
     console.log('')

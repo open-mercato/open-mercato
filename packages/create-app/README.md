@@ -95,6 +95,20 @@ npx create-mercato-app my-store --registry http://localhost:4873
    yarn dev
    ```
 
+9. Docker alternatives:
+   ```bash
+   cp .env.example .env
+   yarn install
+   docker compose -f docker-compose.fullapp.dev.yml up --build
+   ```
+   Or for the production-style stack:
+   ```bash
+   cp .env.example .env
+   yarn install
+   docker compose -f docker-compose.fullapp.yml up --build
+   ```
+   Run `cp .env.example .env` and `yarn install` before either Docker command. Skipping those preparation steps can cause the stack to fail during startup.
+
 ## Requirements
 
 - Node.js 24 or later

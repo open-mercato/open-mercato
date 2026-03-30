@@ -14,6 +14,10 @@ const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
+const standaloneInstallEnv: NodeJS.ProcessEnv = {
+  ...process.env,
+  YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
+}
 
 function assertExists(filePath: string, label: string): void {
   if (!fs.existsSync(filePath)) {
@@ -106,7 +110,10 @@ async function main(): Promise<void> {
 
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)
-    runCommand('yarn', ['install'], { cwd: appDir })
+    runCommand('yarn', ['install'], {
+      cwd: appDir,
+      env: standaloneInstallEnv,
+    })
     runCommand('yarn', ['test:integration:ephemeral', '--no-reuse-env'], {
       cwd: appDir,
       env: integrationEnv,

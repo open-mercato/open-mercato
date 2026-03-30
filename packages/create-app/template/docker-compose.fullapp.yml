@@ -1,3 +1,4 @@
+# Before first run: cp .env.example .env && yarn install
 services:
   app:
     build:
