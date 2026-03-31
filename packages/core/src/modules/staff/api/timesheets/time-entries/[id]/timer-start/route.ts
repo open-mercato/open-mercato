@@ -69,13 +69,14 @@ export async function POST(req: Request) {
     entry.startedAt = now
     entry.source = 'timer'
 
-    em.create(StaffTimeEntrySegment, {
+    const segmentData = {
       tenantId,
       organizationId,
       timeEntryId: entry.id,
       startedAt: now,
-      segmentType: 'work',
-    })
+      segmentType: 'work' as const,
+    }
+    em.create(StaffTimeEntrySegment, segmentData as never)
 
     await em.flush()
 

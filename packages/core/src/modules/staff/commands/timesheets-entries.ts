@@ -5,7 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { StaffTimeEntry } from '../data/entities'
+import { StaffTimeEntry, type StaffTimeEntrySource } from '../data/entities'
 import {
   staffTimeEntryCreateSchema,
   staffTimeEntryUpdateSchema,
@@ -329,7 +329,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
         customerId: before.customerId ?? null,
         dealId: before.dealId ?? null,
         orderId: before.orderId ?? null,
-        source: before.source,
+        source: (before.source ?? 'manual') as StaffTimeEntrySource,
         deletedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -346,7 +346,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
       entry.customerId = before.customerId ?? null
       entry.dealId = before.dealId ?? null
       entry.orderId = before.orderId ?? null
-      entry.source = before.source
+      entry.source = (before.source ?? 'manual') as StaffTimeEntrySource
       entry.deletedAt = null
       entry.updatedAt = new Date()
     }
