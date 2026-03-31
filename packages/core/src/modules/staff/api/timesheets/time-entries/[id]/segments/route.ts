@@ -11,6 +11,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
 import { staffTimeEntrySegmentCreateSchema } from '../../../../../data/validators'
+import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -58,6 +59,11 @@ export async function POST(req: Request) {
     )
     if (!entry) {
       throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
+    }
+
+    const staffMember = await getStaffMemberByUserId(em, auth.sub, tenantId, organizationId)
+    if (!staffMember || entry.staffMemberId !== staffMember.id) {
+      throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
     }
 
     const body = await req.json().catch(() => ({}))
