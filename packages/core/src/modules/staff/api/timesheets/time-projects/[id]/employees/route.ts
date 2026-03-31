@@ -106,7 +106,7 @@ const crud = makeCrudRoute({
         const body = { ...raw, timeProjectId: raw?.timeProjectId ?? projectId }
         return parseScopedCommandInput(staffTimeProjectMemberAssignSchema, body, ctx, translate)
       },
-      response: ({ result }) => ({ id: result?.memberId ?? null }),
+      response: ({ result }) => ({ id: result?.timeProjectMemberId ?? null }),
       status: 201,
     },
     delete: {

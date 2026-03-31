@@ -124,7 +124,7 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         return parseScopedCommandInput(staffTimeProjectCreateSchema, raw ?? {}, ctx, translate)
       },
-      response: ({ result }) => ({ id: result?.projectId ?? null }),
+      response: ({ result }) => ({ id: result?.timeProjectId ?? null }),
       status: 201,
     },
     update: {
