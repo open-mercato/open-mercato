@@ -75,14 +75,15 @@ export async function POST(req: Request) {
       translate,
     )
 
-    const segment = em.create(StaffTimeEntrySegment, {
+    const segmentData = {
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       timeEntryId: input.timeEntryId,
       startedAt: input.startedAt,
       endedAt: input.endedAt ?? null,
       segmentType: input.segmentType,
-    })
+    }
+    const segment = em.create(StaffTimeEntrySegment, segmentData as never)
 
     await em.flush()
 

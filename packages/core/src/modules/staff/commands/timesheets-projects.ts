@@ -5,7 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { StaffTimeProject, StaffTimeProjectMember } from '../data/entities'
+import { StaffTimeProject, StaffTimeProjectMember, type StaffTimeProjectStatus, type StaffTimeProjectMemberStatus } from '../data/entities'
 import {
   staffTimeProjectCreateSchema,
   staffTimeProjectUpdateSchema,
@@ -284,10 +284,10 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     project.code = before.code
     project.description = before.description ?? null
     project.projectType = before.projectType ?? null
-    project.status = before.status
+    project.status = (before.status ?? 'active') as StaffTimeProjectStatus
     project.ownerUserId = before.ownerUserId ?? null
     project.costCenter = before.costCenter ?? null
-    project.startDate = before.startDate ?? null
+    project.startDate = before.startDate ? new Date(before.startDate) : null
     project.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
     project.updatedAt = new Date()
     await em.flush()
@@ -382,10 +382,10 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
         code: before.code,
         description: before.description ?? null,
         projectType: before.projectType ?? null,
-        status: before.status,
+        status: (before.status ?? 'active') as StaffTimeProjectStatus,
         ownerUserId: before.ownerUserId ?? null,
         costCenter: before.costCenter ?? null,
-        startDate: before.startDate ?? null,
+        startDate: before.startDate ? new Date(before.startDate) : null,
         deletedAt: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -397,10 +397,10 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
       project.code = before.code
       project.description = before.description ?? null
       project.projectType = before.projectType ?? null
-      project.status = before.status
+      project.status = (before.status ?? 'active') as StaffTimeProjectStatus
       project.ownerUserId = before.ownerUserId ?? null
       project.costCenter = before.costCenter ?? null
-      project.startDate = before.startDate ?? null
+      project.startDate = before.startDate ? new Date(before.startDate) : null
       project.deletedAt = null
       project.updatedAt = new Date()
     }
@@ -548,7 +548,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
         timeProjectId: before.timeProjectId,
         staffMemberId: before.staffMemberId,
         role: before.role ?? null,
-        status: before.status,
+        status: (before.status ?? 'active') as StaffTimeProjectMemberStatus,
         assignedStartDate: new Date(before.assignedStartDate),
         assignedEndDate: before.assignedEndDate ? new Date(before.assignedEndDate) : null,
         deletedAt: null,
@@ -560,7 +560,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
       member.timeProjectId = before.timeProjectId
       member.staffMemberId = before.staffMemberId
       member.role = before.role ?? null
-      member.status = before.status
+      member.status = (before.status ?? 'active') as StaffTimeProjectMemberStatus
       member.assignedStartDate = new Date(before.assignedStartDate)
       member.assignedEndDate = before.assignedEndDate ? new Date(before.assignedEndDate) : null
       member.deletedAt = null

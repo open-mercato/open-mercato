@@ -245,7 +245,7 @@ export default function MyTimesheetsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entries: bulkEntries }),
       })
-      if (!res.ok) throw new Error(await res.text())
+      if (!res.ok) throw new Error(await res.response.text())
 
       flash(t('staff.timesheets.my.saved', 'Timesheet saved.'), 'success')
       await loadData()

@@ -256,6 +256,8 @@ export const staffTimeEntryCreateSchema = z.object({
   staffMemberId: z.string().uuid(),
   date: z.coerce.date(),
   durationMinutes: z.number().int().min(0).max(1440),
+  startedAt: z.coerce.date().optional().nullable(),
+  endedAt: z.coerce.date().optional().nullable(),
   timeProjectId: z.string().uuid().optional().nullable(),
   customerId: z.string().uuid().optional().nullable(),
   dealId: z.string().uuid().optional().nullable(),
