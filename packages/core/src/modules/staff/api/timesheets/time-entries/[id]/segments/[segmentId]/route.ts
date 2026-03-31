@@ -3,9 +3,11 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { StaffTimeEntrySegment } from '../../../../../../data/entities'
+import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
+import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
 
 const routeMetadata = {
   PATCH: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -47,15 +49,26 @@ export async function PATCH(req: Request) {
   }
 
   const { resolve } = await createRequestContainer()
-  const em = resolve('em') as EntityManager
+  const em = (resolve('em') as EntityManager).fork()
+  const scopeCtx = { tenantId: auth.tenantId, organizationId: auth.orgId }
 
-  const segment = await em.findOne(StaffTimeEntrySegment, {
+  const entry = await findOneWithDecryption(em, StaffTimeEntry, { id: ids.entryId, tenantId: auth.tenantId, organizationId: auth.orgId, deletedAt: null }, {}, scopeCtx)
+  if (!entry) {
+    return NextResponse.json({ error: 'Time entry not found' }, { status: 404 })
+  }
+
+  const staffMember = await getStaffMemberByUserId(em, auth.sub, auth.tenantId, auth.orgId)
+  if (!staffMember || entry.staffMemberId !== staffMember.id) {
+    return NextResponse.json({ error: 'You can only manage your own time entries.' }, { status: 403 })
+  }
+
+  const segment = await findOneWithDecryption(em, StaffTimeEntrySegment, {
     id: ids.segmentId,
     timeEntryId: ids.entryId,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
     deletedAt: null,
-  })
+  }, {}, scopeCtx)
 
   if (!segment) {
     return NextResponse.json({ error: 'Segment not found' }, { status: 404 })

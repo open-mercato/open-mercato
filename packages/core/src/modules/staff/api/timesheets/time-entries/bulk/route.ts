@@ -68,7 +68,7 @@ export async function POST(req: Request) {
       ? await findWithDecryption(
           em,
           StaffTimeEntry,
-          { id: { $in: existingIds }, tenantId, organizationId, deletedAt: null },
+          { id: { $in: existingIds }, tenantId, organizationId, staffMemberId, deletedAt: null },
           {},
           scopeCtx,
         )

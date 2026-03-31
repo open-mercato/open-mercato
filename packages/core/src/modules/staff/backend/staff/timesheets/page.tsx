@@ -12,7 +12,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import Link from 'next/link'
 
 type ProjectRow = { id: string; name: string; code: string | null }
-type EntryMap = Record<string, Record<string, { id?: string; minutes: number }>>
+type CellEntry = { id?: string; minutes: number }
+type EntryMap = Record<string, Record<string, CellEntry[]>>
+type DirtyMap = Record<string, Record<string, CellEntry>>
 type RawTextMap = Record<string, Record<string, string>>
 
 function getDaysInMonth(year: number, month: number): number {
@@ -56,13 +58,12 @@ export default function MyTimesheetsPage() {
   const [month, setMonth] = React.useState(now.getMonth())
   const [projects, setProjects] = React.useState<ProjectRow[]>([])
   const [entries, setEntries] = React.useState<EntryMap>({})
-  const [dirty, setDirty] = React.useState<EntryMap>({})
+  const [dirty, setDirty] = React.useState<DirtyMap>({})
   const [rawText, setRawText] = React.useState<RawTextMap>({})
   const [staffMemberId, setStaffMemberId] = React.useState<string | null>(null)
   const [staffMemberMissing, setStaffMemberMissing] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
-  const [timerEntryId, setTimerEntryId] = React.useState<string | null>(null)
 
   const daysInMonth = getDaysInMonth(year, month)
   const days = React.useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
@@ -157,11 +158,9 @@ export default function MyTimesheetsPage() {
             ? item.durationMinutes
             : 0
         const entryId = String(item.id ?? '')
-        const isTimerRunning = item.timer_running === true || item.timerRunning === true
-        if (isTimerRunning) setTimerEntryId(entryId)
-
         if (!map[projectId]) map[projectId] = {}
-        map[projectId][dateKey] = { id: entryId || undefined, minutes }
+        if (!map[projectId][dateKey]) map[projectId][dateKey] = []
+        map[projectId][dateKey].push({ id: entryId || undefined, minutes })
       }
       setEntries(map)
       setDirty({})
@@ -191,9 +190,10 @@ export default function MyTimesheetsPage() {
     if (text === undefined) return
     const minutes = decimalToMinutes(text)
     setDirty((prev) => {
-      const projectEntries = { ...(prev[projectId] ?? {}) }
-      const existing = entries[projectId]?.[dateKey]
-      projectEntries[dateKey] = { id: existing?.id, minutes }
+      const projectEntries: Record<string, CellEntry> = { ...(prev[projectId] ?? {}) }
+      const cellEntries = entries[projectId]?.[dateKey] ?? []
+      const firstId = cellEntries[0]?.id
+      projectEntries[dateKey] = { id: firstId, minutes }
       return { ...prev, [projectId]: projectEntries }
     })
     setRawText((prev) => {
@@ -210,8 +210,10 @@ export default function MyTimesheetsPage() {
   }, [rawText, entries])
 
   const getCellValue = React.useCallback((projectId: string, dateKey: string): number => {
-    if (dirty[projectId]?.[dateKey] !== undefined) return dirty[projectId][dateKey].minutes
-    return entries[projectId]?.[dateKey]?.minutes ?? 0
+    const dirtyCell = dirty[projectId]?.[dateKey] as CellEntry | undefined
+    if (dirtyCell !== undefined) return dirtyCell.minutes
+    const cellEntries = entries[projectId]?.[dateKey] ?? []
+    return cellEntries.reduce((sum, e) => sum + e.minutes, 0)
   }, [dirty, entries])
 
   const hasChanges = Object.keys(dirty).length > 0 || Object.keys(rawText).length > 0
@@ -229,9 +231,12 @@ export default function MyTimesheetsPage() {
     try {
       const bulkEntries: Array<{ id?: string; date: string; timeProjectId: string; durationMinutes: number }> = []
       for (const [projectId, dateMap] of Object.entries(dirty)) {
-        for (const [dateKey, cell] of Object.entries(dateMap)) {
+        for (const [dateKey, cellValue] of Object.entries(dateMap)) {
+          const cell = cellValue as CellEntry
+          const cellEntries = entries[projectId]?.[dateKey] ?? []
+          const firstId = cell.id ?? cellEntries[0]?.id
           bulkEntries.push({
-            id: cell.id ?? entries[projectId]?.[dateKey]?.id,
+            id: firstId,
             date: dateKey,
             timeProjectId: projectId,
             durationMinutes: cell.minutes,
@@ -256,25 +261,6 @@ export default function MyTimesheetsPage() {
       setIsSaving(false)
     }
   }, [dirty, entries, hasChanges, confirm, t, loadData])
-
-  const handleTimerToggle = React.useCallback(async (projectId: string) => {
-    try {
-      const today = formatDateKey(now.getFullYear(), now.getMonth(), now.getDate())
-      if (timerEntryId) {
-        await fetch(`/api/staff/timesheets/time-entries/${timerEntryId}/timer-stop`, { method: 'POST' })
-        setTimerEntryId(null)
-      } else {
-        const existingEntry = entries[projectId]?.[today]
-        if (existingEntry?.id) {
-          await fetch(`/api/staff/timesheets/time-entries/${existingEntry.id}/timer-start`, { method: 'POST' })
-          setTimerEntryId(existingEntry.id)
-        }
-      }
-      await loadData()
-    } catch (error) {
-      console.error('staff.timesheets.my.timer', error)
-    }
-  }, [timerEntryId, entries, now, loadData])
 
   const getRowTotal = React.useCallback((projectId: string): number => {
     let total = 0
@@ -421,7 +407,6 @@ export default function MyTimesheetsPage() {
                   <th className="px-3 py-2 text-center font-medium min-w-[64px]">
                     {t('staff.timesheets.my.total', 'Total')}
                   </th>
-                  <th className="px-2 py-2 min-w-[40px]" />
                 </tr>
               </thead>
               <tbody>
@@ -469,17 +454,6 @@ export default function MyTimesheetsPage() {
                     <td className="px-3 py-1.5 text-center font-semibold text-sm">
                       {minutesToDecimal(getRowTotal(project.id)) || '0'}
                     </td>
-                    <td className="px-1 py-1.5 text-center">
-                      <button
-                        type="button"
-                        title={timerEntryId ? t('staff.timesheets.my.timerStop', 'Stop Timer') : t('staff.timesheets.my.timerStart', 'Start Timer')}
-                        onClick={() => handleTimerToggle(project.id)}
-                        className={`inline-flex items-center justify-center rounded p-1 text-xs transition-colors
-                          ${timerEntryId ? 'text-red-600 hover:bg-red-50' : 'text-muted-foreground hover:bg-muted'}`}
-                      >
-                        {timerEntryId ? '\u25A0' : '\u25B6'}
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -498,7 +472,6 @@ export default function MyTimesheetsPage() {
                     )
                   })}
                   <td className="px-3 py-2 text-center">{minutesToDecimal(grandTotal) || '0'}</td>
-                  <td />
                 </tr>
               </tfoot>
             </table>

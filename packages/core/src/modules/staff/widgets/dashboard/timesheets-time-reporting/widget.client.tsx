@@ -78,7 +78,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
         setProjects([])
       }
 
-      // Check for active timer — look for today's entries with timer_running
+      // Check for active timer — look for today's entries with startedAt set and endedAt null
       const selfRes = await readApiResultOrThrow<{ member?: { id: string } | null }>(
         '/api/staff/team-members/self',
         undefined,
@@ -134,6 +134,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
 
   const handleStart = React.useCallback(async () => {
     if (!selectedProjectId || !staffMemberId) return
+    if (timer.running) return
     setActionLoading(true)
     try {
       const today = new Date().toISOString().slice(0, 10)
@@ -165,7 +166,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     } finally {
       setActionLoading(false)
     }
-  }, [selectedProjectId, staffMemberId, notes, hydrated, onSettingsChange, loadState, t])
+  }, [selectedProjectId, staffMemberId, timer.running, notes, hydrated, onSettingsChange, loadState, t])
 
   const handleStop = React.useCallback(async () => {
     if (!timer.entryId) return
