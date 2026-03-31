@@ -1,4 +1,6 @@
-import { modules } from '@/.mercato/generated/modules.generated'
+import { bootstrapModules } from '@/.mercato/generated/bootstrap-modules.generated'
+import { apiModules } from '@/.mercato/generated/api-routes.generated'
+import { cliModules } from '@/.mercato/generated/cli-modules.generated'
 import { StartPageContent } from '@/components/StartPageContent'
 import type { Metadata } from 'next'
 import { resolveLocalizedAppMetadata } from '../lib/metadata'
@@ -23,6 +25,14 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default async function Home() {
   const { t } = await resolveTranslations()
+  const apiModuleMap = new Map(apiModules.map((module) => [module.id, module]))
+  const cliModuleMap = new Map(cliModules.map((module) => [module.id, module]))
+  const bootstrapModuleMap = new Map(bootstrapModules.map((module) => [module.id, module]))
+  const moduleIds = Array.from(new Set([
+    ...bootstrapModules.map((module) => module.id),
+    ...apiModules.map((module) => module.id),
+    ...cliModules.map((module) => module.id),
+  ])).sort((left, right) => left.localeCompare(right))
   
   // Check if user wants to see the start page
   const cookieStore = await cookies()
@@ -92,16 +102,19 @@ export default async function Home() {
         <div className="rounded-lg border bg-card p-4 md:col-span-2">
           <div className="text-sm font-medium mb-3">{t('app.page.activeModules.title', 'Active Modules')}</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[200px] overflow-y-auto pr-2">
-            {modules.map((m) => {
-              const fe = m.frontendRoutes?.length || 0
-              const be = m.backendRoutes?.length || 0
-              const api = m.apis?.length || 0
-              const cli = m.cli?.length || 0
-              const i18n = m.translations ? Object.keys(m.translations).length : 0
+            {moduleIds.map((moduleId) => {
+              const bootstrapModule = bootstrapModuleMap.get(moduleId)
+              const apiModule = apiModuleMap.get(moduleId)
+              const cliModule = cliModuleMap.get(moduleId)
+              const fe = bootstrapModule?.frontendRoutes?.length || 0
+              const be = bootstrapModule?.backendRoutes?.length || 0
+              const api = apiModule?.apis?.length || 0
+              const cli = cliModule?.cli?.length || 0
+              const i18n = bootstrapModule?.translations ? Object.keys(bootstrapModule.translations).length : 0
               return (
-                <div key={m.id} className="rounded border p-3 bg-background">
-                  <div className="text-sm font-medium">{m.info?.title || m.id}{m.info?.version ? <span className="ml-2 text-xs text-muted-foreground">v{m.info.version}</span> : null}</div>
-                  {m.info?.description ? <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{m.info.description}</div> : null}
+                <div key={moduleId} className="rounded border p-3 bg-background">
+                  <div className="text-sm font-medium">{bootstrapModule?.info?.title || moduleId}{bootstrapModule?.info?.version ? <span className="ml-2 text-xs text-muted-foreground">v{bootstrapModule.info.version}</span> : null}</div>
+                  {bootstrapModule?.info?.description ? <div className="text-xs text-muted-foreground mt-1 line-clamp-2">{bootstrapModule.info.description}</div> : null}
                   <div className="mt-2 flex flex-wrap gap-1">
                     {fe ? <FeatureBadge label={`FE:${fe}`} /> : null}
                     {be ? <FeatureBadge label={`BE:${be}`} /> : null}

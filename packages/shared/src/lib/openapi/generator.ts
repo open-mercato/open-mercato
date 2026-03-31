@@ -1031,7 +1031,7 @@ function collectRouteDoc(api: ModuleApi, moduleId: string): OpenApiRouteDoc | un
   return undefined
 }
 
-export function buildOpenApiDocument(modules: Module[], options: OpenApiDocumentOptions = {}): OpenApiDocument {
+export function buildOpenApiDocument(modules: Array<Pick<Module, 'id' | 'apis'>>, options: OpenApiDocumentOptions = {}): OpenApiDocument {
   const doc: OpenApiDocument = {
     openapi: '3.1.0',
     info: {

@@ -1,6 +1,9 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { bootstrap } from '@open-mercato/core/bootstrap'
 import { applicationLifecycleEvents } from '@open-mercato/shared/lib/runtime/events'
+import { moduleSubscribers } from '@/.mercato/generated/subscribers.generated'
+import { registerModuleSubscribers } from '@open-mercato/shared/lib/modules/registry'
+import { registerSyncSubscribers } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
 
 const APP_BOOTSTRAP_STARTED_EMITTED_KEY = '__openMercatoApplicationBootstrapStartedEventEmitted__'
 const APP_BOOTSTRAP_COMPLETED_EMITTED_KEY = '__openMercatoApplicationBootstrapCompletedEventEmitted__'
@@ -58,6 +61,24 @@ export async function register(container: AppContainer) {
     if (!container.registrations?.eventBus) {
       await bootstrap(container)
     }
+    registerModuleSubscribers(moduleSubscribers)
+    const eventBus = container.resolve('eventBus') as {
+      registerModuleSubscribers?: (subs: typeof moduleSubscribers) => void
+    }
+    eventBus.registerModuleSubscribers?.(moduleSubscribers)
+    registerSyncSubscribers(
+      moduleSubscribers
+        .filter((subscriber) => subscriber.sync === true)
+        .map((subscriber) => ({
+          metadata: {
+            event: subscriber.event,
+            sync: true as const,
+            priority: subscriber.priority,
+            id: subscriber.id,
+          },
+          handler: subscriber.handler,
+        }))
+    )
   } catch (error) {
     await emitApplicationLifecycleEvent(
       container,

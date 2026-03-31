@@ -1,4 +1,4 @@
-import { modules } from '@/.mercato/generated/modules.generated'
+import { apiModules } from '@/.mercato/generated/api-routes.generated'
 import { buildOpenApiDocument, generateMarkdownFromOpenApi, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
@@ -17,7 +17,7 @@ function resolveBaseUrl() {
 export async function GET() {
   const { t } = await resolveTranslations()
   const baseUrl = resolveBaseUrl()
-  const rawDoc = buildOpenApiDocument(modules, {
+  const rawDoc = buildOpenApiDocument(apiModules, {
     title: t('api.docs.title', 'Open Mercato API'),
     version: APP_VERSION,
     description: t('api.docs.description', 'Auto-generated OpenAPI definition for all enabled modules.'),

@@ -25,6 +25,10 @@ Generated output goes to `apps/mercato/.mercato/generated/`.
 ### Key Generated Files
 
 - `modules.generated.ts` — routes, APIs, subscribers, workers, CLI
+- `backend-routes.generated.ts`, `frontend-routes.generated.ts` — route-only manifests for cold page paths
+- `api-routes.generated.ts` — API-only manifest for dispatcher/docs consumers
+- `bootstrap-modules.generated.ts` — bootstrap/runtime module data without API/CLI/subscriber/worker imports
+- `cli-modules.generated.ts`, `subscribers.generated.ts` — split manifests for CLI metadata and subscriber wiring
 - `entities.generated.ts` — MikroORM entity registry
 - `di.generated.ts` — DI registrars
 - `entities.ids.generated.ts` — entity ID constants

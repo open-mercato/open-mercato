@@ -164,6 +164,7 @@ describe('generateModuleRegistry with module subsets', () => {
     const modulesOutput = readGenerated(tmpDir, 'modules.generated.ts')!
     const backendOutput = readGenerated(tmpDir, 'backend-routes.generated.ts')!
     const frontendOutput = readGenerated(tmpDir, 'frontend-routes.generated.ts')!
+    const apiOutput = readGenerated(tmpDir, 'api-routes.generated.ts')!
     const bootstrapOutput = readGenerated(tmpDir, 'bootstrap-modules.generated.ts')!
 
     expect(modulesOutput).toContain("from '@open-mercato/core/modules/split_mod/backend/page'")
@@ -176,7 +177,11 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(bootstrapOutput).toContain("await import('@open-mercato/core/modules/split_mod/backend/page')")
     expect(bootstrapOutput).toContain("await import('@open-mercato/core/modules/split_mod/frontend/page')")
-    expect(bootstrapOutput).toContain('apis:')
+    expect(bootstrapOutput).not.toContain('apis:')
+    expect(bootstrapOutput).not.toContain('cli:')
+    expect(bootstrapOutput).not.toContain('subscribers:')
+    expect(bootstrapOutput).not.toContain('workers:')
+    expect(apiOutput).toContain('apis:')
   })
 
   it('keeps eager imports in split manifests when page metadata is inline', async () => {
@@ -212,11 +217,13 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    const subscribersOutput = readGenerated(tmpDir, 'subscribers.generated.ts')!
     expect(output).toContain("id: 'notifications_only'")
     expect(output).toContain('subscribers:')
     expect(output).not.toContain('frontendRoutes:')
     expect(output).not.toContain('backendRoutes:')
     expect(output).not.toContain('apis:')
+    expect(subscribersOutput).toContain('moduleSubscribers')
   })
 
   it('handles module with only widgets — no pages or subscribers', async () => {
@@ -469,7 +476,10 @@ describe('all generated files are valid with varying subsets', () => {
       'modules.generated.ts',
       'backend-routes.generated.ts',
       'frontend-routes.generated.ts',
+      'api-routes.generated.ts',
       'bootstrap-modules.generated.ts',
+      'cli-modules.generated.ts',
+      'subscribers.generated.ts',
       'dashboard-widgets.generated.ts',
       'injection-widgets.generated.ts',
       'injection-tables.generated.ts',

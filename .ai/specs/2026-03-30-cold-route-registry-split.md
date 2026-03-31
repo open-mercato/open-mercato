@@ -93,7 +93,10 @@ apps/mercato/.mercato/generated/
 ├── modules.generated.ts                 # Existing compatibility layer (preserved)
 ├── backend-routes.generated.ts          # New: backend route metadata + lazy Component wrappers
 ├── frontend-routes.generated.ts         # New: frontend route metadata + lazy Component wrappers
+├── api-routes.generated.ts              # New: API route metadata/handlers for API-only consumers
 ├── bootstrap-modules.generated.ts       # New: runtime/bootstrap module data without eager page/API imports
+├── cli-modules.generated.ts             # New: CLI-only module metadata for runtime dashboards/tooling
+├── subscribers.generated.ts             # New: discovered subscriber registry for request-container wiring
 └── route-metadata.generated.ts          # Optional helper for shared metadata extraction if needed
 ```
 
@@ -105,6 +108,8 @@ apps/mercato/.mercato/generated/
 | Frontend catch-all page | `modules.generated.ts` | `frontend-routes.generated.ts` |
 | Backend layout | `modules.generated.ts` | `backend-routes.generated.ts` or `bootstrap-modules.generated.ts` depending on needed fields |
 | Root bootstrap | `modules.generated.ts` | `bootstrap-modules.generated.ts` |
+| API catch-all route | `modules.generated.ts` | `api-routes.generated.ts` |
+| API docs routes | `modules.generated.ts` | `api-routes.generated.ts` |
 | Existing callers outside hot paths | `modules.generated.ts` | Unchanged |
 
 ### New Manifest Shapes
@@ -342,14 +347,25 @@ This spec is explicitly designed for full backward compatibility:
 | `packages/cli/src/lib/generators/module-registry.ts` | Modify | Emit new split manifests |
 | `apps/mercato/.mercato/generated/backend-routes.generated.ts` | Create | Backend cold-path manifest |
 | `apps/mercato/.mercato/generated/frontend-routes.generated.ts` | Create | Frontend cold-path manifest |
+| `apps/mercato/.mercato/generated/api-routes.generated.ts` | Create | API-only manifest for dispatcher/docs |
 | `apps/mercato/.mercato/generated/bootstrap-modules.generated.ts` | Create | Slim bootstrap manifest |
+| `apps/mercato/.mercato/generated/cli-modules.generated.ts` | Create | CLI-only metadata for runtime dashboards/tooling |
+| `apps/mercato/.mercato/generated/subscribers.generated.ts` | Create | Subscriber registry for request-container wiring |
 | `apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx` | Modify | Consume backend slim manifest |
 | `apps/mercato/src/app/(frontend)/[...slug]/page.tsx` | Modify | Consume frontend slim manifest |
 | `apps/mercato/src/app/(backend)/backend/layout.tsx` | Modify | Avoid full registry import on cold path |
 | `apps/mercato/src/bootstrap.ts` | Modify | Consume slim bootstrap manifest |
+| `apps/mercato/src/app/api/[...slug]/route.ts` | Modify | Consume API-only manifest |
+| `apps/mercato/src/app/api/docs/openapi/route.ts` | Modify | Build docs from API-only manifest |
+| `apps/mercato/src/app/api/docs/markdown/route.ts` | Modify | Build docs from API-only manifest |
+| `apps/mercato/src/di.ts` | Modify | Register discovered subscribers from split registry |
 | `packages/create-app/template/src/app/(backend)/backend/[...slug]/page.tsx` | Modify | Keep scaffolded apps aligned |
 | `packages/create-app/template/src/app/(frontend)/[...slug]/page.tsx` | Modify | Keep scaffolded apps aligned |
 | `packages/create-app/template/src/bootstrap.ts` | Modify | Keep scaffolded apps aligned |
+| `packages/create-app/template/src/app/api/[...slug]/route.ts` | Modify | Keep scaffolded API dispatcher aligned |
+| `packages/create-app/template/src/app/api/docs/openapi/route.ts` | Modify | Keep scaffolded docs route aligned |
+| `packages/create-app/template/src/app/api/docs/markdown/route.ts` | Modify | Keep scaffolded docs route aligned |
+| `packages/create-app/template/src/di.ts` | Modify | Keep scaffolded subscriber wiring aligned |
 
 ### Testing Strategy
 
@@ -464,9 +480,9 @@ None.
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Additive Route Manifest Split | Done | 2026-03-30 | Added `backend-routes.generated.ts` and `frontend-routes.generated.ts` with lazy wrappers for sidecar-metadata pages and eager fallback for inline metadata pages |
-| Phase 2 — Bootstrap Path Separation | Done | 2026-03-30 | Added `bootstrap-modules.generated.ts` and switched app/template bootstrap to consume it |
+| Phase 2 — Bootstrap Path Separation | Done | 2026-03-31 | `bootstrap-modules.generated.ts` now contains bootstrap-only module data; API/CLI/subscriber/worker imports were removed from the root bootstrap path |
 | Phase 3 — Backend Layout Slimming | Done | 2026-03-30 | Backend layout and catch-all routes now consume split manifests instead of `modules.generated.ts` |
-| Phase 4 — Optional API Registry Split | Not Started | — | Deferred; existing API dispatcher still uses `modules.generated.ts` |
+| Phase 4 — Optional API Registry Split | Done | 2026-03-31 | Added `api-routes.generated.ts` and switched app/template API dispatcher and docs routes to consume it; per-route metadata/docs remain colocated, so API route modules are still imported eagerly inside the API-only manifest |
 
 ### Phase 1-3 Detailed Progress
 - [x] Extend the generator to emit backend, frontend, and bootstrap split manifests
@@ -476,7 +492,16 @@ None.
 - [x] Update app and template cold-path consumers to use split manifests
 - [x] Add generator regression coverage for lazy-wrapper and eager-fallback behavior
 - [x] Regenerate app outputs and verify package/app builds
+- [x] Add `api-routes.generated.ts`, `cli-modules.generated.ts`, and `subscribers.generated.ts` for API-only, CLI-only, and subscriber-only consumers
+- [x] Switch app/template API routes and API docs routes off `modules.generated.ts`
+- [x] Remove direct app/template runtime imports of `modules.generated.ts` in favor of split registries
+- [x] Register discovered subscribers from a dedicated generated registry during request-container setup
 
 ## Changelog
 ### 2026-03-30
 - Initial specification for additive route registry split to reduce cold catch-all page compilation while preserving backward compatibility.
+
+### 2026-03-31
+- Completed bootstrap-path slimming by removing API/CLI/subscriber/worker imports from `bootstrap-modules.generated.ts`.
+- Added `api-routes.generated.ts`, `cli-modules.generated.ts`, and `subscribers.generated.ts`.
+- Switched app/template API dispatchers, API docs routes, and runtime module dashboard consumers to split registries instead of `modules.generated.ts`.

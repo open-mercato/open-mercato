@@ -415,8 +415,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const backendRoutesChecksumFile = path.join(outputDir, 'backend-routes.generated.checksum')
   const frontendRoutesOutFile = path.join(outputDir, 'frontend-routes.generated.ts')
   const frontendRoutesChecksumFile = path.join(outputDir, 'frontend-routes.generated.checksum')
+  const apiRoutesOutFile = path.join(outputDir, 'api-routes.generated.ts')
+  const apiRoutesChecksumFile = path.join(outputDir, 'api-routes.generated.checksum')
   const bootstrapModulesOutFile = path.join(outputDir, 'bootstrap-modules.generated.ts')
   const bootstrapModulesChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
+  const cliModulesOutFile = path.join(outputDir, 'cli-modules.generated.ts')
+  const cliModulesChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
+  const subscribersOutFile = path.join(outputDir, 'subscribers.generated.ts')
+  const subscribersChecksumFile = path.join(outputDir, 'subscribers.generated.checksum')
   const widgetsOutFile = path.join(outputDir, 'dashboard-widgets.generated.ts')
   const widgetsChecksumFile = path.join(outputDir, 'dashboard-widgets.generated.checksum')
   const injectionWidgetsOutFile = path.join(outputDir, 'injection-widgets.generated.ts')
@@ -498,13 +504,22 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const backendModuleDecls: string[] = []
   const frontendRouteImports: string[] = []
   const frontendModuleDecls: string[] = []
+  const apiRouteImports: string[] = []
+  const apiModuleDecls: string[] = []
   const bootstrapImports: string[] = []
   const bootstrapModuleDecls: string[] = []
+  const cliModuleImports: string[] = []
+  const cliModuleDecls: string[] = []
+  const subscriberImports: string[] = []
+  const subscriberEntries: string[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const backendRouteImportIdRef = { value: 0 }
   const frontendRouteImportIdRef = { value: 0 }
+  const apiRouteImportIdRef = { value: 0 }
   const bootstrapImportIdRef = { value: 0 }
+  const cliModuleImportIdRef = { value: 0 }
+  const subscriberImportIdRef = { value: 0 }
   const backendRoutesUseLazyRef = { value: false }
   const frontendRoutesUseLazyRef = { value: false }
   const bootstrapModulesUseLazyRef = { value: false }
@@ -577,15 +592,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const bootstrapFrontendRoutes: string[] = []
     const bootstrapBackendRoutes: string[] = []
     const apis: string[] = []
-    const bootstrapApis: string[] = []
     let cliImportName: string | null = null
-    let bootstrapCliImportName: string | null = null
+    let cliModuleImportName: string | null = null
     const translations: string[] = []
     const bootstrapTranslations: string[] = []
     const subscribers: string[] = []
-    const bootstrapSubscribers: string[] = []
     const workers: string[] = []
-    const bootstrapWorkers: string[] = []
     let infoImportName: string | null = null
     let bootstrapInfoImportName: string | null = null
     let extensionsImportName: string | null = null
@@ -1035,14 +1047,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       imports,
       importIdRef,
     }))
-    bootstrapApis.push(...await processApiRoutes({
+    const splitApis = await processApiRoutes({
       roots,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
-      imports: bootstrapImports,
-      importIdRef: bootstrapImportIdRef,
-    }))
+      imports: apiRouteImports,
+      importIdRef: apiRouteImportIdRef,
+    })
 
     // 15. CLI
     {
@@ -1054,9 +1066,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
         imports.push(`import ${importName} from '${importPath}'`)
         cliImportName = importName
-        const bootstrapImportName = `CLI_${toVar(modId)}_${bootstrapImportIdRef.value++}`
-        bootstrapImports.push(`import ${bootstrapImportName} from '${importPath}'`)
-        bootstrapCliImportName = bootstrapImportName
+        const splitImportName = `CLI_${toVar(modId)}_${cliModuleImportIdRef.value++}`
+        cliModuleImports.push(`import ${splitImportName} from '${importPath}'`)
+        cliModuleImportName = splitImportName
       }
     }
 
@@ -1085,13 +1097,13 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       imports,
       importIdRef,
     }))
-    bootstrapSubscribers.push(...processSubscribers({
+    subscriberEntries.push(...processSubscribers({
       roots,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
-      imports: bootstrapImports,
-      importIdRef: bootstrapImportIdRef,
+      imports: subscriberImports,
+      importIdRef: subscriberImportIdRef,
     }))
 
     // 18. Workers
@@ -1102,14 +1114,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       pkgImportBase: imps.pkgBase,
       imports,
       importIdRef,
-    }))
-    bootstrapWorkers.push(...await processWorkers({
-      roots,
-      modId,
-      appImportBase,
-      pkgImportBase: imps.pkgBase,
-      imports: bootstrapImports,
-      importIdRef: bootstrapImportIdRef,
     }))
 
     // Build combined customFieldSets expression
@@ -1228,16 +1232,16 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       id: '${modId}',
       ${lazyBackendRoutes.length ? `backendRoutes: [${lazyBackendRoutes.join(', ')}],` : ''}
     }`)
+    apiModuleDecls.push(`{
+      id: '${modId}',
+      ${splitApis.length ? `apis: [${splitApis.join(', ')}],` : ''}
+    }`)
     bootstrapModuleDecls.push(`{
       id: '${modId}',
       ${bootstrapInfoImportName ? `info: ${bootstrapInfoImportName}.metadata,` : ''}
       ${bootstrapFrontendRoutes.length ? `frontendRoutes: [${bootstrapFrontendRoutes.join(', ')}],` : ''}
       ${bootstrapBackendRoutes.length ? `backendRoutes: [${bootstrapBackendRoutes.join(', ')}],` : ''}
-      ${bootstrapApis.length ? `apis: [${bootstrapApis.join(', ')}],` : ''}
-      ${bootstrapCliImportName ? `cli: ${bootstrapCliImportName},` : ''}
       ${bootstrapTranslations.length ? `translations: { ${bootstrapTranslations.join(', ')} },` : ''}
-      ${bootstrapSubscribers.length ? `subscribers: [${bootstrapSubscribers.join(', ')}],` : ''}
-      ${bootstrapWorkers.length ? `workers: [${bootstrapWorkers.join(', ')}],` : ''}
       ${bootstrapExtensionsImportName ? `entityExtensions: ((${bootstrapExtensionsImportName}.default ?? ${bootstrapExtensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
       customFieldSets: ${bootstrapCustomFieldSetsExpr},
       ${bootstrapFeaturesImportName ? `features: ((${bootstrapFeaturesImportName}.default ?? ${bootstrapFeaturesImportName}.features) as any) || [],` : ''}
@@ -1246,6 +1250,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${bootstrapSetupImportName ? `setup: (${bootstrapSetupImportName}.default ?? ${bootstrapSetupImportName}.setup) || undefined,` : ''}
       ${bootstrapIntegrationImportName ? `integrations: (( ${bootstrapIntegrationImportName}.integrations ?? (${bootstrapIntegrationImportName}.integration ? [${bootstrapIntegrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
       ${bootstrapIntegrationImportName ? `bundles: (( ${bootstrapIntegrationImportName}.bundles ?? (${bootstrapIntegrationImportName}.bundle ? [${bootstrapIntegrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+    }`)
+    cliModuleDecls.push(`{
+      id: '${modId}',
+      ${cliModuleImportName ? `cli: ${cliModuleImportName},` : ''}
     }`)
   }
 
@@ -1373,12 +1381,36 @@ export const frontendModules: Pick<Module, 'id' | 'frontendRoutes'>[] = [
   ${frontendModuleDecls.join(',\n  ')}
 ]
 `
+  const apiRoutesOutput = `// AUTO-GENERATED by mercato generate registry
+import type { Module } from '@open-mercato/shared/modules/registry'
+${apiRouteImports.join('\n')}
+
+export const apiModules: Pick<Module, 'id' | 'apis'>[] = [
+  ${apiModuleDecls.join(',\n  ')}
+]
+`
   const bootstrapModulesOutput = `// AUTO-GENERATED by mercato generate registry
 ${bootstrapModulesUseLazyRef.value ? `import { createElement } from 'react'\n` : ''}import type { Module } from '@open-mercato/shared/modules/registry'
 ${bootstrapImports.join('\n')}
 
 export const bootstrapModules: Module[] = [
   ${bootstrapModuleDecls.join(',\n  ')}
+]
+`
+  const cliModulesOutput = `// AUTO-GENERATED by mercato generate registry
+import type { Module } from '@open-mercato/shared/modules/registry'
+${cliModuleImports.join('\n')}
+
+export const cliModules: Pick<Module, 'id' | 'cli'>[] = [
+  ${cliModuleDecls.join(',\n  ')}
+]
+`
+  const subscribersOutput = `// AUTO-GENERATED by mercato generate registry
+import type { Module } from '@open-mercato/shared/modules/registry'
+${subscriberImports.join('\n')}
+
+export const moduleSubscribers: NonNullable<Module['subscribers']> = [
+  ${subscriberEntries.join(',\n  ')}
 ]
 `
   const widgetEntriesList = Array.from(allDashboardWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
@@ -1709,9 +1741,33 @@ configureMessageUiComponentRegistry(registry)
     quiet,
   })
   writeGeneratedFile({
+    outFile: apiRoutesOutFile,
+    checksumFile: apiRoutesChecksumFile,
+    content: apiRoutesOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+  writeGeneratedFile({
     outFile: bootstrapModulesOutFile,
     checksumFile: bootstrapModulesChecksumFile,
     content: bootstrapModulesOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+  writeGeneratedFile({
+    outFile: cliModulesOutFile,
+    checksumFile: cliModulesChecksumFile,
+    content: cliModulesOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
+  writeGeneratedFile({
+    outFile: subscribersOutFile,
+    checksumFile: subscribersChecksumFile,
+    content: subscribersOutput,
     structureChecksum,
     result,
     quiet,

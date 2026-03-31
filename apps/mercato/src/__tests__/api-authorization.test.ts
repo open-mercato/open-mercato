@@ -86,8 +86,8 @@ function getMockedModules(): Module[] {
 }
 
 // Mock the modules registry
-jest.mock('@/generated/modules.generated', () => ({
-  modules: getMockedModules(),
+jest.mock('@/.mercato/generated/api-routes.generated', () => ({
+  apiModules: getMockedModules(),
 }))
 
 // Register modules for the registration-based pattern

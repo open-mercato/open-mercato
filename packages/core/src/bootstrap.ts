@@ -8,6 +8,7 @@ import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { getSearchModuleConfigs } from '@open-mercato/shared/modules/search'
+import { getModuleSubscribers } from '@open-mercato/shared/lib/modules/registry'
 import {
   registerSearchModule,
   createSearchDeleteSubscriber,
@@ -92,7 +93,10 @@ export async function bootstrap(container: AwilixContainer) {
       const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
       loadedModules = getModules()
     } catch {}
-    const subs = loadedModules.flatMap((m) => m.subscribers || [])
+    const registeredSubscribers = getModuleSubscribers()
+    const subs = registeredSubscribers.length > 0
+      ? registeredSubscribers
+      : loadedModules.flatMap((m) => m.subscribers || [])
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
 
     // Extract sync subscribers and register in the sync-subscriber-store

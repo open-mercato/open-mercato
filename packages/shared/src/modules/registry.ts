@@ -260,7 +260,7 @@ export function findBackendMatch(
   }
 }
 
-export function findApi(modules: Module[], method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]>; requireAuth?: boolean; requireRoles?: string[]; metadata?: any } | undefined {
+export function findApi(modules: Array<Pick<Module, 'apis'>>, method: HttpMethod, pathname: string): { handler: ApiHandler; params: Record<string, string | string[]>; requireAuth?: boolean; requireRoles?: string[]; metadata?: any } | undefined {
   for (const m of modules) {
     const apis = m.apis ?? []
     for (const a of apis) {

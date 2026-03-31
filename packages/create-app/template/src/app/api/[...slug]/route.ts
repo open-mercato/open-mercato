@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { modules } from '@/.mercato/generated/modules.generated'
+import { apiModules } from '@/.mercato/generated/api-routes.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
 
@@ -270,7 +270,7 @@ async function handleRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
-  const api = findApi(modules, method, pathname)
+  const api = findApi(apiModules, method, pathname)
   if (!api) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
