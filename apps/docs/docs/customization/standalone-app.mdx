@@ -68,6 +68,40 @@ yarn dev
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
+## Test create-mercato-app locally from the monorepo
+
+If you are contributing to Open Mercato itself and changing the scaffold, validate it from the monorepo before publishing packages.
+
+### Scaffold-only smoke test
+
+Run this from the monorepo root:
+
+```bash
+yarn test:create-app
+```
+
+This command:
+- builds the current branch packages
+- scaffolds a fresh standalone app in a temporary directory
+- rewrites `@open-mercato/*` dependencies in that app to local tarballs built from your branch
+- opens a shell in the generated app directory so you can continue with `cp .env.example .env`, `yarn install`, and the rest of the normal standalone setup
+
+If you only want the generated path and do not want an interactive shell:
+
+```bash
+yarn test:create-app --no-shell
+```
+
+### Full standalone integration parity
+
+To run the ephemeral standalone integration flow against a freshly scaffolded app:
+
+```bash
+yarn test:create-app:integration
+```
+
+This command scaffolds a temporary standalone app, installs fresh local `@open-mercato/*` tarballs from the current branch, and runs the standalone integration suite through the local CLI. Docker must be available for this flow.
+
 ## What's in the box
 
 The scaffolded app comes with **27 pre-enabled modules** covering the most common commerce and business operations:

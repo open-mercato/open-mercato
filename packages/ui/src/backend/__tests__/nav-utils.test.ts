@@ -1,4 +1,5 @@
 import {
+  buildAdminNav,
   buildSettingsSections,
   computeSettingsPathPrefixes,
   convertToSectionNavGroups,
@@ -101,5 +102,31 @@ describe('settings navigation helpers', () => {
 
     expect(prefixes).toContain('/backend/customer_accounts/settings')
     expect(prefixes).not.toContain('/backend/customer_accounts')
+  })
+
+  it('matches wildcard grants when building admin navigation', async () => {
+    const entries = await buildAdminNav(
+      [
+        {
+          id: 'customer_accounts',
+          backendRoutes: [
+            {
+              pattern: '/backend/customer_accounts/users',
+              title: 'Users',
+              requireFeatures: ['customer_accounts.view'],
+              pageContext: 'settings',
+            },
+          ],
+        },
+      ],
+      { auth: { roles: [] } },
+      undefined,
+      undefined,
+      {
+        checkFeatures: async () => ['customer_accounts.*'],
+      },
+    )
+
+    expect(entries.map((item) => item.href)).toContain('/backend/customer_accounts/users')
   })
 })

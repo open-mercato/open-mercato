@@ -68,8 +68,10 @@ export function LookupSelect({
   const [loading, setLoading] = React.useState(false)
   const [hasTyped, setHasTyped] = React.useState(defaultOpen)
   const [error, setError] = React.useState<string | null>(null)
+  const [fetchKey, setFetchKey] = React.useState(0)
   const fetchItemsRef = React.useRef(fetchItems ?? fetchOptions)
   const setQueryRef = React.useRef(setQuery)
+  const optionsWasArrayRef = React.useRef(Array.isArray(options))
 
   React.useEffect(() => {
     fetchItemsRef.current = fetchItems ?? fetchOptions
@@ -77,7 +79,11 @@ export function LookupSelect({
 
   React.useEffect(() => {
     if (Array.isArray(options)) {
+      optionsWasArrayRef.current = true
       setItems(options)
+    } else if (optionsWasArrayRef.current) {
+      optionsWasArrayRef.current = false
+      setFetchKey((k) => k + 1)
     }
   }, [options])
 
@@ -127,7 +133,7 @@ export function LookupSelect({
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [query, shouldSearch])
+  }, [query, shouldSearch, fetchKey])
 
   return (
     <div className="space-y-3">

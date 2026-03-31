@@ -94,6 +94,29 @@ describe('NotificationDispatcher', () => {
     expect(calls).toEqual(['n2'])
   })
 
+  it('accepts wildcard required features', () => {
+    const calls: string[] = []
+    registerNotificationHandlers([
+      {
+        moduleId: 'example',
+        handlers: [
+          {
+            id: 'secure',
+            notificationType: 'example.todo.created',
+            features: ['example.todos.manage'],
+            handle(notification) {
+              calls.push(notification.id)
+            },
+          },
+        ],
+      },
+    ])
+
+    dispatchNotificationHandlers([makeNotification('n1', 'example.todo.created')], runtime(['example.todos.*']))
+
+    expect(calls).toEqual(['n1'])
+  })
+
   it('handles each notification once', () => {
     const calls: string[] = []
     registerNotificationHandlers([

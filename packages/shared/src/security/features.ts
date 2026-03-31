@@ -1,11 +1,5 @@
-export function matchFeature(required: string, granted: string): boolean {
-  if (granted === '*') return true
-  if (granted.endsWith('.*')) {
-    const prefix = granted.slice(0, -2)
-    return required === prefix || required.startsWith(prefix + '.')
-  }
-  return granted === required
-}
+export { matchFeature } from '../lib/auth/featureMatch'
+import { matchFeature } from '../lib/auth/featureMatch'
 
 export function hasFeature(granted: readonly string[] | undefined, required: string): boolean {
   if (!Array.isArray(granted) || !granted.length) return false

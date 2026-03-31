@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 const AUDIT_FEATURES = [
@@ -52,14 +53,14 @@ export function useAuditPermissions(enabled: boolean): AuditPermissions {
           body: JSON.stringify({ features: AUDIT_FEATURES }),
         })
         if (cancelled) return
-        const granted = new Set(res.result?.granted ?? [])
+        const granted = res.result?.granted ?? []
         setPermissions({
           currentUserId: res.result?.userId ?? null,
-          canViewTenant: granted.has('audit_logs.view_tenant'),
-          canUndoSelf: granted.has('audit_logs.undo_self'),
-          canUndoTenant: granted.has('audit_logs.undo_tenant'),
-          canRedoSelf: granted.has('audit_logs.redo_self'),
-          canRedoTenant: granted.has('audit_logs.redo_tenant'),
+          canViewTenant: hasAllFeatures(['audit_logs.view_tenant'], granted),
+          canUndoSelf: hasAllFeatures(['audit_logs.undo_self'], granted),
+          canUndoTenant: hasAllFeatures(['audit_logs.undo_tenant'], granted),
+          canRedoSelf: hasAllFeatures(['audit_logs.redo_self'], granted),
+          canRedoTenant: hasAllFeatures(['audit_logs.redo_tenant'], granted),
           isLoading: false,
         })
       } catch {

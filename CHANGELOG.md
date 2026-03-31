@@ -46,7 +46,7 @@ This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound w
 
 ## 🐛 Fixes
 - 🧭 Move Security and Developers modules to Settings sidebar for better discoverability. (#1060) *(@muhammadusman586)*
-- 💱 Derive order default currency from catalog price kind instead of hardcoded default (fixes #982). (#1056) *(@mwadon)*
+- 💱 Derive order default currency from catalog price kind instead of hardcoded default (fixes #982). (#1056) *(@mwardon)*
 - 🔄 Redirect to workflow definitions list after create (fixes #971). (#983) *(@rafal-makara)*
 - 🔑 Seed custom role ACLs after `seedDefaults` — correct initialization order. (#1049) *(@mat-gren)*
 - 🔑 Support custom roles in `defaultRoleFeatures` alongside built-in roles. (#1040) *(@mat-gren)*
@@ -92,7 +92,7 @@ This release delivers **Webhooks** 🔔 (SPEC-057) — full outbound & inbound w
 - @muhammadusman586
 - @maciej-dudziak
 - @karol-kozer
-- @mwadon
+- @marcinwadon
 - @rafal-makara
 - @maciej-cielecki
 - @migsilva89
