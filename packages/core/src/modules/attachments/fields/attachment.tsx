@@ -93,15 +93,16 @@ export const AttachmentInput = ({
     setUploading(true)
     try {
       for (const file of Array.from(files)) {
-        const cfg = def || {}
         const ext = (file.name || '').split('.').pop()?.toLowerCase() || ''
-        if (Array.isArray(cfg.acceptExtensions) && cfg.acceptExtensions.length) {
-          const allowed = new Set(cfg.acceptExtensions.map((entry) => String(entry).toLowerCase().replace(/^\./, '')))
+        const acceptExtensions = Array.isArray(def?.acceptExtensions) ? def.acceptExtensions : []
+        if (acceptExtensions.length > 0) {
+          const allowed = new Set(acceptExtensions.map((entry) => String(entry).toLowerCase().replace(/^\./, '')))
           if (!allowed.has(ext)) { setError('File type not allowed'); continue }
         }
-        if (typeof cfg.maxAttachmentSizeMb === 'number' && cfg.maxAttachmentSizeMb > 0) {
-          const maxBytes = Math.floor(cfg.maxAttachmentSizeMb * 1024 * 1024)
-          if (file.size > maxBytes) { setError(`File exceeds ${cfg.maxAttachmentSizeMb} MB limit`); continue }
+        const maxAttachmentSizeMb = typeof def?.maxAttachmentSizeMb === 'number' ? def.maxAttachmentSizeMb : undefined
+        if (typeof maxAttachmentSizeMb === 'number' && maxAttachmentSizeMb > 0) {
+          const maxBytes = Math.floor(maxAttachmentSizeMb * 1024 * 1024)
+          if (file.size > maxBytes) { setError(`File exceeds ${maxAttachmentSizeMb} MB limit`); continue }
         }
         const fd = new FormData()
         fd.set('entityId', entityId)
