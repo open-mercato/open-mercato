@@ -30,7 +30,7 @@ type ProviderClient = ReturnType<typeof createOpenAI>
   | ReturnType<typeof createAmazonBedrock>
   | OllamaClient
 
-const DEFAULT_EMBEDDING_TIMEOUT_MS = 15_000
+const DEFAULT_EMBEDDING_TIMEOUT_MS = 3_000
 
 function resolveEmbeddingTimeoutMs(): number {
   const rawValue = process.env.VECTOR_EMBEDDING_TIMEOUT_MS
