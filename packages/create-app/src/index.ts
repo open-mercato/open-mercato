@@ -22,6 +22,7 @@ interface Options {
   app?: string
   appUrl?: string
   registry?: string
+  skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
   version: boolean
@@ -40,6 +41,7 @@ ${pc.bold('Arguments:')}
 ${pc.bold('Options:')}
   --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
+  --skip-agentic-setup  Skip the interactive agentic setup wizard
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -72,6 +74,7 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     app: undefined,
     appUrl: undefined,
     registry: undefined,
+    skipAgenticSetup: false,
     verdaccio: false,
     help: false,
     version: false,
@@ -85,6 +88,8 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.help = true
     } else if (arg === '--version' || arg === '-v') {
       options.version = true
+    } else if (arg === '--skip-agentic-setup') {
+      options.skipAgenticSetup = true
     } else if (arg === '--verdaccio') {
       options.verdaccio = true
     } else if (arg === '--registry') {
@@ -213,7 +218,12 @@ async function scaffoldImportedReadyApp(targetDir: string, source: ReadyAppSourc
   ensureGeneratedCssPlaceholder(targetDir)
 }
 
-async function maybeRunAgenticSetup(targetDir: string): Promise<void> {
+async function maybeRunAgenticSetup(targetDir: string, skipAgenticSetup: boolean): Promise<void> {
+  if (skipAgenticSetup) {
+    await runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
+    return
+  }
+
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const ask = (question: string) =>
     new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
@@ -326,7 +336,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (readyAppSource) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    await maybeRunAgenticSetup(targetDir)
+    await maybeRunAgenticSetup(targetDir, options.skipAgenticSetup)
     printTemplateNextSteps(appName)
   }
 
