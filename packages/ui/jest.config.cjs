@@ -8,6 +8,7 @@ module.exports = {
   moduleNameMapper: {
     '^@open-mercato/ui/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
+    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
   },
   transform: {
     '^.+\\.(t|j)sx?$': [

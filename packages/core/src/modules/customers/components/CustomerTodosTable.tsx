@@ -54,11 +54,30 @@ function buildCustomerHref(item: CustomerTodoItem): string | null {
   const kind = (item.customer?.kind ?? '').toLowerCase()
   const base =
     kind === 'company'
-      ? `/backend/customers/companies/${customerId}`
-      : `/backend/customers/people/${customerId}`
+      ? `/backend/customers/companies-v2/${customerId}`
+      : `/backend/customers/people-v2/${customerId}`
   return `${base}?${TASKS_TAB_QUERY}`
 }
 
+// SPEC-046b: To enable canonical interactions mode, switch this table to
+// /api/customers/interactions?status=planned&pageSize=N&page=N&search=...
+//
+// Column mapping (InteractionSummary → CustomerTodoItem shape):
+//   interaction.id        → todoId (also use as id)
+//   interaction.title     → todoTitle
+//   interaction.status    → todoIsDone: status === 'done'
+//   interaction.entityId  → requires a separate lookup or API enricher
+//                           to resolve customer displayName/kind
+//
+// The main gap is the `customer` sub-object: the interactions API does not
+// embed customer details. Options:
+//   a) Add a response enricher to the interactions API that populates
+//      customer displayName/kind from entityId
+//   b) Fetch customer details client-side for visible rows
+//   c) Add an /api/customers/interactions/table endpoint that joins entities
+//
+// Export config would switch from 'customers/todos' to 'customers/interactions'
+// with exportScope: 'full' and an adjusted column mapping.
 export function CustomerTodosTable(): React.JSX.Element {
   const t = useT()
   const router = useRouter()

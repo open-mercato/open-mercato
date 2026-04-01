@@ -765,22 +765,24 @@ function ActivitiesSectionImpl<C = unknown>({
   const [initialValues, setInitialValues] = React.useState<Partial<ActivityFormBaseValues & Record<string, unknown>> | undefined>(undefined)
   const [visibleCount, setVisibleCount] = React.useState(0)
   const pendingCounterRef = React.useRef(0)
+  const onLoadingChangeRef = React.useRef(onLoadingChange)
+  React.useEffect(() => { onLoadingChangeRef.current = onLoadingChange })
 
   const t = translate
 
   const pushLoading = React.useCallback(() => {
     pendingCounterRef.current += 1
     if (pendingCounterRef.current === 1) {
-      onLoadingChange?.(true)
+      onLoadingChangeRef.current?.(true)
     }
-  }, [onLoadingChange])
+  }, [])
 
   const popLoading = React.useCallback(() => {
     pendingCounterRef.current = Math.max(0, pendingCounterRef.current - 1)
     if (pendingCounterRef.current === 0) {
-      onLoadingChange?.(false)
+      onLoadingChangeRef.current?.(false)
     }
-  }, [onLoadingChange])
+  }, [])
 
   const updateVisibleCount = React.useCallback((length: number) => {
     if (!length) {
@@ -840,12 +842,12 @@ function ActivitiesSectionImpl<C = unknown>({
       setLoadError(null)
       setIsLoading(false)
       pendingCounterRef.current = 0
-      onLoadingChange?.(false)
+      onLoadingChangeRef.current?.(false)
       updateVisibleCount(0)
       return
     }
     loadActivities().catch(() => {})
-  }, [dealId, entityId, loadActivities, onLoadingChange, updateVisibleCount])
+  }, [dealId, entityId, loadActivities, updateVisibleCount])
 
   const openCreateDialog = React.useCallback(() => {
     setDialogMode('create')
@@ -915,12 +917,6 @@ function ActivitiesSectionImpl<C = unknown>({
         await dataAdapter.create({ ...payload, context: dataContext })
         await loadActivities()
         flash(t('success', 'Activity saved'), 'success')
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : t('error', 'Failed to save activity')
-        throw err instanceof Error ? err : new Error(message)
       } finally {
         setPendingAction(null)
         popLoading()
@@ -952,12 +948,6 @@ function ActivitiesSectionImpl<C = unknown>({
         await dataAdapter.update({ id: activityId, patch, context: dataContext })
         await loadActivities()
         flash(t('updateSuccess', 'Activity updated.'), 'success')
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : t('error', 'Failed to save activity')
-        throw err instanceof Error ? err : new Error(message)
       } finally {
         setPendingAction(null)
         popLoading()
@@ -970,8 +960,7 @@ function ActivitiesSectionImpl<C = unknown>({
     async (activity: ActivitySummary) => {
       if (!activity.id) return
       const confirmed = await confirm({
-        title: t('deleteConfirm', 'Delete this activity?'),
-        text: 'This action cannot be undone.',
+        title: t('deleteConfirm', 'Delete this activity? You can restore it using version history.'),
         variant: 'destructive',
       })
       if (!confirmed) return
@@ -986,7 +975,6 @@ function ActivitiesSectionImpl<C = unknown>({
             ? err.message
             : t('deleteError', 'Failed to delete activity.')
         flash(message, 'error')
-        throw err instanceof Error ? err : new Error(message)
       } finally {
         setPendingAction(null)
       }
@@ -996,14 +984,20 @@ function ActivitiesSectionImpl<C = unknown>({
 
   const handleDialogSubmit = React.useCallback(
     async (payload: ActivityFormSubmitPayload) => {
-      if (dialogMode === 'edit' && editingActivityId) {
-        await handleUpdate(editingActivityId, payload)
-      } else {
-        await handleCreate(payload)
+      try {
+        if (dialogMode === 'edit' && editingActivityId) {
+          await handleUpdate(editingActivityId, payload)
+        } else {
+          await handleCreate(payload)
+        }
+        closeDialog()
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : t('error', 'Failed to save activity')
+        flash(message, 'error')
       }
-      closeDialog()
     },
-    [closeDialog, dialogMode, editingActivityId, handleCreate, handleUpdate],
+    [closeDialog, dialogMode, editingActivityId, handleCreate, handleUpdate, t],
   )
 
   React.useEffect(() => {

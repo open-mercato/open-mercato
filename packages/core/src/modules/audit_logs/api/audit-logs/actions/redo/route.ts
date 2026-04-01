@@ -95,6 +95,12 @@ export async function POST(req: Request) {
     const cacheAliases = cacheAliasesRaw
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .map((value) => value.trim())
+    const metadataContext: Record<string, unknown> = {
+      historyAction: 'redo',
+      sourceLogId: log.id,
+      sourceCommandId: log.commandId,
+    }
+    if (cacheAliases.length) metadataContext.cacheAliases = cacheAliases
     const metadata: CommandLogMetadata = {
       tenantId: log.tenantId,
       organizationId: log.organizationId,
@@ -102,7 +108,7 @@ export async function POST(req: Request) {
       actionLabel: log.actionLabel,
       resourceKind: log.resourceKind,
       resourceId: log.resourceId,
-      context: cacheAliases.length ? { cacheAliases } : undefined,
+      context: metadataContext,
     }
     const resolvedInput = resolveRedoInput(log.commandPayload, log)
     if (!resolvedInput) {

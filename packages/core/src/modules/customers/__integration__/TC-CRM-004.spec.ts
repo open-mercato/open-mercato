@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { createCompanyFixture, deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 
 /**
  * TC-CRM-004: Create Contact/Person
@@ -23,8 +23,7 @@ test.describe('TC-CRM-004: Create Contact/Person', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto('/backend/customers/people');
-      await page.getByRole('link', { name: /New Person|Create Person/i }).first().click();
+      await page.goto('/backend/customers/people/create');
 
       await page.locator('form').getByRole('textbox').first().fill(firstName);
       await page.locator('form').getByRole('textbox').nth(1).fill(lastName);
@@ -39,16 +38,28 @@ test.describe('TC-CRM-004: Create Contact/Person', () => {
 
       await page.getByRole('button', { name: 'Create Person' }).first().click();
 
-      await expect(page).toHaveURL(/\/backend\/customers\/people\/[0-9a-f-]{36}$/i);
-      await expect(page.getByRole('button', { name: fullName, exact: true }).first()).toBeVisible();
+      await expect(page).toHaveURL(/\/backend\/customers\/people-v2\/[0-9a-f-]{36}$/i);
+      await expect(page.getByText(fullName, { exact: true }).first()).toBeVisible();
 
-      const idMatch = page.url().match(/\/backend\/customers\/people\/([0-9a-f-]{36})$/i);
+      const idMatch = page.url().match(/\/backend\/customers\/people-v2\/([0-9a-f-]{36})$/i);
       personId = idMatch?.[1] ?? null;
       expect(personId, 'Expected created person id in detail URL').toBeTruthy();
 
-      await page.goto('/backend/customers/people');
-      await page.getByRole('textbox', { name: /Search people/i }).fill(fullName);
-      await expect(page.getByRole('link', { name: fullName, exact: true })).toBeVisible();
+      const listResponse = await apiRequest(
+        request,
+        'GET',
+        '/api/customers/people?page=1&pageSize=100',
+        { token },
+      );
+      expect(listResponse.ok()).toBeTruthy();
+      const listBody = (await readJsonSafe<{
+        items?: Array<{ id?: unknown; display_name?: unknown }>;
+      }>(listResponse)) ?? {};
+      const items = Array.isArray(listBody.items) ? listBody.items : [];
+      const createdPerson =
+        items.find((item) => item && typeof item === 'object' && (item as { id?: unknown }).id === personId) ?? null;
+      expect(createdPerson).toBeTruthy();
+      expect((createdPerson as { display_name?: unknown }).display_name).toBe(fullName);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/people', personId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

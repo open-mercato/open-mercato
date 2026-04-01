@@ -25,6 +25,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
 
   afterEach(() => {
     unregisterCommand('sales.orders.update')
+    unregisterCommand('sales.orders.noop-update')
     invalidateMock.mockClear()
   })
 
@@ -139,5 +140,56 @@ describe('CommandBus cache invalidation for sales documents', () => {
     })
 
     expect(invalidateMock).not.toHaveBeenCalled()
+  })
+
+  it('skips audit logging when buildLog marks a no-op update while still invalidating cache', async () => {
+    const logMock = jest.fn(async () => ({ id: 'log-entry' }))
+
+    registerCommand({
+      id: 'sales.orders.noop-update',
+      execute: jest.fn(async () => ({ id: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' })),
+      buildLog: jest.fn(() => ({ skipLog: true })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({
+        log: logMock,
+        findByUndoToken: jest.fn(async () => null),
+        markUndone: jest.fn(async () => {}),
+      }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    const execution = await bus.execute('sales.orders.noop-update', {
+      input: {},
+      ctx,
+      metadata: {
+        resourceKind: 'sales.order',
+        resourceId: 'order-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+    })
+
+    expect(logMock).not.toHaveBeenCalled()
+    expect(execution.logEntry).toBeNull()
+    expect(invalidateMock).toHaveBeenCalledWith(
+      container,
+      'sales.order',
+      { id: 'order-1', organizationId: 'org-1', tenantId: 'tenant-1' },
+      'tenant-1',
+      'command:sales.orders.noop-update:execute',
+      expect.any(Array)
+    )
   })
 })
