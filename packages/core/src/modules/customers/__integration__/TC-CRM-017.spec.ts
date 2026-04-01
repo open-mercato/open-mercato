@@ -28,11 +28,18 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       const undoResponsePromise = page.waitForResponse((response) => {
         return response.url().includes('/api/audit_logs/audit-logs/actions/undo') && response.request().method() === 'POST';
       });
+      const undoNavigationPromise = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
       await undoButton.click();
-      const undoResponse = await undoResponsePromise;
+      const [undoResponse] = await Promise.all([undoResponsePromise, undoNavigationPromise]);
       expect(undoResponse.ok()).toBeTruthy();
 
-      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
+      await expect(page).toHaveURL(/\/backend\/customers\/companies$/);
+      const restoredCompanyLink = page.getByRole('link', { name: companyName, exact: true }).first();
+      await expect(restoredCompanyLink).toBeVisible();
+      await Promise.all([
+        page.waitForURL(new RegExp(`/backend/customers/companies-v2/${companyId}$`), { waitUntil: 'domcontentloaded' }),
+        restoredCompanyLink.click(),
+      ]);
       await expect(page.getByText(companyName, { exact: true }).first()).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
