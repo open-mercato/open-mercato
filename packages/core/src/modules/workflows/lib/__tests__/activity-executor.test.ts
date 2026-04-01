@@ -467,6 +467,25 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(activityExecutor.isPrivateUrl(url)).toBe(true)
     })
 
+    // 0.0.0.0/8 — Linux routes outbound TCP to INADDR_ANY → loopback
+    test.each([
+      ['http://0.0.0.0/'],
+      ['http://0.1.2.3/'],
+      ['http://0.255.255.255/'],
+    ])('blocks 0.0.0.0/8 address %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
+    // Trailing-dot localhost (absolute DNS form) must be rejected
+    test.each([
+      ['http://localhost./'],
+      ['http://localhost.:3000/path'],
+      ['http://foo.localhost./'],
+      ['http://bar.localhost.:8080/'],
+    ])('blocks trailing-dot localhost hostname %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
     // Public addresses must pass through
     test.each([
       ['https://example.com/webhook'],

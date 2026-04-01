@@ -594,12 +594,14 @@ async function resolveDictionaryEntryId(
 
 /**
  * Returns true if the dotted-decimal IPv4 string is in a private/internal range.
- * Covers RFC 1918, loopback (127/8), and link-local (169.254/16).
+ * Covers RFC 1918, loopback (127/8), link-local (169.254/16), and 0.0.0.0/8
+ * (which the Linux kernel routes to loopback for outbound TCP connections).
  */
 function isPrivateIPv4(ip: string): boolean {
   const parts = ip.split('.').map(Number)
   const [a, b] = parts
   return (
+    a === 0 || // 0.0.0.0/8 — routes to loopback on Linux
     a === 10 || // 10.0.0.0/8
     (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
     (a === 192 && b === 168) || // 192.168.0.0/16
@@ -664,8 +666,12 @@ export function isPrivateUrl(rawUrl: string): boolean {
     return isPrivateIPv4(hostname)
   }
 
-  // Loopback hostname
-  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+  // Loopback hostname — strip trailing dot first so that absolute DNS form
+  // (e.g. "localhost." or "foo.localhost.") is treated identically to the
+  // non-absolute form.  The WHATWG URL parser preserves trailing dots, so
+  // without this normalisation "http://localhost./" would bypass the guard.
+  const normalizedHost = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname
+  if (normalizedHost === 'localhost' || normalizedHost.endsWith('.localhost')) {
     return true
   }
 
