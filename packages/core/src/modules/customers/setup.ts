@@ -1,5 +1,5 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, JsonType } from '@mikro-orm/postgresql'
 import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
 import {
   ensureCustomerCustomFieldDefinitions,
@@ -46,7 +46,7 @@ async function seedInteractionFeatureToggles(em: EntityManager): Promise<void> {
       description: toggle.description,
       category: toggle.category,
       type: toggle.type,
-      defaultValue: toggle.defaultValue as any,
+      defaultValue: toggle.defaultValue as JsonType,
     })
     em.persist(entity)
   }
@@ -71,16 +71,6 @@ export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
     admin: [
       'customers.*',
-      'customers.people.view',
-      'customers.people.manage',
-      'customers.companies.view',
-      'customers.companies.manage',
-      'customers.deals.view',
-      'customers.deals.manage',
-      'customers.pipelines.view',
-      'customers.pipelines.manage',
-      'customers.interactions.view',
-      'customers.interactions.manage',
     ],
     employee: [
       'customers.people.view',

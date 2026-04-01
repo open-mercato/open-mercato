@@ -114,10 +114,9 @@ export default function CreatePersonPage() {
                   await createCrud('customers/addresses', body)
                 } catch (addressErr) {
                   const message =
-                    (addressErr && typeof addressErr === 'object' && typeof (addressErr as any).message === 'string'
-                      ? (addressErr as any).message
+                    (addressErr instanceof Error && addressErr.message
+                      ? addressErr.message
                       : null) ||
-                    (addressErr instanceof Error && addressErr.message ? addressErr.message : null) ||
                     t('customers.people.detail.addresses.error')
                   flash(message, 'error')
                 }
