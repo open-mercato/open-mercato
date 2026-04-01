@@ -5,6 +5,10 @@ type SyncExcelIntegrationContext = {
   formId?: string
   integrationDetailWidgetSpotId?: string
   integrationId?: string
+  activeTab?: string
+  refreshDetail?: () => Promise<void>
+  refreshLogs?: () => Promise<void>
+  refreshHealthSnapshot?: () => Promise<void>
 }
 
 type SyncExcelIntegrationData = {

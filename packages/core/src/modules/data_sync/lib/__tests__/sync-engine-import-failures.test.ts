@@ -123,6 +123,9 @@ describe('data sync engine import item failures', () => {
       syncRunService,
       integrationCredentialsService,
       integrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
       progressService,
     })
 
@@ -258,6 +261,9 @@ describe('data sync engine import item failures', () => {
       syncRunService,
       integrationCredentialsService,
       integrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
       progressService,
     })
 

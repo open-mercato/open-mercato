@@ -118,6 +118,12 @@ describe('data sync engine forwards run context to adapters', () => {
     }
 
     mockGetDataSyncAdapter.mockReturnValue(adapter)
+    const integrationLogService = {
+      write: jest.fn(async () => undefined),
+    } as unknown as IntegrationLogService
+    const integrationStateService = {
+      upsert: jest.fn(async () => undefined),
+    }
 
     const engine = createSyncEngine({
       em: {} as EntityManager,
@@ -133,9 +139,8 @@ describe('data sync engine forwards run context to adapters', () => {
       integrationCredentialsService: {
         resolve: jest.fn(async () => ({ uploadId: 'upload-1' })),
       } as unknown as CredentialsService,
-      integrationLogService: {
-        write: jest.fn(async () => undefined),
-      } as unknown as IntegrationLogService,
+      integrationLogService,
+      integrationStateService: integrationStateService as any,
       progressService: createProgressService(),
     })
 
@@ -163,6 +168,28 @@ describe('data sync engine forwards run context to adapters', () => {
         ],
       },
     }))
+    expect(integrationStateService.upsert).toHaveBeenCalledWith('sync_excel', expect.objectContaining({
+      lastHealthStatus: 'degraded',
+    }), createScope())
+    expect(integrationStateService.upsert).toHaveBeenCalledWith('sync_excel', expect.objectContaining({
+      lastHealthStatus: 'healthy',
+    }), createScope())
+    expect((integrationLogService as any).write).toHaveBeenCalledWith(expect.objectContaining({
+      integrationId: 'sync_excel',
+      runId: 'run-import-1',
+      message: 'Sync run started',
+      payload: expect.objectContaining({
+        operationalStatus: 'running',
+      }),
+    }), createScope())
+    expect((integrationLogService as any).write).toHaveBeenCalledWith(expect.objectContaining({
+      integrationId: 'sync_excel',
+      runId: 'run-import-1',
+      message: 'Sync run completed',
+      payload: expect.objectContaining({
+        operationalStatus: 'completed',
+      }),
+    }), createScope())
   })
 
   it('passes runId to export adapters', async () => {
@@ -212,6 +239,9 @@ describe('data sync engine forwards run context to adapters', () => {
       integrationLogService: {
         write: jest.fn(async () => undefined),
       } as unknown as IntegrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
       progressService: createProgressService(),
     })
 

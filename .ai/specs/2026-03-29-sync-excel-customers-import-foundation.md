@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, flattened primary-address mapping/import for one address per CSV row, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
+Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, flattened primary-address mapping/import for one address per CSV row, resumable upload/mapping state in the integration detail view, polling-based run/log/health refresh, duplicate-risk warnings, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
 
 ## Overview
 
@@ -153,6 +153,9 @@ The current slice adds a `sync_excel` integration detail tab with:
 3. editable column mapping table for `customers.person`, including tenant custom fields from both `customer_entity` and `customer_person_profile` plus flattened address fields for one primary address per row
 4. import start button guarded by mapping diagnostics
 5. run status / progress / cancel affordances backed by `data_sync` run detail
+6. resumable upload session restore via `uploadId` / `runId` query params plus sessionStorage-backed manual mapping state
+7. smart polling that keeps run detail, logs, and the health snapshot in sync while a run is active
+8. soft duplicate-risk warnings for custom matching and repeat imports of the same upload
 
 This slice intentionally does **not** yet add an Import button directly to customers DataTables.
 
@@ -243,6 +246,7 @@ The branch is **not merge-ready until the generated DB migration is added**.
   - upload + preview
   - import run start
   - polling `data_sync` run completion
+  - integration logs + health snapshot update after a completed run
   - person create + reimport update by external ID
   - primary address create + update + recreate when the existing primary address is missing
   - mapping restore / cleanup
@@ -293,3 +297,7 @@ The branch is **not merge-ready until the generated DB migration is added**.
 - Added flattened `address.*` mapping targets for `customers.person` CSV preview
 - Added auto-match support for one primary address per CSV row
 - Added address import behavior that updates an existing primary address or creates a new one when no primary exists
+- Added resumable upload/mapping/run state for the integration detail widget via URL params and sessionStorage
+- Added smart polling so sync run refresh updates detail, logs, and health without SSE
+- Added lifecycle-oriented `data_sync` operational logs and integration state snapshots for `sync_excel`
+- Added soft duplicate-risk warnings instead of hard-blocking repeat imports
