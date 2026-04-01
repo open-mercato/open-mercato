@@ -161,6 +161,10 @@ describe('SyncExcelUploadConfigWidget', () => {
       { fallback: null },
     )
     expect(mockApiCall).toHaveBeenCalledWith('/api/data_sync/runs/run-restore-1', undefined, { fallback: null })
+    expect(
+      mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_excel/preview?uploadId=upload-restore-1&entityType=customers.person'),
+    ).toHaveLength(1)
+    expect(mockReplace).not.toHaveBeenCalled()
   })
 
   it('refreshes run status together with logs and health snapshot', async () => {
