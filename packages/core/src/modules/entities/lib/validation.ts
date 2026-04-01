@@ -10,18 +10,46 @@ export async function validateCustomFieldValuesServer(
   const tenantId = opts.tenantId ?? null
   const defs = await em.find(CustomFieldDef, {
     entityId: opts.entityId,
-    organizationId: { $in: [organizationId, null] as any },
-    tenantId: { $in: [tenantId, null] as any },
     isActive: true,
-  })
-  // Prefer org/tenant scoped over global when duplicates
-  const seen = new Set<string>()
-  const ranked: typeof defs = [] as any
-  for (const d of defs) {
-    if (seen.has(d.key)) continue
-    seen.add(d.key)
-    ranked.push(d)
-  }
-  return validateValuesAgainstDefs(opts.values, ranked as any)
-}
+    deletedAt: null,
+    $and: [
+      {
+        $or: organizationId === null
+          ? [{ organizationId: null }]
+          : [{ organizationId }, { organizationId: null }],
+      },
+      {
+        $or: tenantId === null
+          ? [{ tenantId: null }]
+          : [{ tenantId }, { tenantId: null }],
+      },
+    ],
+  } as any)
 
+  // Prefer the most specific scope and newest definition for duplicate keys.
+  const scopeScore = (def: CustomFieldDef) => (def.tenantId ? 2 : 0) + (def.organizationId ? 1 : 0)
+  const byKey = new Map<string, CustomFieldDef>()
+  for (const d of defs) {
+    const existing = byKey.get(d.key)
+    if (!existing) {
+      byKey.set(d.key, d)
+      continue
+    }
+    const nextScore = scopeScore(d)
+    const existingScore = scopeScore(existing)
+    if (nextScore > existingScore) {
+      byKey.set(d.key, d)
+      continue
+    }
+    if (nextScore < existingScore) continue
+
+    const nextUpdatedAt = d.updatedAt instanceof Date ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
+    const existingUpdatedAt = existing.updatedAt instanceof Date
+      ? existing.updatedAt.getTime()
+      : new Date(existing.updatedAt).getTime()
+    if (nextUpdatedAt >= existingUpdatedAt) {
+      byKey.set(d.key, d)
+    }
+  }
+  return validateValuesAgainstDefs(opts.values, Array.from(byKey.values()) as any)
+}

@@ -99,7 +99,6 @@ export const CUSTOMER_CUSTOM_FIELD_SETS: CustomFieldSet[] = [
     fields: CUSTOMER_ACTIVITY_CUSTOM_FIELDS,
   },
   {
-    // Interactions reuse activity fields intentionally so migrated records keep the same custom field shape
     entity: CoreEntities.customers.customer_interaction,
     fields: CUSTOMER_ACTIVITY_CUSTOM_FIELDS,
   },

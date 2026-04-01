@@ -96,7 +96,6 @@ function resolveInternalNavigationTarget(target: string | URL | null | undefined
     if (nextPath === currentPath) return null
     return `${url.pathname}${url.search}${url.hash}`
   } catch {
-    // Invalid URL string — treat as non-navigable
     return null
   }
 }
@@ -744,6 +743,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [translateValidationMessage],
   )
 
+  const mapDefsForValidation = React.useCallback(
+    (definitions: CustomFieldDefDto[]): CustomFieldDefLike[] =>
+      definitions.map((definition) => ({
+        key: definition.key,
+        kind: definition.kind,
+        configJson: {
+          validation: Array.isArray(definition.validation) ? definition.validation : [],
+        },
+      })),
+    [],
+  )
+
   const canNavigateTo = React.useCallback(
     async (target: string): Promise<boolean> => {
       if (!extendedInjectionEventsEnabled) return true
@@ -1374,6 +1385,129 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return new globalThis.Map(allFields.map((f) => [f.id, f]))
   }, [allFields])
 
+  const validateFieldOnBlur = React.useCallback(async (
+    fieldId: string,
+    sourceValues?: CrudFormValues<TValues>,
+  ) => {
+    if (formReadOnly) return
+    const field = fieldById.get(fieldId)
+    if (!field || field.disabled) return
+    if (hiddenInjectedFieldIds.has(fieldId)) return
+
+    const nextValues = sourceValues ?? valuesRef.current
+    const nextFieldErrors: Record<string, string> = {}
+    const requiredMessage = t('ui.forms.errors.required')
+    const value = nextValues[fieldId]
+    const isArray = Array.isArray(value)
+    const isString = typeof value === 'string'
+    const empty =
+      value === undefined ||
+      value === null ||
+      (isString && value.trim() === '') ||
+      (isArray && value.length === 0) ||
+      (field.type === 'checkbox' && value !== true)
+
+    if (field.required && empty) {
+      nextFieldErrors[fieldId] = requiredMessage
+    }
+
+    const customFieldKey = customEntity
+      ? cfDefinitions.some((definition) => definition.key === fieldId)
+        ? fieldId
+        : null
+      : fieldId.startsWith('cf_')
+        ? fieldId.replace(/^cf_/, '')
+        : null
+
+    if (!Object.keys(nextFieldErrors).length && customFieldKey) {
+      const defsForField = cfDefinitions.filter((definition) => definition.key === customFieldKey)
+      if (defsForField.length) {
+        try {
+          const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
+          const validationResult = validateValuesAgainstDefs(
+            { [customFieldKey]: value },
+            mapDefsForValidation(defsForField),
+          )
+          if (!validationResult.ok) {
+            const normalizedFieldErrors = customEntity
+              ? Object.fromEntries(
+                  Object.entries(validationResult.fieldErrors).map(([key, message]) => [
+                    key.replace(/^cf_/, ''),
+                    String(message),
+                  ]),
+                )
+              : Object.fromEntries(
+                  Object.entries(validationResult.fieldErrors).map(([key, message]) => [key, String(message)]),
+                )
+            const transformedErrors = await transformValidationErrors(normalizedFieldErrors)
+            Object.assign(nextFieldErrors, translateValidationErrors(transformedErrors))
+          }
+        } catch {
+          // ignore client-side custom field validation if helper is unavailable
+        }
+      }
+    }
+
+    if (!Object.keys(nextFieldErrors).length && schema) {
+      const widgetValues = { ...(nextValues as Record<string, unknown>) }
+      for (const hiddenId of hiddenInjectedFieldIds) {
+        delete widgetValues[hiddenId]
+      }
+      const coreValues = { ...widgetValues }
+      for (const injectedId of injectedFieldIdSet) {
+        delete coreValues[injectedId]
+      }
+      const result = schema.safeParse(coreValues)
+      if (!result.success) {
+        const schemaFieldErrors: Record<string, string> = {}
+        result.error.issues.forEach((issue) => {
+          const path = serializeIssuePath(issue.path)
+          if (!path) return
+          if (
+            path === fieldId ||
+            path.startsWith(`${fieldId}.`) ||
+            fieldId.startsWith(`${path}.`)
+          ) {
+            schemaFieldErrors[path] = issue.message
+          }
+        })
+        if (Object.keys(schemaFieldErrors).length) {
+          const transformedErrors = await transformValidationErrors(schemaFieldErrors)
+          Object.assign(nextFieldErrors, translateValidationErrors(transformedErrors))
+        }
+      }
+    }
+
+    setErrors((prev) => {
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([existingFieldId]) => !(
+          existingFieldId === fieldId ||
+          existingFieldId.startsWith(`${fieldId}.`) ||
+          fieldId.startsWith(`${existingFieldId}.`)
+        )),
+      )
+      for (const [key, message] of Object.entries(nextFieldErrors)) {
+        next[key] = message
+      }
+      const same =
+        Object.keys(next).length === Object.keys(prev).length &&
+        Object.entries(next).every(([key, message]) => prev[key] === message)
+      return same ? prev : next
+    })
+  }, [
+    cfDefinitions,
+    customEntity,
+    fieldById,
+    formReadOnly,
+    hiddenInjectedFieldIds,
+    injectedFieldIdSet,
+    mapDefsForValidation,
+    schema,
+    t,
+    transformValidationErrors,
+    translateValidationErrors,
+  ])
+
   const allFieldsRef = React.useRef(allFields)
   allFieldsRef.current = allFields
 
@@ -1610,6 +1744,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     setValues((prev) => {
       if (Object.is(prev[id], nextValue)) return prev
       nextData = { ...prev, [id]: nextValue } as CrudFormValues<TValues>
+      valuesRef.current = nextData
       return nextData
     })
     const clearedMessages: string[] = []
@@ -1826,8 +1961,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     // Custom fields validation via definitions (rules)
     if (resolvedEntityIds.length) {
       try {
-        const mod = await import('./utils/customFieldDefs')
-        const defs = await mod.fetchCustomFieldDefs(resolvedEntityIds)
+        const defs = cfDefinitions.length
+          ? cfDefinitions
+          : await import('./utils/customFieldDefs').then((mod) => mod.fetchCustomFieldDefs(resolvedEntityIds))
         const { validateValuesAgainstDefs } = await import('@open-mercato/shared/modules/entities/validation')
         // Build values keyed by def.key for validation
         const cfValues: Record<string, unknown> = {}
@@ -1842,7 +1978,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             if (k.startsWith('cf_')) cfValues[k.replace(/^cf_/, '')] = v
           }
         }
-        const defsForValidation = defs as unknown as CustomFieldDefLike[]
+        const defsForValidation = mapDefsForValidation(defs)
         const result = validateValuesAgainstDefs(cfValues, defsForValidation)
         if (!result.ok) {
           if (customEntity) {
@@ -2196,6 +2332,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
               setValue={setValue}
+              onBlurRequest={(fieldId) => { void validateFieldOnBlur(fieldId) }}
               values={values}
               loadFieldOptions={loadFieldOptions}
               autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
@@ -2635,6 +2772,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
                     setValue={setValue}
+                    onBlurRequest={(fieldId) => { void validateFieldOnBlur(fieldId) }}
                     values={values}
                     loadFieldOptions={loadFieldOptions}
                     autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
@@ -3136,6 +3274,7 @@ type FieldControlProps = {
   error?: string
   options: CrudFieldOption[]
   setValue: (id: string, v: unknown) => void
+  onBlurRequest: (fieldId: string) => void
   values: Record<string, unknown>
   loadFieldOptions: (field: CrudField, query?: string) => Promise<CrudFieldOption[]>
   autoFocus: boolean
@@ -3143,6 +3282,17 @@ type FieldControlProps = {
   wrapperClassName?: string
   entityIdForField?: string
   recordId?: string
+}
+
+function supportsWrapperBlurValidation(field: CrudField): boolean {
+  return (
+    field.type === 'text' ||
+    field.type === 'password' ||
+    field.type === 'textarea' ||
+    field.type === 'checkbox' ||
+    field.type === 'select' ||
+    field.type === 'number'
+  )
 }
 
 type ListboxMultiSelectProps = {
@@ -3220,6 +3370,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   error,
   options,
   setValue,
+  onBlurRequest,
   values,
   loadFieldOptions,
   autoFocus,
@@ -3250,9 +3401,20 @@ const FieldControl = React.memo(function FieldControlImpl({
 
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
+  const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
 
   return (
-    <div className={rootClassName} data-crud-field-id={field.id}>
+    <div
+      className={rootClassName}
+      data-crud-field-id={field.id}
+      onBlur={validateOnWrapperBlur
+        ? (event) => {
+            const nextFocused = event.relatedTarget
+            if (nextFocused instanceof Node && event.currentTarget.contains(nextFocused)) return
+            onBlurRequest(field.id)
+          }
+        : undefined}
+    >
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
         <label className="block text-sm font-medium">
           {field.label}
