@@ -83,9 +83,10 @@ export function createSandbox(globals: Record<string, unknown>, options: Sandbox
           durationMs: Date.now() - start,
         }
       } catch (error) {
+        const err = error as any
         return {
           result: null,
-          error: error instanceof Error ? error.message : String(error),
+          error: err?.message ?? String(err),
           logs,
           durationMs: Date.now() - start,
         }
@@ -126,25 +127,21 @@ export function normalizeCode(code: string): string {
 
 /**
  * Inject a console proxy into the isolate that forwards to the outer logs array.
- * Uses applyIgnored (fire-and-forget) so logging never blocks the isolate event loop.
+ * Uses ivm.Callback with { ignored: true } (fire-and-forget) so logging never
+ * blocks the isolate event loop. Arguments are deep-copied automatically.
  */
 async function bootstrapConsole(ctx: ivm.Context, logs: string[]): Promise<void> {
-  const logRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
-  const infoRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
-  const warnRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
-  const errorRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
-  const debugRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
+  const cb = new ivm.Callback((...args: unknown[]) => pushLog(logs, args), { ignored: true })
 
   await ctx.evalClosure(
     `globalThis.console = {
-      log:   (...a) => $0.applyIgnored(undefined, a, { arguments: { copy: true } }),
-      info:  (...a) => $1.applyIgnored(undefined, a, { arguments: { copy: true } }),
-      warn:  (...a) => $2.applyIgnored(undefined, a, { arguments: { copy: true } }),
-      error: (...a) => $3.applyIgnored(undefined, a, { arguments: { copy: true } }),
-      debug: (...a) => $4.applyIgnored(undefined, a, { arguments: { copy: true } }),
+      log:   (...a) => $0(...a),
+      info:  (...a) => $0(...a),
+      warn:  (...a) => $0(...a),
+      error: (...a) => $0(...a),
+      debug: (...a) => $0(...a),
     }`,
-    [logRef, infoRef, warnRef, errorRef, debugRef],
-    { arguments: { reference: true } }
+    [cb]
   )
 }
 
@@ -153,9 +150,12 @@ async function bootstrapConsole(ctx: ivm.Context, logs: string[]): Promise<void>
  *
  * Strategy per value type:
  *   null / undefined / primitive → jail.set directly
- *   function                     → ivm.Reference + async evalClosure wrapper
+ *   function                     → SAB bridge (see injectFn) — synchronous-looking
+ *                                  call inside the isolate that blocks on Atomics.wait
+ *                                  while the host resolves the async work, then returns
+ *                                  the result via a sync Callback
  *   object                       → split: data properties via ExternalCopy,
- *                                  function properties via ivm.Reference wrappers
+ *                                  function properties via SAB bridge wrappers
  */
 async function injectGlobals(
   ctx: ivm.Context,
@@ -170,51 +170,29 @@ async function injectGlobals(
     }
 
     if (typeof value === 'function') {
-      const ref = new ivm.Reference(value as (...a: unknown[]) => unknown)
-      await ctx.evalClosure(
-        `globalThis[${JSON.stringify(key)}] = async function(...args) {
-          return await $0.apply(undefined, args, {
-            arguments: { copy: true },
-            result: { promise: true, copy: true },
-          })
-        }`,
-        [ref],
-        { arguments: { reference: true } }
-      )
+      await injectFn(ctx, value as (...a: unknown[]) => unknown, `globalThis[${JSON.stringify(key)}]`)
       continue
     }
 
     if (typeof value === 'object') {
       const obj = value as Record<string, unknown>
       const dataEntries: Record<string, unknown> = {}
-      const fnEntries: Array<{ prop: string; ref: ivm.Reference<unknown> }> = []
+      const fnProps: Array<[string, (...a: unknown[]) => unknown]> = []
 
       for (const [prop, propVal] of Object.entries(obj)) {
         if (typeof propVal === 'function') {
-          fnEntries.push({
-            prop,
-            ref: new ivm.Reference(propVal as (...a: unknown[]) => unknown),
-          })
+          fnProps.push([prop, propVal as (...a: unknown[]) => unknown])
         } else {
           dataEntries[prop] = propVal
         }
       }
 
-      // Copy data properties into the isolate
+      // Copy data properties into the isolate first (object must exist before properties are added)
       await jail.set(key, new ivm.ExternalCopy(dataEntries).copyInto())
 
-      // Add function-property wrappers one by one
-      for (const { prop, ref } of fnEntries) {
-        await ctx.evalClosure(
-          `globalThis[${JSON.stringify(key)}][${JSON.stringify(prop)}] = async function(...args) {
-            return await $0.apply(undefined, args, {
-              arguments: { copy: true },
-              result: { promise: true, copy: true },
-            })
-          }`,
-          [ref],
-          { arguments: { reference: true } }
-        )
+      // Add function-property SAB bridges one by one
+      for (const [prop, fn] of fnProps) {
+        await injectFn(ctx, fn, `globalThis[${JSON.stringify(key)}][${JSON.stringify(prop)}]`)
       }
       continue
     }
@@ -222,6 +200,76 @@ async function injectGlobals(
     // Primitive (string, number, boolean)
     await jail.set(key, value as string | number | boolean)
   }
+}
+
+/**
+ * Wire a single host function into the isolate at `target` using a SAB bridge.
+ *
+ * How it works:
+ *   1. A SharedArrayBuffer(4) acts as a one-bit signal (0 = pending, 1 = ready).
+ *   2. `startCb` (fire-and-forget) launches the host async fn; when it settles it
+ *      stores the result in `pending` then sets signal[0] = 1 and notifies.
+ *   3. `getResultCb` (sync) reads the result from `pending` and returns it as an
+ *      ExternalCopy so the value crosses the isolate boundary.
+ *   4. Inside the isolate, `target` becomes a regular function that calls startCb,
+ *      blocks on Atomics.wait (does NOT block the host event loop — only the
+ *      isolate's worker thread), then calls getResultCb and returns or throws.
+ */
+async function injectFn(
+  ctx: ivm.Context,
+  fn: (...a: unknown[]) => unknown,
+  target: string
+): Promise<void> {
+  const sab = new SharedArrayBuffer(4)
+  const signal = new Int32Array(sab)
+  const pending: { result: { ok: boolean; v?: unknown; e?: string } | null } = { result: null }
+
+  const startCb = new ivm.Callback(
+    (...args: unknown[]) => {
+      try {
+        const ret = fn(...args)
+        const p = ret instanceof Promise ? ret : Promise.resolve(ret)
+        p.then(
+          (v) => {
+            pending.result = { ok: true, v }
+            Atomics.store(signal, 0, 1)
+            Atomics.notify(signal, 0)
+          },
+          (e: unknown) => {
+            const err = e as any
+            pending.result = { ok: false, e: err?.message ?? String(err) }
+            Atomics.store(signal, 0, 1)
+            Atomics.notify(signal, 0)
+          }
+        )
+      } catch (e) {
+        const err = e as any
+        pending.result = { ok: false, e: err?.message ?? String(err) }
+        Atomics.store(signal, 0, 1)
+        Atomics.notify(signal, 0)
+      }
+    },
+    { ignored: true }
+  )
+
+  const getResultCb = new ivm.Callback(() => {
+    const r = pending.result!
+    pending.result = null
+    Atomics.store(signal, 0, 0)
+    return new ivm.ExternalCopy(r).copyInto()
+  })
+
+  await ctx.evalClosure(
+    `const _s=$0,_sig=new Int32Array(_s),_start=$1,_get=$2
+     ${target} = function(...a) {
+       _start(...a)
+       Atomics.wait(_sig, 0, 0)
+       const r = _get()
+       if (!r.ok) throw new Error(r.e)
+       return r.v
+     }`,
+    [new ivm.ExternalCopy(sab).copyInto(), startCb, getResultCb]
+  )
 }
 
 function pushLog(logs: string[], args: unknown[]): void {
