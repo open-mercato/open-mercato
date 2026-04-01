@@ -9,6 +9,7 @@ import * as tar from 'tar'
 import {
   downloadReadyAppSnapshot,
   extractTarballSnapshot,
+  getGitHubApiBaseUrl,
   parseGitHubRepositoryUrl,
   resolveOfficialReadyAppSource,
   resolveReadyAppSource,
@@ -19,6 +20,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const PACKAGE_ROOT = resolve(__dirname, '..', '..')
 const CLI_BIN = join(PACKAGE_ROOT, 'bin', 'create-mercato-app')
 const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'index.ts')
+const PACKAGE_VERSION = (
+  JSON.parse(readFileSync(join(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version: string }
+).version
 
 function makeTempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix))
@@ -52,14 +56,14 @@ async function createGitHubStyleTarball(files: Record<string, string>): Promise<
 }
 
 test('resolveOfficialReadyAppSource maps app slug to repo and exact tag', () => {
-  const source = resolveOfficialReadyAppSource('prm', '0.4.9')
+  const source = resolveOfficialReadyAppSource('prm', PACKAGE_VERSION)
 
   assert.deepEqual(source, {
     kind: 'official',
     appSlug: 'prm',
     owner: 'open-mercato',
     repo: 'ready-app-prm',
-    ref: 'v0.4.9',
+    ref: `v${PACKAGE_VERSION}`,
   })
 })
 
@@ -124,19 +128,20 @@ test('validateImportedReadyAppSnapshot fails closed on template files', () => {
 })
 
 test('downloadReadyAppSnapshot resolves external default branches through the GitHub API', async () => {
+  const githubApiBaseUrl = getGitHubApiBaseUrl()
   const calls: string[] = []
   const fetchMock = (async (input: RequestInfo | URL) => {
     const url = String(input)
     calls.push(url)
 
-    if (url.endsWith('/repos/some-agency/ready-app-marketplace')) {
+    if (url === `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace`) {
       return new Response(JSON.stringify({ default_branch: 'main' }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       })
     }
 
-    if (url.endsWith('/repos/some-agency/ready-app-marketplace/tarball/main')) {
+    if (url === `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace/tarball/main`) {
       return new Response(Uint8Array.from([1, 2, 3]), {
         status: 200,
         headers: { 'content-type': 'application/octet-stream' },
@@ -160,8 +165,8 @@ test('downloadReadyAppSnapshot resolves external default branches through the Gi
   assert.equal(download.ref, 'main')
   assert.deepEqual(Array.from(download.archive), [1, 2, 3])
   assert.deepEqual(calls, [
-    'https://api.github.com/repos/some-agency/ready-app-marketplace',
-    'https://api.github.com/repos/some-agency/ready-app-marketplace/tarball/main',
+    `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace`,
+    `${githubApiBaseUrl}/repos/some-agency/ready-app-marketplace/tarball/main`,
   ])
 })
 
@@ -190,6 +195,38 @@ test('published CLI bin executes the dist entrypoint', () => {
     `expected bin wrapper to succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
   )
   assert.match(result.stdout, /--app-url/)
+  assert.match(result.stdout, /--skip-agentic-setup/)
+})
+
+test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setup', () => {
+  const targetRoot = makeTempDir('create-mercato-app-cli-ci-')
+  const targetDir = join(targetRoot, 'ci-app')
+
+  try {
+    const result = spawnSync(
+      process.execPath,
+      ['--import', 'tsx', CLI_ENTRY, targetDir, '--skip-agentic-setup'],
+      {
+        cwd: PACKAGE_ROOT,
+        encoding: 'utf8',
+        env: process.env,
+        timeout: 5000,
+      },
+    )
+
+    assert.equal(
+      result.status,
+      0,
+      `expected CLI scaffold with --skip-agentic-setup to succeed\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}\nerror:\n${result.error instanceof Error ? result.error.message : 'none'}`,
+    )
+    assert.match(result.stdout, /Skipped agentic setup/)
+    assert.equal(existsSync(join(targetDir, 'package.json')), true)
+    assert.equal(existsSync(join(targetDir, '.claude')), false)
+    assert.equal(existsSync(join(targetDir, '.cursor')), false)
+    assert.equal(existsSync(join(targetDir, '.codex')), false)
+  } finally {
+    rmSync(targetRoot, { recursive: true, force: true })
+  }
 })
 
 test('CLI imported ready apps skip wizard-generated files', async () => {
@@ -209,7 +246,13 @@ test('CLI imported ready apps skip wizard-generated files', async () => {
     `const archive = Uint8Array.from(Buffer.from('${archiveBase64}', 'base64'))
 globalThis.fetch = async (input) => {
   const url = String(input)
-  if (url === 'https://api.github.com/repos/open-mercato/ready-app-prm/tarball/v0.4.9') {
+  if (url.endsWith('/repos/open-mercato/ready-app-prm')) {
+    return new Response(JSON.stringify({ default_branch: 'main' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  }
+  if (url.endsWith('/repos/open-mercato/ready-app-prm/tarball/v${PACKAGE_VERSION}')) {
     return new Response(archive, {
       status: 200,
       headers: { 'content-type': 'application/octet-stream' },

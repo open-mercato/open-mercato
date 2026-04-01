@@ -35,6 +35,7 @@ npx create-mercato-app <app-name> [options]
 |--------|-------------|
 | `--app <name>` | Bootstrap an official Open Mercato ready app from `open-mercato/ready-app-<name>` |
 | `--app-url <url>` | Bootstrap a ready app from a GitHub repository URL |
+| `--skip-agentic-setup` | Skip the interactive agentic setup wizard |
 | `--registry <url>` | Custom npm registry URL |
 | `--verdaccio` | Use local Verdaccio registry (http://localhost:4873) |
 | `--help`, `-h` | Show help |
@@ -57,6 +58,9 @@ npx create-mercato-app my-store --verdaccio
 
 # Create a new app using a custom registry
 npx create-mercato-app my-store --registry http://localhost:4873
+
+# Create a new app without the agentic setup wizard
+npx create-mercato-app my-store --skip-agentic-setup
 ```
 
 ## Ready App Behavior
@@ -64,6 +68,7 @@ npx create-mercato-app my-store --registry http://localhost:4873
 - `--app <name>` resolves to `open-mercato/ready-app-<name>` and fetches the exact tag `v<create-mercato-app version>`
 - `--app-url <url>` only supports GitHub repository URLs in v1 and honors `/tree/<ref>` when present
 - `--app` and `--app-url` are mutually exclusive
+- `--skip-agentic-setup` skips only the interactive agentic setup wizard
 - Imported ready apps are copied as raw source snapshots: the CLI does not rewrite dependency versions, package names, or application source files
 - Imported ready apps skip the interactive agentic setup wizard; if you want agentic tooling later, run `yarn mercato agentic:init` inside the generated app
 - Imported ready apps must not contain `.template` files; the scaffold fails closed if template files are found
