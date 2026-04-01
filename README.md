@@ -116,6 +116,19 @@ Open Mercato is a new‑era, AI‑supportive platform for shipping enterprise‑
 
 Read more on the [Open Mercato Architecture](https://docs.openmercato.com/architecture/system-overview)
 
+## Official Modules
+
+Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repo is where the community publishes those features.
+
+Every module there:
+
+- 🔌 **Installs in one command** — no manual wiring, no config files to edit
+- 🔒 **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
+- 🧬 **Is ejectable** — run `--eject` to copy the module into your app and own it fully
+- 🤝 **Gets reviewed** — every submission goes through core team review before reaching npm
+
+Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
+
 ## AI Assistant
 
 Open Mercato includes a built-in AI Assistant that can discover and interact with your data model and APIs. The assistant uses MCP (Model Context Protocol) to expose tools for schema discovery and API execution.
@@ -160,50 +173,29 @@ Open Mercato ships with tenant-scoped, field-level data encryption so PII and se
 Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tenant DEKs and caches them so performance stays snappy; AES-GCM wrappers sit in the ORM lifecycle, storing ciphertext at rest while CRUD and APIs keep working with plaintext. Read the docs to dive deeper: [docs.openmercato.com/user-guide/encryption](https://docs.openmercato.com/user-guide/encryption).
 
 
-## Migration Guide
-
-We have migrated Open Mercato to a monorepo structure. If you're upgrading from a previous version, please note the following changes:
-
-### File Structure
-
-The codebase is now organized into:
-- `packages/` - Shared libraries and modules (`@open-mercato/core`, `@open-mercato/ui`, `@open-mercato/shared`, `@open-mercato/cli`, `@open-mercato/cache`, `@open-mercato/events`, `@open-mercato/queue`, `@open-mercato/content`, `@open-mercato/onboarding`, `@open-mercato/search`, `@open-mercato/enterprise`)
-- `apps/` - Applications (main app in `apps/mercato`, docs in `apps/docs`)
-
-**Important note on storage:** The storage folder has been moved to the `apps/mercato` folder as well. If you instance has got any attachments uploaded, please make sure you run:
-
-```bash
-mv storage apps/mercato/storage
-```
-
-... from the root Open Mercato folder.
-
-### Import Aliases
-
-Import aliases have changed from path-based to package-based imports:
-- **Before:** `@/lib/...`, `@/components/...`, `@/modules/...`
-- **After:** `@open-mercato/shared/lib/...`, `@open-mercato/ui/components/...`, `@open-mercato/core/modules/...`, etc.
-
-### Environment Variables
-
-The `.env` file now must live in `apps/mercato` instead of the project root.
-The fastest way to start is to copy the example file:
-
-```bash
-cp apps/mercato/.env.example apps/mercato/.env
-```
-At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
-
-### Package Manager
-
-Yarn 4 is now required. Ensure you have Yarn 4+ installed before proceeding.
-
 ## Getting Started
 
 
 This is a quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
 
-[![Watch on YouTube](https://img.youtube.com/vi/-ba8Bmc56EQ/maxresdefault.jpg)](https://youtu.be/-ba8Bmc56EQ)
+<table>
+  <tr>
+    <td align="center">
+      <strong>Getting Started for Core Contributions</strong><br/><br/>
+      <a href="https://youtu.be/-ba8Bmc56EQ"><img src="https://img.youtube.com/vi/-ba8Bmc56EQ/hqdefault.jpg" alt="Getting Started for Core Contributions" width="400"/></a>
+    </td>
+    <td align="center">
+      <strong>Building Standalone App on Linux/Mac</strong><br/><br/>
+      <a href="https://www.youtube.com/watch?v=uJn42SLVyI0"><img src="https://img.youtube.com/vi/uJn42SLVyI0/hqdefault.jpg" alt="Building Standalone App using Docker" width="400"/></a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <strong>Building Standalone App using 100% Docker (recommended for Windows)</strong><br/><br/>
+<a href="https://youtu.be/5mErdkgeZ0s"><img src="https://img.youtube.com/vi/5mErdkgeZ0s/hqdefault.jpg" alt="Building Standalone App on Linux/Mac" width="400"/></a>
+    </td>
+  </tr>
+</table>
 
 ### Installation update
 **Node.js 24.x is required**
@@ -221,7 +213,7 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
   
 **Windows:** Use [Docker Setup](#docker-setup) for native setup.
 
-### Quick Start (Monorepo)
+### Quickstart: (Monorepo, core development / contributting)
 
 **Prerequisites:** Yarn 4+
 
@@ -268,6 +260,42 @@ yarn dev:ephemeral
 Navigate to `http://localhost:3000/backend` and sign in with the default credentials printed by `yarn initialize`.
 
 Full installation guide (including prerequisites, Docker setup, and cloud deployment): [docs.openmercato.com/installation/setup](https://docs.openmercato.com/installation/setup)
+
+### Quickstart: app development without touching the Core
+
+The **recommended way to build on Open Mercato** without modifying the core is to create a standalone app. This gives you a self-contained project that pulls Open Mercato packages from npm — your own modules, overrides, and customizations live in your repo while core stays untouched and upgradeable.
+
+#### Create a standalone app
+
+```bash
+npx create-mercato-app my-store
+cd my-store
+yarn setup
+```
+
+Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+#### Add custom modules
+
+Drop your own modules into `src/modules/` and register them in `src/modules.ts` with `from: '@app'`. If you ask *Claude Code* or *Codex* they'll be more than happy to do so for you! But first: start with the [Spec Driven Development](#spec-driven-development).
+
+#### Eject core modules for deep customization
+
+When you need to change the internals of a core module (entities, business logic, UI), **eject** it. The `mercato eject` command copies the module source into your `src/modules/` directory and switches it to local, so you can modify it freely while all other modules keep receiving package updates.
+
+```bash
+# See which modules support ejection
+yarn mercato eject --list
+
+# Eject a module (e.g., currencies)
+yarn mercato eject currencies
+yarn mercato generate all
+yarn dev
+```
+
+Currently ejectable: `catalog`, `currencies`, `customers`, `perspectives`, `planner`, `resources`, `sales`, `staff`, `workflows`.
+
+Full guide: [docs.openmercato.com/customization/standalone-app](https://docs.openmercato.com/customization/standalone-app) · CLI reference: [docs.openmercato.com/cli/eject](https://docs.openmercato.com/cli/eject)
 
 ## Release Channels
 
@@ -381,20 +409,6 @@ docker compose -f docker-compose.preview.yaml down
 
 > **Attention:** This type of deployment is ephemeral and intended for testing purposes only. After stopping the containers, all data will be lost. Do not use this setup in production.
 
-### Official Modules
-
-Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repo is where the community publishes those features.
-
-Every module there:
-
-- 🔌 **Installs in one command** — no manual wiring, no config files to edit
-- 🔒 **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
-- 🧬 **Is ejectable** — run `--eject` to copy the module into your app and own it fully
-- 🤝 **Gets reviewed** — every submission goes through core team review before reaching npm
-
-Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
-
-[![Watch: Official Modules](https://img.youtube.com/vi/alPsIVq7PKo/maxresdefault.jpg)](https://www.youtube.com/watch?v=alPsIVq7PKo)
 
 ### VPS Deployment
 
@@ -421,112 +435,6 @@ The container includes Node.js 24, Yarn 4, PostgreSQL (with pgvector), Redis, Me
 - **Customize env vars**: create `apps/mercato/.env.local` (takes priority over `.env`, which is auto-generated)
 - **Claude Code CLI**: run `claude` inside the container and follow the OAuth login flow (works with Max plan subscriptions), or set `export ANTHROPIC_API_KEY=sk-...` in your host shell before opening the container for API key auth
 - **Rebuild**: if you need a fresh start, use Command Palette → "Dev Containers: Rebuild Container"
-
-## Standalone App & Customization
-
-The **recommended way to build on Open Mercato** without modifying the core is to create a standalone app. This gives you a self-contained project that pulls Open Mercato packages from npm — your own modules, overrides, and customizations live in your repo while core stays untouched and upgradeable.
-
-### Create a standalone app
-
-```bash
-npx create-mercato-app my-store
-cd my-store
-cp .env.example .env   # configure DATABASE_URL, JWT_SECRET, REDIS_URL
-docker compose up -d   # start PostgreSQL, Redis, Meilisearch
-yarn install
-yarn initialize
-yarn dev
-```
-
-Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
-
-### Test `create-mercato-app` locally from the monorepo
-
-If you are changing the scaffold itself and want to validate it before publishing:
-
-```bash
-# Scaffold a temporary standalone app and drop into it
-yarn test:create-app
-
-# Or only print the temp path without opening a shell
-yarn test:create-app --no-shell
-
-# Run full standalone integration parity against a temporary app
-yarn test:create-app:integration
-```
-
-`yarn test:create-app` builds current-branch packages, scaffolds a temporary app, and rewrites `@open-mercato/*` dependencies to fresh local tarballs so `yarn install` inside that app exercises your branch instead of published packages. `yarn test:create-app:integration` goes further and runs the standalone app integration suite in the same ephemeral style used by CI.
-
-### Add custom modules
-
-Drop your own modules into `src/modules/` and register them in `src/modules.ts` with `from: '@app'`:
-
-```ts
-export const enabledModules: ModuleEntry[] = [
-  // ... core modules
-  { id: 'inventory', from: '@app' },
-]
-```
-
-Run `yarn generate` and `yarn dev` — your module's pages, APIs, and entities are auto-discovered.
-
-### Extend backend navigation with menu injection (SPEC-041 A/B)
-
-Open Mercato now supports declarative menu injection for backend chrome surfaces without touching core files.
-
-1. Create a headless widget in your module:
-
-```ts
-// src/modules/example/widgets/injection/example-menus/widget.ts
-import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
-import type { InjectionMenuItemWidget } from '@open-mercato/shared/modules/widgets/injection'
-
-export default {
-  metadata: { id: 'example.injection.example-menus', features: ['example.view'] },
-  menuItems: [
-    {
-      id: 'example-todos-shortcut',
-      label: 'example.menu.todosShortcut',
-      href: '/backend/example/todos',
-      groupId: 'example.nav.group',
-      groupLabelKey: 'example.nav.group',
-      placement: { position: InjectionPosition.Last },
-    },
-  ],
-} satisfies InjectionMenuItemWidget
-```
-
-2. Map it in `widgets/injection-table.ts`:
-
-```ts
-export const injectionTable = {
-  'menu:sidebar:main': { widgetId: 'example.injection.example-menus', priority: 50 },
-  'menu:topbar:actions': { widgetId: 'example.injection.example-menus', priority: 50 },
-  'menu:topbar:profile-dropdown': { widgetId: 'example.injection.example-menus', priority: 50 },
-}
-```
-
-3. Run `yarn generate`.
-
-Available surfaces: `menu:sidebar:main`, `menu:sidebar:settings`, `menu:sidebar:profile`, `menu:topbar:actions`, `menu:topbar:profile-dropdown`.
-
-### Eject core modules for deep customization
-
-When you need to change the internals of a core module (entities, business logic, UI), **eject** it. The `mercato eject` command copies the module source into your `src/modules/` directory and switches it to local, so you can modify it freely while all other modules keep receiving package updates.
-
-```bash
-# See which modules support ejection
-yarn mercato eject --list
-
-# Eject a module (e.g., currencies)
-yarn mercato eject currencies
-yarn mercato generate all
-yarn dev
-```
-
-Currently ejectable: `catalog`, `currencies`, `customers`, `perspectives`, `planner`, `resources`, `sales`, `staff`, `workflows`.
-
-Full guide: [docs.openmercato.com/customization/standalone-app](https://docs.openmercato.com/customization/standalone-app) · CLI reference: [docs.openmercato.com/cli/eject](https://docs.openmercato.com/cli/eject)
 
 ## Live demo
 
