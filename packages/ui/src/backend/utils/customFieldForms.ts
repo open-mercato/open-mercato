@@ -73,8 +73,16 @@ export function buildFormFieldFromCustomFieldDef(
     case 'boolean':
       return { id, label, type: 'checkbox', description: def.description, required }
     case 'integer':
-    case 'float':
-      return { id, label, type: 'number', description: def.description, required }
+    case 'float': {
+      const rules: Array<{ rule: string; param?: number }> = Array.isArray((def as any).validation) ? (def as any).validation : []
+      let min: number | undefined
+      let max: number | undefined
+      for (const r of rules) {
+        if ((r.rule === 'gte' || r.rule === 'gt') && typeof r.param === 'number') min = r.param
+        if ((r.rule === 'lte' || r.rule === 'lt') && typeof r.param === 'number') max = r.param
+      }
+      return { id, label, type: 'number', description: def.description, required, min, max }
+    }
     case 'multiline': {
       let editor: 'simple' | 'uiw' | 'html' = 'uiw'
       if (def.editor === 'simpleMarkdown') editor = 'simple'

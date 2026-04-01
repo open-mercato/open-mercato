@@ -51,4 +51,42 @@ describe('buildFormFieldsFromCustomFields', () => {
     }
     expect(byId['cf_hidden']).toBeUndefined()
   })
+
+  it('extracts min/max from gte/lte validation rules for number fields', () => {
+    const defs: CustomFieldDefDto[] = [
+      {
+        key: 'priority',
+        kind: 'integer',
+        filterable: true,
+        formEditable: true,
+        validation: [
+          { rule: 'required', message: 'Priority is required' },
+          { rule: 'integer', message: 'Priority must be an integer' },
+          { rule: 'gte', param: 1, message: 'Priority must be >= 1' },
+          { rule: 'lte', param: 5, message: 'Priority must be <= 5' },
+        ],
+      } as any,
+      {
+        key: 'score',
+        kind: 'float',
+        filterable: true,
+        formEditable: true,
+      } as any,
+    ]
+
+    const fields = buildFormFieldsFromCustomFields(defs)
+    const priority = fields.find(f => f.id === 'cf_priority')
+    expect(priority?.type).toBe('number')
+    if (priority?.type === 'number') {
+      expect(priority.min).toBe(1)
+      expect(priority.max).toBe(5)
+    }
+
+    const score = fields.find(f => f.id === 'cf_score')
+    expect(score?.type).toBe('number')
+    if (score?.type === 'number') {
+      expect(score.min).toBeUndefined()
+      expect(score.max).toBeUndefined()
+    }
+  })
 })

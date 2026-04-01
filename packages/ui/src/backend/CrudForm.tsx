@@ -128,6 +128,9 @@ export type CrudBuiltinField = CrudFieldBase & {
   suggestions?: string[]
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
+  // for number fields; HTML min/max constraints
+  min?: number
+  max?: number
   // for datetime/time fields
   minuteStep?: number
   minDate?: Date
@@ -2726,12 +2729,16 @@ function NumberInput({
   placeholder,
   autoFocus,
   onSubmit,
+  min,
+  max,
 }: {
   value: number | string | null | undefined
   onChange: (v: number | undefined) => void
   placeholder?: string
   autoFocus?: boolean
   onSubmit?: () => void
+  min?: number
+  max?: number
 }) {
   const [local, setLocal] = React.useState<string>(value !== undefined && value !== null ? String(value) : '')
   const isFocusedRef = React.useRef(false)
@@ -2775,6 +2782,8 @@ function NumberInput({
       className="w-full h-9 rounded border px-2 text-sm"
       placeholder={placeholder}
       value={local}
+      min={min}
+      max={max}
       onChange={handleChange}
       onKeyDown={handleKeyDown}
       onFocus={handleFocus}
@@ -3197,6 +3206,8 @@ const FieldControl = React.memo(function FieldControlImpl({
           onChange={fieldSetValue}
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
+          min={field.min}
+          max={field.max}
         />
       )}
       {field.type === 'date' && (
