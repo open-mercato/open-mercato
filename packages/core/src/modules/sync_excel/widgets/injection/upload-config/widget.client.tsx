@@ -104,6 +104,7 @@ type MappingDiagnostics = {
 type PersistedSessionSnapshot = {
   uploadId: string
   filename: string
+  preview: UploadResponse | null
   mappingRows: MappingRowState[]
   matchStrategy: SuggestedMapping['matchStrategy']
   runId: string | null
@@ -252,9 +253,26 @@ function readPersistedSessionSnapshot(integrationId: string | undefined): Persis
     if (parsed.matchStrategy !== 'externalId' && parsed.matchStrategy !== 'email' && parsed.matchStrategy !== 'custom') {
       return null
     }
+    const preview = (
+      parsed.preview
+      && typeof parsed.preview === 'object'
+      && typeof parsed.preview.uploadId === 'string'
+      && parsed.preview.uploadId.trim().length > 0
+      && typeof parsed.preview.filename === 'string'
+      && Array.isArray(parsed.preview.headers)
+      && Array.isArray(parsed.preview.sampleRows)
+      && typeof parsed.preview.totalRows === 'number'
+      && typeof parsed.preview.fileSize === 'number'
+      && parsed.preview.entityType === ENTITY_TYPE
+      && parsed.preview.suggestedMapping
+    )
+      ? parsed.preview as UploadResponse
+      : null
+
     return {
       uploadId: parsed.uploadId,
       filename: parsed.filename,
+      preview,
       mappingRows: parsed.mappingRows
         .filter((row): row is MappingRowState => (
           Boolean(row)
@@ -361,8 +379,9 @@ export default function SyncExcelUploadConfigWidget({
   }, [context.integrationId, replaceQueryParams])
 
   const persistCurrentSession = React.useCallback((next?: Partial<PersistedSessionSnapshot>) => {
-    const uploadId = next?.uploadId ?? preview?.uploadId ?? null
-    const filename = next?.filename ?? preview?.filename ?? null
+    const persistedPreview = next?.preview ?? preview ?? null
+    const uploadId = next?.uploadId ?? persistedPreview?.uploadId ?? null
+    const filename = next?.filename ?? persistedPreview?.filename ?? null
     if (!uploadId || !filename) {
       writePersistedSessionSnapshot(context.integrationId, null)
       return
@@ -371,12 +390,13 @@ export default function SyncExcelUploadConfigWidget({
     writePersistedSessionSnapshot(context.integrationId, {
       uploadId,
       filename,
+      preview: persistedPreview,
       mappingRows: next?.mappingRows ?? mappingRows,
       matchStrategy: next?.matchStrategy ?? matchStrategy,
       runId: next?.runId ?? runId,
       progressJobId: next?.progressJobId ?? progressJobId,
     })
-  }, [context.integrationId, mappingRows, matchStrategy, preview?.filename, preview?.uploadId, progressJobId, runId])
+  }, [context.integrationId, mappingRows, matchStrategy, preview, progressJobId, runId])
 
   const syncPreviewState = React.useCallback((nextPreview: UploadResponse, options?: {
     preserveManualState?: boolean
@@ -402,6 +422,7 @@ export default function SyncExcelUploadConfigWidget({
       persistCurrentSession({
         uploadId: nextPreview.uploadId,
         filename: nextPreview.filename,
+        preview: nextPreview,
         mappingRows: restoredSnapshot!.mappingRows,
         matchStrategy: restoredSnapshot!.matchStrategy,
         runId: restoredSnapshot!.runId,
@@ -418,6 +439,7 @@ export default function SyncExcelUploadConfigWidget({
       persistCurrentSession({
         uploadId: nextPreview.uploadId,
         filename: nextPreview.filename,
+        preview: nextPreview,
       })
       replaceQueryParams({ uploadId: nextPreview.uploadId })
       return
@@ -431,6 +453,7 @@ export default function SyncExcelUploadConfigWidget({
     persistCurrentSession({
       uploadId: nextPreview.uploadId,
       filename: nextPreview.filename,
+      preview: nextPreview,
       mappingRows: nextRows,
       matchStrategy: nextSuggestedMapping.matchStrategy,
       runId: null,
@@ -497,7 +520,18 @@ export default function SyncExcelUploadConfigWidget({
 
     let cancelled = false
     restoringSnapshotRef.current = readPersistedSessionSnapshot(context.integrationId)
-    setIsRestoringSession(true)
+    const persistedPreview = restoringSnapshotRef.current?.preview?.uploadId === uploadIdFromUrl
+      ? restoringSnapshotRef.current.preview
+      : null
+
+    if (persistedPreview) {
+      syncPreviewState(persistedPreview, {
+        restoredSnapshot: restoringSnapshotRef.current,
+      })
+      setIsRestoringSession(false)
+    } else {
+      setIsRestoringSession(true)
+    }
 
     const restoreSession = async () => {
       const call = await apiCall<UploadResponse>(
