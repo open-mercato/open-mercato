@@ -1,5 +1,5 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import type { EntityManager, JsonType } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
 import {
   ensureCustomerCustomFieldDefinitions,
@@ -46,7 +46,7 @@ async function seedInteractionFeatureToggles(em: EntityManager): Promise<void> {
       description: toggle.description,
       category: toggle.category,
       type: toggle.type,
-      defaultValue: toggle.defaultValue as JsonType,
+      defaultValue: toggle.defaultValue,
     })
     em.persist(entity)
   }
