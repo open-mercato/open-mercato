@@ -117,11 +117,6 @@ export default function PreparingPageClient() {
                 )}
           </div>
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Button asChild variant="outline">
-              <Link href="/onboarding">
-                {translate('onboarding.preparing.backCta', 'Back to onboarding')}
-              </Link>
-            </Button>
             <Button asChild>
               <Link href="/">
                 {translate('onboarding.preparing.homeCta', 'Go to home page')}
