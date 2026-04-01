@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CredentialsService } from '../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../integrations/lib/log-service'
+import type { IntegrationStateService } from '../integrations/lib/state-service'
 import type { ProgressService } from '../progress/lib/progressService'
 import { SyncCursor, SyncMapping, SyncRun, SyncSchedule } from './data/entities'
 import { createExternalIdMappingService } from './lib/id-mapping'
@@ -14,6 +15,7 @@ type Cradle = {
   em: EntityManager
   integrationCredentialsService: CredentialsService
   integrationLogService: IntegrationLogService
+  integrationStateService: IntegrationStateService
   progressService: ProgressService
   schedulerService?: {
     register: (registration: Record<string, unknown>) => Promise<void>
@@ -26,13 +28,14 @@ export function register(container: AppContainer) {
     externalIdMappingService: asFunction(({ em }: Cradle) => createExternalIdMappingService(em)).scoped().proxy(),
     dataSyncRunService: asFunction(({ em }: Cradle) => createSyncRunService(em)).scoped().proxy(),
     dataSyncScheduleService: asFunction(({ em, schedulerService }: Cradle) => createSyncScheduleService(em, schedulerService)).scoped().proxy(),
-    dataSyncEngine: asFunction(({ em, dataSyncRunService, integrationCredentialsService, integrationLogService, progressService }: Cradle & {
+    dataSyncEngine: asFunction(({ em, dataSyncRunService, integrationCredentialsService, integrationLogService, integrationStateService, progressService }: Cradle & {
       dataSyncRunService: ReturnType<typeof createSyncRunService>
     }) => createSyncEngine({
       em,
       syncRunService: dataSyncRunService,
       integrationCredentialsService,
       integrationLogService,
+      integrationStateService,
       progressService,
     })).scoped().proxy(),
 

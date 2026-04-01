@@ -1,7 +1,6 @@
 {
   "sync_excel.integration.description": "Przesyłaj pliki CSV, podglądaj mapowanie i uruchamiaj importy plikowe przez Data Sync.",
   "sync_excel.integration.title": "Import Excel / CSV",
-  "sync_excel.mapping.targets.description": "Opis",
   "sync_excel.mapping.targets.addressCompanyName": "Firma adresowa",
   "sync_excel.mapping.targets.addressLine1": "Linia adresu 1",
   "sync_excel.mapping.targets.addressLine2": "Linia adresu 2",
@@ -10,10 +9,11 @@
   "sync_excel.mapping.targets.buildingNumber": "Numer budynku",
   "sync_excel.mapping.targets.city": "Miasto",
   "sync_excel.mapping.targets.country": "Kraj",
+  "sync_excel.mapping.targets.description": "Opis",
   "sync_excel.mapping.targets.displayName": "Nazwa wyświetlana",
   "sync_excel.mapping.targets.externalId": "Zewnętrzne ID",
-  "sync_excel.mapping.targets.flatNumber": "Numer lokalu",
   "sync_excel.mapping.targets.firstName": "Imię",
+  "sync_excel.mapping.targets.flatNumber": "Numer lokalu",
   "sync_excel.mapping.targets.ignore": "Zostaw bez mapowania",
   "sync_excel.mapping.targets.jobTitle": "Stanowisko",
   "sync_excel.mapping.targets.lastName": "Nazwisko",
@@ -63,6 +63,7 @@
   "sync_excel.widget.messages.mappingReset": "Przywrócono sugerowane mapowanie.",
   "sync_excel.widget.messages.previewError": "Nie udało się odświeżyć podglądu.",
   "sync_excel.widget.messages.previewRefreshed": "Podgląd został odświeżony.",
+  "sync_excel.widget.messages.restoringSession": "Przywracanie ostatniej sesji importu CSV...",
   "sync_excel.widget.messages.uploadError": "Nie udało się przesłać pliku CSV.",
   "sync_excel.widget.messages.uploadSuccess": "Podgląd CSV jest gotowy.",
   "sync_excel.widget.metrics.entity": "Encja docelowa",
@@ -91,6 +92,7 @@
   "sync_excel.widget.upload.fileLabel": "Plik CSV",
   "sync_excel.widget.upload.selectedFile": "Wybrany plik",
   "sync_excel.widget.upload.title": "Prześlij CSV",
+  "sync_excel.widget.validation.duplicateRiskTitle": "Ryzyko duplikatów",
   "sync_excel.widget.validation.duplicateTargetsMessage": "Każde pole docelowe może być zmapowane tylko raz w tym pierwszym zakresie: {targets}",
   "sync_excel.widget.validation.duplicateTargetsTitle": "Powielone pola docelowe",
   "sync_excel.widget.validation.identityMessage": "Zmapuj Zewnętrzne ID albo Główny e-mail, aby kolejne importy mogły dopasować istniejące osoby.",
@@ -98,5 +100,6 @@
   "sync_excel.widget.validation.nameMessage": "Zmapuj Nazwisko albo Nazwę wyświetlaną, aby importer mógł zbudować rekordy osób.",
   "sync_excel.widget.validation.nameTitle": "Zmapuj pole nazwy",
   "sync_excel.widget.validation.readyMessage": "Bieżące mapowanie jest poprawne dla pierwszego zakresu customers.person.",
-  "sync_excel.widget.validation.readyTitle": "Gotowe do importu"
+  "sync_excel.widget.validation.readyTitle": "Gotowe do importu",
+  "sync_excel.widget.validation.reimportTitle": "Ten upload ma już uruchomiony import"
 }
