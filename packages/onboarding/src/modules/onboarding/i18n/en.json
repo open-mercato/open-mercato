@@ -77,6 +77,7 @@
   "onboarding.preparing.descriptionWithTenant": "We are finishing the demo environment for {tenant}. We will send you an email with the correct tenant login link as soon as it is ready.",
   "onboarding.preparing.emailNotice": "You do not need to keep this page open. We will email you when everything is ready.",
   "onboarding.preparing.homeCta": "Go to home page",
+  "onboarding.preparing.redirecting": "Your workspace is ready. Redirecting you to the tenant login page now.",
   "onboarding.preparing.title": "We are preparing your workspace",
   "onboarding.readyEmail.body": "Your Open Mercato workspace for {organizationName} has finished preparing. Use the secure link below to sign in to the correct tenant.",
   "onboarding.readyEmail.cta": "Open tenant login",

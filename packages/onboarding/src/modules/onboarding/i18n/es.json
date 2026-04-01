@@ -77,6 +77,7 @@
   "onboarding.preparing.descriptionWithTenant": "Estamos terminando de preparar el entorno de demostración para {tenant}. Le enviaremos un correo con el enlace correcto de acceso al tenant en cuanto esté listo.",
   "onboarding.preparing.emailNotice": "No necesita mantener esta página abierta. Le enviaremos un correo cuando todo esté listo.",
   "onboarding.preparing.homeCta": "Ir a la página principal",
+  "onboarding.preparing.redirecting": "Su espacio de trabajo ya está listo. Ahora le redirigimos a la página de acceso del tenant.",
   "onboarding.preparing.title": "Estamos preparando su espacio de trabajo",
   "onboarding.readyEmail.body": "Su espacio de trabajo de Open Mercato para {organizationName} ya está listo. Use el enlace seguro de abajo para iniciar sesión en el tenant correcto.",
   "onboarding.readyEmail.cta": "Abrir acceso del tenant",

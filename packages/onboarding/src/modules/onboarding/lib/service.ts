@@ -89,6 +89,14 @@ export class OnboardingService {
     return this.em.findOne(OnboardingRequest, { id })
   }
 
+  async findLatestByTenantId(tenantId: string) {
+    return this.em.findOne(
+      OnboardingRequest,
+      { tenantId, deletedAt: null },
+      { orderBy: { updatedAt: 'DESC', createdAt: 'DESC' } },
+    )
+  }
+
   async startProcessing(request: OnboardingRequest, startedAt: Date) {
     request.status = 'processing'
     request.processingStartedAt = startedAt

@@ -77,6 +77,7 @@
   "onboarding.preparing.descriptionWithTenant": "Wir schließen die Vorbereitung der Demo-Umgebung für {tenant} ab. Sobald alles bereit ist, senden wir Ihnen eine E-Mail mit dem korrekten Tenant-Login-Link.",
   "onboarding.preparing.emailNotice": "Sie müssen diese Seite nicht geöffnet lassen. Wir senden Ihnen eine E-Mail, sobald alles bereit ist.",
   "onboarding.preparing.homeCta": "Zur Startseite",
+  "onboarding.preparing.redirecting": "Ihr Arbeitsbereich ist bereit. Wir leiten Sie jetzt zur Tenant-Anmeldung weiter.",
   "onboarding.preparing.title": "Wir bereiten Ihren Arbeitsbereich vor",
   "onboarding.readyEmail.body": "Ihr Open Mercato-Arbeitsbereich für {organizationName} ist fertig vorbereitet. Verwenden Sie den sicheren Link unten, um sich beim richtigen Tenant anzumelden.",
   "onboarding.readyEmail.cta": "Tenant-Login öffnen",

@@ -3,7 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -13,11 +13,13 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 
 export default function PreparingPageClient() {
   const t = useT()
+  const router = useRouter()
   const translate = (key: string, fallback: string, params?: Record<string, string | number>) =>
     translateWithFallback(t, key, fallback, params)
   const searchParams = useSearchParams()
   const tenantId = (searchParams.get('tenant') || '').trim()
   const [tenantName, setTenantName] = useState<string | null>(null)
+  const [redirecting, setRedirecting] = useState(false)
 
   useEffect(() => {
     if (!tenantId) {
@@ -40,6 +42,41 @@ export default function PreparingPageClient() {
       active = false
     }
   }, [tenantId])
+
+  useEffect(() => {
+    if (!tenantId) return
+    let active = true
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    const poll = async () => {
+      try {
+        const { result } = await apiCall<{
+          ok?: boolean
+          ready?: boolean
+          loginUrl?: string | null
+        }>(`/api/onboarding/onboarding/status?tenantId=${encodeURIComponent(tenantId)}`)
+        if (!active || !result?.ok) return
+        if (result.ready && result.loginUrl) {
+          setRedirecting(true)
+          router.replace(result.loginUrl)
+          return
+        }
+      } catch {
+        if (!active) return
+      }
+      if (!active) return
+      timeoutId = setTimeout(() => {
+        void poll()
+      }, 3000)
+    }
+
+    void poll()
+
+    return () => {
+      active = false
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [router, tenantId])
 
   return (
     <div className="relative flex min-h-svh items-center justify-center bg-muted/40 px-4 pb-24">
@@ -69,10 +106,15 @@ export default function PreparingPageClient() {
         </CardHeader>
         <CardContent className="space-y-6 pb-10 text-center">
           <div className="rounded-xl border border-border/70 bg-background/80 px-4 py-4 text-sm text-muted-foreground">
-            {translate(
-              'onboarding.preparing.emailNotice',
-              'You do not need to keep this page open. We will email you when everything is ready.',
-            )}
+            {redirecting
+              ? translate(
+                  'onboarding.preparing.redirecting',
+                  'Your workspace is ready. Redirecting you to the tenant login page now.',
+                )
+              : translate(
+                  'onboarding.preparing.emailNotice',
+                  'You do not need to keep this page open. We will email you when everything is ready.',
+                )}
           </div>
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Button asChild variant="outline">
