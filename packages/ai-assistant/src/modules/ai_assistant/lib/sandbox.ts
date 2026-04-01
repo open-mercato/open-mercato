@@ -1,11 +1,13 @@
 /**
  * Sandboxed Code Execution Engine
  *
- * Uses node:vm to run AI-generated JavaScript in a restricted sandbox.
- * Only whitelisted globals are available — no file system, network, or process access.
+ * Uses isolated-vm to run AI-generated JavaScript inside a separate V8 isolate.
+ * Each execution gets a fresh isolate with no shared prototype chain, heap, or
+ * handle access to the host process — preventing the node:vm escape via the
+ * Promise prototype chain (NEW-01, CVSS 9.9).
  */
 
-import vm from 'node:vm'
+import ivm from 'isolated-vm'
 
 export interface SandboxOptions {
   /** Execution timeout in milliseconds (default: 30_000) */
@@ -24,6 +26,7 @@ export interface SandboxResult {
   apiCallCount?: number
 }
 
+const MEMORY_LIMIT_MB = parseInt(process.env.SANDBOX_MEMORY_MB ?? '32', 10)
 const MAX_LOG_ENTRIES = 100
 const MAX_LOG_ENTRY_LENGTH = 1000
 
@@ -33,95 +36,40 @@ const MAX_LOG_ENTRY_LENGTH = 1000
  * @param globals - Custom globals to inject (e.g., spec, api, context)
  * @param options - Sandbox configuration
  */
-export function createSandbox(
-  globals: Record<string, unknown>,
-  options: SandboxOptions = {}
-) {
-  const { timeout = 30_000, maxApiCalls = 50 } = options
+export function createSandbox(globals: Record<string, unknown>, options: SandboxOptions = {}) {
+  const { timeout = 30_000 } = options
 
   return {
     async execute(code: string): Promise<SandboxResult> {
       const logs: string[] = []
       const start = Date.now()
 
-      // Capture console output
-      const consolProxy = {
-        log: (...args: unknown[]) => pushLog(logs, args),
-        info: (...args: unknown[]) => pushLog(logs, args),
-        warn: (...args: unknown[]) => pushLog(logs, args),
-        error: (...args: unknown[]) => pushLog(logs, args),
-        debug: (...args: unknown[]) => pushLog(logs, args),
-      }
-
-      // Build context with safe globals + caller-provided globals
-      const contextGlobals: Record<string, unknown> = {
-        // Safe built-ins
-        JSON,
-        Object,
-        Array,
-        Map,
-        Set,
-        Promise,
-        Math,
-        Date,
-        RegExp,
-        String,
-        Number,
-        Boolean,
-        parseInt,
-        parseFloat,
-        isNaN,
-        isFinite,
-        encodeURIComponent,
-        decodeURIComponent,
-        Error,
-        TypeError,
-        RangeError,
-        undefined,
-        NaN,
-        Infinity,
-
-        // Sandboxed console
-        console: consolProxy,
-
-        // Blocked — explicitly set to undefined
-        require: undefined,
-        process: undefined,
-        global: undefined,
-        globalThis: undefined,
-        fetch: undefined,
-        XMLHttpRequest: undefined,
-        WebSocket: undefined,
-        Buffer: undefined,
-        setTimeout: undefined,
-        setInterval: undefined,
-        __dirname: undefined,
-        __filename: undefined,
-
-        // Caller-provided globals (spec, api, context, etc.)
-        ...globals,
-      }
-
-      const ctx = vm.createContext(contextGlobals)
+      const isolate = new ivm.Isolate({ memoryLimit: MEMORY_LIMIT_MB })
 
       try {
+        const ctx = await isolate.createContext()
+
+        // Console proxy — fire-and-forget so logging never blocks the isolate
+        await bootstrapConsole(ctx, logs)
+
+        // Inject caller-provided globals (spec, api, context, etc.)
+        await injectGlobals(ctx, globals)
+
+        // Shadow globalThis so user code cannot navigate to the isolate's global
+        // object and inspect/escape via its properties
+        await ctx.global.set('globalThis', undefined)
+
         const normalized = normalizeCode(code)
 
-        // Invoke the normalized async function directly
-        const wrapped = `(${normalized})()`
+        const script = await isolate.compileScript(`(${normalized})()`)
 
-        const script = new vm.Script(wrapped, {
-          filename: 'sandbox.js',
-        })
-
-        // Run the script — returns a Promise
-        const promise = script.runInContext(ctx, { timeout })
-
-        // Await with secondary timeout (for async operations like api.request)
+        // promise: true  — user code is async; awaits the returned Promise
+        // copy: true     — structured-clones the result back to the outer heap
+        //                  before isolate.dispose() is called; required for
+        //                  object/array returns (primitives work without it)
         const result = await Promise.race([
-          promise,
-          new Promise((_, reject) =>
-            // Use global setTimeout (not the blocked sandbox one)
+          script.run(ctx, { promise: true, copy: true }),
+          new Promise<never>((_, reject) =>
             globalThis.setTimeout(
               () => reject(new Error(`Execution timed out after ${timeout}ms`)),
               timeout
@@ -141,6 +89,9 @@ export function createSandbox(
           logs,
           durationMs: Date.now() - start,
         }
+      } finally {
+        // Always release the V8 isolate to avoid memory leaks
+        isolate.dispose()
       }
     },
   }
@@ -161,13 +112,116 @@ export function normalizeCode(code: string): string {
   // Auto-wrap bare code into async arrow functions
   if (!/^\s*async\s*\(/.test(normalized)) {
     // Detect statement-leading keywords — these cannot follow `return`
-    const isStatement = /^\s*(const|let|var|for|while|if|try|switch|return|throw|class|function)\b/.test(normalized)
+    const isStatement =
+      /^\s*(const|let|var|for|while|if|try|switch|return|throw|class|function)\b/.test(normalized)
     normalized = isStatement
       ? `async () => { ${normalized} }`
       : `async () => { return ${normalized} }`
   }
 
   return normalized
+}
+
+// ─── Private helpers ──────────────────────────────────────────────────────────
+
+/**
+ * Inject a console proxy into the isolate that forwards to the outer logs array.
+ * Uses applyIgnored (fire-and-forget) so logging never blocks the isolate event loop.
+ */
+async function bootstrapConsole(ctx: ivm.Context, logs: string[]): Promise<void> {
+  const logRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
+  const infoRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
+  const warnRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
+  const errorRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
+  const debugRef = new ivm.Reference((...args: unknown[]) => pushLog(logs, args))
+
+  await ctx.evalClosure(
+    `globalThis.console = {
+      log:   (...a) => $0.applyIgnored(undefined, a, { arguments: { copy: true } }),
+      info:  (...a) => $1.applyIgnored(undefined, a, { arguments: { copy: true } }),
+      warn:  (...a) => $2.applyIgnored(undefined, a, { arguments: { copy: true } }),
+      error: (...a) => $3.applyIgnored(undefined, a, { arguments: { copy: true } }),
+      debug: (...a) => $4.applyIgnored(undefined, a, { arguments: { copy: true } }),
+    }`,
+    [logRef, infoRef, warnRef, errorRef, debugRef],
+    { arguments: { reference: true } }
+  )
+}
+
+/**
+ * Inject all caller-provided globals into the isolate context.
+ *
+ * Strategy per value type:
+ *   null / undefined / primitive → jail.set directly
+ *   function                     → ivm.Reference + async evalClosure wrapper
+ *   object                       → split: data properties via ExternalCopy,
+ *                                  function properties via ivm.Reference wrappers
+ */
+async function injectGlobals(
+  ctx: ivm.Context,
+  globals: Record<string, unknown>
+): Promise<void> {
+  const jail = ctx.global
+
+  for (const [key, value] of Object.entries(globals)) {
+    if (value === null || value === undefined) {
+      await jail.set(key, value as null | undefined)
+      continue
+    }
+
+    if (typeof value === 'function') {
+      const ref = new ivm.Reference(value as (...a: unknown[]) => unknown)
+      await ctx.evalClosure(
+        `globalThis[${JSON.stringify(key)}] = async function(...args) {
+          return await $0.apply(undefined, args, {
+            arguments: { copy: true },
+            result: { promise: true, copy: true },
+          })
+        }`,
+        [ref],
+        { arguments: { reference: true } }
+      )
+      continue
+    }
+
+    if (typeof value === 'object') {
+      const obj = value as Record<string, unknown>
+      const dataEntries: Record<string, unknown> = {}
+      const fnEntries: Array<{ prop: string; ref: ivm.Reference<unknown> }> = []
+
+      for (const [prop, propVal] of Object.entries(obj)) {
+        if (typeof propVal === 'function') {
+          fnEntries.push({
+            prop,
+            ref: new ivm.Reference(propVal as (...a: unknown[]) => unknown),
+          })
+        } else {
+          dataEntries[prop] = propVal
+        }
+      }
+
+      // Copy data properties into the isolate
+      await jail.set(key, new ivm.ExternalCopy(dataEntries).copyInto())
+
+      // Add function-property wrappers one by one
+      for (const { prop, ref } of fnEntries) {
+        await ctx.evalClosure(
+          `globalThis[${JSON.stringify(key)}][${JSON.stringify(prop)}] = async function(...args) {
+            return await $0.apply(undefined, args, {
+              arguments: { copy: true },
+              result: { promise: true, copy: true },
+            })
+          }`,
+          [ref],
+          { arguments: { reference: true } }
+        )
+      }
+      continue
+    }
+
+    // Primitive (string, number, boolean)
+    await jail.set(key, value as string | number | boolean)
+  }
 }
 
 function pushLog(logs: string[], args: unknown[]): void {
