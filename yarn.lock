@@ -11950,6 +11950,8 @@ __metadata:
     "@types/node": "npm:^24.10.1"
     esbuild: "npm:^0.25.0"
     picocolors: "npm:^1.1.0"
+    tar: "npm:^7.5.1"
+    tsx: "npm:^4.21.0"
     typescript: "npm:^5.9.3"
   bin:
     create-mercato-app: ./bin/create-mercato-app
