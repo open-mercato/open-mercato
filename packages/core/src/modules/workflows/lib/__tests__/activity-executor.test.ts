@@ -417,6 +417,70 @@ describe('Activity Executor (Unit Tests)', () => {
   })
 
   // ============================================================================
+  // isPrivateUrl Unit Tests
+  // ============================================================================
+
+  describe('isPrivateUrl', () => {
+    // IPv4 private ranges
+    test.each([
+      ['http://10.0.0.1/'],
+      ['http://10.255.255.255/'],
+      ['http://172.16.0.1/'],
+      ['http://172.31.255.255/'],
+      ['http://192.168.0.1/'],
+      ['http://127.0.0.1/'],
+      ['http://127.0.0.53/'],
+      ['http://169.254.169.254/'],   // AWS IMDS
+    ])('blocks IPv4 private address %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
+    // IPv6 private/loopback/link-local
+    test.each([
+      ['http://[::1]/'],              // loopback
+      ['http://[::1]:8080/path'],     // loopback with port
+      ['http://[fe80::1]/'],          // link-local
+      ['http://[fe80::1%25eth0]/'],   // link-local with zone ID (URL-encoded %)
+      ['http://[fc00::1]/'],          // unique local fc00::/7
+      ['http://[fd12:3456:789a::1]/'],// unique local fd::/7
+    ])('blocks IPv6 private address %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
+    // IPv4-mapped IPv6
+    test.each([
+      ['http://[::ffff:10.0.0.1]/'],       // mixed notation RFC 1918
+      ['http://[::ffff:192.168.1.1]/'],    // mixed notation RFC 1918
+      ['http://[::ffff:127.0.0.1]/'],      // mixed notation loopback
+      ['http://[::ffff:c0a8:0101]/'],      // hex-pair notation (192.168.1.1)
+      ['http://[::ffff:0a00:0001]/'],      // hex-pair notation (10.0.0.1)
+    ])('blocks IPv4-mapped IPv6 %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
+    // localhost family
+    test.each([
+      ['http://localhost/'],
+      ['http://localhost:3000/'],
+      ['http://foo.localhost/'],
+    ])('blocks localhost hostname %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
+    // Public addresses must pass through
+    test.each([
+      ['https://example.com/webhook'],
+      ['https://hooks.slack.com/services/T00/B00/abc'],
+      ['http://172.15.255.255/'],   // just outside 172.16/12
+      ['http://172.32.0.1/'],       // just outside 172.16/12 upper bound
+      ['http://[2001:db8::1]/'],    // documentation range (public)
+      ['http://[2606:4700:4700::1111]/'], // Cloudflare DNS (public)
+    ])('allows public address %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(false)
+    })
+  })
+
+  // ============================================================================
   // CALL_WEBHOOK Activity Tests
   // ============================================================================
 
@@ -546,13 +610,55 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.error).toContain('requires "url"')
     })
 
-    test('should block private URLs by default (SSRF prevention)', async () => {
+    test('should block private IPv4 URLs by default (SSRF prevention)', async () => {
       const activity: ActivityDefinition = {
         activityId: 'activity-14b',
         activityName: 'SSRF Attempt',
         activityType: 'CALL_WEBHOOK',
         config: {
           url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('private/internal address')
+    })
+
+    test('should block IPv6 loopback [::1] by default (SSRF prevention)', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14d',
+        activityName: 'IPv6 Loopback SSRF Attempt',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://[::1]/health',
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('private/internal address')
+    })
+
+    test('should block IPv4-mapped IPv6 [::ffff:192.168.1.1] by default (SSRF prevention)', async () => {
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14e',
+        activityName: 'IPv4-mapped IPv6 SSRF Attempt',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://[::ffff:192.168.1.1]/health',
         },
       }
 
