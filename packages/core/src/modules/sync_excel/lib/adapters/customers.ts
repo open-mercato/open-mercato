@@ -21,6 +21,7 @@ import { readSyncExcelUploadBuffer } from '../upload-storage'
 type SyncExcelCursor = {
   uploadId: string
   offset: number
+  inlineCsvBase64?: string | null
 }
 
 type Container = Awaited<ReturnType<typeof createRequestContainer>>
@@ -132,8 +133,12 @@ function buildCommandContext(container: Container, scope: TenantScope): CommandR
   }
 }
 
-function createCursor(uploadId: string, offset: number): string {
-  return JSON.stringify({ uploadId, offset })
+export function createCursor(uploadId: string, offset: number, inlineCsvBase64?: string | null): string {
+  return JSON.stringify({
+    uploadId,
+    offset,
+    ...(inlineCsvBase64 ? { inlineCsvBase64 } : {}),
+  })
 }
 
 export function parseCursor(value: string | null | undefined): SyncExcelCursor | null {
@@ -146,6 +151,9 @@ export function parseCursor(value: string | null | undefined): SyncExcelCursor |
     return {
       uploadId: parsed.uploadId,
       offset: parsed.offset,
+      inlineCsvBase64: typeof parsed.inlineCsvBase64 === 'string' && parsed.inlineCsvBase64.length > 0
+        ? parsed.inlineCsvBase64
+        : null,
     }
   } catch {
     return null
@@ -711,7 +719,9 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
         throw new Error('CSV upload attachment could not be found.')
       }
 
-      const fileBuffer = await readSyncExcelUploadBuffer(attachment)
+      const fileBuffer = cursor?.inlineCsvBase64
+        ? Buffer.from(cursor.inlineCsvBase64, 'base64')
+        : await readSyncExcelUploadBuffer(attachment)
       const document = parseCsvDocument(fileBuffer)
       const startOffset = cursor?.uploadId === upload.id ? cursor.offset : 0
       const commandContext = buildCommandContext(container, input.scope)
@@ -736,7 +746,7 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
         const nextOffset = offset + batchRows.length
         yield {
           items,
-          cursor: createCursor(upload.id, nextOffset),
+          cursor: createCursor(upload.id, nextOffset, cursor?.inlineCsvBase64 ?? fileBuffer.toString('base64')),
           hasMore: nextOffset < document.rows.length,
           totalEstimate: document.totalRows,
           processedCount: batchRows.length,
