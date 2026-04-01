@@ -50,6 +50,7 @@ const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
 const mockUseRouter = useRouter as jest.MockedFunction<typeof useRouter>
 const mockUsePathname = usePathname as jest.MockedFunction<typeof usePathname>
 const mockUseSearchParams = useSearchParams as jest.MockedFunction<typeof useSearchParams>
+let currentSearchParams = new URLSearchParams('tab=logs&uploadId=upload-restore-1&runId=run-restore-1')
 
 const previewResponse = {
   uploadId: 'upload-restore-1',
@@ -104,7 +105,8 @@ describe('SyncExcelUploadConfigWidget', () => {
     jest.clearAllMocks()
     mockUseRouter.mockReturnValue({ replace: mockReplace } as any)
     mockUsePathname.mockReturnValue('/backend/integrations/sync_excel')
-    mockUseSearchParams.mockReturnValue(new URLSearchParams('tab=logs&uploadId=upload-restore-1&runId=run-restore-1') as any)
+    currentSearchParams = new URLSearchParams('tab=logs&uploadId=upload-restore-1&runId=run-restore-1')
+    mockUseSearchParams.mockImplementation(() => currentSearchParams as any)
     window.sessionStorage.clear()
     window.sessionStorage.setItem('om:sync_excel:session:sync_excel', JSON.stringify({
       uploadId: 'upload-restore-1',
@@ -220,5 +222,56 @@ describe('SyncExcelUploadConfigWidget', () => {
     expect(screen.getByText('This upload already has a run')).toBeTruthy()
     expect(screen.getByText('Duplicate risk')).toBeTruthy()
     expect(flash).not.toHaveBeenCalled()
+  })
+
+  it('does not refetch preview when the same upload stays mounted and only the runId query param changes', async () => {
+    currentSearchParams = new URLSearchParams('tab=logs&uploadId=upload-restore-1')
+    window.sessionStorage.setItem('om:sync_excel:session:sync_excel', JSON.stringify({
+      uploadId: 'upload-restore-1',
+      filename: 'Leads.csv',
+      mappingRows: [
+        { sourceColumn: 'Record Id', targetField: 'person.externalId' },
+        { sourceColumn: 'Email', targetField: 'person.primaryEmail' },
+        { sourceColumn: 'Lead Name', targetField: 'person.displayName' },
+      ],
+      matchStrategy: 'externalId',
+      runId: 'run-restore-1',
+      progressJobId: 'job-restore-1',
+    }))
+
+    const { rerender } = render(
+      <SyncExcelUploadConfigWidget
+        context={{
+          integrationId: 'sync_excel',
+          state: { isEnabled: true },
+          refreshLogs: mockRefreshLogs,
+          refreshHealthSnapshot: mockRefreshHealthSnapshot,
+        }}
+        data={{ state: { isEnabled: true } }}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('Preview and mapping')).toBeTruthy())
+    expect(
+      mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_excel/preview?uploadId=upload-restore-1&entityType=customers.person'),
+    ).toHaveLength(1)
+
+    currentSearchParams = new URLSearchParams('tab=logs&uploadId=upload-restore-1&runId=run-restore-1')
+    rerender(
+      <SyncExcelUploadConfigWidget
+        context={{
+          integrationId: 'sync_excel',
+          state: { isEnabled: true },
+          refreshLogs: mockRefreshLogs,
+          refreshHealthSnapshot: mockRefreshHealthSnapshot,
+        }}
+        data={{ state: { isEnabled: true } }}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('Import run status')).toBeTruthy())
+    expect(
+      mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_excel/preview?uploadId=upload-restore-1&entityType=customers.person'),
+    ).toHaveLength(1)
   })
 })

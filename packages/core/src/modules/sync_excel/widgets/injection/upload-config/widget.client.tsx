@@ -479,6 +479,14 @@ export default function SyncExcelUploadConfigWidget({
       return
     }
 
+    if (preview?.uploadId === uploadIdFromUrl && mappingRows.length > 0) {
+      if (runIdFromUrl && runId !== runIdFromUrl) {
+        setRunId(runIdFromUrl)
+      }
+      setIsRestoringSession(false)
+      return
+    }
+
     const restoreRequestKey = `${uploadIdFromUrl}:${runIdFromUrl ?? ''}`
     if (lastRestoreRequestKeyRef.current === restoreRequestKey) {
       setIsRestoringSession(false)
@@ -529,7 +537,7 @@ export default function SyncExcelUploadConfigWidget({
     return () => {
       cancelled = true
     }
-  }, [clearPersistedSession, context.integrationId, runIdFromUrl, syncPreviewState, uploadIdFromUrl])
+  }, [clearPersistedSession, context.integrationId, mappingRows.length, preview?.uploadId, runId, runIdFromUrl, syncPreviewState, uploadIdFromUrl])
 
   React.useEffect(() => {
     if (!runId) return
