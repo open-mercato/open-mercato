@@ -310,6 +310,7 @@ export default function SyncExcelUploadConfigWidget({
   const mutationContextId = `${context.formId ?? 'sync-excel'}:sync-excel-import`
   const lastAppliedSuggestionSignatureRef = React.useRef<string | null>(null)
   const restoringSnapshotRef = React.useRef<PersistedSessionSnapshot | null>(null)
+  const lastRestoreRequestKeyRef = React.useRef<string | null>(null)
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: mutationContextId,
     spotId: context.integrationDetailWidgetSpotId,
@@ -333,6 +334,7 @@ export default function SyncExcelUploadConfigWidget({
   const importStatus = normalizeStatus(runDetail?.status ?? (runId ? 'pending' : null))
   const progressValue = runDetail?.progressJob?.progressPercent ?? 0
   const isRunActive = importStatus === 'pending' || importStatus === 'running'
+  const searchParamsKey = searchParams?.toString() ?? ''
   const uploadIdFromUrl = searchParams?.get('uploadId') ?? null
   const runIdFromUrl = searchParams?.get('runId') ?? null
   const shouldHideInteractiveContent = isRestoringSession && Boolean(uploadIdFromUrl)
@@ -340,7 +342,7 @@ export default function SyncExcelUploadConfigWidget({
   const hasSafeDedupeStrategy = matchStrategy === 'externalId' || matchStrategy === 'email'
 
   const replaceQueryParams = React.useCallback((updates: Record<string, string | null | undefined>) => {
-    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    const params = new URLSearchParams(searchParamsKey)
     for (const [key, value] of Object.entries(updates)) {
       if (typeof value === 'string' && value.trim().length > 0) {
         params.set(key, value)
@@ -349,8 +351,9 @@ export default function SyncExcelUploadConfigWidget({
       }
     }
     const query = params.toString()
+    if (query === searchParamsKey) return
     router.replace(query ? `${pathname}?${query}` : pathname)
-  }, [pathname, router, searchParams])
+  }, [pathname, router, searchParamsKey])
 
   const clearPersistedSession = React.useCallback(() => {
     writePersistedSessionSnapshot(context.integrationId, null)
@@ -471,9 +474,18 @@ export default function SyncExcelUploadConfigWidget({
   React.useEffect(() => {
     if (!uploadIdFromUrl) {
       restoringSnapshotRef.current = null
+      lastRestoreRequestKeyRef.current = null
       setIsRestoringSession(false)
       return
     }
+
+    const restoreRequestKey = `${uploadIdFromUrl}:${runIdFromUrl ?? ''}`
+    if (lastRestoreRequestKeyRef.current === restoreRequestKey) {
+      setIsRestoringSession(false)
+      return
+    }
+
+    lastRestoreRequestKeyRef.current = restoreRequestKey
 
     let cancelled = false
     restoringSnapshotRef.current = readPersistedSessionSnapshot(context.integrationId)
@@ -496,6 +508,7 @@ export default function SyncExcelUploadConfigWidget({
         setRunDetail(null)
         setProgressJobId(null)
         clearPersistedSession()
+        lastRestoreRequestKeyRef.current = null
         setIsRestoringSession(false)
         return
       }
