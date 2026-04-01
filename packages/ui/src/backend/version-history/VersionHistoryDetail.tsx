@@ -3,7 +3,7 @@
 import * as React from 'react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { VersionHistoryEntry } from './types'
-import { getVersionHistoryStatusLabel } from './labels'
+import { getVersionHistoryActionLabel, getVersionHistoryStatusLabel } from './labels'
 import {
   ChangedFieldsTable,
   CollapsibleJsonSection,
@@ -19,6 +19,7 @@ export type VersionHistoryDetailProps = {
 export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
   const noneLabel = t('audit_logs.common.none')
   const statusLabel = getVersionHistoryStatusLabel(entry.executionState, t)
+  const actionLabel = getVersionHistoryActionLabel(entry, t)
   const changeRows = React.useMemo(
     () => extractChangeRows(entry.changes, entry.snapshotBefore),
     [entry.changes, entry.snapshotBefore],
@@ -43,25 +44,25 @@ export function VersionHistoryDetail({ entry, t }: VersionHistoryDetailProps) {
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               {t('audit_logs.version_history.detail.action')}
             </dt>
-            <dd className="text-sm">{entry.actionLabel || entry.commandId}</dd>
+            <dd className="break-words text-sm">{actionLabel}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               {t('audit_logs.version_history.detail.date')}
             </dt>
-            <dd className="text-sm">{formatDate(entry.createdAt)}</dd>
+            <dd className="break-words text-sm">{formatDate(entry.createdAt)}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               {t('audit_logs.version_history.detail.actor')}
             </dt>
-            <dd className="text-sm">{entry.actorUserName || entry.actorUserId || noneLabel}</dd>
+            <dd className="break-words text-sm">{entry.actorUserName || entry.actorUserId || noneLabel}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-muted-foreground">
               {t('audit_logs.version_history.detail.status')}
             </dt>
-            <dd className="text-sm">{statusLabel}</dd>
+            <dd className="break-words text-sm">{statusLabel}</dd>
           </div>
         </dl>
       </section>

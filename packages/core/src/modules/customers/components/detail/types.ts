@@ -102,12 +102,40 @@ export type TodoLinkSummary = {
   createdByUserId?: string | null
   title?: string | null
   isDone?: boolean | null
+  status?: string | null
   priority?: number | null
   severity?: string | null
   description?: string | null
   dueAt?: string | null
   todoOrganizationId?: string | null
   customValues?: Record<string, unknown> | null
+}
+
+export type InteractionSummary = {
+  id: string
+  interactionType: string
+  title?: string | null
+  body?: string | null
+  status: string
+  scheduledAt?: string | null
+  occurredAt?: string | null
+  priority?: number | null
+  authorUserId?: string | null
+  ownerUserId?: string | null
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  source?: string | null
+  entityId?: string | null
+  dealId?: string | null
+  organizationId?: string | null
+  tenantId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
+  dealTitle?: string | null
+  customValues?: Record<string, unknown> | null
+  _integrations?: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
 }
 
 export type SectionAction = {

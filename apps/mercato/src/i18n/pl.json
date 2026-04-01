@@ -696,6 +696,8 @@
   "ui.forms.actions.edit": "Edytuj",
   "ui.forms.actions.save": "Zapisz",
   "ui.forms.confirmDelete": "Usunąć ten rekord? Tej operacji nie można cofnąć.",
+  "ui.forms.confirmDeleteWithUndo": "Usunąć ten rekord? Możesz go przywrócić korzystając z historii wersji.",
+  "ui.forms.confirmUnsavedChanges": "Masz niezapisane zmiany. Czy na pewno chcesz opuścić tę stronę?",
   "ui.forms.errors.highlighted": "Popraw zaznaczone błędy.",
   "ui.forms.errors.required": "To pole jest wymagane",
   "ui.forms.errors.unexpected": "Nieoczekiwany błąd",

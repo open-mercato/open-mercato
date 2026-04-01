@@ -17,10 +17,9 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'domcontentloaded' });
-      await expect(page.getByRole('button', { name: 'Delete company' })).toBeVisible();
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
 
-      await page.getByRole('button', { name: 'Delete company' }).click();
+      await page.getByRole('button', { name: /^Delete$/ }).first().click();
       await page.getByRole('button', { name: 'Confirm' }).click();
 
       await expect(page).toHaveURL(/\/backend\/customers\/companies$/);
@@ -33,11 +32,8 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       const undoResponse = await undoResponsePromise;
       expect(undoResponse.ok()).toBeTruthy();
 
-      await page.waitForLoadState('domcontentloaded').catch(() => {});
-
-      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
-      await page.waitForTimeout(1_200);
-      await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
+      await expect(page.getByText(companyName, { exact: true }).first()).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }

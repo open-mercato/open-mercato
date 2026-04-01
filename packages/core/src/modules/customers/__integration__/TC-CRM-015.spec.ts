@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { deleteEntityIfExists, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
@@ -13,6 +13,7 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
 
     let token: string | null = null;
     let companyId: string | null = null;
+    let tagId: string | null = null;
 
     const companyName = `QA TC-CRM-015 Co ${Date.now()}`;
     const companyEmail = `qa.crm015.${Date.now()}@example.com`;
@@ -20,70 +21,140 @@ test.describe('TC-CRM-015: Customer Search and Filter', () => {
 
     try {
       token = await getAuthToken(request);
-      companyId = await createCompanyFixture(request, token, companyName);
+
+      const createTagResponse = await apiRequest(request, 'POST', '/api/customers/tags', {
+        token,
+        data: {
+          slug: companyTag,
+          label: companyTag,
+        },
+      });
+      expect(createTagResponse.ok()).toBeTruthy();
+      const createTagBody = (await readJsonSafe<{ id?: unknown; tagId?: unknown }>(createTagResponse)) ?? {};
+      tagId =
+        typeof createTagBody.id === 'string'
+          ? createTagBody.id
+          : typeof createTagBody.tagId === 'string'
+            ? createTagBody.tagId
+            : null;
+      expect(tagId, 'Expected created tag id').toBeTruthy();
+
+      const createCompanyResponse = await apiRequest(request, 'POST', '/api/customers/companies', {
+        token,
+        data: {
+          displayName: companyName,
+          primaryEmail: companyEmail,
+          status: 'active',
+          lifecycleStage: 'prospect',
+          tags: tagId ? [tagId] : [],
+        },
+      });
+      expect(createCompanyResponse.ok()).toBeTruthy();
+      const createCompanyBody = (await readJsonSafe<{
+        id?: unknown;
+        entityId?: unknown;
+        companyId?: unknown;
+      }>(createCompanyResponse)) ?? {};
+      companyId =
+        typeof createCompanyBody.id === 'string'
+          ? createCompanyBody.id
+          : typeof createCompanyBody.entityId === 'string'
+            ? createCompanyBody.entityId
+            : typeof createCompanyBody.companyId === 'string'
+              ? createCompanyBody.companyId
+              : null;
+      expect(companyId, 'Expected created company id').toBeTruthy();
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'domcontentloaded' });
-
-      await page.getByRole('button', { name: /Primary email/i }).click();
-      await page.getByRole('textbox', { name: /Add email|name@example.com/i }).fill(companyEmail);
-      await page.getByRole('button', { name: /Save .*Ctrl\+Enter/i }).first().click();
-      await expect(page.getByText(companyEmail, { exact: true })).toBeVisible();
-
-      await page.getByRole('button', { name: /^Status/i }).click();
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: 'Active' }) })
-        .first()
-        .selectOption({ label: 'Active' });
-      await page.getByRole('button', { name: /Save .*Ctrl\+Enter/i }).first().click();
-      await expect(page.getByRole('button', { name: /Status\s+Active/i })).toBeVisible();
-
-      await page.getByRole('button', { name: /Lifecycle stage/i }).click();
-      await page
-        .locator('select')
-        .filter({ has: page.locator('option', { hasText: 'Prospect' }) })
-        .first()
-        .selectOption({ label: 'Prospect' });
-      await page.getByRole('button', { name: /Save .*Ctrl\+Enter/i }).first().click();
-      await expect(page.getByRole('button', { name: /Lifecycle stage\s+Prospect/i })).toBeVisible();
-
-      await page.getByRole('heading', { name: 'Tags' }).locator('xpath=ancestor::div[1]').getByRole('button').click();
-      const tagInput = page.getByRole('textbox', { name: 'Type to add tags' });
-      await tagInput.fill(companyTag);
-      await tagInput.press('Enter');
-      await page.getByRole('button', { name: /Save .*Ctrl\+Enter/i }).click();
-      await expect(page.getByText(companyTag)).toBeVisible();
-
       await page.goto('/backend/customers/companies', { waitUntil: 'domcontentloaded' });
 
-      const search = page.getByRole('textbox', { name: /Search companies/i });
-      await expect(search).toBeVisible();
-      await search.fill(companyName);
-      await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
+      const searchByNameResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/companies?search=${encodeURIComponent(companyName)}&page=1&pageSize=100`,
+        { token },
+      );
+      expect(searchByNameResponse.ok()).toBeTruthy();
+      const searchByNameBody =
+        (await readJsonSafe<{ items?: Array<{ id?: unknown }> }>(searchByNameResponse)) ?? {};
+      const searchByNameItems = Array.isArray(searchByNameBody.items) ? searchByNameBody.items : [];
+      expect(
+        searchByNameItems.some((item) => item && typeof item === 'object' && (item as { id?: unknown }).id === companyId),
+      ).toBeTruthy();
 
-      await search.fill(companyEmail);
-      await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
+      const searchByEmailResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/companies?emailContains=${encodeURIComponent(companyEmail)}&page=1&pageSize=100`,
+        { token },
+      );
+      expect(searchByEmailResponse.ok()).toBeTruthy();
+      const searchByEmailBody =
+        (await readJsonSafe<{ items?: Array<{ id?: unknown }> }>(searchByEmailResponse)) ?? {};
+      const searchByEmailItems = Array.isArray(searchByEmailBody.items) ? searchByEmailBody.items : [];
+      expect(
+        searchByEmailItems.some((item) => item && typeof item === 'object' && (item as { id?: unknown }).id === companyId),
+      ).toBeTruthy();
+
+      const filteredListResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/customers/companies?status=active&lifecycleStage=prospect&tagIds=${encodeURIComponent(tagId!)}&page=1&pageSize=100`,
+        { token },
+      );
+      expect(filteredListResponse.ok()).toBeTruthy();
+      const filteredListBody =
+        (await readJsonSafe<{ items?: Array<{ id?: unknown }> }>(filteredListResponse)) ?? {};
+      const filteredListItems = Array.isArray(filteredListBody.items) ? filteredListBody.items : [];
+      expect(
+        filteredListItems.some((item) => item && typeof item === 'object' && (item as { id?: unknown }).id === companyId),
+      ).toBeTruthy();
+
+      const search = page.getByRole('textbox', { name: /Search companies/i });
+      const waitForCompanyInList = async () => {
+        await expect
+          .poll(
+            async () => {
+              await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+              return await page.getByRole('link', { name: companyName, exact: true }).count();
+            },
+            { timeout: 20000 },
+          )
+          .toBeGreaterThan(0);
+      };
 
       await search.fill('');
-      await page.getByRole('button', { name: 'Filters' }).click();
+      await page.getByRole('button', { name: 'Refresh' }).waitFor();
+      await page.getByText('Loading table', { exact: false }).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+      await page.getByRole('button', { name: /^Filters/ }).click();
       const filtersDialog = page.getByRole('heading', { name: /^Filter$/i }).locator('xpath=ancestor::div[2]');
-      await expect(filtersDialog.getByRole('combobox').nth(2)).toBeVisible();
+      try {
+        await expect(filtersDialog.getByRole('combobox').nth(2)).toBeVisible({ timeout: 5000 });
+      } catch {
+        await page.getByRole('button', { name: /^Filters/ }).click();
+        await expect(filtersDialog.getByRole('combobox').nth(2)).toBeVisible();
+      }
       await filtersDialog.getByRole('combobox').nth(0).selectOption({ label: 'Active' });
       await filtersDialog.getByRole('combobox').nth(2).selectOption({ label: 'Prospect' });
-      const filterTagInput = filtersDialog.getByRole('textbox', { name: 'Add tag and press Enter' });
+      const filterTagInput = filtersDialog.getByPlaceholder('Add tag and press Enter');
       await filterTagInput.fill(companyTag);
-      await filterTagInput.press('Enter');
+      const tagSuggestion = filtersDialog.getByRole('button', { name: companyTag, exact: true });
+      await expect(tagSuggestion).toBeVisible();
+      await tagSuggestion.click();
       await filtersDialog.getByRole('button', { name: 'Apply' }).first().click();
 
       await expect(page.getByRole('button', { name: /Status:\s*Active/i })).toBeVisible();
       await expect(page.getByRole('button', { name: /Lifecycle stage:\s*Prospect/i })).toBeVisible();
-      await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: new RegExp(companyTag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })).toBeVisible();
 
-      await page.getByRole('button', { name: 'Filters' }).click();
+      await waitForCompanyInList();
+
+      await page.getByRole('button', { name: /^Filters/ }).click();
       await filtersDialog.getByRole('button', { name: 'Clear' }).first().click();
       await filtersDialog.getByRole('button', { name: 'Apply' }).first().click();
-      await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
+      await search.fill(companyName);
+      await page.waitForTimeout(1200);
+      await waitForCompanyInList();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
