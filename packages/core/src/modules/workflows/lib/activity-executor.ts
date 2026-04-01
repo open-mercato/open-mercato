@@ -593,6 +593,42 @@ async function resolveDictionaryEntryId(
 }
 
 /**
+ * Returns true if the hostname resolves to a private/internal IP range.
+ * Covers RFC 1918, loopback, and link-local addresses.
+ * Does not perform DNS resolution — checks the literal hostname only.
+ */
+export function isPrivateUrl(rawUrl: string): boolean {
+  let hostname: string
+  try {
+    hostname = new URL(rawUrl).hostname
+  } catch {
+    return false
+  }
+
+  // IPv4 private/loopback/link-local ranges
+  const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/)
+  if (ipv4) {
+    const [, a, b] = ipv4.map(Number)
+    if (
+      a === 10 || // 10.0.0.0/8
+      (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+      (a === 192 && b === 168) || // 192.168.0.0/16
+      a === 127 || // 127.0.0.0/8 loopback
+      (a === 169 && b === 254) // 169.254.0.0/16 link-local
+    ) {
+      return true
+    }
+  }
+
+  // Loopback hostname
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    return true
+  }
+
+  return false
+}
+
+/**
  * CALL_WEBHOOK activity handler
  *
  * Makes HTTP request to external URL
@@ -605,6 +641,13 @@ export async function executeCallWebhook(
 
   if (!url) {
     throw new Error('CALL_WEBHOOK requires "url" field')
+  }
+
+  const allowPrivate = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS === 'true'
+  if (!allowPrivate && isPrivateUrl(url)) {
+    throw new Error(
+      `CALL_WEBHOOK blocked: "${url}" resolves to a private/internal address (SSRF prevention). Set WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS=true to allow.`
+    )
   }
 
   // Make HTTP request
