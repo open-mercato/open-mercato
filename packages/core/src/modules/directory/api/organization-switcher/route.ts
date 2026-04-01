@@ -195,10 +195,12 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ items: [], selectedId: null, canManage: false })
     }
 
+    const canViewAllOrganizations = accessible === null
     const response = {
       items: menuData.nodes,
       selectedId,
       canManage: !!hasManageFeature,
+      canViewAllOrganizations,
       tenantId,
       tenants: tenantRecords,
       isSuperAdmin: effectiveIsSuperAdmin,
