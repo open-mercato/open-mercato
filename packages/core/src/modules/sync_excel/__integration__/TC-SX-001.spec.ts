@@ -25,6 +25,7 @@ type SyncRunSummary = {
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const ENTITY_TYPE = 'customers.person'
 const INTEGRATION_ID = 'sync_excel'
+const PERSON_PROFILE_ENTITY_ID = 'customers:customer_person_profile'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
   return ((await readJsonSafe<JsonRecord>(response)) ?? {}) as JsonRecord
@@ -73,6 +74,42 @@ function buildMultipartCsv(fileName: string, csv: string) {
       buffer: Buffer.from(csv, 'utf8'),
     },
   }
+}
+
+function withCustomFieldMapping(
+  mapping: SyncExcelUploadPreview['suggestedMapping'],
+  input: {
+    externalField: string
+    customFieldKey: string
+  },
+) {
+  const fields = [
+    ...mapping.fields,
+    {
+      externalField: input.externalField,
+      localField: `cf:${input.customFieldKey}`,
+      mappingKind: 'custom_field',
+    },
+  ]
+
+  const unmappedColumns = Array.isArray(mapping.unmappedColumns)
+    ? (mapping.unmappedColumns as unknown[]).filter(
+        (column): column is string => typeof column === 'string' && column !== input.externalField,
+      )
+    : []
+
+  return {
+    ...mapping,
+    fields,
+    unmappedColumns,
+  }
+}
+
+function readCustomFieldValue(customFields: unknown, key: string): unknown {
+  if (!customFields || typeof customFields !== 'object') return undefined
+  const record = customFields as Record<string, unknown>
+  if (Object.prototype.hasOwnProperty.call(record, key)) return record[key]
+  return record[`cf_${key}`]
 }
 
 async function uploadCsv(
@@ -180,6 +217,47 @@ async function findPersonByEmail(
   return null
 }
 
+async function createCustomFieldDefinition(
+  request: APIRequestContext,
+  token: string,
+  input: {
+    entityId: string
+    key: string
+    label: string
+  },
+): Promise<void> {
+  const response = await apiRequest(request, 'POST', '/api/entities/definitions', {
+    token,
+    data: {
+      entityId: input.entityId,
+      key: input.key,
+      kind: 'text',
+      configJson: {
+        label: input.label,
+      },
+    },
+  })
+  expect(response.status()).toBe(200)
+}
+
+async function deleteCustomFieldDefinition(
+  request: APIRequestContext,
+  token: string,
+  input: {
+    entityId: string
+    key: string
+  },
+): Promise<void> {
+  const response = await apiRequest(request, 'DELETE', '/api/entities/definitions', {
+    token,
+    data: {
+      entityId: input.entityId,
+      key: input.key,
+    },
+  })
+  expect([200, 404]).toContain(response.status())
+}
+
 test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
   test('authorization is enforced for upload, preview, and import endpoints', async ({ request }) => {
     const noTokenUpload = await request.fetch(`${BASE_URL}/api/sync_excel/upload`, {
@@ -222,6 +300,8 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
     const timestamp = Date.now()
     const email = `sync-excel-${timestamp}@example.com`
     const externalId = `sync-excel-${timestamp}`
+    const customFieldKey = `sync_excel_color_${timestamp}`
+    const customFieldLabel = 'Favorite Color'
     const fileName = `sync-excel-${timestamp}.csv`
     let createdPersonId: string | null = null
     let firstRunId: string | null = null
@@ -229,16 +309,22 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
     const previousMapping = (await listSyncExcelMappings(request, token))[0] ?? null
 
     const initialCsv = [
-      'Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description',
-      `${externalId},Ada,Lovelace,Ada Lovelace,${email},Founder,Open,Import Test,Initial row`,
+      `Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description,${customFieldLabel}`,
+      `${externalId},Ada,Lovelace,Ada Lovelace,${email},Founder,Open,Import Test,Initial row,Blue`,
     ].join('\n')
 
     const updatedCsv = [
-      'Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description',
-      `${externalId},Ada,Lovelace,Ada Byron,${email},Principal Engineer,Qualified,Import Test,Updated row`,
+      `Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description,${customFieldLabel}`,
+      `${externalId},Ada,Lovelace,Ada Byron,${email},Principal Engineer,Qualified,Import Test,Updated row,Purple`,
     ].join('\n')
 
     try {
+      await createCustomFieldDefinition(request, token, {
+        entityId: PERSON_PROFILE_ENTITY_ID,
+        key: customFieldKey,
+        label: customFieldLabel,
+      })
+
       const uploadPreview = asUploadPreview(await uploadCsv(request, token, fileName, initialCsv))
       expect(uploadPreview.entityType).toBe(ENTITY_TYPE)
       expect(uploadPreview.totalRows).toBe(1)
@@ -252,6 +338,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         'Lead Status',
         'Lead Source',
         'Description',
+        customFieldLabel,
       ])
       expect(Array.isArray(uploadPreview.sampleRows)).toBe(true)
       expect(uploadPreview.sampleRows?.[0]).toMatchObject({
@@ -263,6 +350,10 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       const suggestedFields = uploadPreview.suggestedMapping.fields
       expect(suggestedFields.some((field) => field.externalField === 'Record Id' && field.localField === 'person.externalId')).toBe(true)
       expect(suggestedFields.some((field) => field.externalField === 'Email' && field.localField === 'person.primaryEmail')).toBe(true)
+      const importMapping = withCustomFieldMapping(uploadPreview.suggestedMapping, {
+        externalField: customFieldLabel,
+        customFieldKey,
+      })
 
       const previewAgain = await apiRequest(
         request,
@@ -277,7 +368,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         data: {
           uploadId: uploadPreview.uploadId,
           entityType: ENTITY_TYPE,
-          mapping: uploadPreview.suggestedMapping,
+          mapping: importMapping,
         },
       })
       expect(importStart.status()).toBe(201)
@@ -324,12 +415,16 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       })
 
       const secondUpload = asUploadPreview(await uploadCsv(request, token, `updated-${fileName}`, updatedCsv))
+      const secondImportMapping = withCustomFieldMapping(secondUpload.suggestedMapping, {
+        externalField: customFieldLabel,
+        customFieldKey,
+      })
       const secondImportStart = await apiRequest(request, 'POST', '/api/sync_excel/import', {
         token,
         data: {
           uploadId: secondUpload.uploadId,
           entityType: ENTITY_TYPE,
-          mapping: secondUpload.suggestedMapping,
+          mapping: secondImportMapping,
         },
       })
       expect(secondImportStart.status()).toBe(201)
@@ -367,6 +462,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         lastName: 'Lovelace',
         jobTitle: 'Principal Engineer',
       })
+      expect(readCustomFieldValue(updatedDetailBody.customFields, customFieldKey)).toBe('Purple')
     } finally {
       if (firstRunId) {
         await apiRequest(request, 'POST', `/api/data_sync/runs/${encodeURIComponent(firstRunId)}/cancel`, { token }).catch(() => undefined)
@@ -375,6 +471,10 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         await apiRequest(request, 'POST', `/api/data_sync/runs/${encodeURIComponent(secondRunId)}/cancel`, { token }).catch(() => undefined)
       }
       await deleteEntityIfExists(request, token, '/api/customers/people', createdPersonId)
+      await deleteCustomFieldDefinition(request, token, {
+        entityId: PERSON_PROFILE_ENTITY_ID,
+        key: customFieldKey,
+      })
       await restoreSyncExcelMapping(request, token, previousMapping)
     }
   })
