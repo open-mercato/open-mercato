@@ -35,6 +35,7 @@ const mappingRecord = {
       { externalField: 'Last Name', localField: 'person.lastName', mappingKind: 'core' },
       { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
       { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+      { externalField: 'Favorite Color', localField: 'cf:favorite_color', mappingKind: 'custom_field' },
     ],
   },
 }
@@ -85,8 +86,8 @@ describe('sync_excel customers adapter', () => {
       return null
     })
     mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
-      'Record Id,First Name,Last Name,Lead Name,Email',
-      'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com',
+      'Record Id,First Name,Last Name,Lead Name,Email,Favorite Color',
+      'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com,Blue',
     ].join('\n')))
     mockExternalIdMappingService.lookupLocalId.mockResolvedValue(null)
     mockExternalIdMappingService.storeExternalIdMapping.mockResolvedValue(undefined)
@@ -110,6 +111,7 @@ describe('sync_excel customers adapter', () => {
         'Record Id': 'ext-1',
         'Lead Name': 'Ada Lovelace',
         Email: 'ADA@example.com',
+        'Favorite Color': 'Blue',
       },
       mappingRecord.mapping as any,
       {
@@ -120,6 +122,7 @@ describe('sync_excel customers adapter', () => {
 
     expect(payload.values.externalId).toBe('ext-1')
     expect(payload.values.primaryEmail).toBe('ada@example.com')
+    expect(payload.customFields).toEqual({ favorite_color: 'Blue' })
     expect(payload.createInput).toMatchObject({
       organizationId: 'org-1',
       tenantId: 'tenant-1',
@@ -166,6 +169,9 @@ describe('sync_excel customers adapter', () => {
         lastName: 'Lovelace',
         displayName: 'Ada Lovelace',
         primaryEmail: 'ada@example.com',
+        customFields: {
+          favorite_color: 'Blue',
+        },
       }),
       ctx: expect.objectContaining({
         auth: null,
@@ -186,8 +192,8 @@ describe('sync_excel customers adapter', () => {
 
   it('falls back to email dedupe and updates existing people', async () => {
     mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
-      'Email,Lead Name',
-      'ada@example.com,Ada Lovelace',
+      'Email,Lead Name,Favorite Color',
+      'ada@example.com,Ada Lovelace,Purple',
     ].join('\n')))
     mockFindOneWithDecryption.mockResolvedValue({ id: 'existing-person-id' } as any)
     mockCommandBus.execute.mockResolvedValue({ result: { entityId: 'existing-person-id' } })
@@ -204,6 +210,7 @@ describe('sync_excel customers adapter', () => {
         fields: [
           { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
           { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+          { externalField: 'Favorite Color', localField: 'cf:favorite_color', mappingKind: 'custom_field' },
         ],
       },
       scope: {
@@ -226,6 +233,9 @@ describe('sync_excel customers adapter', () => {
         id: 'existing-person-id',
         primaryEmail: 'ada@example.com',
         displayName: 'Ada Lovelace',
+        customFields: {
+          favorite_color: 'Purple',
+        },
       }),
       ctx: expect.objectContaining({
         auth: null,

@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
+Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
 
 ## Overview
 
@@ -150,7 +150,7 @@ The current slice adds a `sync_excel` integration detail tab with:
 
 1. CSV file upload
 2. preview summary (headers, row count, sample rows)
-3. editable column mapping table for `customers.person`
+3. editable column mapping table for `customers.person`, including tenant custom fields from both `customer_entity` and `customer_person_profile`
 4. import start button guarded by mapping diagnostics
 5. run status / progress / cancel affordances backed by `data_sync` run detail
 

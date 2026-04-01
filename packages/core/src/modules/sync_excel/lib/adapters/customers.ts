@@ -38,8 +38,14 @@ type PersonFieldValues = {
   description?: string | null
 }
 
+type PersonRowValues = {
+  values: PersonFieldValues
+  customFields: Record<string, unknown>
+}
+
 type BuiltPersonPayload = {
   values: PersonFieldValues
+  customFields: Record<string, unknown>
   createInput: {
     organizationId: string
     tenantId: string
@@ -52,6 +58,7 @@ type BuiltPersonPayload = {
     status?: string
     source?: string
     description?: string
+    customFields?: Record<string, unknown>
   } | null
   updateInput: {
     organizationId: string
@@ -65,6 +72,7 @@ type BuiltPersonPayload = {
     firstName?: string
     lastName?: string
     displayName?: string
+    customFields?: Record<string, unknown>
   }
   sourceIdentifier: string | null
 }
@@ -115,13 +123,21 @@ export function parseCursor(value: string | null | undefined): SyncExcelCursor |
   }
 }
 
-function mapRowValues(row: CsvPreviewRow, fields: FieldMapping[]): PersonFieldValues {
+function mapRowValues(row: CsvPreviewRow, fields: FieldMapping[]): PersonRowValues {
   const values: PersonFieldValues = {}
+  const customFields: Record<string, unknown> = {}
 
   for (const field of fields) {
     if (field.mappingKind === 'ignore') continue
     const rawValue = row[field.externalField]
     if (rawValue === undefined || rawValue === null) continue
+    if (field.mappingKind === 'custom_field' || field.localField.startsWith('cf:')) {
+      const customFieldKey = field.localField.startsWith('cf:') ? field.localField.slice(3) : field.localField
+      if (customFieldKey.trim().length > 0) {
+        customFields[customFieldKey] = rawValue
+      }
+      continue
+    }
 
     if (field.localField === 'person.externalId') {
       values.externalId = normalizeOptionalString(rawValue)
@@ -164,7 +180,10 @@ function mapRowValues(row: CsvPreviewRow, fields: FieldMapping[]): PersonFieldVa
     }
   }
 
-  return values
+  return {
+    values,
+    customFields,
+  }
 }
 
 function derivePersonNames(values: PersonFieldValues): { firstName: string; lastName: string; displayName: string } | null {
@@ -200,7 +219,7 @@ function derivePersonNames(values: PersonFieldValues): { firstName: string; last
 }
 
 export function buildPersonPayload(row: CsvPreviewRow, mapping: DataMapping, scope: TenantScope): BuiltPersonPayload {
-  const values = mapRowValues(row, mapping.fields)
+  const { values, customFields } = mapRowValues(row, mapping.fields)
   const derivedNames = derivePersonNames(values)
   const sourceIdentifier = values.externalId ?? values.primaryEmail ?? values.displayName ?? null
 
@@ -222,6 +241,7 @@ export function buildPersonPayload(row: CsvPreviewRow, mapping: DataMapping, sco
   if (!derivedNames) {
     return {
       values,
+      customFields,
       createInput: null,
       updateInput,
       sourceIdentifier,
@@ -230,6 +250,7 @@ export function buildPersonPayload(row: CsvPreviewRow, mapping: DataMapping, sco
 
   return {
     values,
+    customFields,
     createInput: {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
@@ -377,6 +398,7 @@ async function processRow(params: {
       const updateInput = {
         id: existingId,
         ...payload.updateInput,
+        ...(Object.keys(payload.customFields).length > 0 ? { customFields: payload.customFields } : {}),
       }
       await params.commandBus.execute('customers.people.update', {
         input: updateInput,
@@ -408,7 +430,10 @@ async function processRow(params: {
       NonNullable<BuiltPersonPayload['createInput']>,
       { entityId: string; personId: string }
     >('customers.people.create', {
-      input: payload.createInput!,
+      input: {
+        ...payload.createInput!,
+        ...(Object.keys(payload.customFields).length > 0 ? { customFields: payload.customFields } : {}),
+      },
       ctx: params.commandContext,
     })
 
