@@ -10,6 +10,9 @@ import { SyncMapping } from '@open-mercato/core/modules/data_sync/data/entities'
 import type { CredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
 import { SyncExcelUpload } from '../../data/entities'
+import { Attachment } from '../../../attachments/data/entities'
+import { readSyncExcelUploadBuffer } from '../../lib/upload-storage'
+import { createCursor } from '../../lib/adapters/customers'
 import {
   syncExcelImportRequestSchema,
   syncExcelImportResponseSchema,
@@ -72,6 +75,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Upload preview not found.' }, { status: 404 })
   }
 
+  const attachment = await em.findOne(Attachment, {
+    id: upload.attachmentId,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+  })
+
+  if (!attachment) {
+    return NextResponse.json({ error: 'Upload attachment not found.' }, { status: 404 })
+  }
+
+  const fileBuffer = await readSyncExcelUploadBuffer(attachment)
+
   if (upload.entityType !== parsedPayload.data.entityType) {
     return NextResponse.json({ error: 'Upload entity type does not match requested import target.' }, { status: 422 })
   }
@@ -119,7 +134,7 @@ export async function POST(request: Request) {
       integrationId: 'sync_excel',
       entityType: parsedPayload.data.entityType,
       direction: 'import',
-      cursor: null,
+      cursor: createCursor(upload.id, 0, fileBuffer.toString('base64')),
       triggeredBy: auth.sub,
       batchSize: parsedPayload.data.batchSize ?? 100,
       progressJob: {
