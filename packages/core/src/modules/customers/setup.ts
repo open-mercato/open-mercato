@@ -46,7 +46,8 @@ async function seedInteractionFeatureToggles(em: EntityManager): Promise<void> {
       description: toggle.description,
       category: toggle.category,
       type: toggle.type,
-      defaultValue: toggle.defaultValue,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MikroORM JsonType doesn't accept boolean directly
+      defaultValue: toggle.defaultValue as any,
     })
     em.persist(entity)
   }
