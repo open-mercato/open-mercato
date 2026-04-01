@@ -574,7 +574,10 @@ function NotesSectionImpl<C = unknown>({
         return false
       }
       const body = input.body.trim()
-      if (!body) {
+      const strippedBody = body
+        .replace(/^[\s#\-*>_~`|+\\\n\r]+$/gm, '')
+        .replace(/\s+/g, '')
+      if (!body || !strippedBody.length) {
         focusComposer()
         return false
       }
@@ -683,8 +686,7 @@ function NotesSectionImpl<C = unknown>({
   const handleDeleteNote = React.useCallback(
     async (note: CommentSummary) => {
       const confirmed = await confirm({
-        title: label('deleteConfirm', 'Delete this note?'),
-        text: 'This action cannot be undone.',
+        title: label('deleteConfirm', 'Delete this note? You can restore it using version history.'),
         variant: 'destructive',
       })
       if (!confirmed) return

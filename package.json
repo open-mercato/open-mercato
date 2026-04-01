@@ -2,7 +2,7 @@
   "name": "open-mercato",
   "version": "0.4.9",
   "private": true,
-  "packageManager": "yarn@4.12.0",
+  "packageManager": "yarn@4.12.0+sha512.f45ab632439a67f8bc759bf32ead036a1f413287b9042726b7cc4818b7b49e14e9423ba49b18f9e06ea4941c1ad062385b1d8760a8d5091a1a31e5f6219afca8",
   "engines": {
     "node": "24.x"
   },
@@ -69,6 +69,8 @@
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
+    "test:create-app": "tsx scripts/test-create-app.ts",
+    "test:create-app:integration": "tsx scripts/test-create-app-integration.ts",
     "test:integration": "cross-env ENABLE_CRUD_API_CACHE=true npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "test:integration:report": "npx playwright show-report .ai/qa/test-results/html",
     "test:integration:coverage": "yarn mercato test:integration:coverage",
@@ -160,6 +162,11 @@
     "flatted": "3.4.2",
     "socket.io-parser": "4.2.6",
     "tar": "7.5.11",
-    "undici": "7.24.0"
+    "undici": "7.24.0",
+    "brace-expansion": "5.0.5",
+    "handlebars": "4.7.9",
+    "path-to-regexp": "0.1.13",
+    "picomatch": "2.3.2",
+    "yaml": "2.8.3"
   }
 }

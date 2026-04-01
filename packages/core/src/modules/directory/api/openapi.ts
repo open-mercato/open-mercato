@@ -78,6 +78,7 @@ export const organizationSwitcherResponseSchema = z.object({
   items: z.array(organizationSwitcherNodeSchema),
   selectedId: directoryIdSchema.nullable(),
   canManage: z.boolean(),
+  canViewAllOrganizations: z.boolean(),
   tenantId: z.string().uuid().nullable(),
   tenants: z.array(z.object({
     id: z.string().uuid(),

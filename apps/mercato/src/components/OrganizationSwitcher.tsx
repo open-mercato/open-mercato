@@ -27,6 +27,7 @@ type SwitcherState =
       nodes: OrganizationMenuNode[]
       selectedId: string | null
       canManage: boolean
+      canViewAllOrganizations: boolean
       tenantId: string | null
       tenants: TenantRecord[]
       isSuperAdmin: boolean
@@ -48,6 +49,7 @@ type OrganizationSwitcherPayload = {
   items?: unknown
   selectedId?: string | null
   canManage?: boolean
+  canViewAllOrganizations?: boolean
   tenantId?: string | null
   tenants?: unknown
   isSuperAdmin?: boolean
@@ -212,6 +214,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
         )
       const fallbackSelected = selected ?? (shouldFallbackToFirst ? findFirstSelectable(rawItems) : null)
       const isSuperAdmin = Boolean(json.isSuperAdmin)
+      const canViewAllOrganizations = Boolean(json.canViewAllOrganizations)
       if (!rawItems.length && !manage && !isSuperAdmin && tenantList.length === 0) {
         setState({ status: 'hidden' })
         if (fallbackSelected) {
@@ -227,6 +230,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
         nodes: rawItems as OrganizationMenuNode[],
         selectedId: fallbackSelected,
         canManage: manage,
+        canViewAllOrganizations,
         tenantId: resolvedTenantId,
         tenants: tenantList,
         isSuperAdmin,
@@ -306,6 +310,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
 
   const hasOptions = nodes.length > 0 && state.status === 'ready'
   const canManage = state.status === 'ready' && state.canManage
+  const showAllOption = state.status === 'ready' && state.canViewAllOrganizations
   const tenantSelectOptions = state.status === 'ready' ? state.tenants : []
   const tenantSelectValue = state.status === 'ready'
     ? state.tenantId ?? ''
@@ -349,7 +354,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
               onChange={handleChange}
               nodes={nodes}
               fetchOnMount={false}
-              includeAllOption
+              includeAllOption={showAllOption}
               aria-label={t('organizationSwitcher.label')}
               className="h-10 w-full rounded border px-2 text-sm"
             />
@@ -393,7 +398,7 @@ export default function OrganizationSwitcher({ compact }: OrganizationSwitcherEx
           onChange={handleChange}
           nodes={nodes}
           fetchOnMount={false}
-          includeAllOption
+          includeAllOption={showAllOption}
           aria-label={t('organizationSwitcher.label')}
           className="h-9 rounded border pl-2 pr-7 text-sm truncate"
         />

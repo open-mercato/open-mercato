@@ -9,7 +9,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { PackageResolver } from '../resolver'
-import { resolveOpenApiGeneratorProjectRoot } from './openapi-paths'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -30,6 +29,13 @@ interface ApiRouteInfo {
   path: string
   methods: HttpMethod[]
   openApiPath: string
+}
+
+function resolveExistingPath(paths: string[]): string | null {
+  for (const candidate of paths) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
 }
 
 /**
@@ -187,7 +193,7 @@ function parseOpenApiFromSource(filePath: string): Record<string, any> | null {
  */
 async function generateOpenApiViaBundle(
   routes: ApiRouteInfo[],
-  projectRoot: string,
+  resolver: PackageResolver,
   quiet: boolean
 ): Promise<Record<string, any> | null> {
   let esbuild: typeof import('esbuild')
@@ -200,14 +206,29 @@ async function generateOpenApiViaBundle(
 
   const { execFileSync } = await import('node:child_process')
 
-  const cacheDir = path.join(projectRoot, 'node_modules', '.cache')
+  const rootDir = resolver.getRootDir()
+  const appDir = resolver.getAppDir()
+  const sharedPackageRoot = resolver.getPackageRoot('@open-mercato/shared')
+  const corePackageRoot = resolver.getPackageRoot('@open-mercato/core')
+  const tsconfigPath = resolveExistingPath([
+    path.join(appDir, 'tsconfig.json'),
+    path.join(rootDir, 'tsconfig.base.json'),
+    path.join(rootDir, 'tsconfig.json'),
+  ])
+  const generatorPath = path.join(sharedPackageRoot, 'src', 'lib', 'openapi', 'generator.ts')
+  const coreGeneratedRoot = path.join(corePackageRoot, 'generated')
+
+  if (!fs.existsSync(generatorPath)) {
+    if (!quiet) {
+      console.log(`[OpenAPI] Generator source not found at ${generatorPath}, skipping bundle approach`)
+    }
+    return null
+  }
+
+  const cacheDir = path.join(rootDir, 'node_modules', '.cache')
   if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
 
   const bundlePath = path.join(cacheDir, '_openapi-bundle.mjs')
-  const tsconfigPath = path.join(projectRoot, 'tsconfig.base.json')
-  const generatorPath = path.join(
-    projectRoot, 'packages', 'shared', 'src', 'lib', 'openapi', 'generator.ts'
-  )
 
   // Build the entry script that imports all routes and calls buildOpenApiDocument
   const importLines: string[] = [
@@ -298,20 +319,21 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
   }
 
   // Plugin: resolve workspace imports, aliases, and subpath imports
-  const appRoot = path.join(projectRoot, 'apps', 'mercato')
-  const resolveWorkspacePlugin = {
-    name: 'resolve-workspace',
+  const resolveProjectImportsPlugin = {
+    name: 'resolve-project-imports',
     setup(build: any) {
-      // @open-mercato/<pkg>/<path> → packages/<pkg>/src/<path>.ts
+      // @open-mercato/<pkg>/<path> → packageRoot/src/<path>.ts
       build.onResolve({ filter: /^@open-mercato\// }, (args: any) => {
         const withoutScope = args.path.slice('@open-mercato/'.length)
         const slashIdx = withoutScope.indexOf('/')
         const pkg = slashIdx === -1 ? withoutScope : withoutScope.slice(0, slashIdx)
         const rest = slashIdx === -1 ? '' : withoutScope.slice(slashIdx + 1)
+        const packageName = `@open-mercato/${pkg}`
+        const packageRoot = resolver.getPackageRoot(packageName)
 
         const base = rest
-          ? path.join(projectRoot, 'packages', pkg, 'src', rest)
-          : path.join(projectRoot, 'packages', pkg, 'src', 'index')
+          ? path.join(packageRoot, 'src', rest)
+          : path.join(packageRoot, 'src', 'index')
 
         for (const ext of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
           if (fs.existsSync(base + ext)) return { path: base + ext }
@@ -319,31 +341,30 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
         return undefined
       })
 
-      // @/.mercato/* → apps/mercato/.mercato/* (tsconfig paths)
+      // @/.mercato/* → app/.mercato/* (tsconfig paths)
       build.onResolve({ filter: /^@\/\.mercato\// }, (args: any) => {
         const rest = args.path.slice('@/'.length) // '.mercato/generated/...'
-        const base = path.join(appRoot, rest)
+        const base = path.join(appDir, rest)
         for (const ext of ['.ts', '.tsx', '/index.ts', '/index.tsx', '']) {
           if (fs.existsSync(base + ext)) return { path: base + ext }
         }
         return undefined
       })
 
-      // @/* → apps/mercato/src/* (tsconfig paths)
+      // @/* → app/src/* (tsconfig paths)
       build.onResolve({ filter: /^@\// }, (args: any) => {
         const rest = args.path.slice('@/'.length)
-        const base = path.join(appRoot, 'src', rest)
+        const base = path.join(appDir, 'src', rest)
         for (const ext of ['.ts', '.tsx', '/index.ts', '/index.tsx']) {
           if (fs.existsSync(base + ext)) return { path: base + ext }
         }
         return undefined
       })
 
-      // #generated/* → packages/core/generated/* (Node subpath imports)
+      // #generated/* → core package generated/* (Node subpath imports)
       build.onResolve({ filter: /^#generated\// }, (args: any) => {
         const rest = args.path.slice('#generated/'.length)
-        const coreGenerated = path.join(projectRoot, 'packages', 'core', 'generated')
-        const base = path.join(coreGenerated, rest)
+        const base = path.join(coreGeneratedRoot, rest)
         for (const ext of ['.ts', '/index.ts']) {
           if (fs.existsSync(base + ext)) return { path: base + ext }
         }
@@ -379,7 +400,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
         const pkgName = args.path.startsWith('@')
           ? args.path.split('/').slice(0, 2).join('/')
           : topLevel
-        const pkgDir = path.join(projectRoot, 'node_modules', pkgName)
+        const pkgDir = path.join(rootDir, 'node_modules', pkgName)
         if (fs.existsSync(pkgDir)) return { external: true }
 
         // Package not installed — provide CJS stub (allows any named import)
@@ -396,7 +417,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
     await esbuild.build({
       stdin: {
         contents: entryScript,
-        resolveDir: projectRoot,
+        resolveDir: appDir,
         sourcefile: 'openapi-entry.ts',
         loader: 'ts',
       },
@@ -406,10 +427,10 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
       target: 'node18',
       outfile: bundlePath,
       write: true,
-      tsconfig: tsconfigPath,
+      ...(tsconfigPath ? { tsconfig: tsconfigPath } : {}),
       logLevel: 'silent',
       jsx: 'automatic',
-      plugins: [stubNextPlugin, resolveWorkspacePlugin, externalNonWorkspacePlugin],
+      plugins: [stubNextPlugin, resolveProjectImportsPlugin, externalNonWorkspacePlugin],
     })
 
     const stdout = execFileSync(process.execPath, [bundlePath], {
@@ -417,7 +438,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
       maxBuffer: 20 * 1024 * 1024,
       encoding: 'utf-8',
       env: { ...process.env, NODE_NO_WARNINGS: '1' },
-      cwd: projectRoot,
+      cwd: rootDir,
     })
 
     const lastLine = stdout.trim().split('\n').pop()!
@@ -538,10 +559,8 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   }
 
   // Determine project root (cli package is at packages/cli/src/lib/generators/)
-  const projectRoot = resolveOpenApiGeneratorProjectRoot(import.meta.url)
-
   // Try esbuild bundle approach first — produces full requestBody/response schemas
-  let doc: Record<string, any> | null = await generateOpenApiViaBundle(routes, projectRoot, quiet)
+  let doc: Record<string, any> | null = await generateOpenApiViaBundle(routes, resolver, quiet)
 
   // Fallback to static regex approach (extracts operationId/summary/tags but no schemas)
   if (!doc) {

@@ -315,16 +315,16 @@ export default function CustomersCompaniesPage() {
     if (typeof emailContains === 'string' && emailContains.trim()) {
       params.set('emailContains', emailContains.trim())
     }
-    const tagLabels = Array.isArray(filterValues.tagIds)
+    const tagValues = Array.isArray(filterValues.tagIds)
       ? filterValues.tagIds
           .map((value) => (typeof value === 'string' ? value.trim() : String(value || '').trim()))
           .filter((value) => value.length > 0)
       : []
-    if (tagLabels.length > 0) {
-      const normalizedTagIds = tagLabels
-        .map((label) => tagLabelToId[label])
+    if (tagValues.length > 0) {
+      const normalizedTagIds = tagValues
+        .map((value) => (typeof tagIdToLabel[value] === 'string' ? value : tagLabelToId[value]))
         .filter((id): id is string => typeof id === 'string' && id.length > 0)
-      if (normalizedTagIds.length === tagLabels.length && normalizedTagIds.length > 0) {
+      if (normalizedTagIds.length === tagValues.length && normalizedTagIds.length > 0) {
         params.set('tagIds', normalizedTagIds.join(','))
       } else {
         params.set('tagIdsEmpty', 'true')
@@ -359,7 +359,7 @@ export default function CustomersCompaniesPage() {
       }
     })
     return params.toString()
-  }, [filterValues, page, pageSize, search, tagLabelToId])
+  }, [filterValues, page, pageSize, search, tagIdToLabel, tagLabelToId])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({
@@ -446,13 +446,17 @@ export default function CustomersCompaniesPage() {
     })
     const rawTags = Array.isArray(values.tagIds) ? (values.tagIds as string[]) : []
     const sanitizedTags = rawTags
-      .map((tag) => (typeof tag === 'string' ? tag.trim() : ''))
+      .map((tag) => {
+        const normalized = typeof tag === 'string' ? tag.trim() : ''
+        if (!normalized) return ''
+        return tagIdToLabel[normalized] ?? normalized
+      })
       .filter((tag) => tag.length > 0)
     if (sanitizedTags.length) next.tagIds = sanitizedTags
     else delete next.tagIds
     setFilterValues(next)
     setPage(1)
-  }, [setFilterValues, setPage])
+  }, [setFilterValues, setPage, tagIdToLabel])
 
   const handleFiltersClear = React.useCallback(() => {
     setFilterValues({})
@@ -506,7 +510,7 @@ export default function CustomersCompaniesPage() {
         accessorKey: 'name',
         header: t('customers.companies.list.columns.name'),
         cell: ({ row }) => (
-          <Link href={`/backend/customers/companies/${row.original.id}`} className="font-medium hover:underline">
+          <Link href={`/backend/customers/companies-v2/${row.original.id}`} className="font-medium hover:underline">
             {row.original.name}
           </Link>
         ),
@@ -596,7 +600,7 @@ export default function CustomersCompaniesPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
-          onRowClick={(row) => router.push(`/backend/customers/companies/${row.id}`)}
+          onRowClick={(row) => router.push(`/backend/customers/companies-v2/${row.id}`)}
           perspective={{ tableId: 'customers.companies.list' }}
           rowActions={(row) => (
             <RowActions
@@ -604,12 +608,12 @@ export default function CustomersCompaniesPage() {
                 {
                   id: 'view',
                   label: t('customers.companies.list.actions.view'),
-                  onSelect: () => { router.push(`/backend/customers/companies/${row.id}`) },
+                  onSelect: () => { router.push(`/backend/customers/companies-v2/${row.id}`) },
                 },
                 {
                   id: 'open-new-tab',
                   label: t('customers.companies.list.actions.openInNewTab'),
-                  onSelect: () => window.open(`/backend/customers/companies/${row.id}`, '_blank', 'noopener'),
+                  onSelect: () => window.open(`/backend/customers/companies-v2/${row.id}`, '_blank', 'noopener'),
                 },
                 {
                   id: 'delete',

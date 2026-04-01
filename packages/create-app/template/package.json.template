@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "yarn@4.12.0+sha512.f45ab632439a67f8bc759bf32ead036a1f413287b9042726b7cc4818b7b49e14e9423ba49b18f9e06ea4941c1ad062385b1d8760a8d5091a1a31e5f6219afca8",
   "scripts": {
+    "setup": "node ./scripts/setup.mjs",
+    "setup:reinstall": "node ./scripts/setup.mjs --reinstall",
     "dev": "mercato server dev",
     "build": "next build",
     "start": "NODE_OPTIONS='-r newrelic' mercato server start",
@@ -11,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
     "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
+    "test:integration:ephemeral": "mercato test:integration",
     "generate": "mercato generate",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",

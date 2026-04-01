@@ -692,6 +692,8 @@
   "ui.forms.actions.edit": "Edit",
   "ui.forms.actions.save": "Save",
   "ui.forms.confirmDelete": "Delete this record? This action cannot be undone.",
+  "ui.forms.confirmDeleteWithUndo": "Delete this record? You can restore it using version history.",
+  "ui.forms.confirmUnsavedChanges": "You have unsaved changes. Are you sure you want to leave?",
   "ui.forms.errors.highlighted": "Please fix the highlighted errors.",
   "ui.forms.errors.required": "This field is required",
   "ui.forms.errors.unexpected": "Unexpected error",

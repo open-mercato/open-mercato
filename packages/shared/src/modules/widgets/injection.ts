@@ -303,9 +303,10 @@ export type FieldContext = {
 export type InjectionFieldDefinition = {
   id: string
   label: string
+  labelKey?: string
   type: 'text' | 'select' | 'number' | 'date' | 'boolean' | 'textarea' | 'custom'
-  options?: { value: string; label: string }[]
-  optionsLoader?: (context: FieldContext) => Promise<{ value: string; label: string }[]>
+  options?: Array<{ value: string; label: string; labelKey?: string }>
+  optionsLoader?: (context: FieldContext) => Promise<Array<{ value: string; label: string; labelKey?: string }>>
   optionsCacheTtl?: number
   customComponent?: LazyExoticComponent<ComponentType<CustomFieldProps>>
   group: string

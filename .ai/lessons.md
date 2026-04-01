@@ -58,6 +58,36 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/template/src/modules.ts`, `packages/create-app/template/package.json.template`, template lockfiles, and standalone app smoke tests.
 
+## Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry
+
+**Context**: `create-mercato-app` advertised `yarn setup` as the first command, but the scaffold only shipped an empty `yarn.lock`.
+
+**Problem**: Yarn 4 resolves package scripts through the lockfile. In a fresh scaffold, `yarn setup` failed before `scripts/setup.mjs` could call `yarn install` with `This package doesn't seem to be present in your lockfile`.
+
+**Rule**: Standalone templates that expect a pre-install Yarn script to run must ship a templated `yarn.lock` containing the root `"{{APP_NAME}}@workspace:."` entry. Keep the standalone smoke test exercising at least one trivial Yarn script before the first install so the regression is caught immediately.
+
+**Applies to**: `packages/create-app/template/yarn.lock.template`, `packages/create-app/src/index.ts`, and `scripts/test-create-app.ts`.
+
+## Generated standalone app installs in CI must opt out of immutable lockfiles
+
+**Context**: Snapshot parity scaffolds a fresh standalone app from `create-mercato-app` and then runs `yarn install` inside that generated directory.
+
+**Problem**: On CI, Yarn enables immutable installs by default. Because the scaffold intentionally ships only a minimal root workspace `yarn.lock`, the first standalone `yarn install` needs to materialize the real lockfile and otherwise fails with `YN0028`.
+
+**Rule**: When CI or smoke tests run the first `yarn install` inside a freshly scaffolded standalone app, set `YARN_ENABLE_IMMUTABLE_INSTALLS=0`. Do this only for the generated app install/add steps, not for the monorepo install.
+
+**Applies to**: `.github/workflows/snapshot.yml`, `scripts/test-create-app.ts`, and `scripts/test-create-app-integration.ts`.
+
+## Standalone scaffolding and generators must not assume monorepo-only paths
+
+**Context**: Separately, the standalone `yarn generate` OpenAPI bundle still looked for `packages/shared`, `apps/mercato`, and `tsconfig.base.json`.
+
+**Problem**: Newly scaffolded apps - `yarn generate` printed noisy OpenAPI bundle resolution errors before falling back.
+
+**Rule**: For standalone app flows, do not hardcode monorepo paths; CLI generators must resolve app/package paths through the shared resolver (`getRootDir()`, `getAppDir()`, `getPackageRoot()`) instead of constructing `packages/*` or `apps/mercato/*` paths directly.
+
+**Applies to**: `packages/create-app/**`, `packages/cli/**`, standalone app smoke tests, and any generator/bundler that runs inside installed npm packages.
+
 ## Store global event bus in `globalThis` to survive module duplication in dev
 
 **Context**: `record_locks` notifications stopped while banners still worked. Banner logic uses direct API polling, but notifications depend on `emitRecordLocksEvent()` from `createModuleEvents()` and the global event bus wiring.
@@ -67,6 +97,18 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: For process-wide runtime singletons used across package boundaries (event bus, similar registries), keep canonical reference in `globalThis` and use module-local variable only as fallback.
 
 **Applies to**: `packages/shared/src/modules/events/factory.ts` and any shared runtime singleton relied on by module auto-discovery/subscriber pipelines.
+
+## Feature-gated runtime helpers must use wildcard-aware permission matching
+
+**Context**: ACL wildcard grants like `customer_accounts.*` correctly passed server-side checks, but several shared UI/runtime helpers still gated behavior with exact `includes` or `Set.has` checks.
+
+**Problem**: Navigation, notification handlers, mutation guards, and command interceptors could silently disappear or stop running even though the user had a valid wildcard permission from RBAC.
+
+**Rule**: Any feature-gated helper outside the core RBAC service must use the shared wildcard-aware matcher (`hasFeature` / `hasAllFeatures`) instead of ad hoc exact-match checks such as `features.includes(...)`, `set.has(...)`, or `every(...includes(...))`.
+
+**Additional rule**: Do not assume every `granted` feature array is normalized to exact requested ids. Some flows return exact feature-check responses, while others pass through stored wildcard ACLs or resolved feature snapshots. Runtime helpers must treat all granted-feature arrays as wildcard-capable input.
+
+**Applies to**: Navigation builders, injected menu filtering, notification dispatchers, mutation guards, command interceptors, and similar client/server ACL-driven registries.
 
 ## Always propagate structured conflict payload from `onBeforeSave` blockers
 
@@ -179,6 +221,56 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Before adding a migration, check existing module migrations for overlapping DDL. If a duplicate migration was already committed and may be in history, keep the file/class name stable and convert duplicate migration content to a no-op instead of deleting/renaming it.
 
 **Applies to**: `packages/core/src/modules/*/migrations/*.ts` and initialize/ephemeral test bootstrap flows.
+
+## Meilisearch container healthchecks must probe IPv4 explicitly
+
+**Context**: Standalone full-app Docker scaffolds used `wget http://localhost:7700/health` for the Meilisearch healthcheck, while other compose files used `curl`.
+
+**Problem**: In `getmeili/meilisearch:v1.11`, `wget` resolves `localhost` to IPv6 `::1` first, but Meilisearch listens on IPv4 (`0.0.0.0:7700`). The container is healthy but Docker marks it `unhealthy`, which blocks dependent services.
+
+**Rule**: Use `curl -fsS http://127.0.0.1:7700/health` for Meilisearch container healthchecks instead of `wget` or `localhost`.
+
+**Applies to**: Root `docker-compose*.yml`, standalone app templates in `packages/create-app/template/`, and any future dev/test container compose files that run Meilisearch.
+
+## Docker entrypoints must verify required binaries, not just non-empty node_modules
+
+**Context**: The standalone app dev entrypoint only checked whether `node_modules` existed and was non-empty before skipping `yarn install`.
+
+**Problem**: A stale named volume from another app can leave `node_modules` populated but incomplete, with `node_modules/.bin/mercato` and `@open-mercato/cli` missing. Startup then fails later with `/bin/sh: mercato: not found`.
+
+**Rule**: Docker startup scripts must verify the specific required package/binary for the next command (for example `node_modules/@open-mercato/cli` and `node_modules/.bin/mercato` before `yarn initialize`), not just the presence of a non-empty `node_modules` directory.
+
+**Applies to**: `packages/create-app/template/docker/scripts/*.sh` and any future container entrypoints that rely on installed CLI binaries.
+
+## Docker initialization should treat the existing-users CLI abort as already initialized
+
+**Context**: The CLI intentionally aborts `init` when the database already contains users, printing `Initialization aborted: found N existing user(s) in the database.`
+
+**Problem**: Docker first-run boot paths used marker files only. When the marker was missing but the database was already initialized, containers exited instead of continuing with migrations and startup.
+
+**Rule**: Docker init/startup wrappers must treat the specific existing-users initialization abort as a successful already-initialized state: run migrations, write the init marker, and continue boot. Do not broaden this to ignore other init failures.
+
+**Applies to**: `docker/scripts/*.sh`, root `docker-compose.fullapp*.yml`, and standalone template Docker startup files in `packages/create-app/template/docker/**`.
+
+## Standalone scaffolds must pin the same Yarn version as the monorepo
+
+**Context**: `node:24-alpine` exposes Yarn `1.22.22` by default. The monorepo uses Yarn `4.12.0` via the root `packageManager` field and explicit Corepack activation in some environments.
+
+**Problem**: The standalone template had no `packageManager` field and its Dockerfile only ran `corepack enable`, so Docker-based standalone flows could stay on Yarn 1 instead of Yarn 4.
+
+**Rule**: Keep `packages/create-app/template/package.json.template` aligned with the monorepo `packageManager` version and have the template Dockerfile explicitly run `corepack prepare yarn@<version> --activate`.
+
+**Applies to**: `packages/create-app/template/package.json.template`, `packages/create-app/template/Dockerfile`, and any scaffolded environment that relies on Corepack.
+
+## Compose startup commands must not hard-depend on newly added image scripts
+
+**Context**: Fullapp compose startup was updated to call `/app/docker/scripts/init-or-migrate.sh` directly.
+
+**Problem**: If a user updates `docker-compose.fullapp.yml` but starts an older image without `--build`, container startup fails immediately because the new helper script is not present in that image.
+
+**Rule**: When a compose command references a newly added in-image helper, include a shell fallback path so older images can still boot until the next rebuild.
+
+**Applies to**: Root/template `docker-compose.fullapp*.yml` and similar Docker startup commands that evolve independently from image rebuilds.
 
 ## Keep injected namespaces DataTable-owned, not page-owned
 
@@ -378,6 +470,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
 
+## Detail sections must route writes through page-level guarded mutations
+
+**Context**: Customer detail sections introduced canonical interaction writes in local hooks and components while the surrounding backend pages already had mutation-injection context for record locks and retry flows.
+
+**Problem**: Raw `apiCall` or CRUD-helper writes from detail sections bypass `useGuardedMutation`, so lock/conflict hooks never see those saves. Separately, showing flash messages in both the data hook and the section UI produces duplicate toasts for one mutation.
+
+**Rule**: In backend detail pages, the page owns `useGuardedMutation` and passes a guarded mutation runner into child sections. Data hooks should execute the network call and refresh state, while the section or presenter owns user-facing flash messages so each mutation emits one toast.
+
+**Applies to**: `packages/core/src/modules/customers/components/detail/**/*`, customer detail pages, and any future backend section that performs manual writes outside `CrudForm`.
+
 ## Workspace packages with backend pages must build and export deep TSX entrypoints
 
 **Context**: The new `@open-mercato/webhooks` workspace package exposed backend pages through generated imports like `@open-mercato/webhooks/modules/webhooks/backend/webhooks/page`, but the package build only compiled `src/**/*.ts` and the export map stopped before the deepest generated paths.
@@ -456,3 +558,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Inside a package's own CLI/runtime entrypoints, prefer local relative imports for same-package modules instead of going back through the package alias, unless that alias path is explicitly part of the public runtime contract.
 
 **Applies to**: `cli.ts`, bootstrap helpers, package-local scripts, and other runtime entrypoints executed directly from dist.
+
+## Global registries in publishable packages must use `globalThis`, not module-local state
+
+**Context**: Standalone `create-mercato-app` loaded `@open-mercato/shared/lib/db/mikro` through multiple server chunk/module instances while the monorepo dev app used a single source-tree instance.
+
+**Problem**: Bootstrap registered ORM entities in one module instance, but `/api/events/stream` created a request container through another instance. Because the entity registry lived in a module-local variable, the second instance saw an empty registry and crashed with `[Bootstrap] ORM entities not registered`.
+
+**Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
+
+**Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.

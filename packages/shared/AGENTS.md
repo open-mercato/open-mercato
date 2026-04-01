@@ -15,6 +15,7 @@ Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and 
 | Directory | When to use | Import path |
 |-----------|-------------|-------------|
 | `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
+| `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
 | `crud/` | When building CRUD routes | `@open-mercato/shared/lib/crud` |
@@ -74,6 +75,18 @@ const { t } = await resolveTranslations()
 ```typescript
 import { withScopedPayload, createScopedApiHelpers } from '@open-mercato/shared/lib/api/scoped'
 ```
+
+### Feature Matching — MUST use shared wildcard-aware helpers
+
+Use shared helpers whenever you evaluate raw granted feature arrays in infrastructure code:
+
+```typescript
+import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/features'
+```
+
+- Use `hasFeature(granted, 'module.action')` for single-feature checks.
+- Use `hasAllFeatures(granted, required)` for arrays such as `features`, `requireFeatures`, or handler guard lists.
+- MUST NOT gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks in shared registries or runners; wildcard grants like `module.*` and `*` are part of the RBAC contract.
 
 ### CRUD Multi-ID Filtering
 

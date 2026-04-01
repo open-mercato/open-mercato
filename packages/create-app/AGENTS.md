@@ -47,29 +47,36 @@ my-app/
 ### Initial Setup
 
 ```bash
-# 1. Start Verdaccio
-docker compose up -d verdaccio
-
-# 2. Create registry user
+# Optional: create a registry user once if you want npm auth stored for Verdaccio
 yarn registry:setup-user
+```
 
-# 3. Build and publish all packages
+### Fast Path via Root Scripts
+
+```bash
+# Smoke-test the standalone scaffold against Verdaccio
+yarn test:create-app
+
+# Run the standalone integration parity flow against Verdaccio
+yarn test:create-app:integration
+```
+
+### Manual Verdaccio Workflow
+
+```bash
+docker compose up -d verdaccio
 yarn registry:publish
-
-# 4. Create and test standalone app
-npx --registry http://localhost:4873 create-mercato-app@latest my-test-app
-cd my-test-app
-docker compose up -d
+node packages/create-app/dist/index.js /tmp/my-test-app --verdaccio
+cd /tmp/my-test-app
 yarn install
-yarn initialize
-yarn dev
+yarn setup
 ```
 
 ### When Publishing Changes
 
 1. Make changes in monorepo packages
-2. Run `yarn registry:publish` to republish to Verdaccio
-3. In standalone app: `rm -rf node_modules .mercato/next && yarn install && yarn dev`
+2. Use `yarn test:create-app` for the fast shell workflow, `yarn test:create-app:integration` for parity coverage, or the manual Verdaccio workflow when you want to keep a standalone app around
+3. If you already have a standalone app checked out, rerun `yarn registry:publish`, then in that app run `rm -rf node_modules .mercato/next && yarn install && yarn dev`
 4. Verify the app starts and affected features work
 5. Test `yarn generate` produces correct output from compiled files
 

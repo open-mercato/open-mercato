@@ -30,6 +30,25 @@ type ProviderClient = ReturnType<typeof createOpenAI>
   | ReturnType<typeof createAmazonBedrock>
   | OllamaClient
 
+const DEFAULT_EMBEDDING_TIMEOUT_MS = 3_000
+
+function resolveEmbeddingTimeoutMs(): number {
+  const rawValue = process.env.VECTOR_EMBEDDING_TIMEOUT_MS
+  if (!rawValue) return DEFAULT_EMBEDDING_TIMEOUT_MS
+  const parsed = Number.parseInt(rawValue, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_EMBEDDING_TIMEOUT_MS
+  }
+  return parsed
+}
+
+function timeoutError(providerId: EmbeddingProviderId, timeoutMs: number): Error {
+  const providerInfo = EMBEDDING_PROVIDERS[providerId]
+  return new Error(
+    `${providerInfo.name} request timed out after ${timeoutMs}ms. Check ${providerInfo.envKeyRequired}.`,
+  )
+}
+
 export class EmbeddingService {
   private config: EmbeddingProviderConfig
   private clientCache: Map<EmbeddingProviderId, ProviderClient> = new Map()
@@ -213,13 +232,19 @@ export class EmbeddingService {
 
     const model = this.getEmbeddingModel() as EmbeddingModel
     const providerOptions = this.getProviderOptions()
+    const timeoutMs = resolveEmbeddingTimeoutMs()
 
     try {
-      const result = await embed({
-        model,
-        value: merged,
-        ...(providerOptions && { providerOptions }),
-      })
+      const result = await Promise.race([
+        embed({
+          model,
+          value: merged,
+          ...(providerOptions && { providerOptions }),
+        }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(timeoutError(this.config.providerId, timeoutMs)), timeoutMs)
+        }),
+      ])
       const emb = Array.isArray(result.embedding)
         ? result.embedding
         : Array.from(result.embedding as ArrayLike<number>)
@@ -254,9 +279,13 @@ export class EmbeddingService {
           guidance = `${providerInfo.name} account is disabled. Contact support or provide a different key.`
           break
         default:
-          guidance = rawMessage.includes('https://')
+          guidance = rawMessage.startsWith('[vector.embedding] ')
+            ? rawMessage.slice('[vector.embedding] '.length)
+            : rawMessage.includes('https://')
             ? rawMessage
-            : `${rawMessage}. Check ${providerInfo.envKeyRequired}.`
+            : rawMessage.includes(providerInfo.envKeyRequired)
+              ? rawMessage
+              : `${rawMessage}. Check ${providerInfo.envKeyRequired}.`
       }
       const wrapped = new Error(`[vector.embedding] ${guidance}`) as Error & { status?: number; code?: string; cause?: unknown }
       if (typeof status === 'number' && Number.isFinite(status)) {

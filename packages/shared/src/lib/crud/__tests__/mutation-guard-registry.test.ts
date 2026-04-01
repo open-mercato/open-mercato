@@ -146,6 +146,19 @@ describe('runMutationGuards', () => {
     expect(resultWith.ok).toBe(false)
   })
 
+  it('accepts wildcard ACL features', async () => {
+    const guard = makeGuard({
+      id: 'g1',
+      features: ['premium.locks'],
+      validate: jest.fn().mockResolvedValue({ ok: false, message: 'Blocked by wildcard' }),
+    })
+
+    const resultWithWildcard = await runMutationGuards([guard], baseInput, { userFeatures: ['premium.*'] })
+
+    expect(resultWithWildcard.ok).toBe(false)
+    expect(resultWithWildcard.errorBody).toEqual({ error: 'Blocked by wildcard', guardId: 'g1' })
+  })
+
   it('uses custom error body when provided', async () => {
     const guard = makeGuard({
       id: 'g1',

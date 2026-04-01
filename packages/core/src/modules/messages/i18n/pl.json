@@ -34,6 +34,7 @@
   "messages.composer.attachmentPicker.title": "Dołącz pliki",
   "messages.composer.attachmentPicker.upload": "Prześlij pliki",
   "messages.composer.confirm.incompatibleObjects": "Zmiana typu wiadomości usunie {count} niezgodnych dołączonych obiektów. Kontynuować?",
+  "messages.composer.dialogDescription": "Utwórz i wyślij wiadomość.",
   "messages.composer.hints.actionExpiry": "Akcje dla tego typu wygasają po {hours} godzinach.",
   "messages.composer.maxObjectsWarning": "Osiągnięto zalecany limit 25 dołączonych obiektów.",
   "messages.composer.noAttachments": "Nie dołączono jeszcze plików.",

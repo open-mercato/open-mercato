@@ -190,7 +190,12 @@ describe('enableOfficialModule', () => {
         undefined,
         true,
       ),
-    ).rejects.toThrow('generated artifacts are stale')
+    ).resolves.toEqual({
+      moduleId: 'test_package',
+      packageName: '@open-mercato/test-package',
+      from: '@app',
+      registrationChanged: true,
+    })
 
     expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'index.ts'))).toBe(true)
     expect(fs.existsSync(path.join(appDir, 'src', 'modules', 'test_package', 'backend', 'page.tsx'))).toBe(true)

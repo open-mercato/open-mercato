@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import React from 'react'
 import type { Module, ModuleRoute, PageMetadata } from '@open-mercato/shared/modules/registry'
+import { hasAllFeatures as checkFeatures } from '@open-mercato/shared/security/features'
 
 /** Route with optional page-metadata aliases that may be merged during generation. */
 type NavRoute = ModuleRoute & Partial<Pick<PageMetadata, 'pageTitleKey' | 'pageGroupKey'>>
@@ -244,27 +245,27 @@ export async function buildAdminNav(
   }
 
   // Batch check all features in a single API call
-	  let userFeatures = new Set<string>()
-	  if (allRequiredFeatures.size > 0) {
-	    const requestFeatures = Array.from(allRequiredFeatures)
-	    if (options?.checkFeatures) {
-	      try {
-	        const resolved = await options.checkFeatures(requestFeatures)
-	        if (resolved) {
-	          userFeatures = new Set(resolved)
-	        }
-	      } catch {
-	        // ignore and fall back to empty feature set
-	      }
-	    } else {
-	      userFeatures = await fetchFeatureGrants(requestFeatures)
-	    }
-	  }
+  let userFeatures: string[] = []
+  if (allRequiredFeatures.size > 0) {
+    const requestFeatures = Array.from(allRequiredFeatures)
+    if (options?.checkFeatures) {
+      try {
+        const resolved = await options.checkFeatures(requestFeatures)
+        if (resolved) {
+          userFeatures = Array.from(resolved).filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+        }
+      } catch {
+        // ignore and fall back to empty feature set
+      }
+    } else {
+      userFeatures = Array.from(await fetchFeatureGrants(requestFeatures))
+    }
+  }
 
   // Helper: check if user has all required features (from cache)
   function hasAllFeatures(required: string[]): boolean {
     if (!required || required.length === 0) return true
-    return required.every(f => userFeatures.has(f))
+    return checkFeatures(userFeatures, required)
   }
 
   // Icons are defined per-page in metadata; no heuristic derivation here.

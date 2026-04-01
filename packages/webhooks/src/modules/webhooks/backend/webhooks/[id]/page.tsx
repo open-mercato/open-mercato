@@ -26,7 +26,7 @@ import {
   type WebhookFormValues,
 } from '../../../components/webhook-form-config'
 import { useWebhookFeatureAccess } from '../useWebhookFeatureAccess'
-import { WebhookSecretPanel } from '../WebhookSecretPanel'
+import { WebhookSecretPanel } from '../../../components/WebhookSecretPanel'
 
 type Webhook = {
   id: string

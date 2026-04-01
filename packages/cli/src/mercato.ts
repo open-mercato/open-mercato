@@ -25,6 +25,74 @@ export function padByCodePointWidth(value: string, targetWidth: number): string 
   return `${value}${' '.repeat(targetWidth - valueWidth)}`
 }
 
+type ErrorWithCause = {
+  message?: string
+  code?: string
+  cause?: unknown
+  errors?: unknown[]
+}
+
+function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
+  if (!error || seen.has(error)) {
+    return []
+  }
+
+  seen.add(error)
+
+  if (typeof error !== 'object') {
+    return [{ message: String(error) }]
+  }
+
+  const current = error as ErrorWithCause
+  const nested: ErrorWithCause[] = [current]
+
+  if (Array.isArray(current.errors)) {
+    for (const item of current.errors) {
+      nested.push(...collectNestedErrors(item, seen))
+    }
+  }
+
+  if (current.cause) {
+    nested.push(...collectNestedErrors(current.cause, seen))
+  }
+
+  return nested
+}
+
+function getDatabaseTargetLabel(): string {
+  const rawUrl = process.env.DATABASE_URL?.trim()
+  if (!rawUrl) {
+    return 'the database configured by DATABASE_URL'
+  }
+
+  try {
+    const parsed = new URL(rawUrl)
+    const host = parsed.hostname || 'localhost'
+    const port = parsed.port || '5432'
+    const database = parsed.pathname.replace(/^\/+/, '') || '(default database)'
+    return `PostgreSQL at ${host}:${port}/${database}`
+  } catch {
+    return 'the database configured by DATABASE_URL'
+  }
+}
+
+function formatCliFailureMessage(modName: string, cmdName: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  const nestedErrors = collectNestedErrors(error)
+
+  const isDatabaseCommand = modName === 'db' && ['migrate', 'generate', 'greenfield'].includes(cmdName)
+  const hasConnectionRefused = nestedErrors.some((item) => item.code === 'ECONNREFUSED' || /ECONNREFUSED|Connection refused|connect ECONNREFUSED/i.test(item.message || ''))
+  const hasDnsFailure = nestedErrors.some((item) => item.code === 'ENOTFOUND' || item.code === 'EAI_AGAIN' || /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(item.message || ''))
+
+  if (isDatabaseCommand && (hasConnectionRefused || hasDnsFailure)) {
+    const target = getDatabaseTargetLabel()
+    const reason = hasConnectionRefused ? 'refused the connection' : 'could not be resolved'
+    return `${target} is not reachable: it ${reason}. Start the database service or fix DATABASE_URL in .env, then retry \`yarn db:${cmdName}\`.`
+  }
+
+  return message
+}
+
 async function ensureEnvLoaded() {
   if (envLoaded) return
   envLoaded = true
@@ -305,6 +373,7 @@ export async function run(argv = process.argv) {
               console.error(
                 '   To reset and initialize from scratch, run: yarn mercato init --reinstall',
               )
+              console.error('   Standalone shortcut: yarn setup --reinstall')
               console.error('   Shortcut script: yarn reinstall')
               return 1
             }
@@ -1082,6 +1151,27 @@ export async function run(argv = process.argv) {
             }
           }
 
+          async function cleanupAndWait() {
+            cleanup()
+            // Wait for all child processes to fully exit so they can release lock files
+            await Promise.all(
+              processes.map(
+                (proc) =>
+                  new Promise<void>((resolve) => {
+                    if (proc.exitCode !== null) return resolve()
+                    proc.on('exit', () => resolve())
+                  })
+              )
+            )
+            // Safety net: remove Next.js dev lock file in case the child didn't clean up
+            const lockFile = path.join(appDir, '.mercato', 'next', 'dev', 'lock')
+            try {
+              fs.unlinkSync(lockFile)
+            } catch {
+              // Lock file may already be removed by Next.js — ignore
+            }
+          }
+
           process.on('SIGTERM', cleanup)
           process.on('SIGINT', cleanup)
 
@@ -1134,7 +1224,7 @@ export async function run(argv = process.argv) {
             )
           )
 
-          cleanup()
+          await cleanupAndWait()
         },
       },
       {
@@ -1158,6 +1248,19 @@ export async function run(argv = process.argv) {
                 proc.kill('SIGTERM')
               }
             }
+          }
+
+          async function cleanupAndWait() {
+            cleanup()
+            await Promise.all(
+              processes.map(
+                (proc) =>
+                  new Promise<void>((resolve) => {
+                    if (proc.exitCode !== null) return resolve()
+                    proc.on('exit', () => resolve())
+                  })
+              )
+            )
           }
 
           process.on('SIGTERM', cleanup)
@@ -1207,7 +1310,7 @@ export async function run(argv = process.argv) {
             )
           )
 
-          cleanup()
+          await cleanupAndWait()
         },
       },
     ],
@@ -1305,7 +1408,7 @@ export async function run(argv = process.argv) {
     console.log(`⏱️ Done in ${ms}ms`)
     return 0
   } catch (e: any) {
-    console.error(`💥 Failed: ${e?.message || e}`)
+    console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
     return 1
   }
 }

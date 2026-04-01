@@ -146,6 +146,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - For relative positioning, rely on `InjectionPosition` + `relativeTo` IDs; if `relativeTo` is missing, insertion falls back to append.
 - Treat injected labels as i18n-first: prefer `labelKey` (with human fallback `label`) and `groupLabelKey` (with optional `groupLabel`) so keys never leak to UI.
 - Add stable attributes (`data-menu-item-id="<id>"`) when rendering merged items so integration tests can assert injected entries reliably.
+- When filtering menu items by `item.features` or route `requireFeatures`, MUST use the shared wildcard-aware matcher from `@open-mercato/shared/lib/auth/featureMatch`; do not rely on `Set.has(...)` or exact `includes(...)` checks because role grants may be `module.*`.
 
 ## Loading, Empty, and Error States
 
@@ -170,6 +171,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 - Use the shared action labels where possible (for example, `notifications.actions.dismiss`).
 - Prefer notification creation in commands or subscribers and keep UI renderers lightweight.
 - For component-scoped reactions, use `useNotificationEffect(notificationType, effect)` instead of module-specific polling loops.
+- When gating notification handlers or other UI runtime registries by `features`, MUST use the shared wildcard-aware matcher; `module.*` grants must enable matching handlers, sections, and actions.
 
 ## Component Reuse
 

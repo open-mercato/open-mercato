@@ -19,7 +19,7 @@ type InjectedFieldProps = {
   readOnly?: boolean
 }
 
-type Option = { value: string; label: string }
+type Option = { value: string; label: string; labelKey?: string }
 
 const MAX_CACHE_ENTRIES = 100
 const optionsCache = new Map<string, { expiresAt: number; options: Option[] }>()
@@ -62,7 +62,9 @@ function SelectField({
       >
         <option value="">{t('ui.filters.select.placeholder', 'Select...')}</option>
         {options.map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <option key={option.value} value={option.value}>
+            {option.labelKey ? t(option.labelKey, option.label) : option.label}
+          </option>
         ))}
       </select>
       {optionsError ? (
@@ -111,7 +113,7 @@ export function InjectedField({ field, value, onChange, context, formData, readO
 
   if (!evaluateInjectedVisibility(field.visibleWhen, formData, context)) return null
 
-  const label = t(field.label, field.label)
+  const label = field.labelKey ? t(field.labelKey, field.label) : t(field.label, field.label)
   const disabled = readOnly || field.readOnly
   const options = dynamicOptions ?? field.options ?? []
 
