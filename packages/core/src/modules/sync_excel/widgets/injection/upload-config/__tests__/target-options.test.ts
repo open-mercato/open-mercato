@@ -51,6 +51,10 @@ describe('sync_excel target options helpers', () => {
     ])
 
     expect(options.some((option) => option.value === 'person.primaryEmail')).toBe(true)
+    expect(options.find((option) => option.value === 'address.addressLine1')).toMatchObject({
+      fallback: 'Address line 1',
+      mappingKind: 'core',
+    })
     expect(options.filter((option) => option.value === 'cf:favorite_color')).toHaveLength(1)
     expect(options.find((option) => option.value === 'cf:favorite_color')).toMatchObject({
       fallback: 'Account Favorite Color',
@@ -62,9 +66,9 @@ describe('sync_excel target options helpers', () => {
     })
   })
 
-  it('matches custom fields by normalized label and key without touching core suggestions', () => {
+  it('matches custom fields and address fields by normalized label without touching core suggestions', () => {
     const nextSuggestedMapping = buildPeopleSuggestedMapping(
-      ['Record Id', 'Email', 'Favorite Color', 'loyalty_score'],
+      ['Record Id', 'Email', 'Favorite Color', 'loyalty_score', 'Address Line 1', 'Postal-Code'],
       baseSuggestedMapping,
       [
         {
@@ -98,8 +102,46 @@ describe('sync_excel target options helpers', () => {
         localField: 'cf:loyalty_score',
         mappingKind: 'custom_field',
       }),
+      expect.objectContaining({
+        externalField: 'Address Line 1',
+        localField: 'address.addressLine1',
+        mappingKind: 'core',
+      }),
+      expect.objectContaining({
+        externalField: 'Postal-Code',
+        localField: 'address.postalCode',
+        mappingKind: 'core',
+      }),
     ]))
     expect(nextSuggestedMapping.unmappedColumns).toEqual([])
+  })
+
+  it('does not duplicate address target suggestions when the user already mapped a field manually', () => {
+    const nextSuggestedMapping = buildPeopleSuggestedMapping(
+      ['Address Line 1', 'Postal Code'],
+      {
+        entityType: 'customers.person',
+        matchStrategy: 'custom',
+        fields: [
+          {
+            externalField: 'Address Line 1',
+            localField: 'address.addressLine1',
+            mappingKind: 'core',
+          },
+        ],
+        unmappedColumns: ['Postal Code'],
+      },
+      [],
+    )
+
+    expect(nextSuggestedMapping.fields.filter((field) => field.localField === 'address.addressLine1')).toHaveLength(1)
+    expect(nextSuggestedMapping.fields).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        externalField: 'Postal Code',
+        localField: 'address.postalCode',
+        mappingKind: 'core',
+      }),
+    ]))
   })
 
   it('normalizes headers consistently for custom matching', () => {

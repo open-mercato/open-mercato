@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
+Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, flattened primary-address mapping/import for one address per CSV row, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
 
 ## Overview
 
@@ -150,7 +150,7 @@ The current slice adds a `sync_excel` integration detail tab with:
 
 1. CSV file upload
 2. preview summary (headers, row count, sample rows)
-3. editable column mapping table for `customers.person`, including tenant custom fields from both `customer_entity` and `customer_person_profile`
+3. editable column mapping table for `customers.person`, including tenant custom fields from both `customer_entity` and `customer_person_profile` plus flattened address fields for one primary address per row
 4. import start button guarded by mapping diagnostics
 5. run status / progress / cancel affordances backed by `data_sync` run detail
 
@@ -244,6 +244,7 @@ The branch is **not merge-ready until the generated DB migration is added**.
   - import run start
   - polling `data_sync` run completion
   - person create + reimport update by external ID
+  - primary address create + update + recreate when the existing primary address is missing
   - mapping restore / cleanup
 
 ### Repo health checks already verified in current branch
@@ -259,6 +260,7 @@ The branch is **not merge-ready until the generated DB migration is added**.
 - admins can upload CSV files and preview mappings
 - `customers.person` import runs in the background via `data_sync`
 - reimport updates existing records by external ID, with email fallback in adapter logic
+- one flattened primary address can be mapped and imported per CSV row
 - current contracts remain backward compatible for existing sync providers
 
 ## Open Questions
@@ -285,3 +287,9 @@ The branch is **not merge-ready until the generated DB migration is added**.
 - Added integration-detail UI tab for CSV import administration
 - Added unit and integration coverage for the first upstream slice
 - Recorded local merge blocker: missing DB migration generation because `DATABASE_URL` is unavailable in the current environment
+
+### 2026-04-01
+
+- Added flattened `address.*` mapping targets for `customers.person` CSV preview
+- Added auto-match support for one primary address per CSV row
+- Added address import behavior that updates an existing primary address or creates a new one when no primary exists

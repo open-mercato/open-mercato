@@ -11,10 +11,29 @@ const PERSON_FIELD_ALIASES: Record<string, string[]> = {
   'person.status': ['lead status', 'status'],
   'person.source': ['lead source', 'source'],
   'person.description': ['description', 'notes', 'comment'],
+  'address.name': ['address label', 'address name', 'label'],
+  'address.purpose': ['address purpose', 'address type'],
+  'address.companyName': ['address company', 'address company name'],
+  'address.addressLine1': ['address line 1', 'street address', 'street', 'street 1'],
+  'address.addressLine2': ['address line 2', 'street 2'],
+  'address.buildingNumber': ['building number', 'building no', 'house number'],
+  'address.flatNumber': ['flat number', 'apartment number', 'unit number'],
+  'address.city': ['city', 'town'],
+  'address.region': ['region', 'state', 'province'],
+  'address.postalCode': ['postal code', 'zip code', 'postcode'],
+  'address.country': ['country'],
+  'address.latitude': ['latitude', 'lat'],
+  'address.longitude': ['longitude', 'lng', 'lon'],
 }
 
 function normalizeLabel(value: string): string {
-  return value.trim().toLowerCase()
+  return value
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function buildFieldMapping(externalField: string, localField: string): FieldMapping {
