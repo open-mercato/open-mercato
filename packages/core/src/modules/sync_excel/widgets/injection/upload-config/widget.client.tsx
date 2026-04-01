@@ -2,12 +2,13 @@
 
 import * as React from 'react'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
-import type { FieldMapping, FieldMappingKind, FieldMappingDedupeRole } from '../../../../data_sync/lib/adapter'
+import type { FieldMapping } from '../../../../data_sync/lib/adapter'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -18,6 +19,15 @@ import { Progress } from '@open-mercato/ui/primitives/progress'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@open-mercato/ui/primitives/table'
 import { AlertTriangle, CheckCircle2, Play, RefreshCw, Upload, XCircle } from 'lucide-react'
+import {
+  buildPeopleSuggestedMapping,
+  buildPeopleTargetOptions,
+  buildSuggestedMappingSignature,
+  findMappingTargetOption,
+  SYNC_EXCEL_PEOPLE_CUSTOM_FIELD_ENTITY_IDS,
+  type MappingTargetOption,
+  type SuggestedMapping,
+} from './target-options'
 
 type SyncExcelIntegrationContext = {
   formId?: string
@@ -35,14 +45,6 @@ type SyncExcelIntegrationData = {
 }
 
 type PreviewRow = Record<string, string | null>
-
-type SuggestedMapping = {
-  entityType: 'customers.person'
-  matchStrategy: 'externalId' | 'email' | 'custom'
-  matchField?: string
-  fields: FieldMapping[]
-  unmappedColumns: string[]
-}
 
 type UploadResponse = {
   uploadId: string
@@ -96,19 +98,6 @@ type MappingDiagnostics = {
 
 const ENTITY_TYPE = 'customers.person' as const
 
-const TARGET_OPTIONS: Array<{ value: string; labelKey: string; fallback: string }> = [
-  { value: 'person.externalId', labelKey: 'sync_excel.mapping.targets.externalId', fallback: 'External ID' },
-  { value: 'person.firstName', labelKey: 'sync_excel.mapping.targets.firstName', fallback: 'First name' },
-  { value: 'person.lastName', labelKey: 'sync_excel.mapping.targets.lastName', fallback: 'Last name' },
-  { value: 'person.displayName', labelKey: 'sync_excel.mapping.targets.displayName', fallback: 'Display name' },
-  { value: 'person.primaryEmail', labelKey: 'sync_excel.mapping.targets.primaryEmail', fallback: 'Primary email' },
-  { value: 'person.primaryPhone', labelKey: 'sync_excel.mapping.targets.primaryPhone', fallback: 'Primary phone' },
-  { value: 'person.jobTitle', labelKey: 'sync_excel.mapping.targets.jobTitle', fallback: 'Job title' },
-  { value: 'person.status', labelKey: 'sync_excel.mapping.targets.status', fallback: 'Status' },
-  { value: 'person.source', labelKey: 'sync_excel.mapping.targets.source', fallback: 'Source' },
-  { value: 'person.description', labelKey: 'sync_excel.mapping.targets.description', fallback: 'Description' },
-]
-
 const SELECT_CLASS_NAME = 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
 
 function buildMappingRows(headers: string[], suggestedMapping: SuggestedMapping): MappingRowState[] {
@@ -119,16 +108,10 @@ function buildMappingRows(headers: string[], suggestedMapping: SuggestedMapping)
   }))
 }
 
-function buildFieldMapping(sourceColumn: string, targetField: string): FieldMapping {
-  let mappingKind: FieldMappingKind = 'core'
-  let dedupeRole: FieldMappingDedupeRole | undefined
-
-  if (targetField === 'person.externalId') {
-    mappingKind = 'external_id'
-    dedupeRole = 'primary'
-  } else if (targetField === 'person.primaryEmail') {
-    dedupeRole = 'secondary'
-  }
+function buildFieldMapping(sourceColumn: string, targetField: string, targetOptions: MappingTargetOption[]): FieldMapping {
+  const matchedOption = findMappingTargetOption(targetOptions, targetField)
+  const mappingKind = matchedOption?.mappingKind ?? (targetField.startsWith('cf:') ? 'custom_field' : 'core')
+  const dedupeRole = matchedOption?.dedupeRole
 
   return {
     externalField: sourceColumn,
@@ -144,9 +127,13 @@ function inferMatchStrategy(rows: MappingRowState[]): SuggestedMapping['matchStr
   return 'custom'
 }
 
-function buildMapping(rows: MappingRowState[], matchStrategy: SuggestedMapping['matchStrategy']): SuggestedMapping {
+function buildMapping(
+  rows: MappingRowState[],
+  matchStrategy: SuggestedMapping['matchStrategy'],
+  targetOptions: MappingTargetOption[],
+): SuggestedMapping {
   const mappedRows = rows.filter((row) => row.targetField.trim().length > 0)
-  const fields = mappedRows.map((row) => buildFieldMapping(row.sourceColumn, row.targetField))
+  const fields = mappedRows.map((row) => buildFieldMapping(row.sourceColumn, row.targetField, targetOptions))
   const resolvedMatchStrategy = matchStrategy === 'custom' ? inferMatchStrategy(rows) : matchStrategy
   const matchField = resolvedMatchStrategy === 'externalId'
     ? 'person.externalId'
@@ -190,9 +177,14 @@ function buildDiagnostics(rows: MappingRowState[]): MappingDiagnostics {
   }
 }
 
-function formatTargetLabel(targetField: string, t: ReturnType<typeof useT>): string {
-  const option = TARGET_OPTIONS.find((entry) => entry.value === targetField)
-  return option ? t(option.labelKey, option.fallback) : targetField
+function formatTargetLabel(
+  targetField: string,
+  t: ReturnType<typeof useT>,
+  targetOptions: MappingTargetOption[],
+): string {
+  const option = findMappingTargetOption(targetOptions, targetField)
+  if (!option) return targetField
+  return option.labelKey ? t(option.labelKey, option.fallback) : option.fallback
 }
 
 function getMatchStrategyLabel(
@@ -232,10 +224,12 @@ export default function SyncExcelUploadConfigWidget({
   data,
 }: InjectionWidgetComponentProps<SyncExcelIntegrationContext, SyncExcelIntegrationData>) {
   const t = useT()
+  const { data: customFieldDefs = [] } = useCustomFieldDefs([...SYNC_EXCEL_PEOPLE_CUSTOM_FIELD_ENTITY_IDS])
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
   const [preview, setPreview] = React.useState<UploadResponse | null>(null)
   const [mappingRows, setMappingRows] = React.useState<MappingRowState[]>([])
   const [matchStrategy, setMatchStrategy] = React.useState<SuggestedMapping['matchStrategy']>('custom')
+  const [isMappingDirty, setIsMappingDirty] = React.useState(false)
   const [runDetail, setRunDetail] = React.useState<SyncRunDetail | null>(null)
   const [runId, setRunId] = React.useState<string | null>(null)
   const [progressJobId, setProgressJobId] = React.useState<string | null>(null)
@@ -244,11 +238,20 @@ export default function SyncExcelUploadConfigWidget({
   const [isStartingImport, setIsStartingImport] = React.useState(false)
   const [isCancelling, setIsCancelling] = React.useState(false)
   const mutationContextId = `${context.formId ?? 'sync-excel'}:sync-excel-import`
+  const lastAppliedSuggestionSignatureRef = React.useRef<string | null>(null)
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: mutationContextId,
     spotId: context.integrationDetailWidgetSpotId,
   })
 
+  const targetOptions = React.useMemo(
+    () => buildPeopleTargetOptions(customFieldDefs),
+    [customFieldDefs],
+  )
+  const previewSuggestion = React.useMemo(
+    () => preview ? buildPeopleSuggestedMapping(preview.headers, preview.suggestedMapping, customFieldDefs) : null,
+    [customFieldDefs, preview],
+  )
   const resolvedIntegrationEnabled = data?.state?.isEnabled ?? context.state?.isEnabled ?? true
   const diagnostics = React.useMemo(() => buildDiagnostics(mappingRows), [mappingRows])
   const canStartImport = Boolean(preview)
@@ -261,10 +264,23 @@ export default function SyncExcelUploadConfigWidget({
   const isRunActive = importStatus === 'pending' || importStatus === 'running'
 
   const syncPreviewState = React.useCallback((nextPreview: UploadResponse) => {
+    const nextSuggestedMapping = buildPeopleSuggestedMapping(nextPreview.headers, nextPreview.suggestedMapping, customFieldDefs)
     setPreview(nextPreview)
-    setMappingRows(buildMappingRows(nextPreview.headers, nextPreview.suggestedMapping))
-    setMatchStrategy(nextPreview.suggestedMapping.matchStrategy)
-  }, [])
+    setMappingRows(buildMappingRows(nextPreview.headers, nextSuggestedMapping))
+    setMatchStrategy(nextSuggestedMapping.matchStrategy)
+    setIsMappingDirty(false)
+    lastAppliedSuggestionSignatureRef.current = buildSuggestedMappingSignature(nextPreview.headers, nextSuggestedMapping)
+  }, [customFieldDefs])
+
+  React.useEffect(() => {
+    if (!preview || !previewSuggestion) return
+    if (isMappingDirty) return
+    const nextSignature = buildSuggestedMappingSignature(preview.headers, previewSuggestion)
+    if (lastAppliedSuggestionSignatureRef.current === nextSignature) return
+    setMappingRows(buildMappingRows(preview.headers, previewSuggestion))
+    setMatchStrategy(previewSuggestion.matchStrategy)
+    lastAppliedSuggestionSignatureRef.current = nextSignature
+  }, [isMappingDirty, preview, previewSuggestion])
 
   const refreshRunDetail = React.useCallback(async (currentRunId: string) => {
     const call = await apiCall<SyncRunDetail>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}`, undefined, { fallback: null })
@@ -373,19 +389,23 @@ export default function SyncExcelUploadConfigWidget({
   }, [preview, syncPreviewState, t])
 
   const handleTargetFieldChange = React.useCallback((sourceColumn: string, targetField: string) => {
+    setIsMappingDirty(true)
     setMappingRows((current) => current.map((row) => row.sourceColumn === sourceColumn ? { ...row, targetField } : row))
   }, [])
 
   const handleResetToSuggested = React.useCallback(() => {
-    if (!preview) return
-    syncPreviewState(preview)
+    if (!preview || !previewSuggestion) return
+    setMappingRows(buildMappingRows(preview.headers, previewSuggestion))
+    setMatchStrategy(previewSuggestion.matchStrategy)
+    setIsMappingDirty(false)
+    lastAppliedSuggestionSignatureRef.current = buildSuggestedMappingSignature(preview.headers, previewSuggestion)
     flash(t('sync_excel.widget.messages.mappingReset', 'Suggested mapping restored.'), 'success')
-  }, [preview, syncPreviewState, t])
+  }, [preview, previewSuggestion, t])
 
   const handleStartImport = React.useCallback(async () => {
     if (!preview) return
 
-    const mapping = buildMapping(mappingRows, matchStrategy)
+    const mapping = buildMapping(mappingRows, matchStrategy, targetOptions)
     setIsStartingImport(true)
 
     try {
@@ -429,7 +449,7 @@ export default function SyncExcelUploadConfigWidget({
     } finally {
       setIsStartingImport(false)
     }
-  }, [context, mappingRows, matchStrategy, preview, refreshRunDetail, runMutation, t])
+  }, [context, mappingRows, matchStrategy, preview, refreshRunDetail, runMutation, t, targetOptions])
 
   const handleCancelRun = React.useCallback(async () => {
     if (!runId) return
@@ -583,9 +603,9 @@ export default function SyncExcelUploadConfigWidget({
                             disabled={isStartingImport || isRunActive}
                           >
                             <option value="">{t('sync_excel.mapping.targets.ignore', 'Leave unmapped')}</option>
-                            {TARGET_OPTIONS.map((option) => (
+                            {targetOptions.map((option) => (
                               <option key={option.value} value={option.value}>
-                                {t(option.labelKey, option.fallback)}
+                                {option.labelKey ? t(option.labelKey, option.fallback) : option.fallback}
                               </option>
                             ))}
                           </select>
@@ -611,7 +631,10 @@ export default function SyncExcelUploadConfigWidget({
                     id="sync-excel-match-strategy"
                     className={SELECT_CLASS_NAME}
                     value={matchStrategy}
-                    onChange={(event) => setMatchStrategy(event.target.value as SuggestedMapping['matchStrategy'])}
+                    onChange={(event) => {
+                      setIsMappingDirty(true)
+                      setMatchStrategy(event.target.value as SuggestedMapping['matchStrategy'])
+                    }}
                     disabled={isStartingImport || isRunActive}
                   >
                     <option value="externalId">
@@ -669,7 +692,7 @@ export default function SyncExcelUploadConfigWidget({
                     message={t(
                       'sync_excel.widget.validation.duplicateTargetsMessage',
                       'Each target field can only be mapped once in this foundation slice: {targets}',
-                      { targets: diagnostics.duplicateTargets.map((target) => formatTargetLabel(target, t)).join(', ') },
+                      { targets: diagnostics.duplicateTargets.map((target) => formatTargetLabel(target, t, targetOptions)).join(', ') },
                     )}
                   />
                 ) : null}

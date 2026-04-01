@@ -2731,7 +2731,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'om-ephemeral-integration-fallback-key',
-      AUTO_SPAWN_WORKERS: 'false',
+      AUTO_SPAWN_WORKERS: 'true',
       AUTO_SPAWN_SCHEDULER: 'false',
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
