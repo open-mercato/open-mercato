@@ -14,10 +14,10 @@ updates:
         update-types:
           - minor
           - patch
-    ignore:
-      # Major version bumps require manual review
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+      # Surface major version bumps as a separate grouped PR for manual review
+      major:
+        update-types:
+          - major
 
   # GitHub Actions — pin digests and keep versions current
   - package-ecosystem: github-actions
