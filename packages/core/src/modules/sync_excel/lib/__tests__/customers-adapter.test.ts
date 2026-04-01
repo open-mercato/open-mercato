@@ -106,7 +106,12 @@ describe('sync_excel customers adapter', () => {
   })
 
   it('parses persisted cursors', () => {
-    expect(parseCursor('{"uploadId":"abc","offset":12}')).toEqual({ uploadId: 'abc', offset: 12 })
+    expect(parseCursor('{"uploadId":"abc","offset":12}')).toEqual({ uploadId: 'abc', offset: 12, inlineCsvBase64: null })
+    expect(parseCursor('{"uploadId":"abc","offset":12,"inlineCsvBase64":"YWJj"}')).toEqual({
+      uploadId: 'abc',
+      offset: 12,
+      inlineCsvBase64: 'YWJj',
+    })
     expect(parseCursor('not-json')).toBeNull()
   })
 
@@ -213,6 +218,40 @@ describe('sync_excel customers adapter', () => {
       },
     )
     expect(uploadRecord.status).toBe('completed')
+  })
+
+  it('imports rows from inline cursor data without reading attachment storage', async () => {
+    const inlineCsvBase64 = Buffer.from([
+      'Record Id,First Name,Last Name,Lead Name,Email,Address Line 1,City,Postal Code,Favorite Color',
+      'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com,123 Main St,Austin,78701,Blue',
+    ].join('\n')).toString('base64')
+
+    const batches = []
+    for await (const batch of syncExcelCustomersAdapter.streamImport!({
+      entityType: 'customers.person',
+      batchSize: 50,
+      credentials: {},
+      mapping: mappingRecord.mapping as any,
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      runId: 'run-1',
+      cursor: JSON.stringify({
+        uploadId: uploadRecord.id,
+        offset: 0,
+        inlineCsvBase64,
+      }),
+    })) {
+      batches.push(batch)
+    }
+
+    expect(batches).toHaveLength(1)
+    expect(mockReadSyncExcelUploadBuffer).not.toHaveBeenCalled()
+    expect(JSON.parse(String(batches[0].cursor))).toMatchObject({
+      uploadId: uploadRecord.id,
+      inlineCsvBase64,
+    })
   })
 
   it('falls back to email dedupe and updates existing people', async () => {

@@ -3,9 +3,11 @@
 const mockGetAuthFromRequest = jest.fn()
 const mockReadJsonSafe = jest.fn()
 const mockStartDataSyncRun = jest.fn()
+const mockReadSyncExcelUploadBuffer = jest.fn()
 
 const mockUpload = {
   id: '11111111-1111-4111-8111-111111111111',
+  attachmentId: '66666666-6666-4666-8666-666666666666',
   filename: 'Leads.csv',
   entityType: 'customers.person',
   status: 'uploaded',
@@ -64,6 +66,10 @@ jest.mock('@open-mercato/core/modules/data_sync/lib/start-run', () => ({
   startDataSyncRun: jest.fn((params: unknown) => mockStartDataSyncRun(params)),
 }))
 
+jest.mock('../../../lib/upload-storage', () => ({
+  readSyncExcelUploadBuffer: (...args: unknown[]) => mockReadSyncExcelUploadBuffer(...args),
+}))
+
 type RouteModule = typeof import('../route')
 let postHandler: RouteModule['POST']
 
@@ -100,11 +106,20 @@ describe('sync_excel import route', () => {
     })
     mockEm.findOne.mockImplementation(async (Entity: unknown, criteria: Record<string, unknown>) => {
       if (criteria?.id === mockUpload.id) return mockUpload
+      if (criteria?.id === mockUpload.attachmentId) {
+        return {
+          id: mockUpload.attachmentId,
+          partitionCode: 'privateAttachments',
+          storagePath: 'org/org/Leads.csv',
+          storageDriver: 'local',
+        }
+      }
       if (criteria?.integrationId === 'sync_excel' && criteria?.entityType === 'customers.person') {
         return mockExistingMapping
       }
       return null
     })
+    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from('Record Id,First Name\n1,Ada\n'))
     mockStartDataSyncRun.mockResolvedValue({
       run: {
         id: '44444444-4444-4444-8444-444444444444',
@@ -156,8 +171,14 @@ describe('sync_excel import route', () => {
         entityType: 'customers.person',
         direction: 'import',
         batchSize: 50,
+        cursor: expect.stringContaining(`"uploadId":"${mockUpload.id}"`),
       }),
     }))
+    expect(JSON.parse(mockStartDataSyncRun.mock.calls[0][0].input.cursor)).toMatchObject({
+      uploadId: mockUpload.id,
+      offset: 0,
+      inlineCsvBase64: Buffer.from('Record Id,First Name\n1,Ada\n').toString('base64'),
+    })
     expect(mockUpload.syncRunId).toBe('44444444-4444-4444-8444-444444444444')
     expect(mockUpload.status).toBe('importing')
     expect(mockEm.flush).toHaveBeenCalled()
