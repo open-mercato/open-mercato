@@ -1,7 +1,10 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.5.0",
+  "version": "0.4.9",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "main": "./dist/index.js",
   "scripts": {
     "build": "node build.mjs",
