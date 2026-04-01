@@ -427,6 +427,9 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const refreshLogs = React.useCallback(async () => {
     await loadLogs()
   }, [loadLogs])
+  const refreshHealthSnapshot = React.useCallback(async () => {
+    await loadDetail()
+  }, [loadDetail])
   const injectionContext = React.useMemo(
     () => ({
       formId: mutationContextId,
@@ -443,6 +446,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       setActiveTab,
       refreshDetail,
       refreshLogs,
+      refreshHealthSnapshot,
       retryLastMutation,
     }),
     [
@@ -454,6 +458,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       latestHealthResult,
       mutationContextId,
       refreshDetail,
+      refreshHealthSnapshot,
       refreshLogs,
       retryLastMutation,
     ],
@@ -732,10 +737,21 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     })
   ) as z.ZodType<Record<string, unknown>>, [editableCredentialFields, t])
   const latestHealthLog = React.useMemo(() => logs.find(isHealthLog) ?? null, [logs])
+  const latestOperationalLog = React.useMemo(
+    () => logs.find((log) => (
+      typeof log.payload?.operationalStatus === 'string'
+      || typeof log.payload?.summary === 'string'
+    )) ?? null,
+    [logs],
+  )
   const healthMessage =
     latestHealthResult?.message ??
-    (typeof latestHealthLog?.payload?.message === 'string' ? latestHealthLog.payload.message : null)
-  const healthDetailsSource = latestHealthResult?.details ?? extractHealthDetails(latestHealthLog?.payload)
+    (typeof latestHealthLog?.payload?.message === 'string'
+      ? latestHealthLog.payload.message
+      : typeof latestOperationalLog?.payload?.summary === 'string'
+        ? latestOperationalLog.payload.summary
+        : null)
+  const healthDetailsSource = latestHealthResult?.details ?? extractHealthDetails(latestHealthLog?.payload ?? latestOperationalLog?.payload)
   const healthDetails = latestHealthLog?.code
     ? { ...healthDetailsSource, code: latestHealthLog.code }
     : healthDetailsSource
@@ -811,8 +827,48 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     setActiveTab(nextTab)
     if (!currentIntegrationId) return
     const basePath = `/backend/integrations/${encodeURIComponent(currentIntegrationId)}`
-    router.replace(nextTab === 'credentials' ? basePath : `${basePath}?tab=${encodeURIComponent(nextTab)}`)
-  }, [resolveCurrentIntegrationId, router, visibleTabIds])
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    if (nextTab === 'credentials') params.delete('tab')
+    else params.set('tab', nextTab)
+    const query = params.toString()
+    router.replace(query ? `${basePath}?${query}` : basePath)
+  }, [resolveCurrentIntegrationId, router, searchParams, visibleTabIds])
+
+  React.useEffect(() => {
+    const runId = searchParams?.get('runId')
+    if (!runId) return
+    if (activeTab !== 'logs' && activeTab !== 'health') return
+
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+
+    const poll = async () => {
+      const call = await apiCall<{ status?: string }>(
+        `/api/data_sync/runs/${encodeURIComponent(runId)}`,
+        undefined,
+        { fallback: null },
+      )
+
+      if (cancelled) return
+
+      await loadLogs()
+      await loadDetail()
+
+      const status = typeof call.result?.status === 'string' ? call.result.status : null
+      if (status === 'pending' || status === 'running') {
+        timeoutId = setTimeout(() => {
+          void poll()
+        }, 4_000)
+      }
+    }
+
+    void poll()
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [activeTab, loadDetail, loadLogs, searchParams])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
   if (error || !detail || !resolvedIntegration || !resolvedState) {

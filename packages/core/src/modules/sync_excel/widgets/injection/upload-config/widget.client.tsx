@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import type { FieldMapping } from '../../../../data_sync/lib/adapter'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -33,9 +34,13 @@ type SyncExcelIntegrationContext = {
   formId?: string
   integrationDetailWidgetSpotId?: string
   integrationId?: string
+  activeTab?: string
   state?: {
     isEnabled?: boolean
   } | null
+  refreshDetail?: () => Promise<void>
+  refreshLogs?: () => Promise<void>
+  refreshHealthSnapshot?: () => Promise<void>
 }
 
 type SyncExcelIntegrationData = {
@@ -96,7 +101,18 @@ type MappingDiagnostics = {
   unmappedCount: number
 }
 
+type PersistedSessionSnapshot = {
+  uploadId: string
+  filename: string
+  mappingRows: MappingRowState[]
+  matchStrategy: SuggestedMapping['matchStrategy']
+  runId: string | null
+  progressJobId: string | null
+}
+
 const ENTITY_TYPE = 'customers.person' as const
+const SESSION_STORAGE_PREFIX = 'om:sync_excel:session'
+const RUN_POLL_INTERVAL_MS = 4_000
 
 const SELECT_CLASS_NAME = 'flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50'
 
@@ -219,10 +235,63 @@ function normalizeStatus(status: SyncRunDetail['status'] | ImportResponse['statu
   return 'idle'
 }
 
+function getSessionStorageKey(integrationId: string | undefined): string {
+  return `${SESSION_STORAGE_PREFIX}:${integrationId ?? 'sync_excel'}`
+}
+
+function readPersistedSessionSnapshot(integrationId: string | undefined): PersistedSessionSnapshot | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.sessionStorage.getItem(getSessionStorageKey(integrationId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<PersistedSessionSnapshot> | null
+    if (!parsed || typeof parsed !== 'object') return null
+    if (typeof parsed.uploadId !== 'string' || parsed.uploadId.trim().length === 0) return null
+    if (typeof parsed.filename !== 'string') return null
+    if (!Array.isArray(parsed.mappingRows)) return null
+    if (parsed.matchStrategy !== 'externalId' && parsed.matchStrategy !== 'email' && parsed.matchStrategy !== 'custom') {
+      return null
+    }
+    return {
+      uploadId: parsed.uploadId,
+      filename: parsed.filename,
+      mappingRows: parsed.mappingRows
+        .filter((row): row is MappingRowState => (
+          Boolean(row)
+          && typeof row.sourceColumn === 'string'
+          && typeof row.targetField === 'string'
+        )),
+      matchStrategy: parsed.matchStrategy,
+      runId: typeof parsed.runId === 'string' && parsed.runId.trim().length > 0 ? parsed.runId : null,
+      progressJobId: typeof parsed.progressJobId === 'string' && parsed.progressJobId.trim().length > 0 ? parsed.progressJobId : null,
+    }
+  } catch {
+    return null
+  }
+}
+
+function writePersistedSessionSnapshot(
+  integrationId: string | undefined,
+  snapshot: PersistedSessionSnapshot | null,
+): void {
+  if (typeof window === 'undefined') return
+  try {
+    const key = getSessionStorageKey(integrationId)
+    if (!snapshot) {
+      window.sessionStorage.removeItem(key)
+      return
+    }
+    window.sessionStorage.setItem(key, JSON.stringify(snapshot))
+  } catch {}
+}
+
 export default function SyncExcelUploadConfigWidget({
   context,
   data,
 }: InjectionWidgetComponentProps<SyncExcelIntegrationContext, SyncExcelIntegrationData>) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const t = useT()
   const { data: customFieldDefs = [] } = useCustomFieldDefs([...SYNC_EXCEL_PEOPLE_CUSTOM_FIELD_ENTITY_IDS])
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
@@ -237,8 +306,10 @@ export default function SyncExcelUploadConfigWidget({
   const [isRefreshingPreview, setIsRefreshingPreview] = React.useState(false)
   const [isStartingImport, setIsStartingImport] = React.useState(false)
   const [isCancelling, setIsCancelling] = React.useState(false)
+  const [isRestoringSession, setIsRestoringSession] = React.useState(true)
   const mutationContextId = `${context.formId ?? 'sync-excel'}:sync-excel-import`
   const lastAppliedSuggestionSignatureRef = React.useRef<string | null>(null)
+  const restoringSnapshotRef = React.useRef<PersistedSessionSnapshot | null>(null)
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: mutationContextId,
     spotId: context.integrationDetailWidgetSpotId,
@@ -262,15 +333,111 @@ export default function SyncExcelUploadConfigWidget({
   const importStatus = normalizeStatus(runDetail?.status ?? (runId ? 'pending' : null))
   const progressValue = runDetail?.progressJob?.progressPercent ?? 0
   const isRunActive = importStatus === 'pending' || importStatus === 'running'
+  const uploadIdFromUrl = searchParams?.get('uploadId') ?? null
+  const runIdFromUrl = searchParams?.get('runId') ?? null
+  const shouldHideInteractiveContent = isRestoringSession && Boolean(uploadIdFromUrl)
+  const hasExistingRunForCurrentUpload = Boolean(preview?.uploadId && runId)
+  const hasSafeDedupeStrategy = matchStrategy === 'externalId' || matchStrategy === 'email'
 
-  const syncPreviewState = React.useCallback((nextPreview: UploadResponse) => {
+  const replaceQueryParams = React.useCallback((updates: Record<string, string | null | undefined>) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? '')
+    for (const [key, value] of Object.entries(updates)) {
+      if (typeof value === 'string' && value.trim().length > 0) {
+        params.set(key, value)
+      } else {
+        params.delete(key)
+      }
+    }
+    const query = params.toString()
+    router.replace(query ? `${pathname}?${query}` : pathname)
+  }, [pathname, router, searchParams])
+
+  const clearPersistedSession = React.useCallback(() => {
+    writePersistedSessionSnapshot(context.integrationId, null)
+    replaceQueryParams({ uploadId: null, runId: null })
+  }, [context.integrationId, replaceQueryParams])
+
+  const persistCurrentSession = React.useCallback((next?: Partial<PersistedSessionSnapshot>) => {
+    const uploadId = next?.uploadId ?? preview?.uploadId ?? null
+    const filename = next?.filename ?? preview?.filename ?? null
+    if (!uploadId || !filename) {
+      writePersistedSessionSnapshot(context.integrationId, null)
+      return
+    }
+
+    writePersistedSessionSnapshot(context.integrationId, {
+      uploadId,
+      filename,
+      mappingRows: next?.mappingRows ?? mappingRows,
+      matchStrategy: next?.matchStrategy ?? matchStrategy,
+      runId: next?.runId ?? runId,
+      progressJobId: next?.progressJobId ?? progressJobId,
+    })
+  }, [context.integrationId, mappingRows, matchStrategy, preview?.filename, preview?.uploadId, progressJobId, runId])
+
+  const syncPreviewState = React.useCallback((nextPreview: UploadResponse, options?: {
+    preserveManualState?: boolean
+    restoredSnapshot?: PersistedSessionSnapshot | null
+  }) => {
     const nextSuggestedMapping = buildPeopleSuggestedMapping(nextPreview.headers, nextPreview.suggestedMapping, customFieldDefs)
     setPreview(nextPreview)
-    setMappingRows(buildMappingRows(nextPreview.headers, nextSuggestedMapping))
+
+    const restoredSnapshot = options?.restoredSnapshot
+    const shouldRestoreSnapshot = Boolean(
+      restoredSnapshot
+      && restoredSnapshot.uploadId === nextPreview.uploadId
+      && restoredSnapshot.mappingRows.length > 0,
+    )
+
+    if (shouldRestoreSnapshot) {
+      setMappingRows(restoredSnapshot!.mappingRows)
+      setMatchStrategy(restoredSnapshot!.matchStrategy)
+      setRunId(restoredSnapshot!.runId)
+      setProgressJobId(restoredSnapshot!.progressJobId)
+      setIsMappingDirty(true)
+      lastAppliedSuggestionSignatureRef.current = null
+      persistCurrentSession({
+        uploadId: nextPreview.uploadId,
+        filename: nextPreview.filename,
+        mappingRows: restoredSnapshot!.mappingRows,
+        matchStrategy: restoredSnapshot!.matchStrategy,
+        runId: restoredSnapshot!.runId,
+        progressJobId: restoredSnapshot!.progressJobId,
+      })
+      replaceQueryParams({
+        uploadId: nextPreview.uploadId,
+        runId: restoredSnapshot!.runId,
+      })
+      return
+    }
+
+    if (options?.preserveManualState && preview?.uploadId === nextPreview.uploadId) {
+      persistCurrentSession({
+        uploadId: nextPreview.uploadId,
+        filename: nextPreview.filename,
+      })
+      replaceQueryParams({ uploadId: nextPreview.uploadId })
+      return
+    }
+
+    const nextRows = buildMappingRows(nextPreview.headers, nextSuggestedMapping)
+    setMappingRows(nextRows)
     setMatchStrategy(nextSuggestedMapping.matchStrategy)
     setIsMappingDirty(false)
     lastAppliedSuggestionSignatureRef.current = buildSuggestedMappingSignature(nextPreview.headers, nextSuggestedMapping)
-  }, [customFieldDefs])
+    persistCurrentSession({
+      uploadId: nextPreview.uploadId,
+      filename: nextPreview.filename,
+      mappingRows: nextRows,
+      matchStrategy: nextSuggestedMapping.matchStrategy,
+      runId: null,
+      progressJobId: null,
+    })
+    replaceQueryParams({
+      uploadId: nextPreview.uploadId,
+      runId: null,
+    })
+  }, [customFieldDefs, persistCurrentSession, preview?.uploadId, replaceQueryParams])
 
   React.useEffect(() => {
     if (!preview || !previewSuggestion) return
@@ -287,10 +454,69 @@ export default function SyncExcelUploadConfigWidget({
     if (call.ok && call.result) {
       setRunDetail(call.result)
       setProgressJobId(call.result.progressJobId ?? null)
+      persistCurrentSession({
+        runId: currentRunId,
+        progressJobId: call.result.progressJobId ?? null,
+      })
       return call.result
     }
     return null
-  }, [])
+  }, [persistCurrentSession])
+
+  React.useEffect(() => {
+    if (!preview?.uploadId) return
+    persistCurrentSession()
+  }, [mappingRows, matchStrategy, persistCurrentSession, preview?.uploadId, progressJobId, runId])
+
+  React.useEffect(() => {
+    if (!uploadIdFromUrl) {
+      restoringSnapshotRef.current = null
+      setIsRestoringSession(false)
+      return
+    }
+
+    let cancelled = false
+    restoringSnapshotRef.current = readPersistedSessionSnapshot(context.integrationId)
+    setIsRestoringSession(true)
+
+    const restoreSession = async () => {
+      const call = await apiCall<UploadResponse>(
+        `/api/sync_excel/preview?uploadId=${encodeURIComponent(uploadIdFromUrl)}&entityType=${encodeURIComponent(ENTITY_TYPE)}`,
+        undefined,
+        { fallback: null },
+      )
+
+      if (cancelled) return
+
+      if (!call.ok || !call.result) {
+        setPreview(null)
+        setMappingRows([])
+        setMatchStrategy('custom')
+        setRunId(null)
+        setRunDetail(null)
+        setProgressJobId(null)
+        clearPersistedSession()
+        setIsRestoringSession(false)
+        return
+      }
+
+      syncPreviewState(call.result, {
+        restoredSnapshot: restoringSnapshotRef.current,
+      })
+
+      if (runIdFromUrl && !(restoringSnapshotRef.current?.runId)) {
+        setRunId(runIdFromUrl)
+      }
+
+      setIsRestoringSession(false)
+    }
+
+    void restoreSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [clearPersistedSession, context.integrationId, runIdFromUrl, syncPreviewState, uploadIdFromUrl])
 
   React.useEffect(() => {
     if (!runId) return
@@ -301,11 +527,17 @@ export default function SyncExcelUploadConfigWidget({
     const poll = async () => {
       const detail = await refreshRunDetail(runId)
       if (cancelled) return
+      if (context.activeTab === 'logs') {
+        await context.refreshLogs?.()
+      }
+      if (context.activeTab === 'health' || normalizeStatus(detail?.status) !== 'idle') {
+        await context.refreshHealthSnapshot?.()
+      }
       const status = normalizeStatus(detail?.status)
       if (status === 'pending' || status === 'running') {
         timeoutId = setTimeout(() => {
           void poll()
-        }, 5000)
+        }, RUN_POLL_INTERVAL_MS)
       }
     }
 
@@ -315,7 +547,7 @@ export default function SyncExcelUploadConfigWidget({
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [refreshRunDetail, runId])
+  }, [context.activeTab, context.refreshHealthSnapshot, context.refreshLogs, refreshRunDetail, runId])
 
   const handleUpload = React.useCallback(async () => {
     if (!selectedFile) {
@@ -355,6 +587,7 @@ export default function SyncExcelUploadConfigWidget({
       }
 
       syncPreviewState(call.result)
+      setSelectedFile(null)
       setRunId(null)
       setRunDetail(null)
       setProgressJobId(null)
@@ -379,7 +612,7 @@ export default function SyncExcelUploadConfigWidget({
         flash(t('sync_excel.widget.messages.previewError', 'Failed to refresh preview.'), 'error')
         return
       }
-      syncPreviewState(call.result)
+      syncPreviewState(call.result, { preserveManualState: true })
       flash(t('sync_excel.widget.messages.previewRefreshed', 'Preview refreshed.'), 'success')
     } catch {
       flash(t('sync_excel.widget.messages.previewError', 'Failed to refresh preview.'), 'error')
@@ -442,14 +675,26 @@ export default function SyncExcelUploadConfigWidget({
 
       setRunId(call.result.runId)
       setProgressJobId(call.result.progressJobId)
+      replaceQueryParams({
+        uploadId: preview.uploadId,
+        runId: call.result.runId,
+      })
+      persistCurrentSession({
+        uploadId: preview.uploadId,
+        filename: preview.filename,
+        runId: call.result.runId,
+        progressJobId: call.result.progressJobId,
+      })
       flash(t('sync_excel.widget.messages.importStarted', 'Import run started.'), 'success')
       await refreshRunDetail(call.result.runId)
+      await context.refreshLogs?.()
+      await context.refreshHealthSnapshot?.()
     } catch {
       flash(t('sync_excel.widget.messages.importError', 'Failed to start import run.'), 'error')
     } finally {
       setIsStartingImport(false)
     }
-  }, [context, mappingRows, matchStrategy, preview, refreshRunDetail, runMutation, t, targetOptions])
+  }, [context, mappingRows, matchStrategy, persistCurrentSession, preview, refreshRunDetail, replaceQueryParams, runMutation, t, targetOptions])
 
   const handleCancelRun = React.useCallback(async () => {
     if (!runId) return
@@ -478,6 +723,8 @@ export default function SyncExcelUploadConfigWidget({
 
       flash(t('sync_excel.widget.messages.cancelSuccess', 'Import run cancelled.'), 'success')
       await refreshRunDetail(runId)
+      await context.refreshLogs?.()
+      await context.refreshHealthSnapshot?.()
     } catch {
       flash(t('sync_excel.widget.messages.cancelError', 'Failed to cancel import run.'), 'error')
     } finally {
@@ -485,10 +732,28 @@ export default function SyncExcelUploadConfigWidget({
     }
   }, [context, refreshRunDetail, runId, runMutation, t])
 
+  const handleRefreshAll = React.useCallback(async () => {
+    if (!runId) return
+    await refreshRunDetail(runId)
+    await context.refreshLogs?.()
+    await context.refreshHealthSnapshot?.()
+  }, [context, refreshRunDetail, runId])
+
   const firstSampleRow = preview?.sampleRows[0] ?? null
 
   return (
     <div className="space-y-6">
+      {isRestoringSession ? (
+        <Card>
+          <CardContent className="flex items-center gap-3 py-6">
+            <Spinner className="size-4" />
+            <div className="text-sm text-muted-foreground">
+              {t('sync_excel.widget.messages.restoringSession', 'Restoring the last CSV session...')}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {!resolvedIntegrationEnabled ? (
         <Notice
           variant="warning"
@@ -497,6 +762,7 @@ export default function SyncExcelUploadConfigWidget({
         />
       ) : null}
 
+      {!shouldHideInteractiveContent ? (
       <Card>
         <CardHeader>
           <CardTitle>{t('sync_excel.widget.upload.title', 'Upload CSV')}</CardTitle>
@@ -512,19 +778,19 @@ export default function SyncExcelUploadConfigWidget({
               type="file"
               accept=".csv,text/csv"
               onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
-              disabled={isUploading || isRunActive}
+              disabled={isUploading || isRunActive || isRestoringSession}
             />
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <Button type="button" onClick={() => void handleUpload()} disabled={!selectedFile || isUploading || isRunActive}>
+            <Button type="button" onClick={() => void handleUpload()} disabled={!selectedFile || isUploading || isRunActive || isRestoringSession}>
               {isUploading ? <Spinner className="mr-2 size-4" /> : <Upload className="mr-2 size-4" />}
               {isUploading
                 ? t('sync_excel.widget.actions.uploadPending', 'Uploading...')
                 : t('sync_excel.widget.actions.upload', 'Upload and preview')}
             </Button>
             {preview ? (
-              <Button type="button" variant="outline" onClick={() => void handleRefreshPreview()} disabled={isRefreshingPreview || isUploading || isRunActive}>
+              <Button type="button" variant="outline" onClick={() => void handleRefreshPreview()} disabled={isRefreshingPreview || isUploading || isRunActive || isRestoringSession}>
                 {isRefreshingPreview ? <Spinner className="mr-2 size-4" /> : <RefreshCw className="mr-2 size-4" />}
                 {isRefreshingPreview
                   ? t('sync_excel.widget.actions.refreshPending', 'Refreshing...')
@@ -540,8 +806,9 @@ export default function SyncExcelUploadConfigWidget({
           ) : null}
         </CardContent>
       </Card>
+      ) : null}
 
-      {preview ? (
+      {preview && !shouldHideInteractiveContent ? (
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -685,6 +952,28 @@ export default function SyncExcelUploadConfigWidget({
                   />
                 ) : null}
 
+                {hasExistingRunForCurrentUpload ? (
+                  <Notice
+                    variant="warning"
+                    title={t('sync_excel.widget.validation.reimportTitle', 'This upload already has a run')}
+                    message={t(
+                      'sync_excel.widget.validation.reimportMessage',
+                      'Starting another import from the same uploaded CSV may create duplicates unless your matching strategy reliably identifies existing people.',
+                    )}
+                  />
+                ) : null}
+
+                {!hasSafeDedupeStrategy ? (
+                  <Notice
+                    variant="warning"
+                    title={t('sync_excel.widget.validation.duplicateRiskTitle', 'Duplicate risk')}
+                    message={t(
+                      'sync_excel.widget.validation.duplicateRiskMessage',
+                      'This mapping does not use the recommended External ID or Email matching strategy. Re-importing the same dataset may create duplicate people.',
+                    )}
+                  />
+                ) : null}
+
                 {diagnostics.duplicateTargets.length > 0 ? (
                   <Notice
                     variant="error"
@@ -726,7 +1015,7 @@ export default function SyncExcelUploadConfigWidget({
         </Card>
       ) : null}
 
-      {runId ? (
+      {runId && !shouldHideInteractiveContent ? (
         <Card>
           <CardHeader>
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -768,7 +1057,7 @@ export default function SyncExcelUploadConfigWidget({
             ) : null}
 
             <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" onClick={() => void refreshRunDetail(runId)} disabled={isRunActive && isRefreshingPreview}>
+              <Button type="button" variant="outline" onClick={() => void handleRefreshAll()} disabled={isRefreshingPreview || isRestoringSession}>
                 <RefreshCw className="mr-2 size-4" />
                 {t('sync_excel.widget.actions.refreshRun', 'Refresh run status')}
               </Button>

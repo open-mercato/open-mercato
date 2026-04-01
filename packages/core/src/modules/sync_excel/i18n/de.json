@@ -1,7 +1,6 @@
 {
   "sync_excel.integration.description": "Upload CSV files, preview mappings, and run file-based imports through Data Sync.",
   "sync_excel.integration.title": "Excel / CSV Import",
-  "sync_excel.mapping.targets.description": "Description",
   "sync_excel.mapping.targets.addressCompanyName": "Address company",
   "sync_excel.mapping.targets.addressLine1": "Address line 1",
   "sync_excel.mapping.targets.addressLine2": "Address line 2",
@@ -10,10 +9,11 @@
   "sync_excel.mapping.targets.buildingNumber": "Building number",
   "sync_excel.mapping.targets.city": "City",
   "sync_excel.mapping.targets.country": "Country",
+  "sync_excel.mapping.targets.description": "Description",
   "sync_excel.mapping.targets.displayName": "Display name",
   "sync_excel.mapping.targets.externalId": "External ID",
-  "sync_excel.mapping.targets.flatNumber": "Flat number",
   "sync_excel.mapping.targets.firstName": "First name",
+  "sync_excel.mapping.targets.flatNumber": "Flat number",
   "sync_excel.mapping.targets.ignore": "Leave unmapped",
   "sync_excel.mapping.targets.jobTitle": "Job title",
   "sync_excel.mapping.targets.lastName": "Last name",
@@ -63,6 +63,7 @@
   "sync_excel.widget.messages.mappingReset": "Suggested mapping restored.",
   "sync_excel.widget.messages.previewError": "Failed to refresh preview.",
   "sync_excel.widget.messages.previewRefreshed": "Preview refreshed.",
+  "sync_excel.widget.messages.restoringSession": "Letzte CSV-Sitzung wird wiederhergestellt...",
   "sync_excel.widget.messages.uploadError": "Failed to upload CSV file.",
   "sync_excel.widget.messages.uploadSuccess": "CSV preview is ready.",
   "sync_excel.widget.metrics.entity": "Target entity",
@@ -91,6 +92,7 @@
   "sync_excel.widget.upload.fileLabel": "CSV file",
   "sync_excel.widget.upload.selectedFile": "Selected file",
   "sync_excel.widget.upload.title": "Upload CSV",
+  "sync_excel.widget.validation.duplicateRiskTitle": "Risiko von Duplikaten",
   "sync_excel.widget.validation.duplicateTargetsMessage": "Each target field can only be mapped once in this foundation slice: {targets}",
   "sync_excel.widget.validation.duplicateTargetsTitle": "Duplicate target fields",
   "sync_excel.widget.validation.identityMessage": "Map either External ID or Primary email so reimports can match existing people.",
@@ -98,5 +100,6 @@
   "sync_excel.widget.validation.nameMessage": "Map Last name or Display name so the importer can build person records.",
   "sync_excel.widget.validation.nameTitle": "Map a name field",
   "sync_excel.widget.validation.readyMessage": "The current mapping is valid for the first customers.person slice.",
-  "sync_excel.widget.validation.readyTitle": "Ready to import"
+  "sync_excel.widget.validation.readyTitle": "Ready to import",
+  "sync_excel.widget.validation.reimportTitle": "Für diesen Upload gibt es bereits einen Lauf"
 }

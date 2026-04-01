@@ -22,6 +22,13 @@ type SyncRunSummary = {
   failedCount: number
 }
 
+type IntegrationLogEntry = {
+  message: string
+  level: string
+  runId: string | null
+  payload: JsonRecord | null
+}
+
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const ENTITY_TYPE = 'customers.person'
 const INTEGRATION_ID = 'sync_excel'
@@ -212,6 +219,41 @@ async function restoreSyncExcelMapping(
     })
     expect(deleteResponse.status()).toBe(200)
   }
+}
+
+async function listIntegrationLogs(
+  request: APIRequestContext,
+  token: string,
+  input?: {
+    runId?: string
+  },
+): Promise<IntegrationLogEntry[]> {
+  const params = new URLSearchParams({
+    integrationId: INTEGRATION_ID,
+    page: '1',
+    pageSize: '50',
+  })
+  if (input?.runId) params.set('runId', input.runId)
+
+  const response = await apiRequest(request, 'GET', `/api/integrations/logs?${params.toString()}`, { token })
+  expect(response.status()).toBe(200)
+  const body = await readJson(response)
+  const items = Array.isArray(body.items) ? body.items as JsonRecord[] : []
+  return items.map((item) => ({
+    message: String(item.message ?? ''),
+    level: String(item.level ?? ''),
+    runId: typeof item.runId === 'string' ? item.runId : null,
+    payload: item.payload && typeof item.payload === 'object' ? item.payload as JsonRecord : null,
+  }))
+}
+
+async function readIntegrationDetail(
+  request: APIRequestContext,
+  token: string,
+): Promise<JsonRecord> {
+  const response = await apiRequest(request, 'GET', `/api/integrations/${encodeURIComponent(INTEGRATION_ID)}`, { token })
+  expect(response.status()).toBe(200)
+  return readJson(response)
 }
 
 async function findPersonByEmail(
@@ -435,6 +477,32 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         skippedCount: 0,
         failedCount: 0,
       })
+
+      const firstRunLogs = await listIntegrationLogs(request, token, { runId: firstRunId })
+      expect(firstRunLogs).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          message: 'Sync run started',
+          level: 'info',
+          runId: firstRunId,
+          payload: expect.objectContaining({
+            operationalStatus: 'running',
+          }),
+        }),
+        expect.objectContaining({
+          message: 'Sync run completed',
+          level: 'info',
+          runId: firstRunId,
+          payload: expect.objectContaining({
+            operationalStatus: 'completed',
+          }),
+        }),
+      ]))
+
+      const integrationDetailAfterFirstRun = await readIntegrationDetail(request, token)
+      expect(integrationDetailAfterFirstRun.state).toMatchObject({
+        lastHealthStatus: 'healthy',
+      })
+      expect(typeof (integrationDetailAfterFirstRun.state as JsonRecord).lastHealthCheckedAt).toBe('string')
 
       const createdPerson = await findPersonByEmail(request, token, email)
       expect(createdPerson).not.toBeNull()
