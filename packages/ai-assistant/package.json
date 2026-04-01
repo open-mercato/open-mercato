@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/ai-assistant",
-  "version": "0.4.9",
+  "version": "0.5.0",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -89,7 +89,7 @@
     "ai": "^6.0.33",
     "cmdk": "^1.0.0",
     "framer-motion": "^11.0.0",
-    "isolated-vm": "^4.7.2",
+    "isolated-vm": "^6.1.2",
     "react-json-view-lite": "^2.5.0",
     "react-markdown": "^9.0.0",
     "zod-to-json-schema": "^3.25.1"
