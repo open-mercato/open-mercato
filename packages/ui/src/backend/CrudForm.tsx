@@ -96,6 +96,7 @@ function resolveInternalNavigationTarget(target: string | URL | null | undefined
     if (nextPath === currentPath) return null
     return `${url.pathname}${url.search}${url.hash}`
   } catch {
+    // Invalid URL string — treat as non-navigable
     return null
   }
 }

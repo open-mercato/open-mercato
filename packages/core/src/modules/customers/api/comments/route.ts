@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
@@ -69,8 +68,8 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query: any) => {
-      const filters: Record<string, any> = {}
+    buildFilters: async (query: Record<string, unknown>) => {
+      const filters: Record<string, unknown> = {}
       if (query.entityId) filters.entity_id = { $eq: query.entityId }
       if (query.dealId) filters.deal_id = { $eq: query.dealId }
       return filters
