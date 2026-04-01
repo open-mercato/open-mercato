@@ -432,6 +432,8 @@ export async function GET(req: Request) {
       organizationId: resolvedOrganizationId,
       userId: resolvedUserId,
     })
+    // TODO: Move deferred provisioning into a durable job keyed by request id so process restarts can resume
+    // seedExamples/index rebuild/email dispatch instead of leaving completed requests stuck on preparing.
     after(async () => {
       await runDeferredProvisioning({
         requestId: request.id,

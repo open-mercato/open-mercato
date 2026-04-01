@@ -29,16 +29,16 @@ export async function sendWorkspaceReadyEmail(args: {
   const firstName = request.firstName?.trim() || request.organizationName?.trim() || request.email
   const subject = translate('onboarding.readyEmail.subject', 'Your Open Mercato workspace is ready')
   const emailCopy = {
-    preview: translate('onboarding.readyEmail.preview', 'Your workspace is ready. Use your tenant-specific login link to sign in.'),
+    preview: translate('onboarding.readyEmail.preview', 'Your workspace is ready. Use your secure login link to sign in.'),
     heading: translate('onboarding.readyEmail.heading', 'Your workspace is ready'),
     greeting: translate('onboarding.readyEmail.greeting', 'Hi {firstName},', { firstName }),
     body: translate(
       'onboarding.readyEmail.body',
-      'Your Open Mercato workspace for {organizationName} has finished preparing. Use the secure link below to sign in to the correct tenant.',
+      'Your Open Mercato workspace for {organizationName} has finished preparing. Use the secure link below to sign in.',
       { organizationName: request.organizationName },
     ),
-    cta: translate('onboarding.readyEmail.cta', 'Open tenant login'),
-    footer: translate('onboarding.readyEmail.footer', 'Open Mercato · Tenant onboarding service'),
+    cta: translate('onboarding.readyEmail.cta', 'Open login'),
+    footer: translate('onboarding.readyEmail.footer', 'Open Mercato · Onboarding service'),
   }
 
   await sendEmail({
