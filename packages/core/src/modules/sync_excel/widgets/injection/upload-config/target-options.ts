@@ -98,6 +98,100 @@ const CORE_TARGET_OPTIONS: MappingTargetOption[] = [
   },
 ]
 
+const ADDRESS_TARGET_OPTIONS: MappingTargetOption[] = [
+  {
+    value: 'address.name',
+    labelKey: 'sync_excel.mapping.targets.addressName',
+    fallback: 'Address label',
+    mappingKind: 'core',
+    matchTokens: ['address label', 'address name', 'label'],
+  },
+  {
+    value: 'address.purpose',
+    labelKey: 'sync_excel.mapping.targets.addressPurpose',
+    fallback: 'Address purpose',
+    mappingKind: 'core',
+    matchTokens: ['address purpose', 'address type'],
+  },
+  {
+    value: 'address.companyName',
+    labelKey: 'sync_excel.mapping.targets.addressCompanyName',
+    fallback: 'Address company',
+    mappingKind: 'core',
+    matchTokens: ['address company', 'address company name'],
+  },
+  {
+    value: 'address.addressLine1',
+    labelKey: 'sync_excel.mapping.targets.addressLine1',
+    fallback: 'Address line 1',
+    mappingKind: 'core',
+    matchTokens: ['address line 1', 'street address', 'street', 'street 1'],
+  },
+  {
+    value: 'address.addressLine2',
+    labelKey: 'sync_excel.mapping.targets.addressLine2',
+    fallback: 'Address line 2',
+    mappingKind: 'core',
+    matchTokens: ['address line 2', 'street 2'],
+  },
+  {
+    value: 'address.buildingNumber',
+    labelKey: 'sync_excel.mapping.targets.buildingNumber',
+    fallback: 'Building number',
+    mappingKind: 'core',
+    matchTokens: ['building number', 'building no', 'house number'],
+  },
+  {
+    value: 'address.flatNumber',
+    labelKey: 'sync_excel.mapping.targets.flatNumber',
+    fallback: 'Flat number',
+    mappingKind: 'core',
+    matchTokens: ['flat number', 'apartment number', 'unit number'],
+  },
+  {
+    value: 'address.city',
+    labelKey: 'sync_excel.mapping.targets.city',
+    fallback: 'City',
+    mappingKind: 'core',
+    matchTokens: ['city', 'town'],
+  },
+  {
+    value: 'address.region',
+    labelKey: 'sync_excel.mapping.targets.region',
+    fallback: 'Region / State',
+    mappingKind: 'core',
+    matchTokens: ['region', 'state', 'province'],
+  },
+  {
+    value: 'address.postalCode',
+    labelKey: 'sync_excel.mapping.targets.postalCode',
+    fallback: 'Postal code',
+    mappingKind: 'core',
+    matchTokens: ['postal code', 'zip code', 'postcode'],
+  },
+  {
+    value: 'address.country',
+    labelKey: 'sync_excel.mapping.targets.country',
+    fallback: 'Country',
+    mappingKind: 'core',
+    matchTokens: ['country'],
+  },
+  {
+    value: 'address.latitude',
+    labelKey: 'sync_excel.mapping.targets.latitude',
+    fallback: 'Latitude',
+    mappingKind: 'core',
+    matchTokens: ['latitude', 'lat'],
+  },
+  {
+    value: 'address.longitude',
+    labelKey: 'sync_excel.mapping.targets.longitude',
+    fallback: 'Longitude',
+    mappingKind: 'core',
+    matchTokens: ['longitude', 'lng', 'lon'],
+  },
+]
+
 function normalizeMatchToken(value: string): string {
   return value
     .trim()
@@ -193,7 +287,7 @@ function selectPreferredCustomFieldDefs(customFieldDefs: CustomFieldDefDto[]): C
 
 export function buildPeopleTargetOptions(customFieldDefs: CustomFieldDefDto[]): MappingTargetOption[] {
   const customOptions = selectPreferredCustomFieldDefs(customFieldDefs).map(buildCustomFieldOption)
-  return [...CORE_TARGET_OPTIONS, ...customOptions]
+  return [...CORE_TARGET_OPTIONS, ...ADDRESS_TARGET_OPTIONS, ...customOptions]
 }
 
 export function buildPeopleSuggestedMapping(
@@ -204,12 +298,14 @@ export function buildPeopleSuggestedMapping(
   const fields = [...suggestedMapping.fields]
   const usedExternalFields = new Set(fields.map((field) => field.externalField))
   const usedTargetFields = new Set(fields.map((field) => field.localField))
-  const customTargetOptions = buildPeopleTargetOptions(customFieldDefs).filter((option) => option.mappingKind === 'custom_field')
+  const supplementalTargetOptions = buildPeopleTargetOptions(customFieldDefs).filter(
+    (option) => option.mappingKind === 'custom_field' || option.value.startsWith('address.'),
+  )
 
   for (const header of headers) {
     if (usedExternalFields.has(header)) continue
     const normalizedHeader = normalizeMatchToken(header)
-    const matchedOption = customTargetOptions.find((option) => {
+    const matchedOption = supplementalTargetOptions.find((option) => {
       if (usedTargetFields.has(option.value)) return false
       return option.matchTokens.includes(normalizedHeader)
     })
@@ -218,7 +314,7 @@ export function buildPeopleSuggestedMapping(
     fields.push({
       externalField: header,
       localField: matchedOption.value,
-      mappingKind: 'custom_field',
+      mappingKind: matchedOption.mappingKind,
     })
     usedExternalFields.add(header)
     usedTargetFields.add(matchedOption.value)

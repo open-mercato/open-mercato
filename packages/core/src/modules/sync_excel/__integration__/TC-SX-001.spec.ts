@@ -76,21 +76,22 @@ function buildMultipartCsv(fileName: string, csv: string) {
   }
 }
 
-function withCustomFieldMapping(
+function withFieldMapping(
   mapping: SyncExcelUploadPreview['suggestedMapping'],
   input: {
     externalField: string
-    customFieldKey: string
+    localField: string
+    mappingKind?: string
   },
 ) {
   const fields = [
-    ...mapping.fields,
     {
       externalField: input.externalField,
-      localField: `cf:${input.customFieldKey}`,
-      mappingKind: 'custom_field',
+      localField: input.localField,
+      mappingKind: input.mappingKind ?? 'core',
     },
   ]
+  const remainingFields = mapping.fields.filter((field) => field.externalField !== input.externalField && field.localField !== input.localField)
 
   const unmappedColumns = Array.isArray(mapping.unmappedColumns)
     ? (mapping.unmappedColumns as unknown[]).filter(
@@ -100,9 +101,23 @@ function withCustomFieldMapping(
 
   return {
     ...mapping,
-    fields,
+    fields: [...remainingFields, ...fields],
     unmappedColumns,
   }
+}
+
+function withCustomFieldMapping(
+  mapping: SyncExcelUploadPreview['suggestedMapping'],
+  input: {
+    externalField: string
+    customFieldKey: string
+  },
+) {
+  return withFieldMapping(mapping, {
+    externalField: input.externalField,
+    localField: `cf:${input.customFieldKey}`,
+    mappingKind: 'custom_field',
+  })
 }
 
 function readCustomFieldValue(customFields: unknown, key: string): unknown {
@@ -110,6 +125,16 @@ function readCustomFieldValue(customFields: unknown, key: string): unknown {
   const record = customFields as Record<string, unknown>
   if (Object.prototype.hasOwnProperty.call(record, key)) return record[key]
   return record[`cf_${key}`]
+}
+
+function findPrimaryAddress(value: unknown): JsonRecord | null {
+  if (!Array.isArray(value)) return null
+  const address = value.find((item) => typeof item === 'object' && item !== null && (item as JsonRecord).isPrimary === true)
+  return address && typeof address === 'object' ? address as JsonRecord : null
+}
+
+function expectAddressPostalCode(address: JsonRecord | null, expected: string): void {
+  expect(String(address?.postalCode ?? '')).toBe(expected)
 }
 
 async function uploadCsv(
@@ -304,18 +329,25 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
     const customFieldLabel = 'Favorite Color'
     const fileName = `sync-excel-${timestamp}.csv`
     let createdPersonId: string | null = null
+    let createdAddressId: string | null = null
     let firstRunId: string | null = null
     let secondRunId: string | null = null
+    let thirdRunId: string | null = null
     const previousMapping = (await listSyncExcelMappings(request, token))[0] ?? null
 
     const initialCsv = [
-      `Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description,${customFieldLabel}`,
-      `${externalId},Ada,Lovelace,Ada Lovelace,${email},Founder,Open,Import Test,Initial row,Blue`,
+      `Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description,Address Line 1,City,Postal Code,${customFieldLabel}`,
+      `${externalId},Ada,Lovelace,Ada Lovelace,${email},Founder,Open,Import Test,Initial row,123 Main Street,Austin,78701,Blue`,
     ].join('\n')
 
     const updatedCsv = [
-      `Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description,${customFieldLabel}`,
-      `${externalId},Ada,Lovelace,Ada Byron,${email},Principal Engineer,Qualified,Import Test,Updated row,Purple`,
+      `Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description,Address Line 1,City,Postal Code,${customFieldLabel}`,
+      `${externalId},Ada,Lovelace,Ada Byron,${email},Principal Engineer,Qualified,Import Test,Updated row,500 Updated Avenue,Dallas,75201,Purple`,
+    ].join('\n')
+
+    const recreatedAddressCsv = [
+      `Record Id,First Name,Last Name,Lead Name,Email,Title,Lead Status,Lead Source,Description,Address Line 1,City,Postal Code,${customFieldLabel}`,
+      `${externalId},Ada,Lovelace,Ada Byron,${email},Principal Engineer,Qualified,Import Test,Address recreated,900 Recreated Road,Houston,77002,Gold`,
     ].join('\n')
 
     try {
@@ -338,6 +370,9 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         'Lead Status',
         'Lead Source',
         'Description',
+        'Address Line 1',
+        'City',
+        'Postal Code',
         customFieldLabel,
       ])
       expect(Array.isArray(uploadPreview.sampleRows)).toBe(true)
@@ -350,9 +385,17 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       const suggestedFields = uploadPreview.suggestedMapping.fields
       expect(suggestedFields.some((field) => field.externalField === 'Record Id' && field.localField === 'person.externalId')).toBe(true)
       expect(suggestedFields.some((field) => field.externalField === 'Email' && field.localField === 'person.primaryEmail')).toBe(true)
-      const importMapping = withCustomFieldMapping(uploadPreview.suggestedMapping, {
+      expect(suggestedFields.some((field) => field.externalField === 'Address Line 1' && field.localField === 'address.addressLine1')).toBe(true)
+      expect(suggestedFields.some((field) => field.externalField === 'Postal Code' && field.localField === 'address.postalCode')).toBe(true)
+      const importMapping = withFieldMapping(withFieldMapping(withCustomFieldMapping(uploadPreview.suggestedMapping, {
         externalField: customFieldLabel,
         customFieldKey,
+      }), {
+        externalField: 'Address Line 1',
+        localField: 'address.addressLine1',
+      }), {
+        externalField: 'Postal Code',
+        localField: 'address.postalCode',
       })
 
       const previewAgain = await apiRequest(
@@ -398,7 +441,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
       createdPersonId = String(createdPerson?.id ?? '')
       expect(createdPersonId).toMatch(/^[0-9a-f-]{36}$/i)
 
-      const createdDetailResponse = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(createdPersonId)}`, { token })
+      const createdDetailResponse = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(createdPersonId)}?include=addresses`, { token })
       expect(createdDetailResponse.status()).toBe(200)
       const createdDetailBody = await readJson(createdDetailResponse)
       expect(createdDetailBody.person).toMatchObject({
@@ -413,11 +456,26 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         lastName: 'Lovelace',
         jobTitle: 'Founder',
       })
+      const createdPrimaryAddress = findPrimaryAddress(createdDetailBody.addresses)
+      expect(createdPrimaryAddress).toMatchObject({
+        addressLine1: '123 Main Street',
+        city: 'Austin',
+        isPrimary: true,
+      })
+      expectAddressPostalCode(createdPrimaryAddress, '78701')
+      createdAddressId = String(createdPrimaryAddress?.id ?? '')
+      expect(createdAddressId).toMatch(/^[0-9a-f-]{36}$/i)
 
       const secondUpload = asUploadPreview(await uploadCsv(request, token, `updated-${fileName}`, updatedCsv))
-      const secondImportMapping = withCustomFieldMapping(secondUpload.suggestedMapping, {
+      const secondImportMapping = withFieldMapping(withFieldMapping(withCustomFieldMapping(secondUpload.suggestedMapping, {
         externalField: customFieldLabel,
         customFieldKey,
+      }), {
+        externalField: 'Address Line 1',
+        localField: 'address.addressLine1',
+      }), {
+        externalField: 'Postal Code',
+        localField: 'address.postalCode',
       })
       const secondImportStart = await apiRequest(request, 'POST', '/api/sync_excel/import', {
         token,
@@ -448,7 +506,7 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         failedCount: 0,
       })
 
-      const updatedDetailResponse = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(createdPersonId)}`, { token })
+      const updatedDetailResponse = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(createdPersonId)}?include=addresses`, { token })
       expect(updatedDetailResponse.status()).toBe(200)
       const updatedDetailBody = await readJson(updatedDetailResponse)
       expect(updatedDetailBody.person).toMatchObject({
@@ -463,12 +521,79 @@ test.describe('TC-SX-001: sync_excel upload preview and import APIs', () => {
         jobTitle: 'Principal Engineer',
       })
       expect(readCustomFieldValue(updatedDetailBody.customFields, customFieldKey)).toBe('Purple')
+      const updatedPrimaryAddress = findPrimaryAddress(updatedDetailBody.addresses)
+      expect(updatedPrimaryAddress).toMatchObject({
+        id: createdAddressId,
+        addressLine1: '500 Updated Avenue',
+        city: 'Dallas',
+        isPrimary: true,
+      })
+      expectAddressPostalCode(updatedPrimaryAddress, '75201')
+
+      const deleteAddressResponse = await apiRequest(request, 'DELETE', `/api/customers/addresses?id=${encodeURIComponent(createdAddressId)}`, { token })
+      expect(deleteAddressResponse.status()).toBe(200)
+
+      const thirdUpload = asUploadPreview(await uploadCsv(request, token, `recreated-${fileName}`, recreatedAddressCsv))
+      const thirdImportMapping = withFieldMapping(withFieldMapping(withCustomFieldMapping(thirdUpload.suggestedMapping, {
+        externalField: customFieldLabel,
+        customFieldKey,
+      }), {
+        externalField: 'Address Line 1',
+        localField: 'address.addressLine1',
+      }), {
+        externalField: 'Postal Code',
+        localField: 'address.postalCode',
+      })
+      const thirdImportStart = await apiRequest(request, 'POST', '/api/sync_excel/import', {
+        token,
+        data: {
+          uploadId: thirdUpload.uploadId,
+          entityType: ENTITY_TYPE,
+          mapping: thirdImportMapping,
+        },
+      })
+      expect(thirdImportStart.status()).toBe(201)
+      const thirdImportBody = await readJson(thirdImportStart)
+      thirdRunId = String(thirdImportBody.runId)
+
+      await expect.poll(async () => {
+        const runResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(thirdRunId!)}`, { token })
+        expect(runResponse.status()).toBe(200)
+        const runBody = await readJson(runResponse)
+        return String(runBody.status ?? '')
+      }, { timeout: 15_000, intervals: [500, 1_000, 2_000] }).toBe('completed')
+
+      const thirdRunResponse = await apiRequest(request, 'GET', `/api/data_sync/runs/${encodeURIComponent(thirdRunId)}`, { token })
+      expect(thirdRunResponse.status()).toBe(200)
+      expect(asRunSummary(await readJson(thirdRunResponse))).toMatchObject({
+        status: 'completed',
+        createdCount: 0,
+        updatedCount: 1,
+        skippedCount: 0,
+        failedCount: 0,
+      })
+
+      const recreatedDetailResponse = await apiRequest(request, 'GET', `/api/customers/people/${encodeURIComponent(createdPersonId)}?include=addresses`, { token })
+      expect(recreatedDetailResponse.status()).toBe(200)
+      const recreatedDetailBody = await readJson(recreatedDetailResponse)
+      const recreatedPrimaryAddress = findPrimaryAddress(recreatedDetailBody.addresses)
+      expect(recreatedPrimaryAddress).toMatchObject({
+        addressLine1: '900 Recreated Road',
+        city: 'Houston',
+        isPrimary: true,
+      })
+      expectAddressPostalCode(recreatedPrimaryAddress, '77002')
+      expect(String(recreatedPrimaryAddress?.id ?? '')).not.toBe(createdAddressId)
+      expect(readCustomFieldValue(recreatedDetailBody.customFields, customFieldKey)).toBe('Gold')
     } finally {
       if (firstRunId) {
         await apiRequest(request, 'POST', `/api/data_sync/runs/${encodeURIComponent(firstRunId)}/cancel`, { token }).catch(() => undefined)
       }
       if (secondRunId) {
         await apiRequest(request, 'POST', `/api/data_sync/runs/${encodeURIComponent(secondRunId)}/cancel`, { token }).catch(() => undefined)
+      }
+      if (thirdRunId) {
+        await apiRequest(request, 'POST', `/api/data_sync/runs/${encodeURIComponent(thirdRunId)}/cancel`, { token }).catch(() => undefined)
       }
       await deleteEntityIfExists(request, token, '/api/customers/people', createdPersonId)
       await deleteCustomFieldDefinition(request, token, {
