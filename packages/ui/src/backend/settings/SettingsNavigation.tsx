@@ -1,6 +1,7 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 export type SettingsCard = {
@@ -29,11 +30,12 @@ export type SettingsNavigationProps = {
 
 export function SettingsNavigation({ sections, userFeatures }: SettingsNavigationProps) {
   const t = useT()
+  const grantedFeatureList = React.useMemo(() => (userFeatures ? Array.from(userFeatures) : []), [userFeatures])
 
   const hasRequiredFeatures = (card: SettingsCard): boolean => {
     if (!card.requireFeatures || card.requireFeatures.length === 0) return true
     if (!userFeatures) return true // If no userFeatures provided, show all cards
-    return card.requireFeatures.every((f) => userFeatures.has(f))
+    return hasAllFeatures(grantedFeatureList, card.requireFeatures)
   }
 
   const renderCard = (card: SettingsCard) => (

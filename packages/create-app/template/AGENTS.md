@@ -42,7 +42,7 @@ yarn test
 yarn test path/to/test.spec.ts
 
 # Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
-mercato test integration
+yarn test:integration:ephemeral
 
 # Start ephemeral app only (for manual QA exploration)
 mercato test ephemeral

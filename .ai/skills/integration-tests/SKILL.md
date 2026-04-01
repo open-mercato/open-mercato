@@ -16,6 +16,7 @@ This skill generates executable Playwright tests in module-local `__integration_
 | Run in ephemeral containers | `yarn test:integration:ephemeral` |
 | Run interactive ephemeral mode | `yarn test:integration:ephemeral:interactive` |
 | Start ephemeral app only (for MCP exploration, tests development, and debugging) | `yarn test:integration:ephemeral:start` |
+| Run standalone create-app integration parity from monorepo | `yarn test:create-app:integration` |
 | View report | `yarn test:integration:report` |
 | Test files location | `<module>/__integration__/TC-XXX.spec.ts` (legacy `.ai/qa/tests` still supported) |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
@@ -196,6 +197,22 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-fil
 ```
 
 If it fails, fix it. Do not leave broken tests.
+
+### Create-App / Standalone Parity
+
+When the change affects `packages/create-app`, standalone scaffolding, or CLI behavior consumed by scaffolded apps, prefer the monorepo parity command:
+
+```bash
+yarn test:create-app:integration
+```
+
+What it does:
+- builds the local monorepo package artifacts
+- scaffolds a fresh temporary standalone app with the local `create-mercato-app`
+- installs local packed `@open-mercato/*` tarballs into that app
+- runs the standalone app's own ephemeral integration command via the local CLI
+
+Use this instead of plain `yarn test:integration` when the risk is specifically "works in monorepo, breaks in scaffolded standalone app".
 
 ### Shared — Failure Analysis and User Reporting (Mandatory on Failures)
 

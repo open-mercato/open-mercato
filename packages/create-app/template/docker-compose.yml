@@ -1,7 +1,6 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17-trixie
-    container_name: mercato-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -21,7 +20,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: mercato-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -36,7 +34,6 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.11
-    container_name: mercato-meilisearch
     restart: unless-stopped
     environment:
       MEILI_ENV: development
@@ -47,7 +44,7 @@ services:
     volumes:
       - meilisearch_data:/meili_data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -56,13 +53,9 @@ services:
 
 volumes:
   postgres_data:
-    name: mercato-postgres-data
   redis_data:
-    name: mercato-redis-data
   meilisearch_data:
-    name: mercato-meilisearch-data
 
 networks:
   mercato-network:
-    name: mercato-network
     driver: bridge

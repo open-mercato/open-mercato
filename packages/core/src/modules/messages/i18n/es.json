@@ -34,6 +34,7 @@
   "messages.composer.attachmentPicker.title": "Adjuntar archivos",
   "messages.composer.attachmentPicker.upload": "Subir archivos",
   "messages.composer.confirm.incompatibleObjects": "Cambiar el tipo de mensaje eliminará {count} objetos adjuntos incompatibles. ¿Continuar?",
+  "messages.composer.dialogDescription": "Redactar y enviar un mensaje.",
   "messages.composer.hints.actionExpiry": "Las acciones de este tipo vencen tras {hours} horas.",
   "messages.composer.maxObjectsWarning": "Has alcanzado el límite recomendado de 25 objetos adjuntos.",
   "messages.composer.noAttachments": "Aún no hay archivos adjuntos.",

@@ -6,6 +6,7 @@ function createFakeKnex(config: {
   baseCount: number
   indexCount: number
   customFieldKeys?: Record<string, string[]>
+  columns?: Array<{ table_name: string; column_name: string }>
 }) {
   const defaultCustomFieldKeys: Record<string, string[]> = {
     'example:todo': ['priority'],
@@ -64,6 +65,14 @@ function createFakeKnex(config: {
       first: async function () {
         if (table === 'information_schema.tables') {
           return { table_name: config.baseTable }
+        }
+        if (table === 'information_schema.columns') {
+          const lookup = ops.wheres.find((entry) => Array.isArray(entry) && entry.length === 1 && entry[0] && typeof entry[0] === 'object')?.[0] as
+            | { table_name?: string; column_name?: string }
+            | undefined
+          return (config.columns ?? []).find((column) =>
+            column.table_name === lookup?.table_name && column.column_name === lookup?.column_name,
+          )
         }
         if (table === 'entity_index_coverage') {
           if (!config.hasIndexAny) return undefined
@@ -359,6 +368,53 @@ describe('HybridQueryEngine', () => {
       }),
     ]))
     expect(emitEvent).not.toHaveBeenCalled()
+  })
+
+  test('supports object equality filters on customFieldSources aliases', async () => {
+    const fakeKnex = createFakeKnex({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      columns: [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_people', column_name: 'id' },
+        { table_name: 'customer_people', column_name: 'tenant_id' },
+      ],
+    })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      customFieldSources: [
+        {
+          entityId: 'customers:customer_person_profile',
+          table: 'customer_people',
+          alias: 'person_profile',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+      ],
+      filters: {
+        'person_profile.id': { $eq: 'profile-1' },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const baseCall = fakeKnex._calls.find((call: any) => call._ops.alias === 'b')
+    expect(baseCall).toBeTruthy()
+    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
+    expect(existsFilter).toBeTruthy()
+    const subQuery = existsFilter[1]
+    expect(subQuery?._ops?.table).toBe('customer_people')
+    const hasEqualityFilter = Array.isArray(subQuery?._ops?.wheres)
+      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'person_profile.id' && w[1] === 'profile-1')
+      : false
+    expect(hasEqualityFilter).toBe(true)
   })
 
   test('uses search tokens for index document fields on base entities', async () => {

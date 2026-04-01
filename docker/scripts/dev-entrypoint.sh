@@ -18,15 +18,7 @@ yarn generate
 yarn build:packages
 
 cd /app/apps/mercato
-if [ ! -f /tmp/init-marker/.seeded ]; then
-  echo "First run: full initialization..."
-  yarn mercato init
-  mkdir -p /tmp/init-marker
-  touch /tmp/init-marker/.seeded
-else
-  echo "Subsequent run: migrations only..."
-  yarn db:migrate
-fi
+INIT_COMMAND="yarn mercato init" sh /app/docker/scripts/init-or-migrate.sh
 
 cd /app
 exec yarn dev

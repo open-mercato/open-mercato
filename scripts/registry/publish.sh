@@ -1,37 +1,64 @@
 #!/bin/bash
 # Republish all packages to local Verdaccio registry (removes existing versions first)
-# Usage: ./scripts/registry/republish.sh
+# Usage: ./scripts/registry/publish.sh
 
-set -e
+set -euo pipefail
 
 REGISTRY_URL="${VERDACCIO_URL:-http://localhost:4873}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+NPMRC_TMP="$(mktemp "${TMPDIR:-/tmp}/open-mercato-verdaccio-npmrc.XXXXXX")"
+REGISTRY_AUTH_KEY="${REGISTRY_URL#http://}"
+REGISTRY_AUTH_KEY="${REGISTRY_AUTH_KEY#https://}"
+REGISTRY_AUTH_KEY="${REGISTRY_AUTH_KEY%/}/"
 
-# Check if registry is running
-if ! curl -s "$REGISTRY_URL/-/ping" > /dev/null 2>&1; then
-  echo "Error: Verdaccio registry is not running at $REGISTRY_URL"
-  echo "Run 'docker compose up -d verdaccio' first"
-  exit 1
-fi
+cleanup() {
+  rm -f "$NPMRC_TMP"
+}
 
-# Define packages in dependency order
-PACKAGES=(
-  "shared"
-  "events"
-  "cache"
-  "queue"
-  "ui"
-  "core"
-  "gateway-stripe"
-  "search"
-  "content"
-  "onboarding"
-  "ai-assistant"
-  "scheduler"
-  "cli"
-  "create-app"
-)
+trap cleanup EXIT
+
+wait_for_verdaccio() {
+  local attempts=0
+  local max_attempts=30
+
+  until curl -s "$REGISTRY_URL/-/ping" > /dev/null 2>&1; do
+    attempts=$((attempts + 1))
+
+    if [ "$attempts" -ge "$max_attempts" ]; then
+      echo "Error: Verdaccio did not become ready at $REGISTRY_URL"
+      return 1
+    fi
+
+    sleep 1
+  done
+}
+
+cat > "$NPMRC_TMP" <<EOF
+//${REGISTRY_AUTH_KEY}:_auth=fake-local-verdaccio-auth
+EOF
+
+export NPM_CONFIG_USERCONFIG="$NPMRC_TMP"
+
+echo "Bootstrapping Verdaccio at $REGISTRY_URL..."
+cd "$ROOT_DIR"
+docker compose up -d verdaccio > /dev/null
+wait_for_verdaccio
+
+PACKAGES=()
+while IFS= read -r pkg_dir; do
+  manifest="$pkg_dir/package.json"
+  if [ ! -f "$manifest" ]; then
+    continue
+  fi
+
+  is_private=$(jq -r '.private // false' "$manifest" 2>/dev/null)
+  if [ "$is_private" = "true" ]; then
+    continue
+  fi
+
+  PACKAGES+=("$(basename "$pkg_dir")")
+done < <(find "$ROOT_DIR/packages" -mindepth 1 -maxdepth 1 -type d | sort)
 
 echo "=========================================="
 echo "  Republishing to Verdaccio"
@@ -56,6 +83,8 @@ echo ""
 echo "Step 2: Building packages..."
 cd "$ROOT_DIR"
 yarn build:packages
+yarn generate
+yarn build:packages
 echo ""
 
 # Step 3: Publish all packages
@@ -72,10 +101,10 @@ for pkg in "${PACKAGES[@]}"; do
     rm -f *.tgz @open-mercato-*.tgz create-mercato-app-*.tgz 2>/dev/null
 
     # Use yarn pack to create tarball with workspace:* resolved
-    yarn pack --out "package.tgz" >/dev/null 2>&1
+    yarn pack --out "package.tgz"
 
     if [ -f "package.tgz" ]; then
-      npm publish "package.tgz" --registry "$REGISTRY_URL" --access public 2>/dev/null
+      npm publish "package.tgz" --registry "$REGISTRY_URL" --access public
       rm -f "package.tgz"
       echo "    ✓ Published"
     else

@@ -224,4 +224,32 @@ describe('GET /api/auth/admin/nav', () => {
     expect(hrefs).toContain('/backend/dashboard')
     expect(hrefs).not.toContain('/backend/entities/user/assets/records')
   })
+
+  it('includes wildcard-granted customer portal settings routes', async () => {
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['customer_accounts.*'],
+    })
+    mockGetModules.mockReturnValue([
+      {
+        id: 'customer_accounts',
+        backendRoutes: [
+          {
+            pattern: '/backend/customer_accounts/users',
+            title: 'Users',
+            pageGroupKey: 'customer_accounts.settings.section',
+            group: 'Customer Portal',
+            order: 1,
+            requireFeatures: ['customer_accounts.view'],
+          } as BackendRoute & { requireFeatures: string[] },
+        ],
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const customerPortalGroup = groups.find((group) => group.id === 'customer_accounts.settings.section')
+
+    expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
+  })
 })

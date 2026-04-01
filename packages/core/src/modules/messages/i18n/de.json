@@ -34,6 +34,7 @@
   "messages.composer.attachmentPicker.title": "Dateien anhängen",
   "messages.composer.attachmentPicker.upload": "Dateien hochladen",
   "messages.composer.confirm.incompatibleObjects": "Beim Ändern des Nachrichtentyps werden {count} inkompatible angehängte Objekte entfernt. Fortfahren?",
+  "messages.composer.dialogDescription": "Nachricht verfassen und senden.",
   "messages.composer.hints.actionExpiry": "Aktionen für diesen Typ verfallen nach {hours} Stunden.",
   "messages.composer.maxObjectsWarning": "Empfohlene Grenze von 25 angehängten Objekten erreicht.",
   "messages.composer.noAttachments": "Noch keine Dateien angehängt.",
