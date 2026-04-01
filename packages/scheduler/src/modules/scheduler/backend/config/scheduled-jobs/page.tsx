@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -82,6 +82,7 @@ export default function SchedulerPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
 
@@ -93,6 +94,10 @@ export default function SchedulerPage() {
         pageSize: pageSize.toString(),
       })
       if (search) params.set('search', search)
+      if (sorting.length > 0) {
+        params.set('sortField', sorting[0].id)
+        params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+      }
 
       const { result } = await apiCallOrThrow<SchedulesResponse>(
         `/api/scheduler/jobs?${params.toString()}`
@@ -112,7 +117,7 @@ export default function SchedulerPage() {
       setIsLoading(false)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize, search, scopeVersion, t])
+  }, [page, pageSize, search, sorting, scopeVersion, t])
 
   React.useEffect(() => {
     fetchSchedules()
@@ -272,6 +277,9 @@ export default function SchedulerPage() {
           }
           columns={columns}
           data={rows}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           onRowClick={(row) => router.push(`/backend/config/scheduled-jobs/${row.id}`)}
           rowActions={(row) => <RowActions items={rowActions(row)} />}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}

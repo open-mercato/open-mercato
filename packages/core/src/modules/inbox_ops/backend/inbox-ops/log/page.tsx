@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -41,6 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
 export default function ProcessingLogPage() {
   const t = useT()
   const [items, setItems] = React.useState<EmailRow[]>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(25)
@@ -214,6 +215,9 @@ export default function ProcessingLogPage() {
             <DataTable
               columns={columns}
               data={items}
+              sortable
+              sorting={sorting}
+              onSortingChange={setSorting}
               isLoading={isLoading}
               pagination={{
                 page,

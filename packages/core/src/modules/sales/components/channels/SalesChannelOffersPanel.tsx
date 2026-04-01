@@ -164,6 +164,7 @@ export function SalesChannelOffersPanel({ channelId, channelName }: { channelId:
       columns={columns}
       data={rows}
       isLoading={isLoading}
+      sortable
       sorting={sorting}
       onSortingChange={setSorting}
       searchValue={search}

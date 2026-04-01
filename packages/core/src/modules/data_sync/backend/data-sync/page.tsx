@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Badge, type BadgeProps } from '@open-mercato/ui/primitives/badge'
@@ -169,6 +169,7 @@ function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState 
 export default function SyncRunsDashboardPage() {
   const router = useRouter()
   const [rows, setRows] = React.useState<SyncRunRow[]>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [options, setOptions] = React.useState<SyncOption[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -959,6 +960,9 @@ export default function SyncRunsDashboardPage() {
           title={t('data_sync.dashboard.title')}
           columns={columns}
           data={rows}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           filters={filters}
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}

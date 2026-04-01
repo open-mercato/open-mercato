@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageHeader, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -184,6 +184,7 @@ export default function PaymentTransactionsPage() {
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [rows, setRows] = React.useState<TransactionRow[]>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -455,6 +456,9 @@ export default function PaymentTransactionsPage() {
           title={t('payment_gateways.transactions.tableTitle', 'Transactions')}
           columns={columns}
           data={rows}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           filters={filters}
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -89,6 +89,7 @@ export default function InboxOpsProposalsPage() {
   })
 
   const [items, setItems] = React.useState<ProposalRow[]>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [total, setTotal] = React.useState(0)
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(25)
@@ -324,6 +325,9 @@ export default function InboxOpsProposalsPage() {
       <PageBody>
         <DataTable<ProposalRow>
           title={t('inbox_ops.title', 'AI Inbox Actions')}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           refreshButton={{
             label: t('inbox_ops.list.actions.refresh', 'Refresh'),
             onRefresh: handleRefresh,

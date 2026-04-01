@@ -16,7 +16,7 @@ import { ExecutionDetailsDialog } from '../../../../components/ExecutionDetailsD
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { formatDistanceToNow } from 'date-fns'
 
 type ScheduleDetail = {
@@ -71,6 +71,7 @@ export default function ScheduleDetailPage() {
   const [detailsModalOpen, setDetailsModalOpen] = React.useState(false)
   const [selectedRun, setSelectedRun] = React.useState<ExecutionRun | null>(null)
   const [triggering, setTriggering] = React.useState(false)
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [toggling, setToggling] = React.useState(false)
 
   const queueStrategy = process.env.NEXT_PUBLIC_QUEUE_STRATEGY || 'local'
@@ -92,8 +93,13 @@ export default function ScheduleDetailPage() {
       // Fetch recent runs — only available with async strategy
       if (isAsyncStrategy) {
         try {
+          const execParams = new URLSearchParams({ pageSize: '10' })
+          if (sorting.length > 0) {
+            execParams.set('sortField', sorting[0].id)
+            execParams.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+          }
           const { result: runsData } = await apiCallOrThrow(
-            `/api/scheduler/jobs/${scheduleId}/executions?pageSize=10`
+            `/api/scheduler/jobs/${scheduleId}/executions?${execParams.toString()}`
           )
           setRuns((runsData as { items?: ExecutionRun[] }).items || [])
         } catch {
@@ -105,7 +111,7 @@ export default function ScheduleDetailPage() {
     } finally {
       setLoading(false)
     }
-  }, [scheduleId, isAsyncStrategy])
+  }, [scheduleId, isAsyncStrategy, sorting])
 
   React.useEffect(() => {
     if (scheduleId) {
@@ -399,6 +405,9 @@ export default function ScheduleDetailPage() {
                 <DataTable
                   columns={runsColumns}
                   data={runs}
+                  sortable
+                  sorting={sorting}
+                  onSortingChange={setSorting}
                 />
               ) : (
                 <p className="text-sm text-muted-foreground">{t('scheduler.details.no_executions', 'No executions yet')}</p>

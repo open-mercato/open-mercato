@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
@@ -279,6 +279,7 @@ export default function CustomersDealsPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState(() => searchParams?.get('search')?.trim() ?? '')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
   const [isLoading, setIsLoading] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [pendingDeleteId, setPendingDeleteId] = React.useState<string | null>(null)
@@ -581,6 +582,10 @@ export default function CustomersDealsPage() {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(PAGE_SIZE))
+    if (sorting[0]?.id) {
+      params.set('sortField', sorting[0].id)
+      params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+    }
     if (search.trim().length) params.set('search', search.trim())
     if (selectedPersonIds.length) params.set('personId', selectedPersonIds.join(','))
     if (selectedCompanyIds.length) params.set('companyId', selectedCompanyIds.join(','))
@@ -608,7 +613,7 @@ export default function CustomersDealsPage() {
       }
     })
     return params.toString()
-  }, [filterValues, page, search, selectedCompanyIds, selectedPersonIds])
+  }, [filterValues, page, search, sorting, selectedCompanyIds, selectedPersonIds])
 
   const currentParams = React.useMemo(
     () => Object.fromEntries(new URLSearchParams(queryParams)),
@@ -908,6 +913,9 @@ export default function CustomersDealsPage() {
           )}
           columns={columns}
           data={rows}
+          sortable
+          sorting={sorting}
+          onSortingChange={(s) => { setSorting(s); setPage(1) }}
           onRowClick={(row) => {
             router.push(`/backend/customers/deals/${row.id}`)
           }}

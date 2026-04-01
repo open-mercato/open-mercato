@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -91,6 +91,7 @@ export function MessagesInboxPageClient() {
   const scopeVersion = useOrganizationScopeVersion()
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -383,6 +384,9 @@ export function MessagesInboxPageClient() {
         title={t('messages.title', 'Messages')}
         columns={columns}
         data={rows}
+        sortable
+        sorting={sorting}
+        onSortingChange={setSorting}
         searchValue={search}
         onSearchChange={(value) => {
           setSearch(value)

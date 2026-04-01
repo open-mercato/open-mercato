@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -70,6 +70,7 @@ export default function ResourcesResourcesPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [resourceTypes, setResourceTypes] = React.useState<Map<string, ResourceTypeRow>>(new Map())
   const [canManage, setCanManage] = React.useState(false)
@@ -305,6 +306,10 @@ export default function ResourcesResourcesPage() {
           pageSize: String(PAGE_SIZE),
         })
         if (search) params.set('search', search)
+        if (sorting.length > 0) {
+          params.set('sortField', sorting[0].id)
+          params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+        }
         if (selectedResourceTypeId) params.set('resourceTypeId', selectedResourceTypeId)
         const tagIds = Array.isArray(filterValues.tagIds)
           ? filterValues.tagIds
@@ -337,7 +342,7 @@ export default function ResourcesResourcesPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [filterValues, page, search, scopeVersion, selectedResourceTypeId, t])
+  }, [filterValues, page, search, sorting, scopeVersion, selectedResourceTypeId, t])
 
   const handleDelete = React.useCallback(async (row: ResourceTableRow) => {
     if (row.rowKind !== 'resource') return
@@ -482,6 +487,9 @@ export default function ResourcesResourcesPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           perspective={{ tableId: 'resources.resources.list' }}
           rowActions={(row) => {
             if (!canManage || row.rowKind !== 'resource') return null

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Globe, Settings } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -229,6 +229,7 @@ export default function CustomerAccountsPage() {
   const t = useT()
   const router = useRouter()
   const [rows, setRows] = React.useState<UserRow[]>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
@@ -523,6 +524,9 @@ export default function CustomerAccountsPage() {
         </div>
         <DataTable<UserRow>
           title={t('customer_accounts.admin.title', 'Users')}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           actions={(
             <Button onClick={() => setCreateDialogOpen(true)}>
               {t('customer_accounts.admin.actions.createUser', 'Create User')}

@@ -9,7 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
@@ -105,6 +105,7 @@ export default function WebhookDetailPage() {
   const [error, setError] = React.useState<string | null>(null)
   const [isEditing, setIsEditing] = React.useState(false)
 
+  const [deliverySorting, setDeliverySorting] = React.useState<SortingState>([])
   const [deliveries, setDeliveries] = React.useState<DeliveryRow[]>([])
   const [deliveryPage, setDeliveryPage] = React.useState(1)
   const [deliveryTotal, setDeliveryTotal] = React.useState(0)
@@ -607,6 +608,9 @@ export default function WebhookDetailPage() {
         <div className="mt-8">
           <DataTable
             title={t('webhooks.deliveries.title')}
+            sortable
+            sorting={deliverySorting}
+            onSortingChange={setDeliverySorting}
             actions={(
               <div className="flex items-center gap-2">
                 <span className="hidden text-xs text-muted-foreground md:inline">

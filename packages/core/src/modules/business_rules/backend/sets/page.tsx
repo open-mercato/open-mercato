@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -44,16 +44,20 @@ export default function RuleSetsListPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'setName', desc: false }])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['business-rules', 'sets', filterValues, page],
+    queryKey: ['business-rules', 'sets', filterValues, page, sorting],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('page', page.toString())
       params.set('pageSize', pageSize.toString())
-      params.set('sortField', 'setName')
-      params.set('sortDir', 'asc')
+      const sort = sorting[0]
+      if (sort?.id) {
+        params.set('sortField', sort.id)
+        params.set('sortDir', sort.desc ? 'desc' : 'asc')
+      }
 
       if (filterValues.enabled) params.set('enabled', filterValues.enabled as string)
       if (filterValues.search) params.set('search', filterValues.search as string)
@@ -241,6 +245,9 @@ export default function RuleSetsListPage() {
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
           error={error ? t('business_rules.sets.messages.loadFailed') : undefined}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>

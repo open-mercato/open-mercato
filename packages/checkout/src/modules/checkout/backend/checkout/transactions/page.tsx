@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -62,6 +62,7 @@ export default function CheckoutTransactionsPage() {
     const raw = searchParams.get('linkId')
     return raw && raw.trim().length > 0 ? raw.trim() : ''
   }, [searchParams])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [rows, setRows] = React.useState<TransactionRow[]>([])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -228,6 +229,9 @@ export default function CheckoutTransactionsPage() {
           title={t('checkout.admin.transactions.title')}
           columns={columns}
           data={rows}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           isLoading={loading}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}

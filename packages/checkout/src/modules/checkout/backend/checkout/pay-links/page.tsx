@@ -2,7 +2,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -45,6 +45,7 @@ function formatDate(value: string | null | undefined): string {
 
 export default function CheckoutPayLinksPage() {
   const t = useT()
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [rows, setRows] = React.useState<LinkRow[]>([])
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
@@ -187,6 +188,9 @@ export default function CheckoutPayLinksPage() {
           title={t('checkout.admin.payLinks.title')}
           columns={columns}
           data={rows}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('checkout.admin.payLinks.searchPlaceholder')}

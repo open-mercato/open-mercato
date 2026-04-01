@@ -5,7 +5,7 @@ import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import type { PluggableList } from 'unified'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -80,6 +80,7 @@ export default function StaffTeamRolesPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [teamFilterOptions, setTeamFilterOptions] = React.useState<Array<{ value: string; label: string }>>([])
 
@@ -219,6 +220,10 @@ export default function StaffTeamRolesPage() {
         pageSize: String(PAGE_SIZE),
       })
       if (search.trim()) params.set('search', search.trim())
+      if (sorting.length > 0) {
+        params.set('sortField', sorting[0].id)
+        params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+      }
       if (typeof filterValues.teamId === 'string' && filterValues.teamId.trim()) {
         params.set('teamId', filterValues.teamId)
       }
@@ -237,7 +242,7 @@ export default function StaffTeamRolesPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [filterValues.teamId, labels.errors.load, labels.groups, page, search])
+  }, [filterValues.teamId, labels.errors.load, labels.groups, page, search, sorting])
 
   React.useEffect(() => {
     void loadTeamRoles()
@@ -325,6 +330,9 @@ export default function StaffTeamRolesPage() {
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={handleSearchChange}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           searchPlaceholder={labels.table.search}
           filters={filters}
           filterValues={filterValues}

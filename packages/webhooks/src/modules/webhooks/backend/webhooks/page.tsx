@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -41,6 +41,7 @@ type ResponsePayload = {
 }
 
 export default function WebhooksListPage() {
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [rows, setRows] = React.useState<Row[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -230,6 +231,9 @@ export default function WebhooksListPage() {
         <Notice title={t('webhooks.list.description')} message={t('webhooks.list.operatorTip')} />
         <DataTable
           title={t('webhooks.list.title')}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           actions={access.canManage ? (
             <Button asChild>
               <Link href="/backend/webhooks/create">{t('webhooks.nav.create')}</Link>

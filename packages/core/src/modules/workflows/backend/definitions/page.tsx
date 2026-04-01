@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -81,16 +81,22 @@ export default function WorkflowDefinitionsListPage() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string } | null>(null)
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['workflow-definitions', 'list', filterValues, page],
+    queryKey: ['workflow-definitions', 'list', filterValues, page, sorting],
     queryFn: async () => {
       const params = new URLSearchParams()
       const offset = (page - 1) * pageSize
       params.set('limit', pageSize.toString())
       params.set('offset', offset.toString())
+
+      if (sorting.length > 0) {
+        params.set('sortField', sorting[0].id)
+        params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+      }
 
       if (filterValues.enabled !== undefined && filterValues.enabled !== '') {
         params.set('enabled', filterValues.enabled as string)
@@ -391,6 +397,9 @@ export default function WorkflowDefinitionsListPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           onRowClick={(row) => router.push(`/backend/definitions/visual-editor?id=${row.id}`)}
           perspective={{
             tableId: 'workflows.definitions.list',

@@ -672,6 +672,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           )}
           columns={columns}
           data={rows}
+          sortable
           sorting={sorting}
           onSortingChange={setSorting}
           isLoading={isLoading}

@@ -307,6 +307,7 @@ export default function SalesChannelOffersListPage() {
           columns={columns}
           data={rows}
           isLoading={isLoading}
+          sortable
           sorting={sorting}
           onSortingChange={setSorting}
           searchValue={search}

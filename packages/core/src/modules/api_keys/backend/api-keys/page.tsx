@@ -3,7 +3,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -47,6 +47,7 @@ function formatDate(value: string | null, t: (key: string, params?: Record<strin
 
 export default function ApiKeysListPage() {
   const [rows, setRows] = React.useState<Row[]>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -169,6 +170,9 @@ export default function ApiKeysListPage() {
       <PageBody>
         <DataTable
           title={t('api_keys.list.title')}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           actions={(
             <Button asChild>
               <Link href="/backend/api-keys/create">{t('api_keys.list.actions.create')}</Link>

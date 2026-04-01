@@ -639,6 +639,7 @@ export default function ProductsDataTable() {
         onFiltersApply={handleFiltersApply}
         onFiltersClear={handleFiltersClear}
         onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
+        sortable
         sorting={sorting}
         onSortingChange={setSorting}
         injectionSpotId="data-table:catalog.products"

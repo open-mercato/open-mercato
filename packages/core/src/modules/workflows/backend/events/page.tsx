@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -41,16 +41,20 @@ export default function WorkflowEventsPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const t = useT()
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'occurredAt', desc: true }])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ['workflows', 'events', filterValues, page],
+    queryKey: ['workflows', 'events', filterValues, page, sorting],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('page', page.toString())
       params.set('pageSize', pageSize.toString())
-      params.set('sortField', 'occurredAt')
-      params.set('sortDir', 'desc')
+
+      if (sorting.length > 0) {
+        params.set('sortField', sorting[0].id)
+        params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+      }
 
       if (filterValues.eventType) params.set('eventType', filterValues.eventType as string)
       if (filterValues.workflowInstanceId) params.set('workflowInstanceId', filterValues.workflowInstanceId as string)
@@ -264,6 +268,9 @@ export default function WorkflowEventsPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           isLoading={isLoading}
           error={error ? t('workflows.events.messages.loadFailed') : undefined}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}

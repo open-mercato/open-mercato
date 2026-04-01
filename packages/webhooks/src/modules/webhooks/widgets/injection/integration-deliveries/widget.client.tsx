@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -58,6 +58,7 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
 
 export default function IntegrationDeliveriesWidget(_props: InjectionWidgetComponentProps) {
   const t = useT()
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [items, setItems] = React.useState<DeliveryRow[]>([])
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
