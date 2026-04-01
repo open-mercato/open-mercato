@@ -111,6 +111,7 @@ describe('SyncExcelUploadConfigWidget', () => {
     window.sessionStorage.setItem('om:sync_excel:session:sync_excel', JSON.stringify({
       uploadId: 'upload-restore-1',
       filename: 'Leads.csv',
+      preview: previewResponse,
       mappingRows: [
         { sourceColumn: 'Record Id', targetField: 'person.externalId' },
         { sourceColumn: 'Email', targetField: 'person.primaryEmail' },
@@ -145,11 +146,9 @@ describe('SyncExcelUploadConfigWidget', () => {
       />,
     )
 
-    expect(screen.getByText('Restoring the last CSV session...')).toBeTruthy()
-    expect(screen.queryByText('Upload CSV')).toBeNull()
-
     await waitFor(() => expect(screen.getByText('Preview and mapping')).toBeTruthy())
     expect(screen.getByText('Import run status')).toBeTruthy()
+    expect(screen.queryByText('Restoring the last CSV session...')).toBeNull()
 
     const statusRow = screen.getAllByText('Status').find((element) => element.tagName === 'TD')?.closest('tr')
     expect(statusRow).toBeTruthy()
@@ -199,6 +198,7 @@ describe('SyncExcelUploadConfigWidget', () => {
     window.sessionStorage.setItem('om:sync_excel:session:sync_excel', JSON.stringify({
       uploadId: 'upload-restore-1',
       filename: 'Leads.csv',
+      preview: previewResponse,
       mappingRows: [
         { sourceColumn: 'Record Id', targetField: 'person.externalId' },
         { sourceColumn: 'Email', targetField: 'person.primaryEmail' },
@@ -229,6 +229,7 @@ describe('SyncExcelUploadConfigWidget', () => {
     window.sessionStorage.setItem('om:sync_excel:session:sync_excel', JSON.stringify({
       uploadId: 'upload-restore-1',
       filename: 'Leads.csv',
+      preview: previewResponse,
       mappingRows: [
         { sourceColumn: 'Record Id', targetField: 'person.externalId' },
         { sourceColumn: 'Email', targetField: 'person.primaryEmail' },
@@ -273,5 +274,41 @@ describe('SyncExcelUploadConfigWidget', () => {
     expect(
       mockApiCall.mock.calls.filter(([url]) => url === '/api/sync_excel/preview?uploadId=upload-restore-1&entityType=customers.person'),
     ).toHaveLength(1)
+  })
+
+  it('restores persisted preview metadata immediately while the API revalidation is still pending', async () => {
+    currentSearchParams = new URLSearchParams('tab=logs&uploadId=upload-restore-1')
+    let resolvePreview: ((value: any) => void) | null = null
+    mockApiCall.mockImplementation((async (url: string) => {
+      if (url.startsWith('/api/sync_excel/preview?')) {
+        return await new Promise((resolve) => {
+          resolvePreview = resolve
+        })
+      }
+      if (url === '/api/data_sync/runs/run-restore-1') {
+        return { ok: true, result: completedRun } as any
+      }
+      return { ok: false, result: null } as any
+    }) as any)
+
+    render(
+      <SyncExcelUploadConfigWidget
+        context={{
+          integrationId: 'sync_excel',
+          state: { isEnabled: true },
+          refreshLogs: mockRefreshLogs,
+          refreshHealthSnapshot: mockRefreshHealthSnapshot,
+        }}
+        data={{ state: { isEnabled: true } }}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('Preview and mapping')).toBeTruthy())
+    expect(screen.getByText('Leads.csv')).toBeTruthy()
+    expect(resolvePreview).toBeTruthy()
+
+    resolvePreview?.({ ok: true, result: previewResponse })
+
+    await waitFor(() => expect(screen.getByText('Ready to import')).toBeTruthy())
   })
 })
