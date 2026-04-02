@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, withDataTableNamespaces, type FilterDef, type FilterValues } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -37,8 +37,6 @@ type ProjectsResponse = {
   totalPages?: number
 }
 
-type StatusTab = { key: string; label: string; value: string | undefined }
-
 const STATUS_BADGE_CLASSES: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
   on_hold: 'bg-yellow-100 text-yellow-800',
@@ -56,7 +54,7 @@ export default function TimesheetProjectsPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [search, setSearch] = React.useState('')
-  const [statusFilter, setStatusFilter] = React.useState<string | undefined>(undefined)
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [canManageProjects, setCanManageProjects] = React.useState(false)
@@ -119,12 +117,18 @@ export default function TimesheetProjectsPage() {
     },
   }), [t])
 
-  const statusTabs: StatusTab[] = React.useMemo(() => [
-    { key: 'all', label: labels.statuses.all, value: undefined },
-    { key: 'active', label: labels.statuses.active, value: 'active' },
-    { key: 'on_hold', label: labels.statuses.on_hold, value: 'on_hold' },
-    { key: 'completed', label: labels.statuses.completed, value: 'completed' },
-  ], [labels.statuses])
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'status',
+      label: labels.table.status,
+      type: 'select',
+      options: [
+        { value: 'active', label: labels.statuses.active },
+        { value: 'on_hold', label: labels.statuses.on_hold },
+        { value: 'completed', label: labels.statuses.completed },
+      ],
+    },
+  ], [labels.table.status, labels.statuses])
 
   const stats = React.useMemo(() => {
     const totalCount = rows.length
@@ -200,7 +204,8 @@ export default function TimesheetProjectsPage() {
         params.set('sortDir', sort.desc ? 'desc' : 'asc')
       }
       if (search.trim()) params.set('q', search.trim())
-      if (statusFilter) params.set('status', statusFilter)
+      const statusValue = filterValues.status
+      if (typeof statusValue === 'string' && statusValue.length > 0) params.set('status', statusValue)
       const payload = await readApiResultOrThrow<ProjectsResponse>(
         `/api/staff/timesheets/time-projects?${params.toString()}`,
         undefined,
@@ -216,7 +221,7 @@ export default function TimesheetProjectsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [labels.errors.load, page, search, sorting, statusFilter])
+  }, [labels.errors.load, page, search, sorting, filterValues])
 
   React.useEffect(() => {
     void loadProjects()
@@ -227,8 +232,13 @@ export default function TimesheetProjectsPage() {
     setPage(1)
   }, [])
 
-  const handleStatusChange = React.useCallback((value: string | undefined) => {
-    setStatusFilter(value)
+  const handleFiltersApply = React.useCallback((values: FilterValues) => {
+    setFilterValues(values)
+    setPage(1)
+  }, [])
+
+  const handleFiltersClear = React.useCallback(() => {
+    setFilterValues({})
     setPage(1)
   }, [])
 
@@ -272,23 +282,6 @@ export default function TimesheetProjectsPage() {
           </div>
         </div>
 
-        <div className="mb-4 flex gap-2">
-          {statusTabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => handleStatusChange(tab.value)}
-              className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
-                statusFilter === tab.value
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
         <DataTable<ProjectRow>
           title={labels.title}
           data={rows}
@@ -297,7 +290,22 @@ export default function TimesheetProjectsPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={handleFiltersApply}
+          onFiltersClear={handleFiltersClear}
+          emptyState={
+            <div className="py-12 text-center">
+              <p className="text-sm text-muted-foreground mb-4">{labels.table.empty}</p>
+              {canManageProjects && (
+                <Button asChild size="sm">
+                  <Link href="/backend/staff/timesheets/projects/create">
+                    {t('staff.timesheets.projects.actions.addFirst', '+ Add first project')}
+                  </Link>
+                </Button>
+              )}
+            </div>
+          }
           actions={canManageProjects ? (
             <Button asChild size="sm">
               <Link href="/backend/staff/timesheets/projects/create">
