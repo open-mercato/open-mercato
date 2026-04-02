@@ -8,6 +8,8 @@ import type {
   StaffTeamMemberComment,
   StaffTeamMemberJobHistory,
   StaffTeamRole,
+  StaffTimeEntry,
+  StaffTimeProject,
 } from '../data/entities'
 
 function buildCrudEvents<TEntity>(entity: string): CrudEventsConfig<TEntity> {
@@ -31,3 +33,7 @@ export const staffTeamMemberAddressCrudEvents = buildCrudEvents<StaffTeamMemberA
 export const staffTeamMemberCommentCrudEvents = buildCrudEvents<StaffTeamMemberComment>('comment')
 export const staffTeamMemberActivityCrudEvents = buildCrudEvents<StaffTeamMemberActivity>('activity')
 export const staffTeamMemberJobHistoryCrudEvents = buildCrudEvents<StaffTeamMemberJobHistory>('job_history')
+
+// Timesheets
+export const staffTimeEntryCrudEvents = buildCrudEvents<StaffTimeEntry>('timesheets.time_entry')
+export const staffTimeProjectCrudEvents = buildCrudEvents<StaffTimeProject>('timesheets.time_project')

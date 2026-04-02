@@ -25,6 +25,16 @@ const events = [
   { id: 'staff.job_history.created', label: 'Job History Created', entity: 'job_history', category: 'crud' },
   { id: 'staff.job_history.updated', label: 'Job History Updated', entity: 'job_history', category: 'crud' },
   { id: 'staff.job_history.deleted', label: 'Job History Deleted', entity: 'job_history', category: 'crud' },
+
+  // Timesheets (Phase 1)
+  { id: 'staff.timesheets.time_entry.created', label: 'Time Entry Created', entity: 'time_entry', category: 'crud' },
+  { id: 'staff.timesheets.time_entry.updated', label: 'Time Entry Updated', entity: 'time_entry', category: 'crud' },
+  { id: 'staff.timesheets.time_entry.deleted', label: 'Time Entry Deleted', entity: 'time_entry', category: 'crud' },
+  { id: 'staff.timesheets.time_entry.timer_started', label: 'Timer Started', entity: 'time_entry', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_entry.timer_stopped', label: 'Timer Stopped', entity: 'time_entry', category: 'lifecycle' },
+  { id: 'staff.timesheets.time_project.created', label: 'Time Project Created', entity: 'time_project', category: 'crud' },
+  { id: 'staff.timesheets.time_project.updated', label: 'Time Project Updated', entity: 'time_project', category: 'crud' },
+  { id: 'staff.timesheets.time_project.deleted', label: 'Time Project Deleted', entity: 'time_project', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

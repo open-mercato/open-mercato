@@ -362,3 +362,195 @@ export class StaffTeamMemberAddress {
   @ManyToOne(() => StaffTeamMember, { fieldName: 'member_id' })
   member!: StaffTeamMember
 }
+
+// --- Timesheets entities (Phase 1) ---
+
+export type StaffTimeEntrySource = 'manual' | 'timer' | 'kiosk' | 'mobile'
+export type StaffTimeProjectStatus = 'active' | 'on_hold' | 'completed'
+export type StaffTimeProjectMemberStatus = 'active' | 'inactive'
+export type StaffTimeEntrySegmentType = 'work' | 'break'
+
+@Entity({ tableName: 'staff_time_entries' })
+@Index({ name: 'staff_time_entries_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'staff_time_entries_member_date_idx', properties: ['organizationId', 'staffMemberId', 'date'] })
+@Index({ name: 'staff_time_entries_project_date_idx', properties: ['organizationId', 'timeProjectId', 'date'] })
+export class StaffTimeEntry {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'staff_member_id', type: 'uuid' })
+  staffMemberId!: string
+
+  @Property({ name: 'date', type: 'date' })
+  date!: Date
+
+  @Property({ name: 'duration_minutes', type: 'integer', default: 0 })
+  durationMinutes: number = 0
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'ended_at', type: Date, nullable: true })
+  endedAt?: Date | null
+
+  @Property({ type: 'text', nullable: true })
+  notes?: string | null
+
+  @Property({ name: 'time_project_id', type: 'uuid', nullable: true })
+  timeProjectId?: string | null
+
+  @Property({ name: 'customer_id', type: 'uuid', nullable: true })
+  customerId?: string | null
+
+  @Property({ name: 'deal_id', type: 'uuid', nullable: true })
+  dealId?: string | null
+
+  @Property({ name: 'order_id', type: 'uuid', nullable: true })
+  orderId?: string | null
+
+  @Enum({ items: ['manual', 'timer', 'kiosk', 'mobile'], type: 'text', name: 'source', default: 'manual' })
+  source: StaffTimeEntrySource = 'manual'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'staff_time_entry_segments' })
+@Index({ name: 'staff_time_entry_segments_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'staff_time_entry_segments_entry_idx', properties: ['timeEntryId'] })
+export class StaffTimeEntrySegment {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'time_entry_id', type: 'uuid' })
+  timeEntryId!: string
+
+  @Property({ name: 'started_at', type: Date })
+  startedAt!: Date
+
+  @Property({ name: 'ended_at', type: Date, nullable: true })
+  endedAt?: Date | null
+
+  @Enum({ items: ['work', 'break'], type: 'text', name: 'segment_type', default: 'work' })
+  segmentType: StaffTimeEntrySegmentType = 'work'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'staff_time_projects' })
+@Index({ name: 'staff_time_projects_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'staff_time_projects_code_unique_idx', properties: ['organizationId', 'tenantId', 'code'], options: { unique: true, where: 'deleted_at IS NULL' } })
+export class StaffTimeProject {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'customer_id', type: 'uuid', nullable: true })
+  customerId?: string | null
+
+  @Property({ type: 'text' })
+  code!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'project_type', type: 'text', nullable: true })
+  projectType?: string | null
+
+  @Enum({ items: ['active', 'on_hold', 'completed'], type: 'text', name: 'status', default: 'active' })
+  status: StaffTimeProjectStatus = 'active'
+
+  @Property({ name: 'owner_user_id', type: 'uuid', nullable: true })
+  ownerUserId?: string | null
+
+  @Property({ name: 'cost_center', type: 'text', nullable: true })
+  costCenter?: string | null
+
+  @Property({ name: 'start_date', type: 'date', nullable: true })
+  startDate?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'staff_time_project_members' })
+@Index({ name: 'staff_time_project_members_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'staff_time_project_members_project_idx', properties: ['organizationId', 'timeProjectId'] })
+@Index({ name: 'staff_time_project_members_member_idx', properties: ['organizationId', 'staffMemberId'] })
+@Index({ name: 'staff_time_project_members_unique_idx', properties: ['organizationId', 'tenantId', 'timeProjectId', 'staffMemberId'], options: { unique: true, where: 'deleted_at IS NULL' } })
+export class StaffTimeProjectMember {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'time_project_id', type: 'uuid' })
+  timeProjectId!: string
+
+  @Property({ name: 'staff_member_id', type: 'uuid' })
+  staffMemberId!: string
+
+  @Property({ type: 'text', nullable: true })
+  role?: string | null
+
+  @Enum({ items: ['active', 'inactive'], type: 'text', name: 'status', default: 'active' })
+  status: StaffTimeProjectMemberStatus = 'active'
+
+  @Property({ name: 'assigned_start_date', type: 'date' })
+  assignedStartDate!: Date
+
+  @Property({ name: 'assigned_end_date', type: 'date', nullable: true })
+  assignedEndDate?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
