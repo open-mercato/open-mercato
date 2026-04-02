@@ -72,6 +72,7 @@ function apiRouteSort(a: string, b: string): number {
 const isTestFile = (name: string) => /\.(test|spec)\.ts$/.test(name)
 const isTsFile = (name: string) => name.endsWith('.ts') && !isTestFile(name)
 const isTsxFile = (name: string) => name.endsWith('.tsx')
+const isPageCandidateTsxFile = (name: string) => name === 'page.tsx' || (name.endsWith('.tsx') && !/^[A-Z]/.test(name))
 const isRouteTs = (name: string) => name === 'route.ts'
 const isWidgetFile = (name: string) => /^widget\.(t|j)sx?$/.test(name)
 const methodNames = new Set(['get', 'post', 'put', 'patch', 'delete'])
@@ -79,12 +80,12 @@ const methodNames = new Set(['get', 'post', 'put', 'patch', 'delete'])
 export const SCAN_CONFIGS = {
   frontendPages: {
     folder: 'frontend',
-    include: isTsxFile,
+    include: isPageCandidateTsxFile,
     sort: staticBeforeDynamicSort,
   },
   backendPages: {
     folder: 'backend',
-    include: isTsxFile,
+    include: isPageCandidateTsxFile,
     sort: staticBeforeDynamicSort,
   },
   apiRoutes: {

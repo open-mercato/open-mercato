@@ -109,6 +109,27 @@ export type ModuleApiRouteFile = {
 
 export type ModuleApi = ModuleApiLegacy | ModuleApiRouteFile
 
+export type RouteMatchParams = Record<string, string | string[]>
+
+export type FrontendRouteManifestEntry = Omit<ModuleRoute, 'Component'> & {
+  moduleId: string
+  load: () => Promise<ModuleRoute['Component']>
+}
+
+export type BackendRouteManifestEntry = Omit<ModuleRoute, 'Component'> & {
+  moduleId: string
+  load: () => Promise<ModuleRoute['Component']>
+}
+
+export type ApiRouteManifestEntry = {
+  moduleId: string
+  kind: 'route-file' | 'legacy'
+  path: string
+  methods: HttpMethod[]
+  method?: HttpMethod
+  load: () => Promise<Record<string, unknown>>
+}
+
 export type ModuleCli = {
   command: string
   run: (argv: string[]) => Promise<void> | void
@@ -196,7 +217,7 @@ function normPath(s: string) {
   return (s.startsWith('/') ? s : '/' + s).replace(/\/+$/, '') || '/'
 }
 
-function matchPattern(pattern: string, pathname: string): Record<string, string | string[]> | undefined {
+export function matchRoutePattern(pattern: string, pathname: string): RouteMatchParams | undefined {
   const p = normPath(pattern)
   const u = normPath(pathname)
   const pSegs = p.split('/').slice(1)
@@ -238,7 +259,7 @@ export function findFrontendMatch(modules: Module[], pathname: string): { route:
   for (const m of modules) {
     const routes = m.frontendRoutes ?? []
     for (const r of routes) {
-      const params = matchPattern(getPattern(r), pathname)
+      const params = matchRoutePattern(getPattern(r), pathname)
       if (params) return { route: r, params }
     }
   }
@@ -248,7 +269,7 @@ export function findBackendMatch(modules: Module[], pathname: string): { route: 
   for (const m of modules) {
     const routes = m.backendRoutes ?? []
     for (const r of routes) {
-      const params = matchPattern(getPattern(r), pathname)
+      const params = matchRoutePattern(getPattern(r), pathname)
       if (params) return { route: r, params }
     }
   }
@@ -259,19 +280,55 @@ export function findApi(modules: Module[], method: HttpMethod, pathname: string)
     const apis = m.apis ?? []
     for (const a of apis) {
       if ('handlers' in a) {
-        const params = matchPattern(a.path, pathname)
+        const params = matchRoutePattern(a.path, pathname)
         const handler = (a.handlers as any)[method]
         if (params && handler) return { handler, params, requireAuth: a.requireAuth, requireRoles: (a as any).requireRoles, metadata: (a as any).metadata }
       } else {
         const al = a as ModuleApiLegacy
         if (al.method !== method) continue
-        const params = matchPattern(al.path, pathname)
+        const params = matchRoutePattern(al.path, pathname)
         if (params) {
           return { handler: al.handler, params, metadata: al.metadata }
         }
       }
     }
   }
+}
+
+export function findRouteManifestMatch<T extends { pattern?: string; path?: string }>(
+  routes: T[],
+  pathname: string
+): { route: T; params: RouteMatchParams } | undefined {
+  for (const route of routes) {
+    const params = matchRoutePattern(route.pattern ?? route.path ?? '/', pathname)
+    if (params) {
+      return { route, params }
+    }
+  }
+}
+
+export function findApiRouteManifestMatch<T extends { path: string; methods: HttpMethod[] }>(
+  routes: T[],
+  method: HttpMethod,
+  pathname: string
+): { route: T; params: RouteMatchParams } | undefined {
+  for (const route of routes) {
+    if (!route.methods.includes(method)) continue
+    const params = matchRoutePattern(route.path, pathname)
+    if (params) {
+      return { route, params }
+    }
+  }
+}
+
+let _backendRouteManifests: BackendRouteManifestEntry[] | null = null
+
+export function registerBackendRouteManifests(routes: BackendRouteManifestEntry[]) {
+  _backendRouteManifests = routes
+}
+
+export function getBackendRouteManifests(): BackendRouteManifestEntry[] {
+  return _backendRouteManifests ?? []
 }
 
 // CLI modules registry - shared between CLI and module workers

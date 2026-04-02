@@ -18,6 +18,32 @@
 - `modules.generated.ts` is a generated contract and cannot be removed or narrowed in one release.
 - Standalone apps resolve module code from compiled package `dist/` trees, so loader generation must work for both source and compiled package layouts.
 
+## Implementation Status
+
+Status on April 2, 2026:
+- Implemented:
+  - `mercato generate watch` and wired it into app/template `yarn dev`
+  - additive generated manifests: `frontend-routes.generated.ts`, `backend-routes.generated.ts`, `api-routes.generated.ts`, `modules.runtime.generated.ts`
+  - catch-all frontend/backend/API routing switched to manifest-based lazy loaders
+  - bootstrap split so app root uses `modules.cli.generated.ts` instead of the full route registry
+- Verification:
+  - `yarn build:packages` passes
+  - `yarn generate` passes
+  - `yarn workspace @open-mercato/app typecheck` passes
+- Measured cold dev results after implementation:
+  - `GET /login`: `15.5s` total, `13.7s` compile
+  - `GET /api/customers/people?page=1&pageSize=20`: `10.8s` total, `10.5s` compile
+  - `GET /backend/customers/people`: `7.8s` total, `7.3s` compile
+  - `next-server` RSS after cold hits: `~7.79 GB`
+- Outcome versus baseline:
+  - backend cold page load improved materially
+  - API cold load improved materially
+  - frontend cold `/login` regressed versus baseline
+  - RSS did not improve; it regressed in the measured run
+- Known caveat:
+  - structural additions are handled without restart
+  - structural deletions still trigger a brief transient Next compile error before the regenerated manifest lands, because the stale generated manifest still references the removed route during invalidation
+
 ## Overview
 
 Open Mercato’s module system is structurally powerful but the current dev path pays for that flexibility in the worst possible place: the first real request. The server itself becomes ready quickly, but the first cold page or API hit forces Turbopack to compile giant catch-all entrypoints whose top-level imports pull in almost every module page, route handler, widget registration, and bootstrap side effect.

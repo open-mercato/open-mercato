@@ -1,8 +1,7 @@
 import ApiDocsExplorer from './Explorer'
-import { getModules } from '@open-mercato/shared/lib/i18n/server'
-import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
+import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 
 type ExplorerOperation = {
   id: string
@@ -52,15 +51,19 @@ function buildTagOrder(doc: any, operations: ExplorerOperation[]): string[] {
 
 export default async function ApiDocsViewerPage() {
   const baseUrl = resolveApiDocsBaseUrl()
-  const modules = getModules()
-  const doc = buildOpenApiDocument(modules, {
-    title: 'Open Mercato API',
-    version: APP_VERSION,
-    description: 'Auto-generated OpenAPI definition for all enabled modules.',
-    servers: [{ url: baseUrl, description: 'Default environment' }],
-    baseUrlForExamples: baseUrl,
-    defaultSecurity: ['bearerAuth'],
-  })
+  const response = await fetch(`${baseUrl}/docs/openapi`, { cache: 'no-store' })
+  const doc = response.ok
+    ? await response.json() as OpenApiDocument
+    : {
+        openapi: '3.1.0',
+        info: {
+          title: 'Open Mercato API',
+          version: APP_VERSION,
+          description: 'Auto-generated OpenAPI definition for all enabled modules.',
+        },
+        servers: [{ url: baseUrl, description: 'Default environment' }],
+        paths: {},
+      } satisfies OpenApiDocument
 
   const operations = collectOperations(doc)
   const tagOrder = buildTagOrder(doc, operations)

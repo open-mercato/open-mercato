@@ -1,12 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApi, type HttpMethod } from '@open-mercato/shared/modules/registry'
+import { findApiRouteManifestMatch, registerBackendRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { modules } from '@/.mercato/generated/modules.generated'
+import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
+import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap'
 
 // Ensure all package registrations are initialized for API routes
 bootstrap()
+registerBackendRouteManifests(backendRoutes)
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -107,6 +109,20 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
     }
   }
   return normalized
+}
+
+function normalizeLoadedMetadata(
+  metadata: unknown,
+  method: HttpMethod,
+  routeKind: 'route-file' | 'legacy'
+): unknown {
+  if (routeKind !== 'legacy') return metadata
+  if (!metadata || typeof metadata !== 'object') return metadata
+  const source = metadata as Record<string, unknown>
+  if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].some((entryMethod) => entryMethod in source)) {
+    return metadata
+  }
+  return { [method]: metadata }
 }
 
 async function checkAuthorization(
@@ -270,8 +286,8 @@ async function handleRequest(
     receivedAt: new Date().toISOString(),
   }
   await emitLifecycleEvent(applicationLifecycleEvents.requestReceived, receivedPayload)
-  const api = findApi(modules, method, pathname)
-  if (!api) {
+  const match = findApiRouteManifestMatch(apiRoutes, method, pathname)
+  if (!match) {
     const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
       ...receivedPayload,
@@ -280,6 +296,21 @@ async function handleRequest(
     })
     return response
   }
+  const loadedRouteModule = await match.route.load()
+  const rawHandler = match.route.kind === 'legacy'
+    ? (loadedRouteModule.default ?? loadedRouteModule[method] ?? loadedRouteModule.handler)
+    : loadedRouteModule[method]
+  if (typeof rawHandler !== 'function') {
+    const response = NextResponse.json({ error: t('api.errors.notFound', 'Not Found') }, { status: 404 })
+    await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
+      ...receivedPayload,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+    })
+    return response
+  }
+  const handler = rawHandler as (req: NextRequest, ctx?: HandlerContext) => Promise<Response> | Response
+  const routeMetadata = normalizeLoadedMetadata(loadedRouteModule.metadata, method, match.route.kind)
   const authResolution = await resolveAuthFromRequestDetailed(req)
   const auth = authResolution.auth
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
@@ -289,7 +320,7 @@ async function handleRequest(
     tenantId: auth?.tenantId ?? null,
   })
 
-  const methodMetadata = extractMethodMetadata(api.metadata, method)
+  const methodMetadata = extractMethodMetadata(routeMetadata, method)
   const authError = await checkAuthorization(methodMetadata, auth, req)
   if (authError) {
     const response = authResolution.status === 'invalid' && authError.status === 401
@@ -332,8 +363,8 @@ async function handleRequest(
   }
 
   try {
-    const handlerContext: HandlerContext = { params: api.params, auth }
-    const response = await runWithCacheTenant(auth?.tenantId ?? null, () => api.handler(req, handlerContext))
+    const handlerContext: HandlerContext = { params: match.params, auth }
+    const response = await runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
     const finalResponse = authResolution.status === 'invalid' && response.status === 401
       ? clearStaffAuthCookies(response)
       : response

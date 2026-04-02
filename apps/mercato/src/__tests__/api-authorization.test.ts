@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
-import type { Module, HttpMethod, ModuleApiRouteFile } from '@open-mercato/shared/modules/registry'
+import type { ApiRouteManifestEntry, HttpMethod } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 // Mock bootstrap to prevent it from running during tests
@@ -40,55 +40,95 @@ type RouteMetadata = {
   requireFeatures?: string[]
 }
 
-type ModuleApiRouteFileWithMeta = ModuleApiRouteFile & {
-  metadata?: Partial<Record<HttpMethod, RouteMetadata>>
-}
-
 function createResponseHandler(label: string) {
   return async () => new Response(`${label} success`)
 }
 
-function getMockedModules(): Module[] {
-  const exampleRoute: ModuleApiRouteFileWithMeta = {
-    path: '/example/test',
-    handlers: {
-      GET: createResponseHandler('GET'),
-      POST: createResponseHandler('POST'),
-      PUT: createResponseHandler('PUT'),
-      PATCH: createResponseHandler('PATCH'),
-      DELETE: createResponseHandler('DELETE'),
+const mockedRouteModule = {
+  GET: createResponseHandler('GET'),
+  POST: createResponseHandler('POST'),
+  PUT: createResponseHandler('PUT'),
+  PATCH: createResponseHandler('PATCH'),
+  DELETE: createResponseHandler('DELETE'),
+  metadata: {
+    GET: {
+      requireAuth: true,
+      requireRoles: ['admin'],
+      requireFeatures: ['example.todos.view'],
     },
-    metadata: {
-      GET: {
-        requireAuth: true,
-        requireRoles: ['admin'],
-        requireFeatures: ['example.todos.view']
-      },
-      POST: {
-        requireAuth: true,
-        requireRoles: ['admin', 'superuser'],
-        requireFeatures: ['example.todos.manage']
-      },
-      PUT: {
-        requireAuth: false
-      },
-      PATCH: {
-        requireAuth: true,
-        requireRoles: ['user']
-      },
-      DELETE: {
-        requireAuth: true,
-        requireRoles: ['superuser']
-      }
-    }
-  }
-  return [{ id: 'example', apis: [exampleRoute] }]
+    POST: {
+      requireAuth: true,
+      requireRoles: ['admin', 'superuser'],
+      requireFeatures: ['example.todos.manage'],
+    },
+    PUT: {
+      requireAuth: false,
+    },
+    PATCH: {
+      requireAuth: true,
+      requireRoles: ['user'],
+    },
+    DELETE: {
+      requireAuth: true,
+      requireRoles: ['superuser'],
+    },
+  },
 }
 
-// Mock the modules registry
-jest.mock('@/generated/modules.generated', () => ({
-  modules: getMockedModules(),
+function getMockedApiRoutes(): ApiRouteManifestEntry[] {
+  return [{
+    moduleId: 'example',
+    kind: 'route-file',
+    path: '/example/test',
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    load: async () => mockedRouteModule,
+  }]
+}
+
+// Mock manifest-based API routing
+jest.mock('@/.mercato/generated/api-routes.generated', () => ({
+  apiRoutes: getMockedApiRoutes(),
 }))
+
+jest.mock('@/.mercato/generated/backend-routes.generated', () => ({
+  backendRoutes: [],
+}))
+
+jest.mock('@open-mercato/shared/modules/registry', () => {
+  const actual = jest.requireActual('@open-mercato/shared/modules/registry')
+  return {
+    ...actual,
+    registerBackendRouteManifests: jest.fn(),
+    findApiRouteManifestMatch: jest.fn((_routes: ApiRouteManifestEntry[], method: HttpMethod, pathname: string) => {
+      const route = getMockedApiRoutes().find((entry) => entry.path === pathname && entry.methods.includes(method))
+      return route ? { route, params: {} } : undefined
+    }),
+  }
+})
+
+function getMockedModules() {
+  return [{
+    id: 'example',
+    apis: [{
+      path: '/example/test',
+      handlers: {
+        GET: mockedRouteModule.GET,
+        POST: mockedRouteModule.POST,
+        PUT: mockedRouteModule.PUT,
+        PATCH: mockedRouteModule.PATCH,
+        DELETE: mockedRouteModule.DELETE,
+      },
+      metadata: mockedRouteModule.metadata,
+    }],
+    metadata: {
+      GET: mockedRouteModule.metadata.GET,
+      POST: mockedRouteModule.metadata.POST,
+      PUT: mockedRouteModule.metadata.PUT,
+      PATCH: mockedRouteModule.metadata.PATCH,
+      DELETE: mockedRouteModule.metadata.DELETE,
+    },
+  }]
+}
 
 // Register modules for the registration-based pattern
 import { registerModules } from '@open-mercato/shared/lib/i18n/server'

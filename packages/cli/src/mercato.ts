@@ -1026,6 +1026,28 @@ export async function run(argv = process.argv) {
     ],
   } as any)
   
+  const runGeneratorSuite = async (quiet: boolean) => {
+    const { createResolver } = await import('./lib/resolver')
+    const {
+      generateEntityIds,
+      generateModuleRegistry,
+      generateModuleRegistryCli,
+      generateModuleEntities,
+      generateModuleDi,
+      generateModulePackageSources,
+      generateOpenApi,
+    } = await import('./lib/generators')
+    const resolver = createResolver()
+
+    await generateEntityIds({ resolver, quiet })
+    await generateModuleRegistry({ resolver, quiet })
+    await generateModuleRegistryCli({ resolver, quiet })
+    await generateModuleEntities({ resolver, quiet })
+    await generateModuleDi({ resolver, quiet })
+    await generateModulePackageSources({ resolver, quiet })
+    await generateOpenApi({ resolver, quiet })
+  }
+
   // Built-in CLI module: generate
   all.push({
     id: 'generate',
@@ -1033,20 +1055,79 @@ export async function run(argv = process.argv) {
       {
         command: 'all',
         run: async (args: string[]) => {
-          const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
-          const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await generateEntityIds({ resolver, quiet })
-          await generateModuleRegistry({ resolver, quiet })
-          await generateModuleRegistryCli({ resolver, quiet })
-          await generateModuleEntities({ resolver, quiet })
-          await generateModuleDi({ resolver, quiet })
-          await generateModulePackageSources({ resolver, quiet })
-          await generateOpenApi({ resolver, quiet })
+          await runGeneratorSuite(quiet)
           console.log('All generators completed.')
+        },
+      },
+      {
+        command: 'watch',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { calculateStructureChecksum } = await import('./lib/utils')
+          const quiet = args.includes('--quiet') || args.includes('-q')
+          const intervalArg = args.find((arg) => arg.startsWith('--interval='))
+          const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
+          const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
+          let previousChecksum = ''
+          let running = false
+          let pending = false
+
+          const getTrackedPaths = () => {
+            const resolver = createResolver()
+            const tracked = new Set<string>([
+              path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+              path.join(resolver.getAppDir(), 'src', 'modules'),
+            ])
+            for (const entry of resolver.loadEnabledModules()) {
+              const roots = resolver.getModulePaths(entry)
+              tracked.add(roots.appBase)
+              tracked.add(roots.pkgBase)
+            }
+            return Array.from(tracked)
+          }
+
+          const runWatchGeneration = async (reason: string) => {
+            if (running) {
+              pending = true
+              return
+            }
+            running = true
+            try {
+              if (!quiet) {
+                console.log(`[generate:watch] Regenerating (${reason})...`)
+              }
+              await runGeneratorSuite(true)
+              if (!quiet) {
+                console.log('[generate:watch] Generators completed.')
+              }
+            } catch (error) {
+              console.error('[generate:watch] Generation failed:', error instanceof Error ? error.message : error)
+            } finally {
+              running = false
+              if (pending) {
+                pending = false
+                await runWatchGeneration('queued change')
+              }
+            }
+          }
+
+          await runWatchGeneration('initial')
+          previousChecksum = calculateStructureChecksum(getTrackedPaths())
+          if (!quiet) {
+            console.log(`[generate:watch] Watching structural module files every ${intervalMs}ms`)
+          }
+
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            await new Promise((resolve) => setTimeout(resolve, intervalMs))
+            const nextChecksum = calculateStructureChecksum(getTrackedPaths())
+            if (nextChecksum === previousChecksum) continue
+            previousChecksum = nextChecksum
+            await runWatchGeneration('structure change')
+          }
         },
       },
       {

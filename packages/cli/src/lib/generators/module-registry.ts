@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import type { PackageResolver } from '../resolver'
 import {
   calculateStructureChecksum,
@@ -32,6 +33,60 @@ type DashboardWidgetEntry = {
   importPath: string
 }
 
+type RuntimeApiMethodMetadata = {
+  requireAuth?: boolean
+  requireRoles?: string[]
+  requireFeatures?: string[]
+  rateLimit?: {
+    points: number
+    duration: number
+    blockDuration?: number
+    keyPrefix?: string
+  }
+}
+
+type PageRouteGenerationResult = {
+  eagerRoutes: string[]
+  runtimeRoutes: string[]
+  manifestRoutes: string[]
+}
+
+type ApiRouteGenerationResult = {
+  eagerApis: string[]
+  runtimeApis: string[]
+  manifestApis: string[]
+}
+
+type SerializablePageMetadata = {
+  requireAuth?: boolean
+  requireRoles?: string[]
+  requireFeatures?: string[]
+  requireCustomerAuth?: boolean
+  requireCustomerFeatures?: string[]
+  title?: string
+  titleKey?: string
+  pageTitle?: string
+  pageTitleKey?: string
+  group?: string
+  groupKey?: string
+  pageGroup?: string
+  pageGroupKey?: string
+  order?: number
+  pageOrder?: number
+  priority?: number
+  pagePriority?: number
+  navHidden?: boolean
+  breadcrumb?: Array<{ label: string; labelKey?: string; href?: string }>
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
+  placement?: {
+    section: string
+    sectionLabel?: string
+    sectionLabelKey?: string
+    order?: number
+  }
+  icon?: string
+}
+
 function scanDashboardWidgetEntries(options: {
   modId: string
   roots: ModuleRoots
@@ -51,7 +106,160 @@ function scanDashboardWidgetEntries(options: {
   })
 }
 
-function processPageFiles(options: {
+async function loadModuleExportsFromSource<T = Record<string, unknown>>(sourceFile: string): Promise<T | null> {
+  try {
+    return await import(pathToFileURL(sourceFile).href) as T
+  } catch {
+    return null
+  }
+}
+
+function toLiteral(value: unknown): string {
+  return JSON.stringify(value)
+}
+
+function normalizeApiMethodMetadata(raw: unknown): RuntimeApiMethodMetadata | null {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as Record<string, unknown>
+  const normalized: RuntimeApiMethodMetadata = {}
+
+  if (typeof source.requireAuth === 'boolean') {
+    normalized.requireAuth = source.requireAuth
+  }
+  if (Array.isArray(source.requireRoles)) {
+    normalized.requireRoles = source.requireRoles.filter((role): role is string => typeof role === 'string' && role.length > 0)
+  }
+  if (Array.isArray(source.requireFeatures)) {
+    normalized.requireFeatures = source.requireFeatures.filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+  }
+  if (source.rateLimit && typeof source.rateLimit === 'object') {
+    const rateLimit = source.rateLimit as Record<string, unknown>
+    if (typeof rateLimit.points === 'number' && typeof rateLimit.duration === 'number') {
+      normalized.rateLimit = {
+        points: rateLimit.points,
+        duration: rateLimit.duration,
+        blockDuration: typeof rateLimit.blockDuration === 'number' ? rateLimit.blockDuration : undefined,
+        keyPrefix: typeof rateLimit.keyPrefix === 'string' ? rateLimit.keyPrefix : undefined,
+      }
+    }
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : null
+}
+
+function buildApiMetadataLiteral(metadata: unknown, method?: HttpMethod): string {
+  if (!metadata || typeof metadata !== 'object') return 'undefined'
+  const source = metadata as Record<string, unknown>
+  const methods: HttpMethod[] = method ? [method] : ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
+  const normalized: Partial<Record<HttpMethod, RuntimeApiMethodMetadata>> = {}
+
+  for (const entryMethod of methods) {
+    const candidate = method ? source : source[entryMethod]
+    const value = normalizeApiMethodMetadata(candidate)
+    if (value) {
+      normalized[entryMethod] = value
+    }
+  }
+
+  return Object.keys(normalized).length > 0 ? toLiteral(normalized) : 'undefined'
+}
+
+function resolveApiPathFromMetadata(metadata: unknown, fallbackPath: string): string {
+  if (!metadata || typeof metadata !== 'object') return fallbackPath
+  const candidate = (metadata as Record<string, unknown>).path
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : fallbackPath
+}
+
+function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return []
+  }
+
+  return (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as HttpMethod[]).filter((method) => {
+    const pattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\b|export\\s+(?:const|let|var)\\s+${method}\\b`)
+    return pattern.test(source)
+  })
+}
+
+function buildPageRouteProps(metaExpr: string, routePath: string): string {
+  return `pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
+}
+
+function normalizeBreadcrumb(raw: unknown): SerializablePageMetadata['breadcrumb'] {
+  if (!Array.isArray(raw)) return undefined
+  const breadcrumb = raw
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const source = entry as Record<string, unknown>
+      if (typeof source.label !== 'string') return null
+      return {
+        label: source.label,
+        labelKey: typeof source.labelKey === 'string' ? source.labelKey : undefined,
+        href: typeof source.href === 'string' ? source.href : undefined,
+      }
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+  return breadcrumb.length > 0 ? breadcrumb : undefined
+}
+
+function normalizePlacement(raw: unknown): SerializablePageMetadata['placement'] {
+  if (!raw || typeof raw !== 'object') return undefined
+  const source = raw as Record<string, unknown>
+  if (typeof source.section !== 'string' || source.section.length === 0) return undefined
+  return {
+    section: source.section,
+    sectionLabel: typeof source.sectionLabel === 'string' ? source.sectionLabel : undefined,
+    sectionLabelKey: typeof source.sectionLabelKey === 'string' ? source.sectionLabelKey : undefined,
+    order: typeof source.order === 'number' ? source.order : undefined,
+  }
+}
+
+function normalizePageMetadata(raw: unknown): SerializablePageMetadata | null {
+  if (!raw || typeof raw !== 'object') return null
+  const source = raw as Record<string, unknown>
+  const normalized: SerializablePageMetadata = {}
+
+  if (typeof source.requireAuth === 'boolean') normalized.requireAuth = source.requireAuth
+  if (Array.isArray(source.requireRoles)) normalized.requireRoles = source.requireRoles.filter((role): role is string => typeof role === 'string' && role.length > 0)
+  if (Array.isArray(source.requireFeatures)) normalized.requireFeatures = source.requireFeatures.filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+  if (typeof source.requireCustomerAuth === 'boolean') normalized.requireCustomerAuth = source.requireCustomerAuth
+  if (Array.isArray(source.requireCustomerFeatures)) normalized.requireCustomerFeatures = source.requireCustomerFeatures.filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
+  if (typeof source.title === 'string') normalized.title = source.title
+  if (typeof source.titleKey === 'string') normalized.titleKey = source.titleKey
+  if (typeof source.pageTitle === 'string') normalized.pageTitle = source.pageTitle
+  if (typeof source.pageTitleKey === 'string') normalized.pageTitleKey = source.pageTitleKey
+  if (typeof source.group === 'string') normalized.group = source.group
+  if (typeof source.groupKey === 'string') normalized.groupKey = source.groupKey
+  if (typeof source.pageGroup === 'string') normalized.pageGroup = source.pageGroup
+  if (typeof source.pageGroupKey === 'string') normalized.pageGroupKey = source.pageGroupKey
+  if (typeof source.order === 'number') normalized.order = source.order
+  if (typeof source.pageOrder === 'number') normalized.pageOrder = source.pageOrder
+  if (typeof source.priority === 'number') normalized.priority = source.priority
+  if (typeof source.pagePriority === 'number') normalized.pagePriority = source.pagePriority
+  if (typeof source.navHidden === 'boolean') normalized.navHidden = source.navHidden
+  if (typeof source.pageContext === 'string' && ['main', 'admin', 'settings', 'profile'].includes(source.pageContext)) {
+    normalized.pageContext = source.pageContext as SerializablePageMetadata['pageContext']
+  }
+  const breadcrumb = normalizeBreadcrumb(source.breadcrumb)
+  if (breadcrumb) normalized.breadcrumb = breadcrumb
+  const placement = normalizePlacement(source.placement)
+  if (placement) normalized.placement = placement
+  if (typeof source.icon === 'string') normalized.icon = source.icon
+
+  return Object.keys(normalized).length > 0 ? normalized : null
+}
+
+async function loadPageMetadataLiteral(sourceFile: string, metaPath?: string): Promise<string> {
+  const metadataModule = metaPath ?? sourceFile
+  const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(metadataModule)
+  const normalized = normalizePageMetadata(sourceModule?.metadata)
+  return normalized ? `(${toLiteral(normalized)} as any)` : '(undefined as any)'
+}
+
+async function processPageFiles(options: {
   files: Array<{ relPath: string; fromApp: boolean }>
   type: 'frontend' | 'backend'
   modId: string
@@ -59,14 +267,17 @@ function processPageFiles(options: {
   pkgDir: string
   appImportBase: string
   pkgImportBase: string
-  imports: string[]
+  eagerImports: string[]
+  runtimeImports: string[]
   importIdRef: { value: number }
-}): string[] {
-  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, imports, importIdRef } = options
+}): Promise<PageRouteGenerationResult> {
+  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, importIdRef } = options
   const prefix = type === 'frontend' ? 'C' : 'B'
   const modPrefix = type === 'frontend' ? 'CM' : 'BM'
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
-  const routes: string[] = []
+  const eagerRoutes: string[] = []
+  const runtimeRoutes: string[] = []
+  const manifestRoutes: string[] = []
 
   // Next-style page.tsx files
   for (const { relPath, fromApp } of files.filter(({ relPath: f }) => f.endsWith('/page.tsx') || f === 'page.tsx')) {
@@ -74,6 +285,7 @@ function processPageFiles(options: {
     segs.pop()
     const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+    const runtimeMetaName = `${metaPrefix}Runtime${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const sub = segs.length ? `${segs.join('/')}/page` : 'page'
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${sub}`
     const routePath = type === 'frontend'
@@ -85,19 +297,30 @@ function processPageFiles(options: {
     ]
     const metaPath = metaCandidates.find((p) => fs.existsSync(p))
     let metaExpr = 'undefined'
+    let runtimeMetaExpr = 'undefined'
+    let manifestMetaExpr = 'undefined'
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
-      imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+      eagerImports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+      runtimeImports.push(`import * as ${runtimeMetaName} from '${metaImportPath}'`)
       metaExpr = `(${metaImportName}.metadata as any)`
-      imports.push(`import ${importName} from '${importPath}'`)
+      runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
+      manifestMetaExpr = await loadPageMetadataLiteral(metaPath, metaPath)
+      eagerImports.push(`import ${importName} from '${importPath}'`)
     } else {
       metaExpr = `(${pageModName} as any).metadata`
-      imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
+      runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
+      manifestMetaExpr = await loadPageMetadataLiteral(fromApp ? path.join(appDir, ...segs, 'page.tsx') : path.join(pkgDir, ...segs, 'page.tsx'))
+      eagerImports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
+      runtimeImports.push(`import * as ${runtimeMetaName} from '${importPath}'`)
     }
-    const baseProps = `pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb`
-    const extraProps = type === 'backend' ? `, pageContext: (${metaExpr})?.pageContext` : ''
-    routes.push(`{ ${baseProps}${extraProps}, Component: ${importName} }`)
+    const baseProps = buildPageRouteProps(metaExpr, routePath)
+    const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
+    const manifestBaseProps = buildPageRouteProps(manifestMetaExpr, routePath)
+    eagerRoutes.push(`{ ${baseProps}, Component: ${importName} }`)
+    runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: async (props: any) => { const mod = await import('${importPath}'); const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }`)
+    manifestRoutes.push(`{ moduleId: '${modId}', ${manifestBaseProps}, load: async () => { const mod = await import('${importPath}'); return (mod.default ?? mod) as any } }`)
   }
 
   // Back-compat direct files (old-style pages like login.tsx instead of login/page.tsx)
@@ -108,6 +331,7 @@ function processPageFiles(options: {
     const routeSegs = [...segs, name].filter(Boolean)
     const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
     const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
+    const runtimeMetaName = `${metaPrefix}Runtime${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
     const routePath = type === 'frontend'
       ? '/' + (routeSegs.join('/') || '')
@@ -120,24 +344,39 @@ function processPageFiles(options: {
     ]
     const metaPath = metaCandidates.find((p) => fs.existsSync(p))
     let metaExpr = 'undefined'
+    let runtimeMetaExpr = 'undefined'
+    let manifestMetaExpr = 'undefined'
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       const metaBase = path.basename(metaPath)
       const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
       const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, metaImportSub].join('/')}`
-      imports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+      eagerImports.push(`import * as ${metaImportName} from '${metaImportPath}'`)
+      runtimeImports.push(`import * as ${runtimeMetaName} from '${metaImportPath}'`)
       metaExpr = type === 'frontend' ? `(${metaImportName}.metadata as any)` : `${metaImportName}.metadata`
-      imports.push(`import ${importName} from '${importPath}'`)
+      runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
+      manifestMetaExpr = await loadPageMetadataLiteral(metaPath, metaPath)
+      eagerImports.push(`import ${importName} from '${importPath}'`)
     } else {
       metaExpr = `(${pageModName} as any).metadata`
-      imports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
+      runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
+      manifestMetaExpr = await loadPageMetadataLiteral(fromApp ? path.join(appDir, ...segs, file) : path.join(pkgDir, ...segs, file))
+      eagerImports.push(`import ${importName}, * as ${pageModName} from '${importPath}'`)
+      runtimeImports.push(`import * as ${runtimeMetaName} from '${importPath}'`)
     }
-    const baseProps = `pattern: '${routePath || '/'}', requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey`
-    const extraFe = type === 'frontend' ? `, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled` : `, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext`
-    routes.push(`{ ${baseProps}${extraFe}, Component: ${importName} }`)
+    const baseProps = buildPageRouteProps(metaExpr, routePath)
+    const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
+    const manifestBaseProps = buildPageRouteProps(manifestMetaExpr, routePath)
+    eagerRoutes.push(`{ ${baseProps}, Component: ${importName} }`)
+    runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: async (props: any) => { const mod = await import('${importPath}'); const Component = (mod.default ?? mod) as any; return createElement(Component, props) } }`)
+    manifestRoutes.push(`{ moduleId: '${modId}', ${manifestBaseProps}, load: async () => { const mod = await import('${importPath}'); return (mod.default ?? mod) as any } }`)
   }
 
-  return routes
+  return {
+    eagerRoutes,
+    runtimeRoutes,
+    manifestRoutes,
+  }
 }
 
 async function processApiRoutes(options: {
@@ -145,15 +384,19 @@ async function processApiRoutes(options: {
   modId: string
   appImportBase: string
   pkgImportBase: string
-  imports: string[]
+  eagerImports: string[]
   importIdRef: { value: number }
-}): Promise<string[]> {
-  const { roots, modId, appImportBase, pkgImportBase, imports, importIdRef } = options
+}): Promise<ApiRouteGenerationResult> {
+  const { roots, modId, appImportBase, pkgImportBase, eagerImports, importIdRef } = options
   const apiApp = path.join(roots.appBase, 'api')
   const apiPkg = path.join(roots.pkgBase, 'api')
-  if (!fs.existsSync(apiApp) && !fs.existsSync(apiPkg)) return []
+  if (!fs.existsSync(apiApp) && !fs.existsSync(apiPkg)) {
+    return { eagerApis: [], runtimeApis: [], manifestApis: [] }
+  }
 
-  const apis: string[] = []
+  const eagerApis: string[] = []
+  const runtimeApis: string[] = []
+  const manifestApis: string[] = []
 
   // route.ts aggregations
   const routeFiles = scanModuleDir(roots, SCAN_CONFIGS.apiRoutes)
@@ -167,10 +410,18 @@ async function processApiRoutes(options: {
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
     const routePath = '/' + reqSegs.filter(Boolean).join('/')
     const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
+    const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
+    const metadata = sourceModule?.metadata
+    const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
+    const exportedMethods = detectExportedHttpMethods(sourceFile)
+    if (exportedMethods.length === 0) continue
+    const metadataLiteral = buildApiMetadataLiteral(metadata)
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
-    imports.push(`import * as ${importName} from '${importPath}'`)
-    apis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    eagerImports.push(`import * as ${importName} from '${importPath}'`)
+    eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    runtimeApis.push(`{ path: '${resolvedPath}', metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((method) => `${method}: async (req: Request, ctx?: any) => { const mod = await import('${importPath}'); return (mod as any).${method}(req, ctx) }`).join(', ')} } }`)
+    manifestApis.push(`{ moduleId: '${modId}', kind: 'route-file', path: '${resolvedPath}', methods: [${exportedMethods.map((method) => `'${method}'`).join(', ')}], load: async () => import('${importPath}') }`)
   }
 
   // Single files (plain .ts, not route.ts, not tests, skip method dirs)
@@ -187,10 +438,18 @@ async function processApiRoutes(options: {
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
     const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
     const sourceFile = fromApp ? appFile : pkgFile
+    const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
+    const metadata = sourceModule?.metadata
+    const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
+    const exportedMethods = detectExportedHttpMethods(sourceFile)
+    if (exportedMethods.length === 0) continue
+    const metadataLiteral = buildApiMetadataLiteral(metadata)
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
-    imports.push(`import * as ${importName} from '${importPath}'`)
-    apis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    eagerImports.push(`import * as ${importName} from '${importPath}'`)
+    eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? '${routePath}'), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
+    runtimeApis.push(`{ path: '${resolvedPath}', metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((entryMethod) => `${entryMethod}: async (req: Request, ctx?: any) => { const mod = await import('${importPath}'); return (mod as any).${entryMethod}(req, ctx) }`).join(', ')} } }`)
+    manifestApis.push(`{ moduleId: '${modId}', kind: 'route-file', path: '${resolvedPath}', methods: [${exportedMethods.map((entryMethod) => `'${entryMethod}'`).join(', ')}], load: async () => import('${importPath}') }`)
   }
 
   // Legacy per-method
@@ -217,14 +476,24 @@ async function processApiRoutes(options: {
       const importPath = `${fromApp ? appImportBase : pkgImportBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
       const metaName = `RM${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
       const sourceFile = path.join(methodDir, ...segs, file)
+      const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
+      const metadata = sourceModule?.metadata
+      const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
+      const metadataLiteral = buildApiMetadataLiteral(metadata, method)
       const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
       const docsPart = hasOpenApi ? `, docs: ${metaName}.openApi` : ''
-      imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
-      apis.push(`{ method: '${method}', path: (${metaName}.metadata?.path ?? '${routePath}'), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
+      eagerImports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+      eagerApis.push(`{ method: '${method}', path: (${metaName}.metadata?.path ?? '${routePath}'), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
+      runtimeApis.push(`{ method: '${method}', path: '${resolvedPath}', handler: async (req: Request, ctx?: any) => { const mod = await import('${importPath}'); const handler = ((mod as any).default ?? (mod as any).${method} ?? (mod as any).handler) as any; return handler(req, ctx) }, metadata: ${metadataLiteral} }`)
+      manifestApis.push(`{ moduleId: '${modId}', kind: 'legacy', method: '${method}', path: '${resolvedPath}', methods: ['${method}'], load: async () => import('${importPath}') }`)
     }
   }
 
-  return apis
+  return {
+    eagerApis,
+    runtimeApis,
+    manifestApis,
+  }
 }
 
 function processSubscribers(options: {
@@ -233,9 +502,10 @@ function processSubscribers(options: {
   appImportBase: string
   pkgImportBase: string
   imports: string[]
+  extraImports?: string[]
   importIdRef: { value: number }
 }): string[] {
-  const { roots, modId, appImportBase, pkgImportBase, imports, importIdRef } = options
+  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports, importIdRef } = options
   const files = scanModuleDir(roots, SCAN_CONFIGS.subscribers)
   const subscribers: string[] = []
   for (const { relPath, fromApp } of files) {
@@ -246,6 +516,7 @@ function processSubscribers(options: {
     const metaName = `SubscriberMeta${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
     const importPath = `${fromApp ? appImportBase : pkgImportBase}/subscribers/${[...segs, name].join('/')}`
     imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+    extraImports?.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
     const sid = [modId, ...segs, name].filter(Boolean).join(':')
     subscribers.push(
       `{ id: (((${metaName}.metadata) as any)?.id || '${sid}'), event: ((${metaName}.metadata) as any)?.event, persistent: ((${metaName}.metadata) as any)?.persistent, sync: ((${metaName}.metadata) as any)?.sync, priority: ((${metaName}.metadata) as any)?.priority, handler: ${importName} }`
@@ -260,9 +531,10 @@ async function processWorkers(options: {
   appImportBase: string
   pkgImportBase: string
   imports: string[]
+  extraImports?: string[]
   importIdRef: { value: number }
 }): Promise<string[]> {
-  const { roots, modId, appImportBase, pkgImportBase, imports, importIdRef } = options
+  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports, importIdRef } = options
   const files = scanModuleDir(roots, SCAN_CONFIGS.workers)
   const workers: string[] = []
   for (const { relPath, fromApp } of files) {
@@ -274,6 +546,7 @@ async function processWorkers(options: {
     const importName = `Worker${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
     const metaName = `WorkerMeta${importIdRef.value++}_${toVar(modId)}_${toVar([...segs, name].join('_') || 'index')}`
     imports.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
+    extraImports?.push(`import ${importName}, * as ${metaName} from '${importPath}'`)
     const wid = [modId, 'workers', ...segs, name].filter(Boolean).join(':')
     workers.push(
       `{ id: (${metaName}.metadata as { id?: string })?.id || '${wid}', queue: (${metaName}.metadata as { queue: string }).queue, concurrency: (${metaName}.metadata as { concurrency?: number })?.concurrency ?? 1, handler: ${importName} as (job: unknown, ctx: unknown) => Promise<void> }`
@@ -288,8 +561,9 @@ function processTranslations(options: {
   appImportBase: string
   pkgImportBase: string
   imports: string[]
+  extraImports?: string[]
 }): string[] {
-  const { roots, modId, appImportBase, pkgImportBase, imports } = options
+  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports } = options
   const i18nApp = path.join(roots.appBase, 'i18n')
   const i18nCore = path.join(roots.pkgBase, 'i18n')
   const locales = new Set<string>()
@@ -308,16 +582,20 @@ function processTranslations(options: {
       const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
       imports.push(`import ${cName} from '${pkgImportBase}/i18n/${locale}.json'`)
       imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
+      extraImports?.push(`import ${cName} from '${pkgImportBase}/i18n/${locale}.json'`)
+      extraImports?.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
       translations.push(
         `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
       )
     } else if (appHas) {
       const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
       imports.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
+      extraImports?.push(`import ${aName} from '${appImportBase}/i18n/${locale}.json'`)
       translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
     } else if (coreHas) {
       const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
       imports.push(`import ${cName} from '${pkgImportBase}/i18n/${locale}.json'`)
+      extraImports?.push(`import ${cName} from '${pkgImportBase}/i18n/${locale}.json'`)
       translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
     }
   }
@@ -362,6 +640,7 @@ function resolveConventionFile(
   modId: string,
   importIdRef: { value: number },
   imports: string[],
+  extraImports?: string[],
   importStyle: 'namespace' | 'default' = 'namespace'
 ): { importName: string; importPath: string; fromApp: boolean } | null {
   const resolved = resolveModuleFile(roots, imps, relativePath)
@@ -369,8 +648,10 @@ function resolveConventionFile(
   const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
   if (importStyle === 'default') {
     imports.push(`import ${importName} from '${resolved.importPath}'`)
+    extraImports?.push(`import ${importName} from '${resolved.importPath}'`)
   } else {
     imports.push(`import * as ${importName} from '${resolved.importPath}'`)
+    extraImports?.push(`import * as ${importName} from '${resolved.importPath}'`)
   }
   return { importName, importPath: resolved.importPath, fromApp: resolved.fromApp }
 }
@@ -382,6 +663,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const outputDir = resolver.getOutputDir()
   const outFile = path.join(outputDir, 'modules.generated.ts')
   const checksumFile = path.join(outputDir, 'modules.generated.checksum')
+  const runtimeOutFile = path.join(outputDir, 'modules.runtime.generated.ts')
+  const runtimeChecksumFile = path.join(outputDir, 'modules.runtime.generated.checksum')
+  const frontendRoutesOutFile = path.join(outputDir, 'frontend-routes.generated.ts')
+  const frontendRoutesChecksumFile = path.join(outputDir, 'frontend-routes.generated.checksum')
+  const backendRoutesOutFile = path.join(outputDir, 'backend-routes.generated.ts')
+  const backendRoutesChecksumFile = path.join(outputDir, 'backend-routes.generated.checksum')
+  const apiRoutesOutFile = path.join(outputDir, 'api-routes.generated.ts')
+  const apiRoutesChecksumFile = path.join(outputDir, 'api-routes.generated.checksum')
   const widgetsOutFile = path.join(outputDir, 'dashboard-widgets.generated.ts')
   const widgetsChecksumFile = path.join(outputDir, 'dashboard-widgets.generated.checksum')
   const injectionWidgetsOutFile = path.join(outputDir, 'injection-widgets.generated.ts')
@@ -458,7 +747,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   }
 
   const imports: string[] = []
+  const runtimeImports: string[] = []
+  const frontendRouteManifestImports: string[] = []
+  const backendRouteManifestImports: string[] = []
   const moduleDecls: string[] = []
+  const runtimeModuleDecls: string[] = []
+  const frontendRouteManifestDecls: string[] = []
+  const backendRouteManifestDecls: string[] = []
+  const apiRouteManifestDecls: string[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
@@ -526,6 +822,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
     const apis: string[] = []
+    const runtimeFrontendRoutes: string[] = []
+    const runtimeBackendRoutes: string[] = []
+    const runtimeApis: string[] = []
     let cliImportName: string | null = null
     const translations: string[] = []
     const subscribers: string[] = []
@@ -555,6 +854,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
       imports.push(`import * as ${infoImportName} from '${importPath}'`)
+      runtimeImports.push(`import * as ${infoImportName} from '${importPath}'`)
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require(indexTs)
@@ -570,7 +870,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const fePkg = path.join(roots.pkgBase, 'frontend')
       const feFiles = scanModuleDir(roots, SCAN_CONFIGS.frontendPages)
       if (feFiles.length) {
-        frontendRoutes.push(...processPageFiles({
+        const generatedFrontendRoutes = await processPageFiles({
           files: feFiles,
           type: 'frontend',
           modId,
@@ -578,15 +878,19 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           pkgDir: fePkg,
           appImportBase,
           pkgImportBase: imps.pkgBase,
-          imports,
+          eagerImports: imports,
+          runtimeImports,
           importIdRef,
-        }))
+        })
+        frontendRoutes.push(...generatedFrontendRoutes.eagerRoutes)
+        runtimeFrontendRoutes.push(...generatedFrontendRoutes.runtimeRoutes)
+        frontendRouteManifestDecls.push(...generatedFrontendRoutes.manifestRoutes)
       }
     }
 
     // 3. Entity extensions: data/extensions.ts
     {
-      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports)
+      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports, runtimeImports)
       if (ext) extensionsImportName = ext.importName
     }
 
@@ -600,13 +904,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
         const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
         imports.push(`import * as ${importName} from '${importPath}'`)
+        runtimeImports.push(`import * as ${importName} from '${importPath}'`)
         featuresImportName = importName
       }
     }
 
     // 5. Custom entities: ce.ts
     {
-      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports)
+      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports, runtimeImports)
       if (ce) customEntitiesImportName = ce.importName
     }
 
@@ -853,7 +1158,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 11. Setup: setup.ts
     {
-      const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
+      const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports, runtimeImports)
       if (setup) setupImportName = setup.importName
     }
 
@@ -863,13 +1168,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       if (resolved) {
         const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
         imports.push(`import * as ${importName} from '${resolved.importPath}'`)
+        runtimeImports.push(`import * as ${importName} from '${resolved.importPath}'`)
         integrationImportName = importName
       }
     }
 
     // 12. Custom fields: data/fields.ts
     {
-      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports)
+      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports, runtimeImports)
       if (fields) fieldsImportName = fields.importName
     }
 
@@ -879,7 +1185,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const bePkg = path.join(roots.pkgBase, 'backend')
       const beFiles = scanModuleDir(roots, SCAN_CONFIGS.backendPages)
       if (beFiles.length) {
-        backendRoutes.push(...processPageFiles({
+        const generatedBackendRoutes = await processPageFiles({
           files: beFiles,
           type: 'backend',
           modId,
@@ -887,21 +1193,30 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           pkgDir: bePkg,
           appImportBase,
           pkgImportBase: imps.pkgBase,
-          imports,
+          eagerImports: imports,
+          runtimeImports,
           importIdRef,
-        }))
+        })
+        backendRoutes.push(...generatedBackendRoutes.eagerRoutes)
+        runtimeBackendRoutes.push(...generatedBackendRoutes.runtimeRoutes)
+        backendRouteManifestDecls.push(...generatedBackendRoutes.manifestRoutes)
       }
     }
 
     // 14. API routes
-    apis.push(...await processApiRoutes({
+    {
+      const generatedApis = await processApiRoutes({
       roots,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
-      imports,
+      eagerImports: imports,
       importIdRef,
-    }))
+      })
+      apis.push(...generatedApis.eagerApis)
+      runtimeApis.push(...generatedApis.runtimeApis)
+      apiRouteManifestDecls.push(...generatedApis.manifestApis)
+    }
 
     // 15. CLI
     {
@@ -923,6 +1238,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       appImportBase,
       pkgImportBase: imps.pkgBase,
       imports,
+      extraImports: runtimeImports,
     }))
 
     // 17. Subscribers
@@ -932,6 +1248,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       appImportBase,
       pkgImportBase: imps.pkgBase,
       imports,
+      extraImports: runtimeImports,
       importIdRef,
     }))
 
@@ -942,6 +1259,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       appImportBase,
       pkgImportBase: imps.pkgBase,
       imports,
+      extraImports: runtimeImports,
       importIdRef,
     }))
 
@@ -1038,6 +1356,23 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
+      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
+      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
+      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
+    }`)
+    runtimeModuleDecls.push(`{
+      id: '${modId}',
+      ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
+      ${runtimeFrontendRoutes.length ? `frontendRoutes: [${runtimeFrontendRoutes.join(', ')}],` : ''}
+      ${runtimeBackendRoutes.length ? `backendRoutes: [${runtimeBackendRoutes.join(', ')}],` : ''}
+      ${runtimeApis.length ? `apis: [${runtimeApis.join(', ')}],` : ''}
+      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
+      ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
+      ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
+      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
+      customFieldSets: ${customFieldSetsExpr},
+      ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
+      ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
       ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
       ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
@@ -1151,6 +1486,46 @@ export const modules: Module[] = [
 ]
 export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
 export default modules
+`
+  const runtimeOutput = `// AUTO-GENERATED by mercato generate registry
+import { createElement } from 'react'
+import type { Module } from '@open-mercato/shared/modules/registry'
+${runtimeImports.join('\n')}
+
+export const modules: Module[] = [
+  ${runtimeModuleDecls.join(',\n  ')}
+]
+export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
+export default modules
+`
+  const frontendRoutesOutput = `// AUTO-GENERATED by mercato generate registry
+import type { FrontendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
+${frontendRouteManifestImports.join('\n')}
+
+export const frontendRoutes: FrontendRouteManifestEntry[] = [
+  ${frontendRouteManifestDecls.join(',\n  ')}
+]
+
+export default frontendRoutes
+`
+  const backendRoutesOutput = `// AUTO-GENERATED by mercato generate registry
+import type { BackendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
+${backendRouteManifestImports.join('\n')}
+
+export const backendRoutes: BackendRouteManifestEntry[] = [
+  ${backendRouteManifestDecls.join(',\n  ')}
+]
+
+export default backendRoutes
+`
+  const apiRoutesOutput = `// AUTO-GENERATED by mercato generate registry
+import type { ApiRouteManifestEntry } from '@open-mercato/shared/modules/registry'
+
+export const apiRoutes: ApiRouteManifestEntry[] = [
+  ${apiRouteManifestDecls.join(',\n  ')}
+]
+
+export default apiRoutes
 `
   const widgetEntriesList = Array.from(allDashboardWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
   const widgetDecls = widgetEntriesList.map(
@@ -1463,6 +1838,10 @@ configureMessageUiComponentRegistry(registry)
   ])
 
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: runtimeOutFile, checksumFile: runtimeChecksumFile, content: runtimeOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: frontendRoutesOutFile, checksumFile: frontendRoutesChecksumFile, content: frontendRoutesOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: backendRoutesOutFile, checksumFile: backendRoutesChecksumFile, content: backendRoutesOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: apiRoutesOutFile, checksumFile: apiRoutesChecksumFile, content: apiRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: widgetsOutFile, checksumFile: widgetsChecksumFile, content: widgetsOutput, structureChecksum, result, quiet })
 
   const injectionWidgetEntriesList = Array.from(allInjectionWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
