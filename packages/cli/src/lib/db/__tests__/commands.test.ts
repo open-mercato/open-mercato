@@ -3,7 +3,15 @@ import {
   validateTableName,
   makeConstraintDropsIdempotent,
   dbGreenfield,
+  getDatabaseName,
+  getSnapshotPath,
+  hasModuleMigrationHistory,
+  ensureInitialSnapshot,
+  resolveGeneratedMigrationPath,
 } from '../commands'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 describe('db commands security', () => {
   describe('sanitizeModuleId', () => {
@@ -132,6 +140,50 @@ describe('makeConstraintDropsIdempotent', () => {
 })
 
 describe('db commands', () => {
+  describe('module snapshots', () => {
+    const databaseUrl = 'postgres://postgres:postgres@localhost:5432/open-mercato'
+
+    it('derives snapshot paths from the database name', () => {
+      expect(getDatabaseName(databaseUrl)).toBe('open-mercato')
+      expect(getSnapshotPath('/tmp/module', databaseUrl)).toBe('/tmp/module/.snapshot-open-mercato.json')
+    })
+
+    it('creates an empty snapshot for brand-new modules', () => {
+      const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-db-generate-'))
+
+      ensureInitialSnapshot(migrationsDir, databaseUrl)
+
+      const snapshotPath = getSnapshotPath(migrationsDir, databaseUrl)
+      expect(fs.existsSync(snapshotPath)).toBe(true)
+      expect(JSON.parse(fs.readFileSync(snapshotPath, 'utf8'))).toEqual({
+        namespaces: ['public'],
+        name: 'public',
+        tables: [],
+        nativeEnums: {},
+      })
+    })
+
+    it('does not overwrite existing module history', () => {
+      const migrationsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'om-db-generate-'))
+      const snapshotPath = getSnapshotPath(migrationsDir, databaseUrl)
+      fs.writeFileSync(snapshotPath, '{"tables":[{"name":"existing_table"}]}', 'utf8')
+
+      ensureInitialSnapshot(migrationsDir, databaseUrl)
+
+      expect(fs.readFileSync(snapshotPath, 'utf8')).toBe('{"tables":[{"name":"existing_table"}]}')
+      expect(hasModuleMigrationHistory(migrationsDir, databaseUrl)).toBe(true)
+    })
+
+    it('resolves relative migration paths against the module migrations directory', () => {
+      expect(resolveGeneratedMigrationPath('Migration20260329.ts', '/tmp/module/migrations')).toBe(
+        '/tmp/module/migrations/Migration20260329.ts'
+      )
+      expect(resolveGeneratedMigrationPath('/tmp/already-absolute.ts', '/tmp/module/migrations')).toBe(
+        '/tmp/already-absolute.ts'
+      )
+    })
+  })
+
   describe('dbGreenfield', () => {
     it('should require --yes flag', async () => {
       // Mock console.error and process.exit

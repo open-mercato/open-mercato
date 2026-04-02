@@ -1,26 +1,27 @@
 import { searchConfig } from '../search'
 
-describe('customers search', () => {
-  it('uses operator equality filters when loading the parent customer entity for person profiles', async () => {
-    const query = jest.fn().mockResolvedValue({
+describe('customers search config', () => {
+  test('person profile buildSource loads customer entity by entity id without profile joins', async () => {
+    const personConfig = searchConfig.entities.find((entity) => entity.entityId === 'customers:customer_person_profile')
+    expect(personConfig?.buildSource).toBeDefined()
+
+    const query = jest.fn(async () => ({
       items: [
         {
           id: 'entity-1',
           kind: 'person',
           display_name: 'Ada Lovelace',
-          organization_id: 'org-1',
-          tenant_id: 'tenant-1',
+          primary_email: 'ada@example.com',
         },
       ],
-      page: 1,
-      pageSize: 1,
-      total: 1,
-    })
+    }))
 
-    const personConfig = searchConfig.entities.find((entry) => entry.entityId === 'customers:customer_person_profile')
-    expect(personConfig?.buildSource).toBeDefined()
-
-    await personConfig!.buildSource!({
+    const result = await personConfig!.buildSource!({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      queryEngine: {
+        query,
+      } as any,
       record: {
         id: 'profile-1',
         entity_id: 'entity-1',
@@ -28,21 +29,17 @@ describe('customers search', () => {
         last_name: 'Lovelace',
       },
       customFields: {},
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      queryEngine: { query },
     })
 
+    expect(result).not.toBeNull()
     expect(query).toHaveBeenCalledWith(
       'customers:customer_entity',
       expect.objectContaining({
-        tenantId: 'tenant-1',
-        organizationId: 'org-1',
-        filters: expect.objectContaining({
+        filters: {
           id: { $eq: 'entity-1' },
-          'person_profile.id': { $eq: 'profile-1' },
-        }),
+        },
       }),
     )
+    expect(query.mock.calls[0]?.[1]).not.toHaveProperty('customFieldSources')
   })
 })
