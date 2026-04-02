@@ -64,6 +64,26 @@ export default function MyTimesheetsPage() {
   const [staffMemberMissing, setStaffMemberMissing] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
+  const [canManageProjects, setCanManageProjects] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await apiCall<{ ok: boolean; granted: string[] }>('/api/auth/feature-check', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ features: ['staff.timesheets.projects.manage'] }),
+        })
+        if (!cancelled) {
+          setCanManageProjects(new Set(res.result?.granted ?? []).has('staff.timesheets.projects.manage'))
+        }
+      } catch {
+        // default: no manage access
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const daysInMonth = getDaysInMonth(year, month)
   const days = React.useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth])
@@ -382,9 +402,30 @@ export default function MyTimesheetsPage() {
 
         {/* Grid */}
         {projects.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            {t('staff.timesheets.my.noProjects', 'No active projects. Create a project first.')}
-          </p>
+          <div className="py-12 text-center">
+            <p className="text-lg font-semibold mb-2">
+              {t('staff.timesheets.my.noProjects.title', 'No projects assigned yet')}
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">
+              {canManageProjects
+                ? t('staff.timesheets.my.noProjects.admin', 'Create a project and assign yourself to start tracking time.')
+                : t('staff.timesheets.my.noProjects.employee', 'Ask your manager to assign you to a project.')}
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              {canManageProjects && (
+                <Button asChild>
+                  <Link href="/backend/staff/timesheets/projects/create">
+                    {t('staff.timesheets.my.noProjects.createProject', 'Create Project')}
+                  </Link>
+                </Button>
+              )}
+              <Button variant="outline" asChild>
+                <Link href="/backend/staff/timesheets/projects">
+                  {t('staff.timesheets.my.noProjects.viewProjects', 'View Projects')}
+                </Link>
+              </Button>
+            </div>
+          </div>
         ) : (
           <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
