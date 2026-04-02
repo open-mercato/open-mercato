@@ -144,7 +144,7 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')
-    expect(output).toContain("id: 'empty_mod'")
+    expect(output).toContain('id: "empty_mod"')
   })
 
   it('handles module with only subscribers — no pages or APIs', async () => {
@@ -160,7 +160,7 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'notifications_only'")
+    expect(output).toContain('id: "notifications_only"')
     expect(output).toContain('subscribers:')
     expect(output).not.toContain('frontendRoutes:')
     expect(output).not.toContain('backendRoutes:')
@@ -180,7 +180,7 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'widgets_only'")
+    expect(output).toContain('id: "widgets_only"')
     expect(output).toContain('dashboardWidgets:')
     expect(output).not.toContain('subscribers:')
 
@@ -208,7 +208,7 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'config_mod'")
+    expect(output).toContain('id: "config_mod"')
     expect(output).toContain('features:')
     expect(output).toContain('entityExtensions:')
     expect(output).toContain('customFieldSets:')
@@ -240,8 +240,8 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultAll.errors).toEqual([])
 
     const outputAll = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputAll).toContain("id: 'mod_a'")
-    expect(outputAll).toContain("id: 'mod_b'")
+    expect(outputAll).toContain('id: "mod_a"')
+    expect(outputAll).toContain('id: "mod_b"')
 
     // Second: regenerate with mod_b disabled (only mod_a)
     const subsetEnabled: ModuleEntry[] = [
@@ -255,8 +255,8 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultSubset.errors).toEqual([])
 
     const outputSubset = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputSubset).toContain("id: 'mod_a'")
-    expect(outputSubset).not.toContain("id: 'mod_b'")
+    expect(outputSubset).toContain('id: "mod_a"')
+    expect(outputSubset).not.toContain('id: "mod_b"')
 
     // Widgets file should no longer reference mod_b
     const widgetsSubset = readGenerated(tmpDir, 'dashboard-widgets.generated.ts')!
@@ -276,11 +276,42 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'custom_app'")
+    expect(output).toContain('id: "custom_app"')
     expect(output).toContain('backendRoutes:')
     expect(output).toContain('subscribers:')
     expect(output).toContain('dashboardWidgets:')
     expect(output).toContain('features:')
+  })
+
+  it('escapes generated module specifiers for lazy imports', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'safe_mod', 'subscribers', `o'hare.ts`),
+      `export const metadata = { event: 'orders.created' }\nexport default async function handler() {}\n`
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'safe_mod', 'workers', `queue'oops.ts`),
+      `export const metadata = { queue: 'sync.jobs', concurrency: 2 }\nexport default async function handler() {}\n`
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'safe_mod', 'api', 'get', `quoted'route.ts`),
+      `export const metadata = { path: '/safe_mod/quoted-route' }\nexport async function GET() { return new Response('ok') }\n`
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'safe_mod', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain(`createLazyModuleSubscriber(() => import("@open-mercato/core/modules/safe_mod/subscribers/o'hare")`)
+    expect(output).toContain(`createLazyModuleWorker(() => import("@open-mercato/core/modules/safe_mod/workers/queue'oops")`)
+    expect(output).toContain(`from "@open-mercato/core/modules/safe_mod/api/get/quoted'route"`)
+    expect(output).not.toContain(`import('@open-mercato/core/modules/safe_mod/subscribers/o'hare')`)
+    expect(output).not.toContain(`import('@open-mercato/core/modules/safe_mod/workers/queue'oops')`)
+    expect(output).not.toContain(`?? '/safe_mod/quoted'route'`)
+    expect(output).not.toContain(`path: '/safe_mod/quoted'route'`)
   })
 
   it('mixed subset: core module + app module, then remove core module', async () => {
@@ -302,8 +333,8 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultBoth.errors).toEqual([])
 
     const outputBoth = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputBoth).toContain("id: 'core_mod'")
-    expect(outputBoth).toContain("id: 'app_mod'")
+    expect(outputBoth).toContain('id: "core_mod"')
+    expect(outputBoth).toContain('id: "app_mod"')
 
     const searchBoth = readGenerated(tmpDir, 'search.generated.ts')!
     expect(searchBoth).toContain('core_mod')
@@ -315,8 +346,8 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultApp.errors).toEqual([])
 
     const outputApp = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputApp).not.toContain("id: 'core_mod'")
-    expect(outputApp).toContain("id: 'app_mod'")
+    expect(outputApp).not.toContain('id: "core_mod"')
+    expect(outputApp).toContain('id: "app_mod"')
 
     // Search should no longer reference core_mod
     const searchApp = readGenerated(tmpDir, 'search.generated.ts')!
@@ -355,7 +386,7 @@ describe('generateModuleRegistryCli with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.cli.generated.ts')!
-    expect(output).toContain("id: 'full_mod'")
+    expect(output).toContain('id: "full_mod"')
     // CLI excludes these:
     expect(output).not.toContain('frontendRoutes:')
     expect(output).not.toContain('backendRoutes:')
@@ -385,8 +416,8 @@ describe('generateModuleRegistryCli with module subsets', () => {
     const resultAll = await generateModuleRegistryCli({ resolver: resolverAll, quiet: true })
     expect(resultAll.errors).toEqual([])
     const outputAll = readGenerated(tmpDir, 'modules.cli.generated.ts')!
-    expect(outputAll).toContain("id: 'keep_mod'")
-    expect(outputAll).toContain("id: 'drop_mod'")
+    expect(outputAll).toContain('id: "keep_mod"')
+    expect(outputAll).toContain('id: "drop_mod"')
 
     // Disable drop_mod
     const subset: ModuleEntry[] = [
@@ -399,8 +430,8 @@ describe('generateModuleRegistryCli with module subsets', () => {
     })
     expect(resultSubset.errors).toEqual([])
     const outputSubset = readGenerated(tmpDir, 'modules.cli.generated.ts')!
-    expect(outputSubset).toContain("id: 'keep_mod'")
-    expect(outputSubset).not.toContain("id: 'drop_mod'")
+    expect(outputSubset).toContain('id: "keep_mod"')
+    expect(outputSubset).not.toContain('id: "drop_mod"')
   })
 })
 
@@ -441,7 +472,7 @@ describe('generateModuleRegistryApp with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.app.generated.ts')!
-    expect(output).toContain("id: 'runtime_mod'")
+    expect(output).toContain('id: "runtime_mod"')
     expect(output).not.toContain('cli:')
     expect(output).toContain('subscribers:')
     expect(output).toContain('workers:')
