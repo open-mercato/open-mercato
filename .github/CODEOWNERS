@@ -1,0 +1,26 @@
+# CODEOWNERS — requires explicit approval from named owners for sensitive paths.
+# Changes to auth, CI, and publish infrastructure must be reviewed by a maintainer
+# even if another reviewer has already approved the PR.
+#
+# Configure the @open-mercato/maintainers team at:
+# https://github.com/open-mercato/open-mercato/settings/teams
+
+# CI/CD and publish pipeline — any change requires maintainer sign-off
+.github/workflows/                     @open-mercato/maintainers
+scripts/publish-packages.sh            @open-mercato/maintainers
+scripts/release-patch.sh               @open-mercato/maintainers
+scripts/release-minor.sh               @open-mercato/maintainers
+scripts/release-major.sh               @open-mercato/maintainers
+scripts/release-snapshot.sh            @open-mercato/maintainers
+
+# Container and infrastructure definitions
+Dockerfile                             @open-mercato/maintainers
+docker-compose.fullapp.yml             @open-mercato/maintainers
+
+# Authentication and authorization modules
+packages/core/src/modules/auth/        @open-mercato/maintainers
+packages/core/src/modules/customer_accounts/  @open-mercato/maintainers
+
+# Security policy and tooling
+SECURITY.md                            @open-mercato/maintainers
+.github/CODEOWNERS                     @open-mercato/maintainers
