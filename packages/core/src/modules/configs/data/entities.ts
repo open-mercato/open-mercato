@@ -1,7 +1,7 @@
 import { Entity, Index, OptionalProps, PrimaryKey, Property, Unique } from '@mikro-orm/core'
 
 @Entity({ tableName: 'module_configs' })
-@Unique({ name: 'module_configs_module_name_unique', properties: ['moduleId', 'name'] })
+@Unique({ name: 'module_configs_module_name_org_unique', properties: ['moduleId', 'name', 'organizationId'] })
 export class ModuleConfig {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
 
@@ -13,6 +13,9 @@ export class ModuleConfig {
 
   @Property({ name: 'name', type: 'text' })
   name!: string
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
 
   @Property({ name: 'value_json', type: 'json', nullable: true })
   valueJson!: unknown

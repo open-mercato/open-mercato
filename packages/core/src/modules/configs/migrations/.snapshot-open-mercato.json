@@ -34,6 +34,15 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "value_json": {
           "name": "value_json",
           "type": "jsonb",
@@ -68,10 +77,11 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "module_configs_module_name_unique",
+          "keyName": "module_configs_module_name_org_unique",
           "columnNames": [
             "module_id",
-            "name"
+            "name",
+            "organization_id"
           ],
           "composite": true,
           "constraint": true,

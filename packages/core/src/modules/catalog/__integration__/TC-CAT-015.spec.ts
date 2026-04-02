@@ -40,9 +40,14 @@ async function ensurePriceKindFixture(
     "/api/catalog/price-kinds?page=1&pageSize=50",
     { token },
   );
-  expect(list.ok(), `Failed to list price kinds: ${list.status()}`).toBeTruthy();
+  expect(
+    list.ok(),
+    `Failed to list price kinds: ${list.status()}`,
+  ).toBeTruthy();
 
-  const listBody = (await list.json()) as { items?: Array<Record<string, unknown>> };
+  const listBody = (await list.json()) as {
+    items?: Array<Record<string, unknown>>;
+  };
   const first = Array.isArray(listBody.items) ? listBody.items[0] : null;
   const firstId = typeof first?.id === "string" ? first.id : null;
   const firstCurrency =
@@ -115,17 +120,24 @@ async function createProductFixture(
   return body.id as string;
 }
 
-async function createVariantFixture(input: VariantFixtureInput): Promise<string> {
-  const response = await apiRequest(input.request, "POST", "/api/catalog/variants", {
-    token: input.token,
-    data: {
-      productId: input.productId,
-      name: input.name,
-      sku: input.sku,
-      isDefault: false,
-      isActive: true,
+async function createVariantFixture(
+  input: VariantFixtureInput,
+): Promise<string> {
+  const response = await apiRequest(
+    input.request,
+    "POST",
+    "/api/catalog/variants",
+    {
+      token: input.token,
+      data: {
+        productId: input.productId,
+        name: input.name,
+        sku: input.sku,
+        isDefault: false,
+        isActive: true,
+      },
     },
-  });
+  );
   expect(
     response.ok(),
     `Failed to create variant fixture: ${response.status()}`,
@@ -137,17 +149,22 @@ async function createVariantFixture(input: VariantFixtureInput): Promise<string>
 }
 
 async function createPriceFixture(input: PriceFixtureInput): Promise<string> {
-  const response = await apiRequest(input.request, "POST", "/api/catalog/prices", {
-    token: input.token,
-    data: {
-      productId: input.productId,
-      variantId: input.variantId,
-      priceKindId: input.priceKindId,
-      currencyCode: input.currencyCode,
-      minQuantity: input.minQuantity,
-      unitPriceGross: input.unitPriceGross,
+  const response = await apiRequest(
+    input.request,
+    "POST",
+    "/api/catalog/prices",
+    {
+      token: input.token,
+      data: {
+        productId: input.productId,
+        variantId: input.variantId,
+        priceKindId: input.priceKindId,
+        currencyCode: input.currencyCode,
+        minQuantity: input.minQuantity,
+        unitPriceGross: input.unitPriceGross,
+      },
     },
-  });
+  );
   expect(
     response.ok(),
     `Failed to create price fixture: ${response.status()}`,
@@ -193,7 +210,9 @@ async function readPriceRow(
     `Failed to list prices for variant ${variantId}: ${response.status()}`,
   ).toBeTruthy();
 
-  const body = (await response.json()) as { items?: Array<Record<string, unknown>> };
+  const body = (await response.json()) as {
+    items?: Array<Record<string, unknown>>;
+  };
   const items = Array.isArray(body.items) ? body.items : [];
   return (
     items.find((item) => typeof item.id === "string" && item.id === priceId) ??
@@ -277,17 +296,22 @@ test.describe("TC-CAT-015: Catalog price update error handling", () => {
         });
         createdPriceIds.push(priceId);
 
-        const response = await apiRequest(request, "PUT", "/api/catalog/prices", {
-          token,
-          data: {
-            id: priceId,
-            productId,
-            variantId,
-            priceKindId: priceKind.id,
-            currencyCode: priceKind.currencyCode,
-            unitPriceGross: testCase.updateValue,
+        const response = await apiRequest(
+          request,
+          "PUT",
+          "/api/catalog/prices",
+          {
+            token,
+            data: {
+              id: priceId,
+              productId,
+              variantId,
+              priceKindId: priceKind.id,
+              currencyCode: priceKind.currencyCode,
+              unitPriceGross: testCase.updateValue,
+            },
           },
-        });
+        );
 
         expect(
           response.status(),
@@ -305,7 +329,10 @@ test.describe("TC-CAT-015: Catalog price update error handling", () => {
         }
 
         const row = await readPriceRow(request, token, variantId, priceId);
-        expect(row, `${testCase.label} should still exist after update`).toBeTruthy();
+        expect(
+          row,
+          `${testCase.label} should still exist after update`,
+        ).toBeTruthy();
         const gross = Number(
           row?.unit_price_gross ?? row?.unitPriceGross ?? Number.NaN,
         );
@@ -313,7 +340,7 @@ test.describe("TC-CAT-015: Catalog price update error handling", () => {
           Number.isFinite(gross),
           `${testCase.label} should persist a numeric gross amount`,
         ).toBeTruthy();
-        if ('expectedStoredGross' in testCase) {
+        if ("expectedStoredGross" in testCase) {
           expect(gross).toBe(testCase.expectedStoredGross);
         }
       }
