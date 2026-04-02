@@ -4,18 +4,17 @@ import * as React from 'react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { LookupSelect } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { updateCrud, deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { deleteCrud, createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { ArrowLeft, Plus, Pencil, Save, X, ChevronDown, Trash2, User } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, ChevronDown, Trash2, User } from 'lucide-react'
 import Link from 'next/link'
 
 const BACK_HREF = '/backend/staff/timesheets/projects'
@@ -76,12 +75,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
   const [project, setProject] = React.useState<ProjectRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-
-  const [isEditing, setIsEditing] = React.useState(false)
-  const [editName, setEditName] = React.useState('')
-  const [editDescription, setEditDescription] = React.useState('')
-  const [editStatus, setEditStatus] = React.useState('')
-  const [isSaving, setIsSaving] = React.useState(false)
 
   const [employees, setEmployees] = React.useState<EmployeeAssignment[]>([])
   const [employeesLoading, setEmployeesLoading] = React.useState(false)
@@ -238,52 +231,6 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
     }
   }, [projectId, confirm, t])
 
-  // --- Edit project ---
-  const startEditing = React.useCallback(() => {
-    if (!project) return
-    setEditName(project.name)
-    setEditDescription(project.description ?? '')
-    setEditStatus(project.status ?? '')
-    setIsEditing(true)
-  }, [project])
-
-  const cancelEditing = React.useCallback(() => {
-    setIsEditing(false)
-  }, [])
-
-  const handleSave = React.useCallback(async () => {
-    if (!projectId || !editName.trim()) return
-    setIsSaving(true)
-    try {
-      const payload: Record<string, unknown> = {
-        id: projectId,
-        name: editName.trim(),
-      }
-      if (editDescription.trim()) payload.description = editDescription.trim()
-      else payload.description = null
-      if (editStatus.trim()) payload.status = editStatus.trim()
-
-      await updateCrud('staff/timesheets/time-projects', payload, {
-        errorMessage: t('staff.timesheets.projects.errors.save', 'Failed to save project.'),
-      })
-      flash(t('staff.timesheets.projects.messages.saved', 'Project saved.'), 'success')
-      setProject((prev) => prev ? { ...prev, name: editName.trim(), description: editDescription.trim() || null, status: editStatus.trim() || null } : prev)
-      setIsEditing(false)
-    } catch (saveError) {
-      flash(saveError instanceof Error ? saveError.message : t('staff.timesheets.projects.errors.save', 'Failed to save project.'), 'error')
-    } finally {
-      setIsSaving(false)
-    }
-  }, [projectId, editName, editDescription, editStatus, t])
-
-  const handleEditKeyDown = React.useCallback((event: React.KeyboardEvent) => {
-    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      void handleSave()
-    }
-    if (event.key === 'Escape') cancelEditing()
-  }, [handleSave, cancelEditing])
-
   // --- Add employee dialog ---
   const openAddDialog = React.useCallback(() => {
     setAddStaffMemberId(null)
@@ -383,47 +330,18 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
                 <p className="text-sm text-muted-foreground">{t('staff.timesheets.projects.detail.subtitle', 'Project Settings')}</p>
               </div>
             </div>
-            {!isEditing && canManageProjects && (
-              <Button variant="outline" size="sm" onClick={startEditing}>
-                <Pencil className="mr-2 h-4 w-4" aria-hidden />
-                {t('staff.timesheets.projects.form.actions.edit', 'Edit Project')}
+            {canManageProjects && (
+              <Button variant="outline" size="sm" asChild>
+                <Link href={`/backend/staff/timesheets/projects/${projectId}/edit`}>
+                  <Pencil className="mr-2 h-4 w-4" aria-hidden />
+                  {t('staff.timesheets.projects.form.actions.edit', 'Edit Project')}
+                </Link>
               </Button>
             )}
           </div>
 
-          {/* Project Information (edit mode or read-only) */}
-          {isEditing && canManageProjects ? (
-            <div className="max-w-2xl space-y-4 rounded-lg border p-4" onKeyDown={handleEditKeyDown}>
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="edit-name">
-                  {t('staff.timesheets.projects.form.name', 'Name')}
-                </label>
-                <Input id="edit-name" value={editName} onChange={(event) => setEditName(event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="edit-status">
-                  {t('staff.timesheets.projects.form.status', 'Status')}
-                </label>
-                <Input id="edit-status" value={editStatus} onChange={(event) => setEditStatus(event.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="edit-description">
-                  {t('staff.timesheets.projects.form.description', 'Description')}
-                </label>
-                <Textarea id="edit-description" value={editDescription} onChange={(event) => setEditDescription(event.target.value)} rows={3} />
-              </div>
-              <div className="flex items-center gap-2">
-                <Button onClick={handleSave} disabled={isSaving || !editName.trim()} size="sm">
-                  <Save className="mr-2 h-4 w-4" aria-hidden />
-                  {t('staff.timesheets.projects.form.actions.save', 'Save')}
-                </Button>
-                <Button variant="outline" size="sm" onClick={cancelEditing}>
-                  <X className="mr-2 h-4 w-4" aria-hidden />
-                  {t('staff.timesheets.projects.form.actions.cancel', 'Cancel')}
-                </Button>
-              </div>
-            </div>
-          ) : (
+          {/* Project Information (read-only) */}
+          {(
             <div className="max-w-2xl rounded-lg border p-4">
               <dl className="grid grid-cols-2 gap-4 text-sm">
                 <div>

@@ -317,12 +317,15 @@ export default function MyTimesheetsPage() {
       <Page>
         <PageBody>
           <div className="py-12 text-center">
-            <p className="text-sm text-muted-foreground mb-4">
+            <p className="text-lg font-semibold mb-2">
+              {t('staff.timesheets.my.noProfile.title', 'Set up your profile to start tracking time')}
+            </p>
+            <p className="text-sm text-muted-foreground mb-6">
               {t('staff.timesheets.my.noProfile', 'You need a Team Member profile to track time.')}
             </p>
-            <Button asChild size="sm">
-              <Link href="/backend/staff/team-members/create">
-                {t('staff.timesheets.my.createProfile', 'Create Team Member Profile')}
+            <Button asChild>
+              <Link href="/backend/staff/profile/create">
+                {t('staff.timesheets.my.createProfile', 'Create My Profile')}
               </Link>
             </Button>
           </div>
