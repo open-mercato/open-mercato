@@ -55,6 +55,13 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export type ApiHandler = (req: Request, ctx?: any) => Promise<Response> | Response
 
+export type ModuleSubscriberHandler = (
+  payload: any,
+  ctx: any
+) => Promise<void | SyncCrudEventResult> | void | SyncCrudEventResult
+
+export type ModuleWorkerHandler = (job: unknown, ctx: unknown) => Promise<void> | void
+
 export type ModuleRoute = {
   pattern?: string
   path?: string
@@ -135,6 +142,22 @@ export type ModuleCli = {
   run: (argv: string[]) => Promise<void> | void
 }
 
+export type ModuleSubscriber = {
+  id: string
+  event: string
+  persistent?: boolean
+  sync?: boolean
+  priority?: number
+  handler: ModuleSubscriberHandler
+}
+
+export type ModuleWorker = {
+  id: string
+  queue: string
+  concurrency: number
+  handler: ModuleWorkerHandler
+}
+
 export type ModuleInfo = {
   name?: string
   title?: string
@@ -175,25 +198,9 @@ export type Module = {
   // Optional: per-module feature declarations discovered from acl.ts (module root)
   features?: Array<{ id: string; title: string; module: string }>
   // Auto-discovered event subscribers
-  subscribers?: Array<{
-    id: string
-    event: string
-    persistent?: boolean
-    /** When true, subscriber runs synchronously inside the mutation pipeline */
-    sync?: boolean
-    /** Execution priority for sync subscribers (lower = earlier). Default: 50 */
-    priority?: number
-    // Imported function reference; will be registered into event bus
-    handler: (payload: any, ctx: any) => Promise<void | SyncCrudEventResult> | void | SyncCrudEventResult
-  }>
+  subscribers?: ModuleSubscriber[]
   // Auto-discovered queue workers
-  workers?: Array<{
-    id: string
-    queue: string
-    concurrency: number
-    // Imported function reference; will be called by the queue worker
-    handler: (job: unknown, ctx: unknown) => Promise<void> | void
-  }>
+  workers?: ModuleWorker[]
   // Optional: per-module declared entity extensions and custom fields (static)
   // Extensions discovered from data/extensions.ts; Custom fields discovered from ce.ts (entities[].fields)
   entityExtensions?: import('./entities').EntityExtension[]
@@ -348,4 +355,48 @@ export function getCliModules(): Module[] {
 
 export function hasCliModules(): boolean {
   return _cliModules !== null && _cliModules.length > 0
+}
+
+function ensureLazyHandler<T extends (...args: any[]) => any>(
+  loaded: unknown,
+  kind: 'subscriber' | 'worker',
+  id: string
+): T {
+  const handler = typeof loaded === 'function'
+    ? loaded
+    : loaded && typeof loaded === 'object' && 'default' in loaded
+      ? (loaded as Record<string, unknown>).default
+      : null
+  if (typeof handler !== 'function') {
+    throw new Error(`[registry] Invalid ${kind} module "${id}" (missing default export handler)`)
+  }
+  return handler as T
+}
+
+export function createLazyModuleSubscriber(
+  loadModule: () => Promise<unknown>,
+  id: string
+): ModuleSubscriberHandler {
+  let handlerPromise: Promise<ModuleSubscriberHandler> | null = null
+  return async (payload, ctx) => {
+    handlerPromise ??= loadModule().then((loaded) =>
+      ensureLazyHandler<ModuleSubscriberHandler>(loaded, 'subscriber', id)
+    )
+    const handler = await handlerPromise
+    return handler(payload, ctx)
+  }
+}
+
+export function createLazyModuleWorker(
+  loadModule: () => Promise<unknown>,
+  id: string
+): ModuleWorkerHandler {
+  let handlerPromise: Promise<ModuleWorkerHandler> | null = null
+  return async (job, ctx) => {
+    handlerPromise ??= loadModule().then((loaded) =>
+      ensureLazyHandler<ModuleWorkerHandler>(loaded, 'worker', id)
+    )
+    const handler = await handlerPromise
+    return handler(job, ctx)
+  }
 }

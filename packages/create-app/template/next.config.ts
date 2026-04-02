@@ -3,6 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
   experimental: {
+    preloadEntriesOnStart: false,
     serverMinification: false,
     turbopackMinify: false,
   },

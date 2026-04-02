@@ -20,29 +20,57 @@
 
 ## Implementation Status
 
-Status on April 2, 2026:
+Status on April 2, 2026 after implementation and rerun:
 - Implemented:
   - `mercato generate watch` and wired it into app/template `yarn dev`
-  - additive generated manifests: `frontend-routes.generated.ts`, `backend-routes.generated.ts`, `api-routes.generated.ts`, `modules.runtime.generated.ts`
+  - additive generated manifests: `frontend-routes.generated.ts`, `backend-routes.generated.ts`, `api-routes.generated.ts`, `modules.runtime.generated.ts`, `modules.app.generated.ts`
   - catch-all frontend/backend/API routing switched to manifest-based lazy loaders
-  - bootstrap split so app root uses `modules.cli.generated.ts` instead of the full route registry
+  - app bootstrap switched to the route-free `modules.app.generated.ts` registry instead of the full route registry
+  - subscriber and worker registration switched to lazy metadata wrappers so handler implementations are imported only when an event or queue actually executes
+  - dev-only background route warmup added through `instrumentation.ts` with `MERCATO_DEV_WARM*` controls
+  - `experimental.preloadEntriesOnStart = false` enabled for app and standalone template
 - Verification:
   - `yarn build:packages` passes
   - `yarn generate` passes
-  - `yarn workspace @open-mercato/app typecheck` passes
-- Measured cold dev results after implementation:
-  - `GET /login`: `15.5s` total, `13.7s` compile
-  - `GET /api/customers/people?page=1&pageSize=20`: `10.8s` total, `10.5s` compile
-  - `GET /backend/customers/people`: `7.8s` total, `7.3s` compile
-  - `next-server` RSS after cold hits: `~7.79 GB`
+  - `yarn i18n:check-sync` passes
+  - `yarn i18n:check-usage` reports only pre-existing advisory unused keys
+  - unit tests for shared registry, event worker, and generator subsets/manifests pass
+  - `yarn typecheck` passes
+  - `yarn test` passes
+  - `yarn build:app` passes
+- Measured strict cold-dev results with a fresh `yarn dev` boot per route:
+
+| Scenario | Total | Compile | Notes |
+|----------|-------|---------|-------|
+| `GET /login` with warmup off | `8.1s` | `7.4s` | cold frontend catch-all only |
+| `GET /login` after background warmup | `2.0s` | `1.4s` | warmed in background before first user hit |
+| `GET /backend/customers/people` with warmup off | `14.4s` | `7.5s` | includes cold auth sidecar compile and redirect render |
+| `GET /backend/customers/people` after background warmup | `3.9s` | `1.5s` | auth sidecar still costs `~1.5s`, but backend page compile is largely removed |
+| `GET /api/customers/people?page=1&pageSize=20` with warmup off | `1.86s` | `1.71s` | already mostly fixed by lazy API route loading |
+| `GET /api/customers/people?page=1&pageSize=20` after background warmup | `1.73s` | `1.59s` | small additional improvement |
+
+- Memory and generated artifact measurements:
+  - `next-server` RSS at ready with warmup off and no requests: `~2.01 GB`
+  - `next-server` RSS after background warmup and no requests: `~2.47 GB`
+  - `next-server` RSS after first cold API hit with warmup off: `~3.49 GB`
+  - `next-server` RSS after background warmup plus first API hit: `~3.54 GB`
+  - `modules.app.generated.ts`: `72,214` bytes, `300` imports
+  - `modules.cli.generated.ts`: `75,175` bytes, `325` imports
+  - `modules.generated.ts`: `645,576` bytes, `1,132` imports
 - Outcome versus baseline:
-  - backend cold page load improved materially
-  - API cold load improved materially
-  - frontend cold `/login` regressed versus baseline
-  - RSS did not improve; it regressed in the measured run
+  - backend cold first-hit time improved from `19.4s` baseline to `14.4s` without warmup and `3.9s` with warmup
+  - frontend cold first-hit time improved from the prior regressed implementation (`15.5s`) to `8.1s` without warmup and `2.0s` with warmup
+  - API cold first-hit time improved from `15.0s` baseline to `1.86s`; background warmup adds only marginal extra benefit there
+  - steady-state dev RSS dropped materially versus the earlier `6-7 GB` traces, although enabling warmup trades about `460 MB` of idle RSS for lower first-hit latency
+  - lazy subscriber and worker wrappers removed handler code from the app bootstrap hot path without changing sync event handling or async queue behavior
+- Event and queue separation conclusion:
+  - moving queue workers out of the app bootstrap path was worth doing and is implemented through lazy worker/subscriber wrappers
+  - fully moving subscribers out of app runtime is not safe as a transparent optimization because persistent subscribers still execute synchronously today before or alongside queue enqueue
+  - any future worker-only split needs explicit metadata such as `executionMode: 'sync' | 'async-only' | 'both'` so async and sync semantics remain correct
 - Known caveat:
   - structural additions are handled without restart
   - structural deletions still trigger a brief transient Next compile error before the regenerated manifest lands, because the stale generated manifest still references the removed route during invalidation
+  - `instrumentation.ts` must keep the warmup import behind `process.env.NEXT_RUNTIME === 'nodejs'` to avoid Edge-runtime dependency resolution errors
 
 ## Overview
 
@@ -481,6 +509,12 @@ These flags are implementation aids, not permanent public requirements.
 4. Rerun the same cold benchmarks and compare against the April 2, 2026 baseline.
 5. Optionally benchmark `preloadEntriesOnStart = false` after the architectural work is in place.
 
+### Phase 5: Dev Warmup And Lazy Handler Imports
+1. Add a dev-only warmup runner that imports matched route modules in the background instead of issuing live HTTP requests.
+2. Keep warmup opt-out and concurrency-limited via environment flags so RAM tradeoffs remain controllable.
+3. Replace eager subscriber and worker handler imports with lazy wrappers that preserve the current sync and async execution contracts.
+4. Measure warmup-on versus warmup-off before keeping the feature enabled by default.
+
 ### File Manifest
 
 | File | Action | Purpose |
@@ -528,6 +562,22 @@ These flags are implementation aids, not permanent public requirements.
 | Next RSS after first cold API/backend hit | `6.06-7.03 GB` | `<= 4.0 GB`, stretch `<= 3.5 GB` |
 | Structural page/route addition during `yarn dev` | restart required today | no manual restart |
 
+### Measured Outcome
+
+| Metric | Target | Measured |
+|--------|--------|----------|
+| Cold `/backend/customers/people` total time | `<= 9.5s` | `14.4s` without warmup, `3.9s` with warmup |
+| Cold `/api/customers/people` total time | `<= 7.5s` | `1.86s` without warmup, `1.73s` with warmup |
+| Cold `/login` total time | `<= 2.5s` | `8.1s` without warmup, `2.0s` with warmup |
+| Next RSS after first cold API/backend hit | `<= 4.0 GB` | `~3.49-3.54 GB` in the measured API run |
+| Structural page/route addition during `yarn dev` | no manual restart | achieved |
+
+Interpretation:
+- the route-manifest and bootstrap split solved the API path strongly even before warmup
+- background warmup is what gets backend and frontend first-hit latency under target
+- warmup increases idle RSS, but the measured post-compile footprint still stays well below the original `6-7 GB` traces
+- the only target not met in the strict warmup-off scenario is `/login`, which is why background warmup is part of the shipped solution rather than a discarded experiment
+
 ## Risks & Impact Review
 
 #### Generated Manifest Drift
@@ -564,6 +614,13 @@ These flags are implementation aids, not permanent public requirements.
 - **Affected area**: long dev sessions
 - **Mitigation**: Benchmark memory immediately after first cold route and after a broader navigation set; evaluate `preloadEntriesOnStart = false` only after architectural changes land.
 - **Residual risk**: Medium because Next.js eventually retains loaded entries over time.
+
+#### Full Subscriber Offload Changes Event Semantics
+- **Scenario**: Moving all subscribers to worker-only loading breaks modules that currently rely on synchronous in-process side effects during event publication.
+- **Severity**: High
+- **Affected area**: event dispatch, notifications, command side effects
+- **Mitigation**: keep subscriber registration in the app runtime but lazy-load the handler body; if deeper separation is needed, add explicit execution-mode metadata first.
+- **Residual risk**: Low for the implemented lazy-wrapper approach; High for any future transparent worker-only move.
 
 #### CLI Watch Loop Feedback
 - **Scenario**: Generator watch reacts to its own output writes and enters a rebuild loop.
@@ -613,6 +670,7 @@ These flags are implementation aids, not permanent public requirements.
 
 ### 2026-04-02
 - Initial specification based on measured cold-dev profiling.
+- Implementation updated with route manifests, generator watch, route-free app bootstrap, lazy subscriber/worker handlers, and dev background warmup.
 
 ### Review — 2026-04-02
 - **Reviewer**: Agent

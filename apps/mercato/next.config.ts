@@ -4,6 +4,7 @@ import path from "node:path";
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
   experimental: {
+    preloadEntriesOnStart: false,
     serverMinification: false,
     turbopackMinify: false,
   },

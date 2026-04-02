@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { PackageResolver, ModuleEntry } from '../../resolver'
-import { generateModuleRegistry, generateModuleRegistryCli } from '../module-registry'
+import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
 
 let tmpDir: string
 
@@ -401,6 +401,53 @@ describe('generateModuleRegistryCli with module subsets', () => {
     const outputSubset = readGenerated(tmpDir, 'modules.cli.generated.ts')!
     expect(outputSubset).toContain("id: 'keep_mod'")
     expect(outputSubset).not.toContain("id: 'drop_mod'")
+  })
+})
+
+describe('generateModuleRegistryApp with module subsets', () => {
+  it('generates valid output with zero modules enabled', async () => {
+    const resolver = createMockResolver(tmpDir, [])
+    const result = await generateModuleRegistryApp({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.app.generated.ts')
+    expect(output).not.toBeNull()
+    expect(output).toContain('export const modules: Module[] = [')
+  })
+
+  it('app output excludes CLI commands and keeps lazy workers/subscribers', async () => {
+    scaffoldModule(tmpDir, 'runtime_mod', 'pkg', [
+      'index.ts',
+      'cli.ts',
+      'subscribers/on-event.ts',
+      'workers/process-job.ts',
+      'widgets/dashboard/stats/widget.tsx',
+      'acl.ts',
+      'setup.ts',
+    ])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'runtime_mod', 'subscribers', 'on-event.ts'),
+      "export const metadata = { event: 'runtime.event' }\nexport default async function handler() {}\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'runtime_mod', 'workers', 'process-job.ts'),
+      "export const metadata = { queue: 'runtime-jobs', concurrency: 2 }\nexport default async function handler() {}\n"
+    )
+    const enabled: ModuleEntry[] = [
+      { id: 'runtime_mod', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistryApp({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.app.generated.ts')!
+    expect(output).toContain("id: 'runtime_mod'")
+    expect(output).not.toContain('cli:')
+    expect(output).toContain('subscribers:')
+    expect(output).toContain('workers:')
+    expect(output).toContain('createLazyModuleSubscriber')
+    expect(output).toContain('createLazyModuleWorker')
+    expect(output).toContain('dashboardWidgets:')
   })
 })
 

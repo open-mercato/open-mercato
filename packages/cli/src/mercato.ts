@@ -388,10 +388,11 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistry({ resolver, quiet: true })
+      await generateModuleRegistryApp({ resolver, quiet: true })
       await generateModuleRegistryCli({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
@@ -1031,6 +1032,7 @@ export async function run(argv = process.argv) {
     const {
       generateEntityIds,
       generateModuleRegistry,
+      generateModuleRegistryApp,
       generateModuleRegistryCli,
       generateModuleEntities,
       generateModuleDi,
@@ -1041,6 +1043,7 @@ export async function run(argv = process.argv) {
 
     await generateEntityIds({ resolver, quiet })
     await generateModuleRegistry({ resolver, quiet })
+    await generateModuleRegistryApp({ resolver, quiet })
     await generateModuleRegistryCli({ resolver, quiet })
     await generateModuleEntities({ resolver, quiet })
     await generateModuleDi({ resolver, quiet })
@@ -1143,9 +1146,11 @@ export async function run(argv = process.argv) {
         command: 'registry',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateModulePackageSources, generateModuleRegistry } = await import('./lib/generators')
+          const { generateModulePackageSources, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } = await import('./lib/generators')
           const resolver = createResolver()
           await generateModuleRegistry({ resolver, quiet: args.includes('--quiet') })
+          await generateModuleRegistryApp({ resolver, quiet: args.includes('--quiet') })
+          await generateModuleRegistryCli({ resolver, quiet: args.includes('--quiet') })
           await generateModulePackageSources({ resolver, quiet: args.includes('--quiet') })
         },
       },
