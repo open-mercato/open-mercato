@@ -408,6 +408,7 @@ export function PriceKindSettings() {
             data={filteredItems}
             columns={columns}
             embedded
+            sortable
             isLoading={loading}
             searchValue={search}
             onSearchChange={setSearch}
