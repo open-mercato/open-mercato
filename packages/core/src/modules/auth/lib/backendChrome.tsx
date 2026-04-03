@@ -2,7 +2,6 @@ import * as React from 'react'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
-import { renderToStaticMarkup } from 'react-dom/server'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type {
@@ -84,13 +83,19 @@ type NavGroupWithWeight = Omit<BackendChromeNavGroup, 'id' | 'defaultName' | 'it
   weight: number
 }
 
-function serializeIconMarkup(icon: React.ReactNode | undefined): string | undefined {
+let renderToStaticMarkupPromise: Promise<typeof import('react-dom/server')> | null = null
+
+async function serializeIconMarkup(icon: React.ReactNode | undefined): Promise<string | undefined> {
   if (!icon) return undefined
+  if (!renderToStaticMarkupPromise) {
+    renderToStaticMarkupPromise = import('react-dom/server')
+  }
+  const { renderToStaticMarkup } = await renderToStaticMarkupPromise
   const markup = renderToStaticMarkup(<>{icon}</>)
   return markup.trim().length > 0 ? markup : undefined
 }
 
-function serializeNavItem(item: AdminNavItem): ResolvedNavItem {
+async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
   return {
     id: item.href,
     href: item.href,
@@ -99,8 +104,8 @@ function serializeNavItem(item: AdminNavItem): ResolvedNavItem {
     enabled: item.enabled,
     hidden: item.hidden,
     pageContext: item.pageContext,
-    iconMarkup: serializeIconMarkup(item.icon),
-    children: item.children?.map((child) => serializeNavItem(child)),
+    iconMarkup: await serializeIconMarkup(item.icon),
+    children: item.children ? await Promise.all(item.children.map((child) => serializeNavItem(child))) : undefined,
   }
 }
 
@@ -138,13 +143,14 @@ function normalizeGroupWeights(groups: NavGroupWithWeight[]): NavGroupWithWeight
   return groups
 }
 
-function groupEntries(entries: AdminNavItem[]): NavGroupWithWeight[] {
+async function groupEntries(entries: AdminNavItem[]): Promise<NavGroupWithWeight[]> {
   const groupMap = new Map<string, NavGroupWithWeight>()
   for (const entry of entries) {
     const weight = entry.priority ?? entry.order ?? 10_000
+    const serializedItem = await serializeNavItem(entry)
     const existing = groupMap.get(entry.groupId)
     if (existing) {
-      existing.items.push(serializeNavItem(entry))
+      existing.items.push(serializedItem)
       if (weight < existing.weight) existing.weight = weight
       continue
     }
@@ -152,7 +158,7 @@ function groupEntries(entries: AdminNavItem[]): NavGroupWithWeight[] {
       id: entry.groupId,
       name: entry.group,
       defaultName: entry.groupDefaultName,
-      items: [serializeNavItem(entry)],
+      items: [serializedItem],
       weight,
     })
   }
@@ -174,7 +180,7 @@ function adoptSidebarDefaults(groups: NavGroupWithWeight[]): NavGroupWithWeight[
   }))
 }
 
-function serializeSectionItem(item: {
+async function serializeSectionItem(item: {
   id: string
   label: string
   labelKey?: string
@@ -182,26 +188,26 @@ function serializeSectionItem(item: {
   icon?: React.ReactNode
   order?: number
   children?: SerializableSectionItem[]
-}): BackendChromeSectionItem {
+}): Promise<BackendChromeSectionItem> {
   return {
     id: item.id,
     label: item.label,
     labelKey: item.labelKey,
     href: item.href,
     order: item.order,
-    iconMarkup: serializeIconMarkup(item.icon),
-    children: item.children?.map((child) => serializeSectionItem(child)),
+    iconMarkup: await serializeIconMarkup(item.icon),
+    children: item.children ? await Promise.all(item.children.map((child) => serializeSectionItem(child))) : undefined,
   }
 }
 
-function serializeSectionGroups(groups: SerializableSectionGroup[]): BackendChromeSectionGroup[] {
-  return groups.map((group) => ({
+async function serializeSectionGroups(groups: SerializableSectionGroup[]): Promise<BackendChromeSectionGroup[]> {
+  return Promise.all(groups.map(async (group) => ({
     id: group.id,
     label: group.label,
     labelKey: group.labelKey,
     order: group.order,
-    items: group.items.map((item) => serializeSectionItem(item)),
-  }))
+    items: await Promise.all(group.items.map((item) => serializeSectionItem(item))),
+  })))
 }
 
 async function loadScopedContainer(): Promise<AwilixContainer> {
@@ -325,7 +331,7 @@ export async function resolveBackendChromePayload({
     })
   }
 
-  const baseGroups = groupEntries(entries)
+  const baseGroups = await groupEntries(entries)
   const groupsWithRole = rolePreference
     ? applySidebarPreference<NavGroupWithWeight>(baseGroups, rolePreference)
     : baseGroups
@@ -334,7 +340,7 @@ export async function resolveBackendChromePayload({
     ? applySidebarPreference<NavGroupWithWeight>(baseForUser, userPreference)
     : baseForUser
 
-  const settingsSections = serializeSectionGroups(
+  const settingsSections = await serializeSectionGroups(
     convertToSectionNavGroups(
       buildSettingsSections(entries, settingsSectionOrder),
       translate,
@@ -345,7 +351,7 @@ export async function resolveBackendChromePayload({
     groups: appliedGroups.map(({ weight: _weight, ...group }) => group),
     settingsSections,
     settingsPathPrefixes: computeSettingsPathPrefixes(buildSettingsSections(entries, settingsSectionOrder)),
-    profileSections: serializeSectionGroups(profileSections),
+    profileSections: await serializeSectionGroups(profileSections),
     profilePathPrefixes,
     grantedFeatures,
     roles: Array.isArray(auth.roles) ? auth.roles : [],
