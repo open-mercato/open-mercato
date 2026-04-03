@@ -3,13 +3,23 @@ import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 
+function detectDevRuntimeMode() {
+  const cwd = process.cwd()
+  const hasMonorepoApp = fs.existsSync(path.join(cwd, 'apps', 'mercato', 'package.json'))
+  const hasPackagesDir = fs.existsSync(path.join(cwd, 'packages'))
+  return hasMonorepoApp && hasPackagesDir ? 'monorepo' : 'standalone'
+}
+
+const runtimeMode = detectDevRuntimeMode()
+const isMonorepo = runtimeMode === 'monorepo'
 const isWindows = process.platform === 'win32'
 const yarnCommand = isWindows ? 'yarn.cmd' : 'yarn'
 const args = process.argv.slice(2)
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
-const greenfield = args.includes('--greenfield')
+const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
 const autoOpenSplash = !appOnly && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
+const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 
 const children = new Set()
 let shuttingDown = false
@@ -22,7 +32,9 @@ let splashLocaleConfig = null
 const splashState = {
   mode: greenfield ? 'greenfield' : 'dev',
   phase: greenfield ? 'Greenfield installation and first compilation is in progress...' : 'Installation and first compilation is in progress...',
-  detail: greenfield ? 'Preparing clean environment and rebuilding packages' : 'Preparing workspace packages and app runtime',
+  detail: isMonorepo
+    ? (greenfield ? 'Preparing clean environment and rebuilding packages' : 'Preparing workspace packages and app runtime')
+    : 'Preparing app runtime',
   ready: false,
   readyUrl: null,
   loginUrl: null,
@@ -32,9 +44,11 @@ const splashState = {
   workerQueues: [],
   schedulerActive: false,
   progressCurrent: 0,
-  progressTotal: greenfield ? 5 : 3,
+  progressTotal: isMonorepo ? (greenfield ? 5 : 3) : 4,
   progressPercent: 0,
-  progressLabel: greenfield ? 'Greenfield setup pending' : 'Workspace preparation pending',
+  progressLabel: isMonorepo
+    ? (greenfield ? 'Greenfield setup pending' : 'Workspace preparation pending')
+    : 'Preparing app runtime',
   activities: [],
 }
 
@@ -183,6 +197,7 @@ function resolveSplashLogoSvg() {
   if (splashLogoSvg !== null) return splashLogoSvg
 
   const candidatePaths = [
+    path.join(process.cwd(), 'public', 'open-mercato.svg'),
     path.join(process.cwd(), 'apps', 'mercato', 'public', 'open-mercato.svg'),
     path.join(process.cwd(), 'packages', 'create-app', 'template', 'public', 'open-mercato.svg'),
   ]
@@ -243,22 +258,72 @@ function resolveSplashLocaleConfig() {
     defaultLocale: 'en',
   }
 
-  const candidatePath = path.join(process.cwd(), 'packages', 'shared', 'src', 'lib', 'i18n', 'config.ts')
+  const candidatePaths = [
+    path.join(process.cwd(), 'packages', 'shared', 'src', 'lib', 'i18n', 'config.ts'),
+    path.join(process.cwd(), 'node_modules', '@open-mercato', 'shared', 'src', 'lib', 'i18n', 'config.ts'),
+    path.join(process.cwd(), 'node_modules', '@open-mercato', 'shared', 'dist', 'lib', 'i18n', 'config.js'),
+  ]
 
-  try {
-    const source = fs.readFileSync(candidatePath, 'utf8')
-    const locales = parseStringArrayLiteral(source, 'locales')
-    const defaultLocale = parseStringLiteral(source, 'defaultLocale')
+  for (const candidatePath of candidatePaths) {
+    try {
+      const source = fs.readFileSync(candidatePath, 'utf8')
+      const locales = parseStringArrayLiteral(source, 'locales')
+      const defaultLocale = parseStringLiteral(source, 'defaultLocale')
 
-    splashLocaleConfig = {
-      locales: locales.length > 0 ? locales : fallback.locales,
-      defaultLocale: defaultLocale || (locales[0] ?? fallback.defaultLocale),
-    }
-    return splashLocaleConfig
-  } catch {
-    splashLocaleConfig = fallback
-    return splashLocaleConfig
+      splashLocaleConfig = {
+        locales: locales.length > 0 ? locales : fallback.locales,
+        defaultLocale: defaultLocale || (locales[0] ?? fallback.defaultLocale),
+      }
+      return splashLocaleConfig
+    } catch {}
   }
+
+  splashLocaleConfig = fallback
+  return splashLocaleConfig
+}
+
+function buildSplashChildEnv() {
+  if (!splashChildStateFile) return undefined
+
+  return {
+    OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
+    OM_DEV_SPLASH_MODE: greenfield ? 'greenfield' : 'dev',
+  }
+}
+
+function launchStandaloneDev() {
+  if (!fs.existsSync(standaloneRuntimeScript)) {
+    console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
+    shutdown(1)
+    return
+  }
+
+  const runtimeArgs = [standaloneRuntimeScript]
+  if (verbose) {
+    runtimeArgs.push('--verbose')
+  }
+
+  console.log(`🚀 ${formatProgressLine('Starting standalone app runtime', 0, 4, 0)}`)
+  updateSplashState({
+    phase: 'Preparing app runtime',
+    detail: 'Launching standalone app runtime',
+    progressCurrent: 0,
+    progressTotal: 4,
+    progressPercent: 0,
+    progressLabel: 'Preparing app runtime',
+    activity: 'Standalone app runtime is starting',
+  })
+
+  const app = spawnCommand(process.execPath, runtimeArgs, {
+    stdio: 'inherit',
+    env: buildSplashChildEnv(),
+  })
+
+  app.on('close', (code) => {
+    if (!shuttingDown) {
+      shutdown(code ?? 0)
+    }
+  })
 }
 
 function normalizeLocaleToken(value) {
@@ -691,7 +756,7 @@ function startPackageWatch() {
   return child
 }
 
-function launchAppWorkspaceDev() {
+function launchMonorepoAppDev() {
   const appArgs = ['workspace', '@open-mercato/app', 'dev']
   if (verbose) {
     appArgs.push('--verbose')
@@ -711,10 +776,7 @@ function launchAppWorkspaceDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: splashChildStateFile ? {
-      OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
-      OM_DEV_SPLASH_MODE: greenfield ? 'greenfield' : 'dev',
-    } : undefined,
+    env: buildSplashChildEnv(),
   })
 
   app.on('close', (code) => {
@@ -736,7 +798,7 @@ async function runStandardDev() {
   ])
 
   startPackageWatch()
-  launchAppWorkspaceDev()
+  launchMonorepoAppDev()
 }
 
 async function runGreenfieldDev() {
@@ -746,14 +808,19 @@ async function runGreenfieldDev() {
   await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5 })
 
   startPackageWatch()
-  launchAppWorkspaceDev()
+  launchMonorepoAppDev()
 }
 
 async function main() {
   await startSplashServer()
 
+  if (!isMonorepo) {
+    launchStandaloneDev()
+    return
+  }
+
   if (appOnly) {
-    launchAppWorkspaceDev()
+    launchMonorepoAppDev()
     return
   }
 

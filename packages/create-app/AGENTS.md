@@ -28,7 +28,9 @@ When changes affect app shell behavior, verify all relevant template files are r
 1. `apps/mercato/src/app/layout.tsx` ↔ `packages/create-app/template/src/app/layout.tsx`
 2. `apps/mercato/src/app/(backend)/backend/layout.tsx` ↔ `packages/create-app/template/src/app/(backend)/backend/layout.tsx`
 3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*`
-4. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev.mjs`
+4. `scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev.mjs`
+5. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`
+6. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
 
 ## Dev Runtime Expectations
 

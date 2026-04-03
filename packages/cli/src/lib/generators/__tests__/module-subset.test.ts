@@ -65,6 +65,41 @@ function createMockResolver(
   }
 }
 
+function createStandaloneMockResolver(
+  tmpDir: string,
+  enabled: ModuleEntry[]
+): PackageResolver {
+  const outputDir = path.join(tmpDir, '.mercato', 'generated')
+  fs.mkdirSync(outputDir, { recursive: true })
+
+  return {
+    isMonorepo: () => false,
+    getRootDir: () => tmpDir,
+    getAppDir: () => tmpDir,
+    getOutputDir: () => outputDir,
+    getModulesConfigPath: () => path.join(tmpDir, 'src', 'modules.ts'),
+    discoverPackages: () => [],
+    loadEnabledModules: () => enabled,
+    getModulePaths: (entry: ModuleEntry) => ({
+      appBase: path.join(tmpDir, 'src', 'modules', entry.id),
+      pkgBase: path.join(
+        tmpDir,
+        'node_modules',
+        'pkg',
+        'dist',
+        'modules',
+        entry.id
+      ),
+    }),
+    getModuleImportBase: (entry: ModuleEntry) => ({
+      appBase: `@/modules/${entry.id}`,
+      pkgBase: `@open-mercato/core/modules/${entry.id}`,
+    }),
+    getPackageOutputDir: () => outputDir,
+    getPackageRoot: () => path.join(tmpDir, 'node_modules', 'pkg'),
+  }
+}
+
 function readGenerated(tmpDir: string, filename: string): string | null {
   const filePath = path.join(tmpDir, 'output', 'generated', filename)
   if (!fs.existsSync(filePath)) return null
@@ -585,6 +620,35 @@ describe('generateModuleRegistryCli with module subsets', () => {
     const outputSubset = readGenerated(tmpDir, 'modules.cli.generated.ts')!
     expect(outputSubset).toContain('id: "keep_mod"')
     expect(outputSubset).not.toContain('id: "drop_mod"')
+  })
+
+  it('discovers workers from standalone dist/modules output', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'data_sync', 'workers', 'sync-import.js'),
+      "export const metadata = { queue: 'data-sync-import', concurrency: 5 }\nexport default async function handler() {}\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'data_sync', 'workers', 'sync-export.js'),
+      "export const metadata = { queue: 'data-sync-export', concurrency: 5 }\nexport default async function handler() {}\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'integrations', 'workers', 'log-pruner.js'),
+      "export const metadata = { queue: 'integration-log-pruner', concurrency: 1 }\nexport default async function handler() {}\n"
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'data_sync', from: '@open-mercato/core' },
+      { id: 'integrations', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('queue: "data-sync-import"')
+    expect(output).toContain('queue: "data-sync-export"')
+    expect(output).toContain('queue: "integration-log-pruner"')
+    expect(output).toContain('createLazyModuleWorker(() => import("@open-mercato/core/modules/data_sync/workers/sync-import")')
   })
 })
 

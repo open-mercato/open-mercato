@@ -23,6 +23,7 @@
 Status on April 2, 2026 after implementation and rerun:
 - Implemented:
   - `mercato generate watch` and wired it into app/template `yarn dev`
+  - standalone `create-app` template now uses the same splash wrapper/template as the monorepo `yarn dev`, with the child runtime mirrored from `apps/mercato/scripts/dev.mjs`
   - additive generated manifests: `frontend-routes.generated.ts`, `backend-routes.generated.ts`, `api-routes.generated.ts`, `modules.runtime.generated.ts`, `modules.app.generated.ts`
   - catch-all frontend/backend/API routing switched to manifest-based lazy loaders
   - app bootstrap switched to the route-free `modules.app.generated.ts` registry instead of the full route registry

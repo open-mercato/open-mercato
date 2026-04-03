@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import type { PackageResolver, ModuleEntry } from '../resolver'
+import { MODULE_CODE_EXTENSIONS } from './scanner'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -187,17 +188,17 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const appDb = path.join(roots.appBase, 'db')
     const pkgDb = path.join(roots.pkgBase, 'db')
     const bases = [appData, pkgData, appDb, pkgDb]
-    const candidates = ['entities.override.ts', 'entities.ts', 'schema.ts']
+    const candidates = ['entities.override', 'entities', 'schema']
     let importPath: string | null = null
     let filePath: string | null = null
 
     for (const base of bases) {
       for (const f of candidates) {
-        const p = path.join(base, f)
-        if (fs.existsSync(p)) {
+        const p = resolveConventionFile(base, f)
+        if (p) {
           const fromApp = base.startsWith(roots.appBase)
           const sub = path.basename(base) // 'data' | 'db'
-          importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+          importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f}`
           filePath = p
           break
         }
@@ -318,4 +319,12 @@ export type KnownEntities = typeof E
   writeEntityFieldsRegistry(outputDir, combinedAll)
 
   return result
+}
+
+function resolveConventionFile(baseDir: string, basename: string): string | null {
+  for (const extension of MODULE_CODE_EXTENSIONS) {
+    const candidate = path.join(baseDir, `${basename}${extension}`)
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
 }

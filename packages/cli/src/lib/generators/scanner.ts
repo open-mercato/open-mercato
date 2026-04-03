@@ -29,6 +29,40 @@ export type ResolvedFile = {
   importPath: string
 }
 
+export const MODULE_CODE_EXTENSIONS = ['.ts', '.tsx', '.js', '.jsx'] as const
+
+export function stripModuleCodeExtension(name: string): string {
+  for (const extension of MODULE_CODE_EXTENSIONS) {
+    if (name.endsWith(extension)) {
+      return name.slice(0, -extension.length)
+    }
+  }
+  return name
+}
+
+export function isModulePageFile(name: string): boolean {
+  return stripModuleCodeExtension(name) === 'page'
+}
+
+export function isModuleRouteFile(name: string): boolean {
+  return stripModuleCodeExtension(name) === 'route'
+}
+
+function resolveCodeFileCandidates(relativePath: string): string[] {
+  const candidates = new Set<string>([relativePath])
+  const stripped = stripModuleCodeExtension(relativePath)
+  if (stripped !== relativePath) {
+    for (const extension of MODULE_CODE_EXTENSIONS) {
+      candidates.add(`${stripped}${extension}`)
+    }
+  } else {
+    for (const extension of MODULE_CODE_EXTENSIONS) {
+      candidates.add(`${relativePath}${extension}`)
+    }
+  }
+  return Array.from(candidates)
+}
+
 function walkDir(
   dir: string,
   include: (name: string) => boolean,
@@ -69,42 +103,41 @@ function apiRouteSort(a: string, b: string): number {
   return a.localeCompare(b)
 }
 
-const isTestFile = (name: string) => /\.(test|spec)\.ts$/.test(name)
-const isTsFile = (name: string) => name.endsWith('.ts') && !isTestFile(name)
-const isTsxFile = (name: string) => name.endsWith('.tsx')
-const isPageCandidateTsxFile = (name: string) => name === 'page.tsx' || (name.endsWith('.tsx') && !/^[A-Z]/.test(name))
-const isRouteTs = (name: string) => name === 'route.ts'
+const isTestFile = (name: string) => /\.(test|spec)\.[jt]sx?$/.test(name)
+const isScriptFile = (name: string) => ['.ts', '.js'].some((extension) => name.endsWith(extension)) && !isTestFile(name)
+const isComponentFile = (name: string) => ['.tsx', '.jsx', '.js'].some((extension) => name.endsWith(extension))
+const isPageCandidateFile = (name: string) => isModulePageFile(name) || (isComponentFile(name) && !/^[A-Z]/.test(stripModuleCodeExtension(name)))
 const isWidgetFile = (name: string) => /^widget\.(t|j)sx?$/.test(name)
 const methodNames = new Set(['get', 'post', 'put', 'patch', 'delete'])
 
 export const SCAN_CONFIGS = {
   frontendPages: {
     folder: 'frontend',
-    include: isPageCandidateTsxFile,
+    include: isPageCandidateFile,
     sort: staticBeforeDynamicSort,
   },
   backendPages: {
     folder: 'backend',
-    include: isPageCandidateTsxFile,
+    include: isPageCandidateFile,
     sort: staticBeforeDynamicSort,
   },
   apiRoutes: {
     folder: 'api',
-    include: isRouteTs,
+    include: isModuleRouteFile,
     sort: apiRouteSort,
   },
   apiPlainFiles: {
     folder: 'api',
-    include: (name: string) => name.endsWith('.ts') && name !== 'route.ts' && !isTestFile(name),
+    include: (name: string) => isScriptFile(name) && !isModuleRouteFile(name),
     skipDirs: (name: string) => methodNames.has(name.toLowerCase()),
   },
   subscribers: {
     folder: 'subscribers',
-    include: isTsFile,
+    include: isScriptFile,
   },
   workers: {
     folder: 'workers',
-    include: isTsFile,
+    include: isScriptFile,
   },
   dashboardWidgets: {
     folder: 'widgets/dashboard',
@@ -124,20 +157,23 @@ export function scanModuleDir(roots: ModuleRoots, config: ScanConfig): ScannedFi
   const pkgDir = path.join(roots.pkgBase, ...folderSegments)
   if (!fs.existsSync(appDir) && !fs.existsSync(pkgDir)) return []
 
-  const found: string[] = []
-  if (fs.existsSync(pkgDir)) found.push(...walkDir(pkgDir, config.include, [], config.skipDirs))
-  if (fs.existsSync(appDir)) found.push(...walkDir(appDir, config.include, [], config.skipDirs))
+  const pkgFiles = fs.existsSync(pkgDir) ? walkDir(pkgDir, config.include, [], config.skipDirs) : []
+  const appFiles = fs.existsSync(appDir) ? walkDir(appDir, config.include, [], config.skipDirs) : []
+  const filesByLogicalPath = new Map<string, ScannedFile>()
 
-  let files = Array.from(new Set(found))
-  if (config.sort) {
-    files.sort(config.sort)
+  for (const relPath of pkgFiles) {
+    filesByLogicalPath.set(stripModuleCodeExtension(relPath), { relPath, fromApp: false })
+  }
+  for (const relPath of appFiles) {
+    filesByLogicalPath.set(stripModuleCodeExtension(relPath), { relPath, fromApp: true })
   }
 
-  return files.map((relPath) => {
-    const appFile = path.join(appDir, ...relPath.split('/'))
-    const fromApp = fs.existsSync(appFile)
-    return { relPath, fromApp }
-  })
+  const files = Array.from(filesByLogicalPath.values())
+  if (config.sort) {
+    files.sort((a, b) => config.sort!(a.relPath, b.relPath))
+  }
+
+  return files
 }
 
 export function resolveModuleFile(
@@ -145,16 +181,19 @@ export function resolveModuleFile(
   imps: ModuleImports,
   relativePath: string
 ): ResolvedFile | null {
-  const segments = relativePath.split('/')
-  const appFile = path.join(roots.appBase, ...segments)
-  const pkgFile = path.join(roots.pkgBase, ...segments)
-  const hasApp = fs.existsSync(appFile)
-  const hasPkg = fs.existsSync(pkgFile)
-  if (!hasApp && !hasPkg) return null
+  const relativeCandidates = resolveCodeFileCandidates(relativePath)
+  const appRelativePath = relativeCandidates.find((candidate) =>
+    fs.existsSync(path.join(roots.appBase, ...candidate.split('/')))
+  )
+  const pkgRelativePath = relativeCandidates.find((candidate) =>
+    fs.existsSync(path.join(roots.pkgBase, ...candidate.split('/')))
+  )
+  if (!appRelativePath && !pkgRelativePath) return null
 
-  const fromApp = hasApp
-  const absolutePath = fromApp ? appFile : pkgFile
-  const importSuffix = relativePath.replace(/\.tsx?$/, '')
+  const fromApp = Boolean(appRelativePath)
+  const resolvedRelativePath = appRelativePath ?? pkgRelativePath!
+  const absolutePath = path.join(fromApp ? roots.appBase : roots.pkgBase, ...resolvedRelativePath.split('/'))
+  const importSuffix = stripModuleCodeExtension(resolvedRelativePath)
   const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${importSuffix}`
   return { absolutePath, fromApp, importPath }
 }

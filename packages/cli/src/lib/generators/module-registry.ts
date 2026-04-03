@@ -15,8 +15,11 @@ import {
   resolveModuleFile,
   resolveFirstModuleFile,
   SCAN_CONFIGS,
+  MODULE_CODE_EXTENSIONS,
   type ModuleRoots,
   type ModuleImports,
+  stripModuleCodeExtension,
+  isModulePageFile,
 } from './scanner'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -284,6 +287,32 @@ function buildBareImportStatement(importPath: string): string {
 
 function buildDynamicImportExpression(importPath: string): string {
   return `import(${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))})`
+}
+
+function findExistingModuleFile(baseDir: string, relativePath: string): string | null {
+  const directPath = path.join(baseDir, relativePath)
+  if (fs.existsSync(directPath)) return directPath
+
+  const stripped = stripModuleCodeExtension(relativePath)
+  for (const extension of MODULE_CODE_EXTENSIONS) {
+    const candidate = path.join(baseDir, `${stripped}${extension}`)
+    if (fs.existsSync(candidate)) return candidate
+  }
+
+  return null
+}
+
+function findExistingModuleFileByBaseNames(baseDir: string, relativeBaseNames: string[]): string | null {
+  for (const relativeBaseName of relativeBaseNames) {
+    const resolved = findExistingModuleFile(baseDir, relativeBaseName)
+    if (resolved) return resolved
+  }
+  return null
+}
+
+function toModuleImportSubpath(filePath: string, baseDir: string): string {
+  const relativePath = path.relative(baseDir, filePath).replace(/\\/g, '/')
+  return stripModuleCodeExtension(relativePath)
 }
 
 function normalizeApiMethodMetadata(raw: unknown): RuntimeApiMethodMetadata | null {
@@ -562,23 +591,21 @@ async function processPageFiles(options: {
   const runtimeRoutes: string[] = []
   const manifestRoutes: string[] = []
 
-  // Next-style page.tsx files
-  for (const { relPath, fromApp } of files.filter(({ relPath: f }) => f.endsWith('/page.tsx') || f === 'page.tsx')) {
+  // Next-style page.* files
+  for (const { relPath, fromApp } of files.filter(({ relPath: f }) => isModulePageFile(path.basename(f)))) {
     const segs = relPath.split('/')
-    segs.pop()
+    const pageFile = segs.pop()!
+    const pageBaseName = stripModuleCodeExtension(pageFile)
     const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const runtimeMetaName = `${metaPrefix}Runtime${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-    const sub = segs.length ? `${segs.join('/')}/page` : 'page'
+    const sub = segs.length ? `${segs.join('/')}/${pageBaseName}` : pageBaseName
     const importPath = sanitizeGeneratedModuleSpecifier(`${fromApp ? appImportBase : pkgImportBase}/${type}/${sub}`)
     const routePath = type === 'frontend'
       ? '/' + (segs.join('/') || '')
       : '/backend/' + (segs.join('/') || modId)
-    const metaCandidates = [
-      path.join(fromApp ? appDir : pkgDir, ...segs, 'page.meta.ts'),
-      path.join(fromApp ? appDir : pkgDir, ...segs, 'meta.ts'),
-    ]
-    const metaPath = metaCandidates.find((p) => fs.existsSync(p))
+    const moduleBaseDir = path.join(fromApp ? appDir : pkgDir, ...segs)
+    const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
@@ -586,7 +613,7 @@ async function processPageFiles(options: {
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = sanitizeGeneratedModuleSpecifier(
-        `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+        `${fromApp ? appImportBase : pkgImportBase}/${type}/${toModuleImportSubpath(metaPath, fromApp ? appDir : pkgDir)}`
       )
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       eagerImports.push(buildImportStatement(`* as ${metaImportName}`, metaImportPath))
@@ -608,8 +635,10 @@ async function processPageFiles(options: {
       metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+      const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
+      if (!sourceFile) continue
       const manifestMetadata = await loadPageMetadataForManifest({
-        sourceFile: fromApp ? path.join(appDir, ...segs, 'page.tsx') : path.join(pkgDir, ...segs, 'page.tsx'),
+        sourceFile,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
         allowRuntimeFallback: type === 'backend',
       })
@@ -632,10 +661,10 @@ async function processPageFiles(options: {
   }
 
   // Back-compat direct files (old-style pages like login.tsx instead of login/page.tsx)
-  for (const { relPath, fromApp } of files.filter(({ relPath: f }) => !f.endsWith('/page.tsx') && f !== 'page.tsx')) {
+  for (const { relPath, fromApp } of files.filter(({ relPath: f }) => !isModulePageFile(path.basename(f)))) {
     const segs = relPath.split('/')
     const file = segs.pop()!
-    const name = file.replace(/\.tsx$/, '')
+    const name = stripModuleCodeExtension(file)
     const routeSegs = [...segs, name].filter(Boolean)
     const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
     const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
@@ -648,11 +677,8 @@ async function processPageFiles(options: {
       : '/backend/' + (segs[0] === modId
           ? [...segs, name].filter(Boolean).join('/')
           : [modId, ...segs, name].filter(Boolean).join('/'))
-    const metaCandidates = [
-      path.join(fromApp ? appDir : pkgDir, ...segs, `${name}.meta.ts`),
-      path.join(fromApp ? appDir : pkgDir, ...segs, 'meta.ts'),
-    ]
-    const metaPath = metaCandidates.find((p) => fs.existsSync(p))
+    const moduleBaseDir = path.join(fromApp ? appDir : pkgDir, ...segs)
+    const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, [`${name}.meta`, 'meta'])
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
@@ -660,7 +686,7 @@ async function processPageFiles(options: {
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       const metaBase = path.basename(metaPath)
-      const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
+      const metaImportSub = stripModuleCodeExtension(metaBase) === 'meta' ? 'meta' : `${name}.meta`
       const metaImportPath = sanitizeGeneratedModuleSpecifier(
         `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, metaImportSub].join('/')}`
       )
@@ -684,8 +710,10 @@ async function processPageFiles(options: {
       metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
+      const sourceFile = findExistingModuleFile(moduleBaseDir, file)
+      if (!sourceFile) continue
       const manifestMetadata = await loadPageMetadataForManifest({
-        sourceFile: fromApp ? path.join(appDir, ...segs, file) : path.join(pkgDir, ...segs, file),
+        sourceFile,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
         allowRuntimeFallback: type === 'backend',
       })
@@ -733,20 +761,21 @@ async function processApiRoutes(options: {
   const runtimeApis: string[] = []
   const manifestApis: string[] = []
 
-  // route.ts aggregations
+  // route.* aggregations
   const routeFiles = scanModuleDir(roots, SCAN_CONFIGS.apiRoutes)
   for (const { relPath, fromApp } of routeFiles) {
     const segs = relPath.split('/')
-    segs.pop()
+    const routeFile = segs.pop()!
     const reqSegs = [modId, ...segs]
     const importName = `R${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-    const appFile = path.join(apiApp, ...segs, 'route.ts')
+    const sourceDir = fromApp ? apiApp : apiPkg
+    const sourceFile = findExistingModuleFile(path.join(sourceDir, ...segs), routeFile)
+    if (!sourceFile) continue
     const apiSegPath = segs.join('/')
     const importPath = sanitizeGeneratedModuleSpecifier(
-      `${fromApp ? appImportBase : pkgImportBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
+      `${fromApp ? appImportBase : pkgImportBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/${stripModuleCodeExtension(routeFile)}`
     )
     const routePath = '/' + reqSegs.filter(Boolean).join('/')
-    const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
     const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
     const metadata = sourceModule?.metadata ?? extractNamedObjectLiteralExport(sourceFile, 'metadata')
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
@@ -761,22 +790,21 @@ async function processApiRoutes(options: {
     manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((method) => toLiteral(method)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
   }
 
-  // Single files (plain .ts, not route.ts, not tests, skip method dirs)
+  // Single files (plain scripts, not route.*, not tests, skip method dirs)
   const plainFiles = scanModuleDir(roots, SCAN_CONFIGS.apiPlainFiles)
   for (const { relPath, fromApp } of plainFiles) {
     const segs = relPath.split('/')
     const file = segs.pop()!
-    const pathWithoutExt = file.replace(/\.ts$/, '')
+    const pathWithoutExt = stripModuleCodeExtension(file)
     const fullSegs = [...segs, pathWithoutExt]
     const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
     const importName = `R${importIdRef.value++}_${toVar(modId)}_${toVar(fullSegs.join('_') || 'index')}`
-    const appFile = path.join(apiApp, ...fullSegs) + '.ts'
     const plainSegPath = fullSegs.join('/')
     const importPath = sanitizeGeneratedModuleSpecifier(
       `${fromApp ? appImportBase : pkgImportBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
     )
-    const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
-    const sourceFile = fromApp ? appFile : pkgFile
+    const sourceFile = findExistingModuleFile(fromApp ? apiApp : apiPkg, relPath)
+    if (!sourceFile) continue
     const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
     const metadata = sourceModule?.metadata ?? extractNamedObjectLiteralExport(sourceFile, 'metadata')
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
@@ -801,13 +829,13 @@ async function processApiRoutes(options: {
     const methodRoots: ModuleRoots = { appBase: methodDir, pkgBase: methodDir }
     const methodConfig = {
       folder: '',
-      include: (name: string) => name.endsWith('.ts') && !/\.(test|spec)\.ts$/.test(name),
+      include: (name: string) => ['.ts', '.js'].some((extension) => name.endsWith(extension)) && !/\.(test|spec)\.[jt]s$/.test(name),
     }
     const apiFiles = scanModuleDir(methodRoots, methodConfig)
     for (const { relPath } of apiFiles) {
       const segs = relPath.split('/')
       const file = segs.pop()!
-      const pathWithoutExt = file.replace(/\.ts$/, '')
+      const pathWithoutExt = stripModuleCodeExtension(file)
       const fullSegs = [...segs, pathWithoutExt]
       const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
       const importName = `H${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
@@ -849,7 +877,7 @@ async function processSubscribers(options: {
   for (const { relPath, fromApp } of files) {
     const segs = relPath.split('/')
     const file = segs.pop()!
-    const name = file.replace(/\.ts$/, '')
+    const name = stripModuleCodeExtension(file)
     const importPath = sanitizeGeneratedModuleSpecifier(
       `${fromApp ? appImportBase : pkgImportBase}/subscribers/${[...segs, name].join('/')}`
     )
@@ -875,7 +903,7 @@ async function processWorkers(options: {
   for (const { relPath, fromApp } of files) {
     const segs = relPath.split('/')
     const file = segs.pop()!
-    const name = file.replace(/\.ts$/, '')
+    const name = stripModuleCodeExtension(file)
     const importPath = sanitizeGeneratedModuleSpecifier(
       `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
     )

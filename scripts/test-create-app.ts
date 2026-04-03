@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { createAppBin, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 
@@ -48,7 +48,32 @@ function addPreinstallScriptProbe(appDir: string): void {
   writeJson(packageJsonPath, packageJson)
 }
 
+function restoreEntryDirectory(entryCwd: string): void {
+  try {
+    process.chdir(entryCwd)
+  } catch {
+    return
+  }
+
+  if (process.stdout.isTTY) {
+    process.stdout.write(`\u001B]7;${pathToFileURL(entryCwd).href}\u0007`)
+  }
+}
+
+function forwardSignal(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) {
+    return
+  }
+
+  try {
+    process.kill(child.pid, signal)
+  } catch {
+    // Ignore races where the child exited before the signal was forwarded.
+  }
+}
+
 async function main(): Promise<void> {
+  const entryCwd = process.cwd()
   const noShell = process.argv.includes('--no-shell')
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-smoke-'))
   const appDir = path.join(tempRoot, 'standalone-app')
@@ -99,12 +124,29 @@ async function main(): Promise<void> {
         stdio: 'inherit',
         shell: false,
       })
+      let forwardedExitCode: number | null = null
+      const handleSigint = () => {
+        forwardedExitCode = 130
+        forwardSignal(child, 'SIGINT')
+      }
+      const handleSigterm = () => {
+        forwardedExitCode = 143
+        forwardSignal(child, 'SIGTERM')
+      }
+
+      process.on('SIGINT', handleSigint)
+      process.on('SIGTERM', handleSigterm)
+
       child.on('exit', (code) => {
-        process.exit(code ?? 0)
+        process.off('SIGINT', handleSigint)
+        process.off('SIGTERM', handleSigterm)
+        restoreEntryDirectory(entryCwd)
+        process.exit(code ?? forwardedExitCode ?? 0)
       })
       return
     }
   } catch (error) {
+    restoreEntryDirectory(entryCwd)
     console.error(red('\ncreate-mercato-app scaffold test failed'))
     console.error(error instanceof Error ? error.message : String(error))
     console.error(yellow(`App path: ${appDir}`))
