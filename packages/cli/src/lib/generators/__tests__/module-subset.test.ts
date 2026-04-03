@@ -189,6 +189,29 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain('subscriber_meta:on-event')
   })
 
+  it('keeps backend route metadata runtime-backed when icons are non-serializable', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.tsx'),
+      'export default function Page() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.meta.ts'),
+      "import React from 'react'\nconst icon = React.createElement('svg', null)\nexport const metadata = { requireAuth: true, pageTitle: 'Dashboard', icon }\n",
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'iconic', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'backend-routes.generated.ts')!
+    expect(output).toMatch(/import \* as .* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/)
+    expect(output).not.toContain('"pageTitle":"Dashboard"')
+    expect(output).toContain('pattern: "/backend/dashboard"')
+  })
+
   it('handles module with only widgets — no pages or subscribers', async () => {
     scaffoldModule(tmpDir, 'widgets_only', 'pkg', [
       'widgets/dashboard/stats/widget.tsx',

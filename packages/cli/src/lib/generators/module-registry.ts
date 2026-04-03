@@ -101,6 +101,11 @@ type SerializableWorkerMetadata = {
   concurrency?: number
 }
 
+type PageMetadataManifestLoadResult = {
+  manifestExpr: string
+  requiresRuntimeImport: boolean
+}
+
 function scanDashboardWidgetEntries(options: {
   modId: string
   roots: ModuleRoots
@@ -128,7 +133,7 @@ async function loadModuleExportsFromSource<T = Record<string, unknown>>(sourceFi
   }
 }
 
-function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
+function extractNamedObjectLiteralSource(sourceFile: string, exportName: string): string | null {
   let source = ''
   try {
     source = fs.readFileSync(sourceFile, 'utf8')
@@ -199,15 +204,39 @@ function extractNamedObjectLiteralExport(sourceFile: string, exportName: string)
     if (depth !== 0) continue
 
     const literal = source.slice(objectStart, index + 1)
-    try {
-      const extracted = Function(`"use strict"; return (${literal});`)()
-      return extracted && typeof extracted === 'object' ? extracted as Record<string, unknown> : null
-    } catch {
-      return null
-    }
+    return literal
   }
 
   return null
+}
+
+function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
+  const literal = extractNamedObjectLiteralSource(sourceFile, exportName)
+  if (!literal) return null
+  try {
+    const extracted = Function(`"use strict"; return (${literal});`)()
+    return extracted && typeof extracted === 'object' ? extracted as Record<string, unknown> : null
+  } catch {
+    return null
+  }
+}
+
+function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean {
+  const literal = extractNamedObjectLiteralSource(sourceFile, 'metadata')
+  if (!literal) return false
+
+  if (/\b(?:visible|enabled)\s*(?::|[,}])/.test(literal)) {
+    return true
+  }
+
+  if (!/\bicon\s*(?::|[,}])/.test(literal)) {
+    return false
+  }
+
+  const iconMatch = /\bicon\s*:\s*([^,\n}]+)/m.exec(literal)
+  if (!iconMatch) return true
+
+  return !/^['"`]/.test(iconMatch[1].trim())
 }
 
 function toLiteral(value: unknown): string {
@@ -409,6 +438,15 @@ function normalizePageMetadata(raw: unknown): SerializablePageMetadata | null {
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
+function requiresRuntimePageMetadata(raw: unknown): boolean {
+  if (!raw || typeof raw !== 'object') return false
+  const source = raw as Record<string, unknown>
+  if (typeof source.visible === 'function' || typeof source.enabled === 'function') {
+    return true
+  }
+  return source.icon != null && typeof source.icon !== 'string'
+}
+
 function normalizeSubscriberMetadata(raw: unknown): SerializableSubscriberMetadata | null {
   if (!raw || typeof raw !== 'object') return null
   const source = raw as Record<string, unknown>
@@ -443,11 +481,33 @@ async function loadWorkerMetadata(sourceFile: string): Promise<SerializableWorke
     ?? normalizeWorkerMetadata(extractNamedObjectLiteralExport(sourceFile, 'metadata'))
 }
 
-async function loadPageMetadataLiteral(sourceFile: string, metaPath?: string): Promise<string> {
-  const metadataModule = metaPath ?? sourceFile
+async function loadPageMetadataForManifest(options: {
+  sourceFile: string
+  metaPath?: string
+  runtimeExpr: string
+  allowRuntimeFallback?: boolean
+}): Promise<PageMetadataManifestLoadResult> {
+  const metadataModule = options.metaPath ?? options.sourceFile
   const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(metadataModule)
-  const normalized = normalizePageMetadata(sourceModule?.metadata)
-  return normalized ? `(${toLiteral(normalized)} as any)` : '(undefined as any)'
+  const runtimeMetadata = sourceModule?.metadata
+
+  if (
+    options.allowRuntimeFallback
+    && (requiresRuntimePageMetadata(runtimeMetadata) || requiresRuntimePageMetadataFromSourceFile(metadataModule))
+  ) {
+    return {
+      manifestExpr: options.runtimeExpr,
+      requiresRuntimeImport: true,
+    }
+  }
+
+  const normalized = normalizePageMetadata(runtimeMetadata)
+    ?? normalizePageMetadata(extractNamedObjectLiteralExport(metadataModule, 'metadata'))
+
+  return {
+    manifestExpr: normalized ? `(${toLiteral(normalized)} as any)` : '(undefined as any)',
+    requiresRuntimeImport: false,
+  }
 }
 
 async function processPageFiles(options: {
@@ -460,9 +520,10 @@ async function processPageFiles(options: {
   pkgImportBase: string
   eagerImports: string[]
   runtimeImports: string[]
+  manifestImports?: string[]
   importIdRef: { value: number }
 }): Promise<PageRouteGenerationResult> {
-  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, importIdRef } = options
+  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef } = options
   const prefix = type === 'frontend' ? 'C' : 'B'
   const modPrefix = type === 'frontend' ? 'CM' : 'BM'
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
@@ -490,21 +551,44 @@ async function processPageFiles(options: {
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
+    let manifestImportStatement: string | null = null
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+      const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       eagerImports.push(buildImportStatement(`* as ${metaImportName}`, metaImportPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, metaImportPath))
       metaExpr = `(${metaImportName}.metadata as any)`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
-      manifestMetaExpr = await loadPageMetadataLiteral(metaPath, metaPath)
+      const manifestMetadata = await loadPageMetadataForManifest({
+        sourceFile: metaPath,
+        metaPath,
+        runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
+        allowRuntimeFallback: type === 'backend',
+      })
+      manifestMetaExpr = manifestMetadata.manifestExpr
+      if (manifestMetadata.requiresRuntimeImport) {
+        manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, metaImportPath)
+      }
       eagerImports.push(buildImportStatement(importName, importPath))
     } else {
       metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
-      manifestMetaExpr = await loadPageMetadataLiteral(fromApp ? path.join(appDir, ...segs, 'page.tsx') : path.join(pkgDir, ...segs, 'page.tsx'))
+      const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
+      const manifestMetadata = await loadPageMetadataForManifest({
+        sourceFile: fromApp ? path.join(appDir, ...segs, 'page.tsx') : path.join(pkgDir, ...segs, 'page.tsx'),
+        runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
+        allowRuntimeFallback: type === 'backend',
+      })
+      manifestMetaExpr = manifestMetadata.manifestExpr
+      if (manifestMetadata.requiresRuntimeImport) {
+        manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, importPath)
+      }
       eagerImports.push(buildImportStatement(`${importName}, * as ${pageModName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, importPath))
+    }
+    if (manifestImportStatement) {
+      manifestImports?.push(manifestImportStatement)
     }
     const baseProps = buildPageRouteProps(metaExpr, routePath)
     const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
@@ -537,23 +621,46 @@ async function processPageFiles(options: {
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
+    let manifestImportStatement: string | null = null
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       const metaBase = path.basename(metaPath)
       const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
       const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, metaImportSub].join('/')}`
+      const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       eagerImports.push(buildImportStatement(`* as ${metaImportName}`, metaImportPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, metaImportPath))
       metaExpr = type === 'frontend' ? `(${metaImportName}.metadata as any)` : `${metaImportName}.metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
-      manifestMetaExpr = await loadPageMetadataLiteral(metaPath, metaPath)
+      const manifestMetadata = await loadPageMetadataForManifest({
+        sourceFile: metaPath,
+        metaPath,
+        runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
+        allowRuntimeFallback: type === 'backend',
+      })
+      manifestMetaExpr = manifestMetadata.manifestExpr
+      if (manifestMetadata.requiresRuntimeImport) {
+        manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, metaImportPath)
+      }
       eagerImports.push(buildImportStatement(importName, importPath))
     } else {
       metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
-      manifestMetaExpr = await loadPageMetadataLiteral(fromApp ? path.join(appDir, ...segs, file) : path.join(pkgDir, ...segs, file))
+      const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
+      const manifestMetadata = await loadPageMetadataForManifest({
+        sourceFile: fromApp ? path.join(appDir, ...segs, file) : path.join(pkgDir, ...segs, file),
+        runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
+        allowRuntimeFallback: type === 'backend',
+      })
+      manifestMetaExpr = manifestMetadata.manifestExpr
+      if (manifestMetadata.requiresRuntimeImport) {
+        manifestImportStatement = buildImportStatement(`* as ${manifestMetaImportName}`, importPath)
+      }
       eagerImports.push(buildImportStatement(`${importName}, * as ${pageModName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, importPath))
+    }
+    if (manifestImportStatement) {
+      manifestImports?.push(manifestImportStatement)
     }
     const baseProps = buildPageRouteProps(metaExpr, routePath)
     const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
@@ -1061,6 +1168,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           pkgImportBase: imps.pkgBase,
           eagerImports: imports,
           runtimeImports,
+          manifestImports: frontendRouteManifestImports,
           importIdRef,
         })
         frontendRoutes.push(...generatedFrontendRoutes.eagerRoutes)
@@ -1376,6 +1484,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           pkgImportBase: imps.pkgBase,
           eagerImports: imports,
           runtimeImports,
+          manifestImports: backendRouteManifestImports,
           importIdRef,
         })
         backendRoutes.push(...generatedBackendRoutes.eagerRoutes)

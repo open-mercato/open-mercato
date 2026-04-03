@@ -34,6 +34,12 @@ type ErrorWithCause = {
   errors?: unknown[]
 }
 
+const TURBOPACK_CORRUPTION_PATTERNS = [
+  'Failed to restore task data (corrupted database or bug)',
+  'Unable to open static sorted file',
+  'TurbopackInternalError',
+]
+
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
     return []
@@ -93,6 +99,14 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
   }
 
   return message
+}
+
+function isTurbopackCacheCorruption(output: string): boolean {
+  return TURBOPACK_CORRUPTION_PATTERNS.every((pattern) => output.includes(pattern))
+}
+
+function removeTurbopackDevCache(appDir: string): void {
+  fs.rmSync(path.join(appDir, '.mercato', 'next', 'dev'), { recursive: true, force: true })
 }
 
 async function ensureEnvLoaded() {
@@ -1287,11 +1301,12 @@ export async function run(argv = process.argv) {
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
           const runtimeEnv = buildServerProcessEnvironment(process.env)
+          let didRetryCorruptedTurbopackCache = false
 
           function cleanup() {
             console.log('[server] Shutting down...')
             for (const proc of processes) {
-              if (!proc.killed) {
+              if (!proc.killed && proc.exitCode === null && proc.signalCode === null) {
                 proc.kill('SIGTERM')
               }
             }
@@ -1331,13 +1346,47 @@ export async function run(argv = process.argv) {
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
-          // Start Next.js dev
-          const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
-            stdio: 'inherit',
-            env: process.env,
-            cwd: appDir,
-          })
-          processes.push(nextProcess)
+          const startNextDev = (): Promise<void> =>
+            new Promise((resolve) => {
+              const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+                stdio: ['inherit', 'pipe', 'pipe'],
+                env: process.env,
+                cwd: appDir,
+              })
+              processes.push(nextProcess)
+
+              let combinedOutput = ''
+              const appendOutput = (chunk: string) => {
+                combinedOutput += chunk
+                if (combinedOutput.length > 32_768) {
+                  combinedOutput = combinedOutput.slice(-32_768)
+                }
+              }
+
+              nextProcess.stdout?.on('data', (chunk: Buffer | string) => {
+                const text = typeof chunk === 'string' ? chunk : chunk.toString()
+                process.stdout.write(text)
+                appendOutput(text)
+              })
+              nextProcess.stderr?.on('data', (chunk: Buffer | string) => {
+                const text = typeof chunk === 'string' ? chunk : chunk.toString()
+                process.stderr.write(text)
+                appendOutput(text)
+              })
+
+              nextProcess.on('exit', async () => {
+                if (!didRetryCorruptedTurbopackCache && isTurbopackCacheCorruption(combinedOutput)) {
+                  didRetryCorruptedTurbopackCache = true
+                  console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
+                  removeTurbopackDevCache(appDir)
+                  await startNextDev()
+                  return resolve()
+                }
+                resolve()
+              })
+            })
+
+          const nextExitPromise = startNextDev()
 
           // Start workers if enabled
           if (autoSpawnWorkers) {
@@ -1362,12 +1411,17 @@ export async function run(argv = process.argv) {
 
           // Wait for any process to exit
           await Promise.race(
-            processes.map(
-              (proc) =>
-                new Promise<void>((resolve) => {
-                  proc.on('exit', () => resolve())
-                })
-            )
+            [
+              nextExitPromise,
+              ...processes
+                .filter((proc) => proc.spawnargs[1] !== nextBin)
+                .map(
+                  (proc) =>
+                    new Promise<void>((resolve) => {
+                      proc.on('exit', () => resolve())
+                    })
+                ),
+            ]
           )
 
           await cleanupAndWait()
