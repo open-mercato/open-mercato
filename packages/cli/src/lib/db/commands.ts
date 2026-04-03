@@ -89,6 +89,33 @@ export function makeConstraintDropsIdempotent(sql: string): string {
   return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
 }
 
+export function getMigrationSnapshotName(resolver: Pick<PackageResolver, 'getRootDir'>): string {
+  const fallback = 'open-mercato'
+  const packageJsonPath = path.join(resolver.getRootDir(), 'package.json')
+
+  let packageName = fallback
+
+  try {
+    const raw = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { name?: unknown }
+    if (typeof raw.name === 'string' && raw.name.trim()) {
+      packageName = raw.name.trim()
+    }
+  } catch {
+    // Fall back to the historical repo snapshot name when package.json is unavailable.
+  }
+
+  const unscopedName = packageName.startsWith('@')
+    ? packageName.split('/')[1] ?? packageName.slice(1)
+    : packageName
+
+  const slug = unscopedName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return `.snapshot-${slug || fallback}`
+}
+
 let tsxLoaderRegistered = false
 let temporaryModuleCounter = 0
 
@@ -244,6 +271,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
+        snapshotName: getMigrationSnapshotName(resolver),
         dropTables: false,
       },
       schemaGenerator: {
@@ -334,6 +362,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
+        snapshotName: getMigrationSnapshotName(resolver),
         dropTables: false,
       },
       schemaGenerator: {
