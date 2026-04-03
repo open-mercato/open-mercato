@@ -444,6 +444,29 @@ export function GET() {
     expect(output).not.toContain(`path: '/safe_mod/quoted'route'`)
   })
 
+  it('rejects unsafe generated module specifiers before emitting lazy imports', async () => {
+    scaffoldModule(tmpDir, 'bad_spec', 'pkg', ['subscribers/on-event.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'bad_spec', 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'orders.created' }\nexport default async function handler() {}\n`
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'bad_spec', from: '@open-mercato/core' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModuleImportBase: () => ({
+        appBase: '@/modules/bad_spec',
+        pkgBase: '@open-mercato/core/modules/bad_spec";console.log(1)//',
+      }),
+    }
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      'Unsafe generated module specifier'
+    )
+  })
+
   it('mixed subset: core module + app module, then remove core module', async () => {
     scaffoldModule(tmpDir, 'core_mod', 'pkg', [
       'backend/page.tsx',

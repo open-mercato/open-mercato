@@ -4,7 +4,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 
 ## MUST Rules
 
-1. **MUST test both environments** — verify changes work in monorepo (`yarn dev`) AND standalone app (via Verdaccio)
+1. **MUST test both environments** — verify changes work in monorepo (`yarn dev` / `yarn dev:verbose` when relevant) AND standalone app (via Verdaccio)
 2. **MUST keep `@types/*` in `dependencies`** (not `devDependencies`) — standalone apps need type declarations at runtime
 3. **MUST follow build order** — `yarn build:packages` → `yarn generate` → `yarn build:packages`
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
@@ -28,6 +28,13 @@ When changes affect app shell behavior, verify all relevant template files are r
 1. `apps/mercato/src/app/layout.tsx` ↔ `packages/create-app/template/src/app/layout.tsx`
 2. `apps/mercato/src/app/(backend)/backend/layout.tsx` ↔ `packages/create-app/template/src/app/(backend)/backend/layout.tsx`
 3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*`
+4. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev.mjs`
+
+## Dev Runtime Expectations
+
+- `yarn dev` is the compact runtime. It folds routine startup logs and lets the user press `d` to show or hide raw logs.
+- `yarn dev:verbose` is the raw passthrough variant and MUST stay available for debugging.
+- When changing dev DX, verify both monorepo and standalone runtimes still expose the same debugging escape hatches and startup states.
 
 ## Standalone App Structure
 

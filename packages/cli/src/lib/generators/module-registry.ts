@@ -118,7 +118,9 @@ function scanDashboardWidgetEntries(options: {
     const segs = relPath.split('/')
     const file = segs.pop()!
     const base = file.replace(/\.(t|j)sx?$/, '')
-    const importPath = `${fromApp ? appImportBase : pkgImportBase}/widgets/dashboard/${[...segs, base].join('/')}`
+    const importPath = sanitizeGeneratedModuleSpecifier(
+      `${fromApp ? appImportBase : pkgImportBase}/widgets/dashboard/${[...segs, base].join('/')}`
+    )
     const key = [modId, ...segs, base].filter(Boolean).join(':')
     const source = fromApp ? 'app' : 'package'
     return { moduleId: modId, key, source, importPath }
@@ -243,16 +245,45 @@ function toLiteral(value: unknown): string {
   return JSON.stringify(value)
 }
 
+const GENERATED_MODULE_SPECIFIER_PREFIXES = ['@/', '@open-mercato/', '../../src/modules/', './'] as const
+const GENERATED_MODULE_SPECIFIER_SEGMENT = /^[A-Za-z0-9_.\-[\]()']+$/
+
+function sanitizeGeneratedModuleSpecifierSegment(segment: string, importPath: string): string {
+  const match = GENERATED_MODULE_SPECIFIER_SEGMENT.exec(segment)
+  if (!match || segment === '.' || segment === '..') {
+    throw new Error(`Unsafe generated module specifier: ${importPath}`)
+  }
+  return match[0]
+}
+
+function sanitizeGeneratedModuleSpecifier(importPath: string): string {
+  const prefix = GENERATED_MODULE_SPECIFIER_PREFIXES.find((candidate) => importPath.startsWith(candidate))
+  if (!prefix) {
+    throw new Error(`Unsafe generated module specifier prefix: ${importPath}`)
+  }
+
+  const suffix = importPath.slice(prefix.length)
+  if (!suffix) {
+    throw new Error(`Unsafe generated module specifier: ${importPath}`)
+  }
+
+  const segments = suffix
+    .split('/')
+    .map((segment) => sanitizeGeneratedModuleSpecifierSegment(segment, importPath))
+
+  return `${prefix}${segments.join('/')}`
+}
+
 function buildImportStatement(importClause: string, importPath: string): string {
-  return `import ${importClause} from ${toLiteral(importPath)}`
+  return `import ${importClause} from ${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))}`
 }
 
 function buildBareImportStatement(importPath: string): string {
-  return `import ${toLiteral(importPath)}`
+  return `import ${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))}`
 }
 
 function buildDynamicImportExpression(importPath: string): string {
-  return `import(${toLiteral(importPath)})`
+  return `import(${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))})`
 }
 
 function normalizeApiMethodMetadata(raw: unknown): RuntimeApiMethodMetadata | null {
@@ -539,7 +570,7 @@ async function processPageFiles(options: {
     const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const runtimeMetaName = `${metaPrefix}Runtime${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const sub = segs.length ? `${segs.join('/')}/page` : 'page'
-    const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${sub}`
+    const importPath = sanitizeGeneratedModuleSpecifier(`${fromApp ? appImportBase : pkgImportBase}/${type}/${sub}`)
     const routePath = type === 'frontend'
       ? '/' + (segs.join('/') || '')
       : '/backend/' + (segs.join('/') || modId)
@@ -554,7 +585,9 @@ async function processPageFiles(options: {
     let manifestImportStatement: string | null = null
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-      const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+      const metaImportPath = sanitizeGeneratedModuleSpecifier(
+        `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, path.basename(metaPath).replace(/\.ts$/, '')].join('/')}`
+      )
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       eagerImports.push(buildImportStatement(`* as ${metaImportName}`, metaImportPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, metaImportPath))
@@ -607,7 +640,9 @@ async function processPageFiles(options: {
     const importName = `${prefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
     const pageModName = `${modPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
     const runtimeMetaName = `${metaPrefix}Runtime${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
-    const importPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
+    const importPath = sanitizeGeneratedModuleSpecifier(
+      `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, name].join('/')}`
+    )
     const routePath = type === 'frontend'
       ? '/' + (routeSegs.join('/') || '')
       : '/backend/' + (segs[0] === modId
@@ -626,7 +661,9 @@ async function processPageFiles(options: {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       const metaBase = path.basename(metaPath)
       const metaImportSub = metaBase === 'meta.ts' ? 'meta' : name + '.meta'
-      const metaImportPath = `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, metaImportSub].join('/')}`
+      const metaImportPath = sanitizeGeneratedModuleSpecifier(
+        `${fromApp ? appImportBase : pkgImportBase}/${type}/${[...segs, metaImportSub].join('/')}`
+      )
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
       eagerImports.push(buildImportStatement(`* as ${metaImportName}`, metaImportPath))
       runtimeImports.push(buildImportStatement(`* as ${runtimeMetaName}`, metaImportPath))
@@ -705,7 +742,9 @@ async function processApiRoutes(options: {
     const importName = `R${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
     const appFile = path.join(apiApp, ...segs, 'route.ts')
     const apiSegPath = segs.join('/')
-    const importPath = `${fromApp ? appImportBase : pkgImportBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
+    const importPath = sanitizeGeneratedModuleSpecifier(
+      `${fromApp ? appImportBase : pkgImportBase}/api${apiSegPath ? `/${apiSegPath}` : ''}/route`
+    )
     const routePath = '/' + reqSegs.filter(Boolean).join('/')
     const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
     const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
@@ -733,7 +772,9 @@ async function processApiRoutes(options: {
     const importName = `R${importIdRef.value++}_${toVar(modId)}_${toVar(fullSegs.join('_') || 'index')}`
     const appFile = path.join(apiApp, ...fullSegs) + '.ts'
     const plainSegPath = fullSegs.join('/')
-    const importPath = `${fromApp ? appImportBase : pkgImportBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
+    const importPath = sanitizeGeneratedModuleSpecifier(
+      `${fromApp ? appImportBase : pkgImportBase}/api${plainSegPath ? `/${plainSegPath}` : ''}`
+    )
     const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
     const sourceFile = fromApp ? appFile : pkgFile
     const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
@@ -771,7 +812,9 @@ async function processApiRoutes(options: {
       const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
       const importName = `H${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
       const fromApp = methodDir === appMethodDir
-      const importPath = `${fromApp ? appImportBase : pkgImportBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
+      const importPath = sanitizeGeneratedModuleSpecifier(
+        `${fromApp ? appImportBase : pkgImportBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
+      )
       const metaName = `RM${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
       const sourceFile = path.join(methodDir, ...segs, file)
       const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
@@ -807,7 +850,9 @@ async function processSubscribers(options: {
     const segs = relPath.split('/')
     const file = segs.pop()!
     const name = file.replace(/\.ts$/, '')
-    const importPath = `${fromApp ? appImportBase : pkgImportBase}/subscribers/${[...segs, name].join('/')}`
+    const importPath = sanitizeGeneratedModuleSpecifier(
+      `${fromApp ? appImportBase : pkgImportBase}/subscribers/${[...segs, name].join('/')}`
+    )
     const sid = [modId, ...segs, name].filter(Boolean).join(':')
     const sourceFile = path.join(fromApp ? roots.appBase : roots.pkgBase, 'subscribers', ...segs, file)
     const metadata = await loadSubscriberMetadata(sourceFile)
@@ -831,7 +876,9 @@ async function processWorkers(options: {
     const segs = relPath.split('/')
     const file = segs.pop()!
     const name = file.replace(/\.ts$/, '')
-    const importPath = `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
+    const importPath = sanitizeGeneratedModuleSpecifier(
+      `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
+    )
     const sourceFile = path.join(fromApp ? roots.appBase : roots.pkgBase, 'workers', ...segs, file)
     const metadata = await loadWorkerMetadata(sourceFile)
     if (!metadata?.queue) continue
@@ -913,7 +960,8 @@ function processStandaloneConfig(options: {
   const resolved = resolveModuleFile(roots, imps, relativePath)
   if (!resolved) return null
   const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
-  const importStmt = buildImportStatement(`* as ${importName}`, resolved.importPath)
+  const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
+  const importStmt = buildImportStatement(`* as ${importName}`, importPath)
   standaloneImports.push(importStmt)
   if (sharedImports) sharedImports.push(importStmt)
   standaloneConfigs.push(configExpr(importName, modId))
@@ -934,14 +982,15 @@ function resolveConventionFile(
   const resolved = resolveModuleFile(roots, imps, relativePath)
   if (!resolved) return null
   const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
+  const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
   if (importStyle === 'default') {
-    imports.push(buildImportStatement(importName, resolved.importPath))
-    extraImports?.push(buildImportStatement(importName, resolved.importPath))
+    imports.push(buildImportStatement(importName, importPath))
+    extraImports?.push(buildImportStatement(importName, importPath))
   } else {
-    imports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
-    extraImports?.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
+    imports.push(buildImportStatement(`* as ${importName}`, importPath))
+    extraImports?.push(buildImportStatement(`* as ${importName}`, importPath))
   }
-  return { importName, importPath: resolved.importPath, fromApp: resolved.fromApp }
+  return { importName, importPath, fromApp: resolved.fromApp }
 }
 
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
@@ -1140,7 +1189,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
     if (indexTs) {
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
-      const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
+      const importPath = sanitizeGeneratedModuleSpecifier(
+        indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
+      )
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       try {
@@ -1191,7 +1242,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       if (hasRoot) {
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
         const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
-        const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
+        const importPath = sanitizeGeneratedModuleSpecifier(
+          useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
+        )
         imports.push(buildImportStatement(`* as ${importName}`, importPath))
         runtimeImports.push(buildImportStatement(`* as ${importName}`, importPath))
         featuresImportName = importName
@@ -1515,7 +1568,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
       if (cliPath) {
         const importName = `CLI_${toVar(modId)}`
-        const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
+        const importPath = sanitizeGeneratedModuleSpecifier(
+          cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
+        )
         imports.push(buildImportStatement(importName, importPath))
         cliImportName = importName
       }
@@ -1590,7 +1645,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         const segs = relPath.split('/')
         const file = segs.pop()!
         const base = file.replace(/\.(t|j)sx?$/, '')
-        const importPath = `${fromApp ? appImportBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
+        const importPath = sanitizeGeneratedModuleSpecifier(
+          `${fromApp ? appImportBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
+        )
         const key = [modId, ...segs, base].filter(Boolean).join(':')
         const source = fromApp ? 'app' : 'package'
         injectionWidgets.push(
@@ -1608,9 +1665,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       const resolved = resolveModuleFile(roots, imps, 'widgets/injection-table.ts')
       if (resolved) {
         const importName = `InjTable_${toVar(modId)}_${importIdRef.value++}`
-        imports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
+        const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
+        imports.push(buildImportStatement(`* as ${importName}`, importPath))
         injectionTableImportName = importName
-        allInjectionTables.push({ moduleId: modId, importPath: resolved.importPath, importName })
+        allInjectionTables.push({ moduleId: modId, importPath, importName })
       }
     }
 

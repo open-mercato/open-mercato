@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="__SPLASH_INITIAL_LOCALE__">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Open Mercato Dev</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+    />
+    <style>
+      :root {
+        --bg: #090909;
+        --bg-deep: #090909;
+        --panel: #1c1c1c;
+        --panel-strong: #1c1c1c;
+        --panel-border: rgba(255, 255, 255, 0.12);
+        --surface: rgba(255, 255, 255, 0.03);
+        --surface-strong: rgba(255, 255, 255, 0.05);
+        --muted: #a1a1aa;
+        --text: #fafafa;
+        --accent: #f5f5f5;
+        --accent-strong: #ffffff;
+        --warning: #f5f5f5;
+        --activity-text: #f5f5f5;
+        --activity-time: #a1a1aa;
+        --shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+      }
+      html[data-theme="light"] {
+        --bg: #f5f5f5;
+        --bg-deep: #ebebeb;
+        --panel: rgba(255, 255, 255, 0.96);
+        --panel-strong: rgba(255, 255, 255, 0.98);
+        --panel-border: rgba(17, 24, 39, 0.1);
+        --surface: rgba(17, 24, 39, 0.035);
+        --surface-strong: rgba(17, 24, 39, 0.055);
+        --muted: #5f5f67;
+        --text: #111111;
+        --warning: #111111;
+        --activity-text: #111111;
+        --activity-time: #52525b;
+        --shadow: 0 22px 52px rgba(15, 23, 42, 0.08);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.03), transparent 28%),
+          linear-gradient(180deg, var(--bg), var(--bg-deep));
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+      .shell {
+        width: min(1280px, 100%);
+        height: min(860px, calc(100vh - 48px));
+        display: grid;
+        grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.85fr);
+        gap: 24px;
+        align-items: stretch;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        min-height: 0;
+        overflow: hidden;
+      }
+      .hero {
+        padding: 28px 34px 30px;
+        display: grid;
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        gap: 18px;
+        min-height: 0;
+      }
+      .hero-top {
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+      }
+      .hero-mark {
+        display: grid;
+        justify-items: center;
+        gap: 14px;
+        text-align: center;
+      }
+      .hero-logo {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: auto;
+        height: auto;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        line-height: 0;
+      }
+      .hero-logo svg {
+        width: 156px;
+        height: 156px;
+        display: block;
+      }
+      .control-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .control-button {
+        min-height: 42px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .summary {
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1.5;
+        max-width: 34rem;
+        margin: 0 auto;
+        text-align: center;
+      }
+      .stream-shell {
+        display: grid;
+        gap: 10px;
+        min-height: 0;
+      }
+      .hero-body {
+        display: grid;
+        gap: 14px;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 8px;
+        align-content: start;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      }
+      .hero-body::-webkit-scrollbar {
+        width: 10px;
+      }
+      .hero-body::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .hero-body::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      .stream-heading {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .status-card {
+        padding: 28px 28px 30px;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        justify-content: flex-start;
+        background: var(--panel-strong);
+      }
+      .status-line {
+        font-size: 15px;
+        color: var(--muted);
+      }
+      .phase {
+        font-size: 32px;
+        line-height: 1.12;
+        margin: 0;
+        letter-spacing: -0.04em;
+        font-weight: 700;
+      }
+      .spinner {
+        width: 56px;
+        height: 56px;
+        border-radius: 999px;
+        border: 5px solid rgba(255, 255, 255, 0.12);
+        border-top-color: var(--accent);
+        animation: spin 1s linear infinite;
+      }
+      .ready .spinner {
+        animation: none;
+        border-color: rgba(115, 239, 194, 0.26);
+        position: relative;
+      }
+      .ready .spinner::after {
+        content: "";
+        position: absolute;
+        inset: 11px;
+        border-radius: 999px;
+        background: var(--accent);
+      }
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .progress-stack {
+        display: grid;
+        gap: 10px;
+      }
+      .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .progress-track {
+        width: 100%;
+        height: 12px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--panel-border);
+      }
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #d4d4d8, var(--accent-strong));
+        transition: width 0.3s ease;
+      }
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 0 18px;
+        border-radius: 14px;
+        border: 1px solid transparent;
+        text-decoration: none;
+        font-weight: 600;
+        transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
+      }
+      .button.primary {
+        background: #f4f4f5;
+        color: #111111;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36);
+      }
+      .button.secondary {
+        border-color: var(--panel-border);
+        color: var(--text);
+      }
+      html[data-theme="light"] .button.primary {
+        background: #111111;
+        color: #fafafa;
+        box-shadow: none;
+      }
+      html[data-theme="light"] .stream-heading,
+      html[data-theme="light"] .status-line,
+      html[data-theme="light"] .terminal-hint {
+        color: #52525b;
+      }
+      html[data-theme="light"] .progress-track {
+        background: rgba(17, 24, 39, 0.06);
+      }
+      html[data-theme="light"] .spinner {
+        border-color: rgba(17, 24, 39, 0.12);
+        border-top-color: #111111;
+      }
+      html[data-theme="light"] .list li {
+        background: rgba(17, 24, 39, 0.055);
+        border-color: rgba(17, 24, 39, 0.1);
+      }
+      html[data-theme="light"] .activity-time {
+        color: #52525b;
+      }
+      html[data-theme="light"] .activity-message {
+        color: #111111;
+      }
+      .button[aria-disabled="true"] {
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      .terminal-hint {
+        display: inline-flex;
+        align-items: center;
+        min-height: 52px;
+        padding: 0 4px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+      }
+      .list {
+        gap: 10px;
+        height: clamp(176px, 22vh, 228px);
+        overflow-y: auto;
+        padding-right: 8px;
+        align-content: start;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+        scroll-snap-type: y proximity;
+      }
+      .list::-webkit-scrollbar {
+        width: 10px;
+      }
+      .list::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .list::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      .list li {
+        padding: 14px 16px;
+        border-radius: 20px;
+        background: var(--surface);
+        border: 1px solid var(--panel-border);
+        scroll-snap-align: start;
+      }
+      .activity-entry {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .activity-time {
+        color: var(--activity-time);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        white-space: nowrap;
+      }
+      .activity-message {
+        color: var(--activity-text);
+        font-size: 16px;
+        line-height: 1.45;
+        font-weight: 600;
+        min-width: 0;
+        flex: 1 1 auto;
+      }
+      .url {
+        color: var(--warning);
+        word-break: break-all;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      @media (max-width: 960px) {
+        .shell { grid-template-columns: 1fr; height: auto; }
+        .hero, .status-card { padding: 30px 24px; }
+        .hero-top { justify-content: flex-start; }
+        .control-row { justify-content: flex-start; }
+        .hero-logo {
+          width: auto;
+          height: auto;
+        }
+        .hero-logo svg {
+          width: 128px;
+          height: 128px;
+        }
+        .summary { font-size: 18px; }
+        .list {
+          height: auto;
+          max-height: min(232px, 34vh);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel hero">
+        <div class="hero-top">
+          <div class="control-row">
+            <button class="control-button" id="theme-toggle" type="button">🌙 Dark</button>
+            <button class="control-button" id="locale-toggle" type="button">🌐 EN</button>
+          </div>
+        </div>
+        <div class="hero-mark" aria-hidden="true">
+          <div class="hero-logo">__SPLASH_INLINE_LOGO_SVG__</div>
+        </div>
+        <p class="summary" id="hero-summary">
+          The workspace is being prepared in the terminal. This page switches to a ready state as soon as the dev server becomes available.
+        </p>
+        <div class="hero-body">
+          <section class="stream-shell" aria-labelledby="stream-heading">
+            <div class="stream-heading" id="stream-heading">✨ Live startup stream</div>
+            <ul class="list" id="activity-list">
+              <li>🪟 Preparing dev environment…</li>
+            </ul>
+          </section>
+        </div>
+      </section>
+      <aside class="panel status-card" id="status-card">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="status-line" id="mode-line">Waiting for current status…</div>
+        <h2 class="phase" id="phase-text">Preparing app runtime</h2>
+        <div class="status-line" id="detail-text">Builds, generators, queue workers, and scheduler will start automatically.</div>
+        <div class="progress-stack">
+          <div class="progress-meta">
+            <span id="progress-label">Preparing startup pipeline</span>
+            <span id="progress-value">0%</span>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <div class="progress-fill" id="progress-fill"></div>
+          </div>
+        </div>
+        <div class="status-line"><span id="target-label">Current target:</span> <span class="url" id="ready-url">pending</span></div>
+        <div class="actions">
+          <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
+          <div class="terminal-hint" id="terminal-hint">🖥 Keep terminal visible</div>
+        </div>
+      </aside>
+    </main>
+    <script>
+      const splashBootstrap = __SPLASH_BOOTSTRAP__
+      const modeLine = document.getElementById('mode-line')
+      const phaseText = document.getElementById('phase-text')
+      const detailText = document.getElementById('detail-text')
+      const progressLabel = document.getElementById('progress-label')
+      const progressValue = document.getElementById('progress-value')
+      const progressFill = document.getElementById('progress-fill')
+      const heroSummary = document.getElementById('hero-summary')
+      const streamHeading = document.getElementById('stream-heading')
+      const targetLabel = document.getElementById('target-label')
+      const themeToggle = document.getElementById('theme-toggle')
+      const localeToggle = document.getElementById('locale-toggle')
+      const readyUrl = document.getElementById('ready-url')
+      const loginButton = document.getElementById('login-button')
+      const terminalHint = document.getElementById('terminal-hint')
+      const activityList = document.getElementById('activity-list')
+      const statusCard = document.getElementById('status-card')
+      const THEME_KEY = 'om-dev-theme'
+      const LOCALE_KEY = 'om-dev-locale'
+      const supportedLocales = Array.isArray(splashBootstrap.supportedLocales) && splashBootstrap.supportedLocales.length > 0
+        ? splashBootstrap.supportedLocales
+        : ['en', 'pl', 'es', 'de']
+      const defaultLocale = supportedLocales.includes(splashBootstrap.defaultLocale)
+        ? splashBootstrap.defaultLocale
+        : supportedLocales[0]
+      const localeLabels = splashBootstrap.localeLabels || {}
+      const activitySeenAt = new Map()
+      const translations = {
+        en: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Installation and first compilation is in progress…',
+          heroSummary: 'The workspace is being prepared in the terminal. This page switches to a ready state as soon as the dev server becomes available.',
+          streamHeading: '✨ Live startup stream',
+          targetLabel: 'Current target:',
+          targetPending: 'pending',
+          loginPreparing: '🚀 App is preparing…',
+          loginReady: '🚪 App is ready, open login',
+          terminalHint: '🖥 Keep terminal visible',
+          themeLight: '☀️ Light',
+          themeDark: '🌙 Dark',
+          waitingStatus: 'Waiting for dev runner status…',
+          progressOverview: 'Startup progress',
+          modeDev: 'Standard dev flow',
+          modeGreenfield: 'Greenfield dev flow',
+        },
+        pl: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Instalacja i pierwsza kompilacja są w toku…',
+          heroSummary: 'Workspace przygotowuje się w terminalu. Ta strona przełączy się w stan gotowości, gdy tylko serwer developerski będzie dostępny.',
+          streamHeading: '✨ Strumień startu na żywo',
+          targetLabel: 'Aktualny adres:',
+          targetPending: 'oczekiwanie',
+          loginPreparing: '🚀 Aplikacja się przygotowuje…',
+          loginReady: '🚪 Aplikacja gotowa, otwórz logowanie',
+          terminalHint: '🖥 Zachowaj terminal',
+          themeLight: '☀️ Jasny',
+          themeDark: '🌙 Ciemny',
+          waitingStatus: 'Oczekiwanie na status runnera…',
+          progressOverview: 'Postęp uruchamiania',
+          modeDev: 'Standardowy tryb dev',
+          modeGreenfield: 'Tryb greenfield',
+        },
+        es: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'La instalación y la primera compilación están en curso…',
+          heroSummary: 'El workspace se está preparando en la terminal. Esta página cambiará al estado listo en cuanto el servidor de desarrollo esté disponible.',
+          streamHeading: '✨ Flujo de arranque en vivo',
+          targetLabel: 'Destino actual:',
+          targetPending: 'pendiente',
+          loginPreparing: '🚀 La aplicación se está preparando…',
+          loginReady: '🚪 La aplicación está lista, abrir login',
+          terminalHint: '🖥 Mantener la terminal visible',
+          themeLight: '☀️ Claro',
+          themeDark: '🌙 Oscuro',
+          waitingStatus: 'Esperando el estado del runner de desarrollo…',
+          progressOverview: 'Progreso del arranque',
+          modeDev: 'Flujo dev estándar',
+          modeGreenfield: 'Flujo dev greenfield',
+        },
+        de: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Installation und erste Kompilierung laufen…',
+          heroSummary: 'Der Workspace wird im Terminal vorbereitet. Diese Seite wechselt in den Bereitschaftszustand, sobald der Dev-Server verfügbar ist.',
+          streamHeading: '✨ Live-Startstream',
+          targetLabel: 'Aktuelles Ziel:',
+          targetPending: 'ausstehend',
+          loginPreparing: '🚀 Die App wird vorbereitet…',
+          loginReady: '🚪 App ist bereit, Login öffnen',
+          terminalHint: '🖥 Terminal sichtbar lassen',
+          themeLight: '☀️ Hell',
+          themeDark: '🌙 Dunkel',
+          waitingStatus: 'Warte auf den Status des Dev-Runners…',
+          progressOverview: 'Startfortschritt',
+          modeDev: 'Standard-Dev-Ablauf',
+          modeGreenfield: 'Greenfield-Dev-Ablauf',
+        },
+      }
+      const exactTranslations = {
+        pl: {
+          'Installation and first compilation is in progress...': 'Instalacja i pierwsza kompilacja są w toku…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: instalacja i pierwsza kompilacja są w toku…',
+          'Preparing app runtime': 'Przygotowywanie runtime aplikacji',
+          'Waiting for current status…': 'Oczekiwanie na bieżący status…',
+          'Preparing dev environment…': 'Przygotowywanie środowiska developerskiego…',
+          'Waiting for app package manifest…': 'Oczekiwanie na manifest pakietów aplikacji…',
+          'Waiting for queue worker startup…': 'Oczekiwanie na start workerów kolejki…',
+          'pending': 'oczekiwanie',
+          'scheduler · polling engine': 'scheduler · silnik odpytywania',
+        },
+        es: {
+          'Installation and first compilation is in progress...': 'La instalación y la primera compilación están en curso…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: la instalación y la primera compilación están en curso…',
+          'Preparing app runtime': 'Preparando el runtime de la aplicación',
+          'Waiting for current status…': 'Esperando el estado actual…',
+          'Preparing dev environment…': 'Preparando el entorno de desarrollo…',
+          'Waiting for app package manifest…': 'Esperando el manifiesto de paquetes de la aplicación…',
+          'Waiting for queue worker startup…': 'Esperando el arranque de los workers de cola…',
+          'pending': 'pendiente',
+          'scheduler · polling engine': 'scheduler · motor de sondeo',
+        },
+        de: {
+          'Installation and first compilation is in progress...': 'Installation und erste Kompilierung laufen…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: Installation und erste Kompilierung laufen…',
+          'Preparing app runtime': 'App-Laufzeit wird vorbereitet',
+          'Waiting for current status…': 'Warte auf den aktuellen Status…',
+          'Preparing dev environment…': 'Entwicklungsumgebung wird vorbereitet…',
+          'Waiting for app package manifest…': 'Warte auf das Paketmanifest der App…',
+          'Waiting for queue worker startup…': 'Warte auf den Start der Queue-Worker…',
+          'pending': 'ausstehend',
+          'scheduler · polling engine': 'scheduler · Polling-Engine',
+        },
+      }
+      let currentLocale = 'en'
+      let currentTheme = 'dark'
+
+      themeToggle.addEventListener('click', () => {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark'
+        localStorage.setItem(THEME_KEY, currentTheme)
+        applyTheme()
+        renderStaticText()
+      })
+
+      localeToggle.addEventListener('click', () => {
+        const currentIndex = Math.max(0, supportedLocales.indexOf(currentLocale))
+        currentLocale = supportedLocales[(currentIndex + 1) % supportedLocales.length] || defaultLocale
+        localStorage.setItem(LOCALE_KEY, currentLocale)
+        renderStaticText()
+      })
+
+      function template(value, vars = {}) {
+        return String(value).replace(/\{(\w+)\}/g, (_, key) => String(vars[key] ?? ''))
+      }
+
+      function t(key, vars = {}) {
+        const dict = translations[currentLocale] || translations.en
+        const fallback = translations.en[key] || key
+        return template(dict[key] || fallback, vars)
+      }
+
+      function getLocaleLabel(locale) {
+        return localeLabels[locale] || String(locale || '').toUpperCase()
+      }
+
+      function splitEmoji(value) {
+        const match = String(value ?? '').match(/^([\p{Extended_Pictographic}\u2600-\u27BF][\uFE0F]?\s*)(.*)$/u)
+        if (!match) return { emoji: '', body: String(value ?? '') }
+        return { emoji: match[1], body: match[2] }
+      }
+
+      function translateMessage(value) {
+        const raw = String(value ?? '')
+        if (!raw) return raw
+        const { emoji, body } = splitEmoji(raw)
+        const exact = exactTranslations[currentLocale]?.[body] || exactTranslations[currentLocale]?.[raw]
+        if (exact) {
+          return emoji ? emoji + exact : exact
+        }
+        return raw
+      }
+
+      function normalizeStatusComparisonValue(value) {
+        const raw = String(value ?? '')
+        if (!raw) return ''
+
+        const { body } = splitEmoji(raw)
+        return body
+          .toLowerCase()
+          .replace(/\s+in\s+\d+(?:\.\d+)?(?:ms|s)\b.*$/i, '')
+          .replace(/[^\p{L}\p{N}]+/gu, ' ')
+          .trim()
+      }
+
+      function shouldCollapseProgressLabel(detail, label) {
+        const normalizedDetail = normalizeStatusComparisonValue(detail)
+        const normalizedLabel = normalizeStatusComparisonValue(label)
+        if (!normalizedDetail || !normalizedLabel) return false
+        return normalizedDetail === normalizedLabel
+          || normalizedDetail.startsWith(normalizedLabel)
+          || normalizedLabel.startsWith(normalizedDetail)
+      }
+
+      function detectLocale() {
+        const stored = localStorage.getItem(LOCALE_KEY)
+        if (supportedLocales.includes(stored)) return stored
+
+        if (supportedLocales.includes(splashBootstrap.initialLocale)) {
+          return splashBootstrap.initialLocale
+        }
+
+        const browserCandidates = Array.isArray(navigator.languages) ? navigator.languages : []
+        for (const candidate of [...browserCandidates, navigator.language]) {
+          if (typeof candidate !== 'string') continue
+          const normalized = candidate.trim().toLowerCase().replace(/_/g, '-')
+          if (supportedLocales.includes(normalized)) return normalized
+          const baseLocale = normalized.split('-')[0]
+          if (supportedLocales.includes(baseLocale)) return baseLocale
+        }
+
+        return defaultLocale
+      }
+
+      function detectTheme() {
+        const stored = localStorage.getItem(THEME_KEY)
+        if (stored === 'light' || stored === 'dark') return stored
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+      }
+
+      function applyTheme() {
+        document.documentElement.dataset.theme = currentTheme
+      }
+
+      function renderStaticText() {
+        document.documentElement.lang = currentLocale
+        heroSummary.textContent = t('heroSummary')
+        streamHeading.textContent = t('streamHeading')
+        targetLabel.textContent = t('targetLabel')
+        terminalHint.textContent = t('terminalHint')
+        localeToggle.textContent = '🌐 ' + getLocaleLabel(currentLocale)
+        themeToggle.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight')
+      }
+
+      function formatActivityTimestamp(value) {
+        const date = new Date(value)
+        if (Number.isNaN(date.getTime())) return ''
+        return new Intl.DateTimeFormat(currentLocale, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }).format(date)
+      }
+
+      function renderActivities(items) {
+        if (!Array.isArray(items) || items.length === 0) return
+        const ordered = items.slice().reverse()
+        activityList.innerHTML = ordered.map((item) => {
+          const key = String(item ?? '')
+          if (!activitySeenAt.has(key)) {
+            activitySeenAt.set(key, Date.now())
+          }
+          const timestamp = formatActivityTimestamp(activitySeenAt.get(key))
+          const safeMessage = escapeHtml(translateMessage(item))
+          const safeTimestamp = escapeHtml(timestamp)
+          return '<li><div class="activity-entry"><span class="activity-time">' + safeTimestamp + '</span><span class="activity-message">' + safeMessage + '</span></div></li>'
+        }).join('')
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"]/g, (char) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;'
+        }[char]))
+      }
+
+      async function refresh() {
+        try {
+          const response = await fetch('/status', { cache: 'no-store' })
+          const state = await response.json()
+          modeLine.textContent = state.mode === 'greenfield' ? t('modeGreenfield') : t('modeDev')
+          const rawPhase = state.phase || 'Preparing app runtime'
+          const rawDetail = state.detail || 'Preparing app runtime'
+          const rawProgressLabel = state.progressLabel || 'Preparing startup pipeline'
+          phaseText.textContent = translateMessage(rawPhase)
+          detailText.textContent = translateMessage(rawDetail)
+          const percent = Number.isFinite(state.progressPercent) ? Math.max(0, Math.min(100, state.progressPercent)) : 0
+          progressLabel.textContent = shouldCollapseProgressLabel(rawDetail, rawProgressLabel)
+            ? t('progressOverview')
+            : translateMessage(rawProgressLabel)
+          progressValue.textContent = Number.isFinite(state.progressCurrent) && Number.isFinite(state.progressTotal) && state.progressTotal > 0
+            ? state.progressCurrent + '/' + state.progressTotal + ' · ' + percent + '%'
+            : percent + '%'
+          progressFill.style.width = percent + '%'
+          readyUrl.textContent = state.readyUrl || t('targetPending')
+          renderActivities(state.activities)
+
+          if (state.ready && state.loginUrl) {
+            statusCard.classList.add('ready')
+            loginButton.textContent = t('loginReady')
+            loginButton.href = state.loginUrl
+            loginButton.setAttribute('aria-disabled', 'false')
+          } else {
+            statusCard.classList.remove('ready')
+            loginButton.textContent = t('loginPreparing')
+            loginButton.href = '#'
+            loginButton.setAttribute('aria-disabled', 'true')
+          }
+        } catch {
+          modeLine.textContent = t('waitingStatus')
+        }
+      }
+
+      currentLocale = detectLocale()
+      currentTheme = detectTheme()
+      applyTheme()
+      renderStaticText()
+      refresh()
+      setInterval(refresh, 1000)
+    </script>
+  </body>
+</html>

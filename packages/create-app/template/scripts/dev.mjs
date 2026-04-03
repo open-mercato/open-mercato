@@ -57,9 +57,6 @@ const runtimeSummaryState = {
   workersPrinted: false,
   lastWorkersSignature: '',
 }
-const targetedWarmupTargets = [
-  { path: '/login', label: 'login page', method: 'GET' },
-]
 const runtimeWarmupState = {
   baseUrl: null,
   readySignalSeen: false,
@@ -422,6 +419,20 @@ function joinBaseUrl(baseUrl, pathname) {
   return `${String(baseUrl ?? '').replace(/\/$/, '')}${pathname}`
 }
 
+function readNonEmptyEnvValue(key) {
+  const value = process.env[key]
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function resolveWarmupCredentials() {
+  return {
+    email: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com',
+    password: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret',
+  }
+}
+
 async function fetchWithTimeout(url, init = {}, timeoutMs = 45000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -437,50 +448,148 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 45000) {
   }
 }
 
+async function readResponsePayload(response) {
+  const contentType = response.headers.get('content-type') || ''
+  if (contentType.includes('application/json')) {
+    try {
+      return await response.json()
+    } catch {
+      return null
+    }
+  }
+
+  try {
+    return await response.text()
+  } catch {
+    return null
+  }
+}
+
+function extractWarmupErrorMessage(payload, fallbackStatus) {
+  if (payload && typeof payload === 'object' && typeof payload.error === 'string' && payload.error.trim()) {
+    return payload.error.trim()
+  }
+  if (typeof payload === 'string' && payload.trim()) {
+    return payload.trim()
+  }
+  return fallbackStatus
+}
+
+function getSetCookieHeaders(response) {
+  if (typeof response.headers.getSetCookie === 'function') {
+    return response.headers.getSetCookie()
+  }
+
+  const single = response.headers.get('set-cookie')
+  return single ? [single] : []
+}
+
+function buildCookieHeader(response) {
+  const cookies = []
+
+  for (const header of getSetCookieHeaders(response)) {
+    const pair = String(header).split(';', 1)[0]?.trim()
+    if (pair) cookies.push(pair)
+  }
+
+  return cookies.join('; ')
+}
+
+function reportWarmupStep(detail, progressLabel) {
+  updateSplashState({
+    phase: 'Installation and first compilation is in progress...',
+    detail,
+    ready: false,
+    progressCurrent: 4,
+    progressTotal: startupProgress.total,
+    progressPercent: resolveProgressPercent(4, startupProgress.total),
+    progressLabel,
+    activity: detail,
+  })
+  console.log(formatStatusOutput(detail, 4, progressLabel))
+}
+
 async function runTargetedRouteWarmup() {
   if (runtimeWarmupState.started) return
   if (!runtimeWarmupState.baseUrl || !runtimeWarmupState.readySignalSeen) return
 
   runtimeWarmupState.started = true
   const startedAt = Date.now()
-  const progressLabel = 'Precompiling login page'
-  const introMessage = '🔥 Precompiling /login'
+  const progressLabel = 'Precompiling login and backend'
+  const introMessage = '🔥 Precompiling /login, login POST, and /backend'
+  const warmupCredentials = resolveWarmupCredentials()
 
-  updateSplashState({
-    phase: 'Installation and first compilation is in progress...',
-    detail: introMessage,
-    ready: false,
-    progressCurrent: 4,
-    progressTotal: startupProgress.total,
-    progressPercent: resolveProgressPercent(4, startupProgress.total),
-    progressLabel,
-    activity: 'Precompiling login page',
-  })
-  console.log(formatStatusOutput(introMessage, 4, progressLabel))
+  reportWarmupStep(introMessage, progressLabel)
 
   try {
-    for (const target of targetedWarmupTargets) {
-      const targetStartedAt = Date.now()
-      const response = await fetchWithTimeout(
-        joinBaseUrl(runtimeWarmupState.baseUrl, target.path),
-        { method: target.method, redirect: 'manual' },
-      )
-      const warmedMessage = `🔥 Warmed ${target.path} in ${formatDuration(Date.now() - targetStartedAt)} (${response.status})`
-      updateSplashState({
-        phase: 'Installation and first compilation is in progress...',
-        detail: warmedMessage,
-        ready: false,
-        progressCurrent: 4,
-        progressTotal: startupProgress.total,
-        progressPercent: resolveProgressPercent(4, startupProgress.total),
-        progressLabel,
-        activity: warmedMessage,
-      })
-      console.log(formatStatusOutput(warmedMessage, 4, progressLabel))
+    const loginPageStartedAt = Date.now()
+    const loginPageResponse = await fetchWithTimeout(
+      joinBaseUrl(runtimeWarmupState.baseUrl, '/login'),
+      { method: 'GET', redirect: 'manual' },
+    )
+    reportWarmupStep(
+      `📄 Warmed /login in ${formatDuration(Date.now() - loginPageStartedAt)} (${loginPageResponse.status})`,
+      progressLabel,
+    )
+
+    const loginPostStartedAt = Date.now()
+    const loginPostBody = new URLSearchParams({
+      email: warmupCredentials.email,
+      password: warmupCredentials.password,
+    })
+    const loginResponse = await fetchWithTimeout(
+      joinBaseUrl(runtimeWarmupState.baseUrl, '/api/auth/login'),
+      {
+        method: 'POST',
+        body: loginPostBody,
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        },
+        redirect: 'manual',
+      },
+    )
+    const loginPayload = await readResponsePayload(loginResponse)
+    if (!loginResponse.ok || !loginPayload || typeof loginPayload !== 'object' || loginPayload.ok !== true) {
+      const failure = extractWarmupErrorMessage(loginPayload, `HTTP ${loginResponse.status}`)
+      throw new Error(`login warmup failed: ${failure}`)
     }
 
+    const cookieHeader = buildCookieHeader(loginResponse)
+    if (!cookieHeader) {
+      throw new Error('login warmup did not return auth cookies')
+    }
+
+    reportWarmupStep(
+      `🔐 Warmed POST /api/auth/login in ${formatDuration(Date.now() - loginPostStartedAt)} (${loginResponse.status})`,
+      progressLabel,
+    )
+
+    const backendStartedAt = Date.now()
+    const backendResponse = await fetchWithTimeout(
+      joinBaseUrl(runtimeWarmupState.baseUrl, '/backend'),
+      {
+        method: 'GET',
+        headers: {
+          cookie: cookieHeader,
+        },
+        redirect: 'manual',
+      },
+    )
+    if (backendResponse.status >= 300 && backendResponse.status < 400) {
+      const location = backendResponse.headers.get('location') || 'redirect'
+      throw new Error(`authenticated backend warmup redirected to ${location}`)
+    }
+    if (!backendResponse.ok) {
+      throw new Error(`authenticated backend warmup returned HTTP ${backendResponse.status}`)
+    }
+
+    reportWarmupStep(
+      `🗂️ Warmed authenticated /backend in ${formatDuration(Date.now() - backendStartedAt)} (${backendResponse.status})`,
+      progressLabel,
+    )
+
     runtimeWarmupState.completed = true
-    const completedMessage = `🚪 Login page warmed in ${formatDuration(Date.now() - startedAt)}`
+    const completedMessage = `🚪 Login flow and backend warmed in ${formatDuration(Date.now() - startedAt)}`
     updateSplashState({
       phase: 'App is ready',
       detail: completedMessage,
