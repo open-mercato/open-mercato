@@ -642,6 +642,42 @@ function formatPackageBuildProgressLine(label, stageCurrent, stageTotal, package
   return `${formatProgressBar(percent)} ${String(`${stageCurrent}/${stageTotal}`).padStart(4)} ${label} (${packageCurrent}/${packageTotal} packages)`
 }
 
+function createSingleLineProgressReporter() {
+  const inline = process.stdout.isTTY && process.env.CI !== 'true'
+  let lastWidth = 0
+  let active = false
+
+  return {
+    update(message) {
+      if (!inline) {
+        console.log(message)
+        return
+      }
+
+      active = true
+      lastWidth = Math.max(lastWidth, message.length)
+      process.stdout.write(`\r${message.padEnd(lastWidth)}`)
+    },
+    finish(message) {
+      if (!inline) {
+        console.log(message)
+        return
+      }
+
+      lastWidth = Math.max(lastWidth, message.length)
+      process.stdout.write(`\r${message.padEnd(lastWidth)}\n`)
+      lastWidth = 0
+      active = false
+    },
+    clear() {
+      if (!inline || !active) return
+      process.stdout.write('\n')
+      lastWidth = 0
+      active = false
+    },
+  }
+}
+
 function resolveNestedStagePercent(stageCurrent, stageTotal, nestedCurrent, nestedTotal) {
   if (!Number.isFinite(stageCurrent) || !Number.isFinite(stageTotal) || stageTotal <= 0) {
     return 0
@@ -718,13 +754,14 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
   const stageTotal = options.stageTotal ?? 3
   const stageCurrent = options.stageCurrent ?? 1
   const buildPlan = await resolveWorkspacePackageBuildPlan(commandArgs)
+  const progressReporter = createSingleLineProgressReporter()
 
   if (!buildPlan) {
     return false
   }
 
   const initialPercent = resolveNestedStagePercent(stageCurrent, stageTotal, 0, buildPlan.totalPackages)
-  console.log(`${formatPackageBuildProgressLine(label, stageCurrent, stageTotal, 0, buildPlan.totalPackages, initialPercent)}...`)
+  progressReporter.update(`${formatPackageBuildProgressLine(label, stageCurrent, stageTotal, 0, buildPlan.totalPackages, initialPercent)}...`)
   updateSplashState({
     phase: label,
     detail: `0 of ${buildPlan.totalPackages} packages built`,
@@ -754,7 +791,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     const packageCurrent = Math.min(completedPackages.size, buildPlan.totalPackages)
     const progressPercent = resolveNestedStagePercent(stageCurrent, stageTotal, packageCurrent, buildPlan.totalPackages)
     const progressLabel = `${label} (${packageCurrent}/${buildPlan.totalPackages})`
-    console.log(formatPackageBuildProgressLine(
+    progressReporter.update(formatPackageBuildProgressLine(
       label,
       stageCurrent,
       stageTotal,
@@ -779,6 +816,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
   const code = await new Promise((resolve) => child.on('close', resolve))
 
   if ((code ?? 1) !== 0) {
+    progressReporter.clear()
     console.error(`❌ ${label} failed`)
     for (const line of capturedLines) {
       console.error(line)
@@ -797,7 +835,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     progressLabel: `${label} (${completedCount}/${buildPlan.totalPackages})`,
     activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
   })
-  console.log(`✅ ${formatPackageBuildProgressLine(
+  progressReporter.finish(`✅ ${formatPackageBuildProgressLine(
     label,
     stageCurrent,
     stageTotal,
