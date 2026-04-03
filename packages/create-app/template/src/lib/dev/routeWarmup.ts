@@ -17,13 +17,20 @@ const STARTED_KEY = '__openMercatoDevRouteWarmupStarted__'
 const DEFAULT_DELAY_MS = 3000
 const DEFAULT_CONCURRENCY = 1
 
+function readEnv(primary: string, legacy?: string): string | undefined {
+  const primaryValue = process.env[primary]
+  if (primaryValue != null) return primaryValue
+  if (!legacy) return undefined
+  return process.env[legacy]
+}
+
 function readPositiveInt(value: string | undefined, fallback: number): number {
   const parsed = value ? Number.parseInt(value, 10) : Number.NaN
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 function resolveWarmScope(): WarmScope {
-  const raw = process.env.MERCATO_DEV_WARM?.trim().toLowerCase()
+  const raw = readEnv('OM_DEV_WARM', 'MERCATO_DEV_WARM')?.trim().toLowerCase()
   if (!raw || raw === '1' || raw === 'true' || raw === 'common') return 'common'
   if (raw === '0' || raw === 'false' || raw === 'off') return 'off'
   if (raw === 'all') return 'all'
@@ -102,17 +109,20 @@ function buildTasks(scope: WarmScope): WarmTask[] {
   )
 
   if (scope === 'all') {
-    const limit = readPositiveInt(process.env.MERCATO_DEV_WARM_LIMIT, deduped.length)
+    const limit = readPositiveInt(readEnv('OM_DEV_WARM_LIMIT', 'MERCATO_DEV_WARM_LIMIT'), deduped.length)
     return deduped.slice(0, limit)
   }
 
   const common = pickCommonTasks(deduped)
-  const limit = readPositiveInt(process.env.MERCATO_DEV_WARM_LIMIT, common.length)
+  const limit = readPositiveInt(readEnv('OM_DEV_WARM_LIMIT', 'MERCATO_DEV_WARM_LIMIT'), common.length)
   return common.slice(0, limit)
 }
 
 async function runTasks(tasks: WarmTask[]): Promise<void> {
-  const concurrency = readPositiveInt(process.env.MERCATO_DEV_WARM_CONCURRENCY, DEFAULT_CONCURRENCY)
+  const concurrency = readPositiveInt(
+    readEnv('OM_DEV_WARM_CONCURRENCY', 'MERCATO_DEV_WARM_CONCURRENCY'),
+    DEFAULT_CONCURRENCY
+  )
   let nextIndex = 0
 
   const worker = async () => {
@@ -153,7 +163,7 @@ export function scheduleDevRouteWarmup(): void {
   if (globalState[STARTED_KEY]) return
   globalState[STARTED_KEY] = true
 
-  const delayMs = readPositiveInt(process.env.MERCATO_DEV_WARM_DELAY_MS, DEFAULT_DELAY_MS)
+  const delayMs = readPositiveInt(readEnv('OM_DEV_WARM_DELAY_MS', 'MERCATO_DEV_WARM_DELAY_MS'), DEFAULT_DELAY_MS)
   const timer = setTimeout(() => {
     void startWarmup()
   }, delayMs)

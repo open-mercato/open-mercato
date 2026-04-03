@@ -7,7 +7,7 @@
   "scripts": {
     "setup": "node ./scripts/setup.mjs",
     "setup:reinstall": "node ./scripts/setup.mjs --reinstall",
-    "dev": "mercato generate && (mercato generate watch --skip-initial & mercato server dev)",
+    "dev": "node ./scripts/dev.mjs",
     "build": "next build",
     "start": "mercato server start",
     "lint": "next lint",

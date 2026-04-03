@@ -112,6 +112,7 @@ function removeTurbopackDevCache(appDir: string): void {
 async function ensureEnvLoaded() {
   if (envLoaded) return
   envLoaded = true
+  const quietDotenv = process.env.DOTENV_CONFIG_QUIET === '1' || process.env.DOTENV_CONFIG_QUIET === 'true'
 
   // Try to find and load .env from the app directory
   // First, try to find the app directory via resolver
@@ -124,7 +125,7 @@ async function ensureEnvLoaded() {
     const envPath = path.join(appDir, '.env')
     if (fs.existsSync(envPath)) {
       const dotenv = await import('dotenv')
-      dotenv.config({ path: envPath })
+      dotenv.config({ path: envPath, quiet: quietDotenv })
       return
     }
   } catch {

@@ -27,7 +27,7 @@ Status on April 2, 2026 after implementation and rerun:
   - catch-all frontend/backend/API routing switched to manifest-based lazy loaders
   - app bootstrap switched to the route-free `modules.app.generated.ts` registry instead of the full route registry
   - subscriber and worker registration switched to lazy metadata wrappers so handler implementations are imported only when an event or queue actually executes
-  - dev-only background route warmup added through `instrumentation.ts` with `MERCATO_DEV_WARM*` controls
+  - dev-only background route warmup added through `instrumentation.ts` with `OM_DEV_WARM*` controls and backward-compatible `MERCATO_DEV_WARM*` aliases
   - `experimental.preloadEntriesOnStart = false` enabled for app and standalone template
 - Verification:
   - `yarn build:packages` passes

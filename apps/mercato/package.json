@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "mercato generate && (mercato generate watch --skip-initial & mercato server dev)",
+    "dev": "node ./scripts/dev.mjs",
     "build": "next build",
     "start": "mercato server start",
     "lint": "next lint",
