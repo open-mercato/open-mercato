@@ -134,10 +134,19 @@ function scanDashboardWidgetEntries(options: {
 
 async function loadModuleExportsFromSource<T = Record<string, unknown>>(sourceFile: string): Promise<T | null> {
   try {
-    return await import(pathToFileURL(sourceFile).href) as T
+    return await import(buildCacheBustedSourceImportUrl(sourceFile)) as T
   } catch {
     return null
   }
+}
+
+function buildCacheBustedSourceImportUrl(sourceFile: string): string {
+  const url = pathToFileURL(sourceFile)
+  try {
+    const stat = fs.statSync(sourceFile)
+    url.searchParams.set('v', `${stat.mtimeMs}-${stat.size}`)
+  } catch {}
+  return url.href
 }
 
 function extractNamedObjectLiteralSource(sourceFile: string, exportName: string): string | null {
@@ -1165,7 +1174,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const resolved = resolveModuleFile(roots, imps, 'generators.ts')
     if (!resolved) continue
     try {
-      const pluginMod = await import(resolved.absolutePath)
+      const pluginMod = await import(buildCacheBustedSourceImportUrl(resolved.absolutePath))
       const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
         pluginMod.generatorPlugins ?? pluginMod.default ?? []
       for (const plugin of plugins) {
@@ -1796,7 +1805,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       // Collect declared features from acl.ts
       if (source.aclPath) {
         try {
-          const aclMod = await import(source.aclPath)
+          const aclMod = await import(buildCacheBustedSourceImportUrl(source.aclPath))
           const features = aclMod.features ?? aclMod.default ?? []
           if (Array.isArray(features)) {
             for (const feat of features) {
@@ -1810,7 +1819,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       // Collect component overrides
       if (source.componentOverridesPath) {
         try {
-          const overridesMod = await import(source.componentOverridesPath)
+          const overridesMod = await import(buildCacheBustedSourceImportUrl(source.componentOverridesPath))
           const overrides = overridesMod.componentOverrides ?? overridesMod.default ?? []
           if (Array.isArray(overrides)) {
             for (const override of overrides) {
@@ -1835,7 +1844,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       // Collect interceptors
       if (source.interceptorsPath) {
         try {
-          const interceptorsMod = await import(source.interceptorsPath)
+          const interceptorsMod = await import(buildCacheBustedSourceImportUrl(source.interceptorsPath))
           const interceptors = interceptorsMod.interceptors ?? interceptorsMod.default ?? []
           if (Array.isArray(interceptors)) {
             for (const interceptor of interceptors) {

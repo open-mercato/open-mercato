@@ -5,6 +5,7 @@ import type { PackageResolver, ModuleEntry } from '../../resolver'
 import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
 
 let tmpDir: string
+let fileMtimeNonce = 0
 
 function createTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'module-subset-test-'))
@@ -13,6 +14,9 @@ function createTmpDir(): string {
 function touchFile(filePath: string, content = ''): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   fs.writeFileSync(filePath, content)
+  const mtime = new Date(Date.now() + fileMtimeNonce)
+  fileMtimeNonce += 1
+  fs.utimesSync(filePath, mtime, mtime)
 }
 
 function scaffoldModule(
@@ -152,6 +156,7 @@ module.exports = {
 
 beforeEach(() => {
   tmpDir = createTmpDir()
+  fileMtimeNonce = 0
 })
 
 afterEach(() => {
@@ -763,6 +768,52 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(output).toContain('queue: "events"')
     expect(output).toContain('concurrency: 1')
     expect(output).toContain('createLazyModuleWorker(() => import("@open-mercato/core/modules/events/workers/events.worker")')
+  })
+
+  it('refreshes standalone worker metadata after the source file changes in the same process', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'package.json'),
+      JSON.stringify({ name: 'pkg', type: 'module' }),
+    )
+    const workerPath = path.join(
+      tmpDir,
+      'node_modules',
+      'pkg',
+      'dist',
+      'modules',
+      'events',
+      'workers',
+      'events.worker.js',
+    )
+    touchFile(
+      workerPath,
+      "export const metadata = { queue: 'events', concurrency: 1 }\nexport default async function handler() {}\n",
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'events', from: '@open-mercato/events' },
+    ])
+
+    let result = await generateModuleRegistryCli({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    let output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('queue: "events"')
+    expect(output).toContain('concurrency: 1')
+
+    touchFile(
+      workerPath,
+      "export const metadata = { queue: 'events', concurrency: 4 }\nexport default async function handler() {}\n",
+    )
+
+    result = await generateModuleRegistryCli({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('queue: "events"')
+    expect(output).toContain('concurrency: 4')
+    expect(output).not.toContain('concurrency: 1')
   })
 
   it('does not treat standalone page.meta files as page components', async () => {
