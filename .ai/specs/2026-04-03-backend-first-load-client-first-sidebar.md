@@ -12,6 +12,11 @@ This spec reduces first-load latency by splitting concerns:
 - Sidebar, settings/profile nav, injected menu visibility, and topbar action visibility are loaded from one shared bootstrap payload.
 - Sidebar customization remains available and functionally unchanged.
 
+Implementation priority:
+- first priority is code deduplication of backend nav/chrome resolution so layout, bootstrap API, and injected menu filtering stop maintaining parallel logic paths
+- second priority is moving non-critical chrome work off the blocking SSR path
+- third priority is caching and lazy hydration improvements once the authoritative nav pipeline is unified
+
 ## Problem Statement
 Current first-load cost is concentrated in [`apps/mercato/src/app/(backend)/backend/layout.tsx`](/Users/piotrkarwatka/Projects/mercato-development-two/apps/mercato/src/app/(backend)/backend/layout.tsx), which currently:
 - builds the full admin nav on the server for every backend request
@@ -37,6 +42,13 @@ The result is unnecessary SSR latency plus redundant client bootstrap calls.
 ## Proposed Solution
 Adopt a client-first backend chrome model.
 
+The first implementation step is not UI refactoring. It is consolidating backend chrome resolution into one authoritative server-side pipeline that can be reused by:
+- backend page authorization support code where relevant
+- `GET /api/auth/admin/nav`
+- client-side chrome hydration
+
+Client-first hydration should be built on top of that shared pipeline rather than introducing a second nav implementation.
+
 Server responsibilities:
 - authenticate the request
 - authorize the requested backend page
@@ -60,6 +72,30 @@ The sidebar remains behaviorally identical after hydration:
 
 ## Architecture
 Introduce a single backend chrome bootstrap data flow.
+
+### 0. Prioritize nav/chrome code deduplication
+Before moving more logic client-side, extract one shared backend chrome resolver responsible for:
+- route discovery and grouping
+- scope-aware RBAC filtering
+- custom entity sidebar entries
+- role-default sidebar preferences
+- user sidebar preferences
+- settings/profile section derivation
+
+This resolver should become the single source of truth used by:
+- [`apps/mercato/src/app/(backend)/backend/layout.tsx`](/Users/piotrkarwatka/Projects/mercato-development-two/apps/mercato/src/app/(backend)/backend/layout.tsx)
+- [`packages/core/src/modules/auth/api/admin/nav.ts`](/Users/piotrkarwatka/Projects/mercato-development-two/packages/core/src/modules/auth/api/admin/nav.ts)
+- any future backend chrome provider bootstrap loader
+
+Goals:
+- remove duplicate route scanning/grouping/sorting logic
+- remove duplicate scope and RBAC resolution paths where possible
+- ensure sidebar/settings/profile outputs are derived from one implementation
+- make caching and invalidation operate on one authoritative payload shape
+
+Non-goals:
+- keep multiple “equivalent” nav builders in sync manually
+- optimize SSR and client hydration separately with divergent filtering rules
 
 ### 1. Lightweight backend layout
 Refactor [`apps/mercato/src/app/(backend)/backend/layout.tsx`](/Users/piotrkarwatka/Projects/mercato-development-two/apps/mercato/src/app/(backend)/backend/layout.tsx) so it no longer:
@@ -96,6 +132,8 @@ It continues to apply:
 - user sidebar preferences
 - dynamic custom entity sidebar items
 
+It should be backed by the shared backend chrome resolver introduced in step 0 rather than its own standalone nav-building implementation.
+
 ### 3. Shared backend chrome provider
 Add a client provider in `packages/ui` that:
 - fetches the bootstrap payload once
@@ -125,7 +163,21 @@ Instead it must:
 - continue loading widget definitions per surface
 - filter injected items locally against the provider-backed features/roles
 
-### 6. Keep page authorization server-side
+This is also a code deduplication task:
+- role and feature context should be fetched once per chrome bootstrap, not once per injected menu surface
+- injected menu filtering rules must reuse the same granted-feature/role snapshot as the sidebar bootstrap payload
+
+### 6. Further optimization opportunities after deduplication
+Once the shared resolver is in place, additional optimizations become safe and lower-risk:
+- enable read-through caching for `GET /api/auth/admin/nav` using the existing cache tags
+- precompute static route manifest/grouping metadata during module generation and apply only scope/RBAC/preferences at request time
+- split chrome data into static manifest, role/scope-filtered snapshot, and user preference overlay
+- cache hydrated chrome payload across backend navigations for the active org/tenant scope and revalidate in the background
+- fetch injected menu widget definitions once for all menu surfaces and fan out locally
+- send stable icon identifiers instead of resolving heavier icon payloads on the critical path when possible
+- instrument timings for scope resolution, ACL load, custom entity lookup, preference loading, and payload build time
+
+### 7. Keep page authorization server-side
 Do not move page authorization client-side.
 
 [`apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx`](/Users/piotrkarwatka/Projects/mercato-development-two/apps/mercato/src/app/(backend)/backend/[...slug]/page.tsx) must continue to enforce:
@@ -135,7 +187,7 @@ Do not move page authorization client-side.
 
 The optimization is for chrome rendering only, not access control.
 
-### 7. Lazy non-critical header chrome
+### 8. Lazy non-critical header chrome
 Defer initialization of:
 - `GlobalSearchDialog`
 - `AiAssistantIntegration`
@@ -145,7 +197,7 @@ Defer initialization of:
 
 Use lightweight placeholders where needed. Final behavior remains unchanged after hydration.
 
-### 8. Integration-test-safe hydration contract
+### 9. Integration-test-safe hydration contract
 Client-first chrome must preserve test stability for existing Playwright coverage.
 
 Requirements:
@@ -230,6 +282,11 @@ Severity: Medium
 Affected area: performance and correctness
 Mitigation: extract a shared scope-resolution helper used by page guard and nav/bootstrap endpoint
 
+### Risk: deduplication is skipped and client-first hydration ships on top of parallel nav implementations
+Severity: High
+Affected area: backend chrome correctness, caching, menu injection parity, long-term maintenance
+Mitigation: make shared backend chrome resolver extraction the first implementation phase and block client-first rollout on it
+
 ### Risk: existing integration tests become flaky after sidebar hydration moves client-side
 Severity: High
 Affected area: Playwright coverage for sidebar, settings nav, injected menu surfaces, and profile dropdown
@@ -239,6 +296,7 @@ Residual risk:
 - first paint improves, but total interactive chrome readiness still depends on one post-hydration bootstrap request
 
 ## Test Plan
+- unit test shared backend chrome resolver for route grouping, hierarchy, scope filtering, custom entities, and preference application
 - unit test `GET /api/auth/admin/nav` for scoped route filtering, custom entities, role defaults, and user preferences
 - unit test additive response fields for settings/profile sections, granted features, and roles
 - unit test `useInjectedMenuItems` to verify it uses provider data and no longer calls profile/feature-check endpoints
@@ -261,7 +319,9 @@ Residual risk:
 - no database migration required
 - page authorization remains server-enforced
 - menu injection and sidebar customization remain supported
+- implementation priority requires deduplicating backend chrome/nav resolution before client-first hydration rollout
 
 ## Changelog
 - 2026-04-03: Initial draft for backend first-load optimization via client-first sidebar and shared backend chrome bootstrap
 - 2026-04-03: Added integration-test stability requirements for client-hydrated backend chrome
+- 2026-04-03: Prioritized backend nav/chrome code deduplication as phase-zero optimization work
