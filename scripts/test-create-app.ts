@@ -43,16 +43,20 @@ function addPreinstallScriptProbe(appDir: string): void {
   writeJson(packageJsonPath, packageJson)
 }
 
-function restoreEntryDirectory(entryCwd: string): void {
+function switchDirectory(nextCwd: string): void {
   try {
-    process.chdir(entryCwd)
+    process.chdir(nextCwd)
   } catch {
     return
   }
 
   if (process.stdout.isTTY) {
-    process.stdout.write(`\u001B]7;${pathToFileURL(entryCwd).href}\u0007`)
+    process.stdout.write(`\u001B]7;${pathToFileURL(nextCwd).href}\u0007`)
   }
+}
+
+function restoreEntryDirectory(entryCwd: string): void {
+  switchDirectory(entryCwd)
 }
 
 function forwardSignal(child: ChildProcess, signal: NodeJS.Signals): void {
@@ -69,7 +73,9 @@ function forwardSignal(child: ChildProcess, signal: NodeJS.Signals): void {
 
 async function main(): Promise<void> {
   const entryCwd = process.cwd()
-  const openShell = process.argv.includes('--shell')
+  const shellDisabled = process.argv.includes('--no-shell')
+  const shellExplicitlyRequested = process.argv.includes('--shell')
+  const openShell = !shellDisabled && (shellExplicitlyRequested || (process.stdin.isTTY && process.stdout.isTTY))
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-smoke-'))
   const appDir = path.join(tempRoot, 'standalone-app')
   const standaloneInstallEnv = createStandaloneInstallEnv(tempRoot)
@@ -101,6 +107,9 @@ async function main(): Promise<void> {
     console.log(yellow(`The scaffolded app is configured to install @open-mercato packages from Verdaccio at ${VERDACCIO_URL}.`))
     console.log(yellow('Dependencies are already installed so you can continue in the generated app immediately.'))
     console.log(yellow(`Cleanup: rm -rf ${appDir}`))
+    if (!openShell && process.stdin.isTTY && process.stdout.isTTY) {
+      console.log(yellow('Pass `--no-shell` to keep the smoke test non-interactive.'))
+    }
 
     if (openShell && process.stdin.isTTY && process.stdout.isTTY) {
       const shell = process.env.SHELL || process.env.COMSPEC || 'zsh'
@@ -115,6 +124,7 @@ async function main(): Promise<void> {
       console.log('  yarn db:migrate')
       console.log('  yarn initialize')
       console.log('  yarn dev')
+      switchDirectory(appDir)
       const child = spawn(shell, {
         cwd: appDir,
         stdio: 'inherit',

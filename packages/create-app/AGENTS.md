@@ -85,7 +85,7 @@ yarn setup
 ### When Publishing Changes
 
 1. Make changes in monorepo packages
-2. Use `yarn test:create-app` for the fast scaffold smoke test, `yarn test:create-app --shell` when you want to drop into the generated app immediately, `yarn test:create-app:integration` for parity coverage, or the manual Verdaccio workflow when you want to keep a standalone app around
+2. Use `yarn test:create-app` for the fast scaffold smoke test (interactive shells open in the generated app by default; pass `--no-shell` to skip that), `yarn test:create-app:integration` for parity coverage, or the manual Verdaccio workflow when you want to keep a standalone app around
 3. If you already have a standalone app checked out, rerun `yarn registry:publish`, then in that app run `rm -rf node_modules .mercato/next && yarn install && yarn dev`
 4. Verify the app starts and affected features work
 5. Test `yarn generate` produces correct output from compiled files
