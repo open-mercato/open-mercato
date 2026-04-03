@@ -1352,13 +1352,14 @@ function classifyServerLine(line) {
     const target = compiledMatch[1]?.trim()
     const detail = target ? ` ${target}` : ''
     const timing = `⚡ Compiled${detail} in ${parseDurationToken(compiledMatch[2])}`
+    const progressCurrent = splashState.ready ? runtimeReadyProgressCurrent : 3
     return {
       type: 'status',
       message: timing,
       splashPhase: splashState.ready ? 'App is ready' : startupSplashPhase,
       splashDetail: timing,
       activity: timing,
-      progressCurrent: splashState.ready ? 4 : 3,
+      progressCurrent,
       progressLabel: splashState.ready ? 'App is ready' : 'Starting app server',
     }
   }
@@ -1379,14 +1380,15 @@ function classifyServerLine(line) {
   if (requestMatch) {
     const requestDetails = requestMatch[5]?.trim()
     if (requestDetails && (requestDetails.includes('compile:') || requestDetails.includes('render:'))) {
+      const progressCurrent = runtimeWarmupState.completed ? runtimeReadyProgressCurrent : runtimeProgressCurrent
       return {
         type: 'status',
         message: `📄 ${line}`,
-        splashPhase: runtimeWarmupState.completed ? 'App is ready' : 'Installation and first compilation is in progress...',
+        splashPhase: runtimeWarmupState.completed ? 'App is ready' : startupSplashPhase,
         splashDetail: `Latest page timing: ${line}`,
         ready: runtimeWarmupState.completed,
         activity: `📄 ${line}`,
-        progressCurrent: 4,
+        progressCurrent,
         progressLabel: runtimeWarmupState.completed ? 'App is ready' : 'Precompiling login page',
       }
     }
