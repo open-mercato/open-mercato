@@ -167,6 +167,28 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).not.toContain('apis:')
   })
 
+  it('extracts subscriber metadata from source when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_meta', 'lib', 'helper.ts'),
+      'export const helper = true\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_meta', 'subscribers', 'on-event.ts'),
+      "import { helper } from '../lib/helper'\nexport const metadata = { event: 'subscriber.meta.created', persistent: false }\nexport default async function handler() { return helper }\n",
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'subscriber_meta', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('subscriber.meta.created')
+    expect(output).toContain('subscriber_meta:on-event')
+  })
+
   it('handles module with only widgets — no pages or subscribers', async () => {
     scaffoldModule(tmpDir, 'widgets_only', 'pkg', [
       'widgets/dashboard/stats/widget.tsx',
@@ -216,6 +238,91 @@ describe('generateModuleRegistry with module subsets', () => {
 
     const transFields = readGenerated(tmpDir, 'translations-fields.generated.ts')!
     expect(transFields).toContain('config_mod')
+  })
+
+  it('keeps all HTTP methods for route.ts files that re-export crud handlers', async () => {
+    scaffoldModule(tmpDir, 'customers', 'pkg', ['api/people/route.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'customers', 'api', 'people', 'route.ts'),
+      `const crud = {
+  GET() { return null },
+  POST() { return null },
+  PUT() { return null },
+  DELETE() { return null },
+}
+
+const { POST, PUT, DELETE } = crud
+
+export function GET() {
+  return null
+}
+
+export { POST, PUT, DELETE }
+`
+    )
+
+    const resolver = createMockResolver(tmpDir, [{ id: 'customers', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const apiRoutes = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutes).toContain('path: "/customers/people"')
+    expect(apiRoutes).toContain('methods: ["GET", "POST", "PUT", "DELETE"]')
+  })
+
+  it('keeps all HTTP methods for route.ts files that destructure-export crud handlers', async () => {
+    scaffoldModule(tmpDir, 'example', 'pkg', ['api/todos/route.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'example', 'api', 'todos', 'route.ts'),
+      `const crud = {
+  metadata: {},
+  GET() { return null },
+  POST() { return null },
+  PUT() { return null },
+  DELETE() { return null },
+}
+
+export const { metadata, GET, POST, PUT, DELETE } = crud
+`
+    )
+
+    const resolver = createMockResolver(tmpDir, [{ id: 'example', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const apiRoutes = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutes).toContain('path: "/example/todos"')
+    expect(apiRoutes).toContain('methods: ["GET", "POST", "PUT", "DELETE"]')
+  })
+
+  it('uses metadata.path in api route manifests when source import fails during generation', async () => {
+    scaffoldModule(tmpDir, 'shipping_carriers', 'pkg', ['api/providers/route.ts', 'lib/registry.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'shipping_carriers', 'lib', 'registry.ts'),
+      'export const registry = true\n'
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'shipping_carriers', 'api', 'providers', 'route.ts'),
+      `import { registry } from '../../lib/registry'
+
+export const metadata = {
+  path: '/shipping-carriers/providers',
+  GET: { requireAuth: true },
+}
+
+export function GET() {
+  return registry
+}
+`
+    )
+
+    const resolver = createMockResolver(tmpDir, [{ id: 'shipping_carriers', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const apiRoutes = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutes).toContain('path: "/shipping-carriers/providers"')
+    expect(apiRoutes).not.toContain('path: "/shipping_carriers/providers"')
   })
 
   it('generates correct output when full module is later disabled', async () => {

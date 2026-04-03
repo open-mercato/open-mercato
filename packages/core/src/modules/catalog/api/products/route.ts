@@ -179,16 +179,35 @@ export async function buildProductFilters(
   if (query.productType) {
     filters.product_type = { $eq: query.productType };
   }
-  const term = sanitizeSearchTerm(query.search);
-  if (term) {
-    filters.search_text = {
-      $ilike: `%${escapeLikePattern(term)}%`,
-    };
-  }
   const scope = {
     organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
     tenantId: ctx.auth?.tenantId ?? null,
   };
+  const term = sanitizeSearchTerm(query.search);
+  if (term) {
+    const like = `%${escapeLikePattern(term)}%`;
+    const searchMatches = await findWithDecryption(
+      em,
+      CatalogProduct,
+      {
+        ...scope,
+        ...(query.withDeleted ? {} : { deletedAt: null }),
+        $or: [
+          { title: { $ilike: like } },
+          { subtitle: { $ilike: like } },
+          { description: { $ilike: like } },
+          { sku: { $ilike: like } },
+          { handle: { $ilike: like } },
+        ],
+      },
+      { fields: ["id"] },
+      scope,
+    );
+    const productIds = searchMatches
+      .map((product) => product.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    intersectProductIds(productIds);
+  }
 
   const channelFilterIds = parseIdList(query.channelIds);
   if (channelFilterIds.length) {

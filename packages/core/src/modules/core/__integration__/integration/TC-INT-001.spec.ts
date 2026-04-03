@@ -11,7 +11,7 @@ test.describe('TC-INT-001: Quote to Order to Invoice to Payment', () => {
 
   test('should progress quote to order and record fulfillment/payment actions', async ({ page }) => {
     await login(page, 'admin');
-    await createSalesDocument(page, { kind: 'quote' });
+    await createSalesDocument(page, { kind: 'quote', preferApi: true });
     await addCustomLine(page, { name: `QA INT-001 ${Date.now()}`, quantity: 1, unitPriceGross: 50 });
 
     await page.getByRole('button', { name: /^Actions$/i }).click();

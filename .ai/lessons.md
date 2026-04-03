@@ -568,3 +568,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
 
 **Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.
+
+## Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile
+
+**Context**: Module registry generation tried to discover subscriber, worker, and API-route metadata by runtime-importing source files. In optimized dev/build flows, those imports can fail because sibling TS-only dependencies are not executable in that context yet.
+
+**Problem**: When metadata import failed, generated manifests silently lost event bindings or route `metadata.path` overrides. That broke query-index subscribers, produced wrong API paths like `/shipping_carriers/...`, and surfaced as dev-time `MODULE_NOT_FOUND` errors from generated registries.
+
+**Rule**: For generator-time metadata discovery, use runtime imports when they work, but always keep a source-level fallback for stable static exports such as `metadata`. Generation must stay deterministic even when the source module itself is not directly executable.
+
+**Applies to**: `packages/cli` generators that inspect module files, especially subscribers, workers, API routes, and other static manifest inputs.

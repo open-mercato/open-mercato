@@ -128,6 +128,88 @@ async function loadModuleExportsFromSource<T = Record<string, unknown>>(sourceFi
   }
 }
 
+function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return null
+  }
+
+  const exportPattern = new RegExp(`export\\s+const\\s+${exportName}\\s*=`, 'm')
+  const match = exportPattern.exec(source)
+  if (!match) return null
+
+  const assignmentIndex = match.index + match[0].length
+  const objectStart = source.indexOf('{', assignmentIndex)
+  if (objectStart < 0) return null
+
+  let depth = 0
+  let inSingle = false
+  let inDouble = false
+  let inTemplate = false
+  let escaped = false
+
+  for (let index = objectStart; index < source.length; index += 1) {
+    const char = source[index]
+
+    if (escaped) {
+      escaped = false
+      continue
+    }
+
+    if (char === '\\') {
+      escaped = true
+      continue
+    }
+
+    if (inSingle) {
+      if (char === '\'') inSingle = false
+      continue
+    }
+    if (inDouble) {
+      if (char === '"') inDouble = false
+      continue
+    }
+    if (inTemplate) {
+      if (char === '`') inTemplate = false
+      continue
+    }
+
+    if (char === '\'') {
+      inSingle = true
+      continue
+    }
+    if (char === '"') {
+      inDouble = true
+      continue
+    }
+    if (char === '`') {
+      inTemplate = true
+      continue
+    }
+
+    if (char === '{') {
+      depth += 1
+      continue
+    }
+    if (char !== '}') continue
+
+    depth -= 1
+    if (depth !== 0) continue
+
+    const literal = source.slice(objectStart, index + 1)
+    try {
+      const extracted = Function(`"use strict"; return (${literal});`)()
+      return extracted && typeof extracted === 'object' ? extracted as Record<string, unknown> : null
+    } catch {
+      return null
+    }
+  }
+
+  return null
+}
+
 function toLiteral(value: unknown): string {
   return JSON.stringify(value)
 }
@@ -204,10 +286,59 @@ function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
     return []
   }
 
-  return (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as HttpMethod[]).filter((method) => {
+  const knownMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as HttpMethod[]
+  const exportedMethods = new Set<HttpMethod>()
+  const collectKnownMethods = (rawSpecifiers: string[], opts?: { useExportedAlias?: boolean; useDestructuredProperty?: boolean }) => {
+    for (const specifier of rawSpecifiers) {
+      const trimmed = specifier.trim()
+      if (!trimmed) continue
+
+      let candidate = trimmed
+      if (opts?.useExportedAlias) {
+        candidate = trimmed.split(/\s+as\s+/i).pop()?.trim() ?? trimmed
+      }
+      if (opts?.useDestructuredProperty) {
+        candidate = trimmed.split(':')[0]?.trim() ?? trimmed
+      }
+
+      if (knownMethods.includes(candidate as HttpMethod)) {
+        exportedMethods.add(candidate as HttpMethod)
+      }
+    }
+  }
+
+  for (const method of knownMethods) {
     const pattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\b|export\\s+(?:const|let|var)\\s+${method}\\b`)
-    return pattern.test(source)
-  })
+    if (pattern.test(source)) {
+      exportedMethods.add(method)
+    }
+  }
+
+  const reExportPattern = /export\s*{([^}]+)}/gms
+  for (const match of source.matchAll(reExportPattern)) {
+    const exportBlock = match[1] ?? ''
+    collectKnownMethods(
+      exportBlock
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0),
+      { useExportedAlias: true },
+    )
+  }
+
+  const destructuredExportPattern = /export\s+(?:const|let|var)\s*{([^}]+)}/gms
+  for (const match of source.matchAll(destructuredExportPattern)) {
+    const exportBlock = match[1] ?? ''
+    collectKnownMethods(
+      exportBlock
+        .split(',')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0),
+      { useDestructuredProperty: true },
+    )
+  }
+
+  return knownMethods.filter((method) => exportedMethods.has(method))
 }
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
@@ -303,11 +434,13 @@ function normalizeWorkerMetadata(raw: unknown): SerializableWorkerMetadata | nul
 async function loadSubscriberMetadata(sourceFile: string): Promise<SerializableSubscriberMetadata | null> {
   const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
   return normalizeSubscriberMetadata(sourceModule?.metadata)
+    ?? normalizeSubscriberMetadata(extractNamedObjectLiteralExport(sourceFile, 'metadata'))
 }
 
 async function loadWorkerMetadata(sourceFile: string): Promise<SerializableWorkerMetadata | null> {
   const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
   return normalizeWorkerMetadata(sourceModule?.metadata)
+    ?? normalizeWorkerMetadata(extractNamedObjectLiteralExport(sourceFile, 'metadata'))
 }
 
 async function loadPageMetadataLiteral(sourceFile: string, metaPath?: string): Promise<string> {
@@ -469,7 +602,7 @@ async function processApiRoutes(options: {
     const routePath = '/' + reqSegs.filter(Boolean).join('/')
     const sourceFile = fromApp ? appFile : path.join(apiPkg, ...segs, 'route.ts')
     const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
-    const metadata = sourceModule?.metadata
+    const metadata = sourceModule?.metadata ?? extractNamedObjectLiteralExport(sourceFile, 'metadata')
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
@@ -497,7 +630,7 @@ async function processApiRoutes(options: {
     const pkgFile = path.join(apiPkg, ...fullSegs) + '.ts'
     const sourceFile = fromApp ? appFile : pkgFile
     const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
-    const metadata = sourceModule?.metadata
+    const metadata = sourceModule?.metadata ?? extractNamedObjectLiteralExport(sourceFile, 'metadata')
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
@@ -535,7 +668,7 @@ async function processApiRoutes(options: {
       const metaName = `RM${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
       const sourceFile = path.join(methodDir, ...segs, file)
       const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
-      const metadata = sourceModule?.metadata
+      const metadata = sourceModule?.metadata ?? extractNamedObjectLiteralExport(sourceFile, 'metadata')
       const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
       const metadataLiteral = buildApiMetadataLiteral(metadata, method)
       const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')

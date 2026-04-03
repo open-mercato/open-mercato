@@ -7,9 +7,9 @@
   "scripts": {
     "setup": "node ./scripts/setup.mjs",
     "setup:reinstall": "node ./scripts/setup.mjs --reinstall",
-    "dev": "mercato generate watch & mercato server dev",
+    "dev": "mercato generate && (mercato generate watch --skip-initial & mercato server dev)",
     "build": "next build",
-    "start": "NODE_OPTIONS='-r newrelic' mercato server start",
+    "start": "mercato server start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",

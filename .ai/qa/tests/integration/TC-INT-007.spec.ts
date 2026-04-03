@@ -31,6 +31,7 @@ function runCommand(command: string, args: string[], cwd: string): string {
       NODE_NO_WARNINGS: '1',
       YARN_CACHE_FOLDER: yarnCacheFolder,
       YARN_ENABLE_GLOBAL_CACHE: '0',
+      YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
       YARN_NODE_LINKER: 'node-modules',
     },
   })

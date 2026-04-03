@@ -11,6 +11,8 @@ import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import { parseModuleInstallArgs } from './lib/module-install-args'
+import { resolveNextBuildIdCandidate } from './lib/next-build-id'
+import { acquireServerStartLock } from './lib/server-start-lock'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -130,6 +132,57 @@ function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): st
   }
   throw new Error(
     `Could not find installed binary "${relativeBinPath}". Checked: ${Array.from(checked).join(', ')}`,
+  )
+}
+
+function buildServerProcessEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const runtimeEnv = { ...environment }
+  runtimeEnv.NODE_ENV = 'production'
+  const normalizedNodeOptions = (runtimeEnv.NODE_OPTIONS ?? '')
+    .replace(/(?:^|\s)--require=newrelic(?=\s|$)/g, ' ')
+    .replace(/(?:^|\s)-r\s+newrelic(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (runtimeEnv.NEW_RELIC_LICENSE_KEY?.trim()) {
+    runtimeEnv.NODE_OPTIONS = normalizedNodeOptions.length > 0
+      ? `${normalizedNodeOptions} -r newrelic`
+      : '-r newrelic'
+    return runtimeEnv
+  }
+
+  if (normalizedNodeOptions.length > 0) {
+    runtimeEnv.NODE_OPTIONS = normalizedNodeOptions
+  } else {
+    delete runtimeEnv.NODE_OPTIONS
+  }
+
+  return runtimeEnv
+}
+
+function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
+  const configuredDistDir = path.join(appDir, '.mercato', 'next')
+  const configuredBuildIdPath = path.join(configuredDistDir, 'BUILD_ID')
+  const configuredBuildId = resolveNextBuildIdCandidate(configuredDistDir)
+  if (configuredBuildId) {
+    if (!fs.existsSync(configuredBuildIdPath)) {
+      fs.mkdirSync(path.dirname(configuredBuildIdPath), { recursive: true })
+      fs.writeFileSync(configuredBuildIdPath, configuredBuildId, 'utf8')
+      console.warn('[server] Reconstructed BUILD_ID inside .mercato/next from existing build artifacts.')
+    }
+    return
+  }
+
+  const fallbackDistDir = path.join(appDir, '.next')
+  const fallbackBuildId = resolveNextBuildIdCandidate(fallbackDistDir)
+  if (!fallbackBuildId) {
+    return
+  }
+
+  fs.mkdirSync(path.dirname(configuredBuildIdPath), { recursive: true })
+  fs.writeFileSync(configuredBuildIdPath, fallbackBuildId, 'utf8')
+  console.warn(
+    '[server] Recovered BUILD_ID from .next build artifacts into .mercato/next to match the configured distDir.',
   )
 }
 
@@ -1071,6 +1124,7 @@ export async function run(argv = process.argv) {
           const { createResolver } = await import('./lib/resolver')
           const { calculateStructureChecksum } = await import('./lib/utils')
           const quiet = args.includes('--quiet') || args.includes('-q')
+          const skipInitial = args.includes('--skip-initial')
           const intervalArg = args.find((arg) => arg.startsWith('--interval='))
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
@@ -1117,9 +1171,14 @@ export async function run(argv = process.argv) {
             }
           }
 
-          await runWatchGeneration('initial')
+          if (!skipInitial) {
+            await runWatchGeneration('initial')
+          }
           previousChecksum = calculateStructureChecksum(getTrackedPaths())
           if (!quiet) {
+            if (skipInitial) {
+              console.log('[generate:watch] Skipping initial regeneration and watching the current generated state.')
+            }
             console.log(`[generate:watch] Watching structural module files every ${intervalMs}ms`)
           }
 
@@ -1227,6 +1286,7 @@ export async function run(argv = process.argv) {
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+          const runtimeEnv = buildServerProcessEnvironment(process.env)
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1326,6 +1386,10 @@ export async function run(argv = process.argv) {
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+          const runtimeEnv = buildServerProcessEnvironment(process.env)
+          const serverStartLock = acquireServerStartLock(appDir, {
+            port: runtimeEnv.PORT ?? process.env.PORT ?? null,
+          })
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1356,47 +1420,52 @@ export async function run(argv = process.argv) {
 
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
+          ensureNextBuildIdInConfiguredDistDir(appDir)
 
-          // Start Next.js production server
-          const nextProcess = spawn('node', [nextBin, 'start'], {
-            stdio: 'inherit',
-            env: process.env,
-            cwd: appDir,
-          })
-          processes.push(nextProcess)
-
-          // Start workers if enabled
-          if (autoSpawnWorkers) {
-            console.log('[server] Starting workers for all queues...')
-            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+          try {
+            // Start Next.js production server
+            const nextProcess = spawn('node', [nextBin, 'start'], {
               stdio: 'inherit',
-              env: process.env,
+              env: runtimeEnv,
               cwd: appDir,
             })
-            processes.push(workerProcess)
-          }
+            processes.push(nextProcess)
 
-          if (autoSpawnScheduler && queueStrategy === 'local') {
-            console.log('[server] Starting scheduler polling engine...')
-            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-              stdio: 'inherit',
-              env: process.env,
-              cwd: appDir,
-            })
-            processes.push(schedulerProcess)
-          }
+            // Start workers if enabled
+            if (autoSpawnWorkers) {
+              console.log('[server] Starting workers for all queues...')
+              const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                stdio: 'inherit',
+                env: runtimeEnv,
+                cwd: appDir,
+              })
+              processes.push(workerProcess)
+            }
 
-          // Wait for any process to exit
-          await Promise.race(
-            processes.map(
-              (proc) =>
-                new Promise<void>((resolve) => {
-                  proc.on('exit', () => resolve())
-                })
+            if (autoSpawnScheduler && queueStrategy === 'local') {
+              console.log('[server] Starting scheduler polling engine...')
+              const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                stdio: 'inherit',
+                env: runtimeEnv,
+                cwd: appDir,
+              })
+              processes.push(schedulerProcess)
+            }
+
+            // Wait for any process to exit
+            await Promise.race(
+              processes.map(
+                (proc) =>
+                  new Promise<void>((resolve) => {
+                    proc.on('exit', () => resolve())
+                  })
+              )
             )
-          )
 
-          await cleanupAndWait()
+            await cleanupAndWait()
+          } finally {
+            serverStartLock.release()
+          }
         },
       },
     ],

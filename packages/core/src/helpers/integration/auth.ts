@@ -72,6 +72,18 @@ async function acknowledgeGlobalNotices(page: Page): Promise<void> {
       url: baseUrl,
       sameSite: 'Lax',
     },
+    {
+      name: 'om_feedback_suppress',
+      value: '1',
+      url: baseUrl,
+      sameSite: 'Lax',
+    },
+    {
+      name: 'om_feedback_shown',
+      value: new Date().toISOString().slice(0, 10),
+      url: baseUrl,
+      sameSite: 'Lax',
+    },
   ]);
 }
 
@@ -87,6 +99,16 @@ async function dismissGlobalNoticesIfPresent(page: Page): Promise<void> {
     const dismissButton = noticeContainer.locator('button').first();
     if (await dismissButton.isVisible().catch(() => false)) {
       await dismissButton.click();
+    }
+  }
+
+  const feedbackDialog = page.getByRole('dialog', { name: /Talk to Open Mercato team/i }).first();
+  if (await feedbackDialog.isVisible().catch(() => false)) {
+    const closeButton = feedbackDialog.getByRole('button', { name: /close/i }).first();
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click().catch(() => {});
+    } else {
+      await page.keyboard.press('Escape').catch(() => {});
     }
   }
 }

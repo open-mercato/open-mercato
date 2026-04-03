@@ -1,12 +1,18 @@
 import type { NextConfig } from "next";
 import path from "node:path";
 
+const isDevelopment = process.env.NODE_ENV !== 'production'
+
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
   experimental: {
-    preloadEntriesOnStart: false,
     serverMinification: false,
     turbopackMinify: false,
+    ...(isDevelopment
+      ? {
+          preloadEntriesOnStart: false,
+        }
+      : {}),
   },
   turbopack: {
     // Monorepo root is two levels up from apps/mercato
