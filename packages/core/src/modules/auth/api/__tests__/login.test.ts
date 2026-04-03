@@ -36,6 +36,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: () => 'jwt-token' }))
 
+jest.mock('@open-mercato/core/modules/auth/events', () => ({
+  emitAuthEvent: jest.fn(async () => undefined),
+}))
+
 function makeFormData(data: Record<string, string>) {
   const formData = new FormData()
   for (const [key, value] of Object.entries(data)) formData.append(key, value)

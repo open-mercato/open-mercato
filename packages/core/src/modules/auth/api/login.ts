@@ -150,14 +150,14 @@ export async function POST(req: Request) {
     roles: userRoleNames
   })
   void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
+  const rememberMeDays = Number(process.env.REMEMBER_ME_DAYS || '30')
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
     redirect: '/backend',
   }
   if (remember) {
-    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     const sess = await auth.createSession(user, expiresAt)
     responseData.refreshToken = sess.token
   }
@@ -201,8 +201,7 @@ export async function POST(req: Request) {
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   if (remember && refreshTokenForCookie) {
-    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
   }
   return res
