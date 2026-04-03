@@ -7,6 +7,8 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateCustomerTodoSettings, type CustomerTodoWidgetSettings } from './config'
+import { resolveExampleIntegrationHref } from '../../../lib/interactionCompatibility'
+import { resolveTodoHref } from '../../../components/detail/utils'
 
 type TodoLinkSummary = {
   id: string
@@ -14,6 +16,12 @@ type TodoLinkSummary = {
   todoSource: string
   todoTitle: string | null
   createdAt: string
+  _integrations?: {
+    example?: {
+      href?: string | null
+    }
+    [key: string]: unknown
+  }
   entity: {
     id: string | null
     displayName: string | null
@@ -21,23 +29,6 @@ type TodoLinkSummary = {
   }
 }
 
-// SPEC-046b: To enable canonical interactions mode, switch from
-// /api/customers/dashboard/widgets/customer-todos to
-// /api/customers/interactions?status=planned&pageSize={pageSize}
-//
-// Response mapping (InteractionSummary → TodoLinkSummary):
-//   interaction.id               → id, todoId
-//   interaction.interactionType  → todoSource
-//   interaction.title            → todoTitle
-//   interaction.createdAt        → createdAt
-//   interaction.entityId         → entity.id (kind/displayName need enrichment
-//                                   or a follow-up customer lookup)
-//
-// The main gap is the `entity` sub-object: the interactions API returns a flat
-// entityId but not customer displayName/kind. Options:
-//   a) Add an enricher to the interactions list API that resolves entity details
-//   b) Batch-fetch customer details client-side after loading interactions
-//   c) Add a dedicated /api/customers/interactions/widget endpoint
 async function loadTodos(settings: CustomerTodoWidgetSettings): Promise<TodoLinkSummary[]> {
   const params = new URLSearchParams({
     limit: String(settings.pageSize),
@@ -67,6 +58,9 @@ async function loadTodos(settings: CustomerTodoWidgetSettings): Promise<TodoLink
         todoSource: typeof data.todoSource === 'string' ? data.todoSource : '',
         todoTitle: typeof data.todoTitle === 'string' ? data.todoTitle : null,
         createdAt: typeof data.createdAt === 'string' ? data.createdAt : '',
+        _integrations: data._integrations && typeof data._integrations === 'object'
+          ? (data._integrations as TodoLinkSummary['_integrations'])
+          : undefined,
         entity: {
           id: typeof entity.id === 'string' ? entity.id : null,
           displayName: typeof entity.displayName === 'string' ? entity.displayName : null,
@@ -84,8 +78,8 @@ function formatDate(value: string | null, locale?: string): string {
   return date.toLocaleString(locale ?? undefined)
 }
 
-function resolveDetailHref(entity: { id: string | null; kind: string | null }): string | null {
-  if (!entity.id) return null
+function resolveDetailHref(entity: { id: string | null; kind: string | null } | null | undefined): string | null {
+  if (!entity?.id) return null
   if (entity.kind === 'company') return `/backend/customers/companies-v2/${encodeURIComponent(entity.id)}`
   if (entity.kind === 'person') return `/backend/customers/people-v2/${encodeURIComponent(entity.id)}`
   return `/backend/customers/people-v2/${encodeURIComponent(entity.id)}`
@@ -171,6 +165,8 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
           {items.map((item) => {
             const createdLabel = formatDate(item.createdAt, locale)
             const href = resolveDetailHref(item.entity)
+            const exampleHref = resolveExampleIntegrationHref(item)
+            const taskHref = exampleHref ?? resolveTodoHref(item.todoSource, item.todoId)
             return (
               <li key={item.id} className="rounded-md border p-3">
                 <div className="flex items-start justify-between gap-3 text-sm font-medium">
@@ -185,13 +181,18 @@ const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWi
                     <p className="text-xs text-muted-foreground">{item.todoSource}</p>
                   ) : null}
                 </div>
-                {href ? (
-                  <div className="mt-2 text-xs">
+                <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                  {href ? (
                     <Link className="text-primary hover:underline" href={href}>
                       {t('customers.widgets.common.viewRecord')}
                     </Link>
-                  </div>
-                ) : null}
+                  ) : null}
+                  {taskHref ? (
+                    <Link className="text-primary hover:underline" href={taskHref}>
+                      {t('customers.workPlan.customerTodos.table.actions.openTask')}
+                    </Link>
+                  ) : null}
+                </div>
               </li>
             )
           })}

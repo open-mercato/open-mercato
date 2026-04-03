@@ -39,6 +39,9 @@ export function resolveTodoHref(source: string, todoId: string | null | undefine
   if (source === CUSTOMER_INTERACTION_TASK_SOURCE || source === CUSTOMER_INTERACTION_TASK_TYPE) return null
   const [module] = source.split(':')
   if (!module) return null
+  if (module === 'example') {
+    return `/backend/todos/${encodeURIComponent(todoId)}/edit`
+  }
   return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
 }
 

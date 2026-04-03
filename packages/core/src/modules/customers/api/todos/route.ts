@@ -22,17 +22,16 @@ import { todoLinkWithTodoCreateSchema } from '../../data/validators'
 import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFeatureFlags'
 import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
 import {
-  hydrateCanonicalInteractions,
-  loadCustomerSummaries,
-} from '../../lib/interactionReadModel'
-import {
+  EXAMPLE_TODO_SOURCE,
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
-  CUSTOMER_INTERACTION_TASK_SOURCE,
 } from '../../lib/interactionCompatibility'
 import {
-  type CustomerTodoRow,
-  mapInteractionRecordToTodoRow,
-  mapLegacyTodoLinkToRow,
+  filterTodoRows,
+  listCanonicalTodoRows,
+  listLegacyTodoRows,
+  normalizeTodoSearch,
+  paginateTodoRows,
+  sortTodoRows,
   resolveLegacyTodoDetails,
 } from '../../lib/todoCompatibility'
 
@@ -79,11 +78,6 @@ const DEPRECATION_HEADERS = {
   Link: '</api/customers/interactions>; rel="successor-version"',
 }
 
-type CanonicalTodoListResult = {
-  items: CustomerTodoRow[]
-  bridgeIds: Set<string>
-}
-
 function resolveGuardUserId(auth: {
   sub?: string | null
   userId?: string | null
@@ -118,64 +112,6 @@ async function legacyAdaptersDisabledResponse(): Promise<Response> {
   ))
 }
 
-function normalizeSearch(value: string | undefined): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim().toLowerCase()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-function sortTodoRows(rows: CustomerTodoRow[]): CustomerTodoRow[] {
-  return [...rows].sort((left, right) => {
-    const leftTime = new Date(left.createdAt).getTime()
-    const rightTime = new Date(right.createdAt).getTime()
-    if (leftTime === rightTime) {
-      return right.id.localeCompare(left.id)
-    }
-    return rightTime - leftTime
-  })
-}
-
-function filterTodoRows(rows: CustomerTodoRow[], search: string | null): CustomerTodoRow[] {
-  if (!search) return rows
-  return rows.filter((row) => {
-    const haystack = [
-      row.customer.displayName,
-      row.todoTitle,
-      row.todoDescription,
-    ]
-      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(search)
-  })
-}
-
-function paginateTodoRows(
-  rows: CustomerTodoRow[],
-  page: number,
-  pageSize: number,
-  exportAll: boolean,
-): { items: CustomerTodoRow[]; total: number; page: number; pageSize: number; totalPages: number } {
-  const total = rows.length
-  if (exportAll) {
-    return {
-      items: rows,
-      total,
-      page: 1,
-      pageSize: total,
-      totalPages: 1,
-    }
-  }
-  const start = (page - 1) * pageSize
-  return {
-    items: rows.slice(start, start + pageSize),
-    total,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  }
-}
-
 function normalizeTodoStatusInput(body: z.infer<typeof todoUpdateBodySchema>): boolean | undefined {
   if (typeof body.isDone === 'boolean') return body.isDone
   if (typeof body.is_done === 'boolean') return body.is_done
@@ -196,110 +132,6 @@ function collectTodoCustomValues(
     Object.assign(direct, body.customFields as Record<string, unknown>)
   }
   return Object.keys(direct).length > 0 ? direct : undefined
-}
-
-async function listLegacyTodoRows(
-  em: EntityManager,
-  queryEngine: QueryEngine,
-  tenantId: string,
-  organizationIds: string[] | null,
-  entityId: string | undefined,
-): Promise<CustomerTodoRow[]> {
-  const where: Record<string, unknown> = { tenantId }
-  if (organizationIds && organizationIds.length > 0) {
-    where.organizationId = { $in: organizationIds }
-  }
-  if (entityId) {
-    where.entity = entityId
-  }
-
-  const links = await em.find(CustomerTodoLink, where, {
-    populate: ['entity'],
-    orderBy: { createdAt: 'desc' },
-  })
-  const details = await resolveLegacyTodoDetails(
-    queryEngine,
-    links,
-    tenantId,
-    organizationIds ?? [],
-  )
-
-  return links.map((link) => {
-    const source =
-      typeof link.todoSource === 'string' && link.todoSource.trim().length > 0
-        ? link.todoSource
-        : 'example:todo'
-    return mapLegacyTodoLinkToRow(
-      link,
-      details.get(`${source}:${link.todoId}`) ?? null,
-    )
-  })
-}
-
-async function listCanonicalTodoRows(
-  em: EntityManager,
-  queryEngine: QueryEngine,
-  container: { resolve: (name: string) => unknown },
-  auth: { tenantId: string | null; orgId: string | null; sub?: string | null; userId?: string | null; keyId?: string | null },
-  selectedOrganizationId: string | null,
-  organizationIds: string[] | null,
-  query: z.infer<typeof querySchema>,
-  options?: { includeDeleted?: boolean; source?: string | string[] | null },
-): Promise<CanonicalTodoListResult> {
-  const where: Record<string, unknown> = {
-    tenantId: auth.tenantId,
-    interactionType: 'task',
-  }
-  if (!options?.includeDeleted) {
-    where.deletedAt = null
-  }
-  if (organizationIds && organizationIds.length > 0) {
-    where.organizationId = { $in: organizationIds }
-  }
-  if (query.entityId) {
-    where.entity = query.entityId
-  }
-  if (options?.source) {
-    where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
-  }
-
-  const interactions = await em.find(CustomerInteraction, where, {
-    orderBy: { createdAt: 'desc' },
-  })
-  const activeInteractions = interactions.filter((interaction) => !interaction.deletedAt)
-  const hydrated = await hydrateCanonicalInteractions({
-    em,
-    container,
-    auth,
-    selectedOrganizationId,
-    interactions: activeInteractions,
-  })
-  const customerIds = Array.from(
-    new Set(
-      hydrated
-        .map((interaction) => interaction.entityId ?? null)
-        .filter((value): value is string => !!value),
-    ),
-  )
-  const customerSummaries = await loadCustomerSummaries(em, customerIds, auth.tenantId, selectedOrganizationId)
-
-  const items = hydrated.map((interaction) =>
-    mapInteractionRecordToTodoRow(
-      interaction,
-      interaction.entityId ? customerSummaries.get(interaction.entityId) ?? null : null,
-      {
-        todoSource:
-          interaction.source === CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE
-            ? CUSTOMER_INTERACTION_TASK_SOURCE
-            : CUSTOMER_INTERACTION_TASK_SOURCE,
-      },
-    ),
-  )
-
-  return {
-    items,
-    bridgeIds: new Set(interactions.map((interaction) => interaction.id)),
-  }
 }
 
 async function findLegacyTodoLink(
@@ -335,7 +167,7 @@ async function ensureCanonicalTodoBridge(
   const source =
     typeof link.todoSource === 'string' && link.todoSource.trim().length > 0
       ? link.todoSource
-      : 'example:todo'
+      : EXAMPLE_TODO_SOURCE
   const detail = detailMap.get(`${source}:${link.todoId}`) ?? null
   const entityId = typeof link.entity === 'string' ? link.entity : link.entity.id
 
@@ -396,29 +228,27 @@ export async function GET(request: Request): Promise<Response> {
     }
     const queryEngine = container.resolve('queryEngine') as QueryEngine
     const exportAll = parseBooleanToken(query.all) === true
-    const search = normalizeSearch(query.search)
+    const search = normalizeTodoSearch(query.search)
 
     const mergedRows = flags.unified
       ? (await listCanonicalTodoRows(
           em,
-          queryEngine,
           container,
           auth,
           selectedOrganizationId,
           organizationIds,
-          query,
+          { entityId: query.entityId },
         )).items
       : await Promise.all([
         listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId),
         listCanonicalTodoRows(
           em,
-          queryEngine,
           container,
           auth,
           selectedOrganizationId,
           organizationIds,
-          query,
           {
+            entityId: query.entityId,
             includeDeleted: true,
             source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
           },
@@ -732,6 +562,8 @@ const todoItemSchema = z.object({
   organizationId: z.string(),
   tenantId: z.string(),
   createdAt: z.string(),
+  externalHref: z.string().nullable().optional(),
+  _integrations: z.record(z.string(), z.unknown()).optional(),
   customer: z.object({
     id: z.string().nullable(),
     displayName: z.string().nullable(),

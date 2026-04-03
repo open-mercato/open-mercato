@@ -101,6 +101,14 @@ function evaluateStaticExpressionWithScope(
     return envAccess.value
   }
 
+  if (ts.isPropertyAccessExpression(node)) {
+    const target = evaluateStaticExpressionWithScope(node.expression, env, scope)
+    if (target && typeof target === 'object' && node.name.text in target) {
+      return (target as Record<string, unknown>)[node.name.text]
+    }
+    return undefined
+  }
+
   if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.ExclamationToken) {
     return !Boolean(evaluateStaticExpressionWithScope(node.operand, env, scope))
   }
@@ -145,6 +153,42 @@ function evaluateStaticExpressionWithScope(
       typeof rawValue === 'string' ? rawValue : undefined,
       Boolean(fallbackValue),
     )
+  }
+
+  if (
+    ts.isCallExpression(node)
+    && ts.isPropertyAccessExpression(node.expression)
+    && node.expression.name.text === 'some'
+  ) {
+    const target = evaluateStaticExpressionWithScope(node.expression.expression, env, scope)
+    const predicate = node.arguments[0]
+    if (!Array.isArray(target) || !predicate) {
+      return undefined
+    }
+
+    return target.some((entry) => {
+      if (!ts.isArrowFunction(predicate) && !ts.isFunctionExpression(predicate)) {
+        return false
+      }
+
+      const localScope = new Map(scope)
+      const parameter = predicate.parameters[0]
+      if (parameter && ts.isIdentifier(parameter.name)) {
+        localScope.set(parameter.name.text, entry)
+      }
+
+      if (ts.isBlock(predicate.body)) {
+        const returnStatement = predicate.body.statements.find((statement): statement is ts.ReturnStatement =>
+          ts.isReturnStatement(statement),
+        )
+        if (!returnStatement?.expression) {
+          return false
+        }
+        return Boolean(evaluateStaticExpressionWithScope(returnStatement.expression, env, localScope))
+      }
+
+      return Boolean(evaluateStaticExpressionWithScope(predicate.body, env, localScope))
+    })
   }
 
   return undefined
@@ -228,6 +272,7 @@ function parseModuleConfigShape(
             const entry = parseModuleEntryFromObjectLiteral(element)
             return entry ? [{ entry, node: element }] : []
           }))
+          scope.set(variableName, occurrences.map((occurrence) => occurrence.entry))
           foundDeclaration = true
           continue
         }
@@ -244,7 +289,11 @@ function parseModuleConfigShape(
 
     if (!foundDeclaration) continue
 
-    occurrences.push(...collectPushEntriesFromStatement(statement, env, variableName, scope))
+    const pushedOccurrences = collectPushEntriesFromStatement(statement, env, variableName, scope)
+    if (pushedOccurrences.length > 0) {
+      occurrences.push(...pushedOccurrences)
+      scope.set(variableName, occurrences.map((occurrence) => occurrence.entry))
+    }
   }
 
   if (!arrayNode) {

@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerEntity, CustomerTodoLink } from '../../../../data/entities'
 import { resolveWidgetScope, type WidgetScopeContext } from '../utils'
+import { resolveCustomerInteractionFeatureFlags } from '../../../../lib/interactionFeatureFlags'
+import { CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE } from '../../../../lib/interactionCompatibility'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { FilterQuery } from '@mikro-orm/core'
-import type { EntityId } from '@open-mercato/shared/modules/entities'
-import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
+import {
+  listLegacyTodoRows,
+  listCanonicalTodoRows,
+  sortTodoRows,
+  type CustomerTodoRow,
+} from '../../../../lib/todoCompatibility'
 
 const querySchema = z.object({
   limit: z.coerce.number().min(1).max(20).default(5),
@@ -47,135 +51,73 @@ async function resolveContext(req: Request, translate: (key: string, fallback?: 
   }
 }
 
-type TodoSummary = {
-  id: string
-  title: string | null
-}
-
-const TODO_TITLE_FIELDS = ['title', 'subject', 'name', 'summary', 'text', 'description'] as const
-
-function extractTodoTitle(record: Record<string, unknown>): string | null {
-  for (const key of TODO_TITLE_FIELDS) {
-    const value = record[key]
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return value.trim()
-    }
-  }
-  return null
-}
-
-async function resolveTodoSummaries(
-  queryEngine: QueryEngine,
-  links: CustomerTodoLink[],
-  tenantId: string,
-  organizationIds: string[] | null
-): Promise<Map<string, TodoSummary>> {
-  const results = new Map<string, TodoSummary>()
-  if (!links.length) return results
-
-  const idsBySource = new Map<string, Set<string>>()
-  for (const link of links) {
-    const source = typeof link.todoSource === 'string' && link.todoSource.length > 0 ? link.todoSource : 'unknown'
-    const id = String(link.todoId ?? '')
-    if (!id) continue
-    if (!idsBySource.has(source)) idsBySource.set(source, new Set<string>())
-    idsBySource.get(source)!.add(id)
-  }
-
-  const scopedOrgIds = Array.isArray(organizationIds)
-    ? Array.from(new Set(organizationIds.filter((id) => typeof id === 'string' && id.length > 0)))
-    : null
-
-  for (const [source, idSet] of idsBySource.entries()) {
-    const ids = Array.from(idSet)
-    if (ids.length === 0 || source === 'unknown') continue
-    try {
-      const requestedFields = Array.from(new Set(['id', ...TODO_TITLE_FIELDS]))
-      const queryResult = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
-        tenantId,
-        organizationIds: scopedOrgIds && scopedOrgIds.length > 0 ? scopedOrgIds : undefined,
-        filters: { id: { $in: ids } },
-        fields: requestedFields,
-        includeCustomFields: false,
-        page: { page: 1, pageSize: Math.max(ids.length, 1) },
-      })
-      for (const item of queryResult.items ?? []) {
-        if (!item || typeof item !== 'object') continue
-        const raw = item as Record<string, unknown>
-        const todoId = typeof raw.id === 'string' && raw.id.length > 0 ? raw.id : String(raw.id ?? '')
-        if (!todoId) continue
-        const title = extractTodoTitle(raw)
-        results.set(`${source}:${todoId}`, { id: todoId, title })
-      }
-    } catch (err) {
-      console.warn(`customers.widgets.todos: failed to resolve todos for source ${source}`, err)
-    }
-  }
-
-  return results
-}
-
 export async function GET(req: Request) {
   const { translate } = await resolveTranslations()
   try {
     const { container, em, tenantId, organizationIds, limit } = await resolveContext(req, translate)
-    const whereOrganization = Array.isArray(organizationIds)
-      ? organizationIds.length === 1
-        ? organizationIds[0]
-        : { $in: Array.from(new Set(organizationIds)) }
-      : null
-
-    const linkFilters = {
+    const auth = {
       tenantId,
-      ...(whereOrganization ? { organizationId: whereOrganization } : {}),
-      entity: {
-        deletedAt: null,
-      } as FilterQuery<CustomerEntity>,
-    } as FilterQuery<CustomerTodoLink>
+      orgId: organizationIds?.[0] ?? null,
+      sub: 'customers.dashboard.todos',
+    }
+    const flags = await resolveCustomerInteractionFeatureFlags(container, tenantId)
+    const rows = flags.unified
+      ? (await listCanonicalTodoRows(
+          em,
+          container,
+          auth,
+          organizationIds?.[0] ?? null,
+          organizationIds ?? null,
+        )).items
+      : await Promise.all([
+          listLegacyTodoRows(
+            em,
+            container.resolve('queryEngine') as QueryEngine,
+            tenantId,
+            organizationIds ?? null,
+            undefined,
+          ),
+          listCanonicalTodoRows(
+            em,
+            container,
+            auth,
+            organizationIds?.[0] ?? null,
+            organizationIds ?? null,
+            {
+              includeDeleted: true,
+              source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+            },
+          ),
+        ]).then(([legacyRows, canonicalRows]) =>
+          sortTodoRows([
+            ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
+            ...canonicalRows.items,
+          ]),
+        )
 
-    const links = await em.find(
-      CustomerTodoLink,
-      linkFilters,
-      {
-        limit,
-        orderBy: { createdAt: 'desc' },
-        populate: ['entity'],
-      }
-    )
-    await decryptEntitiesWithFallbackScope(links, {
-      em,
-      tenantId,
-      organizationId: organizationIds?.[0] ?? null,
-    })
-
-    const queryEngine = (container.resolve('queryEngine') as QueryEngine)
-    const todoSummaries = await resolveTodoSummaries(queryEngine, links, tenantId, organizationIds)
-
-    const items = links.map((link) => {
-      const entity = link.entity
-      const entityRecord = entity && typeof entity !== 'string' ? (entity as CustomerEntity) : null
-      const todoKey = `${link.todoSource}:${link.todoId}`
-      const summary = todoSummaries.get(todoKey) ?? null
+    const items = rows.slice(0, limit).map((row: CustomerTodoRow) => {
+      const entity = row.customer ?? null
       return {
-        id: link.id,
-        todoId: link.todoId,
-        todoSource: link.todoSource,
-        todoTitle: summary?.title ?? null,
-        createdAt: link.createdAt.toISOString(),
-        organizationId: link.organizationId,
-        entity: entityRecord
+        id: row.id,
+        todoId: row.todoId,
+        todoSource: row.todoSource,
+        todoTitle: row.todoTitle ?? null,
+        createdAt: row.createdAt,
+        organizationId: row.organizationId ?? null,
+        _integrations: row._integrations ?? undefined,
+        entity: entity?.id
           ? {
-              id: entityRecord.id,
-              displayName: entityRecord.displayName,
-              kind: entityRecord.kind,
-              ownerUserId: entityRecord.ownerUserId,
+              id: entity.id,
+              displayName: entity.displayName ?? null,
+              kind: entity.kind ?? null,
+              ownerUserId: null,
             }
           : {
-              id: typeof entity === 'string' ? entity : null,
-              displayName: null,
-              kind: null,
-              ownerUserId: null,
-            },
+            id: null,
+            displayName: null,
+            kind: null,
+            ownerUserId: null,
+          },
       }
     })
 
@@ -198,6 +140,7 @@ const customerTodoWidgetItemSchema = z.object({
   todoSource: z.string(),
   todoTitle: z.string().nullable().optional(),
   createdAt: z.string(),
+  _integrations: z.record(z.string(), z.unknown()).optional(),
   organizationId: z.string().uuid().nullable().optional(),
   entity: z
     .object({
@@ -222,8 +165,8 @@ export const openApi: OpenApiRouteDoc = {
   summary: 'Customer todos widget',
   methods: {
     GET: {
-      summary: 'Fetch recent customer todo links',
-      description: 'Returns the most recently created todo links for display on dashboards.',
+      summary: 'Fetch recent customer tasks',
+      description: 'Returns the most recent customer tasks for display on dashboards, including legacy compatibility rows when needed.',
       query: querySchema,
       responses: [
         { status: 200, description: 'Widget payload', schema: customerTodoWidgetResponseSchema },

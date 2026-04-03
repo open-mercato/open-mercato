@@ -25,6 +25,7 @@ import {
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 
 export const todoCreateSchema = z.object({
+  id: z.string().uuid().optional(),
   title: z.string().min(1),
   is_done: z.boolean().optional(),
 })
@@ -52,6 +53,9 @@ export const todoCrudEvents: CrudEventsConfig<Todo> = {
     id: ctx.identifiers.id,
     tenantId: ctx.identifiers.tenantId,
     organizationId: ctx.identifiers.organizationId,
+    title: ctx.entity?.title ?? null,
+    isDone: typeof ctx.entity?.isDone === 'boolean' ? ctx.entity.isDone : null,
+    ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   }),
 }
 
@@ -82,6 +86,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const todo = await de.createOrmEntity({
       entity: Todo,
       data: {
+        ...(parsed.id ? { id: parsed.id } : {}),
         title: parsed.title,
         isDone: parsed.is_done ?? false,
         tenantId: scope.tenantId,
@@ -107,6 +112,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -172,6 +178,7 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -232,6 +239,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -318,6 +326,7 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -366,6 +375,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })
@@ -435,6 +445,7 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       },
+      syncOrigin: ctx.syncOrigin,
       events: todoCrudEvents,
       indexer: todoCrudIndexer,
     })

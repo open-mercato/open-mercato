@@ -2508,7 +2508,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "default": "'example:todo'",
+          "default": "'customers:interaction'",
           "mappedType": "text"
         },
         "created_at": {

@@ -449,7 +449,7 @@ export function TasksSection({
               </div>
             ) : null}
             {sortedTasks.map((task) => {
-              const todoHref = resolveTodoHref(task.todoSource, task.todoId)
+              const todoHref = task.externalHref ?? resolveTodoHref(task.todoSource, task.todoId)
               const createdLabel = formatDateTime(task.createdAt) ?? emptyLabel
               const meta = renderTaskMeta(task)
               const title = task.title ?? t('customers.people.detail.tasks.untitled', 'Untitled task')
@@ -570,15 +570,15 @@ export function TasksSection({
                 {t('customers.people.detail.tasks.loadingMore', 'Loading…')}
               </div>
             ) : null}
-            <div className="flex justify-center">
-              <Button asChild variant="outline" size="sm">
-                <Link href="/backend/customer-tasks">
-                  {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
-                </Link>
-              </Button>
-            </div>
           </div>
         ) : null}
+        <div className="flex justify-center">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/backend/customer-tasks">
+              {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <TaskDialog
