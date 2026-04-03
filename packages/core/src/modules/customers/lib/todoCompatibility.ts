@@ -451,7 +451,6 @@ export async function listCanonicalTodoRows(
       },
       selectedOrganizationId: scopedOrganizationId,
       interactions: groupedInteractions,
-      enrich: true,
     })
     const customerIds = Array.from(
       new Set(
