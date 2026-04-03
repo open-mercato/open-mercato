@@ -2,12 +2,84 @@ import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
+import {
+  clampPercent,
+  connectLineStream,
+  decorateActivityMessage,
+  formatDuration,
+  formatProgressBar,
+  resolveProgressPercent,
+  stripAnsi,
+} from './dev-splash-helpers.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
   const hasMonorepoApp = fs.existsSync(path.join(cwd, 'apps', 'mercato', 'package.json'))
   const hasPackagesDir = fs.existsSync(path.join(cwd, 'packages'))
   return hasMonorepoApp && hasPackagesDir ? 'monorepo' : 'standalone'
+}
+
+function readScopedRegistryServer(scopeName) {
+  const yarnConfigPath = path.join(process.cwd(), '.yarnrc.yml')
+  if (!fs.existsSync(yarnConfigPath)) return null
+
+  const source = fs.readFileSync(yarnConfigPath, 'utf8')
+  const lines = source.split(/\r?\n/)
+  let inNpmScopes = false
+  let activeScope = null
+
+  for (const line of lines) {
+    const indent = line.match(/^\s*/)?.[0].length ?? 0
+    const trimmed = line.trim()
+
+    if (trimmed.length === 0) continue
+
+    if (indent === 0) {
+      inNpmScopes = trimmed === 'npmScopes:'
+      activeScope = null
+      continue
+    }
+
+    if (!inNpmScopes) continue
+
+    if (indent === 2 && trimmed.endsWith(':')) {
+      activeScope = trimmed.slice(0, -1)
+      continue
+    }
+
+    if (indent <= 2) {
+      activeScope = null
+      continue
+    }
+
+    if (activeScope !== scopeName) continue
+
+    const registryMatch = trimmed.match(/^npmRegistryServer:\s*"?([^"]+)"?$/)
+    if (registryMatch) {
+      return registryMatch[1].trim()
+    }
+  }
+
+  return null
+}
+
+function isLocalRegistryUrl(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return false
+
+  try {
+    const parsed = new URL(value)
+    return ['localhost', '127.0.0.1', '::1', 'host.docker.internal'].includes(parsed.hostname.toLowerCase())
+  } catch {
+    return false
+  }
+}
+
+function shouldRefreshStandaloneRegistryPackages() {
+  if (process.env.OM_SKIP_LOCAL_PACKAGE_REFRESH === '1' || process.env.OM_SKIP_LOCAL_PACKAGE_REFRESH === 'true') {
+    return false
+  }
+
+  return isLocalRegistryUrl(readScopedRegistryServer('open-mercato'))
 }
 
 const runtimeMode = detectDevRuntimeMode()
@@ -18,6 +90,11 @@ const args = process.argv.slice(2)
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+const setupMode = !isMonorepo && args.includes('--setup')
+const reinstall = setupMode && args.includes('--reinstall')
+const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
+const splashMode = greenfield ? 'greenfield' : setupMode ? 'setup' : 'dev'
+const standaloneStageTotal = setupMode ? 5 : 4
 const autoOpenSplash = !appOnly && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 
@@ -30,11 +107,15 @@ let splashLogoSvg = null
 let splashHtmlTemplate = null
 let splashLocaleConfig = null
 const splashState = {
-  mode: greenfield ? 'greenfield' : 'dev',
-  phase: greenfield ? 'Greenfield installation and first compilation is in progress...' : 'Installation and first compilation is in progress...',
+  mode: splashMode,
+  phase: greenfield
+    ? 'Greenfield installation and first compilation is in progress...'
+    : setupMode
+      ? 'Project setup is in progress...'
+      : 'Installation and first compilation is in progress...',
   detail: isMonorepo
     ? (greenfield ? 'Preparing clean environment and rebuilding packages' : 'Preparing workspace packages and app runtime')
-    : 'Preparing app runtime',
+    : (setupMode ? 'Preparing project setup' : 'Preparing app runtime'),
   ready: false,
   readyUrl: null,
   loginUrl: null,
@@ -44,39 +125,12 @@ const splashState = {
   workerQueues: [],
   schedulerActive: false,
   progressCurrent: 0,
-  progressTotal: isMonorepo ? (greenfield ? 5 : 3) : 4,
+  progressTotal: isMonorepo ? (greenfield ? 5 : 3) : standaloneStageTotal,
   progressPercent: 0,
   progressLabel: isMonorepo
     ? (greenfield ? 'Greenfield setup pending' : 'Workspace preparation pending')
-    : 'Preparing app runtime',
+    : (setupMode ? 'Preparing project setup' : 'Preparing app runtime'),
   activities: [],
-}
-
-function formatDuration(durationMs) {
-  if (durationMs < 1000) return `${durationMs}ms`
-  return `${(durationMs / 1000).toFixed(1)}s`
-}
-
-function clampPercent(value) {
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(100, Math.round(value)))
-}
-
-function resolveProgressPercent(current, total, explicitPercent) {
-  if (Number.isFinite(explicitPercent)) {
-    return clampPercent(explicitPercent)
-  }
-
-  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
-    return 0
-  }
-
-  return clampPercent((current / total) * 100)
-}
-
-function formatProgressBar(percent, width = 18) {
-  const filled = Math.max(0, Math.min(width, Math.round((clampPercent(percent) / 100) * width)))
-  return `[${'#'.repeat(filled)}${'-'.repeat(width - filled)}]`
 }
 
 function formatProgressLine(label, current, total, percent) {
@@ -84,60 +138,6 @@ function formatProgressLine(label, current, total, percent) {
     ? `${current}/${total}`
     : `${clampPercent(percent)}%`
   return `${formatProgressBar(percent)} ${String(meta).padStart(4)} ${label}`
-}
-
-function stripAnsi(value) {
-  return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '')
-}
-
-function hasEmojiPrefix(value) {
-  return /^[\p{Extended_Pictographic}\u2600-\u27BF]/u.test(String(value ?? '').trim())
-}
-
-function decorateActivityMessage(message) {
-  const plain = String(message ?? '').trim()
-  if (!plain) return plain
-  if (hasEmojiPrefix(plain)) return plain
-
-  if (/splash page/i.test(plain)) return `🪟 ${plain}`
-  if (/package/i.test(plain)) return `📦 ${plain}`
-  if (/build/i.test(plain)) return `🧱 ${plain}`
-  if (/generate|artifact/i.test(plain)) return `♻️ ${plain}`
-  if (/watch/i.test(plain)) return `👀 ${plain}`
-  if (/ready|login/i.test(plain)) return `🌐 ${plain}`
-  if (/queue|scheduler|background/i.test(plain)) return `⚙️ ${plain}`
-  if (/memory/i.test(plain)) return `🧠 ${plain}`
-  if (/encrypt/i.test(plain)) return `🔐 ${plain}`
-  if (/compile/i.test(plain)) return `🛠️ ${plain}`
-  if (/warn|port/i.test(plain)) return `⚠️ ${plain}`
-  return `✨ ${plain}`
-}
-
-function appendLines(target, chunk, onLine) {
-  target.value += chunk
-
-  while (true) {
-    const newlineIndex = target.value.indexOf('\n')
-    if (newlineIndex === -1) break
-
-    const rawLine = target.value.slice(0, newlineIndex).replace(/\r$/, '')
-    target.value = target.value.slice(newlineIndex + 1)
-    onLine(rawLine)
-  }
-}
-
-function connectLineStream(stream, onLine) {
-  if (!stream) return
-
-  const state = { value: '' }
-  stream.setEncoding('utf8')
-  stream.on('data', (chunk) => appendLines(state, chunk, onLine))
-  stream.on('end', () => {
-    const trailing = state.value.replace(/\r$/, '')
-    if (trailing.length > 0) {
-      onLine(trailing)
-    }
-  })
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
@@ -287,11 +287,11 @@ function buildSplashChildEnv() {
 
   return {
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
-    OM_DEV_SPLASH_MODE: greenfield ? 'greenfield' : 'dev',
+    OM_DEV_SPLASH_MODE: splashMode,
   }
 }
 
-function launchStandaloneDev() {
+function launchStandaloneDev(options = {}) {
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
     shutdown(1)
@@ -303,15 +303,22 @@ function launchStandaloneDev() {
     runtimeArgs.push('--verbose')
   }
 
-  console.log(`🚀 ${formatProgressLine('Starting standalone app runtime', 0, 4, 0)}`)
+  const stageCurrent = options.stageCurrent ?? 0
+  const stageTotal = options.stageTotal ?? standaloneStageTotal
+  const phase = options.phase ?? (setupMode ? 'Project setup is in progress...' : 'Preparing app runtime')
+  const detail = options.detail ?? 'Launching standalone app runtime'
+  const progressLabel = options.progressLabel ?? 'Preparing app runtime'
+  const activity = options.activity ?? 'Standalone app runtime is starting'
+
+  console.log(`🚀 ${formatProgressLine('Starting standalone app runtime', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
   updateSplashState({
-    phase: 'Preparing app runtime',
-    detail: 'Launching standalone app runtime',
-    progressCurrent: 0,
-    progressTotal: 4,
-    progressPercent: 0,
-    progressLabel: 'Preparing app runtime',
-    activity: 'Standalone app runtime is starting',
+    phase,
+    detail,
+    progressCurrent: stageCurrent,
+    progressTotal: stageTotal,
+    progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
+    progressLabel,
+    activity,
   })
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
@@ -324,6 +331,27 @@ function launchStandaloneDev() {
       shutdown(code ?? 0)
     }
   })
+}
+
+function ensureStandaloneEnvFile() {
+  if (!fs.existsSync('.env') && fs.existsSync('.env.example')) {
+    fs.copyFileSync('.env.example', '.env')
+    const message = '[setup] Copied .env.example to .env'
+    console.log(message)
+    updateSplashState({
+      detail: 'Project files are ready',
+      activity: 'Project files are ready',
+    })
+    return
+  }
+
+  if (fs.existsSync('.env')) {
+    console.log('[setup] Keeping existing .env')
+    updateSplashState({
+      detail: 'Project files are ready',
+      activity: 'Project files are ready',
+    })
+  }
 }
 
 function normalizeLocaleToken(value) {
@@ -594,11 +622,209 @@ function isIgnorableTurboLine(line) {
   return false
 }
 
+function isWorkspacePackageBuildCommand(commandArgs) {
+  return Array.isArray(commandArgs)
+    && commandArgs[0] === 'turbo'
+    && commandArgs[1] === 'run'
+    && commandArgs[2] === 'build'
+    && commandArgs.includes('--filter=./packages/*')
+}
+
+function withTurboFullLogs(commandArgs) {
+  return commandArgs.map((arg) => (
+    arg.startsWith('--output-logs=')
+      ? '--output-logs=full'
+      : arg
+  ))
+}
+
+function formatPackageBuildProgressLine(label, stageCurrent, stageTotal, packageCurrent, packageTotal, percent) {
+  return `${formatProgressBar(percent)} ${String(`${stageCurrent}/${stageTotal}`).padStart(4)} ${label} (${packageCurrent}/${packageTotal} packages)`
+}
+
+function resolveNestedStagePercent(stageCurrent, stageTotal, nestedCurrent, nestedTotal) {
+  if (!Number.isFinite(stageCurrent) || !Number.isFinite(stageTotal) || stageTotal <= 0) {
+    return 0
+  }
+
+  const boundedNestedProgress = (
+    Number.isFinite(nestedCurrent)
+    && Number.isFinite(nestedTotal)
+    && nestedTotal > 0
+  )
+    ? Math.max(0, Math.min(1, nestedCurrent / nestedTotal))
+    : 0
+
+  return clampPercent((((stageCurrent - 1) + boundedNestedProgress) / stageTotal) * 100)
+}
+
+function extractJsonObject(rawOutput) {
+  if (typeof rawOutput !== 'string') return null
+
+  const startIndex = rawOutput.indexOf('{')
+  const endIndex = rawOutput.lastIndexOf('}')
+  if (startIndex === -1 || endIndex <= startIndex) return null
+
+  return rawOutput.slice(startIndex, endIndex + 1)
+}
+
+async function resolveWorkspacePackageBuildPlan(commandArgs) {
+  const dryRunArgs = [...commandArgs.filter((arg) => !arg.startsWith('--output-logs=')), '--dry=json']
+  const child = spawnCommand(yarnCommand, dryRunArgs)
+  let stdout = ''
+  let stderr = ''
+
+  child.stdout?.setEncoding('utf8')
+  child.stderr?.setEncoding('utf8')
+  child.stdout?.on('data', (chunk) => {
+    stdout += chunk
+  })
+  child.stderr?.on('data', (chunk) => {
+    stderr += chunk
+  })
+
+  const code = await new Promise((resolve) => child.on('close', resolve))
+  if ((code ?? 1) !== 0) {
+    return null
+  }
+
+  const payload = extractJsonObject(stdout) ?? extractJsonObject(stderr)
+  if (!payload) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(payload)
+    const packages = Array.from(new Set(
+      (parsed.tasks ?? [])
+        .filter((task) => task?.task === 'build' && typeof task.package === 'string')
+        .map((task) => task.package),
+    ))
+
+    return packages.length > 0 ? { totalPackages: packages.length } : null
+  } catch {
+    return null
+  }
+}
+
+function parseWorkspacePackageBuildSuccess(line) {
+  const plain = stripAnsi(line).trim()
+  const match = plain.match(/^(.+?) built successfully$/)
+  return match?.[1]?.trim() || null
+}
+
+async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
+  const startedAt = Date.now()
+  const stageTotal = options.stageTotal ?? 3
+  const stageCurrent = options.stageCurrent ?? 1
+  const buildPlan = await resolveWorkspacePackageBuildPlan(commandArgs)
+
+  if (!buildPlan) {
+    return false
+  }
+
+  const initialPercent = resolveNestedStagePercent(stageCurrent, stageTotal, 0, buildPlan.totalPackages)
+  console.log(`${formatPackageBuildProgressLine(label, stageCurrent, stageTotal, 0, buildPlan.totalPackages, initialPercent)}...`)
+  updateSplashState({
+    phase: label,
+    detail: `0 of ${buildPlan.totalPackages} packages built`,
+    progressCurrent: stageCurrent,
+    progressTotal: stageTotal,
+    progressPercent: initialPercent,
+    progressLabel: `${label} (0/${buildPlan.totalPackages})`,
+    activity: `${label} started`,
+  })
+
+  const child = spawnCommand(yarnCommand, withTurboFullLogs(commandArgs))
+  const capturedLines = []
+  const completedPackages = new Set()
+
+  const capture = (line) => {
+    capturedLines.push(line)
+    if (capturedLines.length > 500) {
+      capturedLines.shift()
+    }
+
+    const builtPackage = parseWorkspacePackageBuildSuccess(line)
+    if (!builtPackage || completedPackages.has(builtPackage)) {
+      return
+    }
+
+    completedPackages.add(builtPackage)
+    const packageCurrent = Math.min(completedPackages.size, buildPlan.totalPackages)
+    const progressPercent = resolveNestedStagePercent(stageCurrent, stageTotal, packageCurrent, buildPlan.totalPackages)
+    const progressLabel = `${label} (${packageCurrent}/${buildPlan.totalPackages})`
+    console.log(formatPackageBuildProgressLine(
+      label,
+      stageCurrent,
+      stageTotal,
+      packageCurrent,
+      buildPlan.totalPackages,
+      progressPercent,
+    ))
+    updateSplashState({
+      phase: label,
+      detail: `${packageCurrent} of ${buildPlan.totalPackages} packages built`,
+      progressCurrent: stageCurrent,
+      progressTotal: stageTotal,
+      progressPercent,
+      progressLabel,
+      activity: `Built ${builtPackage} (${packageCurrent}/${buildPlan.totalPackages})`,
+    })
+  }
+
+  connectLineStream(child.stdout, capture)
+  connectLineStream(child.stderr, capture)
+
+  const code = await new Promise((resolve) => child.on('close', resolve))
+
+  if ((code ?? 1) !== 0) {
+    console.error(`❌ ${label} failed`)
+    for (const line of capturedLines) {
+      console.error(line)
+    }
+    shutdown(code ?? 1)
+  }
+
+  const completedCount = Math.min(completedPackages.size, buildPlan.totalPackages)
+  const finalPercent = resolveNestedStagePercent(stageCurrent, stageTotal, buildPlan.totalPackages, buildPlan.totalPackages)
+  updateSplashState({
+    phase: label,
+    detail: `Completed in ${formatDuration(Date.now() - startedAt)}`,
+    progressCurrent: stageCurrent,
+    progressTotal: stageTotal,
+    progressPercent: finalPercent,
+    progressLabel: `${label} (${completedCount}/${buildPlan.totalPackages})`,
+    activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
+  })
+  console.log(`✅ ${formatPackageBuildProgressLine(
+    label,
+    stageCurrent,
+    stageTotal,
+    completedCount,
+    buildPlan.totalPackages,
+    finalPercent,
+  )} in ${formatDuration(Date.now() - startedAt)}`)
+
+  return true
+}
+
 async function runStage(label, commandArgs, options = {}) {
   const startedAt = Date.now()
   const stageTotal = options.stageTotal ?? (greenfield ? 5 : 3)
   const stageCurrent = options.stageCurrent
     ?? (commandArgs[0] === 'turbo' ? 1 : splashState.progressCurrent)
+
+  if (!verbose && isWorkspacePackageBuildCommand(commandArgs)) {
+    const handled = await runWorkspacePackageBuildStage(label, commandArgs, {
+      stageCurrent,
+      stageTotal,
+    })
+    if (handled) {
+      return
+    }
+  }
+
   console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
   updateSplashState({
     phase: label,
@@ -811,10 +1037,50 @@ async function runGreenfieldDev() {
   launchMonorepoAppDev()
 }
 
+async function runStandaloneSetup() {
+  ensureStandaloneEnvFile()
+  if (standaloneLocalRegistryRefresh) {
+    await runStage('🧼 Clearing local Open Mercato cache', ['cache', 'clean', '--all'], {
+      stageCurrent: 0,
+      stageTotal: standaloneStageTotal,
+    })
+  }
+  await runPassthroughStage('📦 Installing dependencies', ['install'], { stageCurrent: 1, stageTotal: 5 })
+  await runPassthroughStage('🧬 Generating app artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
+  await runPassthroughStage('🗄️ Applying database migrations', ['db:migrate'], { stageCurrent: 3, stageTotal: 5 })
+  await runPassthroughStage(
+    '🛠️ Initializing Open Mercato',
+    reinstall ? ['initialize', '--reinstall'] : ['initialize'],
+    { stageCurrent: 4, stageTotal: 5 },
+  )
+  launchStandaloneDev({
+    stageCurrent: 4,
+    stageTotal: 5,
+    phase: 'Project setup is in progress...',
+    detail: 'Launching app runtime',
+    progressLabel: 'Starting app runtime',
+    activity: 'Standalone app runtime is starting',
+  })
+}
+
 async function main() {
   await startSplashServer()
 
   if (!isMonorepo) {
+    if (setupMode) {
+      await runStandaloneSetup()
+      return
+    }
+    if (standaloneLocalRegistryRefresh) {
+      await runStage('🧼 Clearing local Open Mercato cache', ['cache', 'clean', '--all'], {
+        stageCurrent: 0,
+        stageTotal: standaloneStageTotal,
+      })
+      await runPassthroughStage('📦 Refreshing local Open Mercato packages', ['install'], {
+        stageCurrent: 1,
+        stageTotal: standaloneStageTotal,
+      })
+    }
     launchStandaloneDev()
     return
   }

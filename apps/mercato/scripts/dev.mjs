@@ -1,12 +1,47 @@
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+function resolveSplashHelpersImport() {
+  const candidates = [
+    new URL('./dev-splash-helpers.mjs', import.meta.url),
+    new URL('../../../scripts/dev-splash-helpers.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev splash helpers module')
+}
+
+const {
+  clampPercent,
+  connectLineStream,
+  decorateActivityMessage,
+  formatDuration,
+  formatMemory,
+  formatProgressBar,
+  readJsonFile,
+  resolveProgressPercent,
+  shortenPackageName,
+  stripAnsi,
+  wrapListLines,
+} = await import(resolveSplashHelpersImport())
 
 const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
 const verbose = process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const interactiveLogToggle = !verbose && process.stdin.isTTY && process.stdout.isTTY && process.env.CI !== 'true'
 const splashChildStateFile = process.env.OM_DEV_SPLASH_CHILD_STATE_FILE?.trim() || null
 const splashMode = process.env.OM_DEV_SPLASH_MODE?.trim() || 'dev'
+const setupSplashMode = splashMode === 'setup'
+const startupSplashPhase = setupSplashMode ? 'Project setup is in progress...' : 'Installation and first compilation is in progress...'
+const runtimeProgressTotal = setupSplashMode ? 5 : 4
+const runtimeProgressCurrent = setupSplashMode ? 4 : 0
+const runtimeReadyProgressCurrent = setupSplashMode ? 5 : 4
 const children = new Set()
 let shuttingDown = false
 let logsVisible = false
@@ -19,10 +54,11 @@ const RESET = '\u001B[0m'
 const BRIGHT_CYAN = '\u001B[96m'
 const CYAN_BORDER = '\u001B[46m\u001B[30m'
 const ERROR_BANNER = '\u001B[41m\u001B[97m'
+const warmupRequestTimeoutsMs = [45000, 120000]
 const splashState = {
   mode: splashMode,
-  phase: 'Installation and first compilation is in progress...',
-  detail: 'Preparing app runtime',
+  phase: startupSplashPhase,
+  detail: setupSplashMode ? 'Starting app runtime' : 'Preparing app runtime',
   ready: false,
   readyUrl: null,
   loginUrl: null,
@@ -31,16 +67,16 @@ const splashState = {
   packageNames: [],
   workerQueues: [],
   schedulerActive: false,
-  progressCurrent: 0,
-  progressTotal: 4,
+  progressCurrent: runtimeProgressCurrent,
+  progressTotal: runtimeProgressTotal,
   progressPercent: 0,
-  progressLabel: 'Preparing app runtime',
+  progressLabel: setupSplashMode ? 'Starting app runtime' : 'Preparing app runtime',
   activities: [],
 }
 const startupProgress = {
-  current: 0,
-  total: 4,
-  label: 'Preparing app runtime',
+  current: runtimeProgressCurrent,
+  total: runtimeProgressTotal,
+  label: setupSplashMode ? 'Starting app runtime' : 'Preparing app runtime',
 }
 const memoryState = {
   currentBytes: null,
@@ -63,48 +99,9 @@ const runtimeWarmupState = {
   started: false,
   completed: false,
   promise: null,
-}
-
-function formatDuration(durationMs) {
-  if (durationMs < 1000) return `${durationMs}ms`
-  return `${(durationMs / 1000).toFixed(1)}s`
-}
-
-function formatMemory(bytes) {
-  if (!Number.isFinite(bytes) || bytes <= 0) return 'pending'
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
-  }
-  return `${Math.round(bytes / (1024 * 1024))} MB`
-}
-
-function shortenPackageName(name) {
-  if (name.startsWith('@open-mercato/')) {
-    return name.slice('@open-mercato/'.length)
-  }
-  return name
-}
-
-function wrapListLines(label, items, maxWidth = 58) {
-  if (!Array.isArray(items) || items.length === 0) {
-    return [` ${label}: pending`]
-  }
-
-  const lines = []
-  let current = ` ${label}:`
-
-  for (const item of items) {
-    const token = current.endsWith(':') ? ` ${item}` : `, ${item}`
-    if ((current + token).length > maxWidth && !current.endsWith(':')) {
-      lines.push(current)
-      current = `   ${item}`
-      continue
-    }
-    current += token
-  }
-
-  lines.push(current)
-  return lines
+  retryTimer: null,
+  tenantId: readNonEmptyEnvValue('OM_DEV_WARMUP_TENANT_ID') ?? null,
+  tenantLookupAttempted: false,
 }
 
 function printCompactSummary(icon, title, lines) {
@@ -112,14 +109,6 @@ function printCompactSummary(icon, title, lines) {
   console.log(`${icon} ${title}`)
   for (const line of lines) {
     console.log(`   ${line}`)
-  }
-}
-
-function readJsonFile(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
-  } catch {
-    return null
   }
 }
 
@@ -233,24 +222,6 @@ function captureBackgroundServiceLine(line) {
   return false
 }
 
-function clampPercent(value) {
-  if (!Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(100, Math.round(value)))
-}
-
-function resolveProgressPercent(current, total) {
-  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
-    return 0
-  }
-
-  return clampPercent((current / total) * 100)
-}
-
-function formatProgressBar(percent, width = 18) {
-  const filled = Math.max(0, Math.min(width, Math.round((clampPercent(percent) / 100) * width)))
-  return `[${'#'.repeat(filled)}${'-'.repeat(width - filled)}]`
-}
-
 function updateStartupProgress(current, label) {
   if (typeof current === 'number') startupProgress.current = Math.max(startupProgress.current, current)
   if (typeof label === 'string') startupProgress.label = label
@@ -275,59 +246,6 @@ function formatStatusOutput(message, current = startupProgress.current, label = 
     return message
   }
   return formatProgressStatus(message, current, label)
-}
-
-function stripAnsi(value) {
-  return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '')
-}
-
-function hasEmojiPrefix(value) {
-  return /^[\p{Extended_Pictographic}\u2600-\u27BF]/u.test(String(value ?? '').trim())
-}
-
-function decorateActivityMessage(message) {
-  const plain = String(message ?? '').trim()
-  if (!plain) return plain
-  if (hasEmojiPrefix(plain)) return plain
-
-  if (/package/i.test(plain)) return `📦 ${plain}`
-  if (/build/i.test(plain)) return `🧱 ${plain}`
-  if (/generate|artifact/i.test(plain)) return `♻️ ${plain}`
-  if (/watch/i.test(plain)) return `👀 ${plain}`
-  if (/ready|login/i.test(plain)) return `🌐 ${plain}`
-  if (/queue|scheduler|background/i.test(plain)) return `⚙️ ${plain}`
-  if (/memory/i.test(plain)) return `🧠 ${plain}`
-  if (/encrypt/i.test(plain)) return `🔐 ${plain}`
-  if (/compile/i.test(plain)) return `🛠️ ${plain}`
-  if (/warn|port/i.test(plain)) return `⚠️ ${plain}`
-  return `✨ ${plain}`
-}
-
-function appendLines(target, chunk, onLine) {
-  target.value += chunk
-
-  while (true) {
-    const newlineIndex = target.value.indexOf('\n')
-    if (newlineIndex === -1) break
-
-    const rawLine = target.value.slice(0, newlineIndex).replace(/\r$/, '')
-    target.value = target.value.slice(newlineIndex + 1)
-    onLine(rawLine)
-  }
-}
-
-function connectLineStream(stream, onLine) {
-  if (!stream) return
-
-  const state = { value: '' }
-  stream.setEncoding('utf8')
-  stream.on('data', (chunk) => appendLines(state, chunk, onLine))
-  stream.on('end', () => {
-    const trailing = state.value.replace(/\r$/, '')
-    if (trailing.length > 0) {
-      onLine(trailing)
-    }
-  })
 }
 
 function persistSplashState() {
@@ -433,6 +351,68 @@ function resolveWarmupCredentials() {
   }
 }
 
+function createWarmupTransientError(message) {
+  const error = new Error(message)
+  error.warmupTransient = true
+  return error
+}
+
+function isWarmupTransientError(error) {
+  return Boolean(error && typeof error === 'object' && error.warmupTransient === true)
+}
+
+function shouldRetryWarmupStatus(status) {
+  if (!Number.isInteger(status)) return false
+  return status === 404 || status === 408 || status === 425 || status === 429 || status >= 500
+}
+
+function isWarmupRetryableRedirect(location) {
+  if (typeof location !== 'string') return false
+  return location.includes('/api/auth/session/refresh') || location.includes('/login')
+}
+
+function looksLikeTenantSelectionError(message) {
+  if (typeof message !== 'string') return false
+  return /tenant activation/i.test(message) || /tenant selection/i.test(message) || /tenant is required/i.test(message)
+}
+
+async function resolveWarmupTenantIdFromDatabase(email) {
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  if (!normalizedEmail) return null
+  if (runtimeWarmupState.tenantId) return runtimeWarmupState.tenantId
+  if (runtimeWarmupState.tenantLookupAttempted) return null
+
+  runtimeWarmupState.tenantLookupAttempted = true
+  const databaseUrl = readNonEmptyEnvValue('DATABASE_URL')
+  if (!databaseUrl) return null
+
+  let client = null
+
+  try {
+    const { Client } = await import('pg')
+    client = new Client({ connectionString: databaseUrl })
+    await client.connect()
+
+    const result = await client.query(
+      `select tenant_id
+       from users
+       where deleted_at is null
+         and tenant_id is not null
+         and lower(email) = $1
+       order by last_login_at desc nulls last, created_at asc
+       limit 1`,
+      [normalizedEmail],
+    )
+
+    const tenantId = result.rows[0]?.tenant_id
+    return typeof tenantId === 'string' && tenantId.trim() ? tenantId.trim() : null
+  } catch {
+    return null
+  } finally {
+    await client?.end().catch(() => undefined)
+  }
+}
+
 async function fetchWithTimeout(url, init = {}, timeoutMs = 45000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -446,6 +426,41 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = 45000) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+function isAbortLikeError(error) {
+  if (!error) return false
+  if (typeof error === 'object' && error !== null) {
+    const name = 'name' in error ? String(error.name) : ''
+    const message = 'message' in error ? String(error.message) : ''
+    return name === 'AbortError' || /aborted/i.test(message)
+  }
+  return /aborted/i.test(String(error))
+}
+
+async function fetchWarmupWithRetry(url, init, detailLabel, progressLabel) {
+  let lastError = null
+
+  for (let index = 0; index < warmupRequestTimeoutsMs.length; index += 1) {
+    const timeoutMs = warmupRequestTimeoutsMs[index]
+
+    try {
+      return await fetchWithTimeout(url, init, timeoutMs)
+    } catch (error) {
+      lastError = error
+
+      if (!isAbortLikeError(error) || index === warmupRequestTimeoutsMs.length - 1) {
+        throw error
+      }
+
+      reportWarmupStep(
+        `⏳ ${detailLabel} is still compiling after ${formatDuration(timeoutMs)}, retrying once`,
+        progressLabel,
+      )
+    }
+  }
+
+  throw lastError ?? new Error(`${detailLabel} warmup failed`)
 }
 
 async function readResponsePayload(response) {
@@ -497,22 +512,38 @@ function buildCookieHeader(response) {
 
 function reportWarmupStep(detail, progressLabel) {
   updateSplashState({
-    phase: 'Installation and first compilation is in progress...',
+    phase: startupSplashPhase,
     detail,
     ready: false,
-    progressCurrent: 4,
+    progressCurrent: runtimeProgressCurrent,
     progressTotal: startupProgress.total,
-    progressPercent: resolveProgressPercent(4, startupProgress.total),
+    progressPercent: resolveProgressPercent(runtimeProgressCurrent, startupProgress.total),
     progressLabel,
     activity: detail,
   })
-  console.log(formatStatusOutput(detail, 4, progressLabel))
+  console.log(formatStatusOutput(detail, runtimeProgressCurrent, progressLabel))
+}
+
+function clearWarmupRetryTimer() {
+  if (!runtimeWarmupState.retryTimer) return
+  clearTimeout(runtimeWarmupState.retryTimer)
+  runtimeWarmupState.retryTimer = null
+}
+
+function scheduleWarmupRetry(delayMs = 2000) {
+  clearWarmupRetryTimer()
+  runtimeWarmupState.retryTimer = setTimeout(() => {
+    runtimeWarmupState.retryTimer = null
+    maybeStartTargetedRouteWarmup()
+  }, delayMs)
+  runtimeWarmupState.retryTimer.unref?.()
 }
 
 async function runTargetedRouteWarmup() {
   if (runtimeWarmupState.started) return
   if (!runtimeWarmupState.baseUrl || !runtimeWarmupState.readySignalSeen) return
 
+  clearWarmupRetryTimer()
   runtimeWarmupState.started = true
   const startedAt = Date.now()
   const progressLabel = 'Precompiling login and backend'
@@ -523,10 +554,15 @@ async function runTargetedRouteWarmup() {
 
   try {
     const loginPageStartedAt = Date.now()
-    const loginPageResponse = await fetchWithTimeout(
+    const loginPageResponse = await fetchWarmupWithRetry(
       joinBaseUrl(runtimeWarmupState.baseUrl, '/login'),
       { method: 'GET', redirect: 'manual' },
+      '/login',
+      progressLabel,
     )
+    if (shouldRetryWarmupStatus(loginPageResponse.status)) {
+      throw createWarmupTransientError(`/login returned HTTP ${loginPageResponse.status}`)
+    }
     reportWarmupStep(
       `📄 Warmed /login in ${formatDuration(Date.now() - loginPageStartedAt)} (${loginPageResponse.status})`,
       progressLabel,
@@ -537,7 +573,10 @@ async function runTargetedRouteWarmup() {
       email: warmupCredentials.email,
       password: warmupCredentials.password,
     })
-    const loginResponse = await fetchWithTimeout(
+    if (runtimeWarmupState.tenantId) {
+      loginPostBody.set('tenantId', runtimeWarmupState.tenantId)
+    }
+    const loginResponse = await fetchWarmupWithRetry(
       joinBaseUrl(runtimeWarmupState.baseUrl, '/api/auth/login'),
       {
         method: 'POST',
@@ -547,16 +586,28 @@ async function runTargetedRouteWarmup() {
         },
         redirect: 'manual',
       },
+      'POST /api/auth/login',
+      progressLabel,
     )
     const loginPayload = await readResponsePayload(loginResponse)
     if (!loginResponse.ok || !loginPayload || typeof loginPayload !== 'object' || loginPayload.ok !== true) {
       const failure = extractWarmupErrorMessage(loginPayload, `HTTP ${loginResponse.status}`)
+      if (shouldRetryWarmupStatus(loginResponse.status)) {
+        throw createWarmupTransientError(`login warmup returned HTTP ${loginResponse.status}`)
+      }
+      if (!runtimeWarmupState.tenantId && looksLikeTenantSelectionError(failure)) {
+        const resolvedTenantId = await resolveWarmupTenantIdFromDatabase(warmupCredentials.email)
+        if (resolvedTenantId) {
+          runtimeWarmupState.tenantId = resolvedTenantId
+          throw createWarmupTransientError('login warmup required tenant selection')
+        }
+      }
       throw new Error(`login warmup failed: ${failure}`)
     }
 
     const cookieHeader = buildCookieHeader(loginResponse)
     if (!cookieHeader) {
-      throw new Error('login warmup did not return auth cookies')
+      throw createWarmupTransientError('login warmup did not return auth cookies')
     }
 
     reportWarmupStep(
@@ -565,7 +616,7 @@ async function runTargetedRouteWarmup() {
     )
 
     const backendStartedAt = Date.now()
-    const backendResponse = await fetchWithTimeout(
+    const backendResponse = await fetchWarmupWithRetry(
       joinBaseUrl(runtimeWarmupState.baseUrl, '/backend'),
       {
         method: 'GET',
@@ -574,12 +625,20 @@ async function runTargetedRouteWarmup() {
         },
         redirect: 'manual',
       },
+      '/backend',
+      progressLabel,
     )
     if (backendResponse.status >= 300 && backendResponse.status < 400) {
       const location = backendResponse.headers.get('location') || 'redirect'
+      if (isWarmupRetryableRedirect(location)) {
+        throw createWarmupTransientError(`authenticated backend warmup redirected to ${location}`)
+      }
       throw new Error(`authenticated backend warmup redirected to ${location}`)
     }
     if (!backendResponse.ok) {
+      if (shouldRetryWarmupStatus(backendResponse.status)) {
+        throw createWarmupTransientError(`authenticated backend warmup returned HTTP ${backendResponse.status}`)
+      }
       throw new Error(`authenticated backend warmup returned HTTP ${backendResponse.status}`)
     }
 
@@ -589,31 +648,54 @@ async function runTargetedRouteWarmup() {
     )
 
     runtimeWarmupState.completed = true
+    runtimeWarmupState.promise = null
     const completedMessage = `🚪 Login flow and backend warmed in ${formatDuration(Date.now() - startedAt)}`
     updateSplashState({
       phase: 'App is ready',
       detail: completedMessage,
       ready: true,
-      progressCurrent: 4,
+      progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
-      progressPercent: resolveProgressPercent(4, startupProgress.total),
+      progressPercent: resolveProgressPercent(runtimeReadyProgressCurrent, startupProgress.total),
       progressLabel: 'App is ready',
       activity: completedMessage,
     })
-    console.log(formatStatusOutput(completedMessage, 4, 'App is ready'))
+    console.log(formatStatusOutput(completedMessage, runtimeReadyProgressCurrent, 'App is ready'))
   } catch (error) {
+    runtimeWarmupState.promise = null
+
+    if (isAbortLikeError(error) || isWarmupTransientError(error)) {
+      runtimeWarmupState.started = false
+      const retryMessage = runtimeWarmupState.tenantId && looksLikeTenantSelectionError(error instanceof Error ? error.message : '')
+        ? '🏷️ Warmup resolved tenant context, retrying authenticated backend warmup'
+        : '⏳ Warmup delayed while the runtime settles, retrying'
+      updateSplashState({
+        phase: startupSplashPhase,
+        detail: retryMessage,
+        ready: false,
+        progressCurrent: runtimeProgressCurrent,
+        progressTotal: startupProgress.total,
+        progressPercent: resolveProgressPercent(runtimeProgressCurrent, startupProgress.total),
+        progressLabel: 'Precompiling login and backend',
+        activity: retryMessage,
+      })
+      console.log(formatStatusOutput(retryMessage, runtimeProgressCurrent, 'Precompiling login and backend'))
+      scheduleWarmupRetry(2000)
+      return
+    }
+
     const warmupWarning = `⚠️ Warmup incomplete: ${error instanceof Error ? error.message : 'unknown error'}`
     updateSplashState({
       phase: 'App is ready',
       detail: warmupWarning,
       ready: true,
-      progressCurrent: 4,
+      progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
-      progressPercent: resolveProgressPercent(4, startupProgress.total),
+      progressPercent: resolveProgressPercent(runtimeReadyProgressCurrent, startupProgress.total),
       progressLabel: 'App is ready',
       activity: warmupWarning,
     })
-    console.log(formatStatusOutput(warmupWarning, 4, 'App is ready'))
+    console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
   }
 }
 
@@ -757,6 +839,7 @@ function startMemoryMonitor(child) {
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
+  clearWarmupRetryTimer()
   stopMemoryMonitor()
 
   if (rawModeEnabled && process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
@@ -890,11 +973,11 @@ async function runInitialGenerate() {
   updateStartupProgress(1, 'Generating app artifacts')
   console.log(`🧱 ${formatProgressStatus('Generating app artifacts...', 1, 'Generating app artifacts')}`)
   updateSplashState({
-    phase: 'Installation and first compilation is in progress...',
+    phase: startupSplashPhase,
     detail: 'Generating app artifacts',
-    progressCurrent: 1,
+    progressCurrent: startupProgress.current,
     progressTotal: startupProgress.total,
-    progressPercent: resolveProgressPercent(1, startupProgress.total),
+    progressPercent: resolveProgressPercent(startupProgress.current, startupProgress.total),
     progressLabel: 'Generating app artifacts',
     activity: 'Generating app artifacts',
   })
@@ -936,9 +1019,9 @@ async function runInitialGenerate() {
   updateSplashState({
     phase: 'Waiting for live runtime',
     detail: `App artifacts ready in ${formatDuration(Date.now() - startedAt)}`,
-    progressCurrent: 1,
+    progressCurrent: startupProgress.current,
     progressTotal: startupProgress.total,
-    progressPercent: resolveProgressPercent(1, startupProgress.total),
+    progressPercent: resolveProgressPercent(startupProgress.current, startupProgress.total),
     progressLabel: 'App artifacts ready',
     activity: `App artifacts ready in ${formatDuration(Date.now() - startedAt)}`,
   })
@@ -1030,7 +1113,7 @@ function classifyWatchLine(line) {
     return {
       type: 'status',
       message: '👀 Watching module structure',
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: 'Watching structural module files',
       activity: 'Watching structural module files',
       progressCurrent: 2,
@@ -1041,7 +1124,7 @@ function classifyWatchLine(line) {
     return {
       type: 'status',
       message: '👀 Watching module structure',
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: 'Watching structural module files',
       activity: 'Watching structural module files',
       progressCurrent: 2,
@@ -1054,7 +1137,7 @@ function classifyWatchLine(line) {
     return {
       type: 'status',
       message: timing,
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: timing,
       activity: timing,
       progressCurrent: 2,
@@ -1083,7 +1166,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: '🚀 Starting app server',
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: 'Starting app server',
       activity: 'Starting app server',
       progressCurrent: 3,
@@ -1094,7 +1177,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: '🚀 Starting app server',
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: 'Starting app server',
       activity: 'Starting app server',
       progressCurrent: 3,
@@ -1110,7 +1193,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: '⚙️ Starting background services',
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: 'Starting background services',
       activity: 'Starting queue workers and scheduler',
       progressCurrent: 3,
@@ -1123,7 +1206,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: `🌐 App runtime at ${localMatch[1]}`,
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: `Dev server is listening at ${localMatch[1]}`,
       readyUrl: localMatch[1],
       loginUrl: `${localMatch[1].replace(/\/$/, '')}/login`,
@@ -1138,7 +1221,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: timing,
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: 'Runtime is ready, precompiling login page',
       ready: false,
       runtimeReady: true,
@@ -1155,7 +1238,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: timing,
-      splashPhase: splashState.ready ? 'App is ready' : 'Installation and first compilation is in progress...',
+      splashPhase: splashState.ready ? 'App is ready' : startupSplashPhase,
       splashDetail: timing,
       activity: timing,
       progressCurrent: splashState.ready ? 4 : 3,
@@ -1168,7 +1251,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message,
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: message,
       activity: message,
       progressCurrent: 3,
@@ -1196,7 +1279,7 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: '🔐 Using dev fallback tenant encryption secret',
-      splashPhase: 'Installation and first compilation is in progress...',
+      splashPhase: startupSplashPhase,
       splashDetail: 'Using dev fallback tenant encryption secret',
       activity: 'Using dev fallback tenant encryption secret',
       progressCurrent: 3,

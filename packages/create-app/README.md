@@ -142,12 +142,12 @@ What it does:
 - republishes the current branch packages to Verdaccio
 - scaffolds a fresh standalone app configured for that local registry
 - installs dependencies in the generated app
-- opens a shell in that generated app directory so you can continue with `yarn setup`
+- prints the generated app path so you can continue there manually
 
-If you only want the path without opening a shell:
+If you want it to open a shell in the generated app directory after install:
 
 ```bash
-yarn test:create-app --no-shell
+yarn test:create-app --shell
 ```
 
 ### Full standalone integration parity

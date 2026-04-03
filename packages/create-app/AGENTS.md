@@ -30,7 +30,8 @@ When changes affect app shell behavior, verify all relevant template files are r
 3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*`
 4. `scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev.mjs`
 5. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`
-6. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
+6. `scripts/dev-splash-helpers.mjs` ↔ `packages/create-app/template/scripts/dev-splash-helpers.mjs`
+7. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
 
 ## Dev Runtime Expectations
 
@@ -84,7 +85,7 @@ yarn setup
 ### When Publishing Changes
 
 1. Make changes in monorepo packages
-2. Use `yarn test:create-app` for the fast shell workflow, `yarn test:create-app:integration` for parity coverage, or the manual Verdaccio workflow when you want to keep a standalone app around
+2. Use `yarn test:create-app` for the fast scaffold smoke test, `yarn test:create-app --shell` when you want to drop into the generated app immediately, `yarn test:create-app:integration` for parity coverage, or the manual Verdaccio workflow when you want to keep a standalone app around
 3. If you already have a standalone app checked out, rerun `yarn registry:publish`, then in that app run `rm -rf node_modules .mercato/next && yarn install && yarn dev`
 4. Verify the app starts and affected features work
 5. Test `yarn generate` produces correct output from compiled files

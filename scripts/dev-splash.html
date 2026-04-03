@@ -474,6 +474,7 @@
           progressOverview: 'Startup progress',
           modeDev: 'Standard dev flow',
           modeGreenfield: 'Greenfield dev flow',
+          modeSetup: 'Project setup flow',
         },
         pl: {
           badge: 'Open Mercato Dev',
@@ -491,6 +492,7 @@
           progressOverview: 'Postęp uruchamiania',
           modeDev: 'Standardowy tryb dev',
           modeGreenfield: 'Tryb greenfield',
+          modeSetup: 'Tryb konfiguracji projektu',
         },
         es: {
           badge: 'Open Mercato Dev',
@@ -508,6 +510,7 @@
           progressOverview: 'Progreso del arranque',
           modeDev: 'Flujo dev estándar',
           modeGreenfield: 'Flujo dev greenfield',
+          modeSetup: 'Flujo de configuración del proyecto',
         },
         de: {
           badge: 'Open Mercato Dev',
@@ -525,13 +528,21 @@
           progressOverview: 'Startfortschritt',
           modeDev: 'Standard-Dev-Ablauf',
           modeGreenfield: 'Greenfield-Dev-Ablauf',
+          modeSetup: 'Projekt-Setup-Ablauf',
         },
       }
       const exactTranslations = {
         pl: {
           'Installation and first compilation is in progress...': 'Instalacja i pierwsza kompilacja są w toku…',
           'Greenfield installation and first compilation is in progress...': 'Greenfield: instalacja i pierwsza kompilacja są w toku…',
+          'Project setup is in progress...': 'Konfiguracja projektu jest w toku…',
           'Preparing app runtime': 'Przygotowywanie runtime aplikacji',
+          'Preparing project setup': 'Przygotowywanie konfiguracji projektu',
+          'Project files are ready': 'Pliki projektu są gotowe',
+          'Installing dependencies': 'Instalowanie zależności',
+          'Applying database migrations': 'Stosowanie migracji bazy danych',
+          'Initializing Open Mercato': 'Inicjalizowanie Open Mercato',
+          'Starting app runtime': 'Uruchamianie runtime aplikacji',
           'Waiting for current status…': 'Oczekiwanie na bieżący status…',
           'Preparing dev environment…': 'Przygotowywanie środowiska developerskiego…',
           'Waiting for app package manifest…': 'Oczekiwanie na manifest pakietów aplikacji…',
@@ -542,7 +553,14 @@
         es: {
           'Installation and first compilation is in progress...': 'La instalación y la primera compilación están en curso…',
           'Greenfield installation and first compilation is in progress...': 'Greenfield: la instalación y la primera compilación están en curso…',
+          'Project setup is in progress...': 'La configuración del proyecto está en curso…',
           'Preparing app runtime': 'Preparando el runtime de la aplicación',
+          'Preparing project setup': 'Preparando la configuración del proyecto',
+          'Project files are ready': 'Los archivos del proyecto están listos',
+          'Installing dependencies': 'Instalando dependencias',
+          'Applying database migrations': 'Aplicando migraciones de base de datos',
+          'Initializing Open Mercato': 'Inicializando Open Mercato',
+          'Starting app runtime': 'Iniciando el runtime de la aplicación',
           'Waiting for current status…': 'Esperando el estado actual…',
           'Preparing dev environment…': 'Preparando el entorno de desarrollo…',
           'Waiting for app package manifest…': 'Esperando el manifiesto de paquetes de la aplicación…',
@@ -553,7 +571,14 @@
         de: {
           'Installation and first compilation is in progress...': 'Installation und erste Kompilierung laufen…',
           'Greenfield installation and first compilation is in progress...': 'Greenfield: Installation und erste Kompilierung laufen…',
+          'Project setup is in progress...': 'Projekt-Setup läuft…',
           'Preparing app runtime': 'App-Laufzeit wird vorbereitet',
+          'Preparing project setup': 'Projekt-Setup wird vorbereitet',
+          'Project files are ready': 'Projektdateien sind bereit',
+          'Installing dependencies': 'Abhängigkeiten werden installiert',
+          'Applying database migrations': 'Datenbankmigrationen werden angewendet',
+          'Initializing Open Mercato': 'Open Mercato wird initialisiert',
+          'Starting app runtime': 'App-Laufzeit wird gestartet',
           'Waiting for current status…': 'Warte auf den aktuellen Status…',
           'Preparing dev environment…': 'Entwicklungsumgebung wird vorbereitet…',
           'Waiting for app package manifest…': 'Warte auf das Paketmanifest der App…',
@@ -709,7 +734,11 @@
         try {
           const response = await fetch('/status', { cache: 'no-store' })
           const state = await response.json()
-          modeLine.textContent = state.mode === 'greenfield' ? t('modeGreenfield') : t('modeDev')
+          modeLine.textContent = state.mode === 'greenfield'
+            ? t('modeGreenfield')
+            : state.mode === 'setup'
+              ? t('modeSetup')
+              : t('modeDev')
           const rawPhase = state.phase || 'Preparing app runtime'
           const rawDetail = state.detail || 'Preparing app runtime'
           const rawProgressLabel = state.progressLabel || 'Preparing startup pipeline'

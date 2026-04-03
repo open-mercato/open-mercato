@@ -1212,19 +1212,15 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     // === Processing order MUST match original import ID sequence ===
 
     // 1. Module metadata: index.ts (overrideable)
-    const appIndex = path.join(roots.appBase, 'index.ts')
-    const pkgIndex = path.join(roots.pkgBase, 'index.ts')
-    const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
-    if (indexTs) {
+    const indexResolved = resolveModuleFile(roots, imps, 'index.ts')
+    if (indexResolved) {
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
-      const importPath = sanitizeGeneratedModuleSpecifier(
-        indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
-      )
+      const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexTs)
+        const mod = require(indexResolved.absolutePath)
         const reqs: string[] | undefined =
           mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
         if (reqs && reqs.length) requiresByModule.set(modId, reqs)
@@ -1264,15 +1260,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 4. RBAC: acl.ts
     {
-      const rootApp = path.join(roots.appBase, 'acl.ts')
-      const rootPkg = path.join(roots.pkgBase, 'acl.ts')
-      const hasRoot = fs.existsSync(rootApp) || fs.existsSync(rootPkg)
-      if (hasRoot) {
+      const aclResolved = resolveModuleFile(roots, imps, 'acl.ts')
+      if (aclResolved) {
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
-        const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
-        const importPath = sanitizeGeneratedModuleSpecifier(
-          useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
-        )
+        const importPath = sanitizeGeneratedModuleSpecifier(aclResolved.importPath)
         imports.push(buildImportStatement(`* as ${importName}`, importPath))
         runtimeImports.push(buildImportStatement(`* as ${importName}`, importPath))
         featuresImportName = importName
@@ -1591,15 +1582,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 15. CLI
     {
-      const cliApp = path.join(roots.appBase, 'cli.ts')
-      const cliPkg = path.join(roots.pkgBase, 'cli.ts')
-      const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
-      if (cliPath) {
+      const cliResolved = resolveModuleFile(roots, imps, 'cli.ts')
+      if (cliResolved) {
         const importName = `CLI_${toVar(modId)}`
-        const importPath = sanitizeGeneratedModuleSpecifier(
-          cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
-        )
-        imports.push(buildImportStatement(importName, importPath))
+        imports.push(buildImportStatement(importName, sanitizeGeneratedModuleSpecifier(cliResolved.importPath)))
         cliImportName = importName
       }
     }
@@ -2474,16 +2460,14 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     let integrationImportName: string | null = null
     let customFieldSetsExpr = '[]'
 
-    const appIndex = path.join(roots.appBase, 'index.ts')
-    const pkgIndex = path.join(roots.pkgBase, 'index.ts')
-    const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
-    if (indexTs) {
+    const indexResolved = resolveModuleFile(roots, imps, 'index.ts')
+    if (indexResolved) {
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
-      const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
+      const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexTs)
+        const mod = require(indexResolved.absolutePath)
         const reqs: string[] | undefined =
           mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
         if (reqs && reqs.length) requiresByModule.set(modId, reqs)
@@ -2510,13 +2494,10 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     }
 
     {
-      const rootApp = path.join(roots.appBase, 'acl.ts')
-      const rootPkg = path.join(roots.pkgBase, 'acl.ts')
-      const hasRoot = fs.existsSync(rootApp) || fs.existsSync(rootPkg)
-      if (hasRoot) {
+      const aclResolved = resolveModuleFile(roots, imps, 'acl.ts')
+      if (aclResolved) {
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
-        const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
-        const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
+        const importPath = sanitizeGeneratedModuleSpecifier(aclResolved.importPath)
         imports.push(buildImportStatement(`* as ${importName}`, importPath))
         featuresImportName = importName
       }
@@ -2689,16 +2670,14 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     let customFieldSetsExpr: string = '[]'
 
     // Module metadata: index.ts (overrideable)
-    const appIndex = path.join(roots.appBase, 'index.ts')
-    const pkgIndex = path.join(roots.pkgBase, 'index.ts')
-    const indexTs = fs.existsSync(appIndex) ? appIndex : fs.existsSync(pkgIndex) ? pkgIndex : null
-    if (indexTs) {
+    const indexResolved = resolveModuleFile(roots, imps, 'index.ts')
+    if (indexResolved) {
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
-      const importPath = indexTs.startsWith(roots.appBase) ? `${appImportBase}/index` : `${imps.pkgBase}/index`
+      const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexTs)
+        const mod = require(indexResolved.absolutePath)
         const reqs: string[] | undefined =
           mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
         if (reqs && reqs.length) requiresByModule.set(modId, reqs)
@@ -2729,13 +2708,10 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
 
     // RBAC: acl.ts
     {
-      const rootApp = path.join(roots.appBase, 'acl.ts')
-      const rootPkg = path.join(roots.pkgBase, 'acl.ts')
-      const hasRoot = fs.existsSync(rootApp) || fs.existsSync(rootPkg)
-      if (hasRoot) {
+      const aclResolved = resolveModuleFile(roots, imps, 'acl.ts')
+      if (aclResolved) {
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
-        const useApp = fs.existsSync(rootApp) ? rootApp : rootPkg
-        const importPath = useApp.startsWith(roots.appBase) ? `${appImportBase}/acl` : `${imps.pkgBase}/acl`
+        const importPath = sanitizeGeneratedModuleSpecifier(aclResolved.importPath)
         imports.push(buildImportStatement(`* as ${importName}`, importPath))
         featuresImportName = importName
       }
@@ -2761,13 +2737,10 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
 
     // CLI
     {
-      const cliApp = path.join(roots.appBase, 'cli.ts')
-      const cliPkg = path.join(roots.pkgBase, 'cli.ts')
-      const cliPath = fs.existsSync(cliApp) ? cliApp : fs.existsSync(cliPkg) ? cliPkg : null
-      if (cliPath) {
+      const cliResolved = resolveModuleFile(roots, imps, 'cli.ts')
+      if (cliResolved) {
         const importName = `CLI_${toVar(modId)}`
-        const importPath = cliPath.startsWith(roots.appBase) ? `${appImportBase}/cli` : `${imps.pkgBase}/cli`
-        imports.push(buildImportStatement(importName, importPath))
+        imports.push(buildImportStatement(importName, sanitizeGeneratedModuleSpecifier(cliResolved.importPath)))
         cliImportName = importName
       }
     }

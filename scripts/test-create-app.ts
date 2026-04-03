@@ -74,7 +74,7 @@ function forwardSignal(child: ChildProcess, signal: NodeJS.Signals): void {
 
 async function main(): Promise<void> {
   const entryCwd = process.cwd()
-  const noShell = process.argv.includes('--no-shell')
+  const openShell = process.argv.includes('--shell')
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-smoke-'))
   const appDir = path.join(tempRoot, 'standalone-app')
 
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
     console.log(yellow('Dependencies are already installed so you can continue in the generated app immediately.'))
     console.log(yellow(`Cleanup: rm -rf ${appDir}`))
 
-    if (!noShell && process.stdin.isTTY && process.stdout.isTTY) {
+    if (openShell && process.stdin.isTTY && process.stdout.isTTY) {
       const shell = process.env.SHELL || process.env.COMSPEC || 'zsh'
       console.log(cyan(`\nOpening interactive shell in ${appDir}`))
       console.log(yellow('Exit that shell to return to your original directory.'))

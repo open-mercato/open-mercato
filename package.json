@@ -14,6 +14,7 @@
     "dev": "node ./scripts/dev.mjs",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "dev:ephemeral": "tsx scripts/dev-ephemeral.ts",
+    "dev:ephemeral:verbose": "tsx scripts/dev-ephemeral.ts --verbose",
     "dev:greenfield": "node ./scripts/dev.mjs --greenfield",
     "dev:greenfield:verbose": "node ./scripts/dev.mjs --greenfield --verbose",
     "dev:app": "node ./scripts/dev.mjs --app-only",
