@@ -435,6 +435,10 @@ export function GET() {
       'widgets/dashboard/my-widget/widget.tsx',
       'acl.ts',
     ])
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'custom_app', 'backend', 'page.tsx'),
+      'export default function CustomAppPage() { return null }\n',
+    )
     const enabled: ModuleEntry[] = [{ id: 'custom_app', from: '@app' }]
     const resolver = createMockResolver(tmpDir, enabled)
     const result = await generateModuleRegistry({ resolver, quiet: true })
@@ -714,6 +718,77 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(routesOutput).not.toMatch(
       /import B\d+_[^,\n]* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/,
     )
+  })
+
+  it('ignores standalone helper files without default exports when scanning direct frontend/backend routes', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'frontend', 'login.js'),
+      'export default function LoginPage() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'frontend', 'login-injection.js'),
+      'export const loginInjectionContract = true\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'backend', 'users', 'list.js'),
+      'export default function UsersListPage() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'backend', 'users', 'roleOptions.js'),
+      'export async function fetchRoleOptions() { return [] }\n',
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'auth', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const modulesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.generated.ts')
+    const modulesOutput = fs.readFileSync(modulesOutputPath, 'utf8')
+    expect(modulesOutput).toContain('@open-mercato/core/modules/auth/frontend/login')
+    expect(modulesOutput).toContain('@open-mercato/core/modules/auth/backend/users/list')
+    expect(modulesOutput).not.toContain('@open-mercato/core/modules/auth/frontend/login-injection')
+    expect(modulesOutput).not.toContain('@open-mercato/core/modules/auth/backend/users/roleOptions')
+
+    const frontendRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'frontend-routes.generated.ts')
+    const frontendRoutesOutput = fs.readFileSync(frontendRoutesOutputPath, 'utf8')
+    expect(frontendRoutesOutput).toContain('/login')
+    expect(frontendRoutesOutput).not.toContain('login-injection')
+
+    const backendRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'backend-routes.generated.ts')
+    const backendRoutesOutput = fs.readFileSync(backendRoutesOutputPath, 'utf8')
+    expect(backendRoutesOutput).toContain('/backend/auth/users/list')
+    expect(backendRoutesOutput).not.toContain('roleOptions')
+  })
+
+  it('prefers standalone src module mirrors over dist-only legacy api artifacts', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'payment_gateways', 'api', 'status', 'route.ts'),
+      'export async function GET() { return new Response("ok") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'payment_gateways', 'api', 'status', 'route.js'),
+      'export async function GET() { return new Response("ok") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'payment_gateways', 'api', 'get', 'payment-gateways', 'status.js'),
+      'export async function GET() { return new Response("legacy") }\n',
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'payment_gateways', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const apiRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'api-routes.generated.ts')
+    const apiRoutesOutput = fs.readFileSync(apiRoutesOutputPath, 'utf8')
+    expect(apiRoutesOutput).toContain('@open-mercato/core/modules/payment_gateways/api/status/route')
+    expect(apiRoutesOutput).not.toContain('@open-mercato/core/modules/payment_gateways/api/get/payment-gateways/status')
+    expect(apiRoutesOutput).not.toContain('/payment_gateways/payment-gateways/status')
   })
 })
 

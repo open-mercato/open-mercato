@@ -83,6 +83,16 @@ function walkDir(
   return found
 }
 
+export function resolveStandaloneSourceMirrorBase(pkgBase: string): string | null {
+  const distModulesMarker = `${path.sep}dist${path.sep}modules${path.sep}`
+  const markerIndex = pkgBase.lastIndexOf(distModulesMarker)
+  if (markerIndex < 0) return null
+
+  const suffix = pkgBase.slice(markerIndex + distModulesMarker.length)
+  const sourceBase = `${pkgBase.slice(0, markerIndex)}${path.sep}src${path.sep}modules${path.sep}${suffix}`
+  return fs.existsSync(sourceBase) ? sourceBase : null
+}
+
 const isDynamic = (p: string) => /\/(\[|\[\[\.\.\.)/.test(p) || /^\[/.test(p)
 
 function staticBeforeDynamicSort(a: string, b: string): number {
@@ -160,7 +170,8 @@ export const SCAN_CONFIGS = {
 export function scanModuleDir(roots: ModuleRoots, config: ScanConfig): ScannedFile[] {
   const folderSegments = config.folder ? config.folder.split('/') : []
   const appDir = path.join(roots.appBase, ...folderSegments)
-  const pkgDir = path.join(roots.pkgBase, ...folderSegments)
+  const pkgScanBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
+  const pkgDir = path.join(pkgScanBase, ...folderSegments)
   if (!fs.existsSync(appDir) && !fs.existsSync(pkgDir)) return []
 
   const pkgFiles = fs.existsSync(pkgDir) ? walkDir(pkgDir, config.include, [], config.skipDirs) : []
@@ -188,17 +199,22 @@ export function resolveModuleFile(
   relativePath: string
 ): ResolvedFile | null {
   const relativeCandidates = resolveCodeFileCandidates(relativePath)
+  const pkgScanBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
   const appRelativePath = relativeCandidates.find((candidate) =>
     fs.existsSync(path.join(roots.appBase, ...candidate.split('/')))
   )
   const pkgRelativePath = relativeCandidates.find((candidate) =>
-    fs.existsSync(path.join(roots.pkgBase, ...candidate.split('/')))
+    fs.existsSync(path.join(pkgScanBase, ...candidate.split('/')))
   )
   if (!appRelativePath && !pkgRelativePath) return null
 
   const fromApp = Boolean(appRelativePath)
   const resolvedRelativePath = appRelativePath ?? pkgRelativePath!
-  const absolutePath = path.join(fromApp ? roots.appBase : roots.pkgBase, ...resolvedRelativePath.split('/'))
+  const absoluteBase = fromApp ? roots.appBase : roots.pkgBase
+  const absolutePath = path.join(absoluteBase, ...resolvedRelativePath.split('/'))
+  if (!fromApp && pkgScanBase !== roots.pkgBase && !fs.existsSync(absolutePath)) {
+    return null
+  }
   const importSuffix = stripModuleCodeExtension(resolvedRelativePath)
   const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${importSuffix}`
   return { absolutePath, fromApp, importPath }

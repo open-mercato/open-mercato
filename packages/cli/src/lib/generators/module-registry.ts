@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
+import ts from 'typescript'
 import type { PackageResolver } from '../resolver'
 import {
   calculateStructureChecksum,
@@ -20,6 +21,7 @@ import {
   type ModuleImports,
   stripModuleCodeExtension,
   isModulePageFile,
+  resolveStandaloneSourceMirrorBase,
 } from './scanner'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -224,6 +226,54 @@ function extractNamedObjectLiteralExport(sourceFile: string, exportName: string)
   } catch {
     return null
   }
+}
+
+function inferScriptKind(filePath: string): ts.ScriptKind {
+  if (filePath.endsWith('.tsx')) return ts.ScriptKind.TSX
+  if (filePath.endsWith('.jsx')) return ts.ScriptKind.JSX
+  if (filePath.endsWith('.js')) return ts.ScriptKind.JS
+  return ts.ScriptKind.TS
+}
+
+function hasDefaultExport(sourceFile: string): boolean {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return false
+  }
+
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+
+  for (const statement of parsed.statements) {
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      return true
+    }
+
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && statement.exportClause.elements.some(
+        (element) => element.name.text === 'default' || element.propertyName?.text === 'default',
+      )
+    ) {
+      return true
+    }
+
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
+    if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) {
+      return true
+    }
+  }
+
+  return false
 }
 
 function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean {
@@ -605,6 +655,8 @@ async function processPageFiles(options: {
       ? '/' + (segs.join('/') || '')
       : '/backend/' + (segs.join('/') || modId)
     const moduleBaseDir = path.join(fromApp ? appDir : pkgDir, ...segs)
+    const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
+    if (!sourceFile || !hasDefaultExport(sourceFile)) continue
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
@@ -635,8 +687,6 @@ async function processPageFiles(options: {
       metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
-      const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
-      if (!sourceFile) continue
       const manifestMetadata = await loadPageMetadataForManifest({
         sourceFile,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
@@ -678,6 +728,8 @@ async function processPageFiles(options: {
           ? [...segs, name].filter(Boolean).join('/')
           : [modId, ...segs, name].filter(Boolean).join('/'))
     const moduleBaseDir = path.join(fromApp ? appDir : pkgDir, ...segs)
+    const sourceFile = findExistingModuleFile(moduleBaseDir, file)
+    if (!sourceFile || !hasDefaultExport(sourceFile)) continue
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, [`${name}.meta`, 'meta'])
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
@@ -710,8 +762,6 @@ async function processPageFiles(options: {
       metaExpr = `(${pageModName} as any).metadata`
       runtimeMetaExpr = `(((${runtimeMetaName} as any).metadata) as any)`
       const manifestMetaImportName = `${metaPrefix}Manifest${importIdRef.value++}_${toVar(modId)}_${toVar(routeSegs.join('_') || 'index')}`
-      const sourceFile = findExistingModuleFile(moduleBaseDir, file)
-      if (!sourceFile) continue
       const manifestMetadata = await loadPageMetadataForManifest({
         sourceFile,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
@@ -753,6 +803,7 @@ async function processApiRoutes(options: {
   const { roots, modId, appImportBase, pkgImportBase, eagerImports, importIdRef } = options
   const apiApp = path.join(roots.appBase, 'api')
   const apiPkg = path.join(roots.pkgBase, 'api')
+  const pkgSourceMirrorBase = resolveStandaloneSourceMirrorBase(roots.pkgBase)
   if (!fs.existsSync(apiApp) && !fs.existsSync(apiPkg)) {
     return { eagerApis: [], runtimeApis: [], manifestApis: [] }
   }
@@ -783,7 +834,7 @@ async function processApiRoutes(options: {
     if (exportedMethods.length === 0) continue
     const metadataLiteral = buildApiMetadataLiteral(metadata)
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
-    const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
+    const docsPart = hasOpenApi ? `, docs: ((${importName} as any).openApi as any)` : ''
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((method) => `${method}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${method}(req, ctx) }`).join(', ')} } }`)
@@ -812,7 +863,7 @@ async function processApiRoutes(options: {
     if (exportedMethods.length === 0) continue
     const metadataLiteral = buildApiMetadataLiteral(metadata)
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
-    const docsPart = hasOpenApi ? `, docs: ${importName}.openApi` : ''
+    const docsPart = hasOpenApi ? `, docs: ((${importName} as any).openApi as any)` : ''
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((entryMethod) => `${entryMethod}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${entryMethod}(req, ctx) }`).join(', ')} } }`)
@@ -826,7 +877,14 @@ async function processApiRoutes(options: {
     const appMethodDir = path.join(apiApp, method.toLowerCase())
     const methodDir = fs.existsSync(appMethodDir) ? appMethodDir : coreMethodDir
     if (!fs.existsSync(methodDir)) continue
-    const methodRoots: ModuleRoots = { appBase: methodDir, pkgBase: methodDir }
+    const fromApp = methodDir === appMethodDir
+    let methodScanDir = methodDir
+    if (!fromApp && pkgSourceMirrorBase) {
+      const sourceMethodDir = path.join(pkgSourceMirrorBase, 'api', method.toLowerCase())
+      if (!fs.existsSync(sourceMethodDir)) continue
+      methodScanDir = sourceMethodDir
+    }
+    const methodRoots: ModuleRoots = { appBase: methodScanDir, pkgBase: methodScanDir }
     const methodConfig = {
       folder: '',
       include: (name: string) => ['.ts', '.js'].some((extension) => name.endsWith(extension)) && !/\.(test|spec)\.[jt]s$/.test(name),
@@ -839,18 +897,18 @@ async function processApiRoutes(options: {
       const fullSegs = [...segs, pathWithoutExt]
       const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
       const importName = `H${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
-      const fromApp = methodDir === appMethodDir
       const importPath = sanitizeGeneratedModuleSpecifier(
         `${fromApp ? appImportBase : pkgImportBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
       )
       const metaName = `RM${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
-      const sourceFile = path.join(methodDir, ...segs, file)
+      const sourceFile = findExistingModuleFile(path.join(methodDir, ...segs), file)
+      if (!sourceFile) continue
       const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
       const metadata = sourceModule?.metadata ?? extractNamedObjectLiteralExport(sourceFile, 'metadata')
       const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
       const metadataLiteral = buildApiMetadataLiteral(metadata, method)
       const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
-      const docsPart = hasOpenApi ? `, docs: ${metaName}.openApi` : ''
+      const docsPart = hasOpenApi ? `, docs: ((${metaName} as any).openApi as any)` : ''
       eagerImports.push(buildImportStatement(`${importName}, * as ${metaName}`, importPath))
       eagerApis.push(`{ method: ${toLiteral(method)}, path: (${metaName}.metadata?.path ?? ${toLiteral(routePath)}), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
       runtimeApis.push(`{ method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, handler: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const handler = ((mod as any).default ?? (mod as any).${method} ?? (mod as any).handler) as any; return handler(req, ctx) }, metadata: ${metadataLiteral} }`)
@@ -2219,8 +2277,12 @@ ${injectionTableDecls.join(',\n')}
 ${aiToolsImports.length ? aiToolsImports.join('\n') + '\n' : ''}
 type AiToolConfigEntry = { moduleId: string; tools: unknown[] }
 
-export const aiToolConfigEntries: AiToolConfigEntry[] = [
-${aiToolsConfigs.length ? '  ' + aiToolsConfigs.join(',\n  ') + '\n' : ''}].filter(e => Array.isArray(e.tools) && e.tools.length > 0)
+const aiToolConfigEntriesRaw: AiToolConfigEntry[] = [
+${aiToolsConfigs.length ? '  ' + aiToolsConfigs.join(',\n  ') + '\n' : ''}]
+
+export const aiToolConfigEntries: AiToolConfigEntry[] = aiToolConfigEntriesRaw.filter(
+  (entry): entry is AiToolConfigEntry => Array.isArray(entry.tools) && entry.tools.length > 0,
+)
 
 export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
 `
