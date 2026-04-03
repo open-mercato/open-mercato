@@ -367,6 +367,32 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(output).toContain('dashboardWidgets:')
   })
 
+  it('includes app-owned workers in generated module metadata', async () => {
+    scaffoldModule(tmpDir, 'app_worker_mod', 'app', [
+      'index.ts',
+      'workers/process-job.ts',
+    ])
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'app_worker_mod', 'workers', 'process-job.ts'),
+      `
+export const metadata = { queue: 'app-worker-queue', id: 'app-worker-mod:process-job', concurrency: 2 }
+export default async function handle(): Promise<void> {}
+      `.trim(),
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'app_worker_mod', from: '@app' },
+    ])
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain("id: 'app_worker_mod'")
+    expect(output).toContain("queue: (WorkerMeta")
+    expect(output).toContain("workers:")
+  })
+
   it('handles disabling a module that was previously enabled', async () => {
     scaffoldModule(tmpDir, 'keep_mod', 'pkg', [
       'subscribers/handler.ts',

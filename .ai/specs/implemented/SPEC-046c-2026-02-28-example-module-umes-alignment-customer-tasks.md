@@ -2,6 +2,7 @@
 
 ## TLDR
 **Key Points:**
+- Implemented on top of already-merged `SPEC-046` / `SPEC-046b`; canonical CRM v2 pages and `customer_interactions` remain the baseline.
 - Keep `example` as a self-contained demo module (`example.todo`), but remove its implicit role as customers task provider.
 - Move customer-task synchronization to an explicit UMES-style extension module around canonical `customer_interactions` from `SPEC-046b-2026-02-27-customers-interactions-unification.md`.
 - Make `/backend/customer-tasks` owned by customers domain, so it works even when `example` is disabled.
@@ -15,12 +16,30 @@
 - Avoiding sync loops and duplicate objects when bidirectional sync is enabled.
 - Preserving backward compatibility for existing `example` routes and data.
 
+## Implementation Status — 2026-04-01
+This specification is implemented as a v2-aware follow-up to the already shipped canonical CRM work from `SPEC-046` and `SPEC-046b`.
+
+Delivered:
+1. `/backend/customer-tasks` is now owned by `customers`, and the duplicate Example-owned route was removed from both the workspace app and the create-app template.
+2. First-party CRM task UI now reads canonical `CustomerInteraction` task rows from `/api/customers/interactions`, not from the legacy `/api/customers/todos` bridge.
+3. Canonical interaction rows now expose additive `customer` and `_integrations.example` data needed by cross-customer task screens.
+4. `customer_todo_links.todo_source` now defaults to `customers:interaction` for new rows, while legacy `example:todo` rows remain readable.
+5. `example_customers_sync` now exists as a real optional extension module with mapping storage, feature toggles, sync APIs, subscribers, and workers.
+6. Shared command/crud/data-engine plumbing now carries optional `syncOrigin` metadata to prevent outbound and inbound sync loops.
+
+Rollout posture:
+1. The sync module is registered when Example is present, but the runtime sync feature toggles default to `false`.
+2. `/api/customers/todos` remains available as a deprecated compatibility adapter.
+3. Canonical v2 customer detail pages and derived `Next Interaction` behavior from `SPEC-046b` remain unchanged.
+
 ## Overview
 `example` currently mixes two responsibilities:
 1. A standalone demo module (`example.todo`, demo pages/widgets/APIs).
 2. A de facto customers task provider role in legacy flows (`todoSource`, `customer_todo_links`, `/backend/customer-tasks` route placement in `example`).
 
 After `SPEC-046b-2026-02-27-customers-interactions-unification.md`, customers tasks become canonical `customer_interactions`. Keeping cross-module task-provider behavior inside `example` as an implicit provider creates unclear ownership and upgrade risk.
+
+Implementation note: this was delivered against the already merged CRM v2 detail pages (`people-v2` / `companies-v2`). The work here completes the Example decoupling inside that canonical model rather than reintroducing any pre-v2 customer task flow.
 
 This spec aligns `example` with UMES by separating concerns:
 - `example` remains demo/self-contained.
@@ -373,6 +392,14 @@ Bidirectional sync may produce event storms if guards fail. Mitigation: `_syncOr
 - **Fully compliant**: Approved — ready for implementation planning.
 
 ## Changelog
+### 2026-04-01
+- Implemented the v2-aware completion of `SPEC-046c` on top of merged `SPEC-046` / `SPEC-046b`.
+- Moved `/backend/customer-tasks` ownership to `customers` and removed the duplicate Example-owned route from both the app and the create-app template.
+- Switched first-party CRM task pages and widgets to canonical `/api/customers/interactions` task rows, while keeping `/api/customers/todos` as a deprecated compatibility bridge.
+- Added additive `customer` and `_integrations.example` enrichment for canonical interaction task rows.
+- Added the `example_customers_sync` extension module with mapping storage, feature toggles, operational APIs, subscribers, workers, and `syncOrigin` loop-guard plumbing.
+- Verified the rollout with package builds, repo typecheck, targeted Jest coverage, and the targeted ephemeral integration run for `packages/core/src/modules/customers/__integration__/TC-CRM-026.spec.ts`.
+
 ### 2026-03-02
 - Renumbered this specification from `SPEC-050` to `SPEC-046c` as a child workstream of customer detail rewrite.
 - Updated dependency references from `SPEC-049` to `SPEC-046b`.

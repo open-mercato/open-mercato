@@ -10,6 +10,7 @@ export type CrudEmitContext<TEntity = unknown> = {
   action: CrudEventAction
   entity: TEntity
   identifiers: CrudEntityIdentifiers
+  syncOrigin?: string | null
 }
 
 export type CrudEventsConfig<TEntity = unknown> = {
