@@ -16,6 +16,8 @@ const events = [
   { id: 'auth.role.updated', label: 'Role Updated', entity: 'role', category: 'crud' },
   { id: 'auth.role.deleted', label: 'Role Deleted', entity: 'role', category: 'crud' },
 
+  { id: 'auth.user.invited', label: 'User Invited', entity: 'user', category: 'lifecycle' },
+
   // Authentication events
   { id: 'auth.login.success', label: 'Login Successful', category: 'lifecycle' },
   { id: 'auth.login.failed', label: 'Login Failed', category: 'lifecycle' },

@@ -32,6 +32,9 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
+import crypto from 'node:crypto'
 
 type SerializedUser = {
   email: string
@@ -72,10 +75,14 @@ const passwordSchema = buildPasswordSchema()
 
 const createSchema = z.object({
   email: z.string().email(),
-  password: passwordSchema,
+  password: passwordSchema.optional(),
+  sendInviteEmail: z.boolean().optional(),
   organizationId: z.string().uuid(),
   roles: z.array(z.string()).optional(),
-})
+}).refine(
+  (data) => data.password || data.sendInviteEmail,
+  { message: 'Either password or sendInviteEmail is required', path: ['password'] },
+)
 
 const updateSchema = z.object({
   id: z.string().uuid(),
@@ -171,8 +178,11 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const duplicate = await em.findOne(User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any)
     if (duplicate) await throwDuplicateEmailError()
 
-    const { hash } = await import('bcryptjs')
-    const passwordHash = await hash(parsed.password, 10)
+    let passwordHash: string | null = null
+    if (parsed.password) {
+      const { hash } = await import('bcryptjs')
+      passwordHash = await hash(parsed.password, 10)
+    }
     const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -209,6 +219,12 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       values: custom,
     })
 
+    let inviteEmailSent = false
+    if (parsed.sendInviteEmail) {
+      const inviteResult = await sendInviteToUser(em, user, ctx)
+      inviteEmailSent = inviteResult.emailSent
+    }
+
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -222,8 +238,12 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       indexer: userCrudIndexer,
     })
 
-    if (assignedRoles.length) {
+    if (assignedRoles.length && !parsed.sendInviteEmail) {
       await notifyRoleChanges(ctx, user, assignedRoles, [])
+    }
+
+    if (parsed.sendInviteEmail && !inviteEmailSent) {
+      (user as any)._warning = 'invite_email_failed'
     }
 
     return user
@@ -309,6 +329,61 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     await invalidateUserCache(ctx, userId)
   },
+}
+
+async function sendInviteToUser(
+  em: EntityManager,
+  user: User,
+  ctx: CommandRuntimeContext,
+): Promise<{ emailSent: boolean }> {
+  const token = crypto.randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
+  const row = em.create(PasswordReset as any, { user, token, expiresAt, createdAt: new Date() } as any)
+  await em.persistAndFlush(row)
+
+  const base = process.env.APP_URL || 'http://localhost:3000'
+  const inviteUrl = `${base}/reset/${token}`
+
+  const { translate } = await resolveTranslations()
+  const subject = translate('auth.email.invite.subject', 'You have been invited')
+  const copy = {
+    preview: translate('auth.email.invite.preview', 'Set up your account'),
+    title: translate('auth.email.invite.title', 'You have been invited'),
+    body: translate('auth.email.invite.body', 'An administrator has created an account for you. Click the link below to set your password. This link will expire in 48 hours.'),
+    cta: translate('auth.email.invite.cta', 'Set up your password'),
+    hint: translate('auth.email.invite.hint', 'If you did not expect this invitation, you can safely ignore this email.'),
+  }
+
+  let emailSent = true
+  try {
+    await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+  } catch (err) {
+    console.error('[auth.users.invite] Failed to send invitation email:', err)
+    emailSent = false
+  }
+
+  try {
+    const tenantId = user.tenantId ? String(user.tenantId) : null
+    if (tenantId) {
+      const notificationService = resolveNotificationService(ctx.container)
+      const typeDef = notificationTypes.find((type) => type.type === 'auth.user.invited')
+      if (typeDef) {
+        const notificationInput = buildNotificationFromType(typeDef, {
+          recipientUserId: String(user.id),
+          sourceEntityType: 'auth:user',
+          sourceEntityId: String(user.id),
+        })
+        await notificationService.create(notificationInput, {
+          tenantId,
+          organizationId: user.organizationId ? String(user.organizationId) : null,
+        })
+      }
+    }
+  } catch (err) {
+    console.error('[auth.users.invite] Failed to create notification:', err)
+  }
+
+  return { emailSent }
 }
 
 function isUniqueViolation(error: unknown): boolean {
