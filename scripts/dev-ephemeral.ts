@@ -72,6 +72,9 @@ const splashState = {
   mode: 'dev',
   phase: 'Ephemeral dev environment is starting...',
   detail: 'Preparing isolated PostgreSQL and app runtime',
+  failed: false,
+  failureLines: [] as string[],
+  failureCommand: null as string | null,
   ready: false,
   readyUrl: null as string | null,
   loginUrl: null as string | null,
@@ -119,6 +122,9 @@ function decorateActivityMessage(message: string): string {
 function updateSplashState(patch: Partial<typeof splashState> & { activity?: string }): void {
   if (typeof patch.phase === 'string') splashState.phase = patch.phase
   if (typeof patch.detail === 'string') splashState.detail = patch.detail
+  if (typeof patch.failed === 'boolean') splashState.failed = patch.failed
+  if (Array.isArray(patch.failureLines)) splashState.failureLines = patch.failureLines
+  if (typeof patch.failureCommand === 'string' || patch.failureCommand === null) splashState.failureCommand = patch.failureCommand
   if (typeof patch.ready === 'boolean') splashState.ready = patch.ready
   if (typeof patch.readyUrl === 'string' || patch.readyUrl === null) splashState.readyUrl = patch.readyUrl
   if (typeof patch.loginUrl === 'string' || patch.loginUrl === null) splashState.loginUrl = patch.loginUrl
@@ -141,6 +147,52 @@ function updateSplashState(patch: Partial<typeof splashState> & { activity?: str
       }
     }
   }
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${durationMs}ms`
+  return `${(durationMs / 1000).toFixed(1)}s`
+}
+
+function normalizeCapturedLine(line: string): string {
+  return line.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\s+$/, '')
+}
+
+function extractFailureLines(lines: string[], maxLines = 12): string[] {
+  const selectedLines: string[] = []
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const normalized = normalizeCapturedLine(lines[index] ?? '')
+    const plain = normalized.trim()
+    if (!plain) continue
+    if (/^\[dev:ephemeral\]/.test(plain)) continue
+    selectedLines.unshift(normalized)
+    if (selectedLines.length >= maxLines) break
+  }
+
+  return selectedLines
+}
+
+function resolveFailureDetail(label: string, lines: string[]): string {
+  const failureLines = extractFailureLines(lines, 20)
+
+  for (let index = failureLines.length - 1; index >= 0; index -= 1) {
+    const candidate = failureLines[index]?.trim()
+    if (!candidate) continue
+    if (/\b(aborted|failed|error|exception|unable|cannot|invalid|denied)\b/i.test(candidate)) {
+      return candidate
+    }
+  }
+
+  return `${label} failed. Check the terminal for details.`
+}
+
+async function waitForSplashFailureRender(): Promise<void> {
+  if (!autoOpenSplash) return
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 1400)
+    timer.unref?.()
+  })
 }
 
 function readSplashChildState(): Record<string, unknown> | null {
@@ -315,6 +367,147 @@ function runCommand(command: string, args: string[], options: { env?: NodeJS.Pro
       resolve(code ?? 1)
     })
   })
+}
+
+function runCommandBuffered(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number; lines: string[] }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: projectRootDirectory,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+      shell: false,
+      ...options,
+    })
+
+    const capturedLines: string[] = []
+    const buffers = new Map<'stdout' | 'stderr', string>([
+      ['stdout', ''],
+      ['stderr', ''],
+    ])
+
+    const appendChunk = (streamName: 'stdout' | 'stderr', chunk: Buffer | string): void => {
+      const previous = buffers.get(streamName) ?? ''
+      const value = previous + chunk.toString()
+      const lines = value.split('\n')
+      buffers.set(streamName, lines.pop() ?? '')
+
+      for (const rawLine of lines) {
+        capturedLines.push(rawLine.replace(/\r$/, ''))
+        if (capturedLines.length > 600) {
+          capturedLines.shift()
+        }
+      }
+    }
+
+    child.stdout?.on('data', (chunk) => appendChunk('stdout', chunk))
+    child.stderr?.on('data', (chunk) => appendChunk('stderr', chunk))
+
+    child.on('error', reject)
+    child.on('exit', (code, signal) => {
+      for (const streamName of ['stdout', 'stderr'] as const) {
+        const trailing = (buffers.get(streamName) ?? '').replace(/\r$/, '')
+        if (trailing) {
+          capturedLines.push(trailing)
+        }
+      }
+
+      if (signal) {
+        reject(new Error(`${command} terminated by signal ${signal}.`))
+        return
+      }
+
+      resolve({ code: code ?? 1, lines: capturedLines.slice(-600) })
+    })
+  })
+}
+
+async function reportStageFailure(
+  label: string,
+  command: string,
+  args: string[],
+  lines: string[],
+  progressCurrent: number,
+  progressLabel: string,
+): Promise<void> {
+  const failureLines = extractFailureLines(lines)
+  const detail = resolveFailureDetail(label, lines)
+
+  updateSplashState({
+    phase: `${label} failed`,
+    detail,
+    failed: true,
+    failureLines,
+    failureCommand: [command, ...args].join(' '),
+    ready: false,
+    progressCurrent,
+    progressLabel,
+    activity: `${label} failed`,
+  })
+
+  console.error(`[dev:ephemeral] ${label} failed`)
+  for (const line of lines) {
+    console.error(line)
+  }
+}
+
+async function runCompactStage(
+  label: string,
+  command: string,
+  args: string[],
+  options: {
+    env?: NodeJS.ProcessEnv
+    phase: string
+    detail: string
+    progressCurrent: number
+    progressLabel: string
+    readyUrl?: string | null
+    loginUrl?: string | null
+  },
+): Promise<number> {
+  const startedAt = Date.now()
+
+  console.log(`[dev:ephemeral] ${label}...`)
+  updateSplashState({
+    phase: options.phase,
+    detail: options.detail,
+    failed: false,
+    failureLines: [],
+    failureCommand: null,
+    progressCurrent: options.progressCurrent,
+    progressLabel: options.progressLabel,
+    readyUrl: options.readyUrl,
+    loginUrl: options.loginUrl,
+    activity: options.detail,
+  })
+
+  if (verbose) {
+    const exitCode = await runCommand(command, args, { env: options.env })
+    if (exitCode === 0) {
+      console.log(`[dev:ephemeral] ${label} completed in ${formatDuration(Date.now() - startedAt)}`)
+    }
+    return exitCode
+  }
+
+  const result = await runCommandBuffered(command, args, { env: options.env })
+  if (result.code !== 0) {
+    await reportStageFailure(label, command, args, result.lines, options.progressCurrent, options.progressLabel)
+    return result.code
+  }
+
+  updateSplashState({
+    phase: options.phase,
+    detail: `${options.detail} completed in ${formatDuration(Date.now() - startedAt)}`,
+    failed: false,
+    failureLines: [],
+    failureCommand: null,
+    progressCurrent: options.progressCurrent,
+    progressLabel: options.progressLabel,
+    readyUrl: options.readyUrl,
+    loginUrl: options.loginUrl,
+    activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
+  })
+  console.log(`[dev:ephemeral] ${label} completed in ${formatDuration(Date.now() - startedAt)}`)
+  return 0
 }
 
 function runCommandCapture(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<CommandResult> {
@@ -750,44 +943,38 @@ async function main(): Promise<void> {
     await mkdir(path.dirname(envPath), { recursive: true })
     await ensureEnvFile()
 
-    console.log('[dev:ephemeral] Installing dependencies...')
-    updateSplashState({
+    const installExitCode = await runCompactStage('Installing dependencies', 'yarn', ['install'], {
       phase: 'Ephemeral dev environment is starting...',
       detail: 'Installing dependencies',
       progressCurrent: 1,
       progressLabel: 'Installing dependencies',
-      activity: 'Installing dependencies',
     })
-    const installExitCode = await runCommand('yarn', ['install'])
     if (installExitCode !== 0) {
+      await waitForSplashFailureRender()
       shutdown(installExitCode)
       return
     }
 
-    console.log('[dev:ephemeral] Building packages...')
-    updateSplashState({
+    const buildPackagesExitCode = await runCompactStage('Building packages', 'yarn', ['build:packages'], {
       phase: 'Ephemeral dev environment is starting...',
       detail: 'Building workspace packages',
       progressCurrent: 2,
       progressLabel: 'Building workspace packages',
-      activity: 'Building workspace packages',
     })
-    const buildPackagesExitCode = await runCommand('yarn', ['build:packages'])
     if (buildPackagesExitCode !== 0) {
+      await waitForSplashFailureRender()
       shutdown(buildPackagesExitCode)
       return
     }
 
-    console.log('[dev:ephemeral] Preparing generated module files...')
-    updateSplashState({
+    const generateExitCode = await runCompactStage('Preparing generated module files', 'yarn', ['generate'], {
       phase: 'Ephemeral dev environment is starting...',
       detail: 'Generating app artifacts',
       progressCurrent: 3,
       progressLabel: 'Generating app artifacts',
-      activity: 'Generating app artifacts',
     })
-    const generateExitCode = await runCommand('yarn', ['generate'])
     if (generateExitCode !== 0) {
+      await waitForSplashFailureRender()
       shutdown(generateExitCode)
       return
     }
@@ -805,25 +992,29 @@ async function main(): Promise<void> {
     const postgres = await startEphemeralPostgres()
     const baseUrl = `http://127.0.0.1:${port}`
 
-    console.log('[dev:ephemeral] Initializing app against ephemeral PostgreSQL...')
     const initEnvironment = {
       ...process.env,
       DATABASE_URL: postgres.databaseUrl,
       APP_URL: baseUrl,
       NEXT_PUBLIC_APP_URL: baseUrl,
     }
-    updateSplashState({
-      phase: 'Ephemeral dev environment is starting...',
-      detail: 'Initializing app against ephemeral PostgreSQL',
-      progressCurrent: 4,
-      progressLabel: 'Initializing app',
-      activity: 'Initializing app against ephemeral PostgreSQL',
-      readyUrl: baseUrl,
-      loginUrl: `${baseUrl}/login`,
-    })
-    const initializeExitCode = await runCommand('yarn', ['initialize', '--', '--reinstall'], { env: initEnvironment })
+    const initializeExitCode = await runCompactStage(
+      'Initializing app against ephemeral PostgreSQL',
+      'yarn',
+      ['initialize', '--', '--reinstall'],
+      {
+        env: initEnvironment,
+        phase: 'Ephemeral dev environment is starting...',
+        detail: 'Initializing app against ephemeral PostgreSQL',
+        progressCurrent: 4,
+        progressLabel: 'Initializing app',
+        readyUrl: baseUrl,
+        loginUrl: `${baseUrl}/login`,
+      },
+    )
     if (initializeExitCode !== 0) {
       await stopPostgresContainer(postgres.containerId)
+      await waitForSplashFailureRender()
       shutdown(initializeExitCode)
       return
     }

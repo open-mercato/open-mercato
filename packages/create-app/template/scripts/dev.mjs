@@ -74,12 +74,27 @@ function isLocalRegistryUrl(value) {
   }
 }
 
+function hasExistingStandaloneInstall() {
+  const cwd = process.cwd()
+  const candidatePaths = [
+    path.join(cwd, '.yarn', 'install-state.gz'),
+    path.join(cwd, 'node_modules', '.yarn-state.yml'),
+    path.join(cwd, 'node_modules', '@open-mercato', 'shared', 'package.json'),
+  ]
+
+  return candidatePaths.some((candidatePath) => fs.existsSync(candidatePath))
+}
+
 function shouldRefreshStandaloneRegistryPackages() {
   if (process.env.OM_SKIP_LOCAL_PACKAGE_REFRESH === '1' || process.env.OM_SKIP_LOCAL_PACKAGE_REFRESH === 'true') {
     return false
   }
 
-  return isLocalRegistryUrl(readScopedRegistryServer('open-mercato'))
+  if (!isLocalRegistryUrl(readScopedRegistryServer('open-mercato'))) {
+    return false
+  }
+
+  return !hasExistingStandaloneInstall()
 }
 
 const runtimeMode = detectDevRuntimeMode()
@@ -116,6 +131,9 @@ const splashState = {
   detail: isMonorepo
     ? (greenfield ? 'Preparing clean environment and rebuilding packages' : 'Preparing workspace packages and app runtime')
     : (setupMode ? 'Preparing project setup' : 'Preparing app runtime'),
+  failed: false,
+  failureLines: [],
+  failureCommand: null,
   ready: false,
   readyUrl: null,
   loginUrl: null,
@@ -446,6 +464,9 @@ function escapeForInlineScript(value) {
 function updateSplashState(patch) {
   if (typeof patch.phase === 'string') splashState.phase = patch.phase
   if (typeof patch.detail === 'string') splashState.detail = patch.detail
+  if (typeof patch.failed === 'boolean') splashState.failed = patch.failed
+  if (Array.isArray(patch.failureLines)) splashState.failureLines = patch.failureLines
+  if (typeof patch.failureCommand === 'string' || patch.failureCommand === null) splashState.failureCommand = patch.failureCommand
   if (typeof patch.ready === 'boolean') splashState.ready = patch.ready
   if (typeof patch.readyUrl === 'string' || patch.readyUrl === null) splashState.readyUrl = patch.readyUrl
   if (typeof patch.loginUrl === 'string' || patch.loginUrl === null) splashState.loginUrl = patch.loginUrl
@@ -465,6 +486,86 @@ function updateSplashState(patch) {
     )
   }
   if (typeof patch.activity === 'string') pushSplashActivity(patch.activity)
+}
+
+function normalizeCapturedLine(line) {
+  return stripAnsi(String(line ?? '')).replace(/\s+$/, '')
+}
+
+function isIgnorableFailureLine(line) {
+  const plain = normalizeCapturedLine(line).trim()
+  if (!plain) return true
+  if (/^[╭│╰]/.test(plain)) return true
+  if (/^◇ injecting env \(\d+\) from \.env\b/i.test(plain)) return true
+  if (/^\[setup\] (Copied \.env\.example to \.env|Keeping existing \.env)$/i.test(plain)) return true
+  if (/^Open Mercato CLI$/i.test(plain)) return true
+  return false
+}
+
+function extractFailureLines(capturedLines, maxLines = 10) {
+  const lines = []
+
+  for (let index = capturedLines.length - 1; index >= 0; index -= 1) {
+    const normalized = normalizeCapturedLine(capturedLines[index])
+    if (isIgnorableFailureLine(normalized)) continue
+    lines.unshift(normalized)
+    if (lines.length >= maxLines) break
+  }
+
+  return lines
+}
+
+function resolveFailureDetail(label, capturedLines) {
+  const candidates = extractFailureLines(capturedLines, 20)
+
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const candidate = candidates[index].trim()
+    if (!candidate) continue
+    if (/\b(aborted|failed|error|exception|unable|cannot|invalid|denied)\b/i.test(candidate)) {
+      return candidate
+    }
+  }
+
+  return `${label} failed. Check the terminal for details.`
+}
+
+async function waitForSplashFailureRender() {
+  if (!autoOpenSplash) return
+  await new Promise((resolve) => {
+    const timer = setTimeout(resolve, 1400)
+    timer.unref?.()
+  })
+}
+
+async function reportStageFailure(label, commandArgs, capturedLines, code, options = {}) {
+  const stageCurrent = options.stageCurrent ?? splashState.progressCurrent
+  const stageTotal = options.stageTotal ?? splashState.progressTotal
+  const failureLines = extractFailureLines(capturedLines)
+  const detail = resolveFailureDetail(label, capturedLines)
+
+  updateSplashState({
+    phase: `${label} failed`,
+    detail,
+    failed: true,
+    failureLines,
+    failureCommand: Array.isArray(commandArgs) ? commandArgs.join(' ') : null,
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    progressCurrent: stageCurrent,
+    progressTotal: stageTotal,
+    progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
+    progressLabel: `${label} failed`,
+    activity: `${label} failed`,
+  })
+
+  console.error(`❌ ${label} failed`)
+  for (const line of capturedLines) {
+    console.error(line)
+  }
+
+  await waitForSplashFailureRender()
+  shutdown(code ?? 1)
 }
 
 function readSplashChildState() {
@@ -817,11 +918,11 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
 
   if ((code ?? 1) !== 0) {
     progressReporter.clear()
-    console.error(`❌ ${label} failed`)
-    for (const line of capturedLines) {
-      console.error(line)
-    }
-    shutdown(code ?? 1)
+    await reportStageFailure(label, commandArgs, capturedLines, code, {
+      stageCurrent,
+      stageTotal,
+    })
+    return
   }
 
   const completedCount = Math.min(completedPackages.size, buildPlan.totalPackages)
@@ -898,11 +999,11 @@ async function runStage(label, commandArgs, options = {}) {
   const code = await new Promise((resolve) => child.on('close', resolve))
 
   if ((code ?? 1) !== 0) {
-    console.error(`❌ ${label} failed`)
-    for (const line of capturedLines) {
-      console.error(line)
-    }
-    shutdown(code ?? 1)
+    await reportStageFailure(label, commandArgs, capturedLines, code, {
+      stageCurrent,
+      stageTotal,
+    })
+    return
   }
 
   updateSplashState({
@@ -931,7 +1032,10 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
   updateSplashState({
     phase: label,
-    detail: 'Streaming setup output in terminal',
+    detail: verbose ? 'Streaming setup output in terminal' : 'Running in compact mode',
+    failed: false,
+    failureLines: [],
+    failureCommand: null,
     progressCurrent: stageCurrent,
     progressTotal: stageTotal,
     progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
@@ -939,10 +1043,33 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     activity: `${label} started`,
   })
 
-  const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
-  const code = await new Promise((resolve) => child.on('close', resolve))
-  if ((code ?? 1) !== 0) {
-    shutdown(code ?? 1)
+  if (verbose) {
+    const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
+    const code = await new Promise((resolve) => child.on('close', resolve))
+    if ((code ?? 1) !== 0) {
+      shutdown(code ?? 1)
+    }
+  } else {
+    const child = spawnCommand(yarnCommand, commandArgs)
+    const capturedLines = []
+    const capture = (line) => {
+      capturedLines.push(line)
+      if (capturedLines.length > 500) {
+        capturedLines.shift()
+      }
+    }
+
+    connectLineStream(child.stdout, capture)
+    connectLineStream(child.stderr, capture)
+
+    const code = await new Promise((resolve) => child.on('close', resolve))
+    if ((code ?? 1) !== 0) {
+      await reportStageFailure(label, commandArgs, capturedLines, code, {
+        stageCurrent,
+        stageTotal,
+      })
+      return
+    }
   }
 
   updateSplashState({

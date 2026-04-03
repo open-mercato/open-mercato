@@ -24,6 +24,9 @@
         --accent: #f5f5f5;
         --accent-strong: #ffffff;
         --warning: #f5f5f5;
+        --danger: #fca5a5;
+        --danger-strong: #ef4444;
+        --danger-surface: rgba(239, 68, 68, 0.12);
         --activity-text: #f5f5f5;
         --activity-time: #a1a1aa;
         --shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
@@ -39,6 +42,9 @@
         --muted: #5f5f67;
         --text: #111111;
         --warning: #111111;
+        --danger: #b91c1c;
+        --danger-strong: #991b1b;
+        --danger-surface: rgba(185, 28, 28, 0.08);
         --activity-text: #111111;
         --activity-time: #52525b;
         --shadow: 0 22px 52px rgba(15, 23, 42, 0.08);
@@ -208,6 +214,33 @@
         border-radius: 999px;
         background: var(--accent);
       }
+      .failed {
+        border-color: rgba(239, 68, 68, 0.35);
+      }
+      .failed .spinner {
+        animation: none;
+        border-color: rgba(239, 68, 68, 0.18);
+        border-top-color: var(--danger-strong);
+        position: relative;
+      }
+      .failed .spinner::after,
+      .failed .spinner::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 26px;
+        height: 4px;
+        border-radius: 999px;
+        background: var(--danger-strong);
+        transform-origin: center;
+      }
+      .failed .spinner::before {
+        transform: translate(-50%, -50%) rotate(45deg);
+      }
+      .failed .spinner::after {
+        transform: translate(-50%, -50%) rotate(-45deg);
+      }
       .actions {
         display: flex;
         gap: 12px;
@@ -238,6 +271,9 @@
         background: linear-gradient(90deg, #d4d4d8, var(--accent-strong));
         transition: width 0.3s ease;
       }
+      .failed .progress-fill {
+        background: linear-gradient(90deg, var(--danger), var(--danger-strong));
+      }
       .button {
         display: inline-flex;
         align-items: center;
@@ -258,6 +294,11 @@
       .button.secondary {
         border-color: var(--panel-border);
         color: var(--text);
+      }
+      .button.danger {
+        background: var(--danger-strong);
+        color: #fff5f5;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
       }
       html[data-theme="light"] .button.primary {
         background: #111111;
@@ -360,6 +401,37 @@
         color: var(--warning);
         word-break: break-all;
       }
+      .failure-box {
+        display: grid;
+        gap: 10px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid rgba(239, 68, 68, 0.24);
+        background: var(--danger-surface);
+      }
+      .failure-box[hidden] {
+        display: none;
+      }
+      .failure-heading {
+        color: var(--danger);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+      }
+      .failure-command {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+      .failure-lines {
+        margin: 0;
+        color: var(--text);
+        font: 500 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
       @keyframes spin {
         to { transform: rotate(360deg); }
       }
@@ -427,6 +499,11 @@
           <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
           <div class="terminal-hint" id="terminal-hint">🖥 Keep terminal visible</div>
         </div>
+        <section class="failure-box" id="failure-box" hidden>
+          <div class="failure-heading" id="failure-heading">Recent failure output</div>
+          <div class="failure-command" id="failure-command"></div>
+          <pre class="failure-lines" id="failure-lines"></pre>
+        </section>
       </aside>
     </main>
     <script>
@@ -447,6 +524,10 @@
       const terminalHint = document.getElementById('terminal-hint')
       const activityList = document.getElementById('activity-list')
       const statusCard = document.getElementById('status-card')
+      const failureBox = document.getElementById('failure-box')
+      const failureHeading = document.getElementById('failure-heading')
+      const failureCommand = document.getElementById('failure-command')
+      const failureLines = document.getElementById('failure-lines')
       const THEME_KEY = 'om-dev-theme'
       const LOCALE_KEY = 'om-dev-locale'
       const supportedLocales = Array.isArray(splashBootstrap.supportedLocales) && splashBootstrap.supportedLocales.length > 0
@@ -467,7 +548,11 @@
           targetPending: 'pending',
           loginPreparing: '🚀 App is preparing…',
           loginReady: '🚪 App is ready, open login',
+          loginFailed: '🛠 Fix setup in terminal',
           terminalHint: '🖥 Keep terminal visible',
+          terminalFixHint: '🖥 Inspect terminal and rerun after fixing the issue',
+          failureHeading: 'Recent failure output',
+          failureCommand: 'Command',
           themeLight: '☀️ Light',
           themeDark: '🌙 Dark',
           waitingStatus: 'Waiting for dev runner status…',
@@ -485,7 +570,11 @@
           targetPending: 'oczekiwanie',
           loginPreparing: '🚀 Aplikacja się przygotowuje…',
           loginReady: '🚪 Aplikacja gotowa, otwórz logowanie',
+          loginFailed: '🛠 Napraw w terminalu',
           terminalHint: '🖥 Zachowaj terminal',
+          terminalFixHint: '🖥 Sprawdź terminal i uruchom ponownie po poprawce',
+          failureHeading: 'Ostatni błąd',
+          failureCommand: 'Polecenie',
           themeLight: '☀️ Jasny',
           themeDark: '🌙 Ciemny',
           waitingStatus: 'Oczekiwanie na status runnera…',
@@ -503,7 +592,11 @@
           targetPending: 'pendiente',
           loginPreparing: '🚀 La aplicación se está preparando…',
           loginReady: '🚪 La aplicación está lista, abrir login',
+          loginFailed: '🛠 Corregir en la terminal',
           terminalHint: '🖥 Mantener la terminal visible',
+          terminalFixHint: '🖥 Revisa la terminal y vuelve a ejecutar después de corregir el problema',
+          failureHeading: 'Salida reciente del error',
+          failureCommand: 'Comando',
           themeLight: '☀️ Claro',
           themeDark: '🌙 Oscuro',
           waitingStatus: 'Esperando el estado del runner de desarrollo…',
@@ -521,7 +614,11 @@
           targetPending: 'ausstehend',
           loginPreparing: '🚀 Die App wird vorbereitet…',
           loginReady: '🚪 App ist bereit, Login öffnen',
+          loginFailed: '🛠 Im Terminal beheben',
           terminalHint: '🖥 Terminal sichtbar lassen',
+          terminalFixHint: '🖥 Terminal prüfen und nach der Korrektur erneut starten',
+          failureHeading: 'Letzte Fehlerausgabe',
+          failureCommand: 'Befehl',
           themeLight: '☀️ Hell',
           themeDark: '🌙 Dunkel',
           waitingStatus: 'Warte auf den Status des Dev-Runners…',
@@ -589,6 +686,7 @@
       }
       let currentLocale = 'en'
       let currentTheme = 'dark'
+      let lastState = null
 
       themeToggle.addEventListener('click', () => {
         currentTheme = currentTheme === 'dark' ? 'light' : 'dark'
@@ -721,6 +819,25 @@
         }).join('')
       }
 
+      function renderFailure(state) {
+        const failed = state?.failed === true
+        failureBox.hidden = !failed
+
+        if (!failed) {
+          failureCommand.textContent = ''
+          failureLines.textContent = ''
+          return
+        }
+
+        failureHeading.textContent = t('failureHeading')
+        const command = typeof state.failureCommand === 'string' && state.failureCommand.trim().length > 0
+          ? state.failureCommand.trim()
+          : ''
+        failureCommand.textContent = command ? t('failureCommand') + ': ' + command : ''
+        const lines = Array.isArray(state.failureLines) ? state.failureLines : []
+        failureLines.textContent = lines.join('\n')
+      }
+
       function escapeHtml(value) {
         return String(value).replace(/[&<>"]/g, (char) => ({
           '&': '&amp;',
@@ -754,20 +871,41 @@
           progressFill.style.width = percent + '%'
           readyUrl.textContent = state.readyUrl || t('targetPending')
           renderActivities(state.activities)
+          renderFailure(state)
+          lastState = state
 
-          if (state.ready && state.loginUrl) {
-            statusCard.classList.add('ready')
-            loginButton.textContent = t('loginReady')
-            loginButton.href = state.loginUrl
-            loginButton.setAttribute('aria-disabled', 'false')
-          } else {
+          if (state.failed) {
             statusCard.classList.remove('ready')
-            loginButton.textContent = t('loginPreparing')
+            statusCard.classList.add('failed')
+            loginButton.textContent = t('loginFailed')
+            loginButton.classList.remove('primary')
+            loginButton.classList.add('danger')
             loginButton.href = '#'
             loginButton.setAttribute('aria-disabled', 'true')
+            terminalHint.textContent = t('terminalFixHint')
+          } else if (state.ready && state.loginUrl) {
+            statusCard.classList.add('ready')
+            statusCard.classList.remove('failed')
+            loginButton.textContent = t('loginReady')
+            loginButton.classList.remove('danger')
+            loginButton.classList.add('primary')
+            loginButton.href = state.loginUrl
+            loginButton.setAttribute('aria-disabled', 'false')
+            terminalHint.textContent = t('terminalHint')
+          } else {
+            statusCard.classList.remove('ready')
+            statusCard.classList.remove('failed')
+            loginButton.textContent = t('loginPreparing')
+            loginButton.classList.remove('danger')
+            loginButton.classList.add('primary')
+            loginButton.href = '#'
+            loginButton.setAttribute('aria-disabled', 'true')
+            terminalHint.textContent = t('terminalHint')
           }
         } catch {
-          modeLine.textContent = t('waitingStatus')
+          if (!lastState?.failed) {
+            modeLine.textContent = t('waitingStatus')
+          }
         }
       }
 

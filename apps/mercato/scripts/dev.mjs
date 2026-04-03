@@ -59,6 +59,9 @@ const splashState = {
   mode: splashMode,
   phase: startupSplashPhase,
   detail: setupSplashMode ? 'Starting app runtime' : 'Preparing app runtime',
+  failed: false,
+  failureLines: [],
+  failureCommand: null,
   ready: false,
   readyUrl: null,
   loginUrl: null,
@@ -271,6 +274,9 @@ function pushSplashActivity(message) {
 function updateSplashState(patch) {
   if (typeof patch.phase === 'string') splashState.phase = patch.phase
   if (typeof patch.detail === 'string') splashState.detail = patch.detail
+  if (typeof patch.failed === 'boolean') splashState.failed = patch.failed
+  if (Array.isArray(patch.failureLines)) splashState.failureLines = patch.failureLines
+  if (typeof patch.failureCommand === 'string' || patch.failureCommand === null) splashState.failureCommand = patch.failureCommand
   if (typeof patch.ready === 'boolean') splashState.ready = patch.ready
   if (typeof patch.readyUrl === 'string' || patch.readyUrl === null) splashState.readyUrl = patch.readyUrl
   if (typeof patch.loginUrl === 'string' || patch.loginUrl === null) splashState.loginUrl = patch.loginUrl
@@ -289,7 +295,69 @@ function updateSplashState(patch) {
   }
 }
 
+function collectRuntimeFailureLines(maxLines = 10) {
+  const lines = []
+
+  for (let index = rawLogBuffer.length - 1; index >= 0; index -= 1) {
+    const normalized = stripAnsi(String(rawLogBuffer[index] ?? '')).replace(/\s+$/, '')
+    const plain = normalized.trim()
+    if (!plain) continue
+    if (plain.startsWith('[queue:')) continue
+    if (plain.startsWith('[scheduler:')) continue
+    if (plain === 'Press Ctrl+C to stop.') continue
+    if (plain.startsWith('Warning: Ignoring extra certs from')) continue
+    if (isIgnorableDerivedKeyWarningLine(plain)) continue
+    lines.unshift(normalized)
+    if (lines.length >= maxLines) break
+  }
+
+  return lines
+}
+
+function isIgnorableDerivedKeyWarningLine(line) {
+  return line.startsWith('⚠️ [encryption][kms] Vault read error')
+    || line.startsWith('⚠️ [encryption][kms] No tenant DEK found in Vault')
+    || line.startsWith("path: 'secret/data/tenant_key_")
+    || line.startsWith("error: 'fetch failed'")
+    || line === '}'
+    || line.startsWith('━━━━━━━━')
+    || line.includes('Using derived tenant encryption keys')
+    || line.startsWith('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
+    || line.startsWith('Secret: ')
+    || line.startsWith('Persist this secret securely.')
+}
+
+function publishRuntimeFailure(detail, options = {}) {
+  const failureLines = Array.isArray(options.failureLines) && options.failureLines.length > 0
+    ? options.failureLines
+    : collectRuntimeFailureLines()
+  const failureDetail = typeof detail === 'string' && detail.trim().length > 0
+    ? detail.trim()
+    : (failureLines.at(-1) ?? 'Runtime emitted raw output')
+  const progressCurrent = typeof options.progressCurrent === 'number'
+    ? options.progressCurrent
+    : startupProgress.current
+  const progressLabel = typeof options.progressLabel === 'string' && options.progressLabel.trim().length > 0
+    ? options.progressLabel
+    : (startupProgress.current >= runtimeProgressCurrent ? startupProgress.label : 'Starting app server')
+
+  updateSplashState({
+    phase: 'Runtime error detected',
+    detail: failureDetail,
+    failed: true,
+    failureLines,
+    failureCommand: 'yarn dev',
+    ready: false,
+    progressCurrent,
+    progressTotal: startupProgress.total,
+    progressPercent: resolveProgressPercent(progressCurrent, startupProgress.total),
+    progressLabel,
+    activity: failureDetail,
+  })
+}
+
 function looksLikeFailure(line) {
+  if (isIgnorableDerivedKeyWarningLine(line)) return false
   if (line.startsWith('⨯ preloadEntriesOnStart')) return false
   if (line.startsWith('⨯ serverMinification')) return false
   if (line.startsWith('⨯ turbopackMinify')) return false
@@ -653,6 +721,9 @@ async function runTargetedRouteWarmup() {
     updateSplashState({
       phase: 'App is ready',
       detail: completedMessage,
+      failed: false,
+      failureLines: [],
+      failureCommand: null,
       ready: true,
       progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
@@ -672,6 +743,9 @@ async function runTargetedRouteWarmup() {
       updateSplashState({
         phase: startupSplashPhase,
         detail: retryMessage,
+        failed: false,
+        failureLines: [],
+        failureCommand: null,
         ready: false,
         progressCurrent: runtimeProgressCurrent,
         progressTotal: startupProgress.total,
@@ -688,6 +762,9 @@ async function runTargetedRouteWarmup() {
     updateSplashState({
       phase: 'App is ready',
       detail: warmupWarning,
+      failed: false,
+      failureLines: [],
+      failureCommand: null,
       ready: true,
       progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
@@ -1077,6 +1154,9 @@ function createFilteredReporter(label, classifyLine) {
         updateSplashState({
           phase: result.splashPhase ?? splashState.phase,
           detail: result.splashDetail ?? result.message,
+          failed: false,
+          failureLines: [],
+          failureCommand: null,
           ready: nextReady,
           readyUrl: result.readyUrl ?? splashState.readyUrl,
           loginUrl: result.loginUrl ?? splashState.loginUrl,
@@ -1092,6 +1172,10 @@ function createFilteredReporter(label, classifyLine) {
       return
     }
 
+    publishRuntimeFailure(plain, {
+      progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
+      progressLabel: splashState.progressLabel || startupProgress.label,
+    })
     passthrough = true
     if (interactiveLogToggle) {
       showBufferedLogs(`❌ ${label} emitted raw output`)
@@ -1162,6 +1246,9 @@ function classifyWatchLine(line) {
 }
 
 function classifyServerLine(line) {
+  if (isIgnorableDerivedKeyWarningLine(line)) {
+    return { type: 'ignore' }
+  }
   if (line.startsWith('🚀 Running server:dev')) {
     return {
       type: 'status',

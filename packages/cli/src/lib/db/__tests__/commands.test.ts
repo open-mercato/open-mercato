@@ -1,6 +1,3 @@
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 import {
   sanitizeModuleId,
   validateTableName,
@@ -136,41 +133,9 @@ describe('makeConstraintDropsIdempotent', () => {
 })
 
 describe('getMigrationSnapshotName', () => {
-  it('uses the project package name instead of the current database name', () => {
-    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-db-snapshot-'))
-    fs.writeFileSync(
-      path.join(rootDir, 'package.json'),
-      JSON.stringify({ name: 'open-mercato' }),
-      'utf8'
-    )
-
+  it('keeps the historical fixed snapshot name', () => {
     const snapshotName = getMigrationSnapshotName({
-      getRootDir: () => rootDir,
-    })
-
-    expect(snapshotName).toBe('.snapshot-open-mercato')
-  })
-
-  it('normalizes scoped package names into a stable snapshot slug', () => {
-    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-db-snapshot-'))
-    fs.writeFileSync(
-      path.join(rootDir, 'package.json'),
-      JSON.stringify({ name: '@acme/My Custom App' }),
-      'utf8'
-    )
-
-    const snapshotName = getMigrationSnapshotName({
-      getRootDir: () => rootDir,
-    })
-
-    expect(snapshotName).toBe('.snapshot-my-custom-app')
-  })
-
-  it('falls back to the default repo snapshot name when package.json is unavailable', () => {
-    const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-db-snapshot-'))
-
-    const snapshotName = getMigrationSnapshotName({
-      getRootDir: () => rootDir,
+      getRootDir: () => '/tmp/any-project',
     })
 
     expect(snapshotName).toBe('.snapshot-open-mercato')
