@@ -46,7 +46,7 @@ const memoryState = {
   currentBytes: null,
   peakBytes: 0,
   interval: null,
-  lastPrintedBucket: null,
+  lastPrintedBytes: null,
   lastPrintedAt: 0,
 }
 const runtimeSummaryState = {
@@ -54,7 +54,18 @@ const runtimeSummaryState = {
   workerQueues: [],
   schedulerActive: false,
   packagesPrinted: false,
+  workersPrinted: false,
   lastWorkersSignature: '',
+}
+const targetedWarmupTargets = [
+  { path: '/login', label: 'login page', method: 'GET' },
+]
+const runtimeWarmupState = {
+  baseUrl: null,
+  readySignalSeen: false,
+  started: false,
+  completed: false,
+  promise: null,
 }
 
 function formatDuration(durationMs) {
@@ -99,6 +110,14 @@ function wrapListLines(label, items, maxWidth = 58) {
   return lines
 }
 
+function printCompactSummary(icon, title, lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return
+  console.log(`${icon} ${title}`)
+  for (const line of lines) {
+    console.log(`   ${line}`)
+  }
+}
+
 function readJsonFile(filePath) {
   try {
     return JSON.parse(fs.readFileSync(filePath, 'utf8'))
@@ -138,14 +157,14 @@ function printRuntimePackagesSummary() {
   if (runtimeSummaryState.packageNames.length === 0) return
 
   runtimeSummaryState.packagesPrinted = true
-  printTerminalBanner(CYAN_BORDER, [
-    ' ACTIVE PACKAGES',
-    ...wrapListLines(`Packages (${runtimeSummaryState.packageNames.length})`, runtimeSummaryState.packageNames),
-    ' Expand raw logs with [d] for full startup output',
-  ])
+  printCompactSummary(
+    '📦',
+    `Active packages (${runtimeSummaryState.packageNames.length})`,
+    wrapListLines('packages', runtimeSummaryState.packageNames, 76).map((line) => line.trim()),
+  )
 }
 
-function printBackgroundServicesSummary(force = false) {
+function printBackgroundServicesSummary() {
   const queueItems = runtimeSummaryState.workerQueues.map((entry) =>
     `${entry.queue} · ${entry.handlers} handler${entry.handlers === 1 ? '' : 's'} · c${entry.concurrency}`
   )
@@ -158,15 +177,17 @@ function printBackgroundServicesSummary(force = false) {
     workerQueues: runtimeSummaryState.workerQueues,
   })
 
-  if (!force && (!detailItems.length || signature === runtimeSummaryState.lastWorkersSignature)) {
+  if (!detailItems.length || signature === runtimeSummaryState.lastWorkersSignature || runtimeSummaryState.workersPrinted) {
     return
   }
 
   runtimeSummaryState.lastWorkersSignature = signature
-  printTerminalBanner(CYAN_BORDER, [
-    ' BACKGROUND SERVICES',
-    ...wrapListLines('Runtime', detailItems, 64),
-  ])
+  runtimeSummaryState.workersPrinted = true
+  printCompactSummary(
+    '⚙️',
+    `Background services (${detailItems.length})`,
+    detailItems.map((item, index) => `${index === 0 ? '🕒' : '🧵'} ${item}`),
+  )
 }
 
 function initializeRuntimeSummary() {
@@ -204,14 +225,11 @@ function captureBackgroundServiceLine(line) {
   if (line === '[server] Starting scheduler polling engine...' || line.startsWith('✓ Local scheduler started')) {
     runtimeSummaryState.schedulerActive = true
     updateRuntimeSummaryState()
-    if (runtimeSummaryState.workerQueues.length === 0 && line.startsWith('✓ Local scheduler started')) {
-      printBackgroundServicesSummary(true)
-    }
     return true
   }
 
   if (line === '[worker] All workers started. Press Ctrl+C to stop') {
-    printBackgroundServicesSummary(true)
+    printBackgroundServicesSummary()
     return true
   }
 
@@ -252,6 +270,14 @@ function updateStartupProgress(current, label) {
 function formatProgressStatus(message, current = startupProgress.current, label = startupProgress.label) {
   const percent = resolveProgressPercent(current, startupProgress.total)
   return `${formatProgressBar(percent)} ${String(current).padStart(1)}/${startupProgress.total} ${message || label}`
+}
+
+function formatStatusOutput(message, current = startupProgress.current, label = startupProgress.label) {
+  if (!message) return formatProgressStatus(message, current, label)
+  if (current >= startupProgress.total) {
+    return message
+  }
+  return formatProgressStatus(message, current, label)
 }
 
 function stripAnsi(value) {
@@ -392,6 +418,102 @@ function waitForExit(child) {
   })
 }
 
+function joinBaseUrl(baseUrl, pathname) {
+  return `${String(baseUrl ?? '').replace(/\/$/, '')}${pathname}`
+}
+
+async function fetchWithTimeout(url, init = {}, timeoutMs = 45000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  timer.unref?.()
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function runTargetedRouteWarmup() {
+  if (runtimeWarmupState.started) return
+  if (!runtimeWarmupState.baseUrl || !runtimeWarmupState.readySignalSeen) return
+
+  runtimeWarmupState.started = true
+  const startedAt = Date.now()
+  const progressLabel = 'Precompiling login page'
+  const introMessage = '🔥 Precompiling /login'
+
+  updateSplashState({
+    phase: 'Installation and first compilation is in progress...',
+    detail: introMessage,
+    ready: false,
+    progressCurrent: 4,
+    progressTotal: startupProgress.total,
+    progressPercent: resolveProgressPercent(4, startupProgress.total),
+    progressLabel,
+    activity: 'Precompiling login page',
+  })
+  console.log(formatStatusOutput(introMessage, 4, progressLabel))
+
+  try {
+    for (const target of targetedWarmupTargets) {
+      const targetStartedAt = Date.now()
+      const response = await fetchWithTimeout(
+        joinBaseUrl(runtimeWarmupState.baseUrl, target.path),
+        { method: target.method, redirect: 'manual' },
+      )
+      const warmedMessage = `🔥 Warmed ${target.path} in ${formatDuration(Date.now() - targetStartedAt)} (${response.status})`
+      updateSplashState({
+        phase: 'Installation and first compilation is in progress...',
+        detail: warmedMessage,
+        ready: false,
+        progressCurrent: 4,
+        progressTotal: startupProgress.total,
+        progressPercent: resolveProgressPercent(4, startupProgress.total),
+        progressLabel,
+        activity: warmedMessage,
+      })
+      console.log(formatStatusOutput(warmedMessage, 4, progressLabel))
+    }
+
+    runtimeWarmupState.completed = true
+    const completedMessage = `🚪 Login page warmed in ${formatDuration(Date.now() - startedAt)}`
+    updateSplashState({
+      phase: 'App is ready',
+      detail: completedMessage,
+      ready: true,
+      progressCurrent: 4,
+      progressTotal: startupProgress.total,
+      progressPercent: resolveProgressPercent(4, startupProgress.total),
+      progressLabel: 'App is ready',
+      activity: completedMessage,
+    })
+    console.log(formatStatusOutput(completedMessage, 4, 'App is ready'))
+  } catch (error) {
+    const warmupWarning = `⚠️ Warmup incomplete: ${error instanceof Error ? error.message : 'unknown error'}`
+    updateSplashState({
+      phase: 'App is ready',
+      detail: warmupWarning,
+      ready: true,
+      progressCurrent: 4,
+      progressTotal: startupProgress.total,
+      progressPercent: resolveProgressPercent(4, startupProgress.total),
+      progressLabel: 'App is ready',
+      activity: warmupWarning,
+    })
+    console.log(formatStatusOutput(warmupWarning, 4, 'App is ready'))
+  }
+}
+
+function maybeStartTargetedRouteWarmup() {
+  if (runtimeWarmupState.started) return
+  if (!runtimeWarmupState.baseUrl || !runtimeWarmupState.readySignalSeen) return
+  runtimeWarmupState.promise = runTargetedRouteWarmup()
+}
+
 async function getProcessTreeMemoryBytes(rootPid) {
   if (!Number.isInteger(rootPid) || rootPid <= 0) return null
   if (process.platform === 'win32') return null
@@ -472,15 +594,17 @@ function maybePrintMemoryUsage(force = false) {
   if (!Number.isFinite(memoryState.currentBytes) || memoryState.currentBytes <= 0) return
   if (!force && memoryState.currentBytes < 32 * 1024 * 1024) return
 
-  const bucketSizeBytes = 128 * 1024 * 1024
-  const bucket = Math.round(memoryState.currentBytes / bucketSizeBytes)
+  const minimumDeltaBytes = 200 * 1024 * 1024
   const now = Date.now()
+  const deltaBytes = Number.isFinite(memoryState.lastPrintedBytes)
+    ? Math.abs(memoryState.currentBytes - memoryState.lastPrintedBytes)
+    : Infinity
 
-  if (!force && bucket === memoryState.lastPrintedBucket && now - memoryState.lastPrintedAt < 30000) {
+  if (!force && deltaBytes < minimumDeltaBytes && now - memoryState.lastPrintedAt < 30000) {
     return
   }
 
-  memoryState.lastPrintedBucket = bucket
+  memoryState.lastPrintedBytes = memoryState.currentBytes
   memoryState.lastPrintedAt = now
   console.log(`🧠 Memory ${formatMemory(memoryState.currentBytes)} RSS (peak ${formatMemory(memoryState.peakBytes)})`)
 }
@@ -564,7 +688,11 @@ function rememberRawLog(line) {
 
 function printTerminalBanner(style, lines) {
   if (!Array.isArray(lines) || lines.length === 0) return
-  const width = Math.max(...lines.map((line) => line.length), 36)
+  const contentWidth = Math.max(...lines.map((line) => line.length), 36)
+  const terminalWidth = Number.isFinite(process.stdout.columns) ? process.stdout.columns : 0
+  const width = terminalWidth > 8
+    ? Math.max(contentWidth, terminalWidth - 4)
+    : contentWidth
   const border = `${style}${'━'.repeat(width + 4)}${RESET}`
   console.log(border)
   for (const line of lines) {
@@ -732,20 +860,32 @@ function createFilteredReporter(label, classifyLine) {
 
     if (result.type === 'status') {
       if (result.message) {
+        if (typeof result.readyUrl === 'string' && result.readyUrl) {
+          runtimeWarmupState.baseUrl = result.readyUrl.replace(/\/$/, '')
+        }
+        if (result.ready === true || result.runtimeReady === true) {
+          runtimeWarmupState.readySignalSeen = true
+        }
+
         const progressCurrent = typeof result.progressCurrent === 'number'
           ? Math.max(startupProgress.current, result.progressCurrent)
           : startupProgress.current
         const progressLabel = typeof result.progressLabel === 'string' ? result.progressLabel : startupProgress.label
-        const renderedMessage = formatProgressStatus(result.message, progressCurrent, progressLabel)
+        const renderedMessage = formatStatusOutput(result.message, progressCurrent, progressLabel)
         if (renderedMessage === lastRenderedStatus) {
           return
         }
         lastRenderedStatus = renderedMessage
         updateStartupProgress(progressCurrent, progressLabel)
+        const nextReady = result.ready === true
+          && !!runtimeWarmupState.baseUrl
+          && !runtimeWarmupState.completed
+            ? false
+            : (result.ready ?? splashState.ready)
         updateSplashState({
           phase: result.splashPhase ?? splashState.phase,
           detail: result.splashDetail ?? result.message,
-          ready: result.ready ?? splashState.ready,
+          ready: nextReady,
           readyUrl: result.readyUrl ?? splashState.readyUrl,
           loginUrl: result.loginUrl ?? splashState.loginUrl,
           progressCurrent,
@@ -755,6 +895,7 @@ function createFilteredReporter(label, classifyLine) {
           activity: result.activity ?? result.message,
         })
         console.log(renderedMessage)
+        maybeStartTargetedRouteWarmup()
       }
       return
     }
@@ -872,14 +1013,14 @@ function classifyServerLine(line) {
   if (localMatch) {
     return {
       type: 'status',
-      message: `🌐 App ready at ${localMatch[1]}`,
-      splashPhase: 'App is ready',
-      splashDetail: `Use ${localMatch[1]} to test the application`,
+      message: `🌐 App runtime at ${localMatch[1]}`,
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: `Dev server is listening at ${localMatch[1]}`,
       readyUrl: localMatch[1],
       loginUrl: `${localMatch[1].replace(/\/$/, '')}/login`,
-      activity: `App ready at ${localMatch[1]}`,
+      activity: `App runtime at ${localMatch[1]}`,
       progressCurrent: 4,
-      progressLabel: 'App is ready',
+      progressLabel: 'Precompiling login page',
     }
   }
   const readyMatch = line.match(/^✓ Ready in (\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s)$/)
@@ -888,12 +1029,13 @@ function classifyServerLine(line) {
     return {
       type: 'status',
       message: timing,
-      splashPhase: 'App is ready',
-      splashDetail: timing,
-      ready: true,
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: 'Runtime is ready, precompiling login page',
+      ready: false,
+      runtimeReady: true,
       activity: timing,
       progressCurrent: 4,
-      progressLabel: 'App is ready',
+      progressLabel: 'Precompiling login page',
     }
   }
   const compiledMatch = line.match(/^✓ Compiled(?:\s+(.+?))?\s+in\s+(\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s)$/)
@@ -931,12 +1073,12 @@ function classifyServerLine(line) {
       return {
         type: 'status',
         message: `📄 ${line}`,
-        splashPhase: 'App is ready',
+        splashPhase: runtimeWarmupState.completed ? 'App is ready' : 'Installation and first compilation is in progress...',
         splashDetail: `Latest page timing: ${line}`,
-        ready: true,
+        ready: runtimeWarmupState.completed,
         activity: `📄 ${line}`,
         progressCurrent: 4,
-        progressLabel: 'App is ready',
+        progressLabel: runtimeWarmupState.completed ? 'App is ready' : 'Precompiling login page',
       }
     }
   }

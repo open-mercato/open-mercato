@@ -1,6 +1,3 @@
 export async function register(): Promise<void> {
-  if (process.env.NEXT_RUNTIME !== 'nodejs') return
-
-  const { scheduleDevRouteWarmup } = await import('@/lib/dev/routeWarmup')
-  scheduleDevRouteWarmup()
+  // no-op: dev warmup is handled by the dev runner splash flow
 }

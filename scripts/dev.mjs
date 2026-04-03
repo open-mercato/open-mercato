@@ -17,6 +17,7 @@ let splashServer = null
 let splashUrl = null
 let splashChildStateFile = null
 let splashLogoSvg = null
+let splashLocaleConfig = null
 const splashState = {
   mode: greenfield ? 'greenfield' : 'dev',
   phase: greenfield ? 'Greenfield installation and first compilation is in progress...' : 'Installation and first compilation is in progress...',
@@ -196,6 +197,152 @@ function resolveSplashLogoSvg() {
   return splashLogoSvg
 }
 
+function parseStringArrayLiteral(source, variableName) {
+  const match = source.match(new RegExp(`\\b${variableName}\\b\\s*:\\s*[^=]+=`))
+  if (!match) return []
+
+  const startIndex = source.indexOf('[', match.index)
+  if (startIndex === -1) return []
+
+  let depth = 0
+  let endIndex = -1
+  for (let index = startIndex; index < source.length; index += 1) {
+    const char = source[index]
+    if (char === '[') depth += 1
+    if (char === ']') {
+      depth -= 1
+      if (depth === 0) {
+        endIndex = index
+        break
+      }
+    }
+  }
+
+  if (endIndex === -1) return []
+  const literal = source.slice(startIndex, endIndex + 1)
+  return Array.from(literal.matchAll(/'([^']+)'|"([^"]+)"/g), (entry) => entry[1] || entry[2]).filter(Boolean)
+}
+
+function parseStringLiteral(source, variableName) {
+  const match = source.match(new RegExp(`\\b${variableName}\\b\\s*:\\s*[^=]+=\\s*('([^']+)'|"([^"]+)")`))
+  return match?.[2] || match?.[3] || null
+}
+
+function resolveSplashLocaleConfig() {
+  if (splashLocaleConfig) return splashLocaleConfig
+
+  const fallback = {
+    locales: ['en', 'pl', 'es', 'de'],
+    defaultLocale: 'en',
+  }
+
+  const candidatePath = path.join(process.cwd(), 'packages', 'shared', 'src', 'lib', 'i18n', 'config.ts')
+
+  try {
+    const source = fs.readFileSync(candidatePath, 'utf8')
+    const locales = parseStringArrayLiteral(source, 'locales')
+    const defaultLocale = parseStringLiteral(source, 'defaultLocale')
+
+    splashLocaleConfig = {
+      locales: locales.length > 0 ? locales : fallback.locales,
+      defaultLocale: defaultLocale || (locales[0] ?? fallback.defaultLocale),
+    }
+    return splashLocaleConfig
+  } catch {
+    splashLocaleConfig = fallback
+    return splashLocaleConfig
+  }
+}
+
+function normalizeLocaleToken(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/_/g, '-')
+}
+
+function resolveSupportedSplashLocale(value, localeConfig = resolveSplashLocaleConfig()) {
+  if (typeof value !== 'string') return null
+
+  const normalized = normalizeLocaleToken(value)
+  if (!normalized) return null
+
+  if (localeConfig.locales.includes(normalized)) {
+    return normalized
+  }
+
+  const baseLocale = normalized.split('-')[0]
+  if (baseLocale && localeConfig.locales.includes(baseLocale)) {
+    return baseLocale
+  }
+
+  return null
+}
+
+function resolveSplashLocaleFromAcceptLanguage(acceptLanguage, localeConfig = resolveSplashLocaleConfig()) {
+  if (typeof acceptLanguage !== 'string' || acceptLanguage.trim().length === 0) {
+    return null
+  }
+
+  const rankedCandidates = acceptLanguage
+    .split(',')
+    .map((entry, index) => {
+      const [rawLocale, ...rawParams] = entry.split(';')
+      const locale = rawLocale?.trim() ?? ''
+      const qParam = rawParams.find((param) => param.trim().startsWith('q='))
+      const parsedQ = qParam ? Number.parseFloat(qParam.trim().slice(2)) : 1
+      const quality = Number.isFinite(parsedQ) ? Math.min(Math.max(parsedQ, 0), 1) : 1
+
+      return { locale, quality, index }
+    })
+    .filter((entry) => entry.locale.length > 0 && entry.quality > 0)
+    .sort((left, right) => {
+      if (right.quality !== left.quality) {
+        return right.quality - left.quality
+      }
+      return left.index - right.index
+    })
+
+  for (const candidate of rankedCandidates) {
+    const resolved = resolveSupportedSplashLocale(candidate.locale, localeConfig)
+    if (resolved) return resolved
+  }
+
+  return null
+}
+
+function readCookieFromHeader(cookieHeader, key) {
+  if (typeof cookieHeader !== 'string' || !cookieHeader) return null
+
+  for (const entry of cookieHeader.split(';')) {
+    const [rawName, ...rest] = entry.split('=')
+    if ((rawName ?? '').trim() !== key) continue
+    const rawValue = rest.join('=').trim()
+    if (!rawValue) return null
+    try {
+      return decodeURIComponent(rawValue)
+    } catch {
+      return rawValue
+    }
+  }
+
+  return null
+}
+
+function resolveSplashRequestLocale(req, localeConfig = resolveSplashLocaleConfig()) {
+  const cookieLocale = resolveSupportedSplashLocale(
+    readCookieFromHeader(req?.headers?.cookie, 'locale'),
+    localeConfig,
+  )
+  if (cookieLocale) return cookieLocale
+
+  const acceptLocale = resolveSplashLocaleFromAcceptLanguage(req?.headers?.['accept-language'], localeConfig)
+  if (acceptLocale) return acceptLocale
+
+  return localeConfig.defaultLocale
+}
+
+function escapeForInlineScript(value) {
+  return JSON.stringify(value).replace(/</g, '\\u003c')
+}
+
 function updateSplashState(patch) {
   if (typeof patch.phase === 'string') splashState.phase = patch.phase
   if (typeof patch.detail === 'string') splashState.detail = patch.detail
@@ -242,38 +389,75 @@ function getMergedSplashState() {
   }
 }
 
-function renderSplashHtml() {
+function renderSplashHtml(req) {
   const inlineLogoSvg = resolveSplashLogoSvg()
+  const localeConfig = resolveSplashLocaleConfig()
+  const initialLocale = resolveSplashRequestLocale(req, localeConfig)
+  const localeLabels = {
+    en: 'English',
+    pl: 'Polski',
+    es: 'Español',
+    de: 'Deutsch',
+  }
+  const splashBootstrap = escapeForInlineScript({
+    supportedLocales: localeConfig.locales,
+    defaultLocale: localeConfig.defaultLocale,
+    initialLocale,
+    localeLabels,
+  })
   return `<!doctype html>
-<html lang="en">
+<html lang="${initialLocale}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Open Mercato Dev</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&display=swap"
+    />
     <style>
       :root {
-        --bg: #071427;
-        --bg-deep: #06111f;
-        --panel: rgba(9, 25, 46, 0.82);
-        --panel-strong: rgba(11, 28, 50, 0.9);
-        --panel-border: rgba(163, 184, 210, 0.16);
-        --surface: rgba(255, 255, 255, 0.045);
-        --surface-strong: rgba(255, 255, 255, 0.07);
-        --muted: #98abc7;
-        --text: #f6f8fb;
-        --accent: #73efc2;
-        --accent-strong: #2b9f7d;
-        --warning: #ffcb4d;
+        --bg: #090909;
+        --bg-deep: #090909;
+        --panel: #1c1c1c;
+        --panel-strong: #1c1c1c;
+        --panel-border: rgba(255, 255, 255, 0.12);
+        --surface: rgba(255, 255, 255, 0.03);
+        --surface-strong: rgba(255, 255, 255, 0.05);
+        --muted: #a1a1aa;
+        --text: #fafafa;
+        --accent: #f5f5f5;
+        --accent-strong: #ffffff;
+        --warning: #f5f5f5;
+        --activity-text: #f5f5f5;
+        --activity-time: #a1a1aa;
+        --shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+      }
+      html[data-theme="light"] {
+        --bg: #f5f5f5;
+        --bg-deep: #ebebeb;
+        --panel: rgba(255, 255, 255, 0.96);
+        --panel-strong: rgba(255, 255, 255, 0.98);
+        --panel-border: rgba(17, 24, 39, 0.1);
+        --surface: rgba(17, 24, 39, 0.035);
+        --surface-strong: rgba(17, 24, 39, 0.055);
+        --muted: #5f5f67;
+        --text: #111111;
+        --warning: #111111;
+        --activity-text: #111111;
+        --activity-time: #52525b;
+        --shadow: 0 22px 52px rgba(15, 23, 42, 0.08);
       }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-family: "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, rgba(115, 239, 194, 0.14), transparent 32%),
-          radial-gradient(circle at 85% 20%, rgba(119, 165, 255, 0.15), transparent 24%),
+          radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.03), transparent 28%),
           linear-gradient(180deg, var(--bg), var(--bg-deep));
         display: grid;
         place-items: center;
@@ -281,82 +465,114 @@ function renderSplashHtml() {
       }
       .shell {
         width: min(1280px, 100%);
+        height: min(860px, calc(100vh - 48px));
         display: grid;
         grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.85fr);
         gap: 24px;
+        align-items: stretch;
       }
       .panel {
         background: var(--panel);
         border: 1px solid var(--panel-border);
-        border-radius: 36px;
-        backdrop-filter: blur(18px);
-        box-shadow: 0 32px 80px rgba(0, 0, 0, 0.32);
+        border-radius: 28px;
+        box-shadow: var(--shadow);
+        min-height: 0;
+        overflow: hidden;
       }
       .hero {
-        padding: 44px 48px;
-        display: flex;
-        flex-direction: column;
-        gap: 22px;
+        padding: 28px 34px 30px;
+        display: grid;
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        gap: 18px;
+        min-height: 0;
       }
-      .brand {
+      .hero-top {
         display: flex;
+        justify-content: flex-end;
         align-items: center;
+      }
+      .hero-mark {
+        display: grid;
+        justify-items: center;
         gap: 14px;
+        text-align: center;
       }
-      .logo-chip {
-        width: 58px;
-        height: 58px;
-        display: grid;
-        place-items: center;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.04);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-      }
-      .logo-chip svg {
-        width: 30px;
-        height: 30px;
-      }
-      .brand-copy {
-        display: grid;
-        gap: 5px;
-      }
-      .badge {
+      .hero-logo {
         display: inline-flex;
-        width: fit-content;
         align-items: center;
-        gap: 8px;
-        padding: 10px 16px;
+        justify-content: center;
+        width: auto;
+        height: auto;
+        padding: 0;
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        line-height: 0;
+      }
+      .hero-logo svg {
+        width: 156px;
+        height: 156px;
+        display: block;
+      }
+      .control-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .control-button {
+        min-height: 42px;
+        padding: 0 14px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        border: 1px solid rgba(255, 255, 255, 0.06);
-        color: var(--muted);
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+        color: var(--text);
+        font: inherit;
         font-size: 13px;
-        letter-spacing: 0.1em;
-        text-transform: uppercase;
-      }
-      .brand-title {
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-      }
-      h1 {
-        margin: 0;
-        font-size: clamp(56px, 7vw, 94px);
-        line-height: 0.93;
-        letter-spacing: -0.07em;
-        max-width: 8.6ch;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        cursor: pointer;
       }
       .summary {
         color: var(--muted);
-        font-size: 22px;
+        font-size: 18px;
         line-height: 1.5;
-        max-width: 31rem;
+        max-width: 34rem;
+        margin: 0 auto;
+        text-align: center;
       }
       .stream-shell {
         display: grid;
+        gap: 10px;
+        min-height: 0;
+      }
+      .hero-body {
+        display: grid;
         gap: 14px;
-        margin-top: 8px;
+        min-height: 0;
+        overflow-y: auto;
+        padding-right: 8px;
+        align-content: start;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+      }
+      .hero-body::-webkit-scrollbar {
+        width: 10px;
+      }
+      .hero-body::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .hero-body::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid transparent;
+        background-clip: padding-box;
+      }
+      .summary-folds {
+        display: grid;
+        gap: 14px;
+        align-content: start;
       }
       .stream-heading {
         font-size: 12px;
@@ -366,11 +582,11 @@ function renderSplashHtml() {
         color: var(--muted);
       }
       .status-card {
-        padding: 34px 30px;
+        padding: 28px 28px 30px;
         display: flex;
         flex-direction: column;
         gap: 18px;
-        justify-content: center;
+        justify-content: flex-start;
         background: var(--panel-strong);
       }
       .status-line {
@@ -378,10 +594,11 @@ function renderSplashHtml() {
         color: var(--muted);
       }
       .phase {
-        font-size: 30px;
+        font-size: 32px;
         line-height: 1.12;
         margin: 0;
         letter-spacing: -0.04em;
+        font-weight: 700;
       }
       .spinner {
         width: 56px;
@@ -425,12 +642,12 @@ function renderSplashHtml() {
         border-radius: 999px;
         overflow: hidden;
         background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1px solid var(--panel-border);
       }
       .progress-fill {
         height: 100%;
         width: 0%;
-        background: linear-gradient(90deg, var(--accent), #79b7ff);
+        background: linear-gradient(90deg, #d4d4d8, var(--accent-strong));
         transition: width 0.3s ease;
       }
       .button {
@@ -439,48 +656,100 @@ function renderSplashHtml() {
         justify-content: center;
         min-height: 52px;
         padding: 0 18px;
-        border-radius: 18px;
+        border-radius: 14px;
         border: 1px solid transparent;
         text-decoration: none;
-        font-weight: 700;
+        font-weight: 600;
         transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
       }
       .button.primary {
-        background: linear-gradient(135deg, #5bd6aa, #2c8f74);
-        color: #062117;
+        background: #f4f4f5;
+        color: #111111;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36);
       }
       .button.secondary {
-        border-color: rgba(255, 255, 255, 0.16);
+        border-color: var(--panel-border);
         color: var(--text);
+      }
+      html[data-theme="light"] .button.primary {
+        background: #111111;
+        color: #fafafa;
+        box-shadow: none;
+      }
+      html[data-theme="light"] .stream-heading,
+      html[data-theme="light"] .fold-card summary,
+      html[data-theme="light"] .status-line,
+      html[data-theme="light"] .terminal-hint {
+        color: #52525b;
+      }
+      html[data-theme="light"] .progress-track {
+        background: rgba(17, 24, 39, 0.06);
+      }
+      html[data-theme="light"] .spinner {
+        border-color: rgba(17, 24, 39, 0.12);
+        border-top-color: #111111;
+      }
+      html[data-theme="light"] .list li,
+      html[data-theme="light"] details.fold-card {
+        background: rgba(17, 24, 39, 0.055);
+        border-color: rgba(17, 24, 39, 0.1);
+      }
+      html[data-theme="light"] .activity-time {
+        color: #52525b;
+      }
+      html[data-theme="light"] .activity-message,
+      html[data-theme="light"] .fold-list li {
+        color: #111111;
       }
       .button[aria-disabled="true"] {
         opacity: 0.55;
         pointer-events: none;
       }
-      .memory-card,
+      .terminal-hint {
+        display: inline-flex;
+        align-items: center;
+        min-height: 52px;
+        padding: 0 4px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 600;
+      }
       details.fold-card {
         display: grid;
         gap: 8px;
         padding: 16px 18px;
-        border-radius: 22px;
+        border-radius: 20px;
         background: var(--surface);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-      }
-      .memory-title {
-        font-size: 12px;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--muted);
-      }
-      .memory-value {
-        font-size: 18px;
-        color: var(--text);
+        border: 1px solid var(--panel-border);
       }
       .fold-card summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        width: 100%;
         cursor: pointer;
         font-size: 13px;
         color: var(--muted);
         list-style: none;
+      }
+      .fold-card summary::after {
+        content: "⌄";
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 18px;
+        line-height: 1;
+        transform: rotate(0deg);
+        transition: transform 0.18s ease, color 0.18s ease;
+      }
+      .fold-card[open] summary {
+        margin-bottom: 12px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--panel-border);
+      }
+      .fold-card[open] summary::after {
+        transform: rotate(180deg);
+        color: var(--text);
       }
       .fold-card summary::-webkit-details-marker {
         display: none;
@@ -501,16 +770,50 @@ function renderSplashHtml() {
         color: var(--text);
       }
       .list {
-        gap: 12px;
+        gap: 10px;
+        height: clamp(176px, 22vh, 228px);
+        overflow-y: auto;
+        padding-right: 8px;
+        align-content: start;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+        scroll-snap-type: y proximity;
+      }
+      .list::-webkit-scrollbar {
+        width: 10px;
+      }
+      .list::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .list::-webkit-scrollbar-thumb {
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 2px solid transparent;
+        background-clip: padding-box;
       }
       .list li {
-        padding: 16px 18px;
-        border-radius: 22px;
+        padding: 14px 16px;
+        border-radius: 20px;
         background: var(--surface);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        color: #c7d5e8;
-        font-size: 18px;
+        border: 1px solid var(--panel-border);
+        scroll-snap-align: start;
+      }
+      .activity-entry {
+        display: grid;
+        gap: 6px;
+      }
+      .activity-time {
+        color: var(--activity-time);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .activity-message {
+        color: var(--activity-text);
+        font-size: 16px;
         line-height: 1.45;
+        font-weight: 600;
       }
       .url {
         color: var(--warning);
@@ -520,33 +823,63 @@ function renderSplashHtml() {
         to { transform: rotate(360deg); }
       }
       @media (max-width: 960px) {
-        .shell { grid-template-columns: 1fr; }
-        .hero, .status-card { padding: 32px 26px; }
-        h1 { font-size: clamp(46px, 13vw, 72px); max-width: none; }
-        .summary { font-size: 19px; }
+        .shell { grid-template-columns: 1fr; height: auto; }
+        .hero, .status-card { padding: 30px 24px; }
+        .hero-top { justify-content: flex-start; }
+        .control-row { justify-content: flex-start; }
+        .hero-logo {
+          width: auto;
+          height: auto;
+        }
+        .hero-logo svg {
+          width: 128px;
+          height: 128px;
+        }
+        .summary { font-size: 18px; }
+        .list {
+          height: auto;
+          max-height: min(232px, 34vh);
+        }
       }
     </style>
   </head>
   <body>
     <main class="shell">
       <section class="panel hero">
-        <div class="brand">
-          <div class="logo-chip" aria-hidden="true">${inlineLogoSvg}</div>
-          <div class="brand-copy">
-            <span class="badge">Open Mercato Dev</span>
-            <div class="brand-title">OPEN MERCATO</div>
+        <div class="hero-top">
+          <div class="control-row">
+            <button class="control-button" id="theme-toggle" type="button">🌙 Dark</button>
+            <button class="control-button" id="locale-toggle" type="button">🌐 EN</button>
           </div>
         </div>
-        <h1>Installation and first compilation is in progress…</h1>
-        <p class="summary">
+        <div class="hero-mark" aria-hidden="true">
+          <div class="hero-logo">${inlineLogoSvg}</div>
+        </div>
+        <p class="summary" id="hero-summary">
           The workspace is being prepared in the terminal. This page switches to a ready state as soon as the dev server becomes available.
         </p>
-        <section class="stream-shell" aria-labelledby="stream-heading">
-          <div class="stream-heading" id="stream-heading">✨ Live startup stream</div>
-          <ul class="list" id="activity-list">
-            <li>🪟 Preparing dev environment…</li>
-          </ul>
-        </section>
+        <div class="hero-body">
+          <section class="stream-shell" aria-labelledby="stream-heading">
+            <div class="stream-heading" id="stream-heading">✨ Live startup stream</div>
+            <ul class="list" id="activity-list">
+              <li>🪟 Preparing dev environment…</li>
+            </ul>
+          </section>
+          <section class="summary-folds" aria-label="Runtime summaries">
+            <details class="fold-card" id="packages-card">
+              <summary id="packages-summary">📦 Active packages</summary>
+              <ul class="fold-list" id="packages-list">
+                <li>Waiting for app package manifest…</li>
+              </ul>
+            </details>
+            <details class="fold-card" id="workers-card">
+              <summary id="workers-summary">⚙️ Background services</summary>
+              <ul class="fold-list" id="workers-list">
+                <li>Waiting for queue worker startup…</li>
+              </ul>
+            </details>
+          </section>
+        </div>
       </section>
       <aside class="panel status-card" id="status-card">
         <div class="spinner" aria-hidden="true"></div>
@@ -562,69 +895,308 @@ function renderSplashHtml() {
             <div class="progress-fill" id="progress-fill"></div>
           </div>
         </div>
-        <div class="memory-card">
-          <div class="memory-title">🧠 Runtime memory</div>
-          <div class="memory-value" id="memory-value">pending</div>
-        </div>
-        <details class="fold-card" id="packages-card">
-          <summary id="packages-summary">📦 Active packages</summary>
-          <ul class="fold-list" id="packages-list">
-            <li>Waiting for app package manifest…</li>
-          </ul>
-        </details>
-        <details class="fold-card" id="workers-card">
-          <summary id="workers-summary">⚙️ Background services</summary>
-          <ul class="fold-list" id="workers-list">
-            <li>Waiting for queue worker startup…</li>
-          </ul>
-        </details>
-        <div class="status-line">Current target: <span class="url" id="ready-url">pending</span></div>
+        <div class="status-line"><span id="target-label">Current target:</span> <span class="url" id="ready-url">pending</span></div>
         <div class="actions">
           <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
-          <a class="button secondary" id="terminal-button" href="#" aria-disabled="true">🖥 Keep terminal visible</a>
+          <div class="terminal-hint" id="terminal-hint">🖥 Keep terminal visible</div>
         </div>
       </aside>
     </main>
     <script>
+      const splashBootstrap = ${splashBootstrap}
       const modeLine = document.getElementById('mode-line')
       const phaseText = document.getElementById('phase-text')
       const detailText = document.getElementById('detail-text')
       const progressLabel = document.getElementById('progress-label')
       const progressValue = document.getElementById('progress-value')
       const progressFill = document.getElementById('progress-fill')
-      const memoryValue = document.getElementById('memory-value')
+      const packagesCard = document.getElementById('packages-card')
       const packagesSummary = document.getElementById('packages-summary')
       const packagesList = document.getElementById('packages-list')
+      const workersCard = document.getElementById('workers-card')
       const workersSummary = document.getElementById('workers-summary')
       const workersList = document.getElementById('workers-list')
+      const heroSummary = document.getElementById('hero-summary')
+      const streamHeading = document.getElementById('stream-heading')
+      const targetLabel = document.getElementById('target-label')
+      const themeToggle = document.getElementById('theme-toggle')
+      const localeToggle = document.getElementById('locale-toggle')
       const readyUrl = document.getElementById('ready-url')
       const loginButton = document.getElementById('login-button')
-      const terminalButton = document.getElementById('terminal-button')
+      const terminalHint = document.getElementById('terminal-hint')
       const activityList = document.getElementById('activity-list')
       const statusCard = document.getElementById('status-card')
+      const THEME_KEY = 'om-dev-theme'
+      const LOCALE_KEY = 'om-dev-locale'
+      const supportedLocales = Array.isArray(splashBootstrap.supportedLocales) && splashBootstrap.supportedLocales.length > 0
+        ? splashBootstrap.supportedLocales
+        : ['en', 'pl', 'es', 'de']
+      const defaultLocale = supportedLocales.includes(splashBootstrap.defaultLocale)
+        ? splashBootstrap.defaultLocale
+        : supportedLocales[0]
+      const localeLabels = splashBootstrap.localeLabels || {}
+      const activitySeenAt = new Map()
+      const translations = {
+        en: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Installation and first compilation is in progress…',
+          heroSummary: 'The workspace is being prepared in the terminal. This page switches to a ready state as soon as the dev server becomes available.',
+          streamHeading: '✨ Live startup stream',
+          packagesSummary: '📦 Active packages',
+          workersSummary: '⚙️ Background services',
+          targetLabel: 'Current target:',
+          targetPending: 'pending',
+          loginPreparing: '🚀 App is preparing…',
+          loginReady: '🚪 App is ready, open login',
+          terminalHint: '🖥 Keep terminal visible',
+          themeLight: '☀️ Light',
+          themeDark: '🌙 Dark',
+          waitingStatus: 'Waiting for dev runner status…',
+          progressOverview: 'Startup progress',
+          emptyPackages: 'Waiting for app package manifest…',
+          emptyWorkers: 'Waiting for queue worker startup…',
+          packagesCount: '📦 Active packages ({count})',
+          workersCount: '⚙️ Background services ({count})',
+          modeDev: 'Standard dev flow',
+          modeGreenfield: 'Greenfield dev flow',
+        },
+        pl: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Instalacja i pierwsza kompilacja są w toku…',
+          heroSummary: 'Workspace przygotowuje się w terminalu. Ta strona przełączy się w stan gotowości, gdy tylko serwer developerski będzie dostępny.',
+          streamHeading: '✨ Strumień startu na żywo',
+          packagesSummary: '📦 Aktywne pakiety',
+          workersSummary: '⚙️ Usługi w tle',
+          targetLabel: 'Aktualny adres:',
+          targetPending: 'oczekiwanie',
+          loginPreparing: '🚀 Aplikacja się przygotowuje…',
+          loginReady: '🚪 Aplikacja gotowa, otwórz logowanie',
+          terminalHint: '🖥 Zachowaj terminal',
+          themeLight: '☀️ Jasny',
+          themeDark: '🌙 Ciemny',
+          waitingStatus: 'Oczekiwanie na status runnera…',
+          progressOverview: 'Postęp uruchamiania',
+          emptyPackages: 'Oczekiwanie na manifest pakietów aplikacji…',
+          emptyWorkers: 'Oczekiwanie na start workerów kolejki…',
+          packagesCount: '📦 Aktywne pakiety ({count})',
+          workersCount: '⚙️ Usługi w tle ({count})',
+          modeDev: 'Standardowy tryb dev',
+          modeGreenfield: 'Tryb greenfield',
+        },
+        es: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'La instalación y la primera compilación están en curso…',
+          heroSummary: 'El workspace se está preparando en la terminal. Esta página cambiará al estado listo en cuanto el servidor de desarrollo esté disponible.',
+          streamHeading: '✨ Flujo de arranque en vivo',
+          packagesSummary: '📦 Paquetes activos',
+          workersSummary: '⚙️ Servicios en segundo plano',
+          targetLabel: 'Destino actual:',
+          targetPending: 'pendiente',
+          loginPreparing: '🚀 La aplicación se está preparando…',
+          loginReady: '🚪 La aplicación está lista, abrir login',
+          terminalHint: '🖥 Mantener la terminal visible',
+          themeLight: '☀️ Claro',
+          themeDark: '🌙 Oscuro',
+          waitingStatus: 'Esperando el estado del runner de desarrollo…',
+          progressOverview: 'Progreso del arranque',
+          emptyPackages: 'Esperando el manifiesto de paquetes de la aplicación…',
+          emptyWorkers: 'Esperando el arranque de los workers de cola…',
+          packagesCount: '📦 Paquetes activos ({count})',
+          workersCount: '⚙️ Servicios en segundo plano ({count})',
+          modeDev: 'Flujo dev estándar',
+          modeGreenfield: 'Flujo dev greenfield',
+        },
+        de: {
+          badge: 'Open Mercato Dev',
+          heroTitle: 'Installation und erste Kompilierung laufen…',
+          heroSummary: 'Der Workspace wird im Terminal vorbereitet. Diese Seite wechselt in den Bereitschaftszustand, sobald der Dev-Server verfügbar ist.',
+          streamHeading: '✨ Live-Startstream',
+          packagesSummary: '📦 Aktive Pakete',
+          workersSummary: '⚙️ Hintergrunddienste',
+          targetLabel: 'Aktuelles Ziel:',
+          targetPending: 'ausstehend',
+          loginPreparing: '🚀 Die App wird vorbereitet…',
+          loginReady: '🚪 App ist bereit, Login öffnen',
+          terminalHint: '🖥 Terminal sichtbar lassen',
+          themeLight: '☀️ Hell',
+          themeDark: '🌙 Dunkel',
+          waitingStatus: 'Warte auf den Status des Dev-Runners…',
+          progressOverview: 'Startfortschritt',
+          emptyPackages: 'Warte auf das Paketmanifest der App…',
+          emptyWorkers: 'Warte auf den Start der Queue-Worker…',
+          packagesCount: '📦 Aktive Pakete ({count})',
+          workersCount: '⚙️ Hintergrunddienste ({count})',
+          modeDev: 'Standard-Dev-Ablauf',
+          modeGreenfield: 'Greenfield-Dev-Ablauf',
+        },
+      }
+      const exactTranslations = {
+        pl: {
+          'Installation and first compilation is in progress...': 'Instalacja i pierwsza kompilacja są w toku…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: instalacja i pierwsza kompilacja są w toku…',
+          'Preparing app runtime': 'Przygotowywanie runtime aplikacji',
+          'Waiting for current status…': 'Oczekiwanie na bieżący status…',
+          'Preparing dev environment…': 'Przygotowywanie środowiska developerskiego…',
+          'Waiting for app package manifest…': 'Oczekiwanie na manifest pakietów aplikacji…',
+          'Waiting for queue worker startup…': 'Oczekiwanie na start workerów kolejki…',
+          'pending': 'oczekiwanie',
+          'scheduler · polling engine': 'scheduler · silnik odpytywania',
+        },
+        es: {
+          'Installation and first compilation is in progress...': 'La instalación y la primera compilación están en curso…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: la instalación y la primera compilación están en curso…',
+          'Preparing app runtime': 'Preparando el runtime de la aplicación',
+          'Waiting for current status…': 'Esperando el estado actual…',
+          'Preparing dev environment…': 'Preparando el entorno de desarrollo…',
+          'Waiting for app package manifest…': 'Esperando el manifiesto de paquetes de la aplicación…',
+          'Waiting for queue worker startup…': 'Esperando el arranque de los workers de cola…',
+          'pending': 'pendiente',
+          'scheduler · polling engine': 'scheduler · motor de sondeo',
+        },
+        de: {
+          'Installation and first compilation is in progress...': 'Installation und erste Kompilierung laufen…',
+          'Greenfield installation and first compilation is in progress...': 'Greenfield: Installation und erste Kompilierung laufen…',
+          'Preparing app runtime': 'App-Laufzeit wird vorbereitet',
+          'Waiting for current status…': 'Warte auf den aktuellen Status…',
+          'Preparing dev environment…': 'Entwicklungsumgebung wird vorbereitet…',
+          'Waiting for app package manifest…': 'Warte auf das Paketmanifest der App…',
+          'Waiting for queue worker startup…': 'Warte auf den Start der Queue-Worker…',
+          'pending': 'ausstehend',
+          'scheduler · polling engine': 'scheduler · Polling-Engine',
+        },
+      }
+      let currentLocale = 'en'
+      let currentTheme = 'dark'
 
-      terminalButton.addEventListener('click', (event) => {
-        event.preventDefault()
-        window.focus()
+      themeToggle.addEventListener('click', () => {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark'
+        localStorage.setItem(THEME_KEY, currentTheme)
+        applyTheme()
+        renderStaticText()
       })
+
+      localeToggle.addEventListener('click', () => {
+        const currentIndex = Math.max(0, supportedLocales.indexOf(currentLocale))
+        currentLocale = supportedLocales[(currentIndex + 1) % supportedLocales.length] || defaultLocale
+        localStorage.setItem(LOCALE_KEY, currentLocale)
+        renderStaticText()
+      })
+
+      function template(value, vars = {}) {
+        return String(value).replace(/\{(\w+)\}/g, (_, key) => String(vars[key] ?? ''))
+      }
+
+      function t(key, vars = {}) {
+        const dict = translations[currentLocale] || translations.en
+        const fallback = translations.en[key] || key
+        return template(dict[key] || fallback, vars)
+      }
+
+      function getLocaleLabel(locale) {
+        return localeLabels[locale] || String(locale || '').toUpperCase()
+      }
+
+      function splitEmoji(value) {
+        const match = String(value ?? '').match(/^([\p{Extended_Pictographic}\u2600-\u27BF][\uFE0F]?\s*)(.*)$/u)
+        if (!match) return { emoji: '', body: String(value ?? '') }
+        return { emoji: match[1], body: match[2] }
+      }
+
+      function translateMessage(value) {
+        const raw = String(value ?? '')
+        if (!raw) return raw
+        const { emoji, body } = splitEmoji(raw)
+        const exact = exactTranslations[currentLocale]?.[body] || exactTranslations[currentLocale]?.[raw]
+        if (exact) {
+          return emoji ? emoji + exact : exact
+        }
+        return raw
+      }
+
+      function normalizeStatusComparisonValue(value) {
+        const raw = String(value ?? '')
+        if (!raw) return ''
+
+        const { body } = splitEmoji(raw)
+        return body
+          .toLowerCase()
+          .replace(/\s+in\s+\d+(?:\.\d+)?(?:ms|s)\b.*$/i, '')
+          .replace(/[^\p{L}\p{N}]+/gu, ' ')
+          .trim()
+      }
+
+      function shouldCollapseProgressLabel(detail, label) {
+        const normalizedDetail = normalizeStatusComparisonValue(detail)
+        const normalizedLabel = normalizeStatusComparisonValue(label)
+        if (!normalizedDetail || !normalizedLabel) return false
+        return normalizedDetail === normalizedLabel
+          || normalizedDetail.startsWith(normalizedLabel)
+          || normalizedLabel.startsWith(normalizedDetail)
+      }
+
+      function detectLocale() {
+        const stored = localStorage.getItem(LOCALE_KEY)
+        if (supportedLocales.includes(stored)) return stored
+
+        if (supportedLocales.includes(splashBootstrap.initialLocale)) {
+          return splashBootstrap.initialLocale
+        }
+
+        const browserCandidates = Array.isArray(navigator.languages) ? navigator.languages : []
+        for (const candidate of [...browserCandidates, navigator.language]) {
+          if (typeof candidate !== 'string') continue
+          const normalized = candidate.trim().toLowerCase().replace(/_/g, '-')
+          if (supportedLocales.includes(normalized)) return normalized
+          const baseLocale = normalized.split('-')[0]
+          if (supportedLocales.includes(baseLocale)) return baseLocale
+        }
+
+        return defaultLocale
+      }
+
+      function detectTheme() {
+        const stored = localStorage.getItem(THEME_KEY)
+        if (stored === 'light' || stored === 'dark') return stored
+        return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+      }
+
+      function applyTheme() {
+        document.documentElement.dataset.theme = currentTheme
+      }
+
+      function renderStaticText() {
+        document.documentElement.lang = currentLocale
+        heroSummary.textContent = t('heroSummary')
+        streamHeading.textContent = t('streamHeading')
+        targetLabel.textContent = t('targetLabel')
+        terminalHint.textContent = t('terminalHint')
+        localeToggle.textContent = '🌐 ' + getLocaleLabel(currentLocale)
+        themeToggle.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight')
+      }
+
+      function formatActivityTimestamp(value) {
+        const date = new Date(value)
+        if (Number.isNaN(date.getTime())) return ''
+        return new Intl.DateTimeFormat(currentLocale, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }).format(date)
+      }
 
       function renderActivities(items) {
         if (!Array.isArray(items) || items.length === 0) return
         const ordered = items.slice().reverse()
-        activityList.innerHTML = ordered.map((item) => '<li>' + item.replace(/[&<>"]/g, (char) => ({
-          '&': '&amp;',
-          '<': '&lt;',
-          '>': '&gt;',
-          '"': '&quot;'
-        }[char])) + '</li>').join('')
-      }
-
-      function formatMemory(bytes) {
-        if (!Number.isFinite(bytes) || bytes <= 0) return 'pending'
-        if (bytes >= 1024 * 1024 * 1024) {
-          return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB'
-        }
-        return Math.round(bytes / (1024 * 1024)) + ' MB'
+        activityList.innerHTML = ordered.map((item) => {
+          const key = String(item ?? '')
+          if (!activitySeenAt.has(key)) {
+            activitySeenAt.set(key, Date.now())
+          }
+          const timestamp = formatActivityTimestamp(activitySeenAt.get(key))
+          const safeMessage = escapeHtml(translateMessage(item))
+          const safeTimestamp = escapeHtml(timestamp)
+          return '<li><div class="activity-entry"><span class="activity-time">' + safeTimestamp + '</span><span class="activity-message">' + safeMessage + '</span></div></li>'
+        }).join('')
       }
 
       function escapeHtml(value) {
@@ -645,26 +1217,26 @@ function renderSplashHtml() {
         try {
           const response = await fetch('/status', { cache: 'no-store' })
           const state = await response.json()
-          modeLine.textContent = state.mode === 'greenfield' ? 'Greenfield dev flow' : 'Standard dev flow'
-          phaseText.textContent = state.phase || 'Preparing app runtime'
-          detailText.textContent = state.detail || 'Preparing app runtime'
+          modeLine.textContent = state.mode === 'greenfield' ? t('modeGreenfield') : t('modeDev')
+          const rawPhase = state.phase || 'Preparing app runtime'
+          const rawDetail = state.detail || 'Preparing app runtime'
+          const rawProgressLabel = state.progressLabel || 'Preparing startup pipeline'
+          phaseText.textContent = translateMessage(rawPhase)
+          detailText.textContent = translateMessage(rawDetail)
           const percent = Number.isFinite(state.progressPercent) ? Math.max(0, Math.min(100, state.progressPercent)) : 0
-          progressLabel.textContent = state.progressLabel || 'Preparing startup pipeline'
+          progressLabel.textContent = shouldCollapseProgressLabel(rawDetail, rawProgressLabel)
+            ? t('progressOverview')
+            : translateMessage(rawProgressLabel)
           progressValue.textContent = Number.isFinite(state.progressCurrent) && Number.isFinite(state.progressTotal) && state.progressTotal > 0
             ? state.progressCurrent + '/' + state.progressTotal + ' · ' + percent + '%'
             : percent + '%'
           progressFill.style.width = percent + '%'
-          memoryValue.textContent = Number.isFinite(state.memoryCurrentBytes) && state.memoryCurrentBytes > 0
-            ? formatMemory(state.memoryCurrentBytes) + ' RSS · peak ' + formatMemory(state.memoryPeakBytes)
-            : 'pending'
           const packages = Array.isArray(state.packageNames) ? state.packageNames : []
-          packagesSummary.textContent = packages.length > 0
-            ? '📦 Active packages (' + packages.length + ')'
-            : '📦 Active packages'
-          renderSimpleList(packagesList, packages, 'Waiting for app package manifest…')
+          packagesSummary.textContent = packages.length > 0 ? t('packagesCount', { count: packages.length }) : t('packagesSummary')
+          renderSimpleList(packagesList, packages, t('emptyPackages'))
           const workerItems = []
           if (state.schedulerActive) {
-            workerItems.push('scheduler · polling engine')
+            workerItems.push(translateMessage('scheduler · polling engine'))
           }
           if (Array.isArray(state.workerQueues)) {
             for (const entry of state.workerQueues) {
@@ -675,31 +1247,33 @@ function renderSplashHtml() {
               workerItems.push(queue + ' · ' + handlers + ' handler' + (handlers === 1 ? '' : 's') + ' · c' + concurrency)
             }
           }
-          workersSummary.textContent = workerItems.length > 0
-            ? '⚙️ Background services (' + workerItems.length + ')'
-            : '⚙️ Background services'
-          renderSimpleList(workersList, workerItems, 'Waiting for queue worker startup…')
-          readyUrl.textContent = state.readyUrl || 'pending'
+          workersSummary.textContent = workerItems.length > 0 ? t('workersCount', { count: workerItems.length }) : t('workersSummary')
+          renderSimpleList(workersList, workerItems, t('emptyWorkers'))
+          readyUrl.textContent = state.readyUrl || t('targetPending')
           renderActivities(state.activities)
 
           if (state.ready && state.loginUrl) {
             statusCard.classList.add('ready')
-            loginButton.textContent = '🚪 App is ready, open login'
+            loginButton.textContent = t('loginReady')
             loginButton.href = state.loginUrl
             loginButton.setAttribute('aria-disabled', 'false')
-            terminalButton.setAttribute('aria-disabled', 'false')
           } else {
             statusCard.classList.remove('ready')
-            loginButton.textContent = '🚀 App is preparing…'
+            loginButton.textContent = t('loginPreparing')
             loginButton.href = '#'
             loginButton.setAttribute('aria-disabled', 'true')
-            terminalButton.setAttribute('aria-disabled', 'false')
           }
         } catch {
-          modeLine.textContent = 'Waiting for dev runner status…'
+          modeLine.textContent = t('waitingStatus')
         }
       }
 
+      currentLocale = detectLocale()
+      currentTheme = detectTheme()
+      if (packagesCard) packagesCard.open = false
+      if (workersCard) workersCard.open = false
+      applyTheme()
+      renderStaticText()
       refresh()
       setInterval(refresh, 1000)
     </script>
@@ -729,7 +1303,7 @@ async function startSplashServer() {
 
     if (req.url === '/' || req.url.startsWith('/?')) {
       res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      res.end(renderSplashHtml())
+      res.end(renderSplashHtml(req))
       return
     }
 
@@ -744,7 +1318,7 @@ async function startSplashServer() {
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
-  splashUrl = `http://127.0.0.1:${address.port}`
+  splashUrl = `http://localhost:${address.port}`
   console.log(`🪟 Dev splash ${splashUrl}`)
   updateSplashState({ activity: 'Splash page opened for live startup status' })
   openBrowser(splashUrl)
@@ -818,10 +1392,11 @@ function isIgnorableTurboLine(line) {
   return false
 }
 
-async function runStage(label, commandArgs) {
+async function runStage(label, commandArgs, options = {}) {
   const startedAt = Date.now()
-  const stageTotal = greenfield ? 5 : 3
-  const stageCurrent = commandArgs[0] === 'turbo' ? 1 : splashState.progressCurrent
+  const stageTotal = options.stageTotal ?? (greenfield ? 5 : 3)
+  const stageCurrent = options.stageCurrent
+    ?? (commandArgs[0] === 'turbo' ? 1 : splashState.progressCurrent)
   console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
   updateSplashState({
     phase: label,
@@ -876,21 +1451,24 @@ async function runStage(label, commandArgs) {
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
 }
 
-async function runPassthroughStage(label, commandArgs) {
+async function runPassthroughStage(label, commandArgs, options = {}) {
   const startedAt = Date.now()
   const stageOrder = {
     'build:packages': 1,
     generate: 2,
     initialize: 4,
   }
-  const stageCurrent = stageOrder[commandArgs[0]] ?? (commandArgs[0] === 'build:packages' && splashState.progressCurrent >= 2 ? 3 : splashState.progressCurrent)
-  console.log(`${formatProgressLine(label, stageCurrent, 5, resolveProgressPercent(stageCurrent, 5))}...`)
+  const stageCurrent = options.stageCurrent
+    ?? stageOrder[commandArgs[0]]
+    ?? (commandArgs[0] === 'build:packages' && splashState.progressCurrent >= 2 ? 3 : splashState.progressCurrent)
+  const stageTotal = options.stageTotal ?? 5
+  console.log(`${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}...`)
   updateSplashState({
     phase: label,
     detail: 'Streaming setup output in terminal',
     progressCurrent: stageCurrent,
-    progressTotal: 5,
-    progressPercent: resolveProgressPercent(stageCurrent, 5),
+    progressTotal: stageTotal,
+    progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
     progressLabel: label,
     activity: `${label} started`,
   })
@@ -905,12 +1483,12 @@ async function runPassthroughStage(label, commandArgs) {
     phase: label,
     detail: `Completed in ${formatDuration(Date.now() - startedAt)}`,
     progressCurrent: stageCurrent,
-    progressTotal: 5,
-    progressPercent: resolveProgressPercent(stageCurrent, 5),
+    progressTotal: stageTotal,
+    progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
     progressLabel: label,
     activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
   })
-  console.log(`✅ ${formatProgressLine(label, stageCurrent, 5, resolveProgressPercent(stageCurrent, 5))} in ${formatDuration(Date.now() - startedAt)}`)
+  console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
 }
 
 function startPackageWatch() {
@@ -1025,10 +1603,10 @@ async function runStandardDev() {
 }
 
 async function runGreenfieldDev() {
-  await runPassthroughStage('🧱 Greenfield build packages', ['build:packages'])
-  await runPassthroughStage('🧬 Greenfield generate artifacts', ['generate'])
-  await runPassthroughStage('🧱 Greenfield rebuild packages', ['build:packages'])
-  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'])
+  await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
+  await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
+  await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
+  await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5 })
 
   startPackageWatch()
   launchAppWorkspaceDev()
