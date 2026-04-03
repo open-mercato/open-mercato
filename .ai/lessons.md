@@ -618,3 +618,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: In standalone generation, use the package's `src/modules` tree as the canonical discovery mirror when it exists, but keep runtime imports pointed at compiled `dist` files. Do not let dist-only artifacts or extension changes in compiled output redefine what counts as a route, API file, or convention file.
 
 **Applies to**: `packages/cli` module scanning, route/API discovery, standalone create-app flows, and any generator that inspects installed `@open-mercato/*` packages.
+
+## Standalone source-mirror discovery must remap source extensions to runtime files
+
+**Context**: Published packages can ship `src/modules/**/*.ts` alongside compiled `dist/modules/**/*.js`. Generators may discover convention files from the source mirror while runtime bootstrap imports the compiled package exports.
+
+**Problem**: If standalone discovery finds `src/modules/configs/cli.ts` and then validates that exact relative path under `dist/modules`, the check fails because the runtime file is `cli.js`. The module then silently loses CLI/setup/ACL and other convention registrations in `modules.cli.generated.ts`, which breaks bootstrap-only flows like `yarn setup`.
+
+**Rule**: When discovery uses a standalone source mirror, resolve the logical file from `src`, then remap it to the matching compiled file in `dist` by basename, not by keeping the source extension. Discovery and runtime paths must stay logically aligned even when `.ts` becomes `.js`.
+
+**Applies to**: `packages/cli` `resolveModuleFile()`, standalone module registry generation, CLI bootstrap generation, and any future source-mirror-based convention file lookup.

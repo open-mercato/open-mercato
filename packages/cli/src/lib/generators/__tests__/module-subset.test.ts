@@ -685,6 +685,48 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(output).toContain('id: "configs"')
   })
 
+  it('preserves standalone CLI convention files when discovery uses a src mirror', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'configs', 'index.ts'),
+      "export const metadata = { name: 'Configs', requires: ['auth'] }\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'configs', 'cli.ts'),
+      "export default [{ command: 'restore-defaults', run: async () => {} }]\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'configs', 'acl.ts'),
+      "export const features = ['configs.manage']\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'index.js'),
+      "exports.metadata = { name: 'Configs', requires: ['auth'] }\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'cli.js'),
+      "module.exports = [{ command: 'restore-defaults', run: async () => {} }]\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'acl.js'),
+      "exports.features = ['configs.manage']\n",
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'configs', from: '@open-mercato/core' },
+      { id: 'auth', from: '@open-mercato/core' },
+    ]
+    const resolver = createStandaloneMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('import CLI_configs from "@open-mercato/core/modules/configs/cli"')
+    expect(output).toContain('cli: CLI_configs')
+    expect(output).toContain('features:')
+    expect(output).toContain('id: "configs"')
+  })
+
   it('does not treat standalone page.meta files as page components', async () => {
     touchFile(
       path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'iconic', 'backend', 'dashboard', 'page.js'),

@@ -209,13 +209,23 @@ export function resolveModuleFile(
   if (!appRelativePath && !pkgRelativePath) return null
 
   const fromApp = Boolean(appRelativePath)
-  const resolvedRelativePath = appRelativePath ?? pkgRelativePath!
-  const absoluteBase = fromApp ? roots.appBase : roots.pkgBase
-  const absolutePath = path.join(absoluteBase, ...resolvedRelativePath.split('/'))
-  if (!fromApp && pkgScanBase !== roots.pkgBase && !fs.existsSync(absolutePath)) {
-    return null
+  const scanRelativePath = appRelativePath ?? pkgRelativePath!
+  let runtimeRelativePath = scanRelativePath
+
+  if (!fromApp && pkgScanBase !== roots.pkgBase) {
+    const runtimeCandidates = resolveCodeFileCandidates(stripModuleCodeExtension(scanRelativePath))
+    const distRelativePath = runtimeCandidates.find((candidate) =>
+      fs.existsSync(path.join(roots.pkgBase, ...candidate.split('/')))
+    )
+    if (!distRelativePath) {
+      return null
+    }
+    runtimeRelativePath = distRelativePath
   }
-  const importSuffix = stripModuleCodeExtension(resolvedRelativePath)
+
+  const absoluteBase = fromApp ? roots.appBase : roots.pkgBase
+  const absolutePath = path.join(absoluteBase, ...runtimeRelativePath.split('/'))
+  const importSuffix = stripModuleCodeExtension(runtimeRelativePath)
   const importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${importSuffix}`
   return { absolutePath, fromApp, importPath }
 }
