@@ -252,4 +252,51 @@ describe('GET /api/auth/admin/nav', () => {
 
     expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
   })
+
+  it('returns the extended backend chrome payload fields for client hydration', async () => {
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      roles: ['admin'],
+    })
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['customer_accounts.*', 'auth.*'],
+    })
+    mockGetModules.mockReturnValue([
+      {
+        id: 'auth',
+        backendRoutes: [
+          {
+            pattern: '/backend/settings/auth/users',
+            title: 'Users',
+            pageGroupKey: 'auth.settings.section',
+            group: 'Auth',
+            order: 1,
+            pageContext: 'settings',
+          } as BackendRoute & { pageContext: 'settings' },
+        ],
+      },
+    ])
+    setupCustomEntities([])
+
+    const response = await GET(makeRequest())
+    expect(response.status).toBe(200)
+    const payload = (await response.json()) as {
+      settingsSections: Array<{ id: string; items: Array<{ href: string }> }>
+      settingsPathPrefixes: string[]
+      profileSections: Array<{ id: string }>
+      profilePathPrefixes: string[]
+      grantedFeatures: string[]
+      roles: string[]
+    }
+
+    expect(payload.settingsSections[0]?.items.map((item) => item.href)).toContain('/backend/settings/auth/users')
+    expect(payload.settingsPathPrefixes).toContain('/backend/settings/auth')
+    expect(payload.profileSections.length).toBeGreaterThan(0)
+    expect(payload.profilePathPrefixes).toContain('/backend/profile/')
+    expect(payload.grantedFeatures).toEqual(expect.arrayContaining(['customer_accounts.*', 'auth.*']))
+    expect(payload.roles).toEqual(['admin'])
+  })
 })

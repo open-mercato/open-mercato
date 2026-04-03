@@ -3,6 +3,20 @@
 ## TLDR
 Move backend chrome resolution off the critical SSR path. Keep server-side authorization for the active page, but switch the backend sidebar and related chrome to a client-first bootstrap model that hydrates from a single backend chrome payload after first paint. Preserve final behavior, sidebar customization, injection support, and route/module loading semantics.
 
+## Implementation Status
+Status on 2026-04-03:
+- implemented shared backend chrome payload types and a single backend chrome resolver used by the admin-nav API
+- implemented additive `GET /api/auth/admin/nav` response fields for settings/profile sections, granted features, and roles
+- implemented a shared backend chrome client provider in `packages/ui` with scoped caching and refresh support
+- refactored `AppShell` to hydrate sidebar/settings/profile chrome from the provider and expose a deterministic chrome readiness marker
+- refactored `useInjectedMenuItems` to consume provider-backed features and roles instead of per-surface profile/feature-check requests
+- refactored the Mercato backend layout to stop building sidebar chrome on the SSR critical path and to use lazy client header chrome wrappers
+- synced the create-app template backend layout/components with the same backend chrome bootstrap model
+
+Follow-up still recommended:
+- update broader Playwright backend-shell coverage to wait on the chrome readiness marker where assertions depend on hydrated sidebar content
+- optionally defer the mobile sidebar organization switcher with the same lazy pattern if bundle pressure there becomes measurable
+
 ## Overview
 The current backend first load does too much synchronous work in the backend layout. It resolves auth, locale, route metadata, sidebar entries, org-scoped RBAC checks, custom entity sidebar items, role and user sidebar preferences, and mounts multiple client-side chrome features that each perform additional data fetching. This delays first paint even though most of that work is only needed for navigation chrome, not for rendering the requested page content.
 
@@ -325,3 +339,4 @@ Residual risk:
 - 2026-04-03: Initial draft for backend first-load optimization via client-first sidebar and shared backend chrome bootstrap
 - 2026-04-03: Added integration-test stability requirements for client-hydrated backend chrome
 - 2026-04-03: Prioritized backend nav/chrome code deduplication as phase-zero optimization work
+- 2026-04-03: Implemented shared backend chrome resolver, provider-driven AppShell hydration, additive admin-nav bootstrap fields, and lazy backend header chrome
