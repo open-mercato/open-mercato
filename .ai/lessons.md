@@ -78,6 +78,36 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `.github/workflows/snapshot.yml`, `scripts/test-create-app.ts`, and `scripts/test-create-app-integration.ts`.
 
+## Keep mirrored dev runtimes aligned with their process registry type
+
+**Context**: The new splash-based dev runtimes track child processes in a `Set`, but shutdown code in the root script, app runtime, and create-app template still used `.filter(...)` as if the registry were an array.
+
+**Problem**: Pressing `Ctrl+C` crashed shutdown with `TypeError: children.filter is not a function`, leaving the runtime to exit noisily instead of terminating child processes cleanly.
+
+**Rule**: When a runtime script stores child processes in a `Set`, all shutdown and cleanup logic must iterate via `Array.from(children)` or direct `for...of`, and the same fix must be mirrored in `apps/mercato` and `packages/create-app/template` copies.
+
+**Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
+
+## `dbMigrate` must not write migration snapshots during initialize flows
+
+**Context**: A branch change started passing a custom MikroORM `snapshotName` into `dbMigrate`, while `yarn initialize` always runs `dbMigrate`.
+
+**Problem**: Fresh initialize/reinstall flows began rewriting per-module `.snapshot-*.json` files as a side effect, creating noisy git diffs unrelated to the migration application itself.
+
+**Rule**: Keep stable snapshot naming for `dbGenerate`, but disable migration snapshots for `dbMigrate` (`snapshot: false`) so initialize applies committed migrations without mutating snapshot files.
+
+**Applies to**: `packages/cli/src/lib/db/commands.ts` and any future init/bootstrap flow that calls `dbMigrate`.
+
+## Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files
+
+**Context**: The standalone `create-app` flow generates app-local `.mercato` artifacts while official packages are consumed from `node_modules`.
+
+**Problem**: The entity-id generator parsed exported classes and property declarations from module entity files. That works against monorepo `src` files, but compiled `dist/modules/**/data/entities.js` files do not preserve that source shape, so standalone generation silently dropped package entities like `organization`.
+
+**Rule**: In standalone mode, when building app-level generated entity IDs/field shims for package-backed modules, prefer the package's shipped `generated/entities.ids.generated.ts` and `generated/entities/*/index.ts` artifacts. Do not rely on parsing compiled `dist` entity files for source-level declarations.
+
+**Applies to**: `packages/cli/src/lib/generators/entity-ids.ts` and standalone `create-app` generation paths.
+
 ## Standalone scaffolding and generators must not assume monorepo-only paths
 
 **Context**: Separately, the standalone `yarn generate` OpenAPI bundle still looked for `packages/shared`, `apps/mercato`, and `tsconfig.base.json`.
@@ -568,3 +598,33 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
 
 **Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.
+
+## Generator manifests must fall back to source parsing when runtime-importing TS modules is fragile
+
+**Context**: Module registry generation tried to discover subscriber, worker, and API-route metadata by runtime-importing source files. In optimized dev/build flows, those imports can fail because sibling TS-only dependencies are not executable in that context yet.
+
+**Problem**: When metadata import failed, generated manifests silently lost event bindings or route `metadata.path` overrides. That broke query-index subscribers, produced wrong API paths like `/shipping_carriers/...`, and surfaced as dev-time `MODULE_NOT_FOUND` errors from generated registries.
+
+**Rule**: For generator-time metadata discovery, use runtime imports when they work, but always keep a source-level fallback for stable static exports such as `metadata`. Generation must stay deterministic even when the source module itself is not directly executable.
+
+**Applies to**: `packages/cli` generators that inspect module files, especially subscribers, workers, API routes, and other static manifest inputs.
+
+## Standalone module discovery must treat published `src/modules` as canonical over `dist/modules`
+
+**Context**: The standalone CLI scans installed packages under `node_modules/@open-mercato/*`. Published packages include compiled `dist/modules` output and also ship `src/modules`.
+
+**Problem**: Using `dist/modules` as the discovery source pulled in two classes of bad inputs that do not appear in monorepo source mode: helper files compiled from `.ts` to lower-case `.js` under `frontend/` and `backend/`, and stale dist-only artifacts such as legacy API handlers that no longer exist in `src/modules`. That produced bogus generated routes/imports and standalone-only build failures.
+
+**Rule**: In standalone generation, use the package's `src/modules` tree as the canonical discovery mirror when it exists, but keep runtime imports pointed at compiled `dist` files. Do not let dist-only artifacts or extension changes in compiled output redefine what counts as a route, API file, or convention file.
+
+**Applies to**: `packages/cli` module scanning, route/API discovery, standalone create-app flows, and any generator that inspects installed `@open-mercato/*` packages.
+
+## Standalone source-mirror discovery must remap source extensions to runtime files
+
+**Context**: Published packages can ship `src/modules/**/*.ts` alongside compiled `dist/modules/**/*.js`. Generators may discover convention files from the source mirror while runtime bootstrap imports the compiled package exports.
+
+**Problem**: If standalone discovery finds `src/modules/configs/cli.ts` and then validates that exact relative path under `dist/modules`, the check fails because the runtime file is `cli.js`. The module then silently loses CLI/setup/ACL and other convention registrations in `modules.cli.generated.ts`, which breaks bootstrap-only flows like `yarn setup`.
+
+**Rule**: When discovery uses a standalone source mirror, resolve the logical file from `src`, then remap it to the matching compiled file in `dist` by basename, not by keeping the source extension. Discovery and runtime paths must stay logically aligned even when `.ts` becomes `.js`.
+
+**Applies to**: `packages/cli` `resolveModuleFile()`, standalone module registry generation, CLI bootstrap generation, and any future source-mirror-based convention file lookup.

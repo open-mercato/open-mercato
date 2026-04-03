@@ -71,7 +71,7 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
       dealId = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 
-      await createSalesDocument(page, { kind: 'order', customerQuery: companyName });
+      await createSalesDocument(page, { kind: 'order', customerQuery: companyName, preferApi: true, token });
       await expect(page).toHaveURL(/kind=order$/i);
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);

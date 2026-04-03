@@ -2,9 +2,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import type { PackageResolver, ModuleEntry } from '../../resolver'
-import { generateModuleRegistry, generateModuleRegistryCli } from '../module-registry'
+import { generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } from '../module-registry'
 
 let tmpDir: string
+let fileMtimeNonce = 0
 
 function createTmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'module-subset-test-'))
@@ -13,6 +14,9 @@ function createTmpDir(): string {
 function touchFile(filePath: string, content = ''): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   fs.writeFileSync(filePath, content)
+  const mtime = new Date(Date.now() + fileMtimeNonce)
+  fileMtimeNonce += 1
+  fs.utimesSync(filePath, mtime, mtime)
 }
 
 function scaffoldModule(
@@ -62,6 +66,41 @@ function createMockResolver(
     }),
     getPackageOutputDir: () => outputDir,
     getPackageRoot: () => path.join(tmpDir, 'packages', 'core'),
+  }
+}
+
+function createStandaloneMockResolver(
+  tmpDir: string,
+  enabled: ModuleEntry[]
+): PackageResolver {
+  const outputDir = path.join(tmpDir, '.mercato', 'generated')
+  fs.mkdirSync(outputDir, { recursive: true })
+
+  return {
+    isMonorepo: () => false,
+    getRootDir: () => tmpDir,
+    getAppDir: () => tmpDir,
+    getOutputDir: () => outputDir,
+    getModulesConfigPath: () => path.join(tmpDir, 'src', 'modules.ts'),
+    discoverPackages: () => [],
+    loadEnabledModules: () => enabled,
+    getModulePaths: (entry: ModuleEntry) => ({
+      appBase: path.join(tmpDir, 'src', 'modules', entry.id),
+      pkgBase: path.join(
+        tmpDir,
+        'node_modules',
+        'pkg',
+        'dist',
+        'modules',
+        entry.id
+      ),
+    }),
+    getModuleImportBase: (entry: ModuleEntry) => ({
+      appBase: `@/modules/${entry.id}`,
+      pkgBase: `@open-mercato/core/modules/${entry.id}`,
+    }),
+    getPackageOutputDir: () => outputDir,
+    getPackageRoot: () => path.join(tmpDir, 'node_modules', 'pkg'),
   }
 }
 
@@ -117,6 +156,7 @@ module.exports = {
 
 beforeEach(() => {
   tmpDir = createTmpDir()
+  fileMtimeNonce = 0
 })
 
 afterEach(() => {
@@ -144,7 +184,7 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')
-    expect(output).toContain("id: 'empty_mod'")
+    expect(output).toContain('id: "empty_mod"')
   })
 
   it('handles module with only subscribers — no pages or APIs', async () => {
@@ -160,11 +200,56 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'notifications_only'")
+    expect(output).toContain('id: "notifications_only"')
     expect(output).toContain('subscribers:')
     expect(output).not.toContain('frontendRoutes:')
     expect(output).not.toContain('backendRoutes:')
     expect(output).not.toContain('apis:')
+  })
+
+  it('extracts subscriber metadata from source when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_meta', 'lib', 'helper.ts'),
+      'export const helper = true\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_meta', 'subscribers', 'on-event.ts'),
+      "import { helper } from '../lib/helper'\nexport const metadata = { event: 'subscriber.meta.created', persistent: false }\nexport default async function handler() { return helper }\n",
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'subscriber_meta', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('subscriber.meta.created')
+    expect(output).toContain('subscriber_meta:on-event')
+  })
+
+  it('keeps backend route metadata runtime-backed when icons are non-serializable', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.tsx'),
+      'export default function Page() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.meta.ts'),
+      "import React from 'react'\nconst icon = React.createElement('svg', null)\nexport const metadata = { requireAuth: true, pageTitle: 'Dashboard', icon }\n",
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'iconic', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'backend-routes.generated.ts')!
+    expect(output).toMatch(/import \* as .* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/)
+    expect(output).not.toContain('"pageTitle":"Dashboard"')
+    expect(output).toContain('pattern: "/backend/dashboard"')
   })
 
   it('handles module with only widgets — no pages or subscribers', async () => {
@@ -180,7 +265,7 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'widgets_only'")
+    expect(output).toContain('id: "widgets_only"')
     expect(output).toContain('dashboardWidgets:')
     expect(output).not.toContain('subscribers:')
 
@@ -208,7 +293,7 @@ describe('generateModuleRegistry with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'config_mod'")
+    expect(output).toContain('id: "config_mod"')
     expect(output).toContain('features:')
     expect(output).toContain('entityExtensions:')
     expect(output).toContain('customFieldSets:')
@@ -216,6 +301,91 @@ describe('generateModuleRegistry with module subsets', () => {
 
     const transFields = readGenerated(tmpDir, 'translations-fields.generated.ts')!
     expect(transFields).toContain('config_mod')
+  })
+
+  it('keeps all HTTP methods for route.ts files that re-export crud handlers', async () => {
+    scaffoldModule(tmpDir, 'customers', 'pkg', ['api/people/route.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'customers', 'api', 'people', 'route.ts'),
+      `const crud = {
+  GET() { return null },
+  POST() { return null },
+  PUT() { return null },
+  DELETE() { return null },
+}
+
+const { POST, PUT, DELETE } = crud
+
+export function GET() {
+  return null
+}
+
+export { POST, PUT, DELETE }
+`
+    )
+
+    const resolver = createMockResolver(tmpDir, [{ id: 'customers', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const apiRoutes = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutes).toContain('path: "/customers/people"')
+    expect(apiRoutes).toContain('methods: ["GET", "POST", "PUT", "DELETE"]')
+  })
+
+  it('keeps all HTTP methods for route.ts files that destructure-export crud handlers', async () => {
+    scaffoldModule(tmpDir, 'example', 'pkg', ['api/todos/route.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'example', 'api', 'todos', 'route.ts'),
+      `const crud = {
+  metadata: {},
+  GET() { return null },
+  POST() { return null },
+  PUT() { return null },
+  DELETE() { return null },
+}
+
+export const { metadata, GET, POST, PUT, DELETE } = crud
+`
+    )
+
+    const resolver = createMockResolver(tmpDir, [{ id: 'example', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const apiRoutes = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutes).toContain('path: "/example/todos"')
+    expect(apiRoutes).toContain('methods: ["GET", "POST", "PUT", "DELETE"]')
+  })
+
+  it('uses metadata.path in api route manifests when source import fails during generation', async () => {
+    scaffoldModule(tmpDir, 'shipping_carriers', 'pkg', ['api/providers/route.ts', 'lib/registry.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'shipping_carriers', 'lib', 'registry.ts'),
+      'export const registry = true\n'
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'shipping_carriers', 'api', 'providers', 'route.ts'),
+      `import { registry } from '../../lib/registry'
+
+export const metadata = {
+  path: '/shipping-carriers/providers',
+  GET: { requireAuth: true },
+}
+
+export function GET() {
+  return registry
+}
+`
+    )
+
+    const resolver = createMockResolver(tmpDir, [{ id: 'shipping_carriers', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const apiRoutes = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutes).toContain('path: "/shipping-carriers/providers"')
+    expect(apiRoutes).not.toContain('path: "/shipping_carriers/providers"')
   })
 
   it('generates correct output when full module is later disabled', async () => {
@@ -240,8 +410,8 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultAll.errors).toEqual([])
 
     const outputAll = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputAll).toContain("id: 'mod_a'")
-    expect(outputAll).toContain("id: 'mod_b'")
+    expect(outputAll).toContain('id: "mod_a"')
+    expect(outputAll).toContain('id: "mod_b"')
 
     // Second: regenerate with mod_b disabled (only mod_a)
     const subsetEnabled: ModuleEntry[] = [
@@ -255,8 +425,8 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultSubset.errors).toEqual([])
 
     const outputSubset = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputSubset).toContain("id: 'mod_a'")
-    expect(outputSubset).not.toContain("id: 'mod_b'")
+    expect(outputSubset).toContain('id: "mod_a"')
+    expect(outputSubset).not.toContain('id: "mod_b"')
 
     // Widgets file should no longer reference mod_b
     const widgetsSubset = readGenerated(tmpDir, 'dashboard-widgets.generated.ts')!
@@ -270,17 +440,75 @@ describe('generateModuleRegistry with module subsets', () => {
       'widgets/dashboard/my-widget/widget.tsx',
       'acl.ts',
     ])
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'custom_app', 'backend', 'page.tsx'),
+      'export default function CustomAppPage() { return null }\n',
+    )
     const enabled: ModuleEntry[] = [{ id: 'custom_app', from: '@app' }]
     const resolver = createMockResolver(tmpDir, enabled)
     const result = await generateModuleRegistry({ resolver, quiet: true })
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(output).toContain("id: 'custom_app'")
+    expect(output).toContain('id: "custom_app"')
     expect(output).toContain('backendRoutes:')
     expect(output).toContain('subscribers:')
     expect(output).toContain('dashboardWidgets:')
     expect(output).toContain('features:')
+  })
+
+  it('escapes generated module specifiers for lazy imports', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'safe_mod', 'subscribers', `o'hare.ts`),
+      `export const metadata = { event: 'orders.created' }\nexport default async function handler() {}\n`
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'safe_mod', 'workers', `queue'oops.ts`),
+      `export const metadata = { queue: 'sync.jobs', concurrency: 2 }\nexport default async function handler() {}\n`
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'safe_mod', 'api', 'get', `quoted'route.ts`),
+      `export const metadata = { path: '/safe_mod/quoted-route' }\nexport async function GET() { return new Response('ok') }\n`
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'safe_mod', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain(`createLazyModuleSubscriber(() => import("@open-mercato/core/modules/safe_mod/subscribers/o'hare")`)
+    expect(output).toContain(`createLazyModuleWorker(() => import("@open-mercato/core/modules/safe_mod/workers/queue'oops")`)
+    expect(output).toContain(`from "@open-mercato/core/modules/safe_mod/api/get/quoted'route"`)
+    expect(output).not.toContain(`import('@open-mercato/core/modules/safe_mod/subscribers/o'hare')`)
+    expect(output).not.toContain(`import('@open-mercato/core/modules/safe_mod/workers/queue'oops')`)
+    expect(output).not.toContain(`?? '/safe_mod/quoted'route'`)
+    expect(output).not.toContain(`path: '/safe_mod/quoted'route'`)
+  })
+
+  it('rejects unsafe generated module specifiers before emitting lazy imports', async () => {
+    scaffoldModule(tmpDir, 'bad_spec', 'pkg', ['subscribers/on-event.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'bad_spec', 'subscribers', 'on-event.ts'),
+      `export const metadata = { event: 'orders.created' }\nexport default async function handler() {}\n`
+    )
+
+    const baseResolver = createMockResolver(tmpDir, [
+      { id: 'bad_spec', from: '@open-mercato/core' },
+    ])
+    const resolver: PackageResolver = {
+      ...baseResolver,
+      getModuleImportBase: () => ({
+        appBase: '@/modules/bad_spec',
+        pkgBase: '@open-mercato/core/modules/bad_spec";console.log(1)//',
+      }),
+    }
+
+    await expect(generateModuleRegistry({ resolver, quiet: true })).rejects.toThrow(
+      'Unsafe generated module specifier'
+    )
   })
 
   it('mixed subset: core module + app module, then remove core module', async () => {
@@ -302,8 +530,8 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultBoth.errors).toEqual([])
 
     const outputBoth = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputBoth).toContain("id: 'core_mod'")
-    expect(outputBoth).toContain("id: 'app_mod'")
+    expect(outputBoth).toContain('id: "core_mod"')
+    expect(outputBoth).toContain('id: "app_mod"')
 
     const searchBoth = readGenerated(tmpDir, 'search.generated.ts')!
     expect(searchBoth).toContain('core_mod')
@@ -315,12 +543,46 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(resultApp.errors).toEqual([])
 
     const outputApp = readGenerated(tmpDir, 'modules.generated.ts')!
-    expect(outputApp).not.toContain("id: 'core_mod'")
-    expect(outputApp).toContain("id: 'app_mod'")
+    expect(outputApp).not.toContain('id: "core_mod"')
+    expect(outputApp).toContain('id: "app_mod"')
 
     // Search should no longer reference core_mod
     const searchApp = readGenerated(tmpDir, 'search.generated.ts')!
     expect(searchApp).not.toContain('core_mod')
+  })
+
+  it('uses standalone source mirror i18n files when dist modules omit translation assets', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'customers', 'i18n', 'en.json'),
+      JSON.stringify({ customers: { people: { list: { title: 'People' } } } }),
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'customers', 'translations.ts'),
+      'export const translatableFields = {}\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'customers', 'index.js'),
+      'export const metadata = { id: "customers" }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'customers', 'translations.js'),
+      'export const translatableFields = {}\n',
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'customers', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const output = fs.readFileSync(
+      path.join(tmpDir, '.mercato', 'generated', 'modules.generated.ts'),
+      'utf8',
+    )
+
+    expect(output).toContain('@open-mercato/core/modules/customers/i18n/en.json')
+    expect(output).toContain(`'en':`)
   })
 })
 
@@ -355,7 +617,7 @@ describe('generateModuleRegistryCli with module subsets', () => {
 
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'modules.cli.generated.ts')!
-    expect(output).toContain("id: 'full_mod'")
+    expect(output).toContain('id: "full_mod"')
     // CLI excludes these:
     expect(output).not.toContain('frontendRoutes:')
     expect(output).not.toContain('backendRoutes:')
@@ -385,8 +647,8 @@ describe('generateModuleRegistryCli with module subsets', () => {
     const resultAll = await generateModuleRegistryCli({ resolver: resolverAll, quiet: true })
     expect(resultAll.errors).toEqual([])
     const outputAll = readGenerated(tmpDir, 'modules.cli.generated.ts')!
-    expect(outputAll).toContain("id: 'keep_mod'")
-    expect(outputAll).toContain("id: 'drop_mod'")
+    expect(outputAll).toContain('id: "keep_mod"')
+    expect(outputAll).toContain('id: "drop_mod"')
 
     // Disable drop_mod
     const subset: ModuleEntry[] = [
@@ -399,8 +661,405 @@ describe('generateModuleRegistryCli with module subsets', () => {
     })
     expect(resultSubset.errors).toEqual([])
     const outputSubset = readGenerated(tmpDir, 'modules.cli.generated.ts')!
-    expect(outputSubset).toContain("id: 'keep_mod'")
-    expect(outputSubset).not.toContain("id: 'drop_mod'")
+    expect(outputSubset).toContain('id: "keep_mod"')
+    expect(outputSubset).not.toContain('id: "drop_mod"')
+  })
+
+  it('discovers workers from standalone dist/modules output', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'data_sync', 'workers', 'sync-import.js'),
+      "export const metadata = { queue: 'data-sync-import', concurrency: 5 }\nexport default async function handler() {}\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'data_sync', 'workers', 'sync-export.js'),
+      "export const metadata = { queue: 'data-sync-export', concurrency: 5 }\nexport default async function handler() {}\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'integrations', 'workers', 'log-pruner.js'),
+      "export const metadata = { queue: 'integration-log-pruner', concurrency: 1 }\nexport default async function handler() {}\n"
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'data_sync', from: '@open-mercato/core' },
+      { id: 'integrations', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('queue: "data-sync-import"')
+    expect(output).toContain('queue: "data-sync-export"')
+    expect(output).toContain('queue: "integration-log-pruner"')
+    expect(output).toContain('createLazyModuleWorker(() => import("@open-mercato/core/modules/data_sync/workers/sync-import")')
+  })
+
+  it('discovers CLI metadata and ACL from standalone dist/modules output', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'index.js'),
+      "exports.metadata = { name: 'Configs', requires: ['auth'] }\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'cli.js'),
+      "module.exports = [{ command: 'restore-defaults', run: async () => {} }]\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'acl.js'),
+      "exports.features = ['configs.manage']\n"
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'configs', from: '@open-mercato/core' },
+      { id: 'auth', from: '@open-mercato/core' },
+    ]
+    const resolver = createStandaloneMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('import CLI_configs from "@open-mercato/core/modules/configs/cli"')
+    expect(output).toContain('cli: CLI_configs')
+    expect(output).toContain('features:')
+    expect(output).toContain('id: "configs"')
+  })
+
+  it('preserves standalone CLI convention files when discovery uses a src mirror', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'configs', 'index.ts'),
+      "export const metadata = { name: 'Configs', requires: ['auth'] }\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'configs', 'cli.ts'),
+      "export default [{ command: 'restore-defaults', run: async () => {} }]\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'configs', 'acl.ts'),
+      "export const features = ['configs.manage']\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'index.js'),
+      "exports.metadata = { name: 'Configs', requires: ['auth'] }\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'cli.js'),
+      "module.exports = [{ command: 'restore-defaults', run: async () => {} }]\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'configs', 'acl.js'),
+      "exports.features = ['configs.manage']\n",
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'configs', from: '@open-mercato/core' },
+      { id: 'auth', from: '@open-mercato/core' },
+    ]
+    const resolver = createStandaloneMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('import CLI_configs from "@open-mercato/core/modules/configs/cli"')
+    expect(output).toContain('cli: CLI_configs')
+    expect(output).toContain('features:')
+    expect(output).toContain('id: "configs"')
+  })
+
+  it('preserves standalone worker and subscriber metadata when discovery uses a src mirror', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'package.json'),
+      JSON.stringify({ name: 'pkg', type: 'module' }),
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'query_index', 'subscribers', 'reindex.ts'),
+      "export const metadata = { event: 'query_index.reindex', persistent: true }\nexport default async function handler() {}\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'query_index', 'subscribers', 'reindex.js'),
+      "export const metadata = { event: 'query_index.reindex', persistent: true }\nexport default async function handler() {}\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'events', 'workers', 'events.worker.ts'),
+      "export const metadata = { queue: 'events', concurrency: 1 }\nexport default async function handler() {}\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'events', 'workers', 'events.worker.js'),
+      "export const metadata = { queue: 'events', concurrency: 1 }\nexport default async function handler() {}\n",
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'query_index', from: '@open-mercato/core' },
+      { id: 'events', from: '@open-mercato/events' },
+    ])
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('event: "query_index.reindex"')
+    expect(output).toContain('persistent: true')
+    expect(output).toContain('queue: "events"')
+    expect(output).toContain('concurrency: 1')
+    expect(output).toContain('createLazyModuleWorker(() => import("@open-mercato/core/modules/events/workers/events.worker")')
+  })
+
+  it('refreshes standalone worker metadata after the source file changes in the same process', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'package.json'),
+      JSON.stringify({ name: 'pkg', type: 'module' }),
+    )
+    const workerPath = path.join(
+      tmpDir,
+      'node_modules',
+      'pkg',
+      'dist',
+      'modules',
+      'events',
+      'workers',
+      'events.worker.js',
+    )
+    touchFile(
+      workerPath,
+      "export const metadata = { queue: 'events', concurrency: 1 }\nexport default async function handler() {}\n",
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'events', from: '@open-mercato/events' },
+    ])
+
+    let result = await generateModuleRegistryCli({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    let output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('queue: "events"')
+    expect(output).toContain('concurrency: 1')
+
+    touchFile(
+      workerPath,
+      "export const metadata = { queue: 'events', concurrency: 4 }\nexport default async function handler() {}\n",
+    )
+
+    result = await generateModuleRegistryCli({ resolver, quiet: true })
+    expect(result.errors).toEqual([])
+
+    output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('queue: "events"')
+    expect(output).toContain('concurrency: 4')
+    expect(output).not.toContain('concurrency: 1')
+  })
+
+  it('does not treat standalone page.meta files as page components', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'iconic', 'backend', 'dashboard', 'page.js'),
+      'export default function Page() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'iconic', 'backend', 'dashboard', 'page.meta.js'),
+      "export const metadata = { requireAuth: true, pageTitle: 'Dashboard' }\n",
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'iconic', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const modulesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.generated.ts')
+    const modulesOutput = fs.readFileSync(modulesOutputPath, 'utf8')
+    expect(modulesOutput).toContain(
+      'import * as BM',
+    )
+    expect(modulesOutput).not.toMatch(
+      /import B\d+_[^,\n]*, \* as BM\d+_[^,\n]* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/,
+    )
+
+    const routesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'backend-routes.generated.ts')
+    const routesOutput = fs.readFileSync(routesOutputPath, 'utf8')
+    expect(routesOutput).toContain('@open-mercato/core/modules/iconic/backend/dashboard/page')
+    expect(routesOutput).not.toContain('@open-mercato/core/modules/iconic/backend/dashboard/page.meta')
+    expect(routesOutput).not.toMatch(
+      /import B\d+_[^,\n]* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/,
+    )
+  })
+
+  it('ignores standalone helper files without default exports when scanning direct frontend/backend routes', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'frontend', 'login.js'),
+      'export default function LoginPage() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'frontend', 'login-injection.js'),
+      'export const loginInjectionContract = true\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'backend', 'users', 'list.js'),
+      'export default function UsersListPage() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'auth', 'backend', 'users', 'roleOptions.js'),
+      'export async function fetchRoleOptions() { return [] }\n',
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'auth', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const modulesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.generated.ts')
+    const modulesOutput = fs.readFileSync(modulesOutputPath, 'utf8')
+    expect(modulesOutput).toContain('@open-mercato/core/modules/auth/frontend/login')
+    expect(modulesOutput).toContain('@open-mercato/core/modules/auth/backend/users/list')
+    expect(modulesOutput).not.toContain('@open-mercato/core/modules/auth/frontend/login-injection')
+    expect(modulesOutput).not.toContain('@open-mercato/core/modules/auth/backend/users/roleOptions')
+
+    const frontendRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'frontend-routes.generated.ts')
+    const frontendRoutesOutput = fs.readFileSync(frontendRoutesOutputPath, 'utf8')
+    expect(frontendRoutesOutput).toContain('/login')
+    expect(frontendRoutesOutput).not.toContain('login-injection')
+
+    const backendRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'backend-routes.generated.ts')
+    const backendRoutesOutput = fs.readFileSync(backendRoutesOutputPath, 'utf8')
+    expect(backendRoutesOutput).toContain('/backend/auth/users/list')
+    expect(backendRoutesOutput).not.toContain('roleOptions')
+  })
+
+  it('prefers standalone src module mirrors over dist-only legacy api artifacts', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'payment_gateways', 'api', 'status', 'route.ts'),
+      'export async function GET() { return new Response("ok") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'payment_gateways', 'api', 'status', 'route.js'),
+      'export async function GET() { return new Response("ok") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'payment_gateways', 'api', 'get', 'payment-gateways', 'status.js'),
+      'export async function GET() { return new Response("legacy") }\n',
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'payment_gateways', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const apiRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'api-routes.generated.ts')
+    const apiRoutesOutput = fs.readFileSync(apiRoutesOutputPath, 'utf8')
+    expect(apiRoutesOutput).toContain('@open-mercato/core/modules/payment_gateways/api/status/route')
+    expect(apiRoutesOutput).not.toContain('@open-mercato/core/modules/payment_gateways/api/get/payment-gateways/status')
+    expect(apiRoutesOutput).not.toContain('/payment_gateways/payment-gateways/status')
+  })
+
+  it('preserves metadata.path from compiled standalone route files that export metadata via export lists', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'shipping_carriers', 'api', 'providers', 'route.js'),
+      [
+        'import { NextResponse } from "next/server";',
+        'const metadata = {',
+        '  path: "/shipping-carriers/providers",',
+        '  GET: { requireAuth: true },',
+        '};',
+        'async function GET() {',
+        '  return NextResponse.json({ providers: [] });',
+        '}',
+        'export { GET, metadata };',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'shipping_carriers', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const apiRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'api-routes.generated.ts')
+    const apiRoutesOutput = fs.readFileSync(apiRoutesOutputPath, 'utf8')
+    expect(apiRoutesOutput).toContain('path: "/shipping-carriers/providers"')
+    expect(apiRoutesOutput).not.toContain('path: "/shipping_carriers/providers"')
+  })
+
+  it('keeps package legacy method handlers while letting app files override matching paths', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'legacy_api', 'api', 'get', 'status.ts'),
+      'export async function GET() { return new Response("package-status") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'legacy_api', 'api', 'get', 'details.ts'),
+      'export async function GET() { return new Response("package-details") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'legacy_api', 'api', 'get', 'status.ts'),
+      'export async function GET() { return new Response("app-status") }\n',
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'legacy_api', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const apiRoutesOutput = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutesOutput).toContain('@/modules/legacy_api/api/get/status')
+    expect(apiRoutesOutput).not.toContain('@open-mercato/core/modules/legacy_api/api/get/status')
+    expect(apiRoutesOutput).toContain('@open-mercato/core/modules/legacy_api/api/get/details')
+    expect(apiRoutesOutput).toContain('path: "/legacy_api/details"')
+    expect(apiRoutesOutput).toContain('path: "/legacy_api/status"')
+  })
+})
+
+describe('generateModuleRegistryApp with module subsets', () => {
+  it('generates valid output with zero modules enabled', async () => {
+    const resolver = createMockResolver(tmpDir, [])
+    const result = await generateModuleRegistryApp({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.app.generated.ts')
+    expect(output).not.toBeNull()
+    expect(output).toContain('export const modules: Module[] = [')
+  })
+
+  it('app output excludes CLI commands and keeps lazy workers/subscribers', async () => {
+    scaffoldModule(tmpDir, 'runtime_mod', 'pkg', [
+      'index.ts',
+      'cli.ts',
+      'subscribers/on-event.ts',
+      'workers/process-job.ts',
+      'widgets/dashboard/stats/widget.tsx',
+      'acl.ts',
+      'setup.ts',
+    ])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'runtime_mod', 'subscribers', 'on-event.ts'),
+      "export const metadata = { event: 'runtime.event' }\nexport default async function handler() {}\n"
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'runtime_mod', 'workers', 'process-job.ts'),
+      "export const metadata = { queue: 'runtime-jobs', concurrency: 2 }\nexport default async function handler() {}\n"
+    )
+    const enabled: ModuleEntry[] = [
+      { id: 'runtime_mod', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistryApp({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.app.generated.ts')!
+    expect(output).toContain('id: "runtime_mod"')
+    expect(output).not.toContain('cli:')
+    expect(output).toContain('subscribers:')
+    expect(output).toContain('workers:')
+    expect(output).toContain('createLazyModuleSubscriber')
+    expect(output).toContain('createLazyModuleWorker')
+    expect(output).toContain('dashboardWidgets:')
   })
 })
 

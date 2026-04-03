@@ -192,6 +192,15 @@ const personCrudEvents: CrudEventsConfig = {
   }),
 }
 
+function personEntityIndexEntry(entity: CustomerEntity): QueryIndexEventEntry {
+  return {
+    entityType: E.customers.customer_entity,
+    recordId: entity.id,
+    tenantId: entity.tenantId,
+    organizationId: entity.organizationId,
+  }
+}
+
 function normalizeOptionalString(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
@@ -591,6 +600,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(entity)])
 
     return { entityId: entity.id, personId: profile.id }
   },
@@ -643,6 +653,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    await emitQueryIndexDeleteEvents(ctx, [personEntityIndexEntry(entity)])
   },
 }
 
@@ -769,6 +780,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(record)])
 
     return { entityId: record.id }
   },
@@ -895,11 +907,12 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       await em.flush()
     }
 
+    const indexedEntity = await em.findOne(CustomerEntity, { id: before.entity.id })
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
       action: 'updated',
-      entity: await em.findOne(CustomerEntity, { id: before.entity.id }),
+      entity: indexedEntity,
       identifiers: {
         id: before.profile.id ?? before.entity.id,
         organizationId: before.entity.organizationId,
@@ -908,6 +921,9 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       indexer: personCrudIndexer,
       events: personCrudEvents,
     })
+    if (indexedEntity) {
+      await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(indexedEntity)])
+    }
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
@@ -1014,6 +1030,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         events: personCrudEvents,
       })
 
+      await emitQueryIndexDeleteEvents(ctx, [personEntityIndexEntry(record)])
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
       return { entityId: record.id }
@@ -1354,6 +1371,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       if (Object.keys(resetValues).length) {
         await setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
+      await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(entity)])
       await emitQueryIndexUpsertEvents(ctx, upsertEntries)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
     },

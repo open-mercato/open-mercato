@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "mercato server dev",
+    "dev": "node ./scripts/dev.mjs",
+    "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "build": "next build",
-    "start": "NODE_OPTIONS='-r newrelic' mercato server start",
+    "start": "mercato server start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",

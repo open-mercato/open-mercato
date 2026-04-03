@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import ts from 'typescript'
 import type { PackageResolver, ModuleEntry } from '../resolver'
+import { MODULE_CODE_EXTENSIONS } from './scanner'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -45,6 +46,133 @@ function parseExportedClassNamesFromFile(filePath: string): string[] {
   })
 
   return classNames
+}
+
+function unwrapObjectLiteralExpression(
+  expression: ts.Expression | undefined,
+): ts.ObjectLiteralExpression | undefined {
+  if (!expression) return undefined
+  if (ts.isObjectLiteralExpression(expression)) return expression
+  if (ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression)) {
+    return unwrapObjectLiteralExpression(expression.expression)
+  }
+  if (ts.isParenthesizedExpression(expression)) {
+    return unwrapObjectLiteralExpression(expression.expression)
+  }
+  return undefined
+}
+
+function readPropertyInitializer(
+  objectLiteral: ts.ObjectLiteralExpression,
+  propertyName: string,
+): ts.Expression | undefined {
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const name = ts.isIdentifier(property.name)
+      ? property.name.text
+      : ts.isStringLiteralLike(property.name)
+        ? property.name.text
+        : undefined
+    if (name === propertyName) {
+      return property.initializer
+    }
+  }
+  return undefined
+}
+
+function parseGeneratedModuleEntityNames(filePath: string, moduleId: string): string[] {
+  if (!fs.existsSync(filePath)) return []
+
+  const source = fs.readFileSync(filePath, 'utf8')
+  const scriptKind = filePath.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS
+  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, scriptKind)
+
+  for (const statement of sf.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const declaration = statement.declarationList.declarations.find((candidate) =>
+      ts.isIdentifier(candidate.name) && candidate.name.text === 'E')
+    if (!declaration) continue
+
+    const eObject = unwrapObjectLiteralExpression(declaration.initializer)
+    if (!eObject) continue
+
+    const moduleObject = unwrapObjectLiteralExpression(readPropertyInitializer(eObject, moduleId))
+    if (!moduleObject) return []
+
+    const names: string[] = []
+    for (const property of moduleObject.properties) {
+      if (!ts.isPropertyAssignment(property)) continue
+      const name = ts.isIdentifier(property.name)
+        ? property.name.text
+        : ts.isStringLiteralLike(property.name)
+          ? property.name.text
+          : undefined
+      if (name) names.push(name)
+    }
+    return names
+  }
+
+  return []
+}
+
+function parseGeneratedEntityFieldsFile(filePath: string): string[] {
+  if (!fs.existsSync(filePath)) return []
+
+  const source = fs.readFileSync(filePath, 'utf8')
+  const scriptKind = filePath.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS
+  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, scriptKind)
+  const fields: string[] = []
+
+  for (const statement of sf.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+      if (!ts.isStringLiteralLike(declaration.initializer)) continue
+      fields.push(declaration.initializer.text)
+    }
+  }
+
+  return Array.from(new Set(fields))
+}
+
+function resolveExistingFile(candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
+}
+
+function loadStandaloneGeneratedPackageEntities(
+  resolver: PackageResolver,
+  entry: ModuleEntry,
+): { entityNames: string[]; entityFieldMap: EntityFieldMap } | null {
+  if (resolver.isMonorepo() || !entry.from || entry.from === '@app') return null
+
+  const packageRoot = resolver.getPackageRoot(entry.from)
+  const generatedRoot = fs.existsSync(path.join(packageRoot, 'generated'))
+    ? path.join(packageRoot, 'generated')
+    : path.join(packageRoot, 'dist', 'generated')
+  const idsFile = resolveExistingFile([
+    path.join(generatedRoot, 'entities.ids.generated.ts'),
+    path.join(generatedRoot, 'entities.ids.generated.js'),
+  ])
+  if (!idsFile) return null
+  const entityNames = parseGeneratedModuleEntityNames(idsFile, entry.id)
+
+  if (entityNames.length === 0) return null
+
+  const entityFieldMap: EntityFieldMap = {}
+  for (const entityName of entityNames) {
+    const fieldsFile = resolveExistingFile([
+      path.join(generatedRoot, 'entities', entityName, 'index.ts'),
+      path.join(generatedRoot, 'entities', entityName, 'index.js'),
+    ])
+    if (!fieldsFile) continue
+    const fields = parseGeneratedEntityFieldsFile(fieldsFile)
+    entityFieldMap[entityName] = fields
+  }
+
+  return { entityNames, entityFieldMap }
 }
 
 function parseEntityFieldsFromFile(filePath: string, exportedClassNames: string[]): EntityFieldMap {
@@ -131,17 +259,18 @@ function writePerEntityFieldFiles(outRoot: string, fieldsByEntity: EntityFieldMa
 function writeEntityFieldsRegistry(generatedRoot: string, fieldsByEntity: EntityFieldMap): void {
   const entities = Object.keys(fieldsByEntity).sort((a, b) => a.localeCompare(b))
 
-  // Always write the file, even if empty, to prevent TypeScript import errors
-  const imports = entities.length > 0
-    ? entities.map((e) => `import * as ${toVar(e)} from './entities/${e}/index'`).join('\n')
-    : ''
   const registryEntries = entities.length > 0
-    ? entities.map((e) => `  ${toVar(e)}`).join(',\n')
+    ? entities.map((entity) => {
+        const fields = fieldsByEntity[entity] ?? []
+        const fieldEntries = fields
+          .map((field) => `    ${toVar(field)}: '${field}'`)
+          .join(',\n')
+        return `  ${toVar(entity)}: {\n${fieldEntries}\n  }`
+      }).join(',\n')
     : ''
 
   const src = `// AUTO-GENERATED by mercato generate entity-ids
 // Static registry for entity fields - eliminates dynamic imports for Turbopack compatibility
-${imports}
 
 export const entityFieldsRegistry: Record<string, Record<string, string>> = {
 ${registryEntries}
@@ -178,7 +307,8 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const roots = resolver.getModulePaths(entry)
     const imps = resolver.getModuleImportBase(entry)
     const group: GroupKey = (entry.from as GroupKey) || '@open-mercato/core'
-    const isAppModule = entry.from === '@app'
+
+    const standaloneGeneratedPackageEntities = loadStandaloneGeneratedPackageEntities(resolver, entry)
 
     // Locate entities definition file (prefer app override)
     const appData = path.join(roots.appBase, 'data')
@@ -186,17 +316,17 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const appDb = path.join(roots.appBase, 'db')
     const pkgDb = path.join(roots.pkgBase, 'db')
     const bases = [appData, pkgData, appDb, pkgDb]
-    const candidates = ['entities.override.ts', 'entities.ts', 'schema.ts']
+    const candidates = ['entities.override', 'entities', 'schema']
     let importPath: string | null = null
     let filePath: string | null = null
 
     for (const base of bases) {
       for (const f of candidates) {
-        const p = path.join(base, f)
-        if (fs.existsSync(p)) {
+        const p = resolveConventionFile(base, f)
+        if (p) {
           const fromApp = base.startsWith(roots.appBase)
           const sub = path.basename(base) // 'data' | 'db'
-          importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+          importPath = `${fromApp ? imps.appBase : imps.pkgBase}/${sub}/${f}`
           filePath = p
           break
         }
@@ -205,20 +335,20 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     }
 
     // No entities file found -> still register module id
-    if (!filePath) {
+    if (!filePath && !standaloneGeneratedPackageEntities) {
       modulesDict[modId] = modId
       groupedModulesDict[group] = groupedModulesDict[group] || {}
       groupedModulesDict[group][modId] = modId
       continue
     }
 
-    // Get exported class names by parsing TypeScript source directly
-    // Since we always read from src/, we can parse TypeScript files
-    const exportNames = parseExportedClassNamesFromFile(filePath)
+    const exportNames = filePath ? parseExportedClassNamesFromFile(filePath) : []
 
-    const entityNames = exportNames
-      .map((k) => toSnake(k))
-      .filter((k, idx, arr) => arr.indexOf(k) === idx)
+    const entityNames = standaloneGeneratedPackageEntities
+      ? standaloneGeneratedPackageEntities.entityNames
+      : exportNames
+        .map((k) => toSnake(k))
+        .filter((k, idx, arr) => arr.indexOf(k) === idx)
 
     // Build dictionaries
     modulesDict[modId] = modId
@@ -235,7 +365,9 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     }
 
     // Parse entity fields from TypeScript source
-    const entityFieldMap = parseEntityFieldsFromFile(filePath, exportNames)
+    const entityFieldMap = standaloneGeneratedPackageEntities
+      ? standaloneGeneratedPackageEntities.entityFieldMap
+      : parseEntityFieldsFromFile(filePath!, exportNames)
     fieldsByGroup[group] = fieldsByGroup[group] || {}
     fieldsByGroup[group][modId] = entityFieldMap
   }
@@ -272,6 +404,10 @@ export type KnownEntities = typeof E
   // Write per-group outputs
   const groups = Object.keys(grouped) as GroupKey[]
   for (const g of groups) {
+    if (!resolver.isMonorepo() && g !== '@app') {
+      continue
+    }
+
     const pkgOutputDir = resolver.getPackageOutputDir(g)
     // Skip @app group since it writes to the same location as the consolidated output
     if (g === '@app' && pkgOutputDir === outputDir) {
@@ -317,4 +453,12 @@ export type KnownEntities = typeof E
   writeEntityFieldsRegistry(outputDir, combinedAll)
 
   return result
+}
+
+function resolveConventionFile(baseDir: string, basename: string): string | null {
+  for (const extension of MODULE_CODE_EXTENSIONS) {
+    const candidate = path.join(baseDir, `${basename}${extension}`)
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
 }

@@ -1,7 +1,7 @@
 import { cookies, headers } from 'next/headers'
 import type { ReactNode } from 'react'
-import { modules } from '@/.mercato/generated/modules.generated'
-import { findBackendMatch } from '@open-mercato/shared/modules/registry'
+import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
+import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import {
@@ -59,6 +59,15 @@ type NavGroup = {
   items: NavItem[]
   weight: number
 }
+
+const backendRouteModules = Array.from(
+  backendRoutes.reduce((grouped, route) => {
+    const list = grouped.get(route.moduleId) ?? []
+    list.push(route)
+    grouped.set(route.moduleId, list)
+    return grouped
+  }, new Map<string, typeof backendRoutes>())
+).map(([id, routes]) => ({ id, backendRoutes: routes }))
 
 export default async function BackendLayout({ children, params }: { children: React.ReactNode; params: Promise<{ slug?: string[] }> }) {
   const auth = await getAuthFromCookies()
@@ -176,7 +185,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   }
 
   const entries = await buildAdminNav(
-    modules,
+    backendRouteModules,
     ctx,
     userEntities,
     (key, fallback) => (key ? translate(key, fallback) : fallback),
@@ -330,7 +339,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   )
   const current = allEntries.find((item) => path.startsWith(item.href))
   const currentTitle = current?.title || ''
-  const match = findBackendMatch(modules, path)
+  const match = findRouteManifestMatch(backendRoutes, path)
   const rawBreadcrumb = match?.route.breadcrumb
   const breadcrumb = rawBreadcrumb?.map((item) => {
     const fallback = item.label

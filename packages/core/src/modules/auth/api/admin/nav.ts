@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { BackendRouteManifestEntry, ModuleRoute } from '@open-mercato/shared/modules/registry'
 import { z } from 'zod'
-import { getModules } from '@open-mercato/shared/lib/i18n/server'
+import { getBackendRouteManifests } from '@open-mercato/shared/modules/registry'
+import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -95,10 +97,25 @@ export async function GET(req: Request) {
   }
 
   const ctx = { auth: { roles: auth.roles || [], sub: auth.sub, tenantId: auth.tenantId, orgId: auth.orgId } }
-  const modules = getModules()
-  for (const m of (modules as any[])) {
+  const backendRouteModules: Array<{ id: string; backendRoutes: Array<BackendRouteManifestEntry | ModuleRoute> }> = (() => {
+    const registeredRoutes = getBackendRouteManifests()
+    if (registeredRoutes.length > 0) {
+      const grouped = new Map<string, typeof registeredRoutes>()
+      for (const route of registeredRoutes) {
+        const list = grouped.get(route.moduleId) ?? []
+        list.push(route)
+        grouped.set(route.moduleId, list)
+      }
+      return Array.from(grouped.entries()).map(([id, backendRoutes]) => ({ id, backendRoutes }))
+    }
+    return getModules().map((module) => ({
+      id: module.id,
+      backendRoutes: module.backendRoutes ?? [],
+    }))
+  })()
+  for (const m of backendRouteModules) {
     const groupDefault = capitalize(m.id)
-    for (const r of (m.backendRoutes || [])) {
+    for (const r of m.backendRoutes) {
       const href = (r.pattern ?? r.path ?? '') as string
       if (!href || href.includes('[')) continue
       if ((r as any).navHidden) continue

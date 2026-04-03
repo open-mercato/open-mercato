@@ -11,10 +11,14 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "yarn build:packages && yarn watch:packages & sleep 3 && yarn dev:app",
+    "dev": "node ./scripts/dev.mjs",
+    "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "dev:ephemeral": "tsx scripts/dev-ephemeral.ts",
-    "dev:greenfield": "yarn build:packages && yarn generate && yarn build:packages && yarn initialize -- --reinstall && yarn dev",
-    "dev:app": "turbo run dev --filter=@open-mercato/app",
+    "dev:ephemeral:verbose": "tsx scripts/dev-ephemeral.ts --verbose",
+    "dev:greenfield": "node ./scripts/dev.mjs --greenfield",
+    "dev:greenfield:verbose": "node ./scripts/dev.mjs --greenfield --verbose",
+    "dev:app": "node ./scripts/dev.mjs --app-only",
+    "dev:app:verbose": "yarn workspace @open-mercato/app dev:verbose",
     "watch:packages": "turbo run watch --filter='./packages/*' --parallel",
     "build": "yarn build:packages && yarn generate && yarn build:packages && yarn build:app",
     "build:app": "turbo run build --filter=@open-mercato/app",

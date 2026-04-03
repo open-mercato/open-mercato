@@ -313,7 +313,10 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 ## Key Commands
 
 ```bash
-yarn dev                  # Start development server
+yarn dev                  # Start compact dev runtime; press `d` to toggle raw logs
+yarn dev:verbose          # Start dev runtime with full raw passthrough logs
+yarn dev:app              # Start compact app-only runtime
+yarn dev:app:verbose      # Start app-only runtime with raw passthrough logs
 yarn build                # Build everything
 yarn build:packages       # Build packages only
 yarn lint                 # Lint all packages
@@ -322,7 +325,8 @@ yarn generate             # Run module generators
 yarn db:generate          # Generate database migrations
 yarn db:migrate           # Apply database migrations
 yarn initialize           # Full project initialization
-yarn dev:greenfield       # Fresh dev environment setup
+yarn dev:greenfield       # Fresh compact dev boot with build/generate/reinstall stages
+yarn dev:greenfield:verbose  # Greenfield boot with full raw passthrough logs
 yarn test:integration     # Run integration tests (Playwright, headless)
 yarn test:integration:report  # View HTML test report
 ```

@@ -89,6 +89,11 @@ export function makeConstraintDropsIdempotent(sql: string): string {
   return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
 }
 
+export function getMigrationSnapshotName(resolver: Pick<PackageResolver, 'getRootDir'>): string {
+  void resolver
+  return '.snapshot-open-mercato'
+}
+
 let tsxLoaderRegistered = false
 let temporaryModuleCounter = 0
 
@@ -244,6 +249,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
+        snapshotName: getMigrationSnapshotName(resolver),
         dropTables: false,
       },
       schemaGenerator: {
@@ -334,6 +340,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
+        snapshot: false,
         dropTables: false,
       },
       schemaGenerator: {

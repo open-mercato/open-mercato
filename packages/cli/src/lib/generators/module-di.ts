@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
+import { MODULE_CODE_EXTENSIONS } from './scanner'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -36,10 +37,8 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
     const imp = resolver.getModuleImportBase(entry)
     const isAppModule = entry.from === '@app'
 
-    const appDi = path.join(roots.appBase, 'di.ts')
-    const pkgDi = path.join(roots.pkgBase, 'di.ts')
-    const useApp = fs.existsSync(appDi)
-    const usePkg = fs.existsSync(pkgDi)
+    const useApp = resolveModuleConventionFile(roots.appBase, 'di')
+    const usePkg = resolveModuleConventionFile(roots.pkgBase, 'di')
     const importName = `D_${toVar(modId)}_${i++}`
 
     if (useApp) {
@@ -87,4 +86,8 @@ export default diRegistrars
   }
 
   return result
+}
+
+function resolveModuleConventionFile(baseDir: string, basename: string): boolean {
+  return MODULE_CODE_EXTENSIONS.some((extension) => fs.existsSync(path.join(baseDir, `${basename}${extension}`)))
 }

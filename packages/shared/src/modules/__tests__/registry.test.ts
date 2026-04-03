@@ -1,5 +1,7 @@
 import type { Module } from '../registry'
 import {
+  createLazyModuleSubscriber,
+  createLazyModuleWorker,
   registerCliModules,
   getCliModules,
   hasCliModules,
@@ -296,5 +298,31 @@ describe('Module type with workers', () => {
     expect(module.subscribers).toBeDefined()
     expect(module.subscribers?.length).toBe(1)
     expect(module.subscribers?.[0].event).toBe('user.created')
+  })
+})
+
+describe('Lazy module handlers', () => {
+  it('loads subscriber handlers lazily and caches the module', async () => {
+    const handler = jest.fn(async () => undefined)
+    const loadModule = jest.fn(async () => ({ default: handler }))
+    const lazyHandler = createLazyModuleSubscriber(loadModule, 'subscriber:test')
+
+    await lazyHandler({ value: 1 }, { ctx: true })
+    await lazyHandler({ value: 2 }, { ctx: true })
+
+    expect(loadModule).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads worker handlers lazily and caches the module', async () => {
+    const handler = jest.fn(async () => undefined)
+    const loadModule = jest.fn(async () => ({ default: handler }))
+    const lazyHandler = createLazyModuleWorker(loadModule, 'worker:test')
+
+    await lazyHandler({ payload: 1 }, { ctx: true })
+    await lazyHandler({ payload: 2 }, { ctx: true })
+
+    expect(loadModule).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledTimes(2)
   })
 })

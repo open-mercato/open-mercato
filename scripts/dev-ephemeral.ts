@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { access, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { constants as fsConstants } from 'node:fs'
+import { constants as fsConstants, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -47,6 +48,8 @@ type CommandResult = {
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const projectRootDirectory = path.resolve(scriptDirectory, '..')
 const appDirectory = path.join(projectRootDirectory, 'apps', 'mercato')
+const args = process.argv.slice(2)
+const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const envExamplePath = path.join(appDirectory, '.env.example')
 const envPath = path.join(appDirectory, '.env')
 const devInstancesFilePath = path.join(projectRootDirectory, '.ai', 'dev-ephemeral-envs.json')
@@ -62,6 +65,274 @@ const postgresUser = process.env.DEV_EPHEMERAL_POSTGRES_USER ?? 'postgres'
 const postgresPassword = process.env.DEV_EPHEMERAL_POSTGRES_PASSWORD ?? 'postgres'
 const postgresPortInContainer = '5432'
 const postgresReadyTimeoutMs = 60000
+const splashProgressTotal = 5
+const autoOpenSplash = process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
+const splashChildStateFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-splash-child-state.json')
+const splashState = {
+  mode: 'dev',
+  phase: 'Ephemeral dev environment is starting...',
+  detail: 'Preparing isolated PostgreSQL and app runtime',
+  failed: false,
+  failureLines: [] as string[],
+  failureCommand: null as string | null,
+  ready: false,
+  readyUrl: null as string | null,
+  loginUrl: null as string | null,
+  memoryCurrentBytes: null as number | null,
+  memoryPeakBytes: null as number | null,
+  packageNames: [] as string[],
+  workerQueues: [] as Array<{ queue: string; handlers: number; concurrency: number }>,
+  schedulerActive: false,
+  progressCurrent: 0,
+  progressTotal: splashProgressTotal,
+  progressPercent: 0,
+  progressLabel: 'Preparing ephemeral environment',
+  activities: [] as string[],
+}
+
+let splashServer: ReturnType<typeof createServer> | null = null
+let splashHtmlTemplate: string | null = null
+let splashLogoSvg: string | null = null
+let shuttingDown = false
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
+function resolveProgressPercent(current: number, total: number): number {
+  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
+    return 0
+  }
+
+  return clampPercent((current / total) * 100)
+}
+
+function decorateActivityMessage(message: string): string {
+  const plain = String(message ?? '').trim()
+  if (!plain) return plain
+  if (/package|dependenc/i.test(plain)) return `📦 ${plain}`
+  if (/build/i.test(plain)) return `🧱 ${plain}`
+  if (/generate|artifact/i.test(plain)) return `♻️ ${plain}`
+  if (/database|postgres|migration|initialize/i.test(plain)) return `🗄️ ${plain}`
+  if (/runtime|server|ready|login/i.test(plain)) return `🚀 ${plain}`
+  return `✨ ${plain}`
+}
+
+function updateSplashState(patch: Partial<typeof splashState> & { activity?: string }): void {
+  if (typeof patch.phase === 'string') splashState.phase = patch.phase
+  if (typeof patch.detail === 'string') splashState.detail = patch.detail
+  if (typeof patch.failed === 'boolean') splashState.failed = patch.failed
+  if (Array.isArray(patch.failureLines)) splashState.failureLines = patch.failureLines
+  if (typeof patch.failureCommand === 'string' || patch.failureCommand === null) splashState.failureCommand = patch.failureCommand
+  if (typeof patch.ready === 'boolean') splashState.ready = patch.ready
+  if (typeof patch.readyUrl === 'string' || patch.readyUrl === null) splashState.readyUrl = patch.readyUrl
+  if (typeof patch.loginUrl === 'string' || patch.loginUrl === null) splashState.loginUrl = patch.loginUrl
+  if (typeof patch.memoryCurrentBytes === 'number' || patch.memoryCurrentBytes === null) splashState.memoryCurrentBytes = patch.memoryCurrentBytes
+  if (typeof patch.memoryPeakBytes === 'number' || patch.memoryPeakBytes === null) splashState.memoryPeakBytes = patch.memoryPeakBytes
+  if (Array.isArray(patch.packageNames)) splashState.packageNames = patch.packageNames
+  if (Array.isArray(patch.workerQueues)) splashState.workerQueues = patch.workerQueues
+  if (typeof patch.schedulerActive === 'boolean') splashState.schedulerActive = patch.schedulerActive
+  if (typeof patch.progressCurrent === 'number') splashState.progressCurrent = patch.progressCurrent
+  if (typeof patch.progressTotal === 'number') splashState.progressTotal = patch.progressTotal
+  if (typeof patch.progressLabel === 'string') splashState.progressLabel = patch.progressLabel
+  splashState.progressPercent = resolveProgressPercent(splashState.progressCurrent, splashState.progressTotal)
+
+  if (typeof patch.activity === 'string' && patch.activity.trim()) {
+    const decorated = decorateActivityMessage(patch.activity)
+    if (decorated && splashState.activities[splashState.activities.length - 1] !== decorated) {
+      splashState.activities.push(decorated)
+      if (splashState.activities.length > 14) {
+        splashState.activities.shift()
+      }
+    }
+  }
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${durationMs}ms`
+  return `${(durationMs / 1000).toFixed(1)}s`
+}
+
+function normalizeCapturedLine(line: string): string {
+  return line.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\s+$/, '')
+}
+
+function extractFailureLines(lines: string[], maxLines = 12): string[] {
+  const selectedLines: string[] = []
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const normalized = normalizeCapturedLine(lines[index] ?? '')
+    const plain = normalized.trim()
+    if (!plain) continue
+    if (/^\[dev:ephemeral\]/.test(plain)) continue
+    selectedLines.unshift(normalized)
+    if (selectedLines.length >= maxLines) break
+  }
+
+  return selectedLines
+}
+
+function resolveFailureDetail(label: string, lines: string[]): string {
+  const failureLines = extractFailureLines(lines, 20)
+
+  for (let index = failureLines.length - 1; index >= 0; index -= 1) {
+    const candidate = failureLines[index]?.trim()
+    if (!candidate) continue
+    if (/\b(aborted|failed|error|exception|unable|cannot|invalid|denied)\b/i.test(candidate)) {
+      return candidate
+    }
+  }
+
+  return `${label} failed. Check the terminal for details.`
+}
+
+async function waitForSplashFailureRender(): Promise<void> {
+  if (!autoOpenSplash) return
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 1400)
+    timer.unref?.()
+  })
+}
+
+function readSplashChildState(): Record<string, unknown> | null {
+  if (!existsSync(splashChildStateFilePath)) return null
+  try {
+    return JSON.parse(readFileSync(splashChildStateFilePath, 'utf8')) as Record<string, unknown>
+  } catch {
+    return null
+  }
+}
+
+function getMergedSplashState(): typeof splashState {
+  const childState = readSplashChildState()
+  if (!childState) {
+    return { ...splashState }
+  }
+
+  const childActivities = Array.isArray(childState.activities)
+    ? childState.activities.filter((value): value is string => typeof value === 'string')
+    : []
+  const activities = [...splashState.activities]
+  for (const activity of childActivities) {
+    if (activities[activities.length - 1] !== activity) {
+      activities.push(activity)
+    }
+  }
+
+  return {
+    ...splashState,
+    ...(childState as Partial<typeof splashState>),
+    activities: activities.slice(-14),
+  }
+}
+
+function loadSplashHtmlTemplate(): string {
+  if (splashHtmlTemplate !== null) return splashHtmlTemplate
+  splashHtmlTemplate = readFileSync(path.join(projectRootDirectory, 'scripts', 'dev-splash.html'), 'utf8')
+  return splashHtmlTemplate
+}
+
+function resolveSplashLogoSvg(): string {
+  if (splashLogoSvg !== null) return splashLogoSvg
+
+  const candidates = [
+    path.join(projectRootDirectory, 'public', 'open-mercato.svg'),
+    path.join(appDirectory, 'public', 'open-mercato.svg'),
+  ]
+
+  for (const candidate of candidates) {
+    try {
+      splashLogoSvg = readFileSync(candidate, 'utf8')
+      return splashLogoSvg
+    } catch {}
+  }
+
+  splashLogoSvg = ''
+  return splashLogoSvg
+}
+
+function renderSplashHtml(): string {
+  const localeBootstrap = JSON.stringify({
+    supportedLocales: ['en', 'pl', 'es', 'de'],
+    defaultLocale: 'en',
+    initialLocale: 'en',
+    localeLabels: {
+      en: 'English',
+      pl: 'Polski',
+      es: 'Español',
+      de: 'Deutsch',
+    },
+  }).replace(/</g, '\\u003c')
+
+  return loadSplashHtmlTemplate()
+    .replace('__SPLASH_INITIAL_LOCALE__', 'en')
+    .replace('__SPLASH_INLINE_LOGO_SVG__', resolveSplashLogoSvg())
+    .replace('__SPLASH_BOOTSTRAP__', localeBootstrap)
+}
+
+async function startSplashServer(): Promise<void> {
+  if (!autoOpenSplash) return
+
+  mkdirSync(path.dirname(splashChildStateFilePath), { recursive: true })
+  rmSync(splashChildStateFilePath, { force: true })
+
+  splashServer = createServer((req, res) => {
+    if (!req.url) {
+      res.statusCode = 404
+      res.end('Not found')
+      return
+    }
+
+    if (req.url === '/status') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      res.end(JSON.stringify(getMergedSplashState()))
+      return
+    }
+
+    if (req.url === '/' || req.url.startsWith('/?')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8')
+      res.end(renderSplashHtml())
+      return
+    }
+
+    res.statusCode = 404
+    res.end('Not found')
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    splashServer?.once('error', reject)
+    splashServer?.listen(0, '127.0.0.1', () => resolve())
+  })
+
+  const address = splashServer.address()
+  if (!address || typeof address === 'string') return
+  const splashUrl = `http://localhost:${address.port}`
+  console.log(`[dev:ephemeral] Dev splash ${splashUrl}`)
+  updateSplashState({
+    activity: 'Splash page opened for ephemeral startup status',
+  })
+  await openUrlInBrowser(splashUrl)
+}
+
+function closeSplashServer(): void {
+  splashServer?.close()
+  splashServer = null
+  rmSync(splashChildStateFilePath, { force: true })
+}
+
+let activePostgresContainerId: string | null = null
+
+function shutdown(exitCode: number): never {
+  if (!shuttingDown) {
+    shuttingDown = true
+    closeSplashServer()
+    if (activePostgresContainerId) {
+      stopPostgresContainer(activePostgresContainerId).catch(() => {})
+    }
+  }
+  process.exit(exitCode)
+}
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -101,6 +372,147 @@ function runCommand(command: string, args: string[], options: { env?: NodeJS.Pro
       resolve(code ?? 1)
     })
   })
+}
+
+function runCommandBuffered(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number; lines: string[] }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: projectRootDirectory,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: process.env,
+      shell: false,
+      ...options,
+    })
+
+    const capturedLines: string[] = []
+    const buffers = new Map<'stdout' | 'stderr', string>([
+      ['stdout', ''],
+      ['stderr', ''],
+    ])
+
+    const appendChunk = (streamName: 'stdout' | 'stderr', chunk: Buffer | string): void => {
+      const previous = buffers.get(streamName) ?? ''
+      const value = previous + chunk.toString()
+      const lines = value.split('\n')
+      buffers.set(streamName, lines.pop() ?? '')
+
+      for (const rawLine of lines) {
+        capturedLines.push(rawLine.replace(/\r$/, ''))
+        if (capturedLines.length > 600) {
+          capturedLines.shift()
+        }
+      }
+    }
+
+    child.stdout?.on('data', (chunk) => appendChunk('stdout', chunk))
+    child.stderr?.on('data', (chunk) => appendChunk('stderr', chunk))
+
+    child.on('error', reject)
+    child.on('exit', (code, signal) => {
+      for (const streamName of ['stdout', 'stderr'] as const) {
+        const trailing = (buffers.get(streamName) ?? '').replace(/\r$/, '')
+        if (trailing) {
+          capturedLines.push(trailing)
+        }
+      }
+
+      if (signal) {
+        reject(new Error(`${command} terminated by signal ${signal}.`))
+        return
+      }
+
+      resolve({ code: code ?? 1, lines: capturedLines.slice(-600) })
+    })
+  })
+}
+
+async function reportStageFailure(
+  label: string,
+  command: string,
+  args: string[],
+  lines: string[],
+  progressCurrent: number,
+  progressLabel: string,
+): Promise<void> {
+  const failureLines = extractFailureLines(lines)
+  const detail = resolveFailureDetail(label, lines)
+
+  updateSplashState({
+    phase: `${label} failed`,
+    detail,
+    failed: true,
+    failureLines,
+    failureCommand: [command, ...args].join(' '),
+    ready: false,
+    progressCurrent,
+    progressLabel,
+    activity: `${label} failed`,
+  })
+
+  console.error(`[dev:ephemeral] ${label} failed`)
+  for (const line of lines) {
+    console.error(line)
+  }
+}
+
+async function runCompactStage(
+  label: string,
+  command: string,
+  args: string[],
+  options: {
+    env?: NodeJS.ProcessEnv
+    phase: string
+    detail: string
+    progressCurrent: number
+    progressLabel: string
+    readyUrl?: string | null
+    loginUrl?: string | null
+  },
+): Promise<number> {
+  const startedAt = Date.now()
+
+  console.log(`[dev:ephemeral] ${label}...`)
+  updateSplashState({
+    phase: options.phase,
+    detail: options.detail,
+    failed: false,
+    failureLines: [],
+    failureCommand: null,
+    progressCurrent: options.progressCurrent,
+    progressLabel: options.progressLabel,
+    readyUrl: options.readyUrl,
+    loginUrl: options.loginUrl,
+    activity: options.detail,
+  })
+
+  if (verbose) {
+    const exitCode = await runCommand(command, args, { env: options.env })
+    if (exitCode === 0) {
+      console.log(`[dev:ephemeral] ${label} completed in ${formatDuration(Date.now() - startedAt)}`)
+    }
+    return exitCode
+  }
+
+  const result = await runCommandBuffered(command, args, { env: options.env })
+  if (result.code !== 0) {
+    await reportStageFailure(label, command, args, result.lines, options.progressCurrent, options.progressLabel)
+    return result.code
+  }
+
+  updateSplashState({
+    phase: options.phase,
+    detail: `${options.detail} completed in ${formatDuration(Date.now() - startedAt)}`,
+    failed: false,
+    failureLines: [],
+    failureCommand: null,
+    progressCurrent: options.progressCurrent,
+    progressLabel: options.progressLabel,
+    readyUrl: options.readyUrl,
+    loginUrl: options.loginUrl,
+    activity: `${label} completed in ${formatDuration(Date.now() - startedAt)}`,
+  })
+  console.log(`[dev:ephemeral] ${label} completed in ${formatDuration(Date.now() - startedAt)}`)
+  return 0
 }
 
 function runCommandCapture(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<CommandResult> {
@@ -428,10 +840,16 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     DATABASE_URL: postgres.databaseUrl,
     APP_URL: baseUrl,
     NEXT_PUBLIC_APP_URL: baseUrl,
+    ...(autoOpenSplash
+      ? {
+          OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFilePath,
+          OM_DEV_SPLASH_MODE: 'dev',
+        }
+      : {}),
   }
 
-  // Use app-only dev runtime to avoid watch:packages race conditions in ephemeral startup.
-  const devCommand = spawn('yarn', ['dev:app'], {
+  const devArgs = verbose ? ['workspace', '@open-mercato/app', 'dev:verbose'] : ['workspace', '@open-mercato/app', 'dev']
+  const devCommand = spawn('yarn', devArgs, {
     cwd: projectRootDirectory,
     stdio: 'inherit',
     env: devEnvironment,
@@ -459,22 +877,37 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   console.log(`[dev:ephemeral] Ephemeral URL: ${baseUrl}`)
   console.log(`[dev:ephemeral] Backend URL: ${backendUrl}`)
   console.log(`[dev:ephemeral] Ephemeral PostgreSQL URL: ${redactPostgresUrl(postgres.databaseUrl)}`)
+  updateSplashState({
+    phase: 'Ephemeral runtime is starting...',
+    detail: `Starting app runtime on ${backendUrl}`,
+    ready: false,
+    readyUrl: baseUrl,
+    loginUrl: `${baseUrl}/login`,
+    progressCurrent: 5,
+    progressLabel: 'Starting app runtime',
+    activity: `Starting ephemeral app runtime on ${backendUrl}`,
+  })
 
   const serverReady = await waitForDevServerReady(baseUrl)
   if (serverReady) {
-    const browserOpened = await openUrlInBrowser(backendUrl)
-    if (browserOpened) {
-      console.log(`[dev:ephemeral] Opened browser at ${backendUrl}`)
-    } else {
-      console.log(`[dev:ephemeral] Browser auto-open failed. Open this URL manually: ${backendUrl}`)
+    console.log(`[dev:ephemeral] Runtime became reachable at ${backendUrl}`)
+    if (!autoOpenSplash) {
+      const browserOpened = await openUrlInBrowser(backendUrl)
+      if (browserOpened) {
+        console.log(`[dev:ephemeral] Opened browser at ${backendUrl}`)
+      } else {
+        console.log(`[dev:ephemeral] Browser auto-open failed. Open this URL manually: ${backendUrl}`)
+      }
     }
   } else {
     console.log(`[dev:ephemeral] Runtime did not become reachable within ${startupTimeoutMs / 1000}s. Attempting browser open anyway...`)
-    const browserOpened = await openUrlInBrowser(backendUrl)
-    if (browserOpened) {
-      console.log(`[dev:ephemeral] Opened browser at ${backendUrl}`)
-    } else {
-      console.log(`[dev:ephemeral] Browser auto-open failed. Open this URL manually: ${backendUrl}`)
+    if (!autoOpenSplash) {
+      const browserOpened = await openUrlInBrowser(backendUrl)
+      if (browserOpened) {
+        console.log(`[dev:ephemeral] Opened browser at ${backendUrl}`)
+      } else {
+        console.log(`[dev:ephemeral] Browser auto-open failed. Open this URL manually: ${backendUrl}`)
+      }
     }
   }
 
@@ -491,12 +924,14 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     devCommand.on('error', async (error) => {
       await unregisterCurrentDevInstance(devCommand.pid as number)
       await stopPostgresContainer(postgres.containerId)
+      closeSplashServer()
       reject(error)
     })
 
     devCommand.on('exit', async (code, _signal) => {
       await unregisterCurrentDevInstance(devCommand.pid as number)
       await stopPostgresContainer(postgres.containerId)
+      closeSplashServer()
       resolve(code ?? 1)
     })
   })
@@ -504,6 +939,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
 
 async function main(): Promise<void> {
   try {
+    await startSplashServer()
     assertNode24Runtime({
       context: 'dev ephemeral mode',
       retryCommand: 'yarn dev:ephemeral',
@@ -512,54 +948,90 @@ async function main(): Promise<void> {
     await mkdir(path.dirname(envPath), { recursive: true })
     await ensureEnvFile()
 
-    console.log('[dev:ephemeral] Installing dependencies...')
-    const installExitCode = await runCommand('yarn', ['install'])
+    const installExitCode = await runCompactStage('Installing dependencies', 'yarn', ['install'], {
+      phase: 'Ephemeral dev environment is starting...',
+      detail: 'Installing dependencies',
+      progressCurrent: 1,
+      progressLabel: 'Installing dependencies',
+    })
     if (installExitCode !== 0) {
-      process.exit(installExitCode)
+      await waitForSplashFailureRender()
+      shutdown(installExitCode)
       return
     }
 
-    console.log('[dev:ephemeral] Building packages...')
-    const buildPackagesExitCode = await runCommand('yarn', ['build:packages'])
+    const buildPackagesExitCode = await runCompactStage('Building packages', 'yarn', ['build:packages'], {
+      phase: 'Ephemeral dev environment is starting...',
+      detail: 'Building workspace packages',
+      progressCurrent: 2,
+      progressLabel: 'Building workspace packages',
+    })
     if (buildPackagesExitCode !== 0) {
-      process.exit(buildPackagesExitCode)
+      await waitForSplashFailureRender()
+      shutdown(buildPackagesExitCode)
       return
     }
 
-    console.log('[dev:ephemeral] Preparing generated module files...')
-    const generateExitCode = await runCommand('yarn', ['generate'])
+    const generateExitCode = await runCompactStage('Preparing generated module files', 'yarn', ['generate'], {
+      phase: 'Ephemeral dev environment is starting...',
+      detail: 'Generating app artifacts',
+      progressCurrent: 3,
+      progressLabel: 'Generating app artifacts',
+    })
     if (generateExitCode !== 0) {
-      process.exit(generateExitCode)
+      await waitForSplashFailureRender()
+      shutdown(generateExitCode)
       return
     }
 
     await pruneStaleDevInstances()
 
     const port = await resolvePort()
+    updateSplashState({
+      phase: 'Ephemeral dev environment is starting...',
+      detail: 'Starting isolated PostgreSQL',
+      progressCurrent: 4,
+      progressLabel: 'Starting isolated PostgreSQL',
+      activity: 'Starting isolated PostgreSQL',
+    })
     const postgres = await startEphemeralPostgres()
+    activePostgresContainerId = postgres.containerId
     const baseUrl = `http://127.0.0.1:${port}`
 
-    console.log('[dev:ephemeral] Initializing app against ephemeral PostgreSQL...')
     const initEnvironment = {
       ...process.env,
       DATABASE_URL: postgres.databaseUrl,
       APP_URL: baseUrl,
       NEXT_PUBLIC_APP_URL: baseUrl,
     }
-    const initializeExitCode = await runCommand('yarn', ['initialize', '--', '--reinstall'], { env: initEnvironment })
+    const initializeExitCode = await runCompactStage(
+      'Initializing app against ephemeral PostgreSQL',
+      'yarn',
+      ['initialize', '--', '--reinstall'],
+      {
+        env: initEnvironment,
+        phase: 'Ephemeral dev environment is starting...',
+        detail: 'Initializing app against ephemeral PostgreSQL',
+        progressCurrent: 4,
+        progressLabel: 'Initializing app',
+        readyUrl: baseUrl,
+        loginUrl: `${baseUrl}/login`,
+      },
+    )
     if (initializeExitCode !== 0) {
       await stopPostgresContainer(postgres.containerId)
-      process.exit(initializeExitCode)
+      await waitForSplashFailureRender()
+      shutdown(initializeExitCode)
       return
     }
 
     console.log(`[dev:ephemeral] Starting development runtime on http://127.0.0.1:${port}/backend`)
     const exitCode = await startDevServer(port, postgres)
-    process.exit(exitCode)
+    shutdown(exitCode)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     console.error(`[dev:ephemeral] ${message}`)
-    process.exit(1)
+    shutdown(1)
   }
 }
 

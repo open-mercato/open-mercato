@@ -7,9 +7,10 @@
   "scripts": {
     "setup": "node ./scripts/setup.mjs",
     "setup:reinstall": "node ./scripts/setup.mjs --reinstall",
-    "dev": "mercato server dev",
-    "build": "next build",
-    "start": "NODE_OPTIONS='-r newrelic' mercato server start",
+    "dev": "node ./scripts/dev.mjs",
+    "dev:verbose": "node ./scripts/dev.mjs --verbose",
+    "build": "yarn generate && next build",
+    "start": "mercato server start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
@@ -24,7 +25,7 @@
     "preinstall": "node -e \"const v = process.versions.node.split('.').map(Number); if (v[0] < 24) { console.error('Node >= 24 required'); process.exit(1); }\""
   },
   "dependencies": {
-    "@ai-sdk/openai": "^2.0.80",
+    "@ai-sdk/openai": "^3.0.5",
     "@mikro-orm/core": "^6.6.2",
     "@mikro-orm/migrations": "^6.6.2",
     "@mikro-orm/postgresql": "^6.6.2",

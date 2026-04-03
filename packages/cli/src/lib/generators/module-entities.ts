@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import type { PackageResolver } from '../resolver'
+import { MODULE_CODE_EXTENSIONS, stripModuleCodeExtension } from './scanner'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -42,14 +43,14 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     const appDb = path.join(roots.appBase, 'db')
     const pkgDb = path.join(roots.pkgBase, 'db')
     const bases = [appData, pkgData, appDb, pkgDb]
-    const candidates = ['entities.override.ts', 'entities.ts', 'schema.ts']
+    const candidates = ['entities.override', 'entities', 'schema']
 
     let found: { base: string; file: string } | null = null
     for (const base of bases) {
       for (const f of candidates) {
-        const p = path.join(base, f)
-        if (fs.existsSync(p)) {
-          found = { base, file: f }
+        const p = resolveConventionFile(base, f)
+        if (p) {
+          found = { base, file: path.basename(p) }
           break
         }
       }
@@ -65,10 +66,10 @@ export async function generateModuleEntities(options: ModuleEntitiesOptions): Pr
     let relImport: string
     if (isAppModule && fromApp) {
       // From .mercato/generated/, go up two levels (../..) to reach the app root, then into src/modules/
-      relImport = `../../src/modules/${modId}/${sub}/${found.file.replace(/\.ts$/, '')}`
+      relImport = `../../src/modules/${modId}/${sub}/${stripModuleCodeExtension(found.file)}`
     } else {
       const baseImport = fromApp ? imp.appBase : imp.pkgBase
-      relImport = `${baseImport}/${sub}/${found.file.replace(/\.ts$/, '')}`
+      relImport = `${baseImport}/${sub}/${stripModuleCodeExtension(found.file)}`
     }
     imports.push(`import * as ${importName} from '${relImport}'`)
     entitySources.push({ importName, moduleId: modId })
@@ -121,4 +122,12 @@ export const entities = [
   }
 
   return result
+}
+
+function resolveConventionFile(baseDir: string, basename: string): string | null {
+  for (const extension of MODULE_CODE_EXTENSIONS) {
+    const candidate = path.join(baseDir, `${basename}${extension}`)
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
 }

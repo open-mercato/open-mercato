@@ -66,8 +66,11 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  getModules: () => mockGetModules(),
   resolveTranslations: () => mockResolveTranslations(),
+}))
+
+jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
+  getModules: () => mockGetModules(),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
