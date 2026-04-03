@@ -420,9 +420,7 @@ export async function listCanonicalTodoRows(
   const interactions = await em.find(CustomerInteraction, where, {
     orderBy: { createdAt: 'desc' },
   })
-  const activeInteractions = options?.includeDeleted
-    ? interactions
-    : interactions.filter((interaction) => !interaction.deletedAt)
+  const activeInteractions = interactions.filter((interaction) => !interaction.deletedAt)
   const groups = new Map<string, CustomerInteraction[]>()
 
   for (const interaction of activeInteractions) {
