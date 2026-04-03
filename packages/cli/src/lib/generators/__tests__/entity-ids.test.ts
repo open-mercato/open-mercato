@@ -107,9 +107,10 @@ describe('generateEntityIds', () => {
   it('reuses package generated entity metadata in standalone mode', async () => {
     const moduleEntry: ModuleEntry = { id: 'directory', from: '@open-mercato/core' }
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'core')
-    const idsFile = path.join(packageRoot, 'generated', 'entities.ids.generated.ts')
-    const organizationFieldsFile = path.join(packageRoot, 'generated', 'entities', 'organization', 'index.ts')
-    const tenantFieldsFile = path.join(packageRoot, 'generated', 'entities', 'tenant', 'index.ts')
+    const generatedRoot = path.join(packageRoot, 'dist', 'generated')
+    const idsFile = path.join(generatedRoot, 'entities.ids.generated.js')
+    const organizationFieldsFile = path.join(generatedRoot, 'entities', 'organization', 'index.js')
+    const tenantFieldsFile = path.join(generatedRoot, 'entities', 'tenant', 'index.js')
 
     fs.mkdirSync(path.dirname(idsFile), { recursive: true })
     fs.mkdirSync(path.dirname(organizationFieldsFile), { recursive: true })
@@ -117,13 +118,13 @@ describe('generateEntityIds', () => {
 
     fs.writeFileSync(
       idsFile,
-      `export const M = { "directory": "directory" } as const
+      `export const M = { "directory": "directory" }
 export const E = {
   "directory": {
     "organization": "directory:organization",
     "tenant": "directory:tenant"
   }
-} as const
+}
 `
     )
     fs.writeFileSync(
@@ -157,7 +158,7 @@ export { Organization, Tenant }
 
     const rootIdsPath = path.join(tmpDir, '.mercato', 'generated', 'entities.ids.generated.ts')
     const organizationPath = path.join(tmpDir, '.mercato', 'generated', 'entities', 'organization', 'index.ts')
-    const packageOrganizationPath = path.join(packageRoot, 'generated', 'entities', 'organization', 'index.ts')
+    const packageOrganizationPath = path.join(generatedRoot, 'entities', 'organization', 'index.js')
 
     expect(fs.readFileSync(rootIdsPath, 'utf8')).toContain('"organization": "directory:organization"')
     expect(fs.readFileSync(organizationPath, 'utf8')).toContain("export const name = 'name'")

@@ -680,6 +680,41 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(output).toContain('features:')
     expect(output).toContain('id: "configs"')
   })
+
+  it('does not treat standalone page.meta files as page components', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'iconic', 'backend', 'dashboard', 'page.js'),
+      'export default function Page() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'iconic', 'backend', 'dashboard', 'page.meta.js'),
+      "export const metadata = { requireAuth: true, pageTitle: 'Dashboard' }\n",
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'iconic', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const modulesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.generated.ts')
+    const modulesOutput = fs.readFileSync(modulesOutputPath, 'utf8')
+    expect(modulesOutput).toContain(
+      'import * as BM',
+    )
+    expect(modulesOutput).not.toMatch(
+      /import B\d+_[^,\n]*, \* as BM\d+_[^,\n]* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/,
+    )
+
+    const routesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'backend-routes.generated.ts')
+    const routesOutput = fs.readFileSync(routesOutputPath, 'utf8')
+    expect(routesOutput).toContain('@open-mercato/core/modules/iconic/backend/dashboard/page')
+    expect(routesOutput).not.toContain('@open-mercato/core/modules/iconic/backend/dashboard/page.meta')
+    expect(routesOutput).not.toMatch(
+      /import B\d+_[^,\n]* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/,
+    )
+  })
 })
 
 describe('generateModuleRegistryApp with module subsets', () => {

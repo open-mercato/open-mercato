@@ -106,7 +106,13 @@ function apiRouteSort(a: string, b: string): number {
 const isTestFile = (name: string) => /\.(test|spec)\.[jt]sx?$/.test(name)
 const isScriptFile = (name: string) => ['.ts', '.js'].some((extension) => name.endsWith(extension)) && !isTestFile(name)
 const isComponentFile = (name: string) => ['.tsx', '.jsx', '.js'].some((extension) => name.endsWith(extension))
-const isPageCandidateFile = (name: string) => isModulePageFile(name) || (isComponentFile(name) && !/^[A-Z]/.test(stripModuleCodeExtension(name)))
+const isMetadataCompanionFile = (name: string) => {
+  const stripped = stripModuleCodeExtension(name)
+  return stripped === 'meta' || stripped.endsWith('.meta')
+}
+const isPageCandidateFile = (name: string) =>
+  !isMetadataCompanionFile(name)
+  && (isModulePageFile(name) || (isComponentFile(name) && !/^[A-Z]/.test(stripModuleCodeExtension(name))))
 const isWidgetFile = (name: string) => /^widget\.(t|j)sx?$/.test(name)
 const methodNames = new Set(['get', 'post', 'put', 'patch', 'delete'])
 

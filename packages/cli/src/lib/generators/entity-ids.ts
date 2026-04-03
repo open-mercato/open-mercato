@@ -84,7 +84,8 @@ function parseGeneratedModuleEntityNames(filePath: string, moduleId: string): st
   if (!fs.existsSync(filePath)) return []
 
   const source = fs.readFileSync(filePath, 'utf8')
-  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS)
+  const scriptKind = filePath.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS
+  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, scriptKind)
 
   for (const statement of sf.statements) {
     if (!ts.isVariableStatement(statement)) continue
@@ -118,7 +119,8 @@ function parseGeneratedEntityFieldsFile(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return []
 
   const source = fs.readFileSync(filePath, 'utf8')
-  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS)
+  const scriptKind = filePath.endsWith('.js') ? ts.ScriptKind.JS : ts.ScriptKind.TS
+  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, scriptKind)
   const fields: string[] = []
 
   for (const statement of sf.statements) {
@@ -133,6 +135,13 @@ function parseGeneratedEntityFieldsFile(filePath: string): string[] {
   return Array.from(new Set(fields))
 }
 
+function resolveExistingFile(candidates: string[]): string | null {
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return null
+}
+
 function loadStandaloneGeneratedPackageEntities(
   resolver: PackageResolver,
   entry: ModuleEntry,
@@ -140,15 +149,25 @@ function loadStandaloneGeneratedPackageEntities(
   if (resolver.isMonorepo() || !entry.from || entry.from === '@app') return null
 
   const packageRoot = resolver.getPackageRoot(entry.from)
-  const generatedRoot = path.join(packageRoot, 'generated')
-  const idsFile = path.join(generatedRoot, 'entities.ids.generated.ts')
+  const generatedRoot = fs.existsSync(path.join(packageRoot, 'generated'))
+    ? path.join(packageRoot, 'generated')
+    : path.join(packageRoot, 'dist', 'generated')
+  const idsFile = resolveExistingFile([
+    path.join(generatedRoot, 'entities.ids.generated.ts'),
+    path.join(generatedRoot, 'entities.ids.generated.js'),
+  ])
+  if (!idsFile) return null
   const entityNames = parseGeneratedModuleEntityNames(idsFile, entry.id)
 
   if (entityNames.length === 0) return null
 
   const entityFieldMap: EntityFieldMap = {}
   for (const entityName of entityNames) {
-    const fieldsFile = path.join(generatedRoot, 'entities', entityName, 'index.ts')
+    const fieldsFile = resolveExistingFile([
+      path.join(generatedRoot, 'entities', entityName, 'index.ts'),
+      path.join(generatedRoot, 'entities', entityName, 'index.js'),
+    ])
+    if (!fieldsFile) continue
     const fields = parseGeneratedEntityFieldsFile(fieldsFile)
     entityFieldMap[entityName] = fields
   }
