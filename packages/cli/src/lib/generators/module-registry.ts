@@ -314,7 +314,7 @@ function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
     }
   }
 
-  const reExportPattern = /export\s*{([^}]+)}/gms
+  const reExportPattern = /export\s*{([^}]+)}/g
   for (const match of source.matchAll(reExportPattern)) {
     const exportBlock = match[1] ?? ''
     collectKnownMethods(
@@ -326,7 +326,7 @@ function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
     )
   }
 
-  const destructuredExportPattern = /export\s+(?:const|let|var)\s*{([^}]+)}/gms
+  const destructuredExportPattern = /export\s+(?:const|let|var)\s*{([^}]+)}/g
   for (const match of source.matchAll(destructuredExportPattern)) {
     const exportBlock = match[1] ?? ''
     collectKnownMethods(
