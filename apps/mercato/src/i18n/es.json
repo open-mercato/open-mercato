@@ -696,6 +696,8 @@
   "ui.forms.actions.edit": "Editar",
   "ui.forms.actions.save": "Guardar",
   "ui.forms.confirmDelete": "¿Eliminar este registro? Esta acción no se puede deshacer.",
+  "ui.forms.confirmDeleteWithUndo": "¿Eliminar este registro? Puede restaurarlo usando el historial de versiones.",
+  "ui.forms.confirmUnsavedChanges": "Tienes cambios sin guardar. ¿Seguro que quieres salir?",
   "ui.forms.errors.highlighted": "Corrige los errores resaltados.",
   "ui.forms.errors.required": "Este campo es obligatorio",
   "ui.forms.errors.unexpected": "Error inesperado",

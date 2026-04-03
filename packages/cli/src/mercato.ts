@@ -1151,6 +1151,27 @@ export async function run(argv = process.argv) {
             }
           }
 
+          async function cleanupAndWait() {
+            cleanup()
+            // Wait for all child processes to fully exit so they can release lock files
+            await Promise.all(
+              processes.map(
+                (proc) =>
+                  new Promise<void>((resolve) => {
+                    if (proc.exitCode !== null) return resolve()
+                    proc.on('exit', () => resolve())
+                  })
+              )
+            )
+            // Safety net: remove Next.js dev lock file in case the child didn't clean up
+            const lockFile = path.join(appDir, '.mercato', 'next', 'dev', 'lock')
+            try {
+              fs.unlinkSync(lockFile)
+            } catch {
+              // Lock file may already be removed by Next.js — ignore
+            }
+          }
+
           process.on('SIGTERM', cleanup)
           process.on('SIGINT', cleanup)
 
@@ -1203,7 +1224,7 @@ export async function run(argv = process.argv) {
             )
           )
 
-          cleanup()
+          await cleanupAndWait()
         },
       },
       {
@@ -1227,6 +1248,19 @@ export async function run(argv = process.argv) {
                 proc.kill('SIGTERM')
               }
             }
+          }
+
+          async function cleanupAndWait() {
+            cleanup()
+            await Promise.all(
+              processes.map(
+                (proc) =>
+                  new Promise<void>((resolve) => {
+                    if (proc.exitCode !== null) return resolve()
+                    proc.on('exit', () => resolve())
+                  })
+              )
+            )
           }
 
           process.on('SIGTERM', cleanup)
@@ -1276,7 +1310,7 @@ export async function run(argv = process.argv) {
             )
           )
 
-          cleanup()
+          await cleanupAndWait()
         },
       },
     ],

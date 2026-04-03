@@ -20,6 +20,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import type {
   CrudCustomFieldRenderProps,
   CrudField,
@@ -40,6 +41,7 @@ import {
 } from './detail/hooks/useCustomerDictionary'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
+import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
 export const metadata = {
   navHidden: true,
@@ -221,7 +223,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
   id: 'primaryEmail',
   label: t('customers.people.form.primaryEmail'),
   type: 'custom',
-  component: function PrimaryEmailField({ value, setValue, error, autoFocus, disabled }: CrudCustomFieldRenderProps) {
+  component: function PrimaryEmailField({ value, setValue, error, autoFocus, disabled, recordId }: CrudCustomFieldRenderProps) {
     const [inputValue, setInputValue] = React.useState(() => (typeof value === 'string' ? value : ''))
     const trimmedInput = inputValue.trim()
     const isValidEmail = React.useMemo(
@@ -229,6 +231,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
       [trimmedInput]
     )
     const { duplicate, checking } = useEmailDuplicateCheck(inputValue, {
+      recordId: typeof recordId === 'string' ? recordId : null,
       disabled: disabled || !!error || !isValidEmail,
       debounceMs: EMAIL_CHECK_DEBOUNCE_MS,
       matchMode: 'prefix',
@@ -258,7 +261,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
         {!error && duplicate ? (
           <p className="text-xs text-amber-600">
             {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}{' '}
-            <Link className="font-medium text-primary underline underline-offset-2" href={`/backend/customers/people/${duplicate.id}`}>
+            <Link className="font-medium text-primary underline underline-offset-2" href={`/backend/customers/people-v2/${duplicate.id}`}>
               {t('customers.people.form.emailDuplicateLink')}
             </Link>
           </p>
@@ -393,12 +396,14 @@ const createPrimaryPhoneField = (t: Translator): CrudField => ({
       <PhoneNumberField
         value={typeof value === 'string' ? value : null}
         onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+        externalError={error}
         autoFocus={autoFocus}
         disabled={disabled}
-        placeholder={t('customers.people.form.primaryPhonePlaceholder', '+00 000 000 000')}
+        placeholder={t('customers.people.form.primaryPhonePlaceholder', '+1 555 123 4567')}
         checkingLabel={t('customers.people.form.phoneChecking')}
         duplicateLabel={(match) => t('customers.people.form.phoneDuplicateNotice', undefined, { name: match.label })}
         duplicateLinkLabel={t('customers.people.form.phoneDuplicateLink')}
+        invalidLabel={t('customers.people.form.primaryPhone.invalid', 'Enter a valid phone number with country code (e.g. +1 212 555 1234)')}
         minDigits={7}
         onDuplicateLookup={!disabled && !error ? duplicateLookup : undefined}
       />
@@ -645,6 +650,8 @@ export const createPersonFormSchema = () =>
       primaryPhone: z
         .string()
         .trim()
+        .max(50)
+        .refine((value) => isValidPhoneNumber(value), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -952,7 +959,10 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
   },
 ]
 
-export function buildPersonPayload(values: PersonFormValues, organizationId?: string | null): Record<string, unknown> {
+export function buildPersonPayload(
+  values: PersonFormValues | PersonEditFormValues,
+  organizationId?: string | null,
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
 
   const displayNameValue = typeof values.displayName === 'string' ? values.displayName.trim() : ''
@@ -1014,6 +1024,8 @@ export const createCompanyFormSchema = () =>
       primaryPhone: z
         .string()
         .trim()
+        .max(50)
+        .refine((value) => isValidPhoneNumber(value), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val))
@@ -1125,10 +1137,21 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
     {
       id: 'primaryPhone',
       label: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
-      type: 'text',
+      type: 'custom',
       layout: 'half',
-      placeholder: t('customers.companies.form.primaryPhonePlaceholder', '+00 000 000 000'),
-    },
+      component: ({ value, setValue, error, disabled, autoFocus }: CrudCustomFieldRenderProps) => (
+        <PhoneNumberField
+          value={typeof value === 'string' ? value : null}
+          onValueChange={(next) => setValue(typeof next === 'string' ? next : undefined)}
+          externalError={error}
+          autoFocus={autoFocus}
+          disabled={disabled}
+          placeholder={t('customers.companies.form.primaryPhonePlaceholder', '+1 555 123 4567')}
+          invalidLabel={t('customers.people.form.primaryPhone.invalid', 'Enter a valid phone number with country code (e.g. +1 212 555 1234)')}
+          minDigits={7}
+        />
+      ),
+    } as CrudField,
     ...dictionaryFields,
     {
       id: 'legalName',
@@ -1148,6 +1171,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
       type: 'text',
       layout: 'half',
       placeholder: t('customers.companies.detail.fields.domainPlaceholder', 'example.com'),
+      description: t('customers.companies.detail.fields.domainHelp', 'Use a plain domain like example.com.'),
     },
     {
       id: 'websiteUrl',
@@ -1155,6 +1179,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
       type: 'text',
       layout: 'half',
       placeholder: t('customers.companies.detail.highlights.websitePlaceholder', 'https://example.com'),
+      description: t('customers.companies.detail.fields.websiteHelp', 'Use a full URL like https://example.com.'),
     },
     {
       id: 'industry',
@@ -1288,10 +1313,15 @@ export const createCompanyFormGroups = (t: Translator): CrudFormGroup[] => [
   },
 ]
 
-export function buildCompanyPayload(values: CompanyFormValues, organizationId?: string | null): Record<string, unknown> {
+export function buildCompanyPayload(
+  values: CompanyFormValues | CompanyEditFormValues,
+  organizationId?: string | null,
+): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
 
-  const displayNameValue = blankToUndefined(values.displayName)
+  const displayNameValue = blankToUndefined(
+    typeof values.displayName === 'string' ? values.displayName : undefined,
+  )
   if (!displayNameValue) {
     throw new Error('DISPLAY_NAME_REQUIRED')
   }
@@ -1334,4 +1364,397 @@ export function buildCompanyPayload(values: CompanyFormValues, organizationId?: 
   if (organizationId) payload.organizationId = organizationId
 
   return payload
+}
+
+// ---------------------------------------------------------------------------
+// Edit-mode types
+// ---------------------------------------------------------------------------
+
+export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses'> & {
+  id: string
+}
+
+export type PersonEditFormValues = Omit<PersonFormValues, 'addresses'> & {
+  id: string
+  department?: string
+  linkedInUrl?: string
+  twitterUrl?: string
+}
+
+// ---------------------------------------------------------------------------
+// Edit-mode schemas
+// ---------------------------------------------------------------------------
+
+const optionalString = () =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? undefined : val))
+    .optional()
+
+export const createCompanyEditSchema = () =>
+  createCompanyFormSchema().extend({
+    id: z.string().uuid(),
+  })
+
+export const createPersonEditSchema = () =>
+  createPersonFormSchema().extend({
+    id: z.string().uuid(),
+    department: optionalString(),
+    linkedInUrl: z
+      .string()
+      .trim()
+      .url()
+      .optional()
+      .or(z.literal(''))
+      .transform((val) => (val === '' ? undefined : val))
+      .optional(),
+    twitterUrl: z
+      .string()
+      .trim()
+      .url()
+      .optional()
+      .or(z.literal(''))
+      .transform((val) => (val === '' ? undefined : val))
+      .optional(),
+  })
+
+// ---------------------------------------------------------------------------
+// Edit-mode fields
+// ---------------------------------------------------------------------------
+
+const buildIndustryLabels = (t: Translator): DictionarySelectLabels => ({
+  placeholder: t('customers.companies.form.industry.placeholder', 'Select industry…'),
+  addLabel: t('customers.companies.form.dictionary.addIndustry', 'Add industry'),
+  addPrompt: t('customers.companies.form.dictionary.promptIndustry', 'Enter a new industry.'),
+  dialogTitle: t('customers.companies.form.dictionary.dialogTitleIndustry', 'Add industry'),
+  valueLabel: t('customers.people.form.dictionary.valueLabel', 'Value'),
+  valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder', 'Value'),
+  labelLabel: t('customers.config.dictionaries.dialog.labelLabel', 'Label'),
+  labelPlaceholder: t('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
+  emptyError: t('customers.people.form.dictionary.errorRequired'),
+  cancelLabel: t('customers.people.form.dictionary.cancel'),
+  saveLabel: t('customers.people.form.dictionary.save'),
+  successCreateLabel: undefined,
+  errorLoad: t('customers.people.form.dictionary.errorLoad'),
+  errorSave: t('customers.people.form.dictionary.error'),
+  loadingLabel: t('customers.people.form.dictionary.loading'),
+  manageTitle: t('customers.people.form.dictionary.manage'),
+})
+
+export const createCompanyEditFields = (t: Translator): CrudField[] => {
+  const baseFields = createCompanyFormFields(t)
+  const industryLabels = buildIndustryLabels(t)
+
+  return baseFields.map((field) => {
+    if (field.id === 'industry') {
+      return {
+        id: 'industry',
+        label: t('customers.companies.detail.fields.industry', 'Industry'),
+        type: 'custom',
+        layout: 'half',
+        component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+          <DictionarySelectField
+            kind={'industries' as CustomerDictionaryKind}
+            value={typeof value === 'string' ? value : undefined}
+            onChange={(next) => setValue(next)}
+            labels={industryLabels}
+          />
+        ),
+      } as CrudField
+    }
+    return field
+  })
+}
+
+export const createPersonEditFields = (t: Translator): CrudField[] => {
+  const baseFields = createPersonFormFields(t)
+  return [
+    ...baseFields,
+    {
+      id: 'department',
+      label: t('customers.people.form.department', 'Department'),
+      type: 'text',
+      layout: 'half',
+    },
+    {
+      id: 'linkedInUrl',
+      label: t('customers.people.form.linkedInUrl', 'LinkedIn URL'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.people.form.linkedInUrl.placeholder', 'https://linkedin.com/in/...'),
+    },
+    {
+      id: 'twitterUrl',
+      label: t('customers.people.form.twitterUrl', 'Twitter / X URL'),
+      type: 'text',
+      layout: 'half',
+      placeholder: t('customers.people.form.twitterUrl.placeholder', 'https://x.com/...'),
+    },
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// Edit-mode groups
+// ---------------------------------------------------------------------------
+
+export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
+  {
+    id: 'details',
+    title: t('customers.companies.form.groups.details'),
+    column: 1,
+    fields: ['displayName', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
+  },
+  {
+    id: 'profile',
+    title: t('customers.companies.form.groups.profile'),
+    column: 1,
+    fields: ['legalName', 'brandName', 'domain', 'websiteUrl', 'industry', 'sizeBucket', 'annualRevenue'],
+  },
+  {
+    id: 'notes',
+    title: t('customers.companies.form.groups.notes'),
+    column: 2,
+    fields: ['description'],
+  },
+  {
+    id: 'customFields',
+    title: t('customers.companies.form.groups.custom'),
+    column: 2,
+    kind: 'customFields',
+  },
+]
+
+export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
+  {
+    id: 'details',
+    title: t('customers.people.form.groups.details'),
+    column: 1,
+    fields: [
+      'firstName',
+      'lastName',
+      '__contactInformationSection',
+      'primaryEmail',
+      'primaryPhone',
+      '__companyInformationSection',
+      'jobTitle',
+      'companyEntityId',
+      'status',
+      'lifecycleStage',
+      'source',
+    ],
+    component: createDisplayNameSection(t),
+  },
+  {
+    id: 'social',
+    title: t('customers.people.form.groups.social', 'Social & links'),
+    column: 1,
+    fields: ['department', 'linkedInUrl', 'twitterUrl'],
+  },
+  {
+    id: 'notes',
+    title: t('customers.people.form.groups.notes'),
+    column: 2,
+    fields: ['description'],
+  },
+  {
+    id: 'customFields',
+    title: t('customers.people.form.groups.custom'),
+    column: 2,
+    kind: 'customFields',
+  },
+]
+
+// ---------------------------------------------------------------------------
+// Edit-mode payload builders
+// ---------------------------------------------------------------------------
+
+export function buildCompanyEditPayload(values: CompanyEditFormValues, organizationId?: string | null): Record<string, unknown> {
+  const payload = buildCompanyPayload(values, organizationId)
+  payload.id = values.id
+  return payload
+}
+
+export function buildPersonEditPayload(values: PersonEditFormValues, organizationId?: string | null): Record<string, unknown> {
+  const payload = buildPersonPayload(values, organizationId)
+  payload.id = values.id
+
+  const department = typeof values.department === 'string' ? values.department.trim() : ''
+  if (department.length) payload.department = department
+
+  const linkedInUrl = typeof values.linkedInUrl === 'string' ? values.linkedInUrl.trim() : ''
+  if (linkedInUrl.length) payload.linkedInUrl = linkedInUrl
+
+  const twitterUrl = typeof values.twitterUrl === 'string' ? values.twitterUrl.trim() : ''
+  if (twitterUrl.length) payload.twitterUrl = twitterUrl
+
+  return payload
+}
+
+// ---------------------------------------------------------------------------
+// Overview types (shared between v1 and v2 detail pages)
+// ---------------------------------------------------------------------------
+
+import type {
+  TagSummary,
+  CommentSummary,
+  ActivitySummary,
+  DealSummary,
+  TodoLinkSummary,
+  InteractionSummary,
+} from './detail/types'
+
+export type { TagSummary, CommentSummary, ActivitySummary, DealSummary, TodoLinkSummary, InteractionSummary }
+
+export type CompanyPersonSummary = {
+  id: string
+  displayName: string
+  primaryEmail?: string | null
+  jobTitle?: string | null
+}
+
+export type CompanyOverview = {
+  company: {
+    id: string
+    displayName: string
+    description?: string | null
+    ownerUserId?: string | null
+    primaryEmail?: string | null
+    primaryPhone?: string | null
+    status?: string | null
+    lifecycleStage?: string | null
+    source?: string | null
+    nextInteractionAt?: string | null
+    nextInteractionName?: string | null
+    nextInteractionRefId?: string | null
+    nextInteractionIcon?: string | null
+    nextInteractionColor?: string | null
+    organizationId?: string | null
+  }
+  profile: {
+    id: string
+    legalName?: string | null
+    brandName?: string | null
+    domain?: string | null
+    websiteUrl?: string | null
+    industry?: string | null
+    sizeBucket?: string | null
+    annualRevenue?: string | null
+  } | null
+  customFields: Record<string, unknown>
+  tags: TagSummary[]
+  comments: CommentSummary[]
+  activities: ActivitySummary[]
+  interactions: InteractionSummary[]
+  deals: DealSummary[]
+  todos: TodoLinkSummary[]
+  people: CompanyPersonSummary[]
+  interactionMode?: 'canonical' | 'legacy'
+  viewer?: {
+    userId: string | null
+    name?: string | null
+    email?: string | null
+  } | null
+}
+
+export type PersonOverview = {
+  person: {
+    id: string
+    displayName: string
+    description?: string | null
+    ownerUserId?: string | null
+    primaryEmail?: string | null
+    primaryPhone?: string | null
+    status?: string | null
+    lifecycleStage?: string | null
+    source?: string | null
+    nextInteractionAt?: string | null
+    nextInteractionName?: string | null
+    nextInteractionRefId?: string | null
+    nextInteractionIcon?: string | null
+    nextInteractionColor?: string | null
+    organizationId?: string | null
+  }
+  profile: {
+    id: string
+    firstName?: string | null
+    lastName?: string | null
+    preferredName?: string | null
+    jobTitle?: string | null
+    department?: string | null
+    seniority?: string | null
+    timezone?: string | null
+    linkedInUrl?: string | null
+    twitterUrl?: string | null
+    companyEntityId?: string | null
+  } | null
+  customFields: Record<string, unknown>
+  tags: TagSummary[]
+  comments: CommentSummary[]
+  activities: ActivitySummary[]
+  interactions: InteractionSummary[]
+  deals: DealSummary[]
+  todos: TodoLinkSummary[]
+  interactionMode?: 'canonical' | 'legacy'
+  company?: {
+    id: string
+    displayName: string
+  } | null
+  viewer?: {
+    userId: string | null
+    name?: string | null
+    email?: string | null
+  } | null
+}
+
+// ---------------------------------------------------------------------------
+// API response → form values mapping
+// ---------------------------------------------------------------------------
+
+export function mapCompanyOverviewToFormValues(overview: CompanyOverview): Partial<CompanyEditFormValues> {
+  const rawPhone = overview.company.primaryPhone
+  const phoneValue = rawPhone == null ? '' : String(rawPhone)
+  return {
+    id: overview.company.id,
+    displayName: overview.company.displayName,
+    primaryEmail: overview.company.primaryEmail ?? '',
+    primaryPhone: phoneValue,
+    status: overview.company.status ?? '',
+    lifecycleStage: overview.company.lifecycleStage ?? '',
+    source: overview.company.source ?? '',
+    description: overview.company.description ?? '',
+    legalName: overview.profile?.legalName ?? '',
+    brandName: overview.profile?.brandName ?? '',
+    domain: overview.profile?.domain ?? '',
+    websiteUrl: overview.profile?.websiteUrl ?? '',
+    industry: overview.profile?.industry ?? '',
+    sizeBucket: overview.profile?.sizeBucket ?? '',
+    annualRevenue: overview.profile?.annualRevenue ?? '',
+    ...overview.customFields,
+  }
+}
+
+export function mapPersonOverviewToFormValues(overview: PersonOverview): Partial<PersonEditFormValues> {
+  const rawPhone = overview.person.primaryPhone
+  const phoneValue = rawPhone == null ? '' : String(rawPhone)
+  return {
+    id: overview.person.id,
+    displayName: overview.person.displayName,
+    firstName: overview.profile?.firstName ?? '',
+    lastName: overview.profile?.lastName ?? '',
+    primaryEmail: overview.person.primaryEmail ?? '',
+    primaryPhone: phoneValue,
+    companyEntityId: overview.profile?.companyEntityId ?? '',
+    jobTitle: overview.profile?.jobTitle ?? '',
+    status: overview.person.status ?? '',
+    lifecycleStage: overview.person.lifecycleStage ?? '',
+    source: overview.person.source ?? '',
+    description: overview.person.description ?? '',
+    department: overview.profile?.department ?? '',
+    linkedInUrl: overview.profile?.linkedInUrl ?? '',
+    twitterUrl: overview.profile?.twitterUrl ?? '',
+    ...overview.customFields,
+  }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,9 +22,9 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.5",
-    "@mikro-orm/core": "^6.6.2",
-    "@mikro-orm/migrations": "^6.6.2",
-    "@mikro-orm/postgresql": "^6.6.2",
+    "@mikro-orm/core": "^6.6.10",
+    "@mikro-orm/migrations": "^6.6.10",
+    "@mikro-orm/postgresql": "^6.6.10",
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
     "@open-mercato/checkout": "workspace:*",

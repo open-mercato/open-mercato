@@ -86,6 +86,7 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       commandPayload: { __redoInput: { foo: 'bar' } },
+      contextJson: { cacheAliases: ['demo.resource:res-1'] },
     }
     const newLog = {
       id: 'log-redo',
@@ -109,6 +110,12 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
       metadata: expect.objectContaining({
         actionLabel: 'Demo action',
         resourceId: 'res-1',
+        context: expect.objectContaining({
+          historyAction: 'redo',
+          sourceLogId: 'log-undo',
+          sourceCommandId: 'demo.command',
+          cacheAliases: ['demo.resource:res-1'],
+        }),
       }),
     }))
     const opHeader = res.headers.get('x-om-operation')

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { upsertCustomFieldDefSchema, fieldsetCodeRegex } from '@open-mercato/core/modules/entities/data/validators'
 import {
@@ -15,6 +16,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { filterSelectableSystemEntityIds, isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/system-entities'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fieldsets'
+import { installCustomEntitiesFromModules } from '../lib/install-from-ce'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
 
@@ -105,6 +107,36 @@ export async function GET(req: Request) {
   try {
     cache = resolve('cache') as CacheStrategy
   } catch {}
+
+  let canManageDefinitions = false
+  if (typeof auth.sub === 'string' && auth.sub.length > 0) {
+    try {
+      const rbac = resolve('rbacService') as RbacService
+      canManageDefinitions = await rbac.userHasAllFeatures(auth.sub, ['entities.definitions.manage'], {
+        tenantId,
+        organizationId,
+      })
+    } catch {
+      // RBAC service unavailable — fall back to read-only (no definition sync)
+    }
+  }
+
+  if (canManageDefinitions) {
+    try {
+      await installCustomEntitiesFromModules(em, cache, {
+        tenantIds: [tenantId],
+        entityIds,
+        includeGlobal: true,
+        createOnly: true,
+      })
+    } catch (err) {
+      console.warn('[entities.definitions] Failed to synchronize module-backed definitions', {
+        tenantId,
+        entityIds,
+        err,
+      })
+    }
+  }
 
   let cacheKey: string | null = null
   if (cache && !fieldsetFilter) {

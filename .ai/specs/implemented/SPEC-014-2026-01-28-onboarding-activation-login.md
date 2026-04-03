@@ -11,11 +11,14 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 - Persist tenant context from activation and surface it on the login screen.
 - Require tenant-scoped login when multiple users share the same email.
 - Provide a public tenant lookup endpoint for login UI display.
+- Redirect verified users to a preparation screen while deferred demo seeding finishes, then email a tenant-scoped login link when the workspace is ready.
 
 ## Architecture
 - Onboarding verification transitions a request to `processing` with a timestamp.
 - Subsequent activation hits within the lock window redirect to login with the resolved tenant id (when available).
 - Activation completion redirects to `/login?tenant=<tenantId>` and sets a tenant cookie.
+- When deferred demo preparation is still running, activation redirects to `/onboarding/preparing?tenant=<tenantId>`.
+- After deferred preparation succeeds, onboarding sends a ready email that links directly to `/login?tenant=<tenantId>`.
 - Login UI stores tenant id in local storage/cookie and fetches tenant metadata for display.
 - Login API accepts optional tenant id; if missing and multiple users match, return a tenant-required error.
 
@@ -23,6 +26,8 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 - `onboarding_requests`
   - `status`: add `processing`
   - `processing_started_at`: timestamp used to gate duplicate runs
+  - `preparation_completed_at`: timestamp used to indicate deferred demo preparation has finished and login can be opened safely
+  - `ready_email_sent_at`: timestamp used to avoid duplicate ready notifications
 
 ## API Contracts
 - `GET /api/onboarding/onboarding/verify?token=...`
@@ -39,6 +44,9 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
   - If tenant id is present, show a banner: "You're logging in to <tenant> tenant."
   - Provide a "Clear" action that removes the tenant context and reloads the login screen.
   - Use existing auth error styling for tenant-related errors.
+- Preparing page:
+  - Show an animated loading state while the workspace is being prepared.
+  - Tell the user that an email with the tenant-specific login link will be sent when the workspace is ready.
 
 ## Configuration
 - No new environment variables.
@@ -73,3 +81,7 @@ Safari prefetch requests can trigger onboarding activation twice, resulting in d
 - Align onboarding provisioning with CLI example/data seeding (catalog, sales, staff, resources, workflows, planner, dashboards).
 - Added onboarding activation processing lock and tenant-aware login flow.
 - Surface verification email delivery failures and allow immediate retry when email sending fails.
+
+### 2026-04-01
+- Redirect activation to a preparation screen until deferred demo seeding completes.
+- Send a tenant-scoped ready email after deferred onboarding preparation succeeds.
