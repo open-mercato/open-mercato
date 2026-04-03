@@ -2,10 +2,12 @@
 
 import dynamic from 'next/dynamic'
 import * as React from 'react'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { IntegrationsButton } from '@open-mercato/ui/backend/IntegrationsButton'
 import { ProfileDropdown } from '@open-mercato/ui/backend/ProfileDropdown'
 import { SettingsButton } from '@open-mercato/ui/backend/SettingsButton'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { AiAssistantShellIntegration } from '@/components/AiAssistantShellIntegration'
 
 const LazyAiChatHeaderButton = dynamic(
   () => import('@open-mercato/ai-assistant/frontend').then((module) => module.AiChatHeaderButton),
@@ -32,6 +34,8 @@ type BackendHeaderChromeProps = {
   email?: string
   embeddingConfigured: boolean
   missingConfigMessage: string
+  tenantId: string | null
+  organizationId: string | null
 }
 
 function hasVisibleRoute(groups: Array<{ items?: Array<{ href: string; hidden?: boolean; enabled?: boolean; children?: unknown[] }> }> | undefined, href: string): boolean {
@@ -46,16 +50,35 @@ function hasVisibleRoute(groups: Array<{ items?: Array<{ href: string; hidden?: 
   return false
 }
 
-export function BackendHeaderChrome({ email, embeddingConfigured, missingConfigMessage }: BackendHeaderChromeProps) {
+export function BackendHeaderChrome({
+  email,
+  embeddingConfigured,
+  missingConfigMessage,
+  tenantId,
+  organizationId,
+}: BackendHeaderChromeProps) {
   const { payload, isReady } = useBackendChrome()
+  const grantedFeatures = payload?.grantedFeatures ?? []
   const showIntegrationsButton = React.useMemo(
     () => hasVisibleRoute(payload?.groups, '/backend/integrations'),
     [payload?.groups],
   )
+  const showAiAssistant = React.useMemo(
+    () => hasFeature(grantedFeatures, 'ai_assistant.view'),
+    [grantedFeatures],
+  )
+  const showMessages = React.useMemo(
+    () => hasFeature(grantedFeatures, 'messages.view'),
+    [grantedFeatures],
+  )
 
   return (
     <>
-      {isReady ? <LazyAiChatHeaderButton /> : null}
+      {isReady && showAiAssistant ? (
+        <AiAssistantShellIntegration tenantId={tenantId} organizationId={organizationId}>
+          <LazyAiChatHeaderButton />
+        </AiAssistantShellIntegration>
+      ) : null}
       {isReady ? (
         <LazyGlobalSearchDialog
           embeddingConfigured={embeddingConfigured}
@@ -69,7 +92,7 @@ export function BackendHeaderChrome({ email, embeddingConfigured, missingConfigM
       <SettingsButton />
       <ProfileDropdown email={email} />
       {isReady ? <LazyNotificationBellWrapper /> : null}
-      {isReady ? <LazyMessagesIcon /> : null}
+      {isReady && showMessages ? <LazyMessagesIcon /> : null}
     </>
   )
 }

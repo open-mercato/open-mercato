@@ -12,7 +12,11 @@ export function useMcpTools() {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/ai_assistant/tools')
+      const response = await fetch('/api/ai_assistant/tools', {
+        headers: {
+          'x-om-forbidden-redirect': '0',
+        },
+      })
       if (!response.ok) {
         throw new Error(`Failed to fetch tools: ${response.status}`)
       }
@@ -31,7 +35,10 @@ export function useMcpTools() {
       try {
         const response = await fetch('/api/ai_assistant/tools/execute', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'x-om-forbidden-redirect': '0',
+          },
           body: JSON.stringify({ toolName, args }),
         })
 

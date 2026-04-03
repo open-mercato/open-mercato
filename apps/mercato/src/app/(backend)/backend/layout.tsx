@@ -12,7 +12,6 @@ import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageIn
 import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
-import { AiAssistantShellIntegration } from '@/components/AiAssistantShellIntegration'
 
 function collectStaticSettingsPathPrefixes(): string[] {
   const prefixes = new Set<string>()
@@ -98,38 +97,38 @@ export default async function BackendLayout({
 
   return (
     <I18nProvider locale={locale} dict={dict}>
-      <AiAssistantShellIntegration tenantId={auth?.tenantId ?? null} organizationId={auth?.orgId ?? null}>
-        <AppShell
-          key={path}
-          productName={productName}
-          email={auth?.email}
-          groups={[]}
-          currentTitle={currentTitle}
-          breadcrumb={breadcrumb}
-          sidebarCollapsedDefault={initialCollapsed}
-          rightHeaderSlot={(
-            <BackendHeaderChrome
-              email={auth?.email}
-              embeddingConfigured={embeddingConfigured}
-              missingConfigMessage={missingConfigMessage}
-            />
-          )}
-          mobileSidebarSlot={<OrganizationSwitcher compact />}
-          adminNavApi="/api/auth/admin/nav"
-          version={APP_VERSION}
-          settingsPathPrefixes={collectStaticSettingsPathPrefixes()}
-          settingsSections={[]}
-          settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
-          profileSections={[]}
-          profileSectionTitle={translate('profile.page.title', 'Profile')}
-          profilePathPrefixes={profilePathPrefixes}
-        >
-          <PageInjectionBoundary path={path} context={injectionContext}>
-            {children}
-          </PageInjectionBoundary>
-          {demoModeEnabled ? <DemoFeedbackWidget demoModeEnabled={demoModeEnabled} /> : null}
-        </AppShell>
-      </AiAssistantShellIntegration>
+      <AppShell
+        key={path}
+        productName={productName}
+        email={auth?.email}
+        groups={[]}
+        currentTitle={currentTitle}
+        breadcrumb={breadcrumb}
+        sidebarCollapsedDefault={initialCollapsed}
+        rightHeaderSlot={(
+          <BackendHeaderChrome
+            email={auth?.email}
+            embeddingConfigured={embeddingConfigured}
+            missingConfigMessage={missingConfigMessage}
+            tenantId={auth?.tenantId ?? null}
+            organizationId={auth?.orgId ?? null}
+          />
+        )}
+        mobileSidebarSlot={<OrganizationSwitcher compact />}
+        adminNavApi="/api/auth/admin/nav"
+        version={APP_VERSION}
+        settingsPathPrefixes={collectStaticSettingsPathPrefixes()}
+        settingsSections={[]}
+        settingsSectionTitle={translate('backend.nav.settings', 'Settings')}
+        profileSections={[]}
+        profileSectionTitle={translate('profile.page.title', 'Profile')}
+        profilePathPrefixes={profilePathPrefixes}
+      >
+        <PageInjectionBoundary path={path} context={injectionContext}>
+          {children}
+        </PageInjectionBoundary>
+        {demoModeEnabled ? <DemoFeedbackWidget demoModeEnabled={demoModeEnabled} /> : null}
+      </AppShell>
     </I18nProvider>
   )
 }
