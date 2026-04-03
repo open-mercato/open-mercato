@@ -48,6 +48,52 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     jest.clearAllMocks()
   })
 
+  test('accepts application/x-www-form-urlencoded login payloads', async () => {
+    const form = new URLSearchParams()
+    form.set('email', 'user@example.com')
+    form.set('password', 'secret')
+    form.set('remember', '1')
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: true,
+      token: 'jwt-token',
+      redirect: '/backend',
+      refreshToken: 'session-token',
+    })
+  })
+
+  test('returns 400 for malformed multipart login bodies instead of throwing', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      headers: {
+        'content-type': 'multipart/form-data',
+      },
+      body: 'email=user@example.com&password=secret',
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(400)
+    expect(authServiceMock.findUsersByEmail).not.toHaveBeenCalled()
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: false,
+      error: 'Invalid credentials',
+    })
+  })
+
   test('returns unchanged login response when no interceptor matches', async () => {
     const req = new Request('http://localhost/api/auth/login', {
       method: 'POST',

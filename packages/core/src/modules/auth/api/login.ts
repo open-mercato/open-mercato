@@ -25,15 +25,62 @@ export const metadata = {}
 
 // validation comes from userLoginSchema
 
+type ParsedLoginForm = {
+  email: string
+  password: string
+  remember: boolean
+  tenantIdRaw: string
+  requiredRoles: string[]
+}
+
+function parseRequiredRoles(rawValue: string): string[] {
+  return rawValue
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
+async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
+  const rawContentType = req.headers.get('content-type') ?? ''
+  const contentType = rawContentType.split(';')[0].trim().toLowerCase()
+
+  try {
+    if (contentType === 'application/x-www-form-urlencoded') {
+      const body = await req.text()
+      const params = new URLSearchParams(body)
+      const requireRoleRaw = String(params.get('requireRole') ?? params.get('role') ?? '').trim()
+      return {
+        email: String(params.get('email') ?? ''),
+        password: String(params.get('password') ?? ''),
+        remember: parseBooleanToken(params.get('remember')) === true,
+        tenantIdRaw: String(params.get('tenantId') ?? params.get('tenant') ?? '').trim(),
+        requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
+      }
+    }
+
+    const form = await req.formData()
+    const requireRoleRaw = String(form.get('requireRole') ?? form.get('role') ?? '').trim()
+    return {
+      email: String(form.get('email') ?? ''),
+      password: String(form.get('password') ?? ''),
+      remember: parseBooleanToken(form.get('remember')?.toString()) === true,
+      tenantIdRaw: String(form.get('tenantId') ?? form.get('tenant') ?? '').trim(),
+      requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
+    }
+  } catch {
+    return {
+      email: '',
+      password: '',
+      remember: false,
+      tenantIdRaw: '',
+      requiredRoles: [],
+    }
+  }
+}
+
 export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
-  const form = await req.formData()
-  const email = String(form.get('email') ?? '')
-  const password = String(form.get('password') ?? '')
-  const remember = parseBooleanToken(form.get('remember')?.toString()) === true
-  const tenantIdRaw = String(form.get('tenantId') ?? form.get('tenant') ?? '').trim()
-  const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
-  const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
+  const { email, password, remember, tenantIdRaw, requiredRoles } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
     req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
