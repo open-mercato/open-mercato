@@ -550,6 +550,40 @@ export function GET() {
     const searchApp = readGenerated(tmpDir, 'search.generated.ts')!
     expect(searchApp).not.toContain('core_mod')
   })
+
+  it('uses standalone source mirror i18n files when dist modules omit translation assets', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'customers', 'i18n', 'en.json'),
+      JSON.stringify({ customers: { people: { list: { title: 'People' } } } }),
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'customers', 'translations.ts'),
+      'export const translatableFields = {}\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'customers', 'index.js'),
+      'export const metadata = { id: "customers" }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'customers', 'translations.js'),
+      'export const translatableFields = {}\n',
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'customers', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const output = fs.readFileSync(
+      path.join(tmpDir, '.mercato', 'generated', 'modules.generated.ts'),
+      'utf8',
+    )
+
+    expect(output).toContain('@open-mercato/core/modules/customers/i18n/en.json')
+    expect(output).toContain(`'en':`)
+  })
 })
 
 describe('generateModuleRegistryCli with module subsets', () => {

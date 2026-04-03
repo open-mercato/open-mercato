@@ -1003,7 +1003,8 @@ function processTranslations(options: {
 }): string[] {
   const { roots, modId, appImportBase, pkgImportBase, imports, extraImports } = options
   const i18nApp = path.join(roots.appBase, 'i18n')
-  const i18nCore = path.join(roots.pkgBase, 'i18n')
+  const pkgI18nBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
+  const i18nCore = path.join(pkgI18nBase, 'i18n')
   const locales = new Set<string>()
   if (fs.existsSync(i18nCore))
     for (const e of fs.readdirSync(i18nCore, { withFileTypes: true }))
