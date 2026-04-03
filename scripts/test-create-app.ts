@@ -4,7 +4,7 @@ import path from 'node:path'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-import { createAppBin, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -14,11 +14,6 @@ const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
-const standaloneInstallEnv: NodeJS.ProcessEnv = {
-  ...process.env,
-  YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
-}
-
 function readJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T
 }
@@ -77,6 +72,7 @@ async function main(): Promise<void> {
   const openShell = process.argv.includes('--shell')
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-smoke-'))
   const appDir = path.join(tempRoot, 'standalone-app')
+  const standaloneInstallEnv = createStandaloneInstallEnv(tempRoot)
 
   console.log(cyan(`Target app directory: ${appDir}`))
 

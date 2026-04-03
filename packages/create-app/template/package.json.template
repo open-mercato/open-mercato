@@ -9,7 +9,7 @@
     "setup:reinstall": "node ./scripts/setup.mjs --reinstall",
     "dev": "node ./scripts/dev.mjs",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
-    "build": "next build",
+    "build": "yarn generate && next build",
     "start": "mercato server start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
