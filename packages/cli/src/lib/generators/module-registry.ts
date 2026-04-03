@@ -1352,19 +1352,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       }
     }
 
-    // AI Tools: module root ai-tools.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'notifications.client.ts')
-      if (resolved) {
-        const importName = `NOTIF_CLIENT_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = buildImportStatement(`* as ${importName}`, resolved.importPath)
-        notificationClientImports.push(importStmt)
-        notificationClientTypes.push(
-          `{ moduleId: '${modId}', types: (${importName}.default ?? []) }`
-        )
-      }
-    }
-
     // 8. AI Tools: ai-tools.ts
     processStandaloneConfig({
       roots, imps, modId, importIdRef,
@@ -1692,10 +1679,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // Note: events, analytics, enrichers, notifications, AI tools, and translatable fields
     // configs are pushed inside processStandaloneConfig() above — no separate push needed here.
-
-    if (transFieldsImportName) {
-      transFieldsConfigs.push(`{ moduleId: '${modId}', fields: (${transFieldsImportName}.default ?? ${transFieldsImportName}.translatableFields ?? {}) as Record<string, string[]> }`)
-    }
 
     moduleDecls.push(`{
       id: ${toLiteral(modId)},

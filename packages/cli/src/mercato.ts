@@ -307,7 +307,7 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
-      const skipExamples = initArgs.includes('--no-examples') || initArgs.includes('--no-exampls')
+      const skipExamples = initArgs.includes('--no-examples')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
       const stressTestLite =

@@ -185,7 +185,7 @@ export default async function BackendLayout({ children, params }: { children: Re
   }
 
   const entries = await buildAdminNav(
-    backendRouteModules as any,
+    backendRouteModules,
     ctx,
     userEntities,
     (key, fallback) => (key ? translate(key, fallback) : fallback),

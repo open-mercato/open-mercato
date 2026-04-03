@@ -213,7 +213,7 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
   
 **Windows:** Use [Docker Setup](#docker-setup) for native setup.
 
-### Quickstart: (Monorepo, core development / contributting)
+### Quickstart: (Monorepo, core development / contributing)
 
 **Prerequisites:** Yarn 4+
 

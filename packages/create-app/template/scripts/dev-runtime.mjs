@@ -924,10 +924,14 @@ function shutdown(exitCode = 0) {
     rawModeEnabled = false
   }
 
-  for (const child of children) {
-    if (!child.killed) {
-      child.kill('SIGTERM')
-    }
+  const alive = children.filter((child) => !child.killed)
+  if (alive.length === 0) {
+    process.exit(exitCode)
+    return
+  }
+
+  for (const child of alive) {
+    child.kill('SIGTERM')
   }
 
   setTimeout(() => {
@@ -936,9 +940,8 @@ function shutdown(exitCode = 0) {
         child.kill('SIGKILL')
       }
     }
-  }, 3000).unref()
-
-  process.exit(exitCode)
+    process.exit(exitCode)
+  }, 3000)
 }
 
 process.on('SIGINT', () => shutdown(130))

@@ -180,7 +180,6 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const roots = resolver.getModulePaths(entry)
     const imps = resolver.getModuleImportBase(entry)
     const group: GroupKey = (entry.from as GroupKey) || '@open-mercato/core'
-    const isAppModule = entry.from === '@app'
 
     // Locate entities definition file (prefer app override)
     const appData = path.join(roots.appBase, 'data')

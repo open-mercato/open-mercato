@@ -321,10 +321,15 @@ function closeSplashServer(): void {
   rmSync(splashChildStateFilePath, { force: true })
 }
 
+let activePostgresContainerId: string | null = null
+
 function shutdown(exitCode: number): never {
   if (!shuttingDown) {
     shuttingDown = true
     closeSplashServer()
+    if (activePostgresContainerId) {
+      stopPostgresContainer(activePostgresContainerId).catch(() => {})
+    }
   }
   process.exit(exitCode)
 }
@@ -990,6 +995,7 @@ async function main(): Promise<void> {
       activity: 'Starting isolated PostgreSQL',
     })
     const postgres = await startEphemeralPostgres()
+    activePostgresContainerId = postgres.containerId
     const baseUrl = `http://127.0.0.1:${port}`
 
     const initEnvironment = {
