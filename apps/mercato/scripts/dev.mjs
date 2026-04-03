@@ -1,17 +1,283 @@
 import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
 
 const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
 const verbose = process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
+const interactiveLogToggle = !verbose && process.stdin.isTTY && process.stdout.isTTY && process.env.CI !== 'true'
+const splashChildStateFile = process.env.OM_DEV_SPLASH_CHILD_STATE_FILE?.trim() || null
+const splashMode = process.env.OM_DEV_SPLASH_MODE?.trim() || 'dev'
 const children = new Set()
 let shuttingDown = false
+let logsVisible = false
+let logToggleInstalled = false
+let rawModeEnabled = false
+let lastRenderedStatus = null
+const rawLogBuffer = []
+const maxBufferedLogLines = 2000
+const RESET = '\u001B[0m'
+const BRIGHT_CYAN = '\u001B[96m'
+const CYAN_BORDER = '\u001B[46m\u001B[30m'
+const ERROR_BANNER = '\u001B[41m\u001B[97m'
+const splashState = {
+  mode: splashMode,
+  phase: 'Installation and first compilation is in progress...',
+  detail: 'Preparing app runtime',
+  ready: false,
+  readyUrl: null,
+  loginUrl: null,
+  memoryCurrentBytes: null,
+  memoryPeakBytes: null,
+  packageNames: [],
+  workerQueues: [],
+  schedulerActive: false,
+  progressCurrent: 0,
+  progressTotal: 4,
+  progressPercent: 0,
+  progressLabel: 'Preparing app runtime',
+  activities: [],
+}
+const startupProgress = {
+  current: 0,
+  total: 4,
+  label: 'Preparing app runtime',
+}
+const memoryState = {
+  currentBytes: null,
+  peakBytes: 0,
+  interval: null,
+  lastPrintedBucket: null,
+  lastPrintedAt: 0,
+}
+const runtimeSummaryState = {
+  packageNames: [],
+  workerQueues: [],
+  schedulerActive: false,
+  packagesPrinted: false,
+  lastWorkersSignature: '',
+}
 
 function formatDuration(durationMs) {
   if (durationMs < 1000) return `${durationMs}ms`
   return `${(durationMs / 1000).toFixed(1)}s`
 }
 
+function formatMemory(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return 'pending'
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
+  }
+  return `${Math.round(bytes / (1024 * 1024))} MB`
+}
+
+function shortenPackageName(name) {
+  if (name.startsWith('@open-mercato/')) {
+    return name.slice('@open-mercato/'.length)
+  }
+  return name
+}
+
+function wrapListLines(label, items, maxWidth = 58) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return [` ${label}: pending`]
+  }
+
+  const lines = []
+  let current = ` ${label}:`
+
+  for (const item of items) {
+    const token = current.endsWith(':') ? ` ${item}` : `, ${item}`
+    if ((current + token).length > maxWidth && !current.endsWith(':')) {
+      lines.push(current)
+      current = `   ${item}`
+      continue
+    }
+    current += token
+  }
+
+  lines.push(current)
+  return lines
+}
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'))
+  } catch {
+    return null
+  }
+}
+
+function loadRuntimePackageNames() {
+  const pkg = readJsonFile(path.join(process.cwd(), 'package.json'))
+  if (!pkg || typeof pkg !== 'object') return []
+
+  const names = new Set()
+  for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+    const deps = pkg[section]
+    if (!deps || typeof deps !== 'object') continue
+    for (const name of Object.keys(deps)) {
+      if (name.startsWith('@open-mercato/')) {
+        names.add(shortenPackageName(name))
+      }
+    }
+  }
+
+  return Array.from(names).sort((a, b) => a.localeCompare(b))
+}
+
+function updateRuntimeSummaryState() {
+  updateSplashState({
+    packageNames: runtimeSummaryState.packageNames,
+    workerQueues: runtimeSummaryState.workerQueues,
+    schedulerActive: runtimeSummaryState.schedulerActive,
+  })
+}
+
+function printRuntimePackagesSummary() {
+  if (runtimeSummaryState.packagesPrinted) return
+  if (runtimeSummaryState.packageNames.length === 0) return
+
+  runtimeSummaryState.packagesPrinted = true
+  printTerminalBanner(CYAN_BORDER, [
+    ' ACTIVE PACKAGES',
+    ...wrapListLines(`Packages (${runtimeSummaryState.packageNames.length})`, runtimeSummaryState.packageNames),
+    ' Expand raw logs with [d] for full startup output',
+  ])
+}
+
+function printBackgroundServicesSummary(force = false) {
+  const queueItems = runtimeSummaryState.workerQueues.map((entry) =>
+    `${entry.queue} · ${entry.handlers} handler${entry.handlers === 1 ? '' : 's'} · c${entry.concurrency}`
+  )
+  const detailItems = runtimeSummaryState.schedulerActive
+    ? ['scheduler · polling engine', ...queueItems]
+    : queueItems
+
+  const signature = JSON.stringify({
+    schedulerActive: runtimeSummaryState.schedulerActive,
+    workerQueues: runtimeSummaryState.workerQueues,
+  })
+
+  if (!force && (!detailItems.length || signature === runtimeSummaryState.lastWorkersSignature)) {
+    return
+  }
+
+  runtimeSummaryState.lastWorkersSignature = signature
+  printTerminalBanner(CYAN_BORDER, [
+    ' BACKGROUND SERVICES',
+    ...wrapListLines('Runtime', detailItems, 64),
+  ])
+}
+
+function initializeRuntimeSummary() {
+  runtimeSummaryState.packageNames = loadRuntimePackageNames()
+  updateRuntimeSummaryState()
+}
+
+function captureBackgroundServiceLine(line) {
+  const queuesMatch = line.match(/^\[worker\] Starting workers for all queues: (.+)$/)
+  if (queuesMatch) {
+    const queueNames = queuesMatch[1].split(',').map((item) => item.trim()).filter(Boolean)
+    const known = new Map(runtimeSummaryState.workerQueues.map((entry) => [entry.queue, entry]))
+    for (const queue of queueNames) {
+      if (!known.has(queue)) {
+        known.set(queue, { queue, handlers: 0, concurrency: 0 })
+      }
+    }
+    runtimeSummaryState.workerQueues = Array.from(known.values()).sort((a, b) => a.queue.localeCompare(b.queue))
+    updateRuntimeSummaryState()
+    return true
+  }
+
+  const queueDetailMatch = line.match(/^\[worker\] Starting "(.+)" with (\d+) handler\(s\), concurrency: (\d+)$/)
+  if (queueDetailMatch) {
+    const queue = queueDetailMatch[1]
+    const handlers = Number.parseInt(queueDetailMatch[2], 10)
+    const concurrency = Number.parseInt(queueDetailMatch[3], 10)
+    const next = runtimeSummaryState.workerQueues.filter((entry) => entry.queue !== queue)
+    next.push({ queue, handlers, concurrency })
+    runtimeSummaryState.workerQueues = next.sort((a, b) => a.queue.localeCompare(b.queue))
+    updateRuntimeSummaryState()
+    return true
+  }
+
+  if (line === '[server] Starting scheduler polling engine...' || line.startsWith('✓ Local scheduler started')) {
+    runtimeSummaryState.schedulerActive = true
+    updateRuntimeSummaryState()
+    if (runtimeSummaryState.workerQueues.length === 0 && line.startsWith('✓ Local scheduler started')) {
+      printBackgroundServicesSummary(true)
+    }
+    return true
+  }
+
+  if (line === '[worker] All workers started. Press Ctrl+C to stop') {
+    printBackgroundServicesSummary(true)
+    return true
+  }
+
+  return false
+}
+
+function clampPercent(value) {
+  if (!Number.isFinite(value)) return 0
+  return Math.max(0, Math.min(100, Math.round(value)))
+}
+
+function resolveProgressPercent(current, total) {
+  if (!Number.isFinite(current) || !Number.isFinite(total) || total <= 0) {
+    return 0
+  }
+
+  return clampPercent((current / total) * 100)
+}
+
+function formatProgressBar(percent, width = 18) {
+  const filled = Math.max(0, Math.min(width, Math.round((clampPercent(percent) / 100) * width)))
+  return `[${'#'.repeat(filled)}${'-'.repeat(width - filled)}]`
+}
+
+function updateStartupProgress(current, label) {
+  if (typeof current === 'number') startupProgress.current = Math.max(startupProgress.current, current)
+  if (typeof label === 'string') startupProgress.label = label
+  const percent = resolveProgressPercent(startupProgress.current, startupProgress.total)
+  updateSplashState({
+    progressCurrent: startupProgress.current,
+    progressTotal: startupProgress.total,
+    progressPercent: percent,
+    progressLabel: startupProgress.label,
+  })
+  return percent
+}
+
+function formatProgressStatus(message, current = startupProgress.current, label = startupProgress.label) {
+  const percent = resolveProgressPercent(current, startupProgress.total)
+  return `${formatProgressBar(percent)} ${String(current).padStart(1)}/${startupProgress.total} ${message || label}`
+}
+
 function stripAnsi(value) {
   return value.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '')
+}
+
+function hasEmojiPrefix(value) {
+  return /^[\p{Extended_Pictographic}\u2600-\u27BF]/u.test(String(value ?? '').trim())
+}
+
+function decorateActivityMessage(message) {
+  const plain = String(message ?? '').trim()
+  if (!plain) return plain
+  if (hasEmojiPrefix(plain)) return plain
+
+  if (/package/i.test(plain)) return `📦 ${plain}`
+  if (/build/i.test(plain)) return `🧱 ${plain}`
+  if (/generate|artifact/i.test(plain)) return `♻️ ${plain}`
+  if (/watch/i.test(plain)) return `👀 ${plain}`
+  if (/ready|login/i.test(plain)) return `🌐 ${plain}`
+  if (/queue|scheduler|background/i.test(plain)) return `⚙️ ${plain}`
+  if (/memory/i.test(plain)) return `🧠 ${plain}`
+  if (/encrypt/i.test(plain)) return `🔐 ${plain}`
+  if (/compile/i.test(plain)) return `🛠️ ${plain}`
+  if (/warn|port/i.test(plain)) return `⚠️ ${plain}`
+  return `✨ ${plain}`
 }
 
 function appendLines(target, chunk, onLine) {
@@ -39,6 +305,47 @@ function connectLineStream(stream, onLine) {
       onLine(trailing)
     }
   })
+}
+
+function persistSplashState() {
+  if (!splashChildStateFile) return
+  try {
+    fs.mkdirSync(path.dirname(splashChildStateFile), { recursive: true })
+    fs.writeFileSync(splashChildStateFile, JSON.stringify(splashState), 'utf8')
+  } catch {}
+}
+
+function pushSplashActivity(message) {
+  if (!message) return
+  const decorated = decorateActivityMessage(message)
+  const activities = splashState.activities
+  if (activities[activities.length - 1] === decorated) return
+  activities.push(decorated)
+  if (activities.length > 10) {
+    activities.shift()
+  }
+  persistSplashState()
+}
+
+function updateSplashState(patch) {
+  if (typeof patch.phase === 'string') splashState.phase = patch.phase
+  if (typeof patch.detail === 'string') splashState.detail = patch.detail
+  if (typeof patch.ready === 'boolean') splashState.ready = patch.ready
+  if (typeof patch.readyUrl === 'string' || patch.readyUrl === null) splashState.readyUrl = patch.readyUrl
+  if (typeof patch.loginUrl === 'string' || patch.loginUrl === null) splashState.loginUrl = patch.loginUrl
+  if (typeof patch.memoryCurrentBytes === 'number' || patch.memoryCurrentBytes === null) splashState.memoryCurrentBytes = patch.memoryCurrentBytes
+  if (typeof patch.memoryPeakBytes === 'number' || patch.memoryPeakBytes === null) splashState.memoryPeakBytes = patch.memoryPeakBytes
+  if (Array.isArray(patch.packageNames)) splashState.packageNames = patch.packageNames
+  if (Array.isArray(patch.workerQueues)) splashState.workerQueues = patch.workerQueues
+  if (typeof patch.schedulerActive === 'boolean') splashState.schedulerActive = patch.schedulerActive
+  if (typeof patch.progressCurrent === 'number') splashState.progressCurrent = patch.progressCurrent
+  if (typeof patch.progressTotal === 'number') splashState.progressTotal = patch.progressTotal
+  if (typeof patch.progressPercent === 'number') splashState.progressPercent = clampPercent(patch.progressPercent)
+  if (typeof patch.progressLabel === 'string') splashState.progressLabel = patch.progressLabel
+  if (typeof patch.activity === 'string') pushSplashActivity(patch.activity)
+  if (splashChildStateFile) {
+    persistSplashState()
+  }
 }
 
 function looksLikeFailure(line) {
@@ -85,9 +392,144 @@ function waitForExit(child) {
   })
 }
 
+async function getProcessTreeMemoryBytes(rootPid) {
+  if (!Number.isInteger(rootPid) || rootPid <= 0) return null
+  if (process.platform === 'win32') return null
+
+  return new Promise((resolve) => {
+    const inspector = spawn('ps', ['-axo', 'pid=,ppid=,rss='], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+
+    let output = ''
+    inspector.stdout?.setEncoding('utf8')
+    inspector.stdout?.on('data', (chunk) => {
+      output += chunk
+    })
+
+    inspector.on('error', () => resolve(null))
+    inspector.on('close', (code) => {
+      if ((code ?? 1) !== 0) {
+        resolve(null)
+        return
+      }
+
+      const nodes = new Map()
+
+      for (const rawLine of output.split('\n')) {
+        const line = rawLine.trim()
+        if (!line) continue
+
+        const match = line.match(/^(\d+)\s+(\d+)\s+(\d+)$/)
+        if (!match) continue
+
+        const pid = Number.parseInt(match[1], 10)
+        const ppid = Number.parseInt(match[2], 10)
+        const rssKb = Number.parseInt(match[3], 10)
+        nodes.set(pid, { ppid, rssKb })
+      }
+
+      if (!nodes.has(rootPid)) {
+        resolve(null)
+        return
+      }
+
+      let totalKb = 0
+      const pending = [rootPid]
+      const seen = new Set()
+
+      while (pending.length > 0) {
+        const pid = pending.pop()
+        if (!Number.isInteger(pid) || seen.has(pid)) continue
+        seen.add(pid)
+
+        const node = nodes.get(pid)
+        if (node) {
+          totalKb += node.rssKb
+        }
+
+        for (const [candidatePid, candidateNode] of nodes.entries()) {
+          if (candidateNode.ppid === pid && !seen.has(candidatePid)) {
+            pending.push(candidatePid)
+          }
+        }
+      }
+
+      resolve(totalKb > 0 ? totalKb * 1024 : null)
+    })
+  })
+}
+
+function stopMemoryMonitor() {
+  if (memoryState.interval) {
+    clearInterval(memoryState.interval)
+    memoryState.interval = null
+  }
+}
+
+function maybePrintMemoryUsage(force = false) {
+  if (verbose || logsVisible) return
+  if (!Number.isFinite(memoryState.currentBytes) || memoryState.currentBytes <= 0) return
+  if (!force && memoryState.currentBytes < 32 * 1024 * 1024) return
+
+  const bucketSizeBytes = 128 * 1024 * 1024
+  const bucket = Math.round(memoryState.currentBytes / bucketSizeBytes)
+  const now = Date.now()
+
+  if (!force && bucket === memoryState.lastPrintedBucket && now - memoryState.lastPrintedAt < 30000) {
+    return
+  }
+
+  memoryState.lastPrintedBucket = bucket
+  memoryState.lastPrintedAt = now
+  console.log(`🧠 Memory ${formatMemory(memoryState.currentBytes)} RSS (peak ${formatMemory(memoryState.peakBytes)})`)
+}
+
+function publishMemoryUsage(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return
+  memoryState.currentBytes = bytes
+  memoryState.peakBytes = Math.max(memoryState.peakBytes, bytes)
+  updateSplashState({
+    memoryCurrentBytes: memoryState.currentBytes,
+    memoryPeakBytes: memoryState.peakBytes,
+  })
+  maybePrintMemoryUsage(false)
+}
+
+function startMemoryMonitor(child) {
+  if (verbose) return
+  if (!child?.pid) return
+  if (process.platform === 'win32') return
+
+  stopMemoryMonitor()
+
+  const sample = async () => {
+    const bytes = await getProcessTreeMemoryBytes(child.pid)
+    if (bytes) {
+      publishMemoryUsage(bytes)
+    }
+  }
+
+  void sample()
+  memoryState.interval = setInterval(() => {
+    void sample()
+  }, 5000)
+  memoryState.interval.unref?.()
+
+  child.on('exit', () => {
+    stopMemoryMonitor()
+  })
+}
+
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
+  stopMemoryMonitor()
+
+  if (rawModeEnabled && process.stdin.isTTY && typeof process.stdin.setRawMode === 'function') {
+    process.stdin.setRawMode(false)
+    rawModeEnabled = false
+  }
 
   for (const child of children) {
     if (!child.killed) {
@@ -109,9 +551,116 @@ function shutdown(exitCode = 0) {
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
 
+function rememberRawLog(line) {
+  rawLogBuffer.push(line)
+  if (rawLogBuffer.length > maxBufferedLogLines) {
+    rawLogBuffer.shift()
+  }
+
+  if (logsVisible) {
+    process.stdout.write(`${line}\n`)
+  }
+}
+
+function printTerminalBanner(style, lines) {
+  if (!Array.isArray(lines) || lines.length === 0) return
+  const width = Math.max(...lines.map((line) => line.length), 36)
+  const border = `${style}${'━'.repeat(width + 4)}${RESET}`
+  console.log(border)
+  for (const line of lines) {
+    console.log(`${style} ${line.padEnd(width + 2)}${RESET}`)
+  }
+  console.log(border)
+}
+
+function printLogToggleHint() {
+  if (!interactiveLogToggle) return
+  printTerminalBanner(CYAN_BORDER, [
+    ' DEBUG LOGS',
+    ' Press [d] to show or hide raw logs',
+  ])
+}
+
+function showBufferedLogs(reason) {
+  if (!interactiveLogToggle || logsVisible) return
+  logsVisible = true
+  printTerminalBanner(ERROR_BANNER, [
+    ' RAW DEBUG LOGS',
+    ` ${reason}`,
+    ' Press [d] again to hide logs',
+  ])
+  if (rawLogBuffer.length === 0) {
+    console.log('📭 No buffered logs yet')
+    return
+  }
+
+  for (const line of rawLogBuffer.slice(-200)) {
+    process.stdout.write(`${line}\n`)
+  }
+}
+
+function hideBufferedLogs() {
+  if (!interactiveLogToggle || !logsVisible) return
+  logsVisible = false
+  console.log(`${BRIGHT_CYAN}📕 Raw logs hidden. Press [d] to show them again.${RESET}`)
+}
+
+function installLogToggle() {
+  if (!interactiveLogToggle || logToggleInstalled || !process.stdin.isTTY) return
+  printLogToggleHint()
+  logToggleInstalled = true
+
+  if (typeof process.stdin.setRawMode === 'function') {
+    process.stdin.setRawMode(true)
+    rawModeEnabled = true
+  }
+
+  process.stdin.resume()
+  process.stdin.setEncoding('utf8')
+  process.stdin.on('data', (chunk) => {
+    if (chunk === '\u0003') {
+      shutdown(130)
+      return
+    }
+
+    if (chunk.toLowerCase() === 'd') {
+      if (logsVisible) {
+        hideBufferedLogs()
+      } else {
+        showBufferedLogs('📖 Raw logs shown')
+      }
+    }
+  })
+}
+
+function parseDurationToken(token) {
+  const match = token.match(/(\d+(?:\.\d+)?)(ms|s)/)
+  if (!match) return token
+
+  const value = Number.parseFloat(match[1])
+  const unit = match[2]
+  if (!Number.isFinite(value)) return token
+
+  if (unit === 's') {
+    return `${value.toFixed(1)}s`
+  }
+
+  return formatDuration(value)
+}
+
 async function runInitialGenerate() {
   const startedAt = Date.now()
-  console.log('🧱 Generating app artifacts...')
+  updateStartupProgress(1, 'Generating app artifacts')
+  console.log(`🧱 ${formatProgressStatus('Generating app artifacts...', 1, 'Generating app artifacts')}`)
+  updateSplashState({
+    phase: 'Installation and first compilation is in progress...',
+    detail: 'Generating app artifacts',
+    progressCurrent: 1,
+    progressTotal: startupProgress.total,
+    progressPercent: resolveProgressPercent(1, startupProgress.total),
+    progressLabel: 'Generating app artifacts',
+    activity: 'Generating app artifacts',
+  })
 
   if (verbose) {
     const child = spawnMercato(['generate'])
@@ -125,6 +674,7 @@ async function runInitialGenerate() {
   const capturedLines = []
   const capture = (line) => {
     capturedLines.push(line)
+    rememberRawLog(line)
     if (capturedLines.length > 500) {
       capturedLines.shift()
     }
@@ -146,27 +696,33 @@ async function runInitialGenerate() {
     shutdown(result.code ?? 1)
   }
 
-  console.log(`✅ App artifacts ready in ${formatDuration(Date.now() - startedAt)}`)
+  updateSplashState({
+    phase: 'Waiting for live runtime',
+    detail: `App artifacts ready in ${formatDuration(Date.now() - startedAt)}`,
+    progressCurrent: 1,
+    progressTotal: startupProgress.total,
+    progressPercent: resolveProgressPercent(1, startupProgress.total),
+    progressLabel: 'App artifacts ready',
+    activity: `App artifacts ready in ${formatDuration(Date.now() - startedAt)}`,
+  })
+  console.log(`✅ ${formatProgressStatus(`App artifacts ready in ${formatDuration(Date.now() - startedAt)}`, 1, 'App artifacts ready')}`)
 }
 
 function createFilteredReporter(label, classifyLine) {
   let passthrough = false
-  let lastStatus = null
-  const buffer = []
 
   return (line) => {
     const plain = stripAnsi(line).trim()
     if (plain.length === 0) return
 
-    buffer.push(line)
-    if (buffer.length > 120) {
-      buffer.shift()
-    }
+    rememberRawLog(line)
+    captureBackgroundServiceLine(plain)
 
     if (passthrough) {
-      console.error(line)
       return
     }
+
+    if (logsVisible) return
 
     const result = classifyLine(plain)
 
@@ -175,16 +731,45 @@ function createFilteredReporter(label, classifyLine) {
     }
 
     if (result.type === 'status') {
-      if (result.message && result.message !== lastStatus) {
-        lastStatus = result.message
-        console.log(result.message)
+      if (result.message) {
+        const progressCurrent = typeof result.progressCurrent === 'number'
+          ? Math.max(startupProgress.current, result.progressCurrent)
+          : startupProgress.current
+        const progressLabel = typeof result.progressLabel === 'string' ? result.progressLabel : startupProgress.label
+        const renderedMessage = formatProgressStatus(result.message, progressCurrent, progressLabel)
+        if (renderedMessage === lastRenderedStatus) {
+          return
+        }
+        lastRenderedStatus = renderedMessage
+        updateStartupProgress(progressCurrent, progressLabel)
+        updateSplashState({
+          phase: result.splashPhase ?? splashState.phase,
+          detail: result.splashDetail ?? result.message,
+          ready: result.ready ?? splashState.ready,
+          readyUrl: result.readyUrl ?? splashState.readyUrl,
+          loginUrl: result.loginUrl ?? splashState.loginUrl,
+          progressCurrent,
+          progressTotal: startupProgress.total,
+          progressPercent: resolveProgressPercent(progressCurrent, startupProgress.total),
+          progressLabel,
+          activity: result.activity ?? result.message,
+        })
+        console.log(renderedMessage)
       }
       return
     }
 
     passthrough = true
-    console.error(`❌ ${label} emitted raw output`)
-    for (const bufferedLine of buffer) {
+    if (interactiveLogToggle) {
+      showBufferedLogs(`❌ ${label} emitted raw output`)
+      return
+    }
+
+    printTerminalBanner(ERROR_BANNER, [
+      ' RAW DEBUG LOGS',
+      ` ❌ ${label} emitted raw output`,
+    ])
+    for (const bufferedLine of rawLogBuffer.slice(-200)) {
       console.error(bufferedLine)
     }
   }
@@ -192,16 +777,50 @@ function createFilteredReporter(label, classifyLine) {
 
 function classifyWatchLine(line) {
   if (line.startsWith('🚀 Running generate:watch')) {
-    return { type: 'status', message: '👀 Watching module structure' }
+    return {
+      type: 'status',
+      message: '👀 Watching module structure',
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: 'Watching structural module files',
+      activity: 'Watching structural module files',
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
   }
   if (line.startsWith('[generate:watch]')) {
-    return { type: 'status', message: '👀 Watching module structure' }
+    return {
+      type: 'status',
+      message: '👀 Watching module structure',
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: 'Watching structural module files',
+      activity: 'Watching structural module files',
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
+  }
+  const watchDurationMatch = line.match(/Done in (\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s)/)
+  if (watchDurationMatch) {
+    const timing = `♻️ Generated files refreshed in ${parseDurationToken(watchDurationMatch[1])}`
+    return {
+      type: 'status',
+      message: timing,
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: timing,
+      activity: timing,
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
   }
   if (line.startsWith('[Bootstrap] Entity IDs re-registered')) {
     return { type: 'ignore' }
   }
   if (line.includes('All generators completed')) {
-    return { type: 'status', message: '♻️ Generated files refreshed' }
+    return {
+      type: 'status',
+      message: '♻️ Generated files refreshed',
+      progressCurrent: 2,
+      progressLabel: 'Watching structural module files',
+    }
   }
   if (looksLikeFailure(line)) {
     return { type: 'passthrough' }
@@ -211,10 +830,26 @@ function classifyWatchLine(line) {
 
 function classifyServerLine(line) {
   if (line.startsWith('🚀 Running server:dev')) {
-    return { type: 'status', message: '🚀 Starting app server' }
+    return {
+      type: 'status',
+      message: '🚀 Starting app server',
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: 'Starting app server',
+      activity: 'Starting app server',
+      progressCurrent: 3,
+      progressLabel: 'Starting app server',
+    }
   }
   if (line === '[server] Starting Open Mercato in dev mode...') {
-    return { type: 'status', message: '🚀 Starting app server' }
+    return {
+      type: 'status',
+      message: '🚀 Starting app server',
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: 'Starting app server',
+      activity: 'Starting app server',
+      progressCurrent: 3,
+      progressLabel: 'Starting app server',
+    }
   }
   if (
     line === '[server] Starting workers for all queues...'
@@ -222,16 +857,100 @@ function classifyServerLine(line) {
     || line.startsWith('🚀 Running queue:worker')
     || line.startsWith('🚀 Running scheduler:start')
   ) {
-    return { type: 'status', message: '⚙️ Starting background services' }
+    return {
+      type: 'status',
+      message: '⚙️ Starting background services',
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: 'Starting background services',
+      activity: 'Starting queue workers and scheduler',
+      progressCurrent: 3,
+      progressLabel: 'Starting background services',
+    }
   }
 
   const localMatch = line.match(/^- Local:\s*(.+)$/)
   if (localMatch) {
-    return { type: 'status', message: `🌐 App ready at ${localMatch[1]}` }
+    return {
+      type: 'status',
+      message: `🌐 App ready at ${localMatch[1]}`,
+      splashPhase: 'App is ready',
+      splashDetail: `Use ${localMatch[1]} to test the application`,
+      readyUrl: localMatch[1],
+      loginUrl: `${localMatch[1].replace(/\/$/, '')}/login`,
+      activity: `App ready at ${localMatch[1]}`,
+      progressCurrent: 4,
+      progressLabel: 'App is ready',
+    }
+  }
+  const readyMatch = line.match(/^✓ Ready in (\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s)$/)
+  if (readyMatch) {
+    const timing = `✨ Runtime ready in ${parseDurationToken(readyMatch[1])}`
+    return {
+      type: 'status',
+      message: timing,
+      splashPhase: 'App is ready',
+      splashDetail: timing,
+      ready: true,
+      activity: timing,
+      progressCurrent: 4,
+      progressLabel: 'App is ready',
+    }
+  }
+  const compiledMatch = line.match(/^✓ Compiled(?:\s+(.+?))?\s+in\s+(\d+(?:\.\d+)?ms|\d+(?:\.\d+)?s)$/)
+  if (compiledMatch) {
+    const target = compiledMatch[1]?.trim()
+    const detail = target ? ` ${target}` : ''
+    const timing = `⚡ Compiled${detail} in ${parseDurationToken(compiledMatch[2])}`
+    return {
+      type: 'status',
+      message: timing,
+      splashPhase: splashState.ready ? 'App is ready' : 'Installation and first compilation is in progress...',
+      splashDetail: timing,
+      activity: timing,
+      progressCurrent: splashState.ready ? 4 : 3,
+      progressLabel: splashState.ready ? 'App is ready' : 'Starting app server',
+    }
+  }
+  const compilingMatch = line.match(/^(?:○|◌)\s+Compiling\s+(.+?)(?:\s+\.\.\.)?$/)
+  if (compilingMatch) {
+    const message = `🛠️ Compiling ${compilingMatch[1].trim()}`
+    return {
+      type: 'status',
+      message,
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: message,
+      activity: message,
+      progressCurrent: 3,
+      progressLabel: 'Starting app server',
+    }
+  }
+  const requestMatch = line.match(/^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(\S+)\s+(\d{3})\s+in\s+([^(]+?)(?:\s+\((.+)\))?$/)
+  if (requestMatch) {
+    const requestDetails = requestMatch[5]?.trim()
+    if (requestDetails && (requestDetails.includes('compile:') || requestDetails.includes('render:'))) {
+      return {
+        type: 'status',
+        message: `📄 ${line}`,
+        splashPhase: 'App is ready',
+        splashDetail: `Latest page timing: ${line}`,
+        ready: true,
+        activity: `📄 ${line}`,
+        progressCurrent: 4,
+        progressLabel: 'App is ready',
+      }
+    }
   }
 
   if (line.includes('Using derived tenant encryption keys')) {
-    return { type: 'status', message: '🔐 Using dev fallback tenant encryption secret' }
+    return {
+      type: 'status',
+      message: '🔐 Using dev fallback tenant encryption secret',
+      splashPhase: 'Installation and first compilation is in progress...',
+      splashDetail: 'Using dev fallback tenant encryption secret',
+      activity: 'Using dev fallback tenant encryption secret',
+      progressCurrent: 3,
+      progressLabel: 'Starting app server',
+    }
   }
 
   if (
@@ -247,7 +966,6 @@ function classifyServerLine(line) {
     || line.startsWith('⨯ serverMinification')
     || line.startsWith('⨯ turbopackMinify')
     || line.startsWith('[Bootstrap] Entity IDs re-registered')
-    || line.startsWith('[worker]')
     || line.startsWith('[queue:')
     || line.startsWith('[scheduler:')
     || line.startsWith('🚀 Starting scheduler')
@@ -272,6 +990,9 @@ function classifyServerLine(line) {
 
 function startFilteredChild(args, label, classifyLine) {
   const child = spawnMercato(args)
+  if (label === 'App runtime') {
+    startMemoryMonitor(child)
+  }
 
   if (verbose) {
     return child
@@ -284,6 +1005,9 @@ function startFilteredChild(args, label, classifyLine) {
 }
 
 await runInitialGenerate()
+installLogToggle()
+initializeRuntimeSummary()
+printRuntimePackagesSummary()
 
 const watch = startFilteredChild(['generate', 'watch', '--skip-initial'], 'Generator watch', classifyWatchLine)
 const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServerLine)
