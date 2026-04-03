@@ -187,7 +187,7 @@ export default function CreateUserPage() {
       ...(!sendInviteEmail ? [{
         id: 'password',
         label: t('auth.users.form.field.password', 'Password'),
-        type: 'text' as const,
+        type: 'password' as const,
         required: true,
         description: passwordDescription,
       }] : []),
@@ -223,6 +223,7 @@ export default function CreateUserPage() {
       id: 'organizationId',
       label: t('auth.users.form.field.organization', 'Organization'),
       type: 'custom',
+      required: true,
       component: ({ id, value, setValue }) => {
         const normalizedValue = typeof value === 'string' ? value : null
         return (
@@ -326,8 +327,13 @@ export default function CreateUserPage() {
               const rawTenant = typeof values.tenantId === 'string' ? values.tenantId.trim() : null
               payload.tenantId = rawTenant && rawTenant.length ? rawTenant : null
             }
-            const { result: created } = await createCrud<{ id?: string }>('auth/users', payload)
+            const { result: created } = await createCrud<{ id?: string; _warning?: string }>('auth/users', payload)
             const newUserId = typeof created?.id === 'string' ? created.id : null
+            if (created?._warning === 'invite_email_failed') {
+              const msg = t('auth.users.flash.createdEmailFailed', 'User created but invitation email could not be sent. You can resend it from the user page.')
+              window.location.href = `/backend/users?flash=${encodeURIComponent(msg)}&type=warning`
+              return
+            }
 
             if (widgetMode === 'override' && newUserId) {
               await updateCrud('dashboards/users/widgets', {

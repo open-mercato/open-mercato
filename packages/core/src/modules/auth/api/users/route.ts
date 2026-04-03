@@ -103,7 +103,10 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         }
         return parsed
       },
-      response: ({ result }) => ({ id: String(result.id) }),
+      response: ({ result }) => ({
+        id: String(result.id),
+        ...((result as any)._warning ? { _warning: (result as any)._warning } : {}),
+      }),
       status: 201,
     },
     update: {
@@ -274,6 +277,7 @@ export async function GET(req: Request) {
       tenantName: u.tenantId ? tenantMap[String(u.tenantId)] ?? String(u.tenantId) : null,
       roles: roleMap[uid] || [],
       roleIds: roleIdMap[uid] || [],
+      hasPassword: !!u.passwordHash,
       ...(cfByUser[uid] || {}),
     }
   })

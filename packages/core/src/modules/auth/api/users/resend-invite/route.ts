@@ -81,7 +81,13 @@ export async function POST(req: Request) {
     hint: translate('auth.email.invite.hint', 'If you did not expect this invitation, you can safely ignore this email.'),
   }
 
-  await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+  let emailSent = true
+  try {
+    await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+  } catch (err) {
+    console.error('[auth.users.resend-invite] Failed to send invitation email:', err)
+    emailSent = false
+  }
 
   try {
     const tenantId = user.tenantId ? String(user.tenantId) : null
@@ -102,6 +108,10 @@ export async function POST(req: Request) {
     }
   } catch (err) {
     console.error('[auth.users.resend-invite] Failed to create notification:', err)
+  }
+
+  if (!emailSent) {
+    return NextResponse.json({ ok: true, warning: 'invite_email_failed' })
   }
 
   return NextResponse.json({ ok: true })

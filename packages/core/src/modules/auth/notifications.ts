@@ -93,14 +93,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     bodyKey: 'auth.notifications.user.invited.body',
     icon: 'mail',
     severity: 'info',
-    actions: [
-      {
-        id: 'check_email',
-        labelKey: 'auth.actions.checkEmail',
-        variant: 'outline',
-        icon: 'mail',
-      },
-    ],
+    actions: [],
     expiresAfterHours: 48,
   },
   {

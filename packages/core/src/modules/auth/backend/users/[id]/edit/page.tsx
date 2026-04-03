@@ -33,6 +33,7 @@ type LoadedUser = {
   organizationName: string | null
   roles: string[]
   roleIds: string[]
+  hasPassword: boolean
 }
 
 type UserApiItem = {
@@ -44,6 +45,7 @@ type UserApiItem = {
   organizationName?: string | null
   roles?: unknown
   roleIds?: unknown
+  hasPassword?: boolean
 }
 
 type UserListResponse = {
@@ -171,6 +173,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
               organizationName: item.organizationName ? String(item.organizationName) : null,
               roles: roleNames,
               roleIds: roleIds.length > 0 ? roleIds : roleNames,
+              hasPassword: item.hasPassword !== false,
             })
             setSelectedTenantId(item.tenantId ? String(item.tenantId) : null)
             const custom: Record<string, unknown> = {}
@@ -223,14 +226,19 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     return fetchRoleOptions(query)
   }, [actorIsSuperAdmin, selectedTenantId])
 
+  const userHasPassword = initialUser?.hasPassword !== false
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [
       { id: 'email', label: t('auth.users.form.field.email', 'Email'), type: 'text', required: true },
       {
         id: 'password',
-        label: t('auth.users.form.field.password', 'Password'),
-        type: 'text',
-        description: passwordDescription,
+        label: userHasPassword
+          ? t('auth.users.form.field.newPassword', 'New Password')
+          : t('auth.users.form.field.setPassword', 'Set Password'),
+        type: 'password' as const,
+        description: userHasPassword
+          ? t('auth.users.form.field.passwordChangeHint', 'Leave blank to keep current password')
+          : t('auth.users.form.field.passwordInviteHint', 'Optionally set a password for this user (they were invited via email)'),
       },
     ]
     if (actorIsSuperAdmin) {
@@ -281,7 +289,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     })
     items.push({ id: 'roles', label: t('auth.users.form.field.roles', 'Roles'), type: 'tags', loadOptions: loadRoleOptions })
     return items
-  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t])
+  }, [actorIsSuperAdmin, loadRoleOptions, passwordDescription, preloadedTenants, selectedOrgId, selectedTenantId, t, userHasPassword])
 
   const detailFieldIds = React.useMemo(() => {
     const base: string[] = ['email', 'password', 'organizationId', 'roles']
@@ -381,7 +389,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           loadingMessage={t('auth.users.form.loading', 'Loading user data...')}
           submitLabel={t('auth.users.form.action.save', 'Save')}
           cancelHref="/backend/users"
-          extraActions={id ? (
+          extraActions={id && !userHasPassword ? (
             <Button
               type="button"
               variant="outline"
@@ -390,13 +398,17 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
                 setResendingInvite(true)
                 setInviteFlash(null)
                 try {
-                  const { ok } = await apiCall<{ ok?: boolean }>('/api/auth/users/resend-invite', {
+                  const { ok, result } = await apiCall<{ ok?: boolean; warning?: string }>('/api/auth/users/resend-invite', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify({ id }),
                   })
                   if (ok) {
-                    setInviteFlash(t('auth.users.flash.inviteSent', 'Invitation email sent'))
+                    if (result?.warning === 'invite_email_failed') {
+                      setInviteFlash(t('auth.users.flash.inviteEmailFailed', 'Invite token created but the email could not be sent. Please check your email provider configuration.'))
+                    } else {
+                      setInviteFlash(t('auth.users.flash.inviteSent', 'Invitation email sent'))
+                    }
                   }
                 } catch (err) {
                   console.error('Failed to resend invite:', err)

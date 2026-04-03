@@ -219,8 +219,10 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       values: custom,
     })
 
-    if (parsed.sendInviteEmail) { 
-      await sendInviteToUser(em, user, ctx)
+    let inviteEmailSent = false
+    if (parsed.sendInviteEmail) {
+      const inviteResult = await sendInviteToUser(em, user, ctx)
+      inviteEmailSent = inviteResult.emailSent
     }
 
     await emitCrudSideEffects({
@@ -236,8 +238,12 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       indexer: userCrudIndexer,
     })
 
-    if (assignedRoles.length) {
+    if (assignedRoles.length && !parsed.sendInviteEmail) {
       await notifyRoleChanges(ctx, user, assignedRoles, [])
+    }
+
+    if (parsed.sendInviteEmail && !inviteEmailSent) {
+      (user as any)._warning = 'invite_email_failed'
     }
 
     return user
@@ -329,9 +335,9 @@ async function sendInviteToUser(
   em: EntityManager,
   user: User,
   ctx: CommandRuntimeContext,
-): Promise<void> {
+): Promise<{ emailSent: boolean }> {
   const token = crypto.randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000) 
+  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
   const row = em.create(PasswordReset as any, { user, token, expiresAt, createdAt: new Date() } as any)
   await em.persistAndFlush(row)
 
@@ -348,7 +354,13 @@ async function sendInviteToUser(
     hint: translate('auth.email.invite.hint', 'If you did not expect this invitation, you can safely ignore this email.'),
   }
 
-  await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+  let emailSent = true
+  try {
+    await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+  } catch (err) {
+    console.error('[auth.users.invite] Failed to send invitation email:', err)
+    emailSent = false
+  }
 
   try {
     const tenantId = user.tenantId ? String(user.tenantId) : null
@@ -370,6 +382,8 @@ async function sendInviteToUser(
   } catch (err) {
     console.error('[auth.users.invite] Failed to create notification:', err)
   }
+
+  return { emailSent }
 }
 
 function isUniqueViolation(error: unknown): boolean {
