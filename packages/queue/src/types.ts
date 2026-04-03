@@ -75,6 +75,8 @@ export type RedisConnectionOptions = {
   port?: number
   /** Redis password */
   password?: string
+  /** TLS settings for rediss:// connections */
+  tls?: Record<string, never>
 }
 
 /**
