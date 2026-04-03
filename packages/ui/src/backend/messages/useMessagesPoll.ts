@@ -36,6 +36,14 @@ export type UseMessagesPollResult = {
 const POLL_INTERVAL = 5000
 
 export function useMessagesPoll(): UseMessagesPollResult {
+  const requestInit = React.useMemo(
+    () => ({
+      headers: {
+        'x-om-forbidden-redirect': '0',
+      },
+    }),
+    [],
+  )
   const [messages, setMessages] = React.useState<MessagePollItem[]>([])
   const [unreadCount, setUnreadCount] = React.useState(0)
   const [hasNew, setHasNew] = React.useState(false)
@@ -48,8 +56,8 @@ export function useMessagesPoll(): UseMessagesPollResult {
   const fetchMessages = React.useCallback(async () => {
     try {
       const [listResult, countResult] = await Promise.all([
-        apiCall<{ items?: MessagePollItem[] }>('/api/messages?folder=inbox&page=1&pageSize=20'),
-        apiCall<{ unreadCount?: number }>('/api/messages/unread-count'),
+        apiCall<{ items?: MessagePollItem[] }>('/api/messages?folder=inbox&page=1&pageSize=20', requestInit),
+        apiCall<{ unreadCount?: number }>('/api/messages/unread-count', requestInit),
       ])
 
       if (listResult.ok) {
@@ -83,7 +91,7 @@ export function useMessagesPoll(): UseMessagesPollResult {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [requestInit])
 
   React.useEffect(() => {
     void fetchMessages()
