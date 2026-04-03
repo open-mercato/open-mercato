@@ -145,6 +145,7 @@ test.describe('TC-AUTH-022: customer_accounts wildcard shows customer portal sid
       await loginWithCredentials(page, userEmail, userPassword)
       await page.goto('/backend/customer_accounts/users', { waitUntil: 'domcontentloaded' })
 
+      await expect(page.getByTestId('backend-chrome-ready')).toHaveAttribute('data-ready', 'true')
       await expect(page.locator('a[href="/backend/customer_accounts/users"]').first()).toBeVisible()
       await expect(page.locator('a[href="/backend/customer_accounts/roles"]').first()).toBeVisible()
     } finally {
