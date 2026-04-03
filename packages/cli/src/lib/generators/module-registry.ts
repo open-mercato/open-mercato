@@ -932,15 +932,19 @@ async function processSubscribers(options: {
   const { roots, modId, appImportBase, pkgImportBase } = options
   const files = scanModuleDir(roots, SCAN_CONFIGS.subscribers)
   const subscribers: string[] = []
-  for (const { relPath, fromApp } of files) {
+  for (const { relPath } of files) {
+    const resolved = resolveModuleFile(
+      roots,
+      { appBase: appImportBase, pkgBase: pkgImportBase },
+      path.posix.join('subscribers', relPath.replace(/\\/g, '/')),
+    )
+    if (!resolved) continue
     const segs = relPath.split('/')
     const file = segs.pop()!
     const name = stripModuleCodeExtension(file)
-    const importPath = sanitizeGeneratedModuleSpecifier(
-      `${fromApp ? appImportBase : pkgImportBase}/subscribers/${[...segs, name].join('/')}`
-    )
+    const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
     const sid = [modId, ...segs, name].filter(Boolean).join(':')
-    const sourceFile = path.join(fromApp ? roots.appBase : roots.pkgBase, 'subscribers', ...segs, file)
+    const sourceFile = resolved.absolutePath
     const metadata = await loadSubscriberMetadata(sourceFile)
     subscribers.push(
       `{ id: ${toLiteral(metadata?.id ?? sid)}, event: ${toLiteral(metadata?.event ?? '')}, persistent: ${metadata?.persistent === undefined ? 'undefined' : toLiteral(metadata.persistent)}, sync: ${metadata?.sync === undefined ? 'undefined' : toLiteral(metadata.sync)}, priority: ${metadata?.priority === undefined ? 'undefined' : toLiteral(metadata.priority)}, handler: createLazyModuleSubscriber(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(metadata?.id ?? sid)}) }`
@@ -958,14 +962,18 @@ async function processWorkers(options: {
   const { roots, modId, appImportBase, pkgImportBase } = options
   const files = scanModuleDir(roots, SCAN_CONFIGS.workers)
   const workers: string[] = []
-  for (const { relPath, fromApp } of files) {
+  for (const { relPath } of files) {
+    const resolved = resolveModuleFile(
+      roots,
+      { appBase: appImportBase, pkgBase: pkgImportBase },
+      path.posix.join('workers', relPath.replace(/\\/g, '/')),
+    )
+    if (!resolved) continue
     const segs = relPath.split('/')
     const file = segs.pop()!
     const name = stripModuleCodeExtension(file)
-    const importPath = sanitizeGeneratedModuleSpecifier(
-      `${fromApp ? appImportBase : pkgImportBase}/workers/${[...segs, name].join('/')}`
-    )
-    const sourceFile = path.join(fromApp ? roots.appBase : roots.pkgBase, 'workers', ...segs, file)
+    const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
+    const sourceFile = resolved.absolutePath
     const metadata = await loadWorkerMetadata(sourceFile)
     if (!metadata?.queue) continue
     const wid = [modId, 'workers', ...segs, name].filter(Boolean).join(':')

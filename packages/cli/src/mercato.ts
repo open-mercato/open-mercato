@@ -3,7 +3,7 @@
 
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
-import type { Module } from '@open-mercato/shared/modules/registry'
+import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -20,6 +20,16 @@ import path from 'node:path'
 import fs from 'node:fs'
 
 let envLoaded = false
+
+function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWorker[] {
+  const allWorkers: ModuleWorker[] = []
+  for (const mod of modules) {
+    if (mod.workers) {
+      allWorkers.push(...mod.workers)
+    }
+  }
+  return allWorkers
+}
 
 export function padByCodePointWidth(value: string, targetWidth: number): string {
   const valueWidth = [...value].length
@@ -910,19 +920,7 @@ export async function run(argv = process.argv) {
           const queueName = isAllQueues ? null : args[0]
 
           // Collect all discovered workers from modules
-          type WorkerEntry = {
-            id: string
-            queue: string
-            concurrency: number
-            handler: (job: unknown, ctx: unknown) => Promise<void> | void
-          }
-          const allWorkers: WorkerEntry[] = []
-          for (const mod of getCliModules()) {
-            const modWorkers = (mod as { workers?: WorkerEntry[] }).workers
-            if (modWorkers) {
-              allWorkers.push(...modWorkers)
-            }
-          }
+          const allWorkers = getRegisteredCliWorkers()
           const discoveredQueues = [...new Set(allWorkers.map((w) => w.queue))]
 
           if (!queueName && !isAllQueues) {
@@ -941,7 +939,8 @@ export async function run(argv = process.argv) {
           if (isAllQueues) {
             // Run workers for all discovered queues
             if (discoveredQueues.length === 0) {
-              console.error('[worker] No queues discovered from modules')
+              console.error('[worker] No queues discovered from CLI modules.')
+              console.error('[worker] Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries.')
               return
             }
 
@@ -1391,13 +1390,18 @@ export async function run(argv = process.argv) {
 
           // Start workers if enabled
           if (autoSpawnWorkers) {
-            console.log('[server] Starting workers for all queues...')
-            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
-              stdio: 'inherit',
-              env: process.env,
-              cwd: appDir,
-            })
-            processes.push(workerProcess)
+            const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+            if (discoveredWorkerQueues.length === 0) {
+              console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+            } else {
+              console.log('[server] Starting workers for all queues...')
+              const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                stdio: 'inherit',
+                env: process.env,
+                cwd: appDir,
+              })
+              processes.push(workerProcess)
+            }
           }
 
           if (autoSpawnScheduler && queueStrategy === 'local') {
@@ -1488,13 +1492,18 @@ export async function run(argv = process.argv) {
 
             // Start workers if enabled
             if (autoSpawnWorkers) {
-              console.log('[server] Starting workers for all queues...')
-              const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
-                stdio: 'inherit',
-                env: runtimeEnv,
-                cwd: appDir,
-              })
-              processes.push(workerProcess)
+              const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+              if (discoveredWorkerQueues.length === 0) {
+                console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+              } else {
+                console.log('[server] Starting workers for all queues...')
+                const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                  stdio: 'inherit',
+                  env: runtimeEnv,
+                  cwd: appDir,
+                })
+                processes.push(workerProcess)
+              }
             }
 
             if (autoSpawnScheduler && queueStrategy === 'local') {

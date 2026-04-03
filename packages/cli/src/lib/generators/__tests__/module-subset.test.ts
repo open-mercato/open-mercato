@@ -727,6 +727,44 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(output).toContain('id: "configs"')
   })
 
+  it('preserves standalone worker and subscriber metadata when discovery uses a src mirror', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'package.json'),
+      JSON.stringify({ name: 'pkg', type: 'module' }),
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'query_index', 'subscribers', 'reindex.ts'),
+      "export const metadata = { event: 'query_index.reindex', persistent: true }\nexport default async function handler() {}\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'query_index', 'subscribers', 'reindex.js'),
+      "export const metadata = { event: 'query_index.reindex', persistent: true }\nexport default async function handler() {}\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'src', 'modules', 'events', 'workers', 'events.worker.ts'),
+      "export const metadata = { queue: 'events', concurrency: 1 }\nexport default async function handler() {}\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'events', 'workers', 'events.worker.js'),
+      "export const metadata = { queue: 'events', concurrency: 1 }\nexport default async function handler() {}\n",
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'query_index', from: '@open-mercato/core' },
+      { id: 'events', from: '@open-mercato/events' },
+    ])
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('event: "query_index.reindex"')
+    expect(output).toContain('persistent: true')
+    expect(output).toContain('queue: "events"')
+    expect(output).toContain('concurrency: 1')
+    expect(output).toContain('createLazyModuleWorker(() => import("@open-mercato/core/modules/events/workers/events.worker")')
+  })
+
   it('does not treat standalone page.meta files as page components', async () => {
     touchFile(
       path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'iconic', 'backend', 'dashboard', 'page.js'),
