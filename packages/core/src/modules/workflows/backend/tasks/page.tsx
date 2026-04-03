@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -61,17 +61,23 @@ export default function UserTasksListPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({
     myTasks: 'true', // Default to "My Tasks" view
   })
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['workflow-tasks', 'list', filterValues, page],
+    queryKey: ['workflow-tasks', 'list', filterValues, page, sorting],
     queryFn: async () => {
       const params = new URLSearchParams()
       const offset = (page - 1) * pageSize
       params.set('limit', pageSize.toString())
       params.set('offset', offset.toString())
+
+      if (sorting.length > 0) {
+        params.set('sortField', sorting[0].id)
+        params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+      }
 
       if (filterValues.status) params.set('status', filterValues.status as string)
       if (filterValues.overdue === 'true') params.set('overdue', 'true')
@@ -340,6 +346,9 @@ export default function UserTasksListPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           perspective={{
             tableId: 'workflows.tasks.list',
           }}

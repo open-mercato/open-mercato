@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -23,6 +23,7 @@ export type AccessLogItem = {
 
 export function AccessLogsTable({ items, isLoading, actions, pagination }: { items: AccessLogItem[] | undefined; isLoading?: boolean; actions?: React.ReactNode; pagination?: PaginationProps }) {
   const t = useT()
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const accessItems = Array.isArray(items) ? items : []
   const noneLabel = t('audit_logs.common.none')
 
@@ -74,6 +75,9 @@ export function AccessLogsTable({ items, isLoading, actions, pagination }: { ite
       title={t('audit_logs.access.title')}
       data={accessItems}
       columns={columns}
+      sortable
+      sorting={sorting}
+      onSortingChange={setSorting}
       perspective={{ tableId: 'audit_logs.access.list' }}
       isLoading={Boolean(isLoading)}
       actions={actions}

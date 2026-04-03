@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -35,6 +35,7 @@ export default function CustomerRolesPage() {
   const t = useT()
   const router = useRouter()
   const [rows, setRows] = React.useState<RoleRow[]>([])
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
@@ -176,6 +177,9 @@ export default function CustomerRolesPage() {
       <PageBody>
         <DataTable<RoleRow>
           title={t('customer_accounts.admin.roles.title', 'Customer Roles')}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           actions={(
             <Button asChild>
               <Link href="/backend/customer_accounts/roles/create">

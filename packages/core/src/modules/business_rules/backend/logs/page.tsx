@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -46,16 +46,20 @@ export default function ExecutionLogsPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const t = useT()
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'executedAt', desc: true }])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['business-rules', 'logs', filterValues, page],
+    queryKey: ['business-rules', 'logs', filterValues, page, sorting],
     queryFn: async () => {
       const params = new URLSearchParams()
       params.set('page', page.toString())
       params.set('pageSize', pageSize.toString())
-      params.set('sortField', 'executedAt')
-      params.set('sortDir', 'desc')
+      const sort = sorting[0]
+      if (sort?.id) {
+        params.set('sortField', sort.id)
+        params.set('sortDir', sort.desc ? 'desc' : 'asc')
+      }
 
       if (filterValues.ruleId) params.set('ruleId', filterValues.ruleId as string)
       if (filterValues.entityType) params.set('entityType', filterValues.entityType as string)
@@ -246,6 +250,9 @@ export default function ExecutionLogsPage() {
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
           error={error ? t('business_rules.logs.messages.loadFailed') : undefined}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>

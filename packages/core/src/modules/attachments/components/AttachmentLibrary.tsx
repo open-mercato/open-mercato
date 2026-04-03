@@ -1065,6 +1065,7 @@ export function AttachmentLibrary() {
         }
         columns={columns}
         data={items}
+        sortable
         sorting={sorting}
         onSortingChange={setSorting}
         rowActions={(row) => (

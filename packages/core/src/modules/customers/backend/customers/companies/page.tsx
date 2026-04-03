@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, type DataTableExportFormat, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -111,6 +111,7 @@ export default function CustomersCompaniesPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -299,6 +300,10 @@ export default function CustomersCompaniesPage() {
     const params = new URLSearchParams()
     params.set('page', String(page))
     params.set('pageSize', String(pageSize))
+    if (sorting[0]?.id) {
+      params.set('sortField', sorting[0].id)
+      params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+    }
     if (search.trim()) params.set('search', search.trim())
     const status = filterValues.status
     if (typeof status === 'string' && status.trim()) params.set('status', status)
@@ -359,7 +364,7 @@ export default function CustomersCompaniesPage() {
       }
     })
     return params.toString()
-  }, [filterValues, page, pageSize, search, tagIdToLabel, tagLabelToId])
+  }, [filterValues, page, pageSize, search, sorting, tagLabelToId])
 
   const currentParams = React.useMemo(() => Object.fromEntries(new URLSearchParams(queryParams)), [queryParams])
   const exportConfig = React.useMemo(() => ({
@@ -591,6 +596,9 @@ export default function CustomersCompaniesPage() {
           )}
           columns={columns}
           data={rows}
+          sortable
+          sorting={sorting}
+          onSortingChange={(s) => { setSorting(s); setPage(1) }}
           exporter={exportConfig}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}

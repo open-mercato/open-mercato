@@ -169,6 +169,7 @@ export default function SalesChannelsPage() {
           )}
           columns={columns}
           data={rows}
+          sortable
           sorting={sorting}
           onSortingChange={setSorting}
           isLoading={isLoading}

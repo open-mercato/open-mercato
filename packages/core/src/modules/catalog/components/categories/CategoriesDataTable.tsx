@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -56,6 +56,7 @@ export default function CategoriesDataTable() {
   const [page, setPage] = React.useState(1)
   const [status, setStatus] = React.useState<'all' | 'active' | 'inactive'>('all')
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [canManage, setCanManage] = React.useState(false)
 
   React.useEffect(() => {
@@ -88,8 +89,12 @@ export default function CategoriesDataTable() {
     params.set('pageSize', String(PAGE_SIZE))
     params.set('status', status)
     if (search) params.set('search', search)
+    if (sorting.length > 0) {
+      params.set('sortField', sorting[0].id)
+      params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+    }
     return params.toString()
-  }, [page, status, search])
+  }, [page, status, search, sorting])
 
   const { data, isLoading } = useQuery<CategoriesResponse>({
     queryKey: ['catalog-categories', queryParams, scopeVersion],
@@ -222,7 +227,9 @@ export default function CategoriesDataTable() {
           setStatus('all')
           setPage(1)
         }}
-        sortable={false}
+        sortable
+        sorting={sorting}
+        onSortingChange={setSorting}
         perspective={{ tableId: 'catalog.categories.list' }}
         rowActions={(row) => (
           canManage ? (

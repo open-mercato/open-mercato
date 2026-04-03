@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
@@ -46,6 +46,7 @@ export default function ExchangeRatesPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -66,6 +67,10 @@ export default function ExchangeRatesPage() {
         if (filters.type) params.set('type', String(filters.type))
         if (filters.isActive === 'true') params.set('isActive', 'true')
         if (filters.isActive === 'false') params.set('isActive', 'false')
+        if (sorting.length > 0) {
+          params.set('sortField', sorting[0].id)
+          params.set('sortDir', sorting[0].desc ? 'desc' : 'asc')
+        }
 
         const fallback: ResponsePayload = { items: [], total: 0, page, totalPages: 1 }
         const call = await apiCall<ResponsePayload>(
@@ -97,7 +102,7 @@ export default function ExchangeRatesPage() {
     return () => {
       cancelled = true
     }
-  }, [page, search, filters, reloadToken, scopeVersion, t])
+  }, [page, search, filters, sorting, reloadToken, scopeVersion, t])
 
   const handleDelete = React.useCallback(
     async (row: ExchangeRateRow) => {
@@ -296,6 +301,9 @@ export default function ExchangeRatesPage() {
               ]}
             />
           )}
+          sortable
+          sorting={sorting}
+          onSortingChange={setSorting}
           pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
           perspective={{ tableId: 'exchange-rates.list' }}

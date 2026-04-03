@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -51,6 +51,7 @@ export function AuditLogsActions({
 }) {
   const t = useT()
   const permissions = useAuditPermissions(true)
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
   const [redoingId, setRedoingId] = React.useState<string | null>(null)
   const [selected, setSelected] = React.useState<ActionLogItem | null>(null)
@@ -237,6 +238,9 @@ export function AuditLogsActions({
         title={t('audit_logs.actions.title')}
         data={actionItems}
         columns={columns}
+        sortable
+        sorting={sorting}
+        onSortingChange={setSorting}
         actions={combinedActions}
         perspective={{ tableId: 'audit_logs.actions.list' }}
         isLoading={Boolean(isLoading) || Boolean(undoingToken) || Boolean(redoingId)}

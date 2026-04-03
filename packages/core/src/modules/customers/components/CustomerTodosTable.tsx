@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -84,6 +84,7 @@ export function CustomerTodosTable(): React.JSX.Element {
   const scopeVersion = useOrganizationScopeVersion()
 
   const [search, setSearch] = React.useState('')
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
 
@@ -214,6 +215,9 @@ export function CustomerTodosTable(): React.JSX.Element {
   return (
     <DataTable
       title={t('customers.workPlan.customerTodos.table.title')}
+      sortable
+      sorting={sorting}
+      onSortingChange={setSorting}
       actions={(
         <Button
           variant="outline"
