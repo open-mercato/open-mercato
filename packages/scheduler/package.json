@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/scheduler",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "description": "Database-managed scheduled jobs with admin UI",
   "type": "module",
   "main": "./dist/index.js",
@@ -63,7 +63,7 @@
     "cron-parser": "^4.9.0"
   },
   "peerDependencies": {
-    "@mikro-orm/core": "^6.6.2",
+    "@mikro-orm/core": "^6.6.10",
     "@open-mercato/shared": "workspace:*",
     "bullmq": "^5.0.0",
     "ioredis": "^5.0.0",

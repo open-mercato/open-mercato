@@ -99,4 +99,56 @@ describe('CrudForm validation state', () => {
 
     expect(getByText('Use camelCase starting with a letter.')).toBeInTheDocument()
   })
+
+  it('validates number fields on blur', async () => {
+    const fields: CrudField[] = [
+      { id: 'title', label: 'Title', type: 'text' },
+      { id: 'cf_priority', label: 'Priority', type: 'number', required: true },
+    ]
+
+    const { container, findByText } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.required': 'This field is required',
+        },
+      },
+    )
+
+    const priorityInput = container.querySelector('[data-crud-field-id="cf_priority"] input[type="number"]')
+    expect(priorityInput).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.blur(priorityInput as HTMLInputElement)
+    })
+
+    expect(await findByText('This field is required')).toBeInTheDocument()
+  })
+
+  it('does not validate date picker fields when the trigger blurs', async () => {
+    const fields: CrudField[] = [
+      { id: 'dueDate', label: 'Due date', type: 'datepicker', required: true },
+    ]
+
+    const { container, queryByText } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'ui.forms.errors.required': 'This field is required',
+          'ui.datePicker.placeholder': 'Pick a date',
+        },
+      },
+    )
+
+    const trigger = container.querySelector('[data-crud-field-id="dueDate"] button')
+    expect(trigger).not.toBeNull()
+
+    await act(async () => {
+      fireEvent.blur(trigger as HTMLButtonElement)
+    })
+
+    expect(queryByText('This field is required')).not.toBeInTheDocument()
+  })
 })

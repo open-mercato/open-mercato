@@ -17,10 +17,9 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       companyId = await createCompanyFixture(request, token, companyName);
 
       await login(page, 'admin');
-      await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'domcontentloaded' });
-      await expect(page.getByRole('button', { name: 'Delete company' })).toBeVisible();
+      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
 
-      await page.getByRole('button', { name: 'Delete company' }).click();
+      await page.getByRole('button', { name: /^Delete$/ }).first().click();
       await page.getByRole('button', { name: 'Confirm' }).click();
 
       await expect(page).toHaveURL(/\/backend\/customers\/companies$/);
@@ -29,15 +28,19 @@ test.describe('TC-CRM-017: Company Delete And Undo', () => {
       const undoResponsePromise = page.waitForResponse((response) => {
         return response.url().includes('/api/audit_logs/audit-logs/actions/undo') && response.request().method() === 'POST';
       });
+      const undoNavigationPromise = page.waitForNavigation({ waitUntil: 'domcontentloaded' });
       await undoButton.click();
-      const undoResponse = await undoResponsePromise;
+      const [undoResponse] = await Promise.all([undoResponsePromise, undoNavigationPromise]);
       expect(undoResponse.ok()).toBeTruthy();
 
-      await page.waitForLoadState('domcontentloaded').catch(() => {});
-
-      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
-      await page.waitForTimeout(1_200);
-      await expect(page.getByRole('link', { name: companyName, exact: true })).toBeVisible();
+      await expect(page).toHaveURL(/\/backend\/customers\/companies$/);
+      const restoredCompanyLink = page.getByRole('link', { name: companyName, exact: true }).first();
+      await expect(restoredCompanyLink).toBeVisible();
+      await Promise.all([
+        page.waitForURL(new RegExp(`/backend/customers/companies-v2/${companyId}$`), { waitUntil: 'domcontentloaded' }),
+        restoredCompanyLink.click(),
+      ]);
+      await expect(page.getByText(companyName, { exact: true }).first()).toBeVisible();
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }

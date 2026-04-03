@@ -44,6 +44,8 @@
   "audit_logs.hint.view_self_only": "Solo se muestran sus propios cambios. Contacte a un administrador para un acceso más amplio.",
   "audit_logs.nav.title": "Registros de auditoría",
   "audit_logs.tabs.label": "Vistas del registro de auditoría",
+  "audit_logs.version_history.action.redo": "Rehacer {action}",
+  "audit_logs.version_history.action.undo": "Deshacer {action}",
   "audit_logs.version_history.close": "Cerrar",
   "audit_logs.version_history.detail.action": "Acción",
   "audit_logs.version_history.detail.actor": "Cambiado por",

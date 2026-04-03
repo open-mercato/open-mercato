@@ -1,14 +1,34 @@
+import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import QueryIndexesTable from '../../components/QueryIndexesTable'
 
-export default function QueryIndexesPage() {
+export default async function QueryIndexesPage({
+  searchParams,
+}: {
+  searchParams?: { returnTo?: string | string[] }
+}) {
+  const { translate } = await resolveTranslations()
+  const returnTo = typeof searchParams?.returnTo === 'string' && searchParams.returnTo.trim().length
+    ? searchParams.returnTo.trim()
+    : null
+
   return (
     <Page>
       <PageBody>
-        <QueryIndexesTable />
+        <div className="space-y-8">
+          {returnTo ? (
+            <Button asChild variant="outline" size="sm">
+              <Link href={returnTo}>
+                {translate('common.back', 'Back')}
+              </Link>
+            </Button>
+          ) : null}
+          <QueryIndexesTable />
+        </div>
       </PageBody>
     </Page>
   )
 }
-
 

@@ -44,6 +44,8 @@
   "audit_logs.hint.view_self_only": "Es werden nur Ihre eigenen Änderungen angezeigt. Wenden Sie sich an einen Administrator für erweiterten Zugriff.",
   "audit_logs.nav.title": "Audit-Logs",
   "audit_logs.tabs.label": "Ansichten des Audit-Protokolls",
+  "audit_logs.version_history.action.redo": "{action} erneut ausführen",
+  "audit_logs.version_history.action.undo": "{action} rückgängig machen",
   "audit_logs.version_history.close": "Schließen",
   "audit_logs.version_history.detail.action": "Aktion",
   "audit_logs.version_history.detail.actor": "Geändert von",

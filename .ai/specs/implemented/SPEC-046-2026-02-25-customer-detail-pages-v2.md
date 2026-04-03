@@ -12,6 +12,7 @@
 **Key Points:**
 - Rewrite company and person detail pages from per-field inline editors to CrudForm-based whole-document save
 - Two-zone layout: CrudForm (Zone 1) for entity fields saved at once + Related Data Tabs (Zone 2) for notes, activities, deals, tasks saved independently
+- Addresses stay section-only in Zone 2; v2 CrudForms do not embed address tiles
 - 100% field coverage matching existing v1 pages
 - Full UMES (SPEC-041) integration with standardized injection slots
 - v2 pages coexist with v1 — menus/links updated to v2, API unchanged
@@ -416,8 +417,6 @@ function mapCompanyOverviewToFormValues(overview: CompanyOverview): Partial<Comp
     industry: overview.profile?.industry ?? '',
     sizeBucket: overview.profile?.sizeBucket ?? '',
     annualRevenue: overview.profile?.annualRevenue ?? '',
-    // Addresses from API
-    addresses: [], // Addresses are managed in Zone 2, not in the form
     // Custom fields (cf_* prefix)
     ...overview.customFields,
   }
@@ -443,7 +442,6 @@ function mapPersonOverviewToFormValues(overview: PersonOverview): Partial<Person
     department: overview.profile?.department ?? '',
     linkedInUrl: overview.profile?.linkedInUrl ?? '',
     twitterUrl: overview.profile?.twitterUrl ?? '',
-    addresses: [],
     ...overview.customFields,
   }
 }
@@ -645,5 +643,6 @@ Same pattern as TC-CRM-V2-003 but for person:
 
 | Date | Change |
 |------|--------|
+| 2026-03-19 | Clarified the implemented contract: v2 pages use `detail:customers.*:tabs` injection slots and keep address editing section-only in Zone 2 |
 | 2026-03-02 | Formally linked child workstreams `SPEC-046b` and `SPEC-046c` to this spec and marked implementation dependency alignment |
 | 2026-02-25 | Initial draft |

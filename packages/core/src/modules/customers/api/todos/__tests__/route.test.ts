@@ -1,138 +1,372 @@
-import { GET } from '../route'
+import { CustomerInteraction, CustomerTodoLink } from '../../../data/entities'
+import { DELETE, GET, POST } from '../route'
 
-const ORG_ID = '00000000-0000-0000-0000-000000000001'
-const TENANT_ID = '00000000-0000-0000-0000-000000000002'
-const ENTITY_ID = '00000000-0000-0000-0000-000000000003'
-const LINK_ID = '00000000-0000-0000-0000-000000000004'
-const TODO_ID = '00000000-0000-0000-0000-000000000005'
+const ORG_ID = '123e4567-e89b-41d3-a456-426614174000'
+const TENANT_ID = '123e4567-e89b-41d3-a456-426614174010'
+const ENTITY_ID = '123e4567-e89b-41d3-a456-426614174011'
+const LINK_ID = '123e4567-e89b-41d3-a456-426614174012'
+const TODO_ID = '123e4567-e89b-41d3-a456-426614174013'
 
-const mockLink = {
-  id: LINK_ID,
-  todoId: TODO_ID,
-  todoSource: 'planner:todo',
-  organizationId: ORG_ID,
-  tenantId: TENANT_ID,
-  createdAt: new Date('2026-01-01T10:00:00.000Z'),
-  entity: {
-    id: ENTITY_ID,
-    displayName: 'Acme Corp',
-    kind: 'company',
-  },
+const mockCommandBus = {
+  execute: jest.fn(),
 }
 
-const mockEm = {
-  findAndCount: jest.fn(async () => [[mockLink], 1]),
-}
-
-const mockQueryEngine = {
-  query: jest.fn(async () => ({
-    items: [{ id: TODO_ID, title: 'Follow up call', is_done: true }],
-  })),
-}
+const mockQueryEngine = {}
 
 const mockContainer = {
   resolve: jest.fn((name: string) => {
-    if (name === 'em') return mockEm
+    if (name === 'commandBus') return mockCommandBus
     if (name === 'queryEngine') return mockQueryEngine
-    throw new Error(`Unknown service: ${name}`)
+    if (name === 'em') return mockEm
+    throw new Error(`Unknown dependency: ${name}`)
   }),
 }
 
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: jest.fn(async () => ({
+const mockEm = {
+  find: jest.fn(),
+  findOne: jest.fn(),
+}
+
+const mockContext = {
+  auth: {
     sub: 'user-1',
-    orgId: ORG_ID,
     tenantId: TENANT_ID,
-    isApiKey: false,
+    orgId: ORG_ID,
+  },
+  em: mockEm,
+  organizationIds: [ORG_ID],
+  selectedOrganizationId: ORG_ID,
+  container: mockContainer,
+  commandContext: {
+    container: mockContainer,
+    auth: {
+      sub: 'user-1',
+      tenantId: TENANT_ID,
+      orgId: ORG_ID,
+    },
+    organizationScope: null,
+    selectedOrganizationId: ORG_ID,
+    organizationIds: [ORG_ID],
+    request: undefined,
+  },
+}
+
+jest.mock('../../../lib/interactionFeatureFlags', () => ({
+  resolveCustomerInteractionFeatureFlags: jest.fn(),
+}))
+
+jest.mock('../../../lib/interactionRequestContext', () => ({
+  resolveCustomersRequestContext: jest.fn(async () => mockContext),
+}))
+
+jest.mock('../../../lib/interactionReadModel', () => ({
+  hydrateCanonicalInteractions: jest.fn(),
+  loadCustomerSummaries: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (_key: string, fallback: string) => fallback,
   })),
 }))
 
-jest.mock('@open-mercato/shared/lib/di/container', () => ({
-  createRequestContainer: jest.fn(async () => mockContainer),
+jest.mock('../../../lib/todoCompatibility', () => ({
+  resolveLegacyTodoDetails: jest.fn(),
+  mapLegacyTodoLinkToRow: jest.fn(),
+  mapInteractionRecordToTodoRow: jest.fn(),
 }))
 
-jest.mock('@open-mercato/shared/lib/encryption/subscriber', () => ({
-  decryptEntitiesWithFallbackScope: jest.fn(async () => undefined),
-}))
-
-describe('GET /api/customers/todos', () => {
+describe('customers todos adapter route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockEm.findAndCount.mockResolvedValue([[mockLink], 1])
-    mockQueryEngine.query.mockResolvedValue({
-      items: [{ id: TODO_ID, title: 'Follow up call', is_done: true }],
+
+    const { resolveCustomerInteractionFeatureFlags } = jest.requireMock('../../../lib/interactionFeatureFlags')
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({
+      unified: false,
+      legacyAdapters: true,
+      externalSync: false,
     })
+
+    const { resolveLegacyTodoDetails, mapLegacyTodoLinkToRow, mapInteractionRecordToTodoRow } =
+      jest.requireMock('../../../lib/todoCompatibility')
+    resolveLegacyTodoDetails.mockResolvedValue(new Map())
+    mapLegacyTodoLinkToRow.mockImplementation(() => ({
+      id: LINK_ID,
+      todoId: TODO_ID,
+      todoSource: 'example:todo',
+      todoTitle: 'Legacy task',
+      todoIsDone: false,
+      todoPriority: null,
+      todoSeverity: null,
+      todoDescription: null,
+      todoDueAt: null,
+      todoCustomValues: null,
+      todoOrganizationId: ORG_ID,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      createdAt: '2026-01-01T10:00:00.000Z',
+      customer: {
+        id: ENTITY_ID,
+        displayName: 'Acme Corp',
+        kind: 'company',
+      },
+    }))
+    mapInteractionRecordToTodoRow.mockImplementation(() => ({
+      id: TODO_ID,
+      todoId: TODO_ID,
+      todoSource: 'customers:interaction',
+      todoTitle: 'Canonical task',
+      todoIsDone: false,
+      todoPriority: null,
+      todoSeverity: null,
+      todoDescription: null,
+      todoDueAt: null,
+      todoCustomValues: null,
+      todoOrganizationId: null,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      createdAt: '2026-01-02T10:00:00.000Z',
+      customer: {
+        id: ENTITY_ID,
+        displayName: 'Acme Corp',
+        kind: 'company',
+      },
+    }))
+
+    const { hydrateCanonicalInteractions, loadCustomerSummaries } =
+      jest.requireMock('../../../lib/interactionReadModel')
+    hydrateCanonicalInteractions.mockResolvedValue([
+      {
+        id: TODO_ID,
+        entityId: ENTITY_ID,
+        interactionType: 'task',
+        title: 'Canonical task',
+        status: 'planned',
+        source: 'adapter:todo',
+        organizationId: ORG_ID,
+        tenantId: TENANT_ID,
+        createdAt: '2026-01-02T10:00:00.000Z',
+        updatedAt: '2026-01-02T10:00:00.000Z',
+      },
+    ])
+    loadCustomerSummaries.mockResolvedValue(
+      new Map([
+        [
+          ENTITY_ID,
+          {
+            id: ENTITY_ID,
+            displayName: 'Acme Corp',
+            kind: 'company',
+          },
+        ],
+      ]),
+    )
   })
 
-  it('returns 401 when not authenticated', async () => {
-    const { getAuthFromRequest } = jest.requireMock('@open-mercato/shared/lib/auth/server')
-    getAuthFromRequest.mockResolvedValueOnce(null)
+  it('merges canonical adapter todos over legacy rows and returns deprecation headers', async () => {
+    const legacyLink = {
+      id: LINK_ID,
+      todoId: TODO_ID,
+      todoSource: 'example:todo',
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      createdAt: new Date('2026-01-01T10:00:00.000Z'),
+      entity: {
+        id: ENTITY_ID,
+        displayName: 'Acme Corp',
+        kind: 'company',
+      },
+    }
+    const canonicalInteraction = {
+      id: TODO_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      interactionType: 'task',
+      source: 'adapter:todo',
+      deletedAt: null,
+    }
 
-    const res = await GET(new Request('http://localhost/api/customers/todos'))
-    expect(res.status).toBe(401)
-  })
+    mockEm.find.mockImplementation(async (ctor: unknown) => {
+      if (ctor === CustomerTodoLink) return [legacyLink]
+      if (ctor === CustomerInteraction) return [canonicalInteraction]
+      return []
+    })
 
-  it('returns 400 on invalid params', async () => {
-    const res = await GET(new Request('http://localhost/api/customers/todos?page=0'))
-    expect(res.status).toBe(400)
-  })
-
-  it('returns paginated items with resolved todo title and isDone', async () => {
-    const res = await GET(new Request('http://localhost/api/customers/todos?page=1&pageSize=10'))
+    const res = await GET(new Request(`http://localhost/api/customers/todos?entityId=${ENTITY_ID}`))
     expect(res.status).toBe(200)
+    expect(res.headers.get('Deprecation')).toBe('true')
+
     const body = await res.json()
     expect(body.items).toHaveLength(1)
     expect(body.items[0]).toMatchObject({
+      id: TODO_ID,
+      todoId: TODO_ID,
+      todoTitle: 'Canonical task',
+      todoSource: 'customers:interaction',
+    })
+  })
+
+  it('delegates POST to canonical interactions and returns adapter headers', async () => {
+    mockCommandBus.execute.mockResolvedValueOnce({ interactionId: TODO_ID })
+
+    const res = await POST(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          entityId: ENTITY_ID,
+          title: 'Create adapter task',
+          todoCustom: { priority: 3 },
+        }),
+      }),
+    )
+
+    expect(res.status).toBe(201)
+    expect(res.headers.get('Deprecation')).toBe('true')
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'customers.interactions.create',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          entityId: ENTITY_ID,
+          interactionType: 'task',
+          title: 'Create adapter task',
+          source: 'adapter:todo',
+          customValues: expect.objectContaining({
+            priority: 3,
+          }),
+          priority: 3,
+        }),
+      }),
+    )
+  })
+
+  it('forwards todoCustom values to the canonical task create command', async () => {
+    mockCommandBus.execute.mockResolvedValueOnce({ interactionId: TODO_ID })
+
+    await POST(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          entityId: ENTITY_ID,
+          title: 'Create adapter task with due date',
+          todoCustom: {
+            due_at: '2026-04-10T15:00:00.000Z',
+            description: 'legacy due date check',
+            priority: 3,
+          },
+        }),
+      }),
+    )
+
+    expect(mockCommandBus.execute).toHaveBeenCalledWith(
+      'customers.interactions.create',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          customValues: expect.objectContaining({
+            due_at: '2026-04-10T15:00:00.000Z',
+            description: 'legacy due date check',
+            priority: 3,
+          }),
+          body: 'legacy due date check',
+          scheduledAt: '2026-04-10T15:00:00.000Z',
+          priority: 3,
+        }),
+      }),
+    )
+  })
+
+  it('bridges legacy link deletion through canonical interactions when unified mode is off', async () => {
+    const legacyLink = {
       id: LINK_ID,
       todoId: TODO_ID,
-      todoSource: 'planner:todo',
-      todoTitle: 'Follow up call',
-      todoIsDone: true,
-      customer: { id: ENTITY_ID, displayName: 'Acme Corp', kind: 'company' },
+      todoSource: 'example:todo',
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      createdAt: new Date('2026-01-01T10:00:00.000Z'),
+      entity: {
+        id: ENTITY_ID,
+        displayName: 'Acme Corp',
+        kind: 'company',
+      },
+    }
+
+    mockEm.findOne.mockImplementation(async (ctor: unknown, where: Record<string, unknown>) => {
+      if (ctor === CustomerInteraction) return null
+      if (ctor === CustomerTodoLink && where.id === LINK_ID) return legacyLink
+      return null
     })
-    expect(body.total).toBe(1)
-    expect(body.page).toBe(1)
-    expect(body.totalPages).toBe(1)
-  })
+    mockCommandBus.execute
+      .mockResolvedValueOnce({ interactionId: TODO_ID })
+      .mockResolvedValueOnce({ ok: true })
 
-  it('filters by organizationId when orgId is set', async () => {
-    await GET(new Request('http://localhost/api/customers/todos'))
-    const [, where] = mockEm.findAndCount.mock.calls[0]
-    expect(where).toMatchObject({ organizationId: ORG_ID, tenantId: TENANT_ID })
-  })
+    const res = await DELETE(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: LINK_ID }),
+      }),
+    )
 
-  it('omits organizationId filter when orgId is null (all orgs mode)', async () => {
-    const { getAuthFromRequest } = jest.requireMock('@open-mercato/shared/lib/auth/server')
-    getAuthFromRequest.mockResolvedValueOnce({ sub: 'user-1', orgId: null, tenantId: TENANT_ID })
-
-    await GET(new Request('http://localhost/api/customers/todos'))
-    const [, where] = mockEm.findAndCount.mock.calls[0]
-    expect(where).not.toHaveProperty('organizationId')
-    expect(where).toMatchObject({ tenantId: TENANT_ID })
-  })
-
-  it('returns all records when all=true (full export)', async () => {
-    mockEm.findAndCount.mockResolvedValueOnce([[mockLink, mockLink], 2])
-
-    const res = await GET(new Request('http://localhost/api/customers/todos?all=true'))
     expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.total).toBe(2)
-    expect(body.page).toBe(1)
-    expect(body.totalPages).toBe(1)
-
-    const [, , options] = mockEm.findAndCount.mock.calls[0]
-    expect(options).not.toHaveProperty('limit')
-    expect(options).not.toHaveProperty('offset')
+    expect(res.headers.get('Deprecation')).toBe('true')
+    expect(mockCommandBus.execute).toHaveBeenNthCalledWith(
+      1,
+      'customers.interactions.create',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          id: TODO_ID,
+          entityId: ENTITY_ID,
+          interactionType: 'task',
+          source: 'adapter:todo',
+        }),
+      }),
+    )
+    expect(mockCommandBus.execute).toHaveBeenNthCalledWith(
+      2,
+      'customers.interactions.delete',
+      expect.objectContaining({
+        input: { id: TODO_ID },
+      }),
+    )
   })
 
-  it('falls back to null todoTitle/todoIsDone when QueryEngine throws', async () => {
-    mockQueryEngine.query.mockRejectedValueOnce(new Error('QueryEngine unavailable'))
+  it('returns 410 when legacy adapters are disabled', async () => {
+    const { resolveCustomerInteractionFeatureFlags } = jest.requireMock('../../../lib/interactionFeatureFlags')
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({
+      unified: true,
+      legacyAdapters: false,
+      externalSync: false,
+    })
 
-    const res = await GET(new Request('http://localhost/api/customers/todos'))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.items[0].todoTitle).toBeNull()
-    expect(body.items[0].todoIsDone).toBeNull()
+    const res = await GET(new Request(`http://localhost/api/customers/todos?entityId=${ENTITY_ID}`))
+
+    expect(res.status).toBe(410)
+    expect(res.headers.get('Deprecation')).toBe('true')
+    expect(mockEm.find).not.toHaveBeenCalled()
+  })
+
+  it('blocks writes when legacy adapters are disabled', async () => {
+    const { resolveCustomerInteractionFeatureFlags } = jest.requireMock('../../../lib/interactionFeatureFlags')
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({
+      unified: true,
+      legacyAdapters: false,
+      externalSync: false,
+    })
+
+    const res = await POST(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          entityId: ENTITY_ID,
+          title: 'Create adapter task',
+        }),
+      }),
+    )
+
+    expect(res.status).toBe(410)
+    expect(res.headers.get('Deprecation')).toBe('true')
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 })

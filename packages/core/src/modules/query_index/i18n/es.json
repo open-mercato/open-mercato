@@ -2,6 +2,7 @@
   "query_index.banner.dismiss": "Cerrar",
   "query_index.banner.manage_indexes": "Gestionar índices",
   "query_index.banner.partial_counts": "{{indexed}} de {{total}} registros están indexados.",
+  "query_index.banner.partial_counts_excess": "El índice contiene actualmente {{indexed}} entradas para {{total}} registros. Vuelve a indexar para limpiar las filas obsoletas.",
   "query_index.banner.partial_description": "Detectamos una cobertura parcial en el índice de consultas. Vuelve a indexar para actualizar todos los registros.",
   "query_index.banner.partial_entity": "Entidad: {{entity}}",
   "query_index.banner.partial_global_note": "Algunos registros en otras organizaciones todavía faltan en el índice.",

@@ -30,6 +30,9 @@ type ApiResponse = {
   now?: string
 }
 
+// NOTE(SPEC-046b): This widget reads from next_interaction_* projection fields
+// on CustomerEntity. These fields are now maintained by the interaction
+// projection recompute service (lib/interactionProjection.ts).
 async function loadNextInteractions(settings: CustomerNextInteractionsSettings): Promise<ApiResponse> {
   const params = new URLSearchParams({
     limit: String(settings.pageSize),
@@ -71,8 +74,8 @@ async function loadNextInteractions(settings: CustomerNextInteractionsSettings):
 
 function resolveDetailHref(item: NextInteractionItem): string | null {
   if (!item.id || !item.kind) return null
-  if (item.kind === 'company') return `/backend/customers/companies/${encodeURIComponent(item.id)}`
-  if (item.kind === 'person') return `/backend/customers/people/${encodeURIComponent(item.id)}`
+  if (item.kind === 'company') return `/backend/customers/companies-v2/${encodeURIComponent(item.id)}`
+  if (item.kind === 'person') return `/backend/customers/people-v2/${encodeURIComponent(item.id)}`
   return null
 }
 

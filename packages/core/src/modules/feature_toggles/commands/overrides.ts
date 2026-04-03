@@ -1,6 +1,6 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { EntityManager, JsonType } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { FeatureToggle } from '../data/entities'
 import { ProcessedChangeOverrideStateInput, processedChangeOverrideStateSchema } from '../data/validators'
 import { FeatureToggleOverride } from '../data/entities'
@@ -65,7 +65,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
 
     let override = await em.findOne(FeatureToggleOverride, { toggle: input.toggleId, tenantId: input.tenantId })
     if (override) {
-      override.value = input.overrideValue as JsonType
+      override.value = input.overrideValue
       await em.flush()
       const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService
       await featureTogglesService.invalidateIsEnabledCacheByKey(override.toggle.identifier, input.tenantId)
@@ -75,7 +75,7 @@ const changeOverrideStateCommand: CommandHandler<ProcessedChangeOverrideStateInp
     override = await em.create(FeatureToggleOverride, {
       toggle: input.toggleId,
       tenantId: input.tenantId,
-      value: input.overrideValue as JsonType
+      value: input.overrideValue
     })
     await em.flush()
     const featureTogglesService = ctx.container.resolve('featureTogglesService') as FeatureTogglesService

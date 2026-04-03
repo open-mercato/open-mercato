@@ -9,7 +9,7 @@ import { VersionHistoryDetail } from './VersionHistoryDetail'
 import { formatDate } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
-import { getVersionHistoryStatusLabel } from './labels'
+import { getVersionHistoryActionLabel, getVersionHistoryStatusLabel } from './labels'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from './useAuditPermissions'
 import { Notice } from '@open-mercato/ui/primitives/Notice'
 import { humanizeResourceKind } from './labels'
@@ -221,6 +221,7 @@ export function VersionHistoryPanel({
                   <div className="divide-y rounded-lg border">
                     {visibleEntries.map((entry) => {
                       const statusLabel = getVersionHistoryStatusLabel(entry.executionState, t)
+                      const actionLabel = getVersionHistoryActionLabel(entry, t)
                       const isRelatedEntry = entry.parentResourceKind != null
                       const entryCanUndo = canUndoRedo !== undefined
                         ? canUndoRedo
@@ -242,7 +243,7 @@ export function VersionHistoryPanel({
                           <Button
                             type="button"
                             variant="ghost"
-                            className="flex-1 text-left flex flex-col gap-1"
+                            className="h-auto min-w-0 flex-1 flex-col items-start justify-start gap-1 whitespace-normal px-0 py-0 text-left hover:bg-transparent"
                             onClick={() => setSelectedEntry(entry)}
                           >
                             {isRelatedEntry ? (
@@ -250,10 +251,10 @@ export function VersionHistoryPanel({
                                 {humanizeResourceKind(entry.resourceKind, t)}
                               </span>
                             ) : null}
-                            <div className="text-sm font-medium">
-                              {entry.actionLabel || entry.commandId}
+                            <div className="break-words text-sm font-medium">
+                              {actionLabel}
                             </div>
-                            <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 text-xs text-muted-foreground">
                               <span>{entry.actorUserName || entry.actorUserId || t('audit_logs.common.none')}</span>
                               <span>•</span>
                               <span>{formatDate(entry.createdAt)}</span>
@@ -265,7 +266,8 @@ export function VersionHistoryPanel({
                             {canUndo ? (
                               <Button
                                 variant="ghost"
-                                size="icon"
+                                size="sm"
+                                className="h-8 gap-1 px-2 text-xs"
                                 aria-label={t('audit_logs.actions.undo')}
                                 onClick={(event) => {
                                   event.stopPropagation()
@@ -274,12 +276,14 @@ export function VersionHistoryPanel({
                                 disabled={undoingToken === entry.undoToken || Boolean(redoingId)}
                               >
                                 <Undo2 className="size-4" aria-hidden="true" />
+                                <span>{t('audit_logs.actions.undo')}</span>
                               </Button>
                             ) : null}
                             {showRedo ? (
                               <Button
                                 variant="ghost"
-                                size="icon"
+                                size="sm"
+                                className="h-8 gap-1 px-2 text-xs"
                                 aria-label={t('audit_logs.actions.redo')}
                                 onClick={(event) => {
                                   event.stopPropagation()
@@ -288,6 +292,7 @@ export function VersionHistoryPanel({
                                 disabled={!canRedo || redoingId === entry.id || Boolean(undoingToken)}
                               >
                                 <RotateCcw className="size-4" aria-hidden="true" />
+                                <span>{t('audit_logs.actions.redo')}</span>
                               </Button>
                             ) : null}
                           </div>
