@@ -75,11 +75,13 @@ async function findApiRoutes(resolver: PackageResolver): Promise<ApiRouteInfo[]>
     if (fs.existsSync(apiPkg)) walkDir(apiPkg)
     if (fs.existsSync(apiApp)) walkDir(apiApp)
 
-    // Process unique routes (app overrides package)
-    const seen = new Set<string>()
+    // Process unique routes (later app files overwrite earlier package files)
+    const filesByRelativePath = new Map<string, string>()
     for (const { relativePath, fullPath } of routeFiles) {
-      if (seen.has(relativePath)) continue
-      seen.add(relativePath)
+      filesByRelativePath.set(relativePath, fullPath)
+    }
+
+    for (const [relativePath, fullPath] of filesByRelativePath) {
 
       // Build API path
       const routeSegs = relativePath ? relativePath.split('/') : []

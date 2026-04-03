@@ -955,6 +955,65 @@ describe('generateModuleRegistryCli with module subsets', () => {
     expect(apiRoutesOutput).not.toContain('@open-mercato/core/modules/payment_gateways/api/get/payment-gateways/status')
     expect(apiRoutesOutput).not.toContain('/payment_gateways/payment-gateways/status')
   })
+
+  it('preserves metadata.path from compiled standalone route files that export metadata via export lists', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'shipping_carriers', 'api', 'providers', 'route.js'),
+      [
+        'import { NextResponse } from "next/server";',
+        'const metadata = {',
+        '  path: "/shipping-carriers/providers",',
+        '  GET: { requireAuth: true },',
+        '};',
+        'async function GET() {',
+        '  return NextResponse.json({ providers: [] });',
+        '}',
+        'export { GET, metadata };',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'shipping_carriers', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const apiRoutesOutputPath = path.join(tmpDir, '.mercato', 'generated', 'api-routes.generated.ts')
+    const apiRoutesOutput = fs.readFileSync(apiRoutesOutputPath, 'utf8')
+    expect(apiRoutesOutput).toContain('path: "/shipping-carriers/providers"')
+    expect(apiRoutesOutput).not.toContain('path: "/shipping_carriers/providers"')
+  })
+
+  it('keeps package legacy method handlers while letting app files override matching paths', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'legacy_api', 'api', 'get', 'status.ts'),
+      'export async function GET() { return new Response("package-status") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'legacy_api', 'api', 'get', 'details.ts'),
+      'export async function GET() { return new Response("package-details") }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'modules', 'legacy_api', 'api', 'get', 'status.ts'),
+      'export async function GET() { return new Response("app-status") }\n',
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'legacy_api', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const apiRoutesOutput = readGenerated(tmpDir, 'api-routes.generated.ts')!
+    expect(apiRoutesOutput).toContain('@/modules/legacy_api/api/get/status')
+    expect(apiRoutesOutput).not.toContain('@open-mercato/core/modules/legacy_api/api/get/status')
+    expect(apiRoutesOutput).toContain('@open-mercato/core/modules/legacy_api/api/get/details')
+    expect(apiRoutesOutput).toContain('path: "/legacy_api/details"')
+    expect(apiRoutesOutput).toContain('path: "/legacy_api/status"')
+  })
 })
 
 describe('generateModuleRegistryApp with module subsets', () => {

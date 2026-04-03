@@ -149,6 +149,20 @@ function buildCacheBustedSourceImportUrl(sourceFile: string): string {
   return url.href
 }
 
+function unwrapObjectLiteralExpression(
+  expression: ts.Expression | undefined,
+): ts.ObjectLiteralExpression | undefined {
+  if (!expression) return undefined
+  if (ts.isObjectLiteralExpression(expression)) return expression
+  if (ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression)) {
+    return unwrapObjectLiteralExpression(expression.expression)
+  }
+  if (ts.isParenthesizedExpression(expression)) {
+    return unwrapObjectLiteralExpression(expression.expression)
+  }
+  return undefined
+}
+
 function extractNamedObjectLiteralSource(sourceFile: string, exportName: string): string | null {
   let source = ''
   try {
@@ -157,70 +171,42 @@ function extractNamedObjectLiteralSource(sourceFile: string, exportName: string)
     return null
   }
 
-  const exportPattern = new RegExp(`export\\s+const\\s+${exportName}\\s*=`, 'm')
-  const match = exportPattern.exec(source)
-  if (!match) return null
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
 
-  const assignmentIndex = match.index + match[0].length
-  const objectStart = source.indexOf('{', assignmentIndex)
-  if (objectStart < 0) return null
-
-  let depth = 0
-  let inSingle = false
-  let inDouble = false
-  let inTemplate = false
-  let escaped = false
-
-  for (let index = objectStart; index < source.length; index += 1) {
-    const char = source[index]
-
-    if (escaped) {
-      escaped = false
-      continue
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) {
+        exportedNames.add(element.name.text)
+      }
     }
+  }
 
-    if (char === '\\') {
-      escaped = true
-      continue
-    }
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
 
-    if (inSingle) {
-      if (char === '\'') inSingle = false
-      continue
-    }
-    if (inDouble) {
-      if (char === '"') inDouble = false
-      continue
-    }
-    if (inTemplate) {
-      if (char === '`') inTemplate = false
-      continue
-    }
+    const statementExportsNameDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
 
-    if (char === '\'') {
-      inSingle = true
-      continue
-    }
-    if (char === '"') {
-      inDouble = true
-      continue
-    }
-    if (char === '`') {
-      inTemplate = true
-      continue
-    }
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue
+      if (!statementExportsNameDirectly && !exportedNames.has(exportName)) continue
 
-    if (char === '{') {
-      depth += 1
-      continue
+      const objectLiteral = unwrapObjectLiteralExpression(declaration.initializer)
+      if (!objectLiteral) return null
+      return source.slice(objectLiteral.getStart(parsed), objectLiteral.end)
     }
-    if (char !== '}') continue
-
-    depth -= 1
-    if (depth !== 0) continue
-
-    const literal = source.slice(objectStart, index + 1)
-    return literal
   }
 
   return null
@@ -812,7 +798,6 @@ async function processApiRoutes(options: {
   const { roots, modId, appImportBase, pkgImportBase, eagerImports, importIdRef } = options
   const apiApp = path.join(roots.appBase, 'api')
   const apiPkg = path.join(roots.pkgBase, 'api')
-  const pkgSourceMirrorBase = resolveStandaloneSourceMirrorBase(roots.pkgBase)
   if (!fs.existsSync(apiApp) && !fs.existsSync(apiPkg)) {
     return { eagerApis: [], runtimeApis: [], manifestApis: [] }
   }
@@ -882,36 +867,33 @@ async function processApiRoutes(options: {
   // Legacy per-method
   const methods: HttpMethod[] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
   for (const method of methods) {
-    const coreMethodDir = path.join(apiPkg, method.toLowerCase())
-    const appMethodDir = path.join(apiApp, method.toLowerCase())
-    const methodDir = fs.existsSync(appMethodDir) ? appMethodDir : coreMethodDir
-    if (!fs.existsSync(methodDir)) continue
-    const fromApp = methodDir === appMethodDir
-    let methodScanDir = methodDir
-    if (!fromApp && pkgSourceMirrorBase) {
-      const sourceMethodDir = path.join(pkgSourceMirrorBase, 'api', method.toLowerCase())
-      if (!fs.existsSync(sourceMethodDir)) continue
-      methodScanDir = sourceMethodDir
+    const methodDirSegment = path.posix.join('api', method.toLowerCase())
+    const methodRoots: ModuleRoots = {
+      appBase: path.join(roots.appBase, 'api', method.toLowerCase()),
+      pkgBase: path.join(roots.pkgBase, 'api', method.toLowerCase()),
     }
-    const methodRoots: ModuleRoots = { appBase: methodScanDir, pkgBase: methodScanDir }
     const methodConfig = {
       folder: '',
       include: (name: string) => ['.ts', '.js'].some((extension) => name.endsWith(extension)) && !/\.(test|spec)\.[jt]s$/.test(name),
     }
     const apiFiles = scanModuleDir(methodRoots, methodConfig)
     for (const { relPath } of apiFiles) {
+      const resolved = resolveModuleFile(
+        roots,
+        { appBase: appImportBase, pkgBase: pkgImportBase },
+        path.posix.join(methodDirSegment, relPath.replace(/\\/g, '/')),
+      )
+      if (!resolved) continue
+
       const segs = relPath.split('/')
       const file = segs.pop()!
       const pathWithoutExt = stripModuleCodeExtension(file)
       const fullSegs = [...segs, pathWithoutExt]
       const routePath = '/' + [modId, ...fullSegs].filter(Boolean).join('/')
       const importName = `H${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
-      const importPath = sanitizeGeneratedModuleSpecifier(
-        `${fromApp ? appImportBase : pkgImportBase}/api/${method.toLowerCase()}/${fullSegs.join('/')}`
-      )
+      const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
       const metaName = `RM${importIdRef.value++}_${toVar(modId)}_${toVar(method)}_${toVar(fullSegs.join('_'))}`
-      const sourceFile = findExistingModuleFile(path.join(methodDir, ...segs), file)
-      if (!sourceFile) continue
+      const sourceFile = resolved.absolutePath
       const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
       const metadata = sourceModule?.metadata ?? extractNamedObjectLiteralExport(sourceFile, 'metadata')
       const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
