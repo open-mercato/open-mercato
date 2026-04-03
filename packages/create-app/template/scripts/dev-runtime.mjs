@@ -55,6 +55,7 @@ const BRIGHT_CYAN = '\u001B[96m'
 const CYAN_BORDER = '\u001B[46m\u001B[30m'
 const ERROR_BANNER = '\u001B[41m\u001B[97m'
 const warmupRequestTimeoutsMs = [45000, 120000]
+const maxWarmupRetryAttempts = 3
 const splashState = {
   mode: splashMode,
   phase: startupSplashPhase,
@@ -101,8 +102,10 @@ const runtimeWarmupState = {
   readySignalSeen: false,
   started: false,
   completed: false,
+  failed: false,
   promise: null,
   retryTimer: null,
+  retryAttempts: 0,
   tenantId: readNonEmptyEnvValue('OM_DEV_WARMUP_TENANT_ID') ?? null,
   tenantLookupAttempted: false,
 }
@@ -609,6 +612,7 @@ function scheduleWarmupRetry(delayMs = 2000) {
 
 async function runTargetedRouteWarmup() {
   if (runtimeWarmupState.started) return
+  if (runtimeWarmupState.failed) return
   if (!runtimeWarmupState.baseUrl || !runtimeWarmupState.readySignalSeen) return
 
   clearWarmupRetryTimer()
@@ -715,7 +719,9 @@ async function runTargetedRouteWarmup() {
       progressLabel,
     )
 
+    runtimeWarmupState.retryAttempts = 0
     runtimeWarmupState.completed = true
+    runtimeWarmupState.failed = false
     runtimeWarmupState.promise = null
     const completedMessage = `🚪 Login flow and backend warmed in ${formatDuration(Date.now() - startedAt)}`
     updateSplashState({
@@ -737,9 +743,28 @@ async function runTargetedRouteWarmup() {
 
     if (isAbortLikeError(error) || isWarmupTransientError(error)) {
       runtimeWarmupState.started = false
-      const retryMessage = runtimeWarmupState.tenantId && looksLikeTenantSelectionError(error instanceof Error ? error.message : '')
+      runtimeWarmupState.retryAttempts += 1
+      const reason = error instanceof Error ? error.message : 'unknown error'
+      const attempt = runtimeWarmupState.retryAttempts
+      if (attempt >= maxWarmupRetryAttempts) {
+        runtimeWarmupState.failed = true
+        const detail = `Warmup failed after ${attempt} retries: ${reason}`
+        publishRuntimeFailure(detail, {
+          progressCurrent: runtimeProgressCurrent,
+          progressLabel: progressLabel,
+          failureLines: [
+            `Warmup failed after ${attempt} retries.`,
+            `Reason: ${reason}`,
+            'Keep the terminal visible for the full runtime error output.',
+          ],
+        })
+        console.log(formatStatusOutput(`❌ ${detail}`, runtimeProgressCurrent, progressLabel))
+        return
+      }
+      const retryBaseMessage = runtimeWarmupState.tenantId && looksLikeTenantSelectionError(reason)
         ? '🏷️ Warmup resolved tenant context, retrying authenticated backend warmup'
         : '⏳ Warmup delayed while the runtime settles, retrying'
+      const retryMessage = `${retryBaseMessage} (${attempt}/${maxWarmupRetryAttempts})`
       updateSplashState({
         phase: startupSplashPhase,
         detail: retryMessage,
@@ -778,6 +803,7 @@ async function runTargetedRouteWarmup() {
 
 function maybeStartTargetedRouteWarmup() {
   if (runtimeWarmupState.started) return
+  if (runtimeWarmupState.failed) return
   if (!runtimeWarmupState.baseUrl || !runtimeWarmupState.readySignalSeen) return
   runtimeWarmupState.promise = runTargetedRouteWarmup()
 }
@@ -924,7 +950,7 @@ function shutdown(exitCode = 0) {
     rawModeEnabled = false
   }
 
-  const alive = children.filter((child) => !child.killed)
+  const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
     process.exit(exitCode)
     return
@@ -1149,25 +1175,26 @@ function createFilteredReporter(label, classifyLine) {
         }
         lastRenderedStatus = renderedMessage
         updateStartupProgress(progressCurrent, progressLabel)
+        const preserveWarmupFailure = runtimeWarmupState.failed && !runtimeWarmupState.completed
         const nextReady = result.ready === true
           && !!runtimeWarmupState.baseUrl
           && !runtimeWarmupState.completed
             ? false
             : (result.ready ?? splashState.ready)
         updateSplashState({
-          phase: result.splashPhase ?? splashState.phase,
-          detail: result.splashDetail ?? result.message,
-          failed: false,
-          failureLines: [],
-          failureCommand: null,
-          ready: nextReady,
+          phase: preserveWarmupFailure ? splashState.phase : (result.splashPhase ?? splashState.phase),
+          detail: preserveWarmupFailure ? splashState.detail : (result.splashDetail ?? result.message),
+          failed: preserveWarmupFailure ? splashState.failed : false,
+          failureLines: preserveWarmupFailure ? splashState.failureLines : [],
+          failureCommand: preserveWarmupFailure ? splashState.failureCommand : null,
+          ready: preserveWarmupFailure ? splashState.ready : nextReady,
           readyUrl: result.readyUrl ?? splashState.readyUrl,
           loginUrl: result.loginUrl ?? splashState.loginUrl,
           progressCurrent,
           progressTotal: startupProgress.total,
           progressPercent: resolveProgressPercent(progressCurrent, startupProgress.total),
           progressLabel,
-          activity: result.activity ?? result.message,
+          activity: preserveWarmupFailure ? splashState.activity : (result.activity ?? result.message),
         })
         console.log(renderedMessage)
         maybeStartTargetedRouteWarmup()

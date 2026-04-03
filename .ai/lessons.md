@@ -78,6 +78,36 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `.github/workflows/snapshot.yml`, `scripts/test-create-app.ts`, and `scripts/test-create-app-integration.ts`.
 
+## Keep mirrored dev runtimes aligned with their process registry type
+
+**Context**: The new splash-based dev runtimes track child processes in a `Set`, but shutdown code in the root script, app runtime, and create-app template still used `.filter(...)` as if the registry were an array.
+
+**Problem**: Pressing `Ctrl+C` crashed shutdown with `TypeError: children.filter is not a function`, leaving the runtime to exit noisily instead of terminating child processes cleanly.
+
+**Rule**: When a runtime script stores child processes in a `Set`, all shutdown and cleanup logic must iterate via `Array.from(children)` or direct `for...of`, and the same fix must be mirrored in `apps/mercato` and `packages/create-app/template` copies.
+
+**Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
+
+## `dbMigrate` must not write migration snapshots during initialize flows
+
+**Context**: A branch change started passing a custom MikroORM `snapshotName` into `dbMigrate`, while `yarn initialize` always runs `dbMigrate`.
+
+**Problem**: Fresh initialize/reinstall flows began rewriting per-module `.snapshot-*.json` files as a side effect, creating noisy git diffs unrelated to the migration application itself.
+
+**Rule**: Keep stable snapshot naming for `dbGenerate`, but disable migration snapshots for `dbMigrate` (`snapshot: false`) so initialize applies committed migrations without mutating snapshot files.
+
+**Applies to**: `packages/cli/src/lib/db/commands.ts` and any future init/bootstrap flow that calls `dbMigrate`.
+
+## Standalone generators must reuse package-generated entity metadata instead of parsing compiled `dist` files
+
+**Context**: The standalone `create-app` flow generates app-local `.mercato` artifacts while official packages are consumed from `node_modules`.
+
+**Problem**: The entity-id generator parsed exported classes and property declarations from module entity files. That works against monorepo `src` files, but compiled `dist/modules/**/data/entities.js` files do not preserve that source shape, so standalone generation silently dropped package entities like `organization`.
+
+**Rule**: In standalone mode, when building app-level generated entity IDs/field shims for package-backed modules, prefer the package's shipped `generated/entities.ids.generated.ts` and `generated/entities/*/index.ts` artifacts. Do not rely on parsing compiled `dist` entity files for source-level declarations.
+
+**Applies to**: `packages/cli/src/lib/generators/entity-ids.ts` and standalone `create-app` generation paths.
+
 ## Standalone scaffolding and generators must not assume monorepo-only paths
 
 **Context**: Separately, the standalone `yarn generate` OpenAPI bundle still looked for `packages/shared`, `apps/mercato`, and `tsconfig.base.json`.

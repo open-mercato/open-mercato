@@ -340,7 +340,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
-        snapshotName: getMigrationSnapshotName(resolver),
+        snapshot: false,
         dropTables: false,
       },
       schemaGenerator: {

@@ -48,6 +48,114 @@ function parseExportedClassNamesFromFile(filePath: string): string[] {
   return classNames
 }
 
+function unwrapObjectLiteralExpression(
+  expression: ts.Expression | undefined,
+): ts.ObjectLiteralExpression | undefined {
+  if (!expression) return undefined
+  if (ts.isObjectLiteralExpression(expression)) return expression
+  if (ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression)) {
+    return unwrapObjectLiteralExpression(expression.expression)
+  }
+  if (ts.isParenthesizedExpression(expression)) {
+    return unwrapObjectLiteralExpression(expression.expression)
+  }
+  return undefined
+}
+
+function readPropertyInitializer(
+  objectLiteral: ts.ObjectLiteralExpression,
+  propertyName: string,
+): ts.Expression | undefined {
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const name = ts.isIdentifier(property.name)
+      ? property.name.text
+      : ts.isStringLiteralLike(property.name)
+        ? property.name.text
+        : undefined
+    if (name === propertyName) {
+      return property.initializer
+    }
+  }
+  return undefined
+}
+
+function parseGeneratedModuleEntityNames(filePath: string, moduleId: string): string[] {
+  if (!fs.existsSync(filePath)) return []
+
+  const source = fs.readFileSync(filePath, 'utf8')
+  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS)
+
+  for (const statement of sf.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const declaration = statement.declarationList.declarations.find((candidate) =>
+      ts.isIdentifier(candidate.name) && candidate.name.text === 'E')
+    if (!declaration) continue
+
+    const eObject = unwrapObjectLiteralExpression(declaration.initializer)
+    if (!eObject) continue
+
+    const moduleObject = unwrapObjectLiteralExpression(readPropertyInitializer(eObject, moduleId))
+    if (!moduleObject) return []
+
+    const names: string[] = []
+    for (const property of moduleObject.properties) {
+      if (!ts.isPropertyAssignment(property)) continue
+      const name = ts.isIdentifier(property.name)
+        ? property.name.text
+        : ts.isStringLiteralLike(property.name)
+          ? property.name.text
+          : undefined
+      if (name) names.push(name)
+    }
+    return names
+  }
+
+  return []
+}
+
+function parseGeneratedEntityFieldsFile(filePath: string): string[] {
+  if (!fs.existsSync(filePath)) return []
+
+  const source = fs.readFileSync(filePath, 'utf8')
+  const sf = ts.createSourceFile(filePath, source, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS)
+  const fields: string[] = []
+
+  for (const statement of sf.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+      if (!ts.isStringLiteralLike(declaration.initializer)) continue
+      fields.push(declaration.initializer.text)
+    }
+  }
+
+  return Array.from(new Set(fields))
+}
+
+function loadStandaloneGeneratedPackageEntities(
+  resolver: PackageResolver,
+  entry: ModuleEntry,
+): { entityNames: string[]; entityFieldMap: EntityFieldMap } | null {
+  if (resolver.isMonorepo() || !entry.from || entry.from === '@app') return null
+
+  const packageRoot = resolver.getPackageRoot(entry.from)
+  const generatedRoot = path.join(packageRoot, 'generated')
+  const idsFile = path.join(generatedRoot, 'entities.ids.generated.ts')
+  const entityNames = parseGeneratedModuleEntityNames(idsFile, entry.id)
+
+  if (entityNames.length === 0) return null
+
+  const entityFieldMap: EntityFieldMap = {}
+  for (const entityName of entityNames) {
+    const fieldsFile = path.join(generatedRoot, 'entities', entityName, 'index.ts')
+    const fields = parseGeneratedEntityFieldsFile(fieldsFile)
+    entityFieldMap[entityName] = fields
+  }
+
+  return { entityNames, entityFieldMap }
+}
+
 function parseEntityFieldsFromFile(filePath: string, exportedClassNames: string[]): EntityFieldMap {
   const src = fs.readFileSync(filePath, 'utf8')
   const sf = ts.createSourceFile(filePath, src, ts.ScriptTarget.ES2020, true, ts.ScriptKind.TS)
@@ -181,6 +289,8 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     const imps = resolver.getModuleImportBase(entry)
     const group: GroupKey = (entry.from as GroupKey) || '@open-mercato/core'
 
+    const standaloneGeneratedPackageEntities = loadStandaloneGeneratedPackageEntities(resolver, entry)
+
     // Locate entities definition file (prefer app override)
     const appData = path.join(roots.appBase, 'data')
     const pkgData = path.join(roots.pkgBase, 'data')
@@ -206,20 +316,20 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     }
 
     // No entities file found -> still register module id
-    if (!filePath) {
+    if (!filePath && !standaloneGeneratedPackageEntities) {
       modulesDict[modId] = modId
       groupedModulesDict[group] = groupedModulesDict[group] || {}
       groupedModulesDict[group][modId] = modId
       continue
     }
 
-    // Get exported class names by parsing TypeScript source directly
-    // Since we always read from src/, we can parse TypeScript files
-    const exportNames = parseExportedClassNamesFromFile(filePath)
+    const exportNames = filePath ? parseExportedClassNamesFromFile(filePath) : []
 
-    const entityNames = exportNames
-      .map((k) => toSnake(k))
-      .filter((k, idx, arr) => arr.indexOf(k) === idx)
+    const entityNames = standaloneGeneratedPackageEntities
+      ? standaloneGeneratedPackageEntities.entityNames
+      : exportNames
+        .map((k) => toSnake(k))
+        .filter((k, idx, arr) => arr.indexOf(k) === idx)
 
     // Build dictionaries
     modulesDict[modId] = modId
@@ -236,7 +346,9 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
     }
 
     // Parse entity fields from TypeScript source
-    const entityFieldMap = parseEntityFieldsFromFile(filePath, exportNames)
+    const entityFieldMap = standaloneGeneratedPackageEntities
+      ? standaloneGeneratedPackageEntities.entityFieldMap
+      : parseEntityFieldsFromFile(filePath!, exportNames)
     fieldsByGroup[group] = fieldsByGroup[group] || {}
     fieldsByGroup[group][modId] = entityFieldMap
   }
@@ -273,6 +385,10 @@ export type KnownEntities = typeof E
   // Write per-group outputs
   const groups = Object.keys(grouped) as GroupKey[]
   for (const g of groups) {
+    if (!resolver.isMonorepo() && g !== '@app') {
+      continue
+    }
+
     const pkgOutputDir = resolver.getPackageOutputDir(g)
     // Skip @app group since it writes to the same location as the consolidated output
     if (g === '@app' && pkgOutputDir === outputDir) {

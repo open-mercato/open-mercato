@@ -35,6 +35,37 @@ function createMockResolver(tmpRoot: string, enabled: ModuleEntry[]): PackageRes
   }
 }
 
+function createStandaloneMockResolver(tmpRoot: string, enabled: ModuleEntry[]): PackageResolver {
+  const outputDir = path.join(tmpRoot, '.mercato', 'generated')
+  fs.mkdirSync(outputDir, { recursive: true })
+
+  return {
+    isMonorepo: () => false,
+    getRootDir: () => tmpRoot,
+    getAppDir: () => tmpRoot,
+    getOutputDir: () => outputDir,
+    getModulesConfigPath: () => path.join(tmpRoot, 'src', 'modules.ts'),
+    discoverPackages: () => [],
+    loadEnabledModules: () => enabled,
+    getModulePaths: (entry: ModuleEntry) => ({
+      appBase: path.join(tmpRoot, 'src', 'modules', entry.id),
+      pkgBase: path.join(tmpRoot, 'node_modules', '@open-mercato', 'core', 'dist', 'modules', entry.id),
+    }),
+    getModuleImportBase: (entry: ModuleEntry) => ({
+      appBase: `@/modules/${entry.id}`,
+      pkgBase: `@open-mercato/core/modules/${entry.id}`,
+    }),
+    getPackageOutputDir: (packageName: string) =>
+      packageName === '@app'
+        ? outputDir
+        : path.join(tmpRoot, 'node_modules', '@open-mercato', 'core', 'generated'),
+    getPackageRoot: (from?: string) =>
+      from === '@app'
+        ? tmpRoot
+        : path.join(tmpRoot, 'node_modules', '@open-mercato', 'core'),
+  }
+}
+
 beforeEach(() => {
   tmpDir = createTmpDir()
 })
@@ -71,5 +102,66 @@ describe('generateEntityIds', () => {
     expect(registry).toContain("tenant_id: 'tenant_id'")
     expect(registry).toContain("total_gross: 'total_gross'")
     expect(registry).not.toContain("import * as sales_order from './entities/sales_order/index'")
+  })
+
+  it('reuses package generated entity metadata in standalone mode', async () => {
+    const moduleEntry: ModuleEntry = { id: 'directory', from: '@open-mercato/core' }
+    const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'core')
+    const idsFile = path.join(packageRoot, 'generated', 'entities.ids.generated.ts')
+    const organizationFieldsFile = path.join(packageRoot, 'generated', 'entities', 'organization', 'index.ts')
+    const tenantFieldsFile = path.join(packageRoot, 'generated', 'entities', 'tenant', 'index.ts')
+
+    fs.mkdirSync(path.dirname(idsFile), { recursive: true })
+    fs.mkdirSync(path.dirname(organizationFieldsFile), { recursive: true })
+    fs.mkdirSync(path.dirname(tenantFieldsFile), { recursive: true })
+
+    fs.writeFileSync(
+      idsFile,
+      `export const M = { "directory": "directory" } as const
+export const E = {
+  "directory": {
+    "organization": "directory:organization",
+    "tenant": "directory:tenant"
+  }
+} as const
+`
+    )
+    fs.writeFileSync(
+      organizationFieldsFile,
+      `export const id = 'id'
+export const name = 'name'
+export const tenant = 'tenant'
+`
+    )
+    fs.writeFileSync(
+      tenantFieldsFile,
+      `export const id = 'id'
+export const name = 'name'
+`
+    )
+
+    const distEntitiesFile = path.join(packageRoot, 'dist', 'modules', 'directory', 'data', 'entities.js')
+    fs.mkdirSync(path.dirname(distEntitiesFile), { recursive: true })
+    fs.writeFileSync(
+      distEntitiesFile,
+      `class Organization {}
+class Tenant {}
+export { Organization, Tenant }
+`
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [moduleEntry])
+    const result = await generateEntityIds({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const rootIdsPath = path.join(tmpDir, '.mercato', 'generated', 'entities.ids.generated.ts')
+    const organizationPath = path.join(tmpDir, '.mercato', 'generated', 'entities', 'organization', 'index.ts')
+    const packageOrganizationPath = path.join(packageRoot, 'generated', 'entities', 'organization', 'index.ts')
+
+    expect(fs.readFileSync(rootIdsPath, 'utf8')).toContain('"organization": "directory:organization"')
+    expect(fs.readFileSync(organizationPath, 'utf8')).toContain("export const name = 'name'")
+    expect(fs.readFileSync(organizationPath, 'utf8')).toContain("export const tenant = 'tenant'")
+    expect(fs.readFileSync(packageOrganizationPath, 'utf8')).toContain("export const tenant = 'tenant'")
   })
 })

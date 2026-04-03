@@ -687,7 +687,7 @@ function shutdown(exitCode = 0) {
   shuttingDown = true
   closeSplashServer()
 
-  const alive = children.filter((child) => !child.killed)
+  const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
     process.exit(exitCode)
     return
