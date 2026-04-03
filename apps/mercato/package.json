@@ -7,7 +7,7 @@
     "dev": "mercato server dev",
     "build": "next build",
     "start": "NODE_OPTIONS='-r newrelic' mercato server start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
     "generate": "mercato generate",

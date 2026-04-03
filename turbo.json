@@ -35,6 +35,7 @@
       "outputs": []
     },
     "lint": {
+      "cache": false,
       "outputs": []
     },
     "generate": {
