@@ -132,6 +132,21 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
   )
 
+  // implement-spec skill
+  copyFile(
+    'ai/skills/implement-spec/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'implement-spec', 'SKILL.md'),
+  )
+
+  // integration-tests skill
+  copyFile(
+    'ai/skills/integration-tests/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
+  )
+
+  // .ai/qa/ — Playwright config for integration tests
+  copyFile('ai/qa/playwright.config.ts', join(targetDir, '.ai', 'qa', 'playwright.config.ts'))
+
   // Package guides — auto-discovered from sibling packages during build
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')

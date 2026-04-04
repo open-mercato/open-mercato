@@ -63,6 +63,8 @@ step, you WILL produce incorrect imports and miss required patterns.
 | Debug / fix errors | `.ai/skills/troubleshooter/SKILL.md` |
 | Review code changes | `.ai/skills/code-review/SKILL.md` |
 | Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
+| Implement a spec (or selected phases) | `.ai/skills/implement-spec/SKILL.md` |
+| Create / run integration tests | `.ai/skills/integration-tests/SKILL.md` |
 
 ## Module Anatomy
 
