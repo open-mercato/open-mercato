@@ -133,12 +133,8 @@ packages/ui/src/backend/
 
 ### Dependencies
 
-Check if drag-and-drop library is already available:
-```bash
-grep -r "dnd-kit\|beautiful-dnd\|drag" package.json packages/ui/package.json
-```
-
-If not present, add `@dnd-kit/core` + `@dnd-kit/sortable` as dependency to `packages/ui`.
+Drag-and-drop uses `@dnd-kit/core` + `@dnd-kit/sortable` added to `packages/ui` 
+by PR #1144 (DataTable column reordering). No additional dependencies needed.
 
 ## Alternatives Considered
 
@@ -192,6 +188,7 @@ Deferred — the current `RolePerspective` model covers sharing via roles. A tru
 4. **Migration path** — Should old `ui.perspectives.*` i18n keys be removed immediately or deprecated gradually?
 
 ## Changelog
-
+### 2026-04-04 (update)
+- Updated dependencies section: @dnd-kit provided by PR #1144 (M.D.)
 ### 2026-04-04
 - Initial specification
