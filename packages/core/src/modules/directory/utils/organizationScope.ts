@@ -144,7 +144,8 @@ export async function resolveOrganizationScope({
     }
   }
 
-  const initialSelected = normalizedSelectedId ?? (explicitAllSelection && effectiveSuperAdmin ? null : accountOrgId ?? null)
+  const hasUnrestrictedAccess = effectiveSuperAdmin || (accessibleList === null)
+  const initialSelected = normalizedSelectedId ?? (explicitAllSelection && hasUnrestrictedAccess ? null : accountOrgId ?? null)
   let effectiveSelected: string | null = null
   if (initialSelected) {
     if (allowedSet === null || allowedSet.has(initialSelected)) {
@@ -157,13 +158,13 @@ export async function resolveOrganizationScope({
     filterSet = await collectWithDescendants(em, tenantId, [effectiveSelected])
   } else if (allowedSet !== null) {
     filterSet = allowedSet
-  } else if (explicitAllSelection && effectiveSuperAdmin) {
+  } else if (explicitAllSelection && hasUnrestrictedAccess) {
     filterSet = null
   } else if (auth.orgId) {
     filterSet = await loadFallbackSet()
   }
 
-  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !(explicitAllSelection && effectiveSuperAdmin)) {
+  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !(explicitAllSelection && hasUnrestrictedAccess)) {
     const computed = await loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed
