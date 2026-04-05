@@ -38,7 +38,7 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await page.getByRole('spinbutton').nth(1).fill('60');
       await page.locator('input[type="date"]').fill('2026-12-31');
 
-      const companySearch = page.getByPlaceholder(/Search by name/i);
+      const companySearch = page.getByRole('textbox', { name: /Search companies/i });
       await companySearch.fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
