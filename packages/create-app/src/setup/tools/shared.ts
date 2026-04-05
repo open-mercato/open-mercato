@@ -105,6 +105,10 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/module-scaffold/references/naming-conventions.md',
     join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'naming-conventions.md'),
   )
+  copyFile(
+    'ai/skills/module-scaffold/references/navigation-patterns.md',
+    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'navigation-patterns.md'),
+  )
 
   // troubleshooter skill
   copyFile(

@@ -279,20 +279,27 @@ export const openApi = {
 
 Use `CrudForm` and `DataTable` from `@open-mercato/ui`. See the `backend-ui-design` skill for full component reference.
 
-### Page Metadata & Sidebar Icons
+### Page Metadata & Sidebar Navigation
 
 **File**: `src/modules/<module_id>/backend/page.meta.ts`
 
-Icons for the admin sidebar MUST use components from `lucide-react`. Never use inline `React.createElement('svg', ...)` — it is fragile in bundler contexts and can produce broken/wrong icons after `yarn generate`.
+Icons MUST use components from `lucide-react`. Never use inline `React.createElement('svg', ...)` — it breaks after `yarn generate`.
+
+For full field reference, settings pages, and anti-patterns, see [references/navigation-patterns.md](references/navigation-patterns.md).
 
 ```tsx
 import { Trophy } from 'lucide-react'
 
 export const metadata = {
-  title: '<Module Name>',
-  icon: <Trophy className="size-4" />,
   requireAuth: true,
-  features: ['<module_id>.view'],
+  requireFeatures: ['<module_id>.view'],
+  pageTitle: '<Module Name>',
+  pageTitleKey: '<module_id>.nav.title',
+  pageGroup: '<Module Name>',                 // Sidebar section name
+  pageGroupKey: '<module_id>.nav.group',      // i18n key — items with same key grouped together
+  pageOrder: 100,                             // Sort within group (lower = higher)
+  icon: <Trophy className="size-4" />,
+  breadcrumb: [{ label: '<Module Name>', labelKey: '<module_id>.nav.title' }],
 }
 ```
 
@@ -323,9 +330,13 @@ export default function <Module>ListPage() {
 }
 
 export const metadata = {
-  title: '<Module Name>',
   requireAuth: true,
-  features: ['<module_id>.view'],
+  requireFeatures: ['<module_id>.view'],
+  pageTitle: '<Module Name>',
+  pageTitleKey: '<module_id>.nav.title',
+  pageGroup: '<Module Name>',
+  pageGroupKey: '<module_id>.nav.group',
+  pageOrder: 100,
 }
 ```
 
@@ -357,9 +368,13 @@ export default function Create<Entity>Page() {
 }
 
 export const metadata = {
-  title: 'Create <Entity>',
   requireAuth: true,
-  features: ['<module_id>.create'],
+  requireFeatures: ['<module_id>.create'],
+  pageTitle: 'Create <Entity>',
+  pageTitleKey: '<module_id>.create.title',
+  pageGroup: '<Module Name>',
+  pageGroupKey: '<module_id>.nav.group',
+  navHidden: true,
 }
 ```
 
@@ -392,9 +407,12 @@ export default function Edit<Entity>Page({ params }: { params: { id: string } })
 }
 
 export const metadata = {
-  title: 'Edit <Entity>',
   requireAuth: true,
-  features: ['<module_id>.update'],
+  requireFeatures: ['<module_id>.update'],
+  pageTitle: 'Edit <Entity>',
+  pageTitleKey: '<module_id>.edit.title',
+  pageGroup: '<Module Name>',
+  pageGroupKey: '<module_id>.nav.group',
 }
 ```
 
@@ -606,6 +624,10 @@ yarn dev               # Start dev server
 - [ ] All API routes export `openApi`
 - [ ] Backend pages use `CrudForm` and `DataTable`
 - [ ] Sidebar icon uses `lucide-react` component (not inline SVG / `React.createElement`)
+- [ ] `page.meta.ts` includes `pageGroup` + `pageGroupKey` for sidebar grouping
+- [ ] `page.meta.ts` includes `pageOrder` for sort position
+- [ ] All related pages share the same `pageGroupKey`
+- [ ] Settings pages (if any) have `pageContext: 'settings' as const` and `navHidden: true`
 - [ ] ACL features declared and wired in `setup.ts`
 - [ ] Module registered in `src/modules.ts` with `from: '@app'`
 - [ ] `yarn generate` run after creating files
@@ -624,6 +646,8 @@ yarn dev               # Start dev server
 - **MUST** validate all inputs with zod schemas in `data/validators.ts`
 - **MUST** export `openApi` from every API route
 - **MUST** use `CrudForm` for forms and `DataTable` for tables
+- **MUST** include `pageGroup` and `pageGroupKey` on list/root backend pages for sidebar grouping
+- **MUST** use `as const` on `pageContext` values (e.g., `pageContext: 'settings' as const`)
 - **MUST** declare ACL features and wire them in `setup.ts` `defaultRoleFeatures`
 - **MUST** register module in `src/modules.ts` with `from: '@app'`
 - **MUST** run `yarn generate` after creating module files
