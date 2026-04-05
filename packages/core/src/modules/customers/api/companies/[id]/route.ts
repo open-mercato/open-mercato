@@ -27,6 +27,7 @@ import {
 } from '../../../lib/customFieldRouting'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+  EXAMPLE_TODO_SOURCE,
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
   mapInteractionRecordToActivitySummary,
   mapInteractionRecordToTodoSummary,
@@ -150,7 +151,7 @@ async function resolveTodoDetails(
 
   const idsBySource = new Map<string, Set<string>>()
   for (const link of links) {
-    const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
+    const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : EXAMPLE_TODO_SOURCE
     const id = typeof link.todoId === 'string' && link.todoId.trim().length > 0 ? link.todoId : String(link.todoId ?? '')
     if (!id) continue
     if (!idsBySource.has(source)) idsBySource.set(source, new Set<string>())
@@ -633,10 +634,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           interactionFlags.unified
             ? canonicalTodoItems
             : [
-                ...todoLinks
-                  .filter((link) => !canonicalTodoBridgeIds.has(link.todoId))
-                  .map((link) => {
-                    const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
+                  ...todoLinks
+                    .filter((link) => !canonicalTodoBridgeIds.has(link.todoId))
+                    .map((link) => {
+                      const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : EXAMPLE_TODO_SOURCE
                     const key = `${source}:${link.todoId}`
                     const detail = todoDetails.get(key)
                     return {

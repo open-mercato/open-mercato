@@ -74,6 +74,22 @@ jest.mock('../../../lib/todoCompatibility', () => ({
   resolveLegacyTodoDetails: jest.fn(),
   mapLegacyTodoLinkToRow: jest.fn(),
   mapInteractionRecordToTodoRow: jest.fn(),
+  normalizeTodoSearch: jest.fn((value: string | undefined) => {
+    if (typeof value !== 'string') return null
+    const trimmed = value.trim().toLowerCase()
+    return trimmed.length > 0 ? trimmed : null
+  }),
+  sortTodoRows: jest.fn((rows: unknown[]) => rows),
+  filterTodoRows: jest.fn((rows: unknown[]) => rows),
+  paginateTodoRows: jest.fn((rows: unknown[], page: number, pageSize: number, exportAll: boolean) => ({
+    items: rows,
+    total: rows.length,
+    page,
+    pageSize: exportAll ? rows.length : pageSize,
+    totalPages: 1,
+  })),
+  listLegacyTodoRows: jest.fn(),
+  listCanonicalTodoRows: jest.fn(),
 }))
 
 describe('customers todos adapter route', () => {
@@ -87,10 +103,16 @@ describe('customers todos adapter route', () => {
       externalSync: false,
     })
 
-    const { resolveLegacyTodoDetails, mapLegacyTodoLinkToRow, mapInteractionRecordToTodoRow } =
+    const {
+      resolveLegacyTodoDetails,
+      mapLegacyTodoLinkToRow,
+      mapInteractionRecordToTodoRow,
+      listLegacyTodoRows,
+      listCanonicalTodoRows,
+    } =
       jest.requireMock('../../../lib/todoCompatibility')
     resolveLegacyTodoDetails.mockResolvedValue(new Map())
-    mapLegacyTodoLinkToRow.mockImplementation(() => ({
+    const legacyRow = {
       id: LINK_ID,
       todoId: TODO_ID,
       todoSource: 'example:todo',
@@ -110,8 +132,8 @@ describe('customers todos adapter route', () => {
         displayName: 'Acme Corp',
         kind: 'company',
       },
-    }))
-    mapInteractionRecordToTodoRow.mockImplementation(() => ({
+    }
+    const canonicalRow = {
       id: TODO_ID,
       todoId: TODO_ID,
       todoSource: 'customers:interaction',
@@ -131,7 +153,14 @@ describe('customers todos adapter route', () => {
         displayName: 'Acme Corp',
         kind: 'company',
       },
-    }))
+    }
+    mapLegacyTodoLinkToRow.mockImplementation(() => legacyRow)
+    mapInteractionRecordToTodoRow.mockImplementation(() => canonicalRow)
+    listLegacyTodoRows.mockResolvedValue([legacyRow])
+    listCanonicalTodoRows.mockResolvedValue({
+      items: [canonicalRow],
+      bridgeIds: new Set([TODO_ID]),
+    })
 
     const { hydrateCanonicalInteractions, loadCustomerSummaries } =
       jest.requireMock('../../../lib/interactionReadModel')

@@ -33,6 +33,7 @@ type QueuedCrudSideEffect = {
   action: CrudEventAction
   entity: unknown
   identifiers: CrudEntityIdentifiers
+  syncOrigin?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
 }
@@ -100,6 +101,7 @@ export interface DataEngine {
     events?: CrudEventsConfig<T>
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
+    syncOrigin?: string | null
   }): Promise<void>
 
   markOrmEntityChange<T>(opts: {
@@ -108,6 +110,7 @@ export interface DataEngine {
     events?: CrudEventsConfig<T>
     indexer?: CrudIndexerConfig<T>
     identifiers: CrudEntityIdentifiers
+    syncOrigin?: string | null
   }): void
 
   flushOrmEntityChanges(): Promise<void>
@@ -408,8 +411,15 @@ export class DefaultDataEngine implements DataEngine {
     return current
   }
 
-  async emitOrmEntityEvent<T>(opts: { action: CrudEventAction; entity: T; events?: CrudEventsConfig<T>; indexer?: CrudIndexerConfig<T>; identifiers: CrudEntityIdentifiers }): Promise<void> {
-    const { action, entity, events, indexer, identifiers } = opts
+  async emitOrmEntityEvent<T>(opts: {
+    action: CrudEventAction
+    entity: T
+    events?: CrudEventsConfig<T>
+    indexer?: CrudIndexerConfig<T>
+    identifiers: CrudEntityIdentifiers
+    syncOrigin?: string | null
+  }): Promise<void> {
+    const { action, entity, events, indexer, identifiers, syncOrigin } = opts
     if (!events && !indexer) return
     if (!identifiers?.id) return
 
@@ -429,6 +439,7 @@ export class DefaultDataEngine implements DataEngine {
         organizationId: identifiers.organizationId ?? null,
         tenantId: identifiers.tenantId ?? null,
       },
+      syncOrigin: syncOrigin ?? null,
     }
 
     if (events) {
@@ -439,6 +450,7 @@ export class DefaultDataEngine implements DataEngine {
             id: ctx.identifiers.id,
             organizationId: ctx.identifiers.organizationId,
             tenantId: ctx.identifiers.tenantId,
+            ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
           }
       try {
         await bus.emitEvent(eventName, payload, { persistent: !!events.persistent })
@@ -467,6 +479,7 @@ export class DefaultDataEngine implements DataEngine {
         const enrichedPayload = payload as Record<string, unknown>
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
+        if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
         try {
           await bus.emitEvent('query_index.delete_one', enrichedPayload)
         } catch {
@@ -484,6 +497,7 @@ export class DefaultDataEngine implements DataEngine {
         const enrichedPayload = payload as Record<string, unknown>
         enrichedPayload.crudAction = action
         if (coverageBaseDelta !== undefined) enrichedPayload.coverageBaseDelta = coverageBaseDelta
+        if (ctx.syncOrigin) enrichedPayload.syncOrigin = ctx.syncOrigin
         try {
           await bus.emitEvent('query_index.upsert_one', enrichedPayload)
         } catch {
@@ -502,7 +516,14 @@ export class DefaultDataEngine implements DataEngine {
     }
   }
 
-  markOrmEntityChange<T>(opts: { action: CrudEventAction; entity: T | null | undefined; events?: CrudEventsConfig<T>; indexer?: CrudIndexerConfig<T>; identifiers: CrudEntityIdentifiers }): void {
+  markOrmEntityChange<T>(opts: {
+    action: CrudEventAction
+    entity: T | null | undefined
+    events?: CrudEventsConfig<T>
+    indexer?: CrudIndexerConfig<T>
+    identifiers: CrudEntityIdentifiers
+    syncOrigin?: string | null
+  }): void {
     const { entity, identifiers } = opts
     if (!entity) return
     if (!identifiers?.id) return
@@ -515,6 +536,7 @@ export class DefaultDataEngine implements DataEngine {
         organizationId: identifiers.organizationId ?? null,
         tenantId: identifiers.tenantId ?? null,
       }
+      existing.syncOrigin = opts.syncOrigin ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
       if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
       this.pendingSideEffects.set(key, existing)
@@ -528,6 +550,7 @@ export class DefaultDataEngine implements DataEngine {
         organizationId: identifiers.organizationId ?? null,
         tenantId: identifiers.tenantId ?? null,
       },
+      syncOrigin: opts.syncOrigin ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
     if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
@@ -544,6 +567,7 @@ export class DefaultDataEngine implements DataEngine {
           action: entry.action,
           entity: entry.entity,
           identifiers: entry.identifiers,
+          syncOrigin: entry.syncOrigin ?? null,
           events: entry.events as CrudEventsConfig<unknown>,
           indexer: entry.indexer as CrudIndexerConfig<unknown>,
         })
