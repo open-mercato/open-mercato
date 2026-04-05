@@ -61,12 +61,12 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await page.locator('select').filter({ has: page.locator('option', { hasText: /USD/i }) }).first().selectOption({ index: 1 });
       await page.getByRole('spinbutton').nth(1).fill('50');
       await page.locator('input[type="date"]').fill('2026-12-31');
-      await page.getByRole('textbox', { name: /Search companies/i }).fill(companyName);
+      await page.getByPlaceholder(/Search by name/i).fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
       await page.getByRole('button', { name: 'Create deal' }).first().click();
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i);
 
-      await page.getByRole('textbox', { name: /Search deals/i }).fill(dealTitle);
+      await page.getByPlaceholder(/Search by name/i).fill(dealTitle);
       await page.locator('tr').filter({ hasText: dealTitle }).first().click();
       await expect(page).toHaveURL(/\/backend\/customers\/deals\/[0-9a-f-]{36}$/i);
       dealId = page.url().match(/\/backend\/customers\/deals\/([0-9a-f-]{36})$/i)?.[1] ?? null;

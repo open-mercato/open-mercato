@@ -38,14 +38,14 @@ test.describe('TC-CRM-007: Create Deal', () => {
       await page.getByRole('spinbutton').nth(1).fill('60');
       await page.locator('input[type="date"]').fill('2026-12-31');
 
-      const companySearch = page.getByRole('textbox', { name: /Search companies/i });
+      const companySearch = page.getByPlaceholder(/Search by name/i);
       await companySearch.fill(companyName);
       await page.getByRole('button', { name: companyName, exact: true }).click();
 
       await page.getByRole('button', { name: 'Create deal' }).first().click();
 
       await expect(page).toHaveURL(/\/backend\/customers\/deals$/i);
-      await page.getByRole('textbox', { name: /Search deals/i }).fill(dealTitle);
+      await page.getByPlaceholder(/Search by name/i).fill(dealTitle);
       const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
       await expect(dealRow).toBeVisible();
       await dealRow.click();
