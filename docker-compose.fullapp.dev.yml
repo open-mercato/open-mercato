@@ -44,9 +44,11 @@ services:
       - pkg_create_app_dist:/app/packages/create-app/dist
     ports:
       - "${APP_PORT:-3000}:3000"
+      - "${OM_DEV_SPLASH_PORT:-4000}:${OM_DEV_SPLASH_PORT:-4000}"
     environment:
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
+      OM_DEV_SPLASH_PORT: ${OM_DEV_SPLASH_PORT:-4000}
       REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       QUEUE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}

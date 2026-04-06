@@ -259,6 +259,7 @@ yarn dev:greenfield
 - `yarn dev:app` runs only the app runtime in compact mode. `yarn dev:app:verbose` is its raw passthrough variant.
 - `yarn dev:greenfield` keeps the full greenfield flow but compacts package build/generate chatter. `yarn dev:greenfield:verbose` keeps the entire flow raw.
 - `yarn dev:ephemeral` now uses the same splash-first startup experience for its install/build/generate/init stages before handing off to the app runtime. `yarn dev:ephemeral:verbose` keeps the runtime logs raw.
+- Set `OM_DEV_SPLASH_PORT` to override the splash port. Default: `4000`. Use `random` (or `0`) for native local runs when you want a free ephemeral port instead of the stable default.
 
 For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, splash-based startup status, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 

@@ -97,6 +97,66 @@ function shouldRefreshStandaloneRegistryPackages() {
   return !hasExistingStandaloneInstall()
 }
 
+function isContainerRuntime() {
+  return fs.existsSync('/.dockerenv')
+}
+
+function parsePortNumber(value) {
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const parsed = Number.parseInt(String(value).trim(), 10)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    return null
+  }
+  return parsed
+}
+
+function resolveSplashPortConfig() {
+  const rawValue = process.env.OM_DEV_SPLASH_PORT?.trim()
+
+  if (!rawValue) {
+    return { enabled: true, port: 4000 }
+  }
+
+  const normalized = rawValue.toLowerCase()
+  if (['0', 'auto', 'ephemeral', 'random'].includes(normalized)) {
+    return { enabled: true, port: 0 }
+  }
+
+  if (['disabled', 'false', 'none', 'off'].includes(normalized)) {
+    return { enabled: false, port: null }
+  }
+
+  const port = parsePortNumber(rawValue)
+  if (port !== null) {
+    return { enabled: true, port }
+  }
+
+  throw new Error(`Invalid OM_DEV_SPLASH_PORT="${rawValue}". Use a port number, "random", or "off".`)
+}
+
+function normalizePublicBaseUrl(value) {
+  if (typeof value !== 'string' || value.trim().length === 0) return null
+
+  try {
+    const parsed = new URL(value)
+    parsed.pathname = ''
+    parsed.search = ''
+    parsed.hash = ''
+    return parsed.toString().replace(/\/$/, '')
+  } catch {
+    return null
+  }
+}
+
+const splashPortConfig = (() => {
+  try {
+    return resolveSplashPortConfig()
+  } catch (error) {
+    console.error(`❌ ${error instanceof Error ? error.message : 'Invalid OM_DEV_SPLASH_PORT value'}`)
+    process.exit(1)
+  }
+})()
+
 const runtimeMode = detectDevRuntimeMode()
 const isMonorepo = runtimeMode === 'monorepo'
 const isWindows = process.platform === 'win32'
@@ -110,7 +170,9 @@ const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
 const splashMode = greenfield ? 'greenfield' : setupMode ? 'setup' : 'dev'
 const standaloneStageTotal = setupMode ? 5 : 4
-const autoOpenSplash = !appOnly && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
+const splashEnabled = !appOnly && splashPortConfig.enabled
+const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
+const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 
 const children = new Set()
@@ -156,6 +218,22 @@ function formatProgressLine(label, current, total, percent) {
     ? `${current}/${total}`
     : `${clampPercent(percent)}%`
   return `${formatProgressBar(percent)} ${String(meta).padStart(4)} ${label}`
+}
+
+function resolveExpectedAppBaseUrl() {
+  return normalizePublicBaseUrl(process.env.APP_URL)
+    ?? normalizePublicBaseUrl(process.env.NEXT_PUBLIC_APP_URL)
+    ?? `http://localhost:${parsePortNumber(process.env.PORT) ?? 3000}`
+}
+
+function resolveExpectedBackendUrl() {
+  return `${resolveExpectedAppBaseUrl()}/backend`
+}
+
+function printSplashAccessUrls() {
+  if (!splashUrl) return
+  console.log(`🪟 Dev splash ${splashUrl}`)
+  console.log(`🌐 Backend URL ${resolveExpectedBackendUrl()}`)
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
@@ -613,7 +691,7 @@ function renderSplashHtml(req) {
 }
 
 async function startSplashServer() {
-  if (!autoOpenSplash) return
+  if (!splashEnabled) return
 
   splashChildStateFile = path.join(process.cwd(), '.mercato', 'dev-splash-child-state.json')
   fs.mkdirSync(path.dirname(splashChildStateFile), { recursive: true })
@@ -642,17 +720,40 @@ async function startSplashServer() {
     res.end('Not found')
   })
 
-  await new Promise((resolve, reject) => {
-    splashServer.once('error', reject)
-    splashServer.listen(0, '127.0.0.1', () => resolve())
-  })
+  try {
+    await new Promise((resolve, reject) => {
+      splashServer.once('error', reject)
+      splashServer.listen(splashPortConfig.port, splashBindHost, () => resolve())
+    })
+  } catch (error) {
+    const portLabel = splashPortConfig.port === 0 ? 'a random port' : `port ${splashPortConfig.port}`
+    console.error(`❌ Unable to start dev splash on ${portLabel}`)
+    if (splashPortConfig.port !== 0) {
+      console.error('   Change `OM_DEV_SPLASH_PORT` or set it to `random` to use an ephemeral port.')
+    }
+    if (error instanceof Error && error.message) {
+      console.error(`   ${error.message}`)
+    }
+    shutdown(1)
+    return
+  }
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
   splashUrl = `http://localhost:${address.port}`
-  console.log(`🪟 Dev splash ${splashUrl}`)
-  updateSplashState({ activity: 'Splash page opened for live startup status' })
-  openBrowser(splashUrl)
+  printSplashAccessUrls()
+  updateSplashState({
+    activity: autoOpenSplash
+      ? 'Splash page opened for live startup status'
+      : 'Splash page is available for live startup status',
+  })
+
+  if (autoOpenSplash) {
+    openBrowser(splashUrl)
+    return
+  }
+
+  console.log('ℹ️ Open either URL manually while the runtime is starting.')
 }
 
 function closeSplashServer() {

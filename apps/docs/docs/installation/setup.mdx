@@ -97,7 +97,29 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn dev
    ```
-   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+   `yarn dev` starts the compact development runtime. On native local runs it serves a startup splash screen with live progress on `http://localhost:4000` by default, auto-opens that page when possible, and prints the backend URL in the terminal. Once the runtime is ready, continue to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+### Native dev runtime splash screen
+
+When you run `yarn dev` on the host, Open Mercato starts a compact development runtime with a dedicated splash page that shows startup progress while packages, generators, and the app server warm up.
+
+- Default splash URL: `http://localhost:4000`
+- Default backend URL: `http://localhost:3000/backend`
+- Browser auto-open happens on interactive local runs when supported by the OS
+- The terminal still prints both URLs, so you can open them manually if needed
+- Press `d` while `yarn dev` is running to toggle raw logs
+
+To override the splash port for native local runs:
+
+```bash
+OM_DEV_SPLASH_PORT=4100 yarn dev
+```
+
+To use a random free splash port instead of the stable default:
+
+```bash
+OM_DEV_SPLASH_PORT=random yarn dev
+```
 
 ## Docker Management
 
@@ -160,7 +182,12 @@ docker compose -f docker-compose.fullapp.dev.yml up --build
 
 The first run takes several minutes — Docker builds the image, installs dependencies, builds packages, runs migrations, and seeds demo data. Subsequent starts are much faster because initialization is cached in a named volume.
 
-Once the logs show the Next.js dev server is ready, open `http://localhost:3000/backend` and sign in with the default credentials printed during initialization (typically `admin@example.com` / `password`).
+The app container uses the same compact `yarn dev` runtime as native local development, including the splash screen with live startup progress. In Docker, the container cannot open a browser on your host automatically, so use the URLs printed in the logs instead:
+
+- Splash URL: `http://localhost:4000`
+- Backend URL: `http://localhost:3000/backend`
+
+Once the runtime is ready, open the backend URL and sign in with the default credentials printed during initialization (typically `admin@example.com` / `password`).
 
 ### How It Works
 
@@ -178,6 +205,7 @@ The app container:
 - **Mounts your source code** from the host into `/app`
 - Uses **named volumes** for `node_modules`, `.next`, and package `dist/` directories so the container manages its own builds
 - Enables **file-watching via polling** (`CHOKIDAR_USEPOLLING`, `WATCHPACK_POLLING`) for reliable change detection on all platforms
+- Exposes a dedicated **dev splash port** so startup progress is available from the host even though browser auto-open is disabled in containerized runs
 - On first run, executes `yarn mercato init` (migrations + seeding); on subsequent runs, applies pending migrations only
 
 ### Common Operations
@@ -310,11 +338,18 @@ Key variables you may want to override:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APP_PORT` | `3000` | Host port for the app |
+| `OM_DEV_SPLASH_PORT` | `4000` | Host and container port for the dev splash progress page |
 | `POSTGRES_USER` | `postgres` | Database username |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
 | `JWT_SECRET` | `JWT` | Auth token secret |
 | `OPENAI_API_KEY` | — | Required for vector search and AI features |
 | `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
+
+If you need a different splash port in Docker, set it before startup so the host/container mapping stays aligned:
+
+```bash
+OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up --build
+```
 
 ### Troubleshooting
 
@@ -331,6 +366,7 @@ Key variables you may want to override:
 
 **Port conflicts:**
 - If port 3000 is already in use, override it: `APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up`
+- If port 4000 is already in use, override the splash port too: `OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up`
 - If Postgres auth/connect errors appear during local commands (`yarn generate`, `yarn db:generate`) and `localhost:5432` is occupied by another local PostgreSQL instance, start Docker Postgres on another port and use the same port in `DATABASE_URL`:
   ```bash
   POSTGRES_PORT=55432 docker compose up -d postgres

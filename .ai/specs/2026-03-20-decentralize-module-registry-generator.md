@@ -1,5 +1,7 @@
 # Decentralize Module Registry Generator
 
+> **Companion spec**: [Module Registry AST-Based Code Generation with ts-morph](2026-04-06-module-registry-ast-codegen-ts-morph.md) — defines the ts-morph AST migration. These two specs are designed to be implemented together: extensions are extracted from the monolith AND built with ts-morph from the start, avoiding a double-refactor. The AST spec contains the combined implementation plan (Phase 3).
+
 ## TLDR
 **Key Points:**
 - The `module-registry.ts` generator is a ~1540-line monolith that produces 22+ generated files. Every new convention file type (messages, payments, inbox, guards, etc.) requires modifying this single function.
@@ -262,5 +264,9 @@ No BC impact. This is a pure internal refactoring of the CLI generator:
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+### 2026-04-06
+- Added companion spec cross-reference to [AST codegen spec](2026-04-06-module-registry-ast-codegen-ts-morph.md). Both specs are now designed for combined implementation.
+- Note: the `GeneratorExtension` interface is refined in the AST spec with `outputFiles: string[]` and `generateOutput(): Map<string, string>` to support multi-file extensions (e.g., notifications produces 3 files). The combined implementation plan lives in the AST spec's Phase 3.
+
 ### 2026-03-20
 - Initial specification drafted

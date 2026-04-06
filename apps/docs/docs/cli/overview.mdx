@@ -21,6 +21,8 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - [`yarn db:migrate`](./db-migrate) – apply migrations and refresh generated metadata.
   - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
 - **Development Runtime**
+  - `yarn dev` – start the compact development runtime with splash-based startup progress on the default local backend port.
+  - `yarn dev:verbose` – start the same runtime in raw passthrough mode for debugging.
   - [`yarn dev:ephemeral`](./dev-ephemeral) – start a dev server on a free port, open browser automatically, and register active instances in `.ai/dev-ephemeral-envs.json`.
 - **Code Generation**
   - `mercato generate` or `mercato generate all` – run all generators (entity IDs, registry, entities, DI, API client).
