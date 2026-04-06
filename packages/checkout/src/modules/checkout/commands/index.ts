@@ -1,5 +1,5 @@
-import './templates'
-import './links'
-import './transactions'
+import './templates.js'
+import './links.js'
+import './transactions.js'
 
 export {}
