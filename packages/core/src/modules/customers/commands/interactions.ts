@@ -28,6 +28,7 @@ import {
   ensureTenantScope,
   requireCustomerEntity,
   extractUndoPayload,
+  emitQueryIndexUpsertEvents,
   requireDealInScope,
   resolveParentResourceKind,
 } from './shared'
@@ -233,6 +234,12 @@ async function emitNextInteractionUpdatedEvent(
   projection: InteractionProjectionMutation,
   identifiers: InteractionIdentifiers,
 ): Promise<void> {
+  await emitQueryIndexUpsertEvents(ctx, [{
+    entityType: 'customers:customer_entity',
+    recordId: projection.entityId,
+    organizationId: identifiers.organizationId,
+    tenantId: identifiers.tenantId,
+  }])
   await emitLifecycleEvent(ctx, 'customers.next_interaction.updated', {
     id: projection.entityId,
     entityId: projection.entityId,

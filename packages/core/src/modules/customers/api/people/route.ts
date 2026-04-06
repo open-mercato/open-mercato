@@ -2,14 +2,22 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerEntity } from '../../data/entities'
+import { CustomerEntity, CustomerPersonProfile } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { withScopedPayload } from '../utils'
+import {
+  applyEntityIdRestriction,
+  consumeAdvancedFilterState,
+  findMatchingEntityIdsWithQueryEngine,
+  findMatchingEntityIdsBySearchTokensAcrossSources,
+  withScopedPayload,
+} from '../utils'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import {
   createCustomersCrudOpenApi,
   createPagedListResponseSchema,
@@ -90,10 +98,68 @@ const crud = makeCrudRoute({
       updatedAt: 'updated_at',
     },
     buildFilters: async (query: any, ctx) => {
+      const advancedQuery = { ...query }
+      const advancedFilterState = consumeAdvancedFilterState(query)
       const filters: Record<string, any> = { kind: { $eq: 'person' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
-        filters.display_name = { $ilike: `%${escapeLikePattern(query.search)}%` }
+        const matchingIds = ctx
+          ? await findMatchingEntityIdsBySearchTokensAcrossSources({
+              ctx,
+              query: query.search,
+              sources: [
+                {
+                  entityType: E.customers.customer_entity,
+                  fields: [
+                    'display_name',
+                    'primary_email',
+                    'primary_phone',
+                    'description',
+                    'status',
+                    'lifecycle_stage',
+                    'source',
+                    'next_interaction_name',
+                  ],
+                },
+                {
+                  entityType: E.customers.customer_person_profile,
+                  fields: [
+                    'display_name',
+                    'primary_email',
+                    'primary_phone',
+                    'status',
+                    'lifecycle_stage',
+                    'source',
+                    'first_name',
+                    'last_name',
+                    'preferred_name',
+                    'job_title',
+                    'department',
+                    'seniority',
+                    'timezone',
+                    'linked_in_url',
+                    'twitter_url',
+                  ],
+                  mapToEntityIds: {
+                    table: 'customer_people',
+                    targetColumn: 'entity_id',
+                  },
+                },
+              ],
+            })
+          : null
+        if (matchingIds !== null && matchingIds.length > 0) {
+          applyEntityIdRestriction(filters, matchingIds)
+        } else {
+          const searchPattern = `%${escapeLikePattern(query.search)}%`
+          filters.$or = [
+            { display_name: { $ilike: searchPattern } },
+            { primary_email: { $ilike: searchPattern } },
+            { primary_phone: { $ilike: searchPattern } },
+            { description: { $ilike: searchPattern } },
+            { next_interaction_name: { $ilike: searchPattern } },
+          ]
+        }
       }
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
@@ -162,6 +228,36 @@ const crud = makeCrudRoute({
         } catch {
           // ignore custom field filter errors; fall back to base filters
         }
+      }
+      if (ctx && advancedFilterState) {
+        const advancedFilters = mergeAdvancedFilters(
+          { ...filters },
+          advancedQuery as Record<string, unknown>,
+        )
+        const matchedIds = await findMatchingEntityIdsWithQueryEngine({
+          ctx,
+          entityId: E.customers.customer_entity,
+          filters: advancedFilters,
+          customFieldSources: [
+            {
+              entityId: E.customers.customer_person_profile,
+              table: 'customer_people',
+              alias: 'person_profile',
+              recordIdColumn: 'id',
+              join: { fromField: 'id', toField: 'entity_id' },
+            },
+          ],
+          joins: [
+            {
+              alias: 'tag_assignments',
+              table: 'customer_tag_assignments',
+              from: { field: 'id' },
+              to: { field: 'entity_id' },
+              type: 'left',
+            },
+          ],
+        })
+        applyEntityIdRestriction(filters, matchedIds)
       }
       return filters
     },
@@ -239,6 +335,67 @@ const crud = makeCrudRoute({
         return { id }
       },
       response: () => ({ ok: true }),
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const items = Array.isArray(payload?.items) ? payload.items : []
+      const ids = items
+        .map((item: unknown) => (
+          item && typeof item === 'object' && typeof (item as Record<string, unknown>).id === 'string'
+            ? (item as Record<string, unknown>).id as string
+            : null
+        ))
+        .filter((id: string | null): id is string => typeof id === 'string' && id.length > 0)
+      if (!ids.length) return
+
+      const where: Record<string, unknown> = {
+        entity: { $in: ids },
+        tenantId: ctx.auth?.tenantId ?? null,
+      }
+      if (ctx.selectedOrganizationId) {
+        where.organizationId = ctx.selectedOrganizationId
+      }
+
+      const profiles = await findWithDecryption(
+        ctx.container.resolve('em') as any,
+        CustomerPersonProfile,
+        where as any,
+        { populate: ['entity', 'company'] } as any,
+        {
+          tenantId: ctx.auth?.tenantId ?? null,
+          organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+        },
+      )
+
+      const profilesByEntityId = new Map<string, CustomerPersonProfile>()
+      for (const profile of profiles) {
+        const entityId = typeof (profile as any)?.entity?.id === 'string' ? (profile as any).entity.id : null
+        if (entityId) profilesByEntityId.set(entityId, profile)
+      }
+
+      payload.items = items.map((item: unknown) => {
+        if (!item || typeof item !== 'object') return item
+        const record = item as Record<string, unknown>
+        const profile = typeof record.id === 'string' ? profilesByEntityId.get(record.id) : undefined
+        if (!profile) return item
+        return {
+          ...record,
+          first_name: profile.firstName ?? null,
+          last_name: profile.lastName ?? null,
+          preferred_name: profile.preferredName ?? null,
+          job_title: profile.jobTitle ?? null,
+          department: profile.department ?? null,
+          seniority: profile.seniority ?? null,
+          timezone: profile.timezone ?? null,
+          linked_in_url: profile.linkedInUrl ?? null,
+          twitter_url: profile.twitterUrl ?? null,
+          company_entity_id:
+            profile.company && typeof profile.company === 'object'
+              ? profile.company.id
+              : profile.company ?? null,
+        }
+      })
     },
   },
 })
