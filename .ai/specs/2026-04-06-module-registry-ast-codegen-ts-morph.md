@@ -418,6 +418,10 @@ export function getSourceText(sourceFile: SourceFile): string {
 **Decision: snapshot update policy:**
 When ts-morph produces output that differs only in whitespace/formatting from the string-concatenated version, update the snapshot. The structural contract tests ensure no semantic change. Document the formatting delta in the PR description.
 
+**Critical: update snapshots per sub-phase, not at the end.** Each sub-phase that modifies generator output must run `npx jest --updateSnapshot output-snapshots` and commit the updated `.snap` file as part of that sub-phase's PR. Deferring snapshot updates accumulates drift and makes it impossible to verify each step independently.
+
+**Import ordering constraint:** The `loadExtensions()` array order must exactly match the current inline processing order in `module-registry.ts`, because the shared `importIdRef` counter determines import variable names (e.g., `EVENTS_orders_42`). If the order changes, import names change — snapshots break (update them) but structural tests still pass (they check patterns like `/import \* as EVENTS_/g`, not exact names).
+
 ### Sub-Phase 2b: `module-entities.ts`
 
 - Migrate the single template + `enhanceEntities` function literal
