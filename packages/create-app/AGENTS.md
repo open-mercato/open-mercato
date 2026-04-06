@@ -11,6 +11,8 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 5. **MUST NOT break the standalone app template** — it's the user's first experience with Open Mercato
 6. **MUST sync template equivalents when app shell/layout files change** — when touching `apps/mercato/src/app/**` bootstrap/layout/provider wiring, update matching files in `packages/create-app/template/src/app/**` (and required template components) in the same task
 7. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
+8. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`) and MUST NOT rewrite package versions, source files, or inject agentic setup files
+9. **MUST skip the interactive agentic wizard for imported ready apps** — imported snapshots stay repo-owned; any agentic tooling must be added later via a deliberate manual command inside the generated app
 
 ## Standalone App vs Monorepo
 
@@ -51,6 +53,22 @@ my-app/
 │   └── generated/         # Generated files from CLI
 └── package.json
 ```
+
+## Ready App Import Modes
+
+`create-mercato-app` supports three scaffold modes:
+
+1. Bare scaffold: `npx create-mercato-app my-app`
+2. Official ready app: `npx create-mercato-app my-prm --app prm`
+3. External GitHub ready app: `npx create-mercato-app my-app --app-url https://github.com/some-agency/ready-app-marketplace`
+
+Rules:
+
+- `--app` resolves to `open-mercato/ready-app-<name>` and MUST use the exact tag `v<create-mercato-app version>`
+- `--app-url` only supports GitHub repository URLs in v1, optionally with `/tree/<ref>`
+- `--app` and `--app-url` are mutually exclusive
+- Imported ready apps skip template processing and the interactive agentic wizard
+- Imported ready apps must be committed source snapshots; fail closed if `.template` files are present
 
 ## Testing with Verdaccio
 

@@ -1,7 +1,6 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { runWorker } from '@open-mercato/queue/worker'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
@@ -49,6 +48,8 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'Unable to open static sorted file',
   'TurbopackInternalError',
 ]
+
+const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'db', 'server', 'test'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
@@ -603,6 +604,7 @@ export async function run(argv = process.argv) {
 
         // Seed module defaults (structural data: dictionaries, tax rates, units, etc.)
         console.log('📚 Seeding module defaults...')
+        const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
         const seedContainer = await createRequestContainer()
         const seedEm = seedContainer.resolve('em') as any
         const seedCtx = { em: seedEm, tenantId, organizationId: orgId, container: seedContainer }
@@ -902,11 +904,13 @@ export async function run(argv = process.argv) {
   
   // Load optional app-level CLI commands lazily without static import resolution
   let appCli: any[] = []
-  try {
-    const dynImport: any = (Function('return import') as any)()
-    const app = await dynImport.then((f: any) => f('@/cli')).catch(() => null)
-    if (app && Array.isArray(app?.default)) appCli = app.default
-  } catch {}
+  if (!BUILTIN_CLI_MODULE_IDS.has(modName)) {
+    try {
+      const dynImport: any = (Function('return import') as any)()
+      const app = await dynImport.then((f: any) => f('@/cli')).catch(() => null)
+      if (app && Array.isArray(app?.default)) appCli = app.default
+    } catch { /* @/cli may not exist in standalone apps — safe to ignore */ }
+  }
   const all = modules.slice()
   
   // Built-in CLI module: queue
@@ -944,6 +948,7 @@ export async function run(argv = process.argv) {
               return
             }
 
+            const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
             const container = await createRequestContainer()
             console.log(`[worker] Starting workers for all queues: ${discoveredQueues.join(', ')}`)
 
@@ -979,6 +984,7 @@ export async function run(argv = process.argv) {
 
             if (queueWorkers.length > 0) {
               // Use discovered workers
+              const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
               const container = await createRequestContainer()
               const concurrency = concurrencyOverride ?? Math.max(...queueWorkers.map((w) => w.concurrency), 1)
 
