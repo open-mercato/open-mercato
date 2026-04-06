@@ -156,7 +156,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
               ],
             })
           : null
-        if (matchingIds !== null) {
+        if (matchingIds !== null && matchingIds.length > 0) {
           applyEntityIdRestriction(filters, matchingIds)
         } else {
           const searchPattern = `%${escapeLikePattern(query.search)}%`
