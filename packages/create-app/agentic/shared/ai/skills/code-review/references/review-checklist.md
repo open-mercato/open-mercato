@@ -55,6 +55,9 @@
 - [ ] Empty states: `EmptyState`
 - [ ] `RowActions` items have stable `id` values
 - [ ] i18n: `useT()` client-side — no hardcoded strings
+- [ ] `page.meta.ts` includes `pageGroup` + `pageGroupKey` for sidebar placement
+- [ ] Settings pages have `pageContext: 'settings' as const` + `navHidden: true`
+- [ ] Sidebar icon uses `lucide-react` (not inline SVG)
 
 ## 7. Naming Conventions
 
