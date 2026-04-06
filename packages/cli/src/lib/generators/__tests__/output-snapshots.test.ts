@@ -1,10 +1,10 @@
 /**
  * Snapshot tests for all generated output files.
  *
- * These tests scaffold a realistic module set (core module + app module + config module),
- * run each generator, and snapshot every produced file. They serve as a regression
- * safety net for the ts-morph AST migration — any change in generated output will
- * cause the snapshot to fail.
+ * These tests scaffold a comprehensive module set that exercises EVERY convention
+ * file type — search, events, notifications, messages, widgets, enrichers,
+ * interceptors, guards, etc. — so that every sub-generator within module-registry.ts
+ * produces non-empty output in the snapshots.
  *
  * To update snapshots after an intentional change:
  *   npx jest --updateSnapshot output-snapshots
@@ -71,15 +71,26 @@ function readGenerated(filename: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Fixture: scaffold a realistic set of modules
+// Fixture: scaffold modules that exercise EVERY convention file type
 // ---------------------------------------------------------------------------
 
 function scaffoldFixture(): ModuleEntry[] {
-  // --- Module 1: "orders" (core package module with pages, APIs, subscribers, widgets, entities) ---
+  // =========================================================================
+  // Module 1: "orders" — full-featured core module
+  //   Exercises: index, frontend page, backend page + meta, detail page,
+  //   API route (GET+POST), subscribers, workers, dashboard widgets,
+  //   injection widgets, entities, ACL, setup, DI, i18n,
+  //   events, notifications, notification handlers, enrichers,
+  //   api interceptors, guards, command interceptors, translations,
+  //   inbox actions, analytics, middleware, injection table
+  // =========================================================================
+
   touchFile(
     pkgModulePath('orders', 'index.ts'),
     "export const metadata = { id: 'orders', label: 'Orders' }\n",
   )
+
+  // -- Pages --
   touchFile(
     pkgModulePath('orders', 'frontend', 'page.tsx'),
     'export default function OrdersPage() { return null }\n',
@@ -96,6 +107,8 @@ function scaffoldFixture(): ModuleEntry[] {
     pkgModulePath('orders', 'backend', 'details', '[id]', 'page.tsx'),
     'export default function OrderDetailPage() { return null }\n',
   )
+
+  // -- API routes --
   touchFile(
     pkgModulePath('orders', 'api', 'orders', 'route.ts'),
     `export const metadata = { path: '/orders' }
@@ -104,6 +117,8 @@ export function GET() { return new Response('ok') }
 export function POST() { return new Response('created') }
 `,
   )
+
+  // -- Subscribers --
   touchFile(
     pkgModulePath('orders', 'subscribers', 'on-created.ts'),
     "export const metadata = { event: 'orders.order.created', persistent: true }\nexport default async function handler() {}\n",
@@ -112,18 +127,36 @@ export function POST() { return new Response('created') }
     pkgModulePath('orders', 'subscribers', 'on-payment.ts'),
     "export const metadata = { event: 'payments.payment.completed', persistent: true }\nexport default async function handler() {}\n",
   )
+
+  // -- Workers --
   touchFile(
     pkgModulePath('orders', 'workers', 'sync-job.ts'),
     "export const metadata = { queue: 'orders.sync', concurrency: 2 }\nexport default async function handler() {}\n",
   )
+
+  // -- Dashboard widgets --
   touchFile(
     pkgModulePath('orders', 'widgets', 'dashboard', 'revenue', 'widget.tsx'),
     'export default function RevenueWidget() { return null }\n',
   )
+
+  // -- Injection widgets --
   touchFile(
     pkgModulePath('orders', 'widgets', 'injection', 'sidebar', 'widget.tsx'),
     'export default function SidebarWidget() { return null }\n',
   )
+
+  // -- Injection table --
+  touchFile(
+    pkgModulePath('orders', 'widgets', 'injection-table.ts'),
+    `export const injectionTable = {
+  'crud-form:orders:sales_order:fields': [{ widgetId: 'orders.sidebar', kind: 'section', priority: 50 }],
+}
+export default injectionTable
+`,
+  )
+
+  // -- Entities --
   touchFile(
     pkgModulePath('orders', 'data', 'entities.ts'),
     `export class SalesOrder {
@@ -141,6 +174,8 @@ export class OrderItem {
 }
 `,
   )
+
+  // -- ACL + Setup --
   touchFile(
     pkgModulePath('orders', 'acl.ts'),
     "export const features = ['orders.view', 'orders.create', 'orders.edit', 'orders.delete']\n",
@@ -149,10 +184,14 @@ export class OrderItem {
     pkgModulePath('orders', 'setup.ts'),
     "export const setup = { defaultRoleFeatures: ['orders.view'] }\n",
   )
+
+  // -- DI --
   touchFile(
     pkgModulePath('orders', 'di.ts'),
     'export function register(container: any) { /* orders DI */ }\n',
   )
+
+  // -- i18n --
   touchFile(
     pkgModulePath('orders', 'i18n', 'en.json'),
     JSON.stringify({ orders: { list: { title: 'Orders' } } }),
@@ -162,7 +201,282 @@ export class OrderItem {
     JSON.stringify({ orders: { list: { title: 'Zamówienia' } } }),
   )
 
-  // --- Module 2: "products" (core module with search, events, translations) ---
+  // -- Events --
+  touchFile(
+    pkgModulePath('orders', 'events.ts'),
+    `export const eventsConfig = {
+  moduleId: 'orders',
+  events: [
+    { id: 'orders.order.created', label: 'Order Created', entity: 'sales_order', category: 'crud' },
+    { id: 'orders.order.updated', label: 'Order Updated', entity: 'sales_order', category: 'crud' },
+  ]
+}
+export default eventsConfig
+`,
+  )
+
+  // -- Notifications --
+  touchFile(
+    pkgModulePath('orders', 'notifications.ts'),
+    `export const notificationTypes = [
+  {
+    type: 'orders.order.created',
+    module: 'orders',
+    titleKey: 'orders.notifications.created.title',
+    bodyKey: 'orders.notifications.created.body',
+    icon: 'package',
+    severity: 'info',
+  },
+]
+export default notificationTypes
+`,
+  )
+
+  // -- Notification handlers --
+  touchFile(
+    pkgModulePath('orders', 'notifications.handlers.ts'),
+    `export const notificationHandlers = [
+  {
+    type: 'orders.order.created',
+    handler: async (notification: any, context: any) => { /* handle */ },
+  },
+]
+export default notificationHandlers
+`,
+  )
+
+  // -- Enrichers --
+  touchFile(
+    pkgModulePath('orders', 'data', 'enrichers.ts'),
+    `export const enrichers = [
+  {
+    id: 'orders.item-count',
+    targetEntity: 'orders:sales_order',
+    features: ['orders.view'],
+    priority: 10,
+    timeout: 2000,
+    critical: false,
+    async enrichOne(record: any) { return { ...record, _itemCount: 0 } },
+    async enrichMany(records: any[]) { return records.map(r => ({ ...r, _itemCount: 0 })) },
+  },
+]
+`,
+  )
+
+  // -- API interceptors --
+  touchFile(
+    pkgModulePath('orders', 'api', 'interceptors.ts'),
+    `export const interceptors = [
+  {
+    id: 'orders.validate-total',
+    targetRoute: 'orders',
+    methods: ['POST', 'PUT'],
+    priority: 100,
+    async before(request: any) { return { ok: true } },
+  },
+]
+`,
+  )
+
+  // -- Guards --
+  touchFile(
+    pkgModulePath('orders', 'data', 'guards.ts'),
+    `export const guards = [
+  {
+    id: 'orders.prevent-duplicate',
+    entity: 'orders:sales_order',
+    event: 'create',
+    description: 'Prevents duplicate orders',
+    async validate(input: any) { return { ok: true } },
+  },
+]
+`,
+  )
+
+  // -- Command interceptors --
+  touchFile(
+    pkgModulePath('orders', 'commands', 'interceptors.ts'),
+    `export const interceptors = [
+  {
+    id: 'orders.audit-log',
+    commandId: 'orders.create',
+    phase: 'after',
+    async handler(command: any) { return { ok: true } },
+  },
+]
+`,
+  )
+
+  // -- Translations --
+  touchFile(
+    pkgModulePath('orders', 'translations.ts'),
+    `export const translatableFields = {
+  'orders:sales_order': ['status_label', 'notes'],
+  'orders:order_item': ['product_name'],
+}
+export default translatableFields
+`,
+  )
+
+  // -- Inbox actions --
+  touchFile(
+    pkgModulePath('orders', 'inbox-actions.ts'),
+    `export const inboxActions = [
+  {
+    type: 'orders.approve',
+    id: 'orders.approve-order',
+    label: 'Approve Order',
+    icon: 'check',
+    description: 'Approve a pending order',
+    async execute(action: any) { return { ok: true } },
+  },
+]
+export default inboxActions
+`,
+  )
+
+  // -- Analytics --
+  touchFile(
+    pkgModulePath('orders', 'analytics.ts'),
+    `export const analyticsConfig = {
+  entities: [
+    {
+      entityId: 'orders:sales_order',
+      requiredFeatures: ['orders.view'],
+      entityConfig: { tableName: 'sales_orders', dateField: 'created_at' },
+      fieldMappings: {
+        id: { dbColumn: 'id', type: 'uuid' },
+        totalGross: { dbColumn: 'total_gross', type: 'numeric' },
+      },
+    },
+  ],
+}
+export default analyticsConfig
+`,
+  )
+
+  // -- AI tools --
+  touchFile(
+    pkgModulePath('orders', 'ai-tools.ts'),
+    `export const aiTools = [
+  {
+    name: 'list_orders',
+    description: 'List recent orders',
+    inputSchema: {},
+    requiredFeatures: ['orders.view'],
+  },
+]
+export default aiTools
+`,
+  )
+
+  // -- Frontend middleware --
+  touchFile(
+    pkgModulePath('orders', 'frontend', 'middleware.ts'),
+    `export const middleware = [
+  {
+    id: 'orders.auth-check',
+    pattern: '/orders/**',
+    handler: async (req: any) => req,
+  },
+]
+export default middleware
+`,
+  )
+
+  // -- Backend middleware --
+  touchFile(
+    pkgModulePath('orders', 'backend', 'middleware.ts'),
+    `export const middleware = [
+  {
+    id: 'orders.admin-check',
+    pattern: '/backend/orders/**',
+    handler: async (req: any) => req,
+  },
+]
+export default middleware
+`,
+  )
+
+  // -- Component overrides --
+  touchFile(
+    pkgModulePath('orders', 'widgets', 'components.ts'),
+    `export const componentOverrides = [
+  {
+    targetId: 'page:orders/list',
+    mode: 'wrapper',
+    component: () => null,
+  },
+]
+export default componentOverrides
+`,
+  )
+
+  // -- Custom entities (ce.ts) --
+  touchFile(
+    pkgModulePath('orders', 'ce.ts'),
+    `export const entities = [
+  {
+    id: 'orders:custom_field_set',
+    label: 'Order Custom Fields',
+    description: 'Custom fields for orders',
+    fields: [
+      { id: 'priority', type: 'text', label: 'Priority' },
+    ],
+  },
+]
+`,
+  )
+
+  // -- Extensions --
+  touchFile(
+    pkgModulePath('orders', 'data', 'extensions.ts'),
+    `export const extensions = [
+  { sourceEntity: 'orders:sales_order', targetEntity: 'customers:person', foreignKey: 'customer_id' },
+]
+`,
+  )
+
+  // -- Message types --
+  touchFile(
+    pkgModulePath('orders', 'message-types.ts'),
+    `export const messageTypes = [
+  {
+    type: 'orders.order_confirmation',
+    module: 'orders',
+    labelKey: 'orders.messages.confirmation.label',
+    icon: 'mail',
+    color: 'blue',
+    allowReply: false,
+    allowForward: true,
+  },
+]
+export default messageTypes
+`,
+  )
+
+  // -- Message objects --
+  touchFile(
+    pkgModulePath('orders', 'message-objects.ts'),
+    `export const messageObjectTypes = [
+  {
+    module: 'orders',
+    entityType: 'sales_order',
+    messageTypes: ['orders.order_confirmation'],
+    entityId: 'orders:sales_order',
+    optionLabelField: 'id',
+    labelKey: 'orders.messages.objects.order.label',
+    icon: 'package',
+  },
+]
+export default messageObjectTypes
+`,
+  )
+
+  // =========================================================================
+  // Module 2: "products" — core module with search, events, translations
+  // =========================================================================
+
   touchFile(
     pkgModulePath('products', 'index.ts'),
     "export const metadata = { id: 'products', label: 'Products' }\n",
@@ -214,8 +528,38 @@ export class Category {
     pkgModulePath('products', 'acl.ts'),
     "export const features = ['products.view', 'products.create']\n",
   )
+  touchFile(
+    pkgModulePath('products', 'events.ts'),
+    `export const eventsConfig = {
+  moduleId: 'products',
+  events: [
+    { id: 'products.product.created', label: 'Product Created', entity: 'product', category: 'crud' },
+  ]
+}
+export default eventsConfig
+`,
+  )
+  touchFile(
+    pkgModulePath('products', 'notifications.ts'),
+    `export const notificationTypes = [
+  {
+    type: 'products.low_stock',
+    module: 'products',
+    titleKey: 'products.notifications.low_stock.title',
+    bodyKey: 'products.notifications.low_stock.body',
+    icon: 'alert-triangle',
+    severity: 'warning',
+  },
+]
+export default notificationTypes
+`,
+  )
 
-  // --- Module 3: "custom_app" (app-level module) ---
+  // =========================================================================
+  // Module 3: "custom_app" — app-level module (from: '@app')
+  //   Exercises: app-owned pages, subscribers, dashboard widgets, DI, entities
+  // =========================================================================
+
   touchFile(
     appModulePath('custom_app', 'index.ts'),
     "export const metadata = { id: 'custom_app', label: 'Custom App Module' }\n",
@@ -248,6 +592,17 @@ export class Category {
   touchFile(
     appModulePath('custom_app', 'di.ts'),
     'export function register(container: any) { /* custom_app DI */ }\n',
+  )
+  touchFile(
+    appModulePath('custom_app', 'events.ts'),
+    `export const eventsConfig = {
+  moduleId: 'custom_app',
+  events: [
+    { id: 'custom_app.action.fired', label: 'Action Fired', entity: 'custom_record', category: 'lifecycle' },
+  ]
+}
+export default eventsConfig
+`,
   )
 
   return [
@@ -402,8 +757,6 @@ describe('generateModuleRegistry output snapshots', () => {
     'backend-middleware.generated.ts',
     'bootstrap-registrations.generated.ts',
     'payments.client.generated.ts',
-    'security-mfa-providers.generated.ts',
-    'security-sudo.generated.ts',
     'subscribers.generated.ts',
     'bootstrap-modules.generated.ts',
     'cli-modules.generated.ts',

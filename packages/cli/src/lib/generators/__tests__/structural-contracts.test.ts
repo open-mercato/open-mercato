@@ -1,10 +1,12 @@
 /**
  * Structural contract tests for generated files.
  *
- * These tests verify that every generated .ts file:
- * - Starts with the AUTO-GENERATED comment
- * - Exports the exact symbols that downstream code depends on
- * - Is syntactically valid TypeScript
+ * These tests verify:
+ * - Every generated .ts file starts with the AUTO-GENERATED comment
+ * - Every file parses as valid TypeScript (zero syntax errors)
+ * - Every downstream-consumed export symbol exists
+ * - The SHAPE of exported arrays/objects: correct entry count, moduleId presence,
+ *   nested properties, helper function existence, type annotations
  *
  * Unlike snapshot tests, these survive formatting changes. They are the
  * hard safety net that must pass without modification after the ts-morph migration.
@@ -73,128 +75,76 @@ function readGenerated(filename: string): string {
   return fs.readFileSync(filePath, 'utf8')
 }
 
-function readGeneratedOptional(filename: string): string | null {
-  const filePath = path.join(outputDir, filename)
-  if (!fs.existsSync(filePath)) return null
-  return fs.readFileSync(filePath, 'utf8')
+/**
+ * Count how many times a pattern appears in content.
+ */
+function countMatches(content: string, pattern: RegExp): number {
+  return (content.match(pattern) || []).length
 }
 
-// Scaffold the same fixture as output-snapshots.test.ts
+// ---------------------------------------------------------------------------
+// Fixture (same as output-snapshots.test.ts — exercises every convention file)
+// ---------------------------------------------------------------------------
+
 function scaffoldFixture(): ModuleEntry[] {
-  touchFile(
-    pkgModulePath('orders', 'index.ts'),
-    "export const metadata = { id: 'orders', label: 'Orders' }\n",
-  )
-  touchFile(
-    pkgModulePath('orders', 'frontend', 'page.tsx'),
-    'export default function OrdersPage() { return null }\n',
-  )
-  touchFile(
-    pkgModulePath('orders', 'backend', 'page.tsx'),
-    'export default function OrdersBackendPage() { return null }\n',
-  )
-  touchFile(
-    pkgModulePath('orders', 'backend', 'page.meta.ts'),
-    "export const metadata = { requireAuth: true, pageTitle: 'Orders', group: 'Sales' }\n",
-  )
-  touchFile(
-    pkgModulePath('orders', 'api', 'orders', 'route.ts'),
-    `export const metadata = { path: '/orders' }
-export const openApi = { get: { summary: 'List orders' } }
-export function GET() { return new Response('ok') }
-export function POST() { return new Response('created') }
-`,
-  )
-  touchFile(
-    pkgModulePath('orders', 'subscribers', 'on-created.ts'),
-    "export const metadata = { event: 'orders.order.created', persistent: true }\nexport default async function handler() {}\n",
-  )
-  touchFile(
-    pkgModulePath('orders', 'workers', 'sync-job.ts'),
-    "export const metadata = { queue: 'orders.sync', concurrency: 2 }\nexport default async function handler() {}\n",
-  )
-  touchFile(
-    pkgModulePath('orders', 'widgets', 'dashboard', 'revenue', 'widget.tsx'),
-    'export default function RevenueWidget() { return null }\n',
-  )
-  touchFile(
-    pkgModulePath('orders', 'widgets', 'injection', 'sidebar', 'widget.tsx'),
-    'export default function SidebarWidget() { return null }\n',
-  )
-  touchFile(
-    pkgModulePath('orders', 'data', 'entities.ts'),
-    `export class SalesOrder {
-  id!: string
-  tenantId!: string
-  totalGross!: number
-  status!: string
-}
-`,
-  )
-  touchFile(
-    pkgModulePath('orders', 'acl.ts'),
-    "export const features = ['orders.view', 'orders.create']\n",
-  )
-  touchFile(
-    pkgModulePath('orders', 'setup.ts'),
-    "export const setup = { defaultRoleFeatures: ['orders.view'] }\n",
-  )
-  touchFile(
-    pkgModulePath('orders', 'di.ts'),
-    'export function register(container: any) {}\n',
-  )
+  // Module 1: "orders" — full-featured core module
+  touchFile(pkgModulePath('orders', 'index.ts'), "export const metadata = { id: 'orders', label: 'Orders' }\n")
+  touchFile(pkgModulePath('orders', 'frontend', 'page.tsx'), 'export default function OrdersPage() { return null }\n')
+  touchFile(pkgModulePath('orders', 'backend', 'page.tsx'), 'export default function OrdersBackendPage() { return null }\n')
+  touchFile(pkgModulePath('orders', 'backend', 'page.meta.ts'), "export const metadata = { requireAuth: true, pageTitle: 'Orders', group: 'Sales' }\n")
+  touchFile(pkgModulePath('orders', 'backend', 'details', '[id]', 'page.tsx'), 'export default function OrderDetailPage() { return null }\n')
+  touchFile(pkgModulePath('orders', 'api', 'orders', 'route.ts'), `export const metadata = { path: '/orders' }\nexport function GET() { return new Response('ok') }\nexport function POST() { return new Response('created') }\n`)
+  touchFile(pkgModulePath('orders', 'subscribers', 'on-created.ts'), "export const metadata = { event: 'orders.order.created', persistent: true }\nexport default async function handler() {}\n")
+  touchFile(pkgModulePath('orders', 'subscribers', 'on-payment.ts'), "export const metadata = { event: 'payments.payment.completed', persistent: true }\nexport default async function handler() {}\n")
+  touchFile(pkgModulePath('orders', 'workers', 'sync-job.ts'), "export const metadata = { queue: 'orders.sync', concurrency: 2 }\nexport default async function handler() {}\n")
+  touchFile(pkgModulePath('orders', 'widgets', 'dashboard', 'revenue', 'widget.tsx'), 'export default function RevenueWidget() { return null }\n')
+  touchFile(pkgModulePath('orders', 'widgets', 'injection', 'sidebar', 'widget.tsx'), 'export default function SidebarWidget() { return null }\n')
+  touchFile(pkgModulePath('orders', 'widgets', 'injection-table.ts'), `export const injectionTable = {\n  'crud-form:orders:sales_order:fields': [{ widgetId: 'orders.sidebar', kind: 'section', priority: 50 }],\n}\nexport default injectionTable\n`)
+  touchFile(pkgModulePath('orders', 'widgets', 'components.ts'), `export const componentOverrides = [\n  { targetId: 'page:orders/list', mode: 'wrapper', component: () => null },\n]\nexport default componentOverrides\n`)
+  touchFile(pkgModulePath('orders', 'data', 'entities.ts'), `export class SalesOrder {\n  id!: string\n  tenantId!: string\n  totalGross!: number\n  status!: string\n  createdAt!: Date\n}\nexport class OrderItem {\n  id!: string\n  orderId!: string\n  productName!: string\n  quantity!: number\n}\n`)
+  touchFile(pkgModulePath('orders', 'data', 'extensions.ts'), "export const extensions = [\n  { sourceEntity: 'orders:sales_order', targetEntity: 'customers:person', foreignKey: 'customer_id' },\n]\n")
+  touchFile(pkgModulePath('orders', 'data', 'enrichers.ts'), `export const enrichers = [\n  { id: 'orders.item-count', targetEntity: 'orders:sales_order', features: ['orders.view'], priority: 10, timeout: 2000, critical: false, async enrichOne(r: any) { return r }, async enrichMany(r: any[]) { return r } },\n]\n`)
+  touchFile(pkgModulePath('orders', 'data', 'guards.ts'), `export const guards = [\n  { id: 'orders.prevent-duplicate', entity: 'orders:sales_order', event: 'create', description: 'Prevents duplicate orders', async validate(input: any) { return { ok: true } } },\n]\n`)
+  touchFile(pkgModulePath('orders', 'api', 'interceptors.ts'), `export const interceptors = [\n  { id: 'orders.validate-total', targetRoute: 'orders', methods: ['POST', 'PUT'], priority: 100, async before(request: any) { return { ok: true } } },\n]\n`)
+  touchFile(pkgModulePath('orders', 'commands', 'interceptors.ts'), `export const interceptors = [\n  { id: 'orders.audit-log', commandId: 'orders.create', phase: 'after', async handler(command: any) { return { ok: true } } },\n]\n`)
+  touchFile(pkgModulePath('orders', 'acl.ts'), "export const features = ['orders.view', 'orders.create', 'orders.edit', 'orders.delete']\n")
+  touchFile(pkgModulePath('orders', 'setup.ts'), "export const setup = { defaultRoleFeatures: ['orders.view'] }\n")
+  touchFile(pkgModulePath('orders', 'di.ts'), 'export function register(container: any) {}\n')
+  touchFile(pkgModulePath('orders', 'i18n', 'en.json'), JSON.stringify({ orders: { list: { title: 'Orders' } } }))
+  touchFile(pkgModulePath('orders', 'i18n', 'pl.json'), JSON.stringify({ orders: { list: { title: 'Zamówienia' } } }))
+  touchFile(pkgModulePath('orders', 'events.ts'), `export const eventsConfig = {\n  moduleId: 'orders',\n  events: [\n    { id: 'orders.order.created', label: 'Order Created', entity: 'sales_order', category: 'crud' },\n    { id: 'orders.order.updated', label: 'Order Updated', entity: 'sales_order', category: 'crud' },\n  ]\n}\nexport default eventsConfig\n`)
+  touchFile(pkgModulePath('orders', 'notifications.ts'), `export const notificationTypes = [\n  { type: 'orders.order.created', module: 'orders', titleKey: 'orders.notifications.created.title', bodyKey: 'orders.notifications.created.body', icon: 'package', severity: 'info' },\n]\nexport default notificationTypes\n`)
+  touchFile(pkgModulePath('orders', 'notifications.handlers.ts'), `export const notificationHandlers = [\n  { type: 'orders.order.created', handler: async (n: any) => {} },\n]\nexport default notificationHandlers\n`)
+  touchFile(pkgModulePath('orders', 'translations.ts'), `export const translatableFields = {\n  'orders:sales_order': ['status_label', 'notes'],\n  'orders:order_item': ['product_name'],\n}\nexport default translatableFields\n`)
+  touchFile(pkgModulePath('orders', 'inbox-actions.ts'), `export const inboxActions = [\n  { type: 'orders.approve', id: 'orders.approve-order', label: 'Approve Order', icon: 'check', description: 'Approve pending', async execute(a: any) { return { ok: true } } },\n]\nexport default inboxActions\n`)
+  touchFile(pkgModulePath('orders', 'analytics.ts'), `export const analyticsConfig = {\n  entities: [{ entityId: 'orders:sales_order', requiredFeatures: ['orders.view'], entityConfig: { tableName: 'sales_orders', dateField: 'created_at' }, fieldMappings: { id: { dbColumn: 'id', type: 'uuid' } } }],\n}\nexport default analyticsConfig\n`)
+  touchFile(pkgModulePath('orders', 'ai-tools.ts'), `export const aiTools = [\n  { name: 'list_orders', description: 'List recent orders', inputSchema: {}, requiredFeatures: ['orders.view'] },\n]\nexport default aiTools\n`)
+  touchFile(pkgModulePath('orders', 'frontend', 'middleware.ts'), `export const middleware = [\n  { id: 'orders.auth-check', pattern: '/orders/**', handler: async (req: any) => req },\n]\nexport default middleware\n`)
+  touchFile(pkgModulePath('orders', 'backend', 'middleware.ts'), `export const middleware = [\n  { id: 'orders.admin-check', pattern: '/backend/orders/**', handler: async (req: any) => req },\n]\nexport default middleware\n`)
+  touchFile(pkgModulePath('orders', 'message-types.ts'), `export const messageTypes = [\n  { type: 'orders.order_confirmation', module: 'orders', labelKey: 'orders.messages.confirmation.label', icon: 'mail', color: 'blue', allowReply: false, allowForward: true },\n]\nexport default messageTypes\n`)
+  touchFile(pkgModulePath('orders', 'message-objects.ts'), `export const messageObjectTypes = [\n  { module: 'orders', entityType: 'sales_order', messageTypes: ['orders.order_confirmation'], entityId: 'orders:sales_order', optionLabelField: 'id', labelKey: 'orders.messages.objects.order.label', icon: 'package' },\n]\nexport default messageObjectTypes\n`)
+  touchFile(pkgModulePath('orders', 'ce.ts'), `export const entities = [\n  { id: 'orders:custom_field_set', label: 'Order Custom Fields', fields: [{ id: 'priority', type: 'text', label: 'Priority' }] },\n]\n`)
 
-  touchFile(
-    pkgModulePath('products', 'index.ts'),
-    "export const metadata = { id: 'products', label: 'Products' }\n",
-  )
-  touchFile(
-    pkgModulePath('products', 'backend', 'page.tsx'),
-    'export default function ProductsPage() { return null }\n',
-  )
-  touchFile(
-    pkgModulePath('products', 'data', 'entities.ts'),
-    `export class Product {
-  id!: string
-  tenantId!: string
-  name!: string
-}
-`,
-  )
-  touchFile(
-    pkgModulePath('products', 'translations.ts'),
-    "export const translatableFields = { product: ['name'] }\n",
-  )
-  touchFile(
-    pkgModulePath('products', 'di.ts'),
-    'export function register(container: any) {}\n',
-  )
-  touchFile(
-    pkgModulePath('products', 'acl.ts'),
-    "export const features = ['products.view']\n",
-  )
+  // Module 2: "products" — core module with events, notifications, translations
+  touchFile(pkgModulePath('products', 'index.ts'), "export const metadata = { id: 'products', label: 'Products' }\n")
+  touchFile(pkgModulePath('products', 'backend', 'page.tsx'), 'export default function ProductsPage() { return null }\n')
+  touchFile(pkgModulePath('products', 'api', 'products', 'route.ts'), `export const metadata = { path: '/products' }\nexport function GET() { return new Response('ok') }\nexport function POST() { return new Response('created') }\nexport function PUT() { return new Response('updated') }\nexport function DELETE() { return new Response('deleted') }\n`)
+  touchFile(pkgModulePath('products', 'data', 'entities.ts'), `export class Product {\n  id!: string\n  tenantId!: string\n  name!: string\n  sku!: string\n  price!: number\n}\nexport class Category {\n  id!: string\n  tenantId!: string\n  name!: string\n  parentId?: string\n}\n`)
+  touchFile(pkgModulePath('products', 'translations.ts'), "export const translatableFields = { product: ['name', 'description'] }\n")
+  touchFile(pkgModulePath('products', 'di.ts'), 'export function register(container: any) {}\n')
+  touchFile(pkgModulePath('products', 'acl.ts'), "export const features = ['products.view', 'products.create']\n")
+  touchFile(pkgModulePath('products', 'events.ts'), `export const eventsConfig = {\n  moduleId: 'products',\n  events: [\n    { id: 'products.product.created', label: 'Product Created', entity: 'product', category: 'crud' },\n  ]\n}\nexport default eventsConfig\n`)
+  touchFile(pkgModulePath('products', 'notifications.ts'), `export const notificationTypes = [\n  { type: 'products.low_stock', module: 'products', titleKey: 'products.notifications.low_stock.title', bodyKey: 'products.notifications.low_stock.body', icon: 'alert-triangle', severity: 'warning' },\n]\nexport default notificationTypes\n`)
 
-  touchFile(
-    appModulePath('custom_app', 'backend', 'page.tsx'),
-    'export default function CustomAppPage() { return null }\n',
-  )
-  touchFile(
-    appModulePath('custom_app', 'subscribers', 'on-action.ts'),
-    "export const metadata = { event: 'custom_app.action.fired' }\nexport default async function handler() {}\n",
-  )
-  touchFile(
-    appModulePath('custom_app', 'data', 'entities.ts'),
-    `export class CustomRecord {
-  id!: string
-  tenantId!: string
-  title!: string
-}
-`,
-  )
-  touchFile(
-    appModulePath('custom_app', 'di.ts'),
-    'export function register(container: any) {}\n',
-  )
+  // Module 3: "custom_app" — app-level module
+  touchFile(appModulePath('custom_app', 'index.ts'), "export const metadata = { id: 'custom_app', label: 'Custom App Module' }\n")
+  touchFile(appModulePath('custom_app', 'backend', 'page.tsx'), 'export default function CustomAppPage() { return null }\n')
+  touchFile(appModulePath('custom_app', 'subscribers', 'on-action.ts'), "export const metadata = { event: 'custom_app.action.fired' }\nexport default async function handler() {}\n")
+  touchFile(appModulePath('custom_app', 'widgets', 'dashboard', 'my-widget', 'widget.tsx'), 'export default function MyWidget() { return null }\n')
+  touchFile(appModulePath('custom_app', 'acl.ts'), "export const features = ['custom_app.view']\n")
+  touchFile(appModulePath('custom_app', 'data', 'entities.ts'), `export class CustomRecord {\n  id!: string\n  tenantId!: string\n  title!: string\n}\n`)
+  touchFile(appModulePath('custom_app', 'di.ts'), 'export function register(container: any) {}\n')
+  touchFile(appModulePath('custom_app', 'events.ts'), `export const eventsConfig = {\n  moduleId: 'custom_app',\n  events: [\n    { id: 'custom_app.action.fired', label: 'Action Fired', entity: 'custom_record', category: 'lifecycle' },\n  ]\n}\nexport default eventsConfig\n`)
 
   return [
     { id: 'orders', from: '@open-mercato/core' },
@@ -215,24 +165,20 @@ afterEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// AUTO-GENERATED header contract
+// AUTO-GENERATED header
 // ---------------------------------------------------------------------------
 
 describe('auto-generated header', () => {
   it('all generated .ts files start with "// AUTO-GENERATED" comment', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
-
     await generateModuleRegistry({ resolver, quiet: true })
     await generateModuleDi({ resolver, quiet: true })
     await generateModuleEntities({ resolver, quiet: true })
     await generateEntityIds({ resolver, quiet: true })
 
-    const tsFiles = fs.readdirSync(outputDir)
-      .filter((f) => f.endsWith('.generated.ts'))
-
+    const tsFiles = fs.readdirSync(outputDir).filter((f) => f.endsWith('.generated.ts'))
     expect(tsFiles.length).toBeGreaterThan(0)
-
     for (const file of tsFiles) {
       const content = fs.readFileSync(path.join(outputDir, file), 'utf8')
       expect(content.startsWith('// AUTO-GENERATED')).toBe(true)
@@ -248,7 +194,6 @@ describe('TypeScript syntax validity', () => {
   it('all generated .ts files parse without syntax errors', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
-
     await generateModuleRegistry({ resolver, quiet: true })
     await generateModuleDi({ resolver, quiet: true })
     await generateModuleEntities({ resolver, quiet: true })
@@ -257,7 +202,6 @@ describe('TypeScript syntax validity', () => {
     const tsFiles = fs.readdirSync(outputDir)
       .filter((f) => f.endsWith('.ts') && !f.endsWith('.checksum'))
       .sort()
-
     expect(tsFiles.length).toBeGreaterThan(0)
 
     const errors: string[] = []
@@ -270,289 +214,901 @@ describe('TypeScript syntax validity', () => {
         errors.push(`${file}: ${diagnostics.map((d) => ts.flattenDiagnosticMessageText(d.messageText, '\n')).join('; ')}`)
       }
     }
-
     expect(errors).toEqual([])
   })
 })
 
 // ---------------------------------------------------------------------------
-// DI generator contracts
+// di.generated.ts
 // ---------------------------------------------------------------------------
 
-describe('di.generated.ts contracts', () => {
+describe('di.generated.ts', () => {
   it('exports diRegistrars named export and default export', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleDi({ resolver, quiet: true })
-
     const content = readGenerated('di.generated.ts')
+
     expect(content).toContain('export { diRegistrars }')
     expect(content).toContain('export default diRegistrars')
   })
 
-  it('contains one import per module with di.ts', async () => {
+  it('imports and references all 3 modules with di.ts', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleDi({ resolver, quiet: true })
-
     const content = readGenerated('di.generated.ts')
-    // orders, products, custom_app all have di.ts
+
     expect(content).toContain('orders/di')
     expect(content).toContain('products/di')
     expect(content).toContain('custom_app/di')
+    // Each module contributes one .register call
+    expect(countMatches(content, /\.register/g)).toBe(3)
+  })
+
+  it('uses filter(Boolean) cast on the array', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleDi({ resolver, quiet: true })
+    const content = readGenerated('di.generated.ts')
+
+    expect(content).toContain('.filter(Boolean)')
   })
 })
 
 // ---------------------------------------------------------------------------
-// Entities generator contracts
+// entities.generated.ts
 // ---------------------------------------------------------------------------
 
-describe('entities.generated.ts contracts', () => {
-  it('exports entities array', async () => {
+describe('entities.generated.ts', () => {
+  it('exports entities array and defines enhanceEntities', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleEntities({ resolver, quiet: true })
-
     const content = readGenerated('entities.generated.ts')
+
     expect(content).toContain('export const entities = [')
-  })
-
-  it('contains enhanceEntities function', async () => {
-    const enabled = scaffoldFixture()
-    const resolver = createMockResolver(enabled)
-    await generateModuleEntities({ resolver, quiet: true })
-
-    const content = readGenerated('entities.generated.ts')
     expect(content).toContain('function enhanceEntities(')
   })
 
-  it('references all modules with entities', async () => {
+  it('spreads enhanceEntities for all 3 modules', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleEntities({ resolver, quiet: true })
-
     const content = readGenerated('entities.generated.ts')
+
     expect(content).toContain('orders/data/entities')
     expect(content).toContain('products/data/entities')
     expect(content).toContain('custom_app/data/entities')
+    // 3 spread calls inside the array
+    expect(countMatches(content, /\.\.\.enhanceEntities\(/g)).toBe(3)
+  })
+
+  it('uses correct moduleId strings in enhanceEntities calls', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleEntities({ resolver, quiet: true })
+    const content = readGenerated('entities.generated.ts')
+
+    expect(content).toMatch(/enhanceEntities\(\S+, 'orders'\)/)
+    expect(content).toMatch(/enhanceEntities\(\S+, 'products'\)/)
+    expect(content).toMatch(/enhanceEntities\(\S+, 'custom_app'\)/)
   })
 })
 
 // ---------------------------------------------------------------------------
-// Entity IDs contracts
+// entities.ids.generated.ts
 // ---------------------------------------------------------------------------
 
-describe('entities.ids.generated.ts contracts', () => {
-  it('exports M and E constants', async () => {
+describe('entities.ids.generated.ts', () => {
+  it('exports M (module map) with all modules that have entities', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateEntityIds({ resolver, quiet: true })
+    const content = readGenerated('entities.ids.generated.ts')
+
+    expect(content).toContain('export const M')
+    expect(content).toContain('"orders": "orders"')
+    expect(content).toContain('"products": "products"')
+    // custom_app entities are in app dir — may not be in M depending on parsing
+  })
+
+  it('exports E (entity map) with entity IDs per module', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateEntityIds({ resolver, quiet: true })
+    const content = readGenerated('entities.ids.generated.ts')
+
+    expect(content).toContain('export const E')
+    expect(content).toContain('"sales_order": "orders:sales_order"')
+    expect(content).toContain('"order_item": "orders:order_item"')
+    expect(content).toContain('"product": "products:product"')
+    expect(content).toContain('"category": "products:category"')
+  })
+
+  it('exports KnownModuleId and KnownEntities types', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateEntityIds({ resolver, quiet: true })
+    const content = readGenerated('entities.ids.generated.ts')
+
+    expect(content).toContain('export type KnownModuleId')
+    expect(content).toContain('export type KnownEntities')
+  })
+
+  it('generates per-entity field files with correct field names', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateEntityIds({ resolver, quiet: true })
 
-    const content = readGenerated('entities.ids.generated.ts')
-    expect(content).toContain('export const M')
-    expect(content).toContain('export const E')
+    const salesOrderPath = path.join(outputDir, 'entities', 'sales_order', 'index.ts')
+    expect(fs.existsSync(salesOrderPath)).toBe(true)
+    const salesOrderContent = fs.readFileSync(salesOrderPath, 'utf8')
+    expect(salesOrderContent).toContain("export const id = 'id'")
+    expect(salesOrderContent).toContain("export const tenant_id = 'tenant_id'")
+    expect(salesOrderContent).toContain("export const total_gross = 'total_gross'")
+    expect(salesOrderContent).toContain("export const status = 'status'")
+    expect(salesOrderContent).toContain("export const created_at = 'created_at'")
+
+    const productPath = path.join(outputDir, 'entities', 'product', 'index.ts')
+    expect(fs.existsSync(productPath)).toBe(true)
+    const productContent = fs.readFileSync(productPath, 'utf8')
+    expect(productContent).toContain("export const id = 'id'")
+    expect(productContent).toContain("export const name = 'name'")
+    expect(productContent).toContain("export const sku = 'sku'")
+    expect(productContent).toContain("export const price = 'price'")
   })
 })
 
 // ---------------------------------------------------------------------------
-// Module registry contracts (main output files)
+// modules.generated.ts — the big one
 // ---------------------------------------------------------------------------
 
-describe('modules.generated.ts contracts', () => {
-  it('exports modules array, modulesInfo, and default export', async () => {
+describe('modules.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('modules.generated.ts')
+  })
 
-    const content = readGenerated('modules.generated.ts')
+  it('exports modules array, modulesInfo, and default export', () => {
     expect(content).toContain('export const modules: Module[] = [')
     expect(content).toContain('export const modulesInfo')
     expect(content).toContain('export default modules')
   })
 
-  it('contains all enabled module IDs', async () => {
-    const enabled = scaffoldFixture()
-    const resolver = createMockResolver(enabled)
-    await generateModuleRegistry({ resolver, quiet: true })
+  it('declares all 3 module IDs', () => {
+    expect(content).toContain('id: "orders"')
+    expect(content).toContain('id: "products"')
+    expect(content).toContain('id: "custom_app"')
+  })
 
-    const content = readGenerated('modules.generated.ts')
-    expect(content).toContain('"orders"')
-    expect(content).toContain('"products"')
-    expect(content).toContain('"custom_app"')
+  it('orders module has subscribers with event metadata', () => {
+    expect(content).toContain('orders:on-created')
+    expect(content).toContain('orders.order.created')
+    expect(content).toContain('orders:on-payment')
+    expect(content).toContain('payments.payment.completed')
+  })
+
+  it('orders module has workers with queue metadata', () => {
+    expect(content).toContain('orders.sync')
+    expect(content).toContain('createLazyModuleWorker')
+  })
+
+  it('modules include ACL features arrays', () => {
+    expect(content).toMatch(/features:.*orders/)
+    expect(content).toMatch(/features:.*products/)
+    expect(content).toMatch(/features:.*custom_app/)
+  })
+
+  it('modules include setup references', () => {
+    expect(content).toContain('setup:')
+  })
+
+  it('modules include translation locale keys', () => {
+    expect(content).toContain("'en':")
+    expect(content).toContain("'pl':")
+  })
+
+  it('modules include customFieldSets reference from ce.ts', () => {
+    expect(content).toContain('customFieldSets:')
+  })
+
+  it('modules include entityExtensions reference from extensions.ts', () => {
+    expect(content).toContain('entityExtensions:')
+  })
+
+  it('orders module includes dashboard widget keys', () => {
+    expect(content).toContain('dashboardWidgets:')
+    expect(content).toContain('orders:revenue')
+  })
+
+  it('imports createLazyModuleSubscriber and createLazyModuleWorker', () => {
+    expect(content).toContain('createLazyModuleSubscriber')
+    expect(content).toContain('createLazyModuleWorker')
+  })
+
+  it('imports events config for orders module', () => {
+    expect(content).toMatch(/EVENTS_orders/)
+  })
+
+  it('imports analytics config for orders module', () => {
+    expect(content).toMatch(/ANALYTICS_orders/)
   })
 })
 
-describe('route manifest contracts', () => {
-  it('frontend-routes.generated.ts exports frontendRoutes', async () => {
+// ---------------------------------------------------------------------------
+// Route manifests
+// ---------------------------------------------------------------------------
+
+describe('frontend-routes.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('frontend-routes.generated.ts')
+  })
 
-    const content = readGenerated('frontend-routes.generated.ts')
+  it('exports frontendRoutes array with default', () => {
     expect(content).toContain('export const frontendRoutes')
     expect(content).toContain('export default frontendRoutes')
   })
 
-  it('backend-routes.generated.ts exports backendRoutes', async () => {
+  it('contains orders frontend route with correct pattern', () => {
+    expect(content).toContain('moduleId: "orders"')
+    expect(content).toContain('pattern: "/"')
+  })
+})
+
+describe('backend-routes.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('backend-routes.generated.ts')
+  })
 
-    const content = readGenerated('backend-routes.generated.ts')
+  it('exports backendRoutes array with default', () => {
     expect(content).toContain('export const backendRoutes')
     expect(content).toContain('export default backendRoutes')
   })
 
-  it('api-routes.generated.ts exports apiRoutes', async () => {
+  it('contains backend routes for all modules with backend pages', () => {
+    expect(content).toContain('moduleId: "orders"')
+    expect(content).toContain('moduleId: "products"')
+    expect(content).toContain('moduleId: "custom_app"')
+  })
+
+  it('orders detail route has [id] parameter in pattern', () => {
+    expect(content).toContain('/backend/details/[id]')
+  })
+
+  it('each route entry has pattern, moduleId, and load function', () => {
+    expect(content).toContain('pattern:')
+    expect(content).toContain('requireAuth:')
+    expect(content).toContain('load: async () =>')
+  })
+})
+
+describe('api-routes.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('api-routes.generated.ts')
+  })
 
-    const content = readGenerated('api-routes.generated.ts')
+  it('exports apiRoutes array with default', () => {
     expect(content).toContain('export const apiRoutes')
     expect(content).toContain('export default apiRoutes')
   })
+
+  it('contains orders API route with path and methods', () => {
+    expect(content).toContain('path: "/orders"')
+    expect(content).toContain('methods:')
+  })
+
+  it('products API route has all 4 methods', () => {
+    expect(content).toContain('path: "/products"')
+    expect(content).toMatch(/methods:.*GET.*POST.*PUT.*DELETE/)
+  })
 })
 
-describe('search.generated.ts contracts', () => {
-  it('exports searchModuleConfigEntries and searchModuleConfigs', async () => {
+// ---------------------------------------------------------------------------
+// events.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('events.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('events.generated.ts')
+  })
 
+  it('exports entries, configs, allEvents, and isEventDeclared', () => {
+    expect(content).toContain('export const eventModuleConfigEntries')
+    expect(content).toContain('export const eventModuleConfigs')
+    expect(content).toContain('export const allEvents')
+    expect(content).toContain('export function isEventDeclared')
+  })
+
+  it('has entries for all 3 modules with events.ts', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain("moduleId: 'products'")
+    expect(content).toContain("moduleId: 'custom_app'")
+  })
+
+  it('imports from all event convention files', () => {
+    expect(countMatches(content, /import \* as EVENTS_/g)).toBe(3)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// notifications.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('notifications.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('notifications.generated.ts')
+  })
+
+  it('exports entries, types, and helper functions', () => {
+    expect(content).toContain('export const notificationTypeEntries')
+    expect(content).toContain('export const notificationTypes')
+    expect(content).toContain('export function getNotificationTypes()')
+    expect(content).toContain('export function getNotificationType(type: string)')
+  })
+
+  it('has entries for orders and products modules', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain("moduleId: 'products'")
+  })
+
+  it('imports from both notification convention files', () => {
+    expect(countMatches(content, /import \* as NOTIF_/g)).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// notification-handlers.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('notification-handlers.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('notification-handlers.generated.ts')
+  })
+
+  it('exports notificationHandlerEntries with type annotation', () => {
+    expect(content).toContain('export const notificationHandlerEntries: NotificationHandlerEntry[]')
+  })
+
+  it('has entry for orders module with handlers property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('handlers:')
+  })
+
+  it('imports NotificationHandler type', () => {
+    expect(content).toContain("import type { NotificationHandler }")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// enrichers.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('enrichers.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('enrichers.generated.ts')
+  })
+
+  it('exports enricherEntries with type annotation', () => {
+    expect(content).toContain('export const enricherEntries: EnricherEntry[]')
+  })
+
+  it('has orders module entry with enrichers property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('enrichers:')
+  })
+
+  it('imports from data/enrichers.ts', () => {
+    expect(content).toMatch(/import \* as ENRICHERS_/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// interceptors.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('interceptors.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('interceptors.generated.ts')
+  })
+
+  it('exports interceptorEntries with type annotation', () => {
+    expect(content).toContain('export const interceptorEntries: InterceptorEntry[]')
+  })
+
+  it('has orders module entry with interceptors property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('interceptors:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// guards.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('guards.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('guards.generated.ts')
+  })
+
+  it('exports guardEntries with type annotation', () => {
+    expect(content).toContain('export const guardEntries: GuardEntry[]')
+  })
+
+  it('has orders module entry with guards property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('guards:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// command-interceptors.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('command-interceptors.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('command-interceptors.generated.ts')
+  })
+
+  it('exports commandInterceptorEntries with type annotation', () => {
+    expect(content).toContain('export const commandInterceptorEntries: CommandInterceptorEntry[]')
+  })
+
+  it('has orders module entry with interceptors property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('interceptors:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// component-overrides.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('component-overrides.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('component-overrides.generated.ts')
+  })
+
+  it('exports componentOverrideEntries with type annotation', () => {
+    expect(content).toContain('export const componentOverrideEntries: ComponentOverrideEntry[]')
+  })
+
+  it('has orders module entry with componentOverrides property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('componentOverrides:')
+  })
+
+  it('imports ComponentOverride type', () => {
+    expect(content).toContain("import type { ComponentOverride }")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// inbox-actions.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('inbox-actions.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('inbox-actions.generated.ts')
+  })
+
+  it('exports entries, flattened array, and helper functions', () => {
+    expect(content).toContain('export const inboxActionConfigEntries')
+    expect(content).toContain('export const inboxActions')
+    expect(content).toContain('export function getInboxAction(type: string)')
+    expect(content).toContain('export function getRegisteredActionTypes()')
+  })
+
+  it('has orders module entry with actions property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('actions:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// analytics.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('analytics.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('analytics.generated.ts')
+  })
+
+  it('exports entries and configs arrays', () => {
+    expect(content).toContain('export const analyticsModuleConfigEntries')
+    expect(content).toContain('export const analyticsModuleConfigs')
+  })
+
+  it('has orders module entry', () => {
+    expect(content).toContain("moduleId: 'orders'")
+  })
+
+  it('imports AnalyticsModuleConfig type', () => {
+    expect(content).toContain("import type { AnalyticsModuleConfig }")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// ai-tools.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('ai-tools.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('ai-tools.generated.ts')
+  })
+
+  it('exports filtered entries and flattened allAiTools', () => {
+    expect(content).toContain('export const aiToolConfigEntries')
+    expect(content).toContain('export const allAiTools')
+  })
+
+  it('has orders module entry with tools property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('tools:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// translations-fields.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('translations-fields.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('translations-fields.generated.ts')
+  })
+
+  it('exports entries, allTranslatableFields, and allTranslatableEntityTypes', () => {
+    expect(content).toContain('export const translatableFieldEntries')
+    expect(content).toContain('export const allTranslatableFields')
+    expect(content).toContain('export const allTranslatableEntityTypes')
+  })
+
+  it('has entries for orders and products modules', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain("moduleId: 'products'")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// message-types.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('message-types.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('message-types.generated.ts')
+  })
+
+  it('exports entries, flattened types, and helper functions', () => {
+    expect(content).toContain('export const messageTypeEntries')
+    expect(content).toContain('export const messageTypes')
+    expect(content).toContain('export function getMessageTypes()')
+    expect(content).toContain('export function getMessageType(type: string)')
+  })
+
+  it('has orders module entry with types property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('types:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// message-objects.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('message-objects.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('message-objects.generated.ts')
+  })
+
+  it('exports entries, flattened types, and helper functions', () => {
+    expect(content).toContain('export const messageObjectTypeEntries')
+    expect(content).toContain('export const messageObjectTypes')
+    expect(content).toContain('export function getMessageObjectTypes()')
+    expect(content).toContain('export function getMessageObjectType(')
+  })
+
+  it('has orders module entry', () => {
+    expect(content).toContain("moduleId: 'orders'")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Widget files
+// ---------------------------------------------------------------------------
+
+describe('dashboard-widgets.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('dashboard-widgets.generated.ts')
+  })
+
+  it('exports dashboardWidgetEntries with type annotation', () => {
+    expect(content).toContain('export const dashboardWidgetEntries: ModuleDashboardWidgetEntry[]')
+  })
+
+  it('has entries for orders and custom_app modules', () => {
+    expect(content).toContain('moduleId: "orders"')
+    expect(content).toContain('moduleId: "custom_app"')
+  })
+
+  it('entries have key, source, and loader function', () => {
+    expect(content).toContain('key: "orders:revenue:widget"')
+    expect(content).toContain('source: "package"')
+    expect(content).toContain('source: "app"')
+    expect(content).toContain('loader: () =>')
+  })
+})
+
+describe('injection-widgets.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('injection-widgets.generated.ts')
+  })
+
+  it('exports injectionWidgetEntries with type annotation', () => {
+    expect(content).toContain('export const injectionWidgetEntries: ModuleInjectionWidgetEntry[]')
+  })
+
+  it('has entry for orders sidebar injection widget', () => {
+    expect(content).toContain('moduleId: "orders"')
+    expect(content).toContain('key: "orders:sidebar:widget"')
+  })
+})
+
+describe('injection-tables.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('injection-tables.generated.ts')
+  })
+
+  it('exports injectionTables with type annotation', () => {
+    expect(content).toContain('export const injectionTables')
+  })
+
+  it('has orders module entry with table property', () => {
+    expect(content).toContain('moduleId: "orders"')
+    expect(content).toContain('table:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Middleware files
+// ---------------------------------------------------------------------------
+
+describe('frontend-middleware.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('frontend-middleware.generated.ts')
+  })
+
+  it('exports frontendMiddlewareEntries', () => {
+    expect(content).toContain('export const frontendMiddlewareEntries')
+  })
+
+  it('has orders module entry with middleware property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('middleware:')
+  })
+})
+
+describe('backend-middleware.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('backend-middleware.generated.ts')
+  })
+
+  it('exports backendMiddlewareEntries', () => {
+    expect(content).toContain('export const backendMiddlewareEntries')
+  })
+
+  it('has orders module entry with middleware property', () => {
+    expect(content).toContain("moduleId: 'orders'")
+    expect(content).toContain('middleware:')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Search (empty because no search.ts in fixture, but exports still present)
+// ---------------------------------------------------------------------------
+
+describe('search.generated.ts', () => {
+  it('exports searchModuleConfigEntries and searchModuleConfigs even when empty', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
     const content = readGenerated('search.generated.ts')
+
     expect(content).toContain('export const searchModuleConfigEntries')
     expect(content).toContain('export const searchModuleConfigs')
+    expect(content).toContain('import type { SearchModuleConfig }')
   })
 })
 
-describe('events.generated.ts contracts', () => {
-  it('exports eventModuleConfigEntries', async () => {
-    const enabled = scaffoldFixture()
-    const resolver = createMockResolver(enabled)
-    await generateModuleRegistry({ resolver, quiet: true })
+// ---------------------------------------------------------------------------
+// modules.app.generated.ts
+// ---------------------------------------------------------------------------
 
-    const content = readGenerated('events.generated.ts')
-    expect(content).toContain('export const eventModuleConfigEntries')
-  })
-})
-
-describe('widget file contracts', () => {
-  it('dashboard-widgets.generated.ts exports dashboardWidgetEntries', async () => {
-    const enabled = scaffoldFixture()
-    const resolver = createMockResolver(enabled)
-    await generateModuleRegistry({ resolver, quiet: true })
-
-    const content = readGenerated('dashboard-widgets.generated.ts')
-    expect(content).toContain('export const dashboardWidgetEntries')
-  })
-
-  it('injection-widgets.generated.ts exports injectionWidgetEntries', async () => {
-    const enabled = scaffoldFixture()
-    const resolver = createMockResolver(enabled)
-    await generateModuleRegistry({ resolver, quiet: true })
-
-    const content = readGenerated('injection-widgets.generated.ts')
-    expect(content).toContain('export const injectionWidgetEntries')
-  })
-})
-
-describe('notifications.generated.ts contracts', () => {
-  it('exports notificationTypeEntries', async () => {
-    const enabled = scaffoldFixture()
-    const resolver = createMockResolver(enabled)
-    await generateModuleRegistry({ resolver, quiet: true })
-
-    const content = readGenerated('notifications.generated.ts')
-    expect(content).toContain('export const notificationTypeEntries')
-  })
-})
-
-describe('translations-fields.generated.ts contracts', () => {
-  it('exports translatableFieldEntries', async () => {
-    const enabled = scaffoldFixture()
-    const resolver = createMockResolver(enabled)
-    await generateModuleRegistry({ resolver, quiet: true })
-
-    const content = readGenerated('translations-fields.generated.ts')
-    expect(content).toContain('export const translatableFieldEntries')
-  })
-})
-
-describe('modules.app.generated.ts contracts', () => {
-  it('exports modules array and default export', async () => {
+describe('modules.app.generated.ts', () => {
+  it('exports modules array and default, contains all module IDs', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistryApp({ resolver, quiet: true })
-
     const content = readGenerated('modules.app.generated.ts')
+
     expect(content).toContain('export const modules: Module[] = [')
     expect(content).toContain('export default modules')
+    expect(content).toContain('id: "orders"')
+    expect(content).toContain('id: "products"')
+    expect(content).toContain('id: "custom_app"')
+  })
+
+  it('excludes frontend/backend routes and API handlers', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryApp({ resolver, quiet: true })
+    const content = readGenerated('modules.app.generated.ts')
+
+    // App registry should NOT have route components
+    expect(content).not.toContain('frontendRoutes:')
+    expect(content).not.toContain('backendRoutes:')
+  })
+
+  it('includes subscribers and workers', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryApp({ resolver, quiet: true })
+    const content = readGenerated('modules.app.generated.ts')
+
+    expect(content).toContain('subscribers:')
+    expect(content).toContain('orders.order.created')
   })
 })
 
-describe('modules.cli.generated.ts contracts', () => {
-  it('exports modules array', async () => {
+// ---------------------------------------------------------------------------
+// modules.cli.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('modules.cli.generated.ts', () => {
+  it('exports modules array, contains all module IDs', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistryCli({ resolver, quiet: true })
-
     const content = readGenerated('modules.cli.generated.ts')
+
     expect(content).toContain('export const modules: Module[] = [')
-  })
-})
-
-// ---------------------------------------------------------------------------
-// Misc registry contracts
-// ---------------------------------------------------------------------------
-
-describe('miscellaneous registry contracts', () => {
-  let enabled: ModuleEntry[]
-  let resolver: PackageResolver
-
-  beforeEach(async () => {
-    enabled = scaffoldFixture()
-    resolver = createMockResolver(enabled)
-    await generateModuleRegistry({ resolver, quiet: true })
+    expect(content).toContain('id: "orders"')
+    expect(content).toContain('id: "products"')
+    expect(content).toContain('id: "custom_app"')
   })
 
-  it('enrichers.generated.ts exports enricherEntries', () => {
-    const content = readGeneratedOptional('enrichers.generated.ts')
-    if (content) expect(content).toContain('export const enricherEntries')
+  it('excludes frontend/backend routes and APIs', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryCli({ resolver, quiet: true })
+    const content = readGenerated('modules.cli.generated.ts')
+
+    expect(content).not.toContain('frontendRoutes:')
+    expect(content).not.toContain('backendRoutes:')
+    expect(content).not.toContain('apis:')
   })
 
-  it('interceptors.generated.ts exports interceptorEntries', () => {
-    const content = readGeneratedOptional('interceptors.generated.ts')
-    if (content) expect(content).toContain('export const interceptorEntries')
-  })
+  it('includes subscribers, workers, features, and setup', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryCli({ resolver, quiet: true })
+    const content = readGenerated('modules.cli.generated.ts')
 
-  it('guards.generated.ts exports guardEntries', () => {
-    const content = readGeneratedOptional('guards.generated.ts')
-    if (content) expect(content).toContain('export const guardEntries')
-  })
-
-  it('command-interceptors.generated.ts exports commandInterceptorEntries', () => {
-    const content = readGeneratedOptional('command-interceptors.generated.ts')
-    if (content) expect(content).toContain('export const commandInterceptorEntries')
-  })
-
-  it('component-overrides.generated.ts exports componentOverrideEntries', () => {
-    const content = readGeneratedOptional('component-overrides.generated.ts')
-    if (content) expect(content).toContain('export const componentOverrideEntries')
-  })
-
-  it('inbox-actions.generated.ts exports inboxActionConfigEntries', () => {
-    const content = readGeneratedOptional('inbox-actions.generated.ts')
-    if (content) expect(content).toContain('export const inboxActionConfigEntries')
-  })
-
-  it('ai-tools.generated.ts exports aiToolConfigEntries', () => {
-    const content = readGeneratedOptional('ai-tools.generated.ts')
-    if (content) expect(content).toContain('export const aiToolConfigEntries')
-  })
-
-  it('analytics.generated.ts exports analyticsModuleConfigEntries', () => {
-    const content = readGeneratedOptional('analytics.generated.ts')
-    if (content) expect(content).toContain('export const analyticsModuleConfigEntries')
+    expect(content).toContain('subscribers:')
+    expect(content).toContain('features:')
+    expect(content).toContain('setup:')
   })
 })
