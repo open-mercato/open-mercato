@@ -185,7 +185,13 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     presentedPriceEntry: OmnibusHistoryRow | null,
     priceKindIsPromotion: boolean,
   ): Promise<OmnibusBlock | null> {
-    const config = await this.getConfig({ organizationId: ctx.organizationId })
+    let config: OmnibusConfig
+    try {
+      config = await this.getConfig({ organizationId: ctx.organizationId })
+    } catch (err) {
+      console.error('[catalog:omnibus] Failed to load omnibus config', { organizationId: ctx.organizationId, err })
+      return null
+    }
     if (!config.enabled) return null
 
     const presentedPriceKindId = config.channels?.[ctx.channelId ?? '']?.presentedPriceKindId

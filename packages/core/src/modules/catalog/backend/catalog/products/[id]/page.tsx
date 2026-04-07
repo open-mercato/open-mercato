@@ -2485,7 +2485,7 @@ function ProductMetaSection({
   );
 }
 
-function normalizeMetadata(value: unknown): Record<string, any> {
+function normalizeMetadata(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object") return {};
   const entries = Object.entries(value as Record<string, unknown>).filter(
     ([key]) =>
@@ -2494,7 +2494,7 @@ function normalizeMetadata(value: unknown): Record<string, any> {
   return Object.fromEntries(entries);
 }
 
-function readOptionSchema(metadata: Record<string, any>): ProductOptionInput[] {
+function readOptionSchema(metadata: Record<string, unknown>): ProductOptionInput[] {
   const raw = Array.isArray(metadata.optionSchema)
     ? metadata.optionSchema
     : Array.isArray(metadata.option_schema)

@@ -197,6 +197,7 @@ export async function seedAnalyticsData(
       name: 'Default',
       sku: `${product.sku}-DEFAULT`,
       isDefault: true,
+      omnibusExempt: false,
       isActive: true,
       createdAt: productCreatedAt,
       updatedAt: productCreatedAt,

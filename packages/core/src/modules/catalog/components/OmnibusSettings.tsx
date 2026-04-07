@@ -117,7 +117,7 @@ export function OmnibusSettings() {
           <div className="space-y-4 pl-2 border-l-2 border-muted">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="lookback-days">{t('catalog.omnibus.settings.lookbackDays', 'Lookback window (days)')}</Label>
+                <Label htmlFor="lookback-days" className="mb-1 block">{t('catalog.omnibus.settings.lookbackDays', 'Lookback window (days)')}</Label>
                 <Input
                   id="lookback-days"
                   type="number"
@@ -129,7 +129,7 @@ export function OmnibusSettings() {
               </div>
 
               <div>
-                <Label htmlFor="no-channel-mode">{t('catalog.omnibus.settings.noChannelMode', 'Channels without context')}</Label>
+                <Label htmlFor="no-channel-mode" className="mb-1 block">{t('catalog.omnibus.settings.noChannelMode', 'Channels without context')}</Label>
                 <select
                   id="no-channel-mode"
                   className="w-full rounded border px-2 py-1.5 text-sm"
@@ -143,7 +143,7 @@ export function OmnibusSettings() {
             </div>
 
             <div>
-              <Label htmlFor="default-price-kind">{t('catalog.omnibus.settings.presentedPriceKind', 'Default presented price kind')}</Label>
+              <Label htmlFor="default-price-kind" className="mb-1 block">{t('catalog.omnibus.settings.presentedPriceKind', 'Default presented price kind')}</Label>
               <select
                 id="default-price-kind"
                 className="w-full rounded border px-2 py-1.5 text-sm"
@@ -158,7 +158,7 @@ export function OmnibusSettings() {
             </div>
 
             <div>
-              <Label htmlFor="enabled-country-codes">{t('catalog.omnibus.settings.enabledCountryCodes', 'Active in EU markets')}</Label>
+              <Label htmlFor="enabled-country-codes" className="mb-1 block">{t('catalog.omnibus.settings.enabledCountryCodes', 'Active in EU markets')}</Label>
               <Input
                 id="enabled-country-codes"
                 value={(form.enabledCountryCodes ?? []).join(', ')}

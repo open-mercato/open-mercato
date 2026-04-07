@@ -1,5 +1,4 @@
 // @ts-nocheck
-
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
@@ -243,6 +242,9 @@ type QuoteLineSnapshot = {
   metadata: Record<string, unknown> | null
   customFieldSetId: string | null
   customFields: Record<string, unknown> | null
+  normalizedQuantity: string
+  normalizedUnit: string | null
+  uomSnapshot: Record<string, unknown> | null
   omnibusReferenceNet: string | null
   omnibusReferenceGross: string | null
   omnibusPromotionAnchorAt: string | null
@@ -368,6 +370,9 @@ type OrderLineSnapshot = {
   metadata: Record<string, unknown> | null
   customFieldSetId: string | null
   customFields: Record<string, unknown> | null
+  normalizedQuantity: string
+  normalizedUnit: string | null
+  uomSnapshot: Record<string, unknown> | null
   omnibusReferenceNet: string | null
   omnibusReferenceGross: string | null
   omnibusPromotionAnchorAt: string | null
@@ -1915,7 +1920,6 @@ function convertLineCalculationToEntityInput(
   index: number
 ) {
   const line = lineResult.line
-  const srcAny = sourceLine as any
   return {
     lineNumber: line.lineNumber ?? index + 1,
     kind: line.kind ?? 'product',
@@ -1928,11 +1932,11 @@ function convertLineCalculationToEntityInput(
     comment: line.comment ?? null,
     quantity: toNumericString(line.quantity) ?? '0',
     quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: srcAny.normalizedQuantity != null
-      ? toNumericString(srcAny.normalizedQuantity) ?? String(line.quantity)
+    normalizedQuantity: sourceLine.normalizedQuantity != null
+      ? toNumericString(sourceLine.normalizedQuantity) ?? String(line.quantity)
       : toNumericString(line.quantity) ?? '0',
-    normalizedUnit: srcAny.normalizedUnit ?? canonicalizeUnitCode(line.quantityUnit) ?? null,
-    uomSnapshot: srcAny.uomSnapshot ?? null,
+    normalizedUnit: sourceLine.normalizedUnit ?? canonicalizeUnitCode(line.quantityUnit) ?? null,
+    uomSnapshot: sourceLine.uomSnapshot ?? null,
     currencyCode: line.currencyCode,
     unitPriceNet:
       toNumericString(line.unitPriceNet ?? (lineResult.netAmount / Math.max(line.quantity || 1, 1))) ??
@@ -1993,6 +1997,8 @@ async function applyOmnibusToLine(
   document: { tenantId: string; organizationId: string; channelId?: string | null; currencyCode: string },
   logContext: string,
 ): Promise<void> {
+  // em must be a forked EntityManager (caller's responsibility) so that any SQL failure
+  // does not abort the parent transaction.
   try {
     const priceId = sourceLine.priceId ?? null
     let priceKindId: string | null = null
@@ -2087,7 +2093,7 @@ async function applyOrderLineResults(params: {
       status: statusValue,
     })
     if (isNew && omnibusService && sourceLine.productId) {
-      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, order, 'order line')
+      await applyOmnibusToLine(em.fork(), omnibusService, lineEntity, sourceLine, order, 'order line')
     }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
@@ -2163,7 +2169,7 @@ async function applyQuoteLineResults(params: {
       status: statusValue,
     })
     if (isNew && omnibusService && sourceLine.productId) {
-      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, quote, 'quote line')
+      await applyOmnibusToLine(em.fork(), omnibusService, lineEntity, sourceLine, quote, 'quote line')
     }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
@@ -2226,7 +2232,7 @@ async function replaceQuoteLines(
       updatedAt: new Date(),
     })
     if (omnibusService && sourceLine.productId) {
-      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, quote, 'quote line')
+      await applyOmnibusToLine(em.fork(), omnibusService, lineEntity, sourceLine, quote, 'quote line')
     }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
@@ -2354,7 +2360,7 @@ async function replaceOrderLines(
       updatedAt: new Date(),
     })
     if (omnibusService && (sourceLine as any).productId) {
-      await applyOmnibusToLine(em, omnibusService, lineEntity, sourceLine, order, 'order line')
+      await applyOmnibusToLine(em.fork(), omnibusService, lineEntity, sourceLine, order, 'order line')
     }
     em.persist(lineEntity)
     const rawCustomFields = (sourceLine as any).customFields
@@ -4620,9 +4626,9 @@ const convertQuoteToOrderCommand: CommandHandler<
         comment: line.comment ?? null,
         quantity: line.quantity,
         quantityUnit: line.quantityUnit ?? null,
-        normalizedQuantity: (line as any).normalizedQuantity ?? line.quantity,
-        normalizedUnit: (line as any).normalizedUnit ?? line.quantityUnit ?? null,
-        uomSnapshot: (line as any).uomSnapshot ? cloneJson((line as any).uomSnapshot) : null,
+        normalizedQuantity: line.normalizedQuantity ?? line.quantity,
+        normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
+        uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
         reservedQuantity: '0',
         fulfilledQuantity: '0',
         invoicedQuantity: '0',
@@ -5299,13 +5305,13 @@ const quoteLineUpsertCommand: CommandHandler<
     ;(updatedSnapshot as any).promotionSnapshot =
       parsed.promotionSnapshot ?? (existingSnapshot as any)?.promotionSnapshot ?? null
     if (uomResult) {
-      ;(updatedSnapshot as any).normalizedQuantity = Number(uomResult.normalizedQuantity)
-      ;(updatedSnapshot as any).normalizedUnit = uomResult.normalizedUnit
-      ;(updatedSnapshot as any).uomSnapshot = uomResult.uomSnapshot
+      updatedSnapshot.normalizedQuantity = Number(uomResult.normalizedQuantity)
+      updatedSnapshot.normalizedUnit = uomResult.normalizedUnit
+      updatedSnapshot.uomSnapshot = uomResult.uomSnapshot
     } else {
-      ;(updatedSnapshot as any).normalizedQuantity = updatedSnapshot.quantity
-      ;(updatedSnapshot as any).normalizedUnit = canonicalizeUnitCode(updatedSnapshot.quantityUnit)
-      ;(updatedSnapshot as any).uomSnapshot = null
+      updatedSnapshot.normalizedQuantity = updatedSnapshot.quantity
+      updatedSnapshot.normalizedUnit = canonicalizeUnitCode(updatedSnapshot.quantityUnit)
+      updatedSnapshot.uomSnapshot = null
     }
 
     let nextLines = parsed.id

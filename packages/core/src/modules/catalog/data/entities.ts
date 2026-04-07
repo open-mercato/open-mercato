@@ -539,8 +539,8 @@ export class CatalogProductVariant {
   @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
   taxRate?: string | null
 
-  @Property({ name: 'omnibus_exempt', type: 'boolean', nullable: true })
-  omnibusExempt?: boolean | null
+  @Property({ name: 'omnibus_exempt', type: 'boolean', default: false })
+  omnibusExempt: boolean = false
 
   @Property({ name: 'option_values', type: 'jsonb', nullable: true })
   optionValues?: Record<string, string> | null
