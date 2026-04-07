@@ -3,7 +3,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { BackendRouteManifestEntry, Module } from '@open-mercato/shared/modules/registry'
+import type { BackendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
 import type {
   BackendChromePayload,
   BackendChromeNavGroup,
@@ -32,7 +32,10 @@ import type { SidebarPreferencesSettings } from '@open-mercato/shared/modules/na
 
 type TranslationFn = (key: string | undefined, fallback: string) => string
 
-type RouteModule = Pick<Module, 'id' | 'backendRoutes'>
+type RouteModule = {
+  id: string
+  backendRoutes?: BackendRouteManifestEntry[]
+}
 
 export function groupBackendRoutesByModule(routes: BackendRouteManifestEntry[]): RouteModule[] {
   return Array.from(
