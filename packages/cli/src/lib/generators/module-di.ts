@@ -19,6 +19,9 @@ import {
   arrayLiteral,
   createGeneratedSourceFile,
   getSourceText,
+  identifier,
+  methodCall,
+  parenthesized,
 } from './ast'
 
 export interface ModuleDiOptions {
@@ -76,11 +79,11 @@ export async function generateModuleDi(options: ModuleDiOptions): Promise<Genera
       {
         name: 'diRegistrars',
         type: '(((c: any) => void) | undefined)[]',
-        initializer: (writer) => {
-          writer.write('(')
-          arrayLiteral(registrars, (currentWriter, registrar) => currentWriter.write(registrar))(writer)
-          writer.write(').filter(Boolean)')
-        },
+        initializer: methodCall(
+          parenthesized(arrayLiteral(registrars, (currentWriter, registrar) => identifier(registrar)(currentWriter))),
+          'filter',
+          [identifier('Boolean')],
+        ),
       },
     ],
   })

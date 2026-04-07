@@ -1,6 +1,14 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import {
+  arrayLiteral,
+  arrowFunction,
+  binaryExpression,
+  identifier,
+  methodCall,
+  propertyAccess,
+  writeValue,
+} from '../ast'
 import {
   emptyArray,
   moduleEntry,
@@ -34,6 +42,7 @@ export function createAiToolsExtension(): GeneratorExtension {
                 importName,
                 members: ['aiTools', 'default'],
                 fallback: emptyArray(),
+                castType: 'unknown[]',
               }),
             },
           ]),
@@ -65,11 +74,12 @@ export function createAiToolsExtension(): GeneratorExtension {
               {
                 name: 'aiToolConfigEntries',
                 type: 'AiToolConfigEntry[]',
-                initializer: (writer) => {
-                  writer.write('aiToolConfigEntriesRaw.filter(')
-                  writer.write('(entry): entry is AiToolConfigEntry => Array.isArray(entry.tools) && entry.tools.length > 0')
-                  writer.write(')')
-                },
+                initializer: methodCall(identifier('aiToolConfigEntriesRaw'), 'filter', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: binaryExpression(propertyAccess(propertyAccess(identifier('entry'), 'tools'), 'length'), '>', 0),
+                  }),
+                ]),
               },
             ],
           })
@@ -79,9 +89,12 @@ export function createAiToolsExtension(): GeneratorExtension {
             declarations: [
               {
                 name: 'allAiTools',
-                initializer: (writer) => {
-                  writer.write('aiToolConfigEntries.flatMap((entry) => entry.tools)')
-                },
+                initializer: methodCall(identifier('aiToolConfigEntries'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'tools'),
+                  }),
+                ]),
               },
             ],
           })

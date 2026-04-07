@@ -1,6 +1,19 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import {
+  arrayLiteral,
+  arrowFunction,
+  binaryExpression,
+  callExpression,
+  identifier,
+  methodCall,
+  nonNullAssertion,
+  objectFromEntries,
+  optionalPropertyAccess,
+  propertyAccess,
+  returnStatement,
+  writeValue,
+} from '../ast'
 import {
   emptyArray,
   moduleEntry,
@@ -68,6 +81,7 @@ export function createNotificationsExtension(): GeneratorExtension {
                 importName,
                 members: ['default'],
                 fallback: emptyArray(),
+                castType: 'NotificationTypeDefinition[]',
               }),
             },
           ]),
@@ -126,7 +140,12 @@ export function createNotificationsExtension(): GeneratorExtension {
               },
               {
                 name: 'allTypes',
-                initializer: (writer) => writer.write('entriesRaw.flatMap((entry) => entry.types)'),
+                initializer: methodCall(identifier('entriesRaw'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'types'),
+                  }),
+                ]),
               },
             ],
           })
@@ -134,22 +153,31 @@ export function createNotificationsExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'notificationTypeEntries', initializer: (writer) => writer.write('entriesRaw') },
-              { name: 'notificationTypes', initializer: (writer) => writer.write('allTypes') },
+              { name: 'notificationTypeEntries', initializer: identifier('entriesRaw') },
+              { name: 'notificationTypes', initializer: identifier('allTypes') },
             ],
           })
           sourceFile.addFunction({
             name: 'getNotificationTypes',
             isExported: true,
             returnType: 'NotificationTypeDefinition[]',
-            statements: ['return allTypes'],
+            statements: [returnStatement(identifier('allTypes'))],
           })
           sourceFile.addFunction({
             name: 'getNotificationType',
             isExported: true,
             parameters: [{ name: 'type', type: 'string' }],
             returnType: 'NotificationTypeDefinition | undefined',
-            statements: ['return allTypes.find((entry) => entry.type === type)'],
+            statements: [
+              returnStatement(
+                methodCall(identifier('allTypes'), 'find', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: binaryExpression(propertyAccess(identifier('entry'), 'type'), '===', identifier('type')),
+                  }),
+                ]),
+              ),
+            ],
           })
         },
       })
@@ -187,16 +215,39 @@ export function createNotificationsExtension(): GeneratorExtension {
               },
               {
                 name: 'allTypes',
-                initializer: (writer) => writer.write('entriesRaw.flatMap((entry) => entry.types)'),
+                initializer: methodCall(identifier('entriesRaw'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'types'),
+                  }),
+                ]),
               },
               {
                 name: 'renderers',
                 type: 'NotificationRenderers',
-                initializer: (writer) => {
-                  writer.write('Object.fromEntries(')
-                  writer.write('allTypes.filter((typeDef) => Boolean(typeDef.Renderer)).map((typeDef) => [typeDef.type, typeDef.Renderer!])')
-                  writer.write(')')
-                },
+                initializer: objectFromEntries(
+                  methodCall(
+                    methodCall(identifier('allTypes'), 'filter', [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: callExpression(identifier('Boolean'), [propertyAccess(identifier('typeDef'), 'Renderer')]),
+                      }),
+                    ]),
+                    'map',
+                    [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: arrayLiteral(
+                          [
+                            propertyAccess(identifier('typeDef'), 'type'),
+                            nonNullAssertion(propertyAccess(identifier('typeDef'), 'Renderer')),
+                          ],
+                          writeValue,
+                        ),
+                      }),
+                    ],
+                  ),
+                ),
               },
             ],
           })
@@ -204,16 +255,16 @@ export function createNotificationsExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'notificationClientTypeEntries', initializer: (writer) => writer.write('entriesRaw') },
-              { name: 'notificationClientTypes', initializer: (writer) => writer.write('allTypes') },
-              { name: 'notificationRenderers', initializer: (writer) => writer.write('renderers') },
+              { name: 'notificationClientTypeEntries', initializer: identifier('entriesRaw') },
+              { name: 'notificationClientTypes', initializer: identifier('allTypes') },
+              { name: 'notificationRenderers', initializer: identifier('renderers') },
             ],
           })
           sourceFile.addFunction({
             name: 'getNotificationRenderers',
             isExported: true,
             returnType: 'NotificationRenderers',
-            statements: ['return renderers'],
+            statements: [returnStatement(identifier('renderers'))],
           })
         },
       })

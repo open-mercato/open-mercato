@@ -720,6 +720,11 @@ describe('enrichers.generated.ts', () => {
   it('imports from data/enrichers.ts', () => {
     expect(content).toMatch(/import \* as ENRICHERS_/)
   })
+
+  it('resolves optional exports without static namespace member access', () => {
+    expect(content).not.toContain('.enrichers')
+    expect(content).not.toContain('.default')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -743,6 +748,11 @@ describe('interceptors.generated.ts', () => {
   it('has orders module entry with interceptors property', () => {
     expectModuleIds(content, ['orders'])
     expect(content).toContain('interceptors:')
+  })
+
+  it('resolves optional exports without static namespace member access', () => {
+    expect(content).not.toContain('.interceptors')
+    expect(content).not.toContain('.default')
   })
 })
 
@@ -768,6 +778,11 @@ describe('guards.generated.ts', () => {
     expectModuleIds(content, ['orders'])
     expect(content).toContain('guards:')
   })
+
+  it('resolves optional exports without static namespace member access', () => {
+    expect(content).not.toContain('.guards')
+    expect(content).not.toContain('.default')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -791,6 +806,11 @@ describe('command-interceptors.generated.ts', () => {
   it('has orders module entry with interceptors property', () => {
     expectModuleIds(content, ['orders'])
     expect(content).toContain('interceptors:')
+  })
+
+  it('resolves optional exports without static namespace member access', () => {
+    expect(content).not.toContain('.interceptors')
+    expect(content).not.toContain('.default')
   })
 })
 
@@ -943,6 +963,10 @@ describe('message-types.generated.ts', () => {
     expectModuleIds(content, ['orders'])
     expect(content).toContain('types:')
   })
+
+  it('does not reference removed legacy export aliases', () => {
+    expect(content).not.toContain('.types ??')
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -965,6 +989,11 @@ describe('message-objects.generated.ts', () => {
 
   it('has orders module entry', () => {
     expectModuleIds(content, ['orders'])
+  })
+
+  it('does not reference removed legacy export aliases', () => {
+    expect(content).not.toContain('.objectTypes ??')
+    expect(content).not.toContain('.types ??')
   })
 })
 
@@ -1117,15 +1146,16 @@ describe('modules.app.generated.ts', () => {
     expect(content).toContain('id: "custom_app"')
   })
 
-  it('excludes frontend/backend routes and API handlers', async () => {
+  it('includes runtime frontend/backend routes and excludes CLI commands', async () => {
     const enabled = scaffoldFixture()
     const resolver = createMockResolver(enabled)
     await generateModuleRegistryApp({ resolver, quiet: true })
     const content = readGenerated('modules.app.generated.ts')
 
-    // App registry should NOT have route components
-    expect(content).not.toContain('frontendRoutes:')
-    expect(content).not.toContain('backendRoutes:')
+    expect(content).toContain('frontendRoutes:')
+    expect(content).toContain('backendRoutes:')
+    expect(content).toContain('createElement')
+    expect(content).not.toContain('cli:')
   })
 
   it('includes subscribers and workers', async () => {

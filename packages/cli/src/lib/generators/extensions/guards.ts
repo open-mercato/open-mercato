@@ -26,8 +26,9 @@ export function createGuardsExtension(): GeneratorExtension {
               name: 'guards',
               value: namespaceFallback({
                 importName,
-                members: ['guards', 'default'],
+                members: ['guards'],
                 fallback: emptyArray(),
+                castType: 'MutationGuard[]',
               }),
             },
           ]),

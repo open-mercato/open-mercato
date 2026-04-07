@@ -1,6 +1,16 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import {
+  arrayLiteral,
+  arrowFunction,
+  binaryExpression,
+  identifier,
+  methodCall,
+  newExpression,
+  propertyAccess,
+  returnStatement,
+  writeValue,
+} from '../ast'
 import { emptyArray, moduleEntry, namespaceFallback, namespaceImportSpec, renderGeneratedTsSource } from './shared'
 
 export function createInboxActionsExtension(): GeneratorExtension {
@@ -28,6 +38,7 @@ export function createInboxActionsExtension(): GeneratorExtension {
                 importName,
                 members: ['default', 'inboxActions'],
                 fallback: emptyArray(),
+                castType: 'InboxActionDefinition[]',
               }),
             },
           ]),
@@ -55,11 +66,12 @@ export function createInboxActionsExtension(): GeneratorExtension {
               },
               {
                 name: 'entries',
-                initializer: (writer) => {
-                  writer.write('entriesRaw.filter(')
-                  writer.write('(entry): entry is InboxActionConfigEntry => Array.isArray(entry.actions) && entry.actions.length > 0')
-                  writer.write(')')
-                },
+                initializer: methodCall(identifier('entriesRaw'), 'filter', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: binaryExpression(propertyAccess(propertyAccess(identifier('entry'), 'actions'), 'length'), '>', 0),
+                  }),
+                ]),
               },
             ],
           })
@@ -67,11 +79,16 @@ export function createInboxActionsExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'inboxActionConfigEntries', initializer: (writer) => writer.write('entries') },
+              { name: 'inboxActionConfigEntries', initializer: identifier('entries') },
               {
                 name: 'inboxActions',
                 type: 'InboxActionDefinition[]',
-                initializer: (writer) => writer.write('entries.flatMap((entry) => entry.actions)'),
+                initializer: methodCall(identifier('entries'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'actions'),
+                  }),
+                ]),
               },
             ],
           })
@@ -80,7 +97,20 @@ export function createInboxActionsExtension(): GeneratorExtension {
             declarations: [
               {
                 name: 'actionTypeMap',
-                initializer: (writer) => writer.write('new Map(inboxActions.map((action) => [action.type, action]))'),
+                initializer: newExpression(identifier('Map'), [
+                  methodCall(identifier('inboxActions'), 'map', [
+                    arrowFunction({
+                      parameters: ['action'],
+                      body: arrayLiteral(
+                        [
+                          propertyAccess(identifier('action'), 'type'),
+                          identifier('action'),
+                        ],
+                        writeValue,
+                      ),
+                    }),
+                  ]),
+                ]),
               },
             ],
           })
@@ -89,13 +119,17 @@ export function createInboxActionsExtension(): GeneratorExtension {
             isExported: true,
             parameters: [{ name: 'type', type: 'string' }],
             returnType: 'InboxActionDefinition | undefined',
-            statements: ['return actionTypeMap.get(type)'],
+            statements: [returnStatement(methodCall(identifier('actionTypeMap'), 'get', [identifier('type')]))],
           })
           sourceFile.addFunction({
             name: 'getRegisteredActionTypes',
             isExported: true,
             returnType: 'string[]',
-            statements: ['return Array.from(actionTypeMap.keys())'],
+            statements: [
+              returnStatement(
+                methodCall(identifier('Array'), 'from', [methodCall(identifier('actionTypeMap'), 'keys', [])]),
+              ),
+            ],
           })
         },
         generator: 'registry',

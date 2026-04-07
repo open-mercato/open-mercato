@@ -1,6 +1,15 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import {
+  asExpression,
+  arrayLiteral,
+  arrowFunction,
+  binaryExpression,
+  identifier,
+  methodCall,
+  propertyAccess,
+  writeValue,
+} from '../ast'
 import {
   moduleEntry,
   namespaceFallback,
@@ -33,7 +42,8 @@ export function createAnalyticsExtension(): GeneratorExtension {
               value: namespaceFallback({
                 importName,
                 members: ['default', 'analyticsConfig', 'config'],
-                fallback: (writer) => writer.write('null'),
+                fallback: identifier('null'),
+                castType: 'AnalyticsModuleConfig | null',
               }),
             },
           ]),
@@ -54,6 +64,10 @@ export function createAnalyticsExtension(): GeneratorExtension {
             name: 'AnalyticsConfigEntry',
             type: '{ moduleId: string; config: AnalyticsModuleConfig | null }',
           })
+          sourceFile.addTypeAlias({
+            name: 'ResolvedAnalyticsConfigEntry',
+            type: '{ moduleId: string; config: AnalyticsModuleConfig }',
+          })
           sourceFile.addVariableStatement({
             declarationKind: VariableDeclarationKind.Const,
             declarations: [
@@ -69,11 +83,16 @@ export function createAnalyticsExtension(): GeneratorExtension {
             declarations: [
               {
                 name: 'entries',
-                initializer: (writer) => {
-                  writer.write('entriesRaw.filter(')
-                  writer.write('(entry): entry is { moduleId: string; config: AnalyticsModuleConfig } => entry.config != null')
-                  writer.write(')')
-                },
+                type: 'ResolvedAnalyticsConfigEntry[]',
+                initializer: asExpression(
+                  methodCall(identifier('entriesRaw'), 'filter', [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: binaryExpression(propertyAccess(identifier('entry'), 'config'), '!=', null),
+                    }),
+                  ]),
+                  'ResolvedAnalyticsConfigEntry[]',
+                ),
               },
             ],
           })
@@ -83,12 +102,17 @@ export function createAnalyticsExtension(): GeneratorExtension {
             declarations: [
               {
                 name: 'analyticsModuleConfigEntries',
-                initializer: (writer) => writer.write('entries'),
+                initializer: identifier('entries'),
               },
               {
                 name: 'analyticsModuleConfigs',
                 type: 'AnalyticsModuleConfig[]',
-                initializer: (writer) => writer.write('entries.map((entry) => entry.config)'),
+                initializer: methodCall(identifier('entries'), 'map', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'config'),
+                  }),
+                ]),
               },
             ],
           })

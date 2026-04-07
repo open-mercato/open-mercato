@@ -1,6 +1,6 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import { arrayLiteral, identifier, writeValue } from '../ast'
 import { emptyArray, moduleEntry, namespaceFallback, namespaceImportSpec, renderGeneratedTsSource } from './shared'
 
 export function createPageMiddlewareExtension(): GeneratorExtension {
@@ -30,6 +30,7 @@ export function createPageMiddlewareExtension(): GeneratorExtension {
                 importName,
                 members: ['middleware', 'default'],
                 fallback: emptyArray(),
+                castType: 'PageRouteMiddleware[]',
               }),
             },
           ]),
@@ -52,6 +53,7 @@ export function createPageMiddlewareExtension(): GeneratorExtension {
                 importName,
                 members: ['middleware', 'default'],
                 fallback: emptyArray(),
+                castType: 'PageRouteMiddleware[]',
               }),
             },
           ]),
@@ -92,7 +94,7 @@ export function createPageMiddlewareExtension(): GeneratorExtension {
               {
                 name: 'frontendMiddlewareEntries',
                 type: 'PageMiddlewareRegistryEntry[]',
-                initializer: (writer) => writer.write('entriesRaw'),
+                initializer: identifier('entriesRaw'),
               },
             ],
           })
@@ -133,7 +135,7 @@ export function createPageMiddlewareExtension(): GeneratorExtension {
               {
                 name: 'backendMiddlewareEntries',
                 type: 'PageMiddlewareRegistryEntry[]',
-                initializer: (writer) => writer.write('entriesRaw'),
+                initializer: identifier('entriesRaw'),
               },
             ],
           })

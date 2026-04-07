@@ -1,8 +1,17 @@
-import { VariableDeclarationKind, type CodeBlockWriter } from 'ts-morph'
+import { VariableDeclarationKind } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
 import { scanModuleDir, SCAN_CONFIGS } from '../scanner'
-import { arrayLiteral, writeValue } from '../ast'
-import { dynamicImportExpression, namespaceImportSpec, renderGeneratedTsSource } from './shared'
+import {
+  arrayLiteral,
+  arrowFunction,
+  identifier,
+  methodCall,
+  nullishCoalesce,
+  objectLiteral,
+  propertyAccess,
+  writeValue,
+} from '../ast'
+import { dynamicImportExpression, emptyObject, namespaceFallback, namespaceImportSpec, renderGeneratedTsSource } from './shared'
 
 type InjectionWidgetEntry = {
   moduleId: string
@@ -58,20 +67,27 @@ export function createInjectionWidgetsExtension(): GeneratorExtension {
     generateOutput() {
       const widgetDecls = Array.from(widgetEntries.entries())
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([, entry]) => (writer: CodeBlockWriter) => {
-          writer.write('{')
-          writer.newLine()
-          writer.indent(() => {
-            writer.writeLine(`moduleId: ${JSON.stringify(entry.moduleId)},`)
-            writer.writeLine(`key: ${JSON.stringify(entry.key)},`)
-            writer.writeLine(`source: ${JSON.stringify(entry.source)},`)
-            writer.write('loader: () => ')
-            dynamicImportExpression(entry.importPath)(writer)
-            writer.write(".then((mod) => mod.default ?? mod)")
-            writer.newLine()
-          })
-          writer.write('}')
-        })
+        .map(([, entry]) =>
+          objectLiteral([
+            { name: 'moduleId', value: entry.moduleId },
+            { name: 'key', value: entry.key },
+            { name: 'source', value: entry.source },
+            {
+              name: 'loader',
+              value: arrowFunction({
+                body: methodCall(dynamicImportExpression(entry.importPath), 'then', [
+                  arrowFunction({
+                    parameters: ['mod'],
+                    body: nullishCoalesce([
+                      propertyAccess(identifier('mod'), 'default'),
+                      identifier('mod'),
+                    ]),
+                  }),
+                ]),
+              }),
+            },
+          ]),
+        )
 
       const widgetsOutput = renderGeneratedTsSource({
         fileName: 'injection-widgets.generated.ts',
@@ -94,20 +110,20 @@ export function createInjectionWidgetsExtension(): GeneratorExtension {
       })
 
       const tableImports = tableEntries.map((entry) => namespaceImportSpec(entry.importName, entry.importPath))
-      const tableDecls = tableEntries.map((entry) => (writer: CodeBlockWriter) => {
-        writer.write('{')
-        writer.newLine()
-        writer.indent(() => {
-          writer.writeLine(`moduleId: ${JSON.stringify(entry.moduleId)},`)
-          writer.write('table: ((')
-          writer.write(entry.importName)
-          writer.write('.default ?? ')
-          writer.write(entry.importName)
-          writer.write('.injectionTable) as any) || {}')
-          writer.newLine()
-        })
-        writer.write('}')
-      })
+      const tableDecls = tableEntries.map((entry) =>
+        objectLiteral([
+          { name: 'moduleId', value: entry.moduleId },
+          {
+            name: 'table',
+            value: namespaceFallback({
+              importName: entry.importName,
+              members: ['default', 'injectionTable'],
+              fallback: emptyObject(),
+              castType: 'ModuleInjectionTable',
+            }),
+          },
+        ]),
+      )
       const tablesOutput = renderGeneratedTsSource({
         fileName: 'injection-tables.generated.ts',
         imports: [

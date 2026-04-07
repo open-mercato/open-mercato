@@ -1,6 +1,17 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import {
+  asExpression,
+  arrayLiteral,
+  arrowFunction,
+  binaryExpression,
+  identifier,
+  methodCall,
+  newExpression,
+  propertyAccess,
+  returnStatement,
+  writeValue,
+} from '../ast'
 import { moduleEntry, namespaceFallback, namespaceImportSpec, renderGeneratedTsSource } from './shared'
 
 export function createEventsExtension(): GeneratorExtension {
@@ -28,7 +39,7 @@ export function createEventsExtension(): GeneratorExtension {
               value: namespaceFallback({
                 importName,
                 members: ['default', 'eventsConfig'],
-                fallback: (writer) => writer.write('null'),
+                fallback: identifier('null'),
                 castType: 'EventModuleConfigBase | null',
               }),
             },
@@ -56,6 +67,10 @@ export function createEventsExtension(): GeneratorExtension {
             name: 'EventConfigEntry',
             type: '{ moduleId: string; config: EventModuleConfigBase | null }',
           })
+          sourceFile.addTypeAlias({
+            name: 'ResolvedEventConfigEntry',
+            type: '{ moduleId: string; config: EventModuleConfigBase }',
+          })
           sourceFile.addVariableStatement({
             declarationKind: VariableDeclarationKind.Const,
             declarations: [
@@ -66,11 +81,16 @@ export function createEventsExtension(): GeneratorExtension {
               },
               {
                 name: 'entries',
-                initializer: (writer) => {
-                  writer.write('entriesRaw.filter(')
-                  writer.write('(entry): entry is { moduleId: string; config: EventModuleConfigBase } => entry.config != null')
-                  writer.write(')')
-                },
+                type: 'ResolvedEventConfigEntry[]',
+                initializer: asExpression(
+                  methodCall(identifier('entriesRaw'), 'filter', [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: binaryExpression(propertyAccess(identifier('entry'), 'config'), '!=', null),
+                    }),
+                  ]),
+                  'ResolvedEventConfigEntry[]',
+                ),
               },
             ],
           })
@@ -78,16 +98,26 @@ export function createEventsExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'eventModuleConfigEntries', initializer: (writer) => writer.write('entries') },
+              { name: 'eventModuleConfigEntries', initializer: identifier('entries') },
               {
                 name: 'eventModuleConfigs',
                 type: 'EventModuleConfigBase[]',
-                initializer: (writer) => writer.write('entries.map((entry) => entry.config)'),
+                initializer: methodCall(identifier('entries'), 'map', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'config'),
+                  }),
+                ]),
               },
               {
                 name: 'allEvents',
                 type: 'EventDefinition[]',
-                initializer: (writer) => writer.write('entries.flatMap((entry) => entry.config.events)'),
+                initializer: methodCall(identifier('entries'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(propertyAccess(identifier('entry'), 'config'), 'events'),
+                  }),
+                ]),
               },
             ],
           })
@@ -96,7 +126,14 @@ export function createEventsExtension(): GeneratorExtension {
             declarations: [
               {
                 name: 'allDeclaredEventIds',
-                initializer: (writer) => writer.write('new Set(allEvents.map((entry) => entry.id))'),
+                initializer: newExpression(identifier('Set'), [
+                  methodCall(identifier('allEvents'), 'map', [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: propertyAccess(identifier('entry'), 'id'),
+                    }),
+                  ]),
+                ]),
               },
             ],
           })
@@ -105,7 +142,11 @@ export function createEventsExtension(): GeneratorExtension {
             isExported: true,
             parameters: [{ name: 'eventId', type: 'string' }],
             returnType: 'boolean',
-            statements: ['return allDeclaredEventIds.has(eventId)'],
+            statements: [
+              returnStatement(
+                methodCall(identifier('allDeclaredEventIds'), 'has', [identifier('eventId')]),
+              ),
+            ],
           })
         },
       })

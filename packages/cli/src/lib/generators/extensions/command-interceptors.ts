@@ -26,8 +26,9 @@ export function createCommandInterceptorsExtension(): GeneratorExtension {
               name: 'interceptors',
               value: namespaceFallback({
                 importName,
-                members: ['interceptors', 'default'],
+                members: ['interceptors'],
                 fallback: emptyArray(),
+                castType: 'CommandInterceptor[]',
               }),
             },
           ]),

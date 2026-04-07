@@ -1,6 +1,25 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import {
+  arrayLiteral,
+  arrowFunction,
+  binaryExpression,
+  callExpression,
+  expressionStatement,
+  forOfStatement,
+  identifier,
+  invokeImmediately,
+  logicalAnd,
+  methodCall,
+  nonNullAssertion,
+  objectFromEntries,
+  objectLiteral,
+  optionalPropertyAccess,
+  propertyAccess,
+  returnStatement,
+  templateLiteral,
+  writeValue,
+} from '../ast'
 import { emptyArray, moduleEntry, namespaceFallback, namespaceImportSpec, renderGeneratedTsSource } from './shared'
 
 export function createMessagesExtension(): GeneratorExtension {
@@ -32,7 +51,7 @@ export function createMessagesExtension(): GeneratorExtension {
               name: 'types',
               value: namespaceFallback({
                 importName,
-                members: ['default', 'messageTypes', 'types'],
+                members: ['default', 'messageTypes'],
                 fallback: emptyArray(),
                 castType: 'MessageTypeDefinition[]',
               }),
@@ -55,7 +74,7 @@ export function createMessagesExtension(): GeneratorExtension {
               name: 'types',
               value: namespaceFallback({
                 importName,
-                members: ['default', 'messageObjectTypes', 'objectTypes', 'types'],
+                members: ['default', 'messageObjectTypes'],
                 fallback: emptyArray(),
                 castType: 'MessageObjectTypeDefinition[]',
               }),
@@ -85,7 +104,12 @@ export function createMessagesExtension(): GeneratorExtension {
               },
               {
                 name: 'allTypes',
-                initializer: (writer) => writer.write('entriesRaw.flatMap((entry) => entry.types)'),
+                initializer: methodCall(identifier('entriesRaw'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'types'),
+                  }),
+                ]),
               },
             ],
           })
@@ -93,22 +117,35 @@ export function createMessagesExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'messageTypeEntries', initializer: (writer) => writer.write('entriesRaw') },
-              { name: 'messageTypes', initializer: (writer) => writer.write('allTypes') },
+              { name: 'messageTypeEntries', initializer: identifier('entriesRaw') },
+              { name: 'messageTypes', initializer: identifier('allTypes') },
             ],
           })
           sourceFile.addFunction({
             name: 'getMessageTypes',
             isExported: true,
             returnType: 'MessageTypeDefinition[]',
-            statements: ['return allTypes'],
+            statements: [returnStatement(identifier('allTypes'))],
           })
           sourceFile.addFunction({
             name: 'getMessageType',
             isExported: true,
             parameters: [{ name: 'type', type: 'string' }],
             returnType: 'MessageTypeDefinition | undefined',
-            statements: ['return allTypes.find((entry) => entry.type === type)'],
+            statements: [
+              returnStatement(
+                methodCall(identifier('allTypes'), 'find', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: binaryExpression(
+                      propertyAccess(identifier('entry'), 'type'),
+                      '===',
+                      identifier('type'),
+                    ),
+                  }),
+                ]),
+              ),
+            ],
           })
         },
       })
@@ -134,7 +171,12 @@ export function createMessagesExtension(): GeneratorExtension {
               },
               {
                 name: 'allTypes',
-                initializer: (writer) => writer.write('entriesRaw.flatMap((entry) => entry.types)'),
+                initializer: methodCall(identifier('entriesRaw'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'types'),
+                  }),
+                ]),
               },
             ],
           })
@@ -142,15 +184,15 @@ export function createMessagesExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'messageObjectTypeEntries', initializer: (writer) => writer.write('entriesRaw') },
-              { name: 'messageObjectTypes', initializer: (writer) => writer.write('allTypes') },
+              { name: 'messageObjectTypeEntries', initializer: identifier('entriesRaw') },
+              { name: 'messageObjectTypes', initializer: identifier('allTypes') },
             ],
           })
           sourceFile.addFunction({
             name: 'getMessageObjectTypes',
             isExported: true,
             returnType: 'MessageObjectTypeDefinition[]',
-            statements: ['return allTypes'],
+            statements: [returnStatement(identifier('allTypes'))],
           })
           sourceFile.addFunction({
             name: 'getMessageObjectType',
@@ -160,7 +202,19 @@ export function createMessagesExtension(): GeneratorExtension {
               { name: 'entityType', type: 'string' },
             ],
             returnType: 'MessageObjectTypeDefinition | undefined',
-            statements: ['return allTypes.find((entry) => entry.module === module && entry.entityType === entityType)'],
+            statements: [
+              returnStatement(
+                methodCall(identifier('allTypes'), 'find', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: logicalAnd([
+                      binaryExpression(propertyAccess(identifier('entry'), 'module'), '===', identifier('module')),
+                      binaryExpression(propertyAccess(identifier('entry'), 'entityType'), '===', identifier('entityType')),
+                    ]),
+                  }),
+                ]),
+              ),
+            ],
           })
         },
       })
@@ -204,52 +258,215 @@ export function createMessagesExtension(): GeneratorExtension {
             declarations: [
               { name: 'messageTypeEntriesRaw', type: 'MessageTypeEntry[]', initializer: arrayLiteral(messageTypeEntries, writeValue) },
               { name: 'messageObjectTypeEntriesRaw', type: 'MessageObjectTypeEntry[]', initializer: arrayLiteral(messageObjectTypeEntries, writeValue) },
-              { name: 'allMessageTypes', initializer: (writer) => writer.write('messageTypeEntriesRaw.flatMap((entry) => entry.types)') },
-              { name: 'allMessageObjectTypes', initializer: (writer) => writer.write('messageObjectTypeEntriesRaw.flatMap((entry) => entry.types)') },
+              {
+                name: 'allMessageTypes',
+                initializer: methodCall(identifier('messageTypeEntriesRaw'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'types'),
+                  }),
+                ]),
+              },
+              {
+                name: 'allMessageObjectTypes',
+                initializer: methodCall(identifier('messageObjectTypeEntriesRaw'), 'flatMap', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'types'),
+                  }),
+                ]),
+              },
               {
                 name: 'listItemComponents',
                 type: 'MessageListItemRenderers',
-                initializer: (writer) => writer.write('Object.fromEntries(allMessageTypes.filter((typeDef) => Boolean(typeDef.ui?.listItemComponent) && Boolean(typeDef.ListItemComponent)).map((typeDef) => [typeDef.ui!.listItemComponent!, typeDef.ListItemComponent!]))'),
+                initializer: objectFromEntries(
+                  methodCall(
+                    methodCall(identifier('allMessageTypes'), 'filter', [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: logicalAnd([
+                          callExpression(identifier('Boolean'), [optionalPropertyAccess(propertyAccess(identifier('typeDef'), 'ui'), 'listItemComponent')]),
+                          callExpression(identifier('Boolean'), [propertyAccess(identifier('typeDef'), 'ListItemComponent')]),
+                        ]),
+                      }),
+                    ]),
+                    'map',
+                    [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: arrayLiteral(
+                          [
+                            propertyAccess(nonNullAssertion(propertyAccess(identifier('typeDef'), 'ui')), 'listItemComponent'),
+                            nonNullAssertion(propertyAccess(identifier('typeDef'), 'ListItemComponent')),
+                          ],
+                          writeValue,
+                        ),
+                      }),
+                    ],
+                  ),
+                ),
               },
               {
                 name: 'contentComponents',
                 type: 'MessageContentRenderers',
-                initializer: (writer) => writer.write('Object.fromEntries(allMessageTypes.filter((typeDef) => Boolean(typeDef.ui?.contentComponent) && Boolean(typeDef.ContentComponent)).map((typeDef) => [typeDef.ui!.contentComponent!, typeDef.ContentComponent!]))'),
+                initializer: objectFromEntries(
+                  methodCall(
+                    methodCall(identifier('allMessageTypes'), 'filter', [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: logicalAnd([
+                          callExpression(identifier('Boolean'), [optionalPropertyAccess(propertyAccess(identifier('typeDef'), 'ui'), 'contentComponent')]),
+                          callExpression(identifier('Boolean'), [propertyAccess(identifier('typeDef'), 'ContentComponent')]),
+                        ]),
+                      }),
+                    ]),
+                    'map',
+                    [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: arrayLiteral(
+                          [
+                            propertyAccess(nonNullAssertion(propertyAccess(identifier('typeDef'), 'ui')), 'contentComponent'),
+                            nonNullAssertion(propertyAccess(identifier('typeDef'), 'ContentComponent')),
+                          ],
+                          writeValue,
+                        ),
+                      }),
+                    ],
+                  ),
+                ),
               },
               {
                 name: 'actionsComponents',
                 type: 'MessageActionsRenderers',
-                initializer: (writer) => writer.write('Object.fromEntries(allMessageTypes.filter((typeDef) => Boolean(typeDef.ui?.actionsComponent) && Boolean(typeDef.ActionsComponent)).map((typeDef) => [typeDef.ui!.actionsComponent!, typeDef.ActionsComponent!]))'),
+                initializer: objectFromEntries(
+                  methodCall(
+                    methodCall(identifier('allMessageTypes'), 'filter', [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: logicalAnd([
+                          callExpression(identifier('Boolean'), [optionalPropertyAccess(propertyAccess(identifier('typeDef'), 'ui'), 'actionsComponent')]),
+                          callExpression(identifier('Boolean'), [propertyAccess(identifier('typeDef'), 'ActionsComponent')]),
+                        ]),
+                      }),
+                    ]),
+                    'map',
+                    [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: arrayLiteral(
+                          [
+                            propertyAccess(nonNullAssertion(propertyAccess(identifier('typeDef'), 'ui')), 'actionsComponent'),
+                            nonNullAssertion(propertyAccess(identifier('typeDef'), 'ActionsComponent')),
+                          ],
+                          writeValue,
+                        ),
+                      }),
+                    ],
+                  ),
+                ),
               },
               {
                 name: 'objectDetailComponents',
                 type: 'MessageObjectDetailRenderers',
-                initializer: (writer) => writer.write('Object.fromEntries(allMessageObjectTypes.filter((typeDef) => Boolean(typeDef.DetailComponent)).map((typeDef) => [`${typeDef.module}:${typeDef.entityType}`, typeDef.DetailComponent!]))'),
+                initializer: objectFromEntries(
+                  methodCall(
+                    methodCall(identifier('allMessageObjectTypes'), 'filter', [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: callExpression(identifier('Boolean'), [propertyAccess(identifier('typeDef'), 'DetailComponent')]),
+                      }),
+                    ]),
+                    'map',
+                    [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: arrayLiteral(
+                          [
+                            templateLiteral([
+                              propertyAccess(identifier('typeDef'), 'module'),
+                              ':',
+                              propertyAccess(identifier('typeDef'), 'entityType'),
+                            ]),
+                            nonNullAssertion(propertyAccess(identifier('typeDef'), 'DetailComponent')),
+                          ],
+                          writeValue,
+                        ),
+                      }),
+                    ],
+                  ),
+                ),
               },
               {
                 name: 'objectPreviewComponents',
                 type: 'MessageObjectPreviewRenderers',
-                initializer: (writer) => writer.write('Object.fromEntries(allMessageObjectTypes.filter((typeDef) => Boolean(typeDef.PreviewComponent)).map((typeDef) => [`${typeDef.module}:${typeDef.entityType}`, typeDef.PreviewComponent!]))'),
+                initializer: objectFromEntries(
+                  methodCall(
+                    methodCall(identifier('allMessageObjectTypes'), 'filter', [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: callExpression(identifier('Boolean'), [propertyAccess(identifier('typeDef'), 'PreviewComponent')]),
+                      }),
+                    ]),
+                    'map',
+                    [
+                      arrowFunction({
+                        parameters: ['typeDef'],
+                        body: arrayLiteral(
+                          [
+                            templateLiteral([
+                              propertyAccess(identifier('typeDef'), 'module'),
+                              ':',
+                              propertyAccess(identifier('typeDef'), 'entityType'),
+                            ]),
+                            nonNullAssertion(propertyAccess(identifier('typeDef'), 'PreviewComponent')),
+                          ],
+                          writeValue,
+                        ),
+                      }),
+                    ],
+                  ),
+                ),
               },
               {
                 name: 'registry',
                 type: 'MessageUiComponentRegistry',
-                initializer: (writer) => writer.write('{ listItemComponents, contentComponents, actionsComponents, objectDetailComponents, objectPreviewComponents }'),
+                initializer: objectLiteral([
+                  { name: 'listItemComponents', value: identifier('listItemComponents') },
+                  { name: 'contentComponents', value: identifier('contentComponents') },
+                  { name: 'actionsComponents', value: identifier('actionsComponents') },
+                  { name: 'objectDetailComponents', value: identifier('objectDetailComponents') },
+                  { name: 'objectPreviewComponents', value: identifier('objectPreviewComponents') },
+                ]),
               },
               {
                 name: '__messageUiRegistryBootstrap',
                 type: 'void',
-                initializer: (writer) => {
-                  writer.write('(() => {')
-                  writer.newLine()
-                  writer.indent(() => {
-                    writer.writeLine('for (const entry of messageObjectTypeEntriesRaw) {')
-                    writer.writeLine('  registerMessageObjectTypes(entry.types)')
-                    writer.writeLine('}')
-                    writer.writeLine('configureMessageUiComponentRegistry(registry)')
-                  })
-                  writer.write('})()')
-                },
+                initializer: invokeImmediately(
+                  arrowFunction({
+                    body: (writer) => {
+                      writer.block(() => {
+                        forOfStatement({
+                          variable: 'entry',
+                          iterable: identifier('messageObjectTypeEntriesRaw'),
+                          statements: [
+                            expressionStatement(
+                              callExpression(identifier('registerMessageObjectTypes'), [
+                                propertyAccess(identifier('entry'), 'types'),
+                              ]),
+                            ),
+                          ],
+                        })(writer)
+                        writer.newLine()
+                        expressionStatement(
+                          callExpression(identifier('configureMessageUiComponentRegistry'), [
+                            identifier('registry'),
+                          ]),
+                        )(writer)
+                      })
+                    },
+                  }),
+                ),
               },
             ],
           })
@@ -257,16 +474,16 @@ export function createMessagesExtension(): GeneratorExtension {
             declarationKind: VariableDeclarationKind.Const,
             isExported: true,
             declarations: [
-              { name: 'messageClientTypeEntries', initializer: (writer) => writer.write('messageTypeEntriesRaw') },
-              { name: 'messageClientObjectTypeEntries', initializer: (writer) => writer.write('messageObjectTypeEntriesRaw') },
-              { name: 'messageUiComponentRegistry', initializer: (writer) => writer.write('registry') },
+              { name: 'messageClientTypeEntries', initializer: identifier('messageTypeEntriesRaw') },
+              { name: 'messageClientObjectTypeEntries', initializer: identifier('messageObjectTypeEntriesRaw') },
+              { name: 'messageUiComponentRegistry', initializer: identifier('registry') },
             ],
           })
           sourceFile.addFunction({
             name: 'getMessageUiComponentRegistry',
             isExported: true,
             returnType: 'MessageUiComponentRegistry',
-            statements: ['return registry'],
+            statements: [returnStatement(identifier('registry'))],
           })
         },
       })

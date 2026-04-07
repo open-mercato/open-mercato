@@ -26,8 +26,9 @@ export function createEnrichersExtension(): GeneratorExtension {
               name: 'enrichers',
               value: namespaceFallback({
                 importName,
-                members: ['enrichers', 'default'],
+                members: ['enrichers'],
                 fallback: emptyArray(),
+                castType: 'ResponseEnricher[]',
               }),
             },
           ]),

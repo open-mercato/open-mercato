@@ -28,6 +28,7 @@ export function createComponentOverridesExtension(): GeneratorExtension {
                 importName,
                 members: ['componentOverrides', 'default'],
                 fallback: emptyArray(),
+                castType: 'ComponentOverride[]',
               }),
             },
           ]),

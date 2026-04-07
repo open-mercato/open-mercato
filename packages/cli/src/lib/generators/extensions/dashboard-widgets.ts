@@ -1,7 +1,7 @@
-import { VariableDeclarationKind, type CodeBlockWriter } from 'ts-morph'
+import { VariableDeclarationKind } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
 import { scanModuleDir, SCAN_CONFIGS } from '../scanner'
-import { arrayLiteral, writeValue } from '../ast'
+import { arrayLiteral, arrowFunction, identifier, methodCall, nullishCoalesce, objectLiteral, propertyAccess, writeValue } from '../ast'
 import { dynamicImportExpression, renderGeneratedTsSource } from './shared'
 
 type DashboardWidgetEntry = {
@@ -42,20 +42,27 @@ export function createDashboardWidgetsExtension(): GeneratorExtension {
     generateOutput() {
       const entries = Array.from(widgetEntries.entries())
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([, entry]) => (writer: CodeBlockWriter) => {
-          writer.write('{')
-          writer.newLine()
-          writer.indent(() => {
-            writer.writeLine(`moduleId: ${JSON.stringify(entry.moduleId)},`)
-            writer.writeLine(`key: ${JSON.stringify(entry.key)},`)
-            writer.writeLine(`source: ${JSON.stringify(entry.source)},`)
-            writer.write('loader: () => ')
-            dynamicImportExpression(entry.importPath)(writer)
-            writer.write(".then((mod) => mod.default ?? mod)")
-            writer.newLine()
-          })
-          writer.write('}')
-        })
+        .map(([, entry]) =>
+          objectLiteral([
+            { name: 'moduleId', value: entry.moduleId },
+            { name: 'key', value: entry.key },
+            { name: 'source', value: entry.source },
+            {
+              name: 'loader',
+              value: arrowFunction({
+                body: methodCall(dynamicImportExpression(entry.importPath), 'then', [
+                  arrowFunction({
+                    parameters: ['mod'],
+                    body: nullishCoalesce([
+                      propertyAccess(identifier('mod'), 'default'),
+                      identifier('mod'),
+                    ]),
+                  }),
+                ]),
+              }),
+            },
+          ]),
+        )
 
       const output = renderGeneratedTsSource({
         fileName: 'dashboard-widgets.generated.ts',

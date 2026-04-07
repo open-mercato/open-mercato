@@ -1,6 +1,15 @@
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import type { GeneratorExtension } from '../extension'
-import { arrayLiteral, writeValue } from '../ast'
+import {
+  asExpression,
+  arrayLiteral,
+  arrowFunction,
+  binaryExpression,
+  identifier,
+  methodCall,
+  propertyAccess,
+  writeValue,
+} from '../ast'
 import { moduleEntry, namespaceFallback, namespaceImportSpec, renderGeneratedTsSource } from './shared'
 
 export function createSearchExtension(): GeneratorExtension {
@@ -27,7 +36,8 @@ export function createSearchExtension(): GeneratorExtension {
               value: namespaceFallback({
                 importName,
                 members: ['default', 'searchConfig', 'config'],
-                fallback: (writer) => writer.write('null'),
+                fallback: identifier('null'),
+                castType: 'SearchModuleConfig | null',
               }),
             },
           ]),
@@ -45,6 +55,10 @@ export function createSearchExtension(): GeneratorExtension {
             name: 'SearchConfigEntry',
             type: '{ moduleId: string; config: SearchModuleConfig | null }',
           })
+          sourceFile.addTypeAlias({
+            name: 'ResolvedSearchConfigEntry',
+            type: '{ moduleId: string; config: SearchModuleConfig }',
+          })
           sourceFile.addVariableStatement({
             declarationKind: VariableDeclarationKind.Const,
             declarations: [
@@ -60,11 +74,16 @@ export function createSearchExtension(): GeneratorExtension {
             declarations: [
               {
                 name: 'entries',
-                initializer: (writer) => {
-                  writer.write('entriesRaw.filter(')
-                  writer.write('(entry): entry is { moduleId: string; config: SearchModuleConfig } => entry.config != null')
-                  writer.write(')')
-                },
+                type: 'ResolvedSearchConfigEntry[]',
+                initializer: asExpression(
+                  methodCall(identifier('entriesRaw'), 'filter', [
+                    arrowFunction({
+                      parameters: ['entry'],
+                      body: binaryExpression(propertyAccess(identifier('entry'), 'config'), '!=', null),
+                    }),
+                  ]),
+                  'ResolvedSearchConfigEntry[]',
+                ),
               },
             ],
           })
@@ -74,12 +93,17 @@ export function createSearchExtension(): GeneratorExtension {
             declarations: [
               {
                 name: 'searchModuleConfigEntries',
-                initializer: (writer) => writer.write('entries'),
+                initializer: identifier('entries'),
               },
               {
                 name: 'searchModuleConfigs',
                 type: 'SearchModuleConfig[]',
-                initializer: (writer) => writer.write('entries.map((entry) => entry.config)'),
+                initializer: methodCall(identifier('entries'), 'map', [
+                  arrowFunction({
+                    parameters: ['entry'],
+                    body: propertyAccess(identifier('entry'), 'config'),
+                  }),
+                ]),
               },
             ],
           })
