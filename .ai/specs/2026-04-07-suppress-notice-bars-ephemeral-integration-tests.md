@@ -6,7 +6,7 @@
 | Scope | OSS |
 | Owner | CLI / App Shell / QA |
 | Related Issues | [#1137](https://github.com/open-mercato/open-mercato/issues/1137) |
-| Related Guides | `packages/create-app/AGENTS.md`, `.ai/qa/AGENTS.md`, `packages/ui/AGENTS.md` |
+| Related Guides | `packages/cli/AGENTS.md`, `packages/create-app/AGENTS.md`, `.ai/qa/AGENTS.md`, `packages/ui/AGENTS.md` |
 | Related Specs | `SPEC-027-2026-02-16-integration-testing-automation.md`, `2026-03-25-safe-build-dev-coexistence.md` |
 
 ## TLDR
@@ -51,7 +51,7 @@ This creates four issues:
 
 Implement option 1 from issue `#1137` exactly:
 
-1. The ephemeral integration runner sets `OM_INTEGRATION_TEST=true` for the app process and for reused ephemeral environments.
+1. The ephemeral integration runner sets `OM_INTEGRATION_TEST=true` for the app process.
 2. The app shell derives `noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'`.
 3. When notice bars are disabled, `GlobalNoticeBars` is not rendered at all.
 4. Normal notice behavior remains unchanged outside ephemeral integration mode.
@@ -80,7 +80,18 @@ It should be injected in both ephemeral environment paths in [`packages/cli/src/
 - fresh ephemeral environment startup
 - reusable environment reconstruction via `buildReusableEnvironment()`
 
-This keeps first-run and reused-environment behavior identical.
+This keeps first-run behavior and test-command reuse behavior aligned for environments that were originally started by a CLI version that already exported `OM_INTEGRATION_TEST=true`.
+
+Important reuse constraint:
+
+- `buildReusableEnvironment()` only reconstructs the command environment for Playwright and helper commands
+- it does not retrofit new env vars into an already-running app process
+- persisted ephemeral environments created before this change may therefore need a rebuild before they gain notice-bar suppression
+
+Implementation stance:
+
+- reuse is supported only for environments originally started by the updated CLI
+- older persisted ephemeral environments may continue without suppression until rebuilt
 
 ### 2. App-shell suppression point
 
@@ -172,6 +183,7 @@ Affected API/readiness paths used during verification:
 
 - add or update app-shell tests to verify `GlobalNoticeBars` is not rendered when `OM_INTEGRATION_TEST=true`
 - verify normal runtime still mounts `GlobalNoticeBars` when `OM_INTEGRATION_TEST` is absent
+- no dedicated new notice-bar integration spec is required for this change
 
 ### Integration coverage
 
@@ -181,6 +193,12 @@ Key UI coverage to validate:
 - `/login` in ephemeral mode with `DEMO_MODE=true` does not render the demo notice
 - a backend flow with a bottom-aligned dialog action succeeds without manual cookie seeding
 - standalone template ephemeral integration flow inherits the same suppression behavior
+
+Coverage strategy for this change:
+
+- rely on an app-shell assertion for `GlobalNoticeBars` mount suppression in integration mode
+- rely on existing broad login and dialog Playwright flows to confirm the overlays no longer interfere
+- do not introduce a dedicated notice-bar-specific end-to-end regression file unless implementation reveals a gap in existing coverage
 
 Recommended execution paths:
 
