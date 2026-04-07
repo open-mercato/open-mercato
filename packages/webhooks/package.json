@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/webhooks",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "description": "Webhooks module for Open Mercato — Standard Webhooks compliant outbound/inbound delivery",
   "type": "module",
   "main": "./dist/index.js",
@@ -74,7 +74,7 @@
     "@open-mercato/ui": "workspace:*"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^6.6.2",
+    "@mikro-orm/postgresql": "^6.6.10",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

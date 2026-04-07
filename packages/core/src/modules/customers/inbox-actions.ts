@@ -217,25 +217,25 @@ async function executeLogActivityAction(
     }
   }
 
-  const result = await executeCommand<Record<string, unknown>, { activityId?: string }>(
+  const result = await executeCommand<Record<string, unknown>, { interactionId?: string }>(
     hCtx,
-    'customers.activities.create',
+    'customers.interactions.create',
     {
-      organizationId: hCtx.organizationId,
-      tenantId: hCtx.tenantId,
       entityId: payload.contactId,
-      activityType: payload.activityType,
-      subject: payload.subject,
+      interactionType: payload.activityType,
+      title: payload.subject,
       body: payload.body,
       authorUserId: hCtx.userId,
+      source: 'inbox_ops',
+      status: 'done',
     },
   )
 
-  if (!result.activityId) {
-    throw new ExecutionError('Activity creation did not return an activity ID', 500)
+  if (!result.interactionId) {
+    throw new ExecutionError('Activity creation did not return an interaction ID', 500)
   }
 
-  return { createdEntityId: result.activityId, createdEntityType: 'customer_activity' }
+  return { createdEntityId: result.interactionId, createdEntityType: 'customer_interaction' }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,25 +272,25 @@ async function executeDraftReplyAction(
     .filter((line) => typeof line === 'string' && line.length > 0)
     .join('\n')
 
-  const result = await executeCommand<Record<string, unknown>, { activityId?: string }>(
+  const result = await executeCommand<Record<string, unknown>, { interactionId?: string }>(
     hCtx,
-    'customers.activities.create',
+    'customers.interactions.create',
     {
-      organizationId: hCtx.organizationId,
-      tenantId: hCtx.tenantId,
       entityId: contactId,
-      activityType: 'email',
-      subject: payload.subject,
+      interactionType: 'email',
+      title: payload.subject,
       body: details,
       authorUserId: hCtx.userId,
+      source: 'inbox_ops',
+      status: 'done',
     },
   )
 
-  if (!result.activityId) {
-    throw new ExecutionError('Draft reply activity did not return an activity ID', 500)
+  if (!result.interactionId) {
+    throw new ExecutionError('Draft reply activity did not return an interaction ID', 500)
   }
 
-  return { createdEntityId: result.activityId, createdEntityType: 'customer_activity' }
+  return { createdEntityId: result.interactionId, createdEntityType: 'customer_interaction' }
 }
 
 // ---------------------------------------------------------------------------

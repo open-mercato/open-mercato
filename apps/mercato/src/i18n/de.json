@@ -696,6 +696,8 @@
   "ui.forms.actions.edit": "Bearbeiten",
   "ui.forms.actions.save": "Speichern",
   "ui.forms.confirmDelete": "Diesen Datensatz löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+  "ui.forms.confirmDeleteWithUndo": "Diesen Datensatz löschen? Sie können ihn über den Versionsverlauf wiederherstellen.",
+  "ui.forms.confirmUnsavedChanges": "Sie haben ungespeicherte Änderungen. Möchten Sie die Seite wirklich verlassen?",
   "ui.forms.errors.highlighted": "Bitte behebe die markierten Fehler.",
   "ui.forms.errors.required": "Dieses Feld ist erforderlich",
   "ui.forms.errors.unexpected": "Unerwarteter Fehler",

@@ -7,6 +7,7 @@ import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { ensureCustomFieldDefinitions } from './field-definitions'
 import { upsertCustomEntity, type UpsertCustomEntityResult } from './register'
+import { invalidateDefinitionsCache } from '../api/definitions.cache'
 
 type InstallScope = {
   tenantId: string | null
@@ -14,8 +15,10 @@ type InstallScope = {
 
 export type InstallEntitiesOptions = {
   tenantIds?: string[]
+  entityIds?: string[]
   includeGlobal?: boolean
   dryRun?: boolean
+  createOnly?: boolean
   force?: boolean
   logger?: (message: string) => void
 }
@@ -154,10 +157,17 @@ export async function installCustomEntitiesFromModules(
   cache: CacheStrategy | null | undefined,
   options: InstallEntitiesOptions = {}
 ): Promise<InstallEntitiesResult> {
-  const aggregated = buildAggregatedConfigs()
+  const requestedEntityIds = options.entityIds
+    ? new Set(options.entityIds.filter((id): id is string => typeof id === 'string' && id.length > 0))
+    : null
+  const aggregated = buildAggregatedConfigs().filter((entry) => {
+    if (!requestedEntityIds) return true
+    return requestedEntityIds.has(entry.entityId)
+  })
   const systemIds = systemEntityIds()
   const includeGlobal = options.includeGlobal !== false
   const dryRun = options.dryRun === true
+  const createOnly = options.createOnly === true
   const force = options.force === true
   const logger = options.logger
 
@@ -238,6 +248,7 @@ export async function installCustomEntitiesFromModules(
           defaultEditor: spec?.defaultEditor ?? null,
           isActive: true,
           dryRun,
+          createOnly,
         })
       }
 
@@ -246,11 +257,20 @@ export async function installCustomEntitiesFromModules(
         fieldResult = await ensureCustomFieldDefinitions(
           em,
           [{ entity: entityId, fields }],
-          { organizationId: null, tenantId: scope.tenantId, dryRun }
+          { organizationId: null, tenantId: scope.tenantId, dryRun, createOnly }
         )
       }
 
       const changed = (entityResult !== 'unchanged') || fieldResult.created > 0 || fieldResult.updated > 0
+      const shouldInvalidateDefinitions = !dryRun && (changed || force)
+      if (shouldInvalidateDefinitions) {
+        await invalidateDefinitionsCache(cache ?? undefined, {
+          tenantId: scope.tenantId,
+          organizationId: null,
+          entityIds: [entityId],
+        })
+      }
+
       if (changed) {
         synchronized++
         fieldChanges += fieldResult.created + fieldResult.updated

@@ -805,6 +805,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                     entityId={personId}
                     dealOptions={dealSelectOptions}
                     defaultEntityId={personId ?? undefined}
+                    runGuardedMutation={runMutationWithContext}
                     addActionLabel={t('customers.people.detail.activities.add')}
                     emptyState={{
                       title: t('customers.people.detail.emptyState.activities.title'),
@@ -852,6 +853,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
                   <TasksSection
                     entityId={personId}
                     initialTasks={data.todos}
+                    runGuardedMutation={runMutationWithContext}
                     emptyLabel={t('customers.people.detail.empty.todos')}
                     addActionLabel={t('customers.people.detail.tasks.add')}
                     emptyState={{

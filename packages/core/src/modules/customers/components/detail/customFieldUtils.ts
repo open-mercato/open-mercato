@@ -2,24 +2,53 @@
 
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
+function stripCustomFieldPrefix(value: string): string {
+  return value.replace(/^(?:cf|Cf)(?:[_:\s-]+)/, '')
+}
+
+function normalizeCustomFieldToken(value: string): string {
+  return stripCustomFieldPrefix(value.trim())
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase()
+}
+
 export function normalizeCustomFieldKey(key: string | null | undefined): string {
   if (typeof key !== 'string') return ''
-  const trimmed = key.trim()
-  return trimmed.toLowerCase()
+  return normalizeCustomFieldToken(key)
 }
 
 export function formatCustomFieldLabel(key: string): string {
   if (!key) return ''
-  const spaced = key
+  const spaced = stripCustomFieldPrefix(key.trim())
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  if (!spaced.length) return key
+  if (!spaced.length) return stripCustomFieldPrefix(key.trim())
   return spaced
     .split(' ')
     .map((part) => (part.length ? part[0].toUpperCase() + part.slice(1) : part))
     .join(' ')
+}
+
+export function resolveCustomFieldLabel(label: string | null | undefined, key: string): string {
+  const fallbackLabel = formatCustomFieldLabel(key)
+  if (typeof label !== 'string') return fallbackLabel
+  const trimmed = label.trim()
+  if (!trimmed.length) return fallbackLabel
+
+  const normalizedKey = normalizeCustomFieldKey(key)
+  const normalizedLabel = normalizeCustomFieldToken(trimmed)
+  if (normalizedKey && normalizedLabel === normalizedKey) {
+    return fallbackLabel
+  }
+
+  return /^(?:cf|Cf)(?:[_:\s-]+)/.test(trimmed)
+    ? formatCustomFieldLabel(trimmed)
+    : trimmed
 }
 
 export function isEmptyCustomValue(value: unknown): boolean {

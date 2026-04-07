@@ -1,530 +1,295 @@
-import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import {
-  parseWithCustomFields,
-  setCustomFieldsIfAny,
-  emitCrudSideEffects,
-  emitCrudUndoSideEffects,
-  requireId,
-  normalizeAuthorUserId,
-} from '@open-mercato/shared/lib/commands/helpers'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerActivity, CustomerDeal } from '../data/entities'
-import type { CustomerDictionaryEntry } from '../data/entities'
+import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
+import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 import {
   activityCreateSchema,
   activityUpdateSchema,
   type ActivityCreateInput,
   type ActivityUpdateInput,
+  type InteractionCreateInput,
+  type InteractionUpdateInput,
 } from '../data/validators'
-import {
-  ensureOrganizationScope,
-  ensureTenantScope,
-  requireCustomerEntity,
-  ensureSameScope,
-  extractUndoPayload,
-  requireDealInScope,
-  ensureDictionaryEntry,
-  resolveParentResourceKind,
-} from './shared'
+import { extractUndoPayload, resolveParentResourceKind } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import {
-  loadCustomFieldSnapshot,
-  buildCustomFieldResetMap,
-  type CustomFieldChangeSet,
-} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
-import { E } from '#generated/entities.ids.generated'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
 
-const ACTIVITY_ENTITY_ID = 'customers:customer_activity'
-const activityCrudIndexer: CrudIndexerConfig<CustomerActivity> = {
-  entityType: E.customers.customer_activity,
-}
-
-const activityCrudEvents: CrudEventsConfig = {
-  module: 'customers',
-  entity: 'activity',
-  persistent: true,
-  buildPayload: (ctx) => ({
-    id: ctx.identifiers.id,
-    organizationId: ctx.identifiers.organizationId,
-    tenantId: ctx.identifiers.tenantId,
-  }),
-}
-
-type ActivitySnapshot = {
-  activity: {
+type InteractionSnapshot = {
+  interaction: {
     id: string
     organizationId: string
     tenantId: string
     entityId: string
     entityKind: string | null
     dealId: string | null
-    activityType: string
-    subject: string | null
+    interactionType: string
+    title: string | null
     body: string | null
+    status: string
+    scheduledAt: Date | null
     occurredAt: Date | null
+    priority: number | null
     authorUserId: string | null
+    ownerUserId: string | null
     appearanceIcon: string | null
     appearanceColor: string | null
+    source: string | null
   }
   custom?: Record<string, unknown>
 }
 
-type ActivityUndoPayload = {
-  before?: ActivitySnapshot | null
-  after?: ActivitySnapshot | null
+type InteractionUndoPayload = {
+  before?: InteractionSnapshot | null
+  after?: InteractionSnapshot | null
 }
 
-type ActivityChangeMap = Record<string, { from: unknown; to: unknown }> & {
-  custom?: CustomFieldChangeSet
+function getRequiredHandler<TInput, TResult>(id: string): CommandHandler<TInput, TResult> {
+  const handler = commandRegistry.get(id) as CommandHandler<TInput, TResult> | null
+  if (!handler) {
+    throw new Error(`Missing command handler: ${id}`)
+  }
+  return handler
 }
 
-async function loadActivitySnapshot(em: EntityManager, id: string): Promise<ActivitySnapshot | null> {
-  const activity = await em.findOne(CustomerActivity, { id }, { populate: ['entity'] })
-  if (!activity) return null
-  const custom = await loadCustomFieldSnapshot(em, {
-    entityId: ACTIVITY_ENTITY_ID,
-    recordId: activity.id,
-    tenantId: activity.tenantId,
-    organizationId: activity.organizationId,
-  })
-  const entityRef = activity.entity
-  const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
-    ? (entityRef as { kind: string }).kind
-    : null
+function mapActivityCreateInput(
+  input: ActivityCreateInput,
+  custom: Record<string, unknown>,
+): InteractionCreateInput & { customValues?: Record<string, unknown> } {
   return {
-    activity: {
-      id: activity.id,
-      organizationId: activity.organizationId,
-      tenantId: activity.tenantId,
-      entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
-      entityKind,
-      dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
-      activityType: activity.activityType,
-      subject: activity.subject ?? null,
-      body: activity.body ?? null,
-      occurredAt: activity.occurredAt ?? null,
-      authorUserId: activity.authorUserId ?? null,
-      appearanceIcon: activity.appearanceIcon ?? null,
-      appearanceColor: activity.appearanceColor ?? null,
-    },
-    custom,
+    entityId: input.entityId,
+    interactionType: input.activityType,
+    title: input.subject ?? null,
+    body: input.body ?? null,
+    occurredAt: input.occurredAt ?? null,
+    status: input.occurredAt ? 'done' : 'planned',
+    dealId: input.dealId ?? null,
+    authorUserId: input.authorUserId ?? null,
+    appearanceIcon: input.appearanceIcon ?? null,
+    appearanceColor: input.appearanceColor ?? null,
+    source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+    ...(Object.keys(custom).length > 0 ? { customValues: custom } : {}),
   }
 }
 
-async function setActivityCustomFields(
-  ctx: CommandRuntimeContext,
-  activityId: string,
-  organizationId: string,
-  tenantId: string,
-  values: Record<string, unknown>
-) {
-  if (!values || !Object.keys(values).length) return
-  const de = (ctx.container.resolve('dataEngine') as DataEngine)
-  await setCustomFieldsIfAny({
-    dataEngine: de,
-    entityId: ACTIVITY_ENTITY_ID,
-    recordId: activityId,
-    organizationId,
-    tenantId,
-    values,
-    notify: false,
-  })
+function mapActivityUpdateInput(
+  input: ActivityUpdateInput,
+  custom: Record<string, unknown>,
+): InteractionUpdateInput & { customValues?: Record<string, unknown> } {
+  return {
+    id: input.id,
+    ...(input.activityType !== undefined ? { interactionType: input.activityType } : {}),
+    ...(input.subject !== undefined ? { title: input.subject ?? null } : {}),
+    ...(input.body !== undefined ? { body: input.body ?? null } : {}),
+    ...(input.occurredAt !== undefined
+      ? {
+          occurredAt: input.occurredAt ?? null,
+          status: input.occurredAt ? 'done' : 'planned',
+        }
+      : {}),
+    ...(input.dealId !== undefined ? { dealId: input.dealId ?? null } : {}),
+    ...(input.authorUserId !== undefined ? { authorUserId: input.authorUserId ?? null } : {}),
+    ...(input.appearanceIcon !== undefined ? { appearanceIcon: input.appearanceIcon ?? null } : {}),
+    ...(input.appearanceColor !== undefined ? { appearanceColor: input.appearanceColor ?? null } : {}),
+    ...(Object.keys(custom).length > 0 ? { customValues: custom } : {}),
+  }
 }
 
+function normalizeUndoCreateLogEntry(
+  logEntry: unknown,
+  payload: InteractionUndoPayload | null | undefined,
+): CommandLogMetadata | Record<string, unknown> {
+  const base = logEntry && typeof logEntry === 'object' ? { ...(logEntry as Record<string, unknown>) } : {}
+  const resourceId =
+    typeof base.resourceId === 'string' && base.resourceId.trim().length > 0
+      ? base.resourceId
+      : payload?.after?.interaction.id ?? null
+  return resourceId ? { ...base, resourceId } : base
+}
+
+/** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const createActivityCommand: CommandHandler<ActivityCreateInput, { activityId: string }> = {
   id: 'customers.activities.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(activityCreateSchema, rawInput)
-    ensureTenantScope(ctx, parsed.tenantId)
-    ensureOrganizationScope(ctx, parsed.organizationId)
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
-    ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
-    const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
-
-    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
-
-    const dictionaryEntry = await ensureDictionaryEntry(em, {
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
-      kind: 'activity_type',
-      value: parsed.activityType,
-      color: parsed.appearanceColor,
-      icon: parsed.appearanceIcon,
-    })
-    const resolvedAppearanceIcon =
-      parsed.appearanceIcon !== undefined ? parsed.appearanceIcon ?? null : dictionaryEntry?.icon ?? null
-    const resolvedAppearanceColor =
-      parsed.appearanceColor !== undefined ? parsed.appearanceColor ?? null : dictionaryEntry?.color ?? null
-
-    const activity = em.create(CustomerActivity, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      entity,
-      deal,
-      activityType: parsed.activityType,
-      subject: parsed.subject ?? null,
-      body: parsed.body ?? null,
-      occurredAt: parsed.occurredAt ?? null,
-      authorUserId: normalizedAuthor,
-      appearanceIcon: resolvedAppearanceIcon,
-      appearanceColor: resolvedAppearanceColor,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(activity)
-    await em.flush()
-
-    await setActivityCustomFields(ctx, activity.id, parsed.organizationId, parsed.tenantId, custom)
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: activity,
-      identifiers: {
-        id: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-      },
-      indexer: activityCrudIndexer,
-      events: activityCrudEvents,
-    })
-
-    return { activityId: activity.id }
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.create')
+    const result = await canonicalCreate.execute(mapActivityCreateInput(parsed, custom), ctx)
+    return { activityId: result.interactionId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadActivitySnapshot(em, result.activityId)
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.create')
+    if (!canonicalCreate.captureAfter) return null
+    return canonicalCreate.captureAfter(
+      {
+        entityId: '00000000-0000-0000-0000-000000000000',
+        interactionType: 'compatibility',
+        status: 'planned',
+      },
+      { interactionId: result.activityId },
+      ctx,
+    )
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const snapshot = snapshots.after as ActivitySnapshot | undefined
+    const snapshot = snapshots.after as InteractionSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.activities.create', 'Create activity'),
       resourceKind: 'customers.activity',
       resourceId: result.activityId,
-      parentResourceKind: resolveParentResourceKind(snapshot?.activity?.entityKind),
-      parentResourceId: snapshot?.activity?.entityId ?? null,
-      tenantId: snapshot?.activity.tenantId ?? null,
-      organizationId: snapshot?.activity.organizationId ?? null,
+      parentResourceKind: resolveParentResourceKind(snapshot?.interaction.entityKind),
+      parentResourceId: snapshot?.interaction.entityId ?? null,
+      tenantId: snapshot?.interaction.tenantId ?? null,
+      organizationId: snapshot?.interaction.organizationId ?? null,
       snapshotAfter: snapshot ?? null,
       payload: {
         undo: {
-          after: snapshot,
-        } satisfies ActivityUndoPayload,
+          after: snapshot ?? null,
+        } satisfies InteractionUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const activityId = logEntry?.resourceId
-    if (!activityId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CustomerActivity, { id: activityId })
-    if (!record) return
-    em.remove(record)
-    await em.flush()
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.create')
+    if (!canonicalCreate.undo) return
+    await canonicalCreate.undo({
+      input: {
+        entityId: payload?.after?.interaction.entityId ?? '00000000-0000-0000-0000-000000000000',
+        interactionType: payload?.after?.interaction.interactionType ?? 'compatibility',
+        status: 'planned',
+      },
+      ctx,
+      logEntry: normalizeUndoCreateLogEntry(logEntry, payload),
+    })
   },
 }
 
+/** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const updateActivityCommand: CommandHandler<ActivityUpdateInput, { activityId: string }> = {
   id: 'customers.activities.update',
   async prepare(rawInput, ctx) {
-    const { parsed } = parseWithCustomFields(activityUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadActivitySnapshot(em, parsed.id)
-    return snapshot ? { before: snapshot } : {}
+    const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, rawInput)
+    const canonicalUpdate = getRequiredHandler<
+      InteractionUpdateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.update')
+    return canonicalUpdate.prepare?.(mapActivityUpdateInput(parsed, custom), ctx) ?? {}
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(activityUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const activity = await em.findOne(CustomerActivity, { id: parsed.id })
-    if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
-    ensureTenantScope(ctx, activity.tenantId)
-    ensureOrganizationScope(ctx, activity.organizationId)
-
-    if (parsed.entityId !== undefined) {
-      const target = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
-      ensureSameScope(target, activity.organizationId, activity.tenantId)
-      activity.entity = target
-    }
-    if (parsed.dealId !== undefined) {
-      activity.deal = await requireDealInScope(em, parsed.dealId, activity.tenantId, activity.organizationId)
-    }
-    if (parsed.activityType !== undefined) activity.activityType = parsed.activityType
-    const shouldSyncDictionary =
-      parsed.activityType !== undefined ||
-      parsed.appearanceIcon !== undefined ||
-      parsed.appearanceColor !== undefined
-    let dictionaryEntry: Pick<CustomerDictionaryEntry, 'icon' | 'color'> | null = null
-    if (shouldSyncDictionary) {
-      const nextActivityType = parsed.activityType ?? activity.activityType
-      dictionaryEntry = await ensureDictionaryEntry(em, {
-        tenantId: activity.tenantId,
-        organizationId: activity.organizationId,
-        kind: 'activity_type',
-        value: nextActivityType,
-        color: parsed.appearanceColor,
-        icon: parsed.appearanceIcon,
-      })
-    }
-    if (parsed.subject !== undefined) activity.subject = parsed.subject ?? null
-    if (parsed.body !== undefined) activity.body = parsed.body ?? null
-    if (parsed.occurredAt !== undefined) activity.occurredAt = parsed.occurredAt ?? null
-    if (parsed.authorUserId !== undefined) activity.authorUserId = parsed.authorUserId ?? null
-    if (parsed.appearanceIcon !== undefined) {
-      activity.appearanceIcon = parsed.appearanceIcon ?? null
-    } else if (dictionaryEntry) {
-      activity.appearanceIcon = dictionaryEntry.icon ?? null
-    }
-    if (parsed.appearanceColor !== undefined) {
-      activity.appearanceColor = parsed.appearanceColor ?? null
-    } else if (dictionaryEntry) {
-      activity.appearanceColor = dictionaryEntry.color ?? null
-    }
-
-    await em.flush()
-
-    await setActivityCustomFields(ctx, activity.id, activity.organizationId, activity.tenantId, custom)
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: activity,
-      identifiers: {
-        id: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-      },
-      indexer: activityCrudIndexer,
-      events: activityCrudEvents,
-    })
-
-    return { activityId: activity.id }
+    const canonicalUpdate = getRequiredHandler<
+      InteractionUpdateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.update')
+    const result = await canonicalUpdate.execute(mapActivityUpdateInput(parsed, custom), ctx)
+    return { activityId: result.interactionId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadActivitySnapshot(em, result.activityId)
+    const canonicalUpdate = getRequiredHandler<
+      InteractionUpdateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.update')
+    if (!canonicalUpdate.captureAfter) return null
+    return canonicalUpdate.captureAfter(
+      { id: result.activityId },
+      { interactionId: result.activityId },
+      ctx,
+    )
   },
   buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
-    const before = snapshots.before as ActivitySnapshot | undefined
+    const before = snapshots.before as InteractionSnapshot | undefined
     if (!before) return null
-    const afterSnapshot = snapshots.after as ActivitySnapshot | undefined
+    const afterSnapshot = snapshots.after as InteractionSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.activities.update', 'Update activity'),
       resourceKind: 'customers.activity',
-      resourceId: before.activity.id,
-      parentResourceKind: resolveParentResourceKind(before.activity.entityKind),
-      parentResourceId: before.activity.entityId ?? null,
-      tenantId: before.activity.tenantId,
-      organizationId: before.activity.organizationId,
+      resourceId: before.interaction.id,
+      parentResourceKind: resolveParentResourceKind(before.interaction.entityKind),
+      parentResourceId: before.interaction.entityId ?? null,
+      tenantId: before.interaction.tenantId,
+      organizationId: before.interaction.organizationId,
       snapshotBefore: before,
       snapshotAfter: afterSnapshot ?? null,
       payload: {
         undo: {
           before,
           after: afterSnapshot ?? null,
-        } satisfies ActivityUndoPayload,
+        } satisfies InteractionUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
-    const before = payload?.before
-    if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let activity = await em.findOne(CustomerActivity, { id: before.activity.id })
-    const entity = await requireCustomerEntity(em, before.activity.entityId, undefined, 'Customer not found')
-    const deal = await requireDealInScope(em, before.activity.dealId, before.activity.tenantId, before.activity.organizationId)
-
-    if (!activity) {
-      activity = em.create(CustomerActivity, {
-        id: before.activity.id,
-        organizationId: before.activity.organizationId,
-        tenantId: before.activity.tenantId,
-        entity,
-        deal,
-        activityType: before.activity.activityType,
-        subject: before.activity.subject,
-        body: before.activity.body,
-        occurredAt: before.activity.occurredAt,
-        authorUserId: before.activity.authorUserId,
-        appearanceIcon: before.activity.appearanceIcon,
-        appearanceColor: before.activity.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(activity)
-    } else {
-      activity.entity = entity
-      activity.deal = deal
-      activity.activityType = before.activity.activityType
-      activity.subject = before.activity.subject
-      activity.body = before.activity.body
-      activity.occurredAt = before.activity.occurredAt
-      activity.authorUserId = before.activity.authorUserId
-      activity.appearanceIcon = before.activity.appearanceIcon
-      activity.appearanceColor = before.activity.appearanceColor
-    }
-
-    await em.flush()
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudUndoSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: activity,
-      identifiers: {
-        id: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-      },
-      indexer: activityCrudIndexer,
-      events: activityCrudEvents,
+    const canonicalUpdate = getRequiredHandler<
+      InteractionUpdateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.update')
+    if (!canonicalUpdate.undo) return
+    await canonicalUpdate.undo({
+      input: { id: '' },
+      ctx,
+      logEntry,
     })
-
-    const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
-    if (Object.keys(resetValues).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: ACTIVITY_ENTITY_ID,
-        recordId: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-        values: resetValues,
-        notify: false,
-      })
-    }
   },
 }
 
+/** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { activityId: string }> =
   {
     id: 'customers.activities.delete',
     async prepare(input, ctx) {
-      const id = requireId(input, 'Activity id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadActivitySnapshot(em, id)
-      return snapshot ? { before: snapshot } : {}
+      const canonicalDelete = getRequiredHandler<
+        { body?: Record<string, unknown>; query?: Record<string, unknown> },
+        { interactionId: string }
+      >('customers.interactions.delete')
+      return canonicalDelete.prepare?.(input, ctx) ?? {}
     },
     async execute(input, ctx) {
-      const id = requireId(input, 'Activity id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const activity = await em.findOne(CustomerActivity, { id })
-      if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
-      ensureTenantScope(ctx, activity.tenantId)
-      ensureOrganizationScope(ctx, activity.organizationId)
-      em.remove(activity)
-      await em.flush()
-
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: activity,
-        identifiers: {
-          id: activity.id,
-          organizationId: activity.organizationId,
-          tenantId: activity.tenantId,
-        },
-        indexer: activityCrudIndexer,
-        events: activityCrudEvents,
-      })
-      return { activityId: activity.id }
+      const canonicalDelete = getRequiredHandler<
+        { body?: Record<string, unknown>; query?: Record<string, unknown> },
+        { interactionId: string }
+      >('customers.interactions.delete')
+      const result = await canonicalDelete.execute(input, ctx)
+      return { activityId: result.interactionId }
     },
     buildLog: async ({ snapshots }) => {
-      const before = snapshots.before as ActivitySnapshot | undefined
+      const before = snapshots.before as InteractionSnapshot | undefined
       if (!before) return null
       const { translate } = await resolveTranslations()
       return {
         actionLabel: translate('customers.audit.activities.delete', 'Delete activity'),
         resourceKind: 'customers.activity',
-        resourceId: before.activity.id,
-        parentResourceKind: resolveParentResourceKind(before.activity.entityKind),
-        parentResourceId: before.activity.entityId ?? null,
-        tenantId: before.activity.tenantId,
-        organizationId: before.activity.organizationId,
+        resourceId: before.interaction.id,
+        parentResourceKind: resolveParentResourceKind(before.interaction.entityKind),
+        parentResourceId: before.interaction.entityId ?? null,
+        tenantId: before.interaction.tenantId,
+        organizationId: before.interaction.organizationId,
         snapshotBefore: before,
         payload: {
           undo: {
             before,
-          } satisfies ActivityUndoPayload,
+          } satisfies InteractionUndoPayload,
         },
       }
     },
     undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
-      const before = payload?.before
-      if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const entity = await requireCustomerEntity(em, before.activity.entityId, undefined, 'Customer not found')
-      const deal = await requireDealInScope(em, before.activity.dealId, before.activity.tenantId, before.activity.organizationId)
-      let activity = await em.findOne(CustomerActivity, { id: before.activity.id })
-      if (!activity) {
-        activity = em.create(CustomerActivity, {
-          id: before.activity.id,
-          organizationId: before.activity.organizationId,
-          tenantId: before.activity.tenantId,
-          entity,
-          deal,
-          activityType: before.activity.activityType,
-          subject: before.activity.subject,
-          body: before.activity.body,
-          occurredAt: before.activity.occurredAt,
-          authorUserId: before.activity.authorUserId,
-          appearanceIcon: before.activity.appearanceIcon,
-          appearanceColor: before.activity.appearanceColor,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        em.persist(activity)
-      } else {
-        activity.entity = entity
-        activity.deal = deal
-        activity.activityType = before.activity.activityType
-        activity.subject = before.activity.subject
-        activity.body = before.activity.body
-        activity.occurredAt = before.activity.occurredAt
-        activity.authorUserId = before.activity.authorUserId
-        activity.appearanceIcon = before.activity.appearanceIcon
-        activity.appearanceColor = before.activity.appearanceColor
-      }
-      await em.flush()
-
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'created',
-        entity: activity,
-        identifiers: {
-          id: activity.id,
-          organizationId: activity.organizationId,
-          tenantId: activity.tenantId,
-        },
-        indexer: activityCrudIndexer,
-        events: activityCrudEvents,
+      const canonicalDelete = getRequiredHandler<
+        { body?: Record<string, unknown>; query?: Record<string, unknown> },
+        { interactionId: string }
+      >('customers.interactions.delete')
+      if (!canonicalDelete.undo) return
+      await canonicalDelete.undo({
+        input: {},
+        ctx,
+        logEntry,
       })
-
-      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
-      if (Object.keys(resetValues).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: de,
-          entityId: ACTIVITY_ENTITY_ID,
-          recordId: activity.id,
-          organizationId: activity.organizationId,
-          tenantId: activity.tenantId,
-          values: resetValues,
-          notify: false,
-        })
-      }
     },
   }
 

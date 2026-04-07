@@ -14,6 +14,8 @@ export const features = [
   { id: 'customers.widgets.next-interactions', title: 'Use customer next interactions widget', module: 'customers' },
   { id: 'customers.widgets.new-customers', title: 'Use customer new customers widget', module: 'customers' },
   { id: 'customers.widgets.new-deals', title: 'Use customer new deals widget', module: 'customers' },
+  { id: 'customers.interactions.view', title: 'View interactions', module: 'customers' },
+  { id: 'customers.interactions.manage', title: 'Manage interactions', module: 'customers' },
 ]
 
 export default features

@@ -35,6 +35,17 @@ const DialogContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => {
   const t = useT()
 
+  React.useEffect(() => {
+    return () => {
+      if (typeof window === 'undefined') return
+      window.setTimeout(() => {
+        if (document.querySelector('[data-dialog-content][data-state="open"]')) return
+        document.body.style.removeProperty('overflow')
+        document.body.style.removeProperty('pointer-events')
+      }, 0)
+    }
+  }, [])
+
   return (
     <DialogPortal>
       <DialogOverlay />

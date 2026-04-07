@@ -71,6 +71,15 @@ export class ActionLogService {
   }
 
   async log(input: ActionLogCreateInput): Promise<ActionLog | null> {
+    const data = this.parseCreateInput(input)
+    const fork = this.em.fork()
+    const log = this.createLogEntity(fork, data)
+    await fork.persistAndFlush(log)
+    await this.decryptEntries(log)
+    return log
+  }
+
+  private parseCreateInput(input: ActionLogCreateInput): ActionLogCreateInput {
     let data: ActionLogCreateInput
     const schema = actionLogCreateSchema as typeof actionLogCreateSchema & { _zod?: unknown }
     const canValidate = Boolean(schema && typeof schema.parse === 'function')
@@ -91,8 +100,11 @@ export class ActionLogService {
     } else {
       data = this.normalizeInput(input)
     }
-    const fork = this.em.fork()
-    const log = fork.create(ActionLog, {
+    return data
+  }
+
+  private createLogEntity(fork: EntityManager, data: ActionLogCreateInput): ActionLog {
+    return fork.create(ActionLog, {
       tenantId: data.tenantId ?? null,
       organizationId: data.organizationId ?? null,
       actorUserId: data.actorUserId ?? null,
@@ -112,9 +124,6 @@ export class ActionLogService {
       createdAt: new Date(),
       updatedAt: new Date(),
     })
-    await fork.persistAndFlush(log)
-    await this.decryptEntries(log)
-    return log
   }
 
   private normalizeInput(input: Partial<ActionLogCreateInput> | null | undefined): ActionLogCreateInput {
@@ -224,12 +233,21 @@ export class ActionLogService {
     return entry
   }
 
-  async markUndone(id: string) {
-    const log = await this.em.findOne(ActionLog, { id, deletedAt: null })
+  async markUndone(id: string, traceInput?: ActionLogCreateInput) {
+    const fork = this.em.fork()
+    const log = await fork.findOne(ActionLog, { id, deletedAt: null })
     if (!log) return null
     log.executionState = 'undone'
     log.undoToken = null
-    await this.em.flush()
+    const traceLog = traceInput ? this.createLogEntity(fork, this.parseCreateInput(traceInput)) : null
+    if (traceLog) {
+      fork.persist(traceLog)
+    }
+    await fork.flush()
+    await this.decryptEntries(log)
+    if (traceLog) {
+      await this.decryptEntries(traceLog)
+    }
     return log
   }
 

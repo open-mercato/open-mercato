@@ -11,6 +11,7 @@ export type UpsertEntityOptions = {
   defaultEditor?: string | null
   isActive?: boolean
   dryRun?: boolean
+  createOnly?: boolean
 }
 
 export type UpsertCustomEntityResult = 'created' | 'updated' | 'unchanged'
@@ -32,6 +33,7 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
     defaultEditor: opts.defaultEditor ?? null,
   }
   const dryRun = opts.dryRun === true
+  const createOnly = opts.createOnly === true
 
   const apply = (ent: any) => {
     ent.label = desired.label
@@ -65,6 +67,7 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
         await tem.persistAndFlush(ent)
         return 'created' as UpsertCustomEntityResult
       }
+      if (createOnly) return 'unchanged'
       if (!isDifferent(ent)) return 'unchanged'
       if (dryRun) return 'updated'
       apply(ent)
@@ -74,6 +77,7 @@ export async function upsertCustomEntity(em: EntityManager, entityId: string, op
       if (error?.code === '23505' || error?.message?.includes('duplicate key')) {
         const ent = await tem.findOne(CustomEntity as any, where)
         if (!ent) throw error
+        if (createOnly) return 'unchanged'
         if (!isDifferent(ent)) return 'unchanged'
         if (dryRun) return 'updated'
         apply(ent)

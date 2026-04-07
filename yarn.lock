@@ -5082,27 +5082,27 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@mikro-orm/core@npm:^6.6.2":
-  version: 6.6.4
-  resolution: "@mikro-orm/core@npm:6.6.4"
+"@mikro-orm/core@npm:^6.6.10":
+  version: 6.6.12
+  resolution: "@mikro-orm/core@npm:6.6.12"
   dependencies:
     dataloader: "npm:2.2.3"
-    dotenv: "npm:17.2.3"
+    dotenv: "npm:17.3.1"
     esprima: "npm:4.0.1"
     fs-extra: "npm:11.3.3"
     globby: "npm:11.1.0"
-    mikro-orm: "npm:6.6.4"
+    mikro-orm: "npm:6.6.12"
     reflect-metadata: "npm:0.2.2"
-  checksum: 10/109619345f43cd6fbb6602d1517f5de3abf44e2849f47dd8b130fe5337c76e829b7d8e07648e8a365a6532e00d7029c79e0b8b2890a588c9dcf4352709b7b415
+  checksum: 10/066c91d8a5dba7a856052baff0797e26e5dcd328bb01277f1e618047e6f9879f49c2cb919bb5fb0f3e54f4edd539baff5736355e5e924977009310a68834ba11
   languageName: node
   linkType: hard
 
-"@mikro-orm/knex@npm:6.6.4":
-  version: 6.6.4
-  resolution: "@mikro-orm/knex@npm:6.6.4"
+"@mikro-orm/knex@npm:6.6.12":
+  version: 6.6.12
+  resolution: "@mikro-orm/knex@npm:6.6.12"
   dependencies:
     fs-extra: "npm:11.3.3"
-    knex: "npm:3.1.0"
+    knex: "npm:3.2.8"
     sqlstring: "npm:2.3.3"
   peerDependencies:
     "@mikro-orm/core": ^6.0.0
@@ -5116,35 +5116,35 @@ __metadata:
       optional: true
     mariadb:
       optional: true
-  checksum: 10/802e8bb6e390d5cbb23d60dcea25a13f72890a04c96b2365c34870b9c981d2d4fad5761d9465335ed3c836f7248f3e342d89fd9417646f72a3f1db27184896e7
+  checksum: 10/ff463bb853cb73ec44bd20860c91af31258c23304662d2890e7cc83eadfadb6aedf314ee1c29aa5073e68999e1121bf38a9708a32eb9471072363e4f637840cb
   languageName: node
   linkType: hard
 
-"@mikro-orm/migrations@npm:^6.6.2":
-  version: 6.6.4
-  resolution: "@mikro-orm/migrations@npm:6.6.4"
+"@mikro-orm/migrations@npm:^6.6.10":
+  version: 6.6.12
+  resolution: "@mikro-orm/migrations@npm:6.6.12"
   dependencies:
-    "@mikro-orm/knex": "npm:6.6.4"
+    "@mikro-orm/knex": "npm:6.6.12"
     fs-extra: "npm:11.3.3"
     umzug: "npm:3.8.2"
   peerDependencies:
     "@mikro-orm/core": ^6.0.0
-  checksum: 10/2e8023d7690de0285d7b12e8c2a8bbcf48a773a3b1dc2c580bd3a1b39a9cb1d33f9e9e6cf6d0107b28b4a1d9cb9b184c90a0aa5f25ab39aec1dd9cca1f56b371
+  checksum: 10/9fe2202d82dfc64db4821152f83967bf2d54dabba2e9befd514bb0622ce4ebdea36018918851e50c3ad5aae76ae916f9804b5e01ede31561fc9b28e270179b8e
   languageName: node
   linkType: hard
 
-"@mikro-orm/postgresql@npm:^6.6.2":
-  version: 6.6.4
-  resolution: "@mikro-orm/postgresql@npm:6.6.4"
+"@mikro-orm/postgresql@npm:^6.6.10":
+  version: 6.6.12
+  resolution: "@mikro-orm/postgresql@npm:6.6.12"
   dependencies:
-    "@mikro-orm/knex": "npm:6.6.4"
-    pg: "npm:8.16.3"
+    "@mikro-orm/knex": "npm:6.6.12"
+    pg: "npm:8.20.0"
     postgres-array: "npm:3.0.4"
     postgres-date: "npm:2.1.0"
     postgres-interval: "npm:4.0.2"
   peerDependencies:
     "@mikro-orm/core": ^6.0.0
-  checksum: 10/d037541cd5cdc8d3ef917e5d45fdc7fd96113428441b4c65cf7600062950c962f89df477562b1de8aa5ae48f4e1831c2ba38dffd76599888fdf3fb63af95aab8
+  checksum: 10/baf48ef640f489e0c8f9867ab9d5e7f01a57a1df372804cb24faa05ace638d758e96a3b6d2db43b82f48384e225e1eec6a99388bfc3eb973c45c3cfbaa838d85
   languageName: node
   linkType: hard
 
@@ -5604,6 +5604,7 @@ __metadata:
     ai: "npm:^6.0.33"
     cmdk: "npm:^1.0.0"
     framer-motion: "npm:^11.0.0"
+    isolated-vm: "npm:^6.1.2"
     react-json-view-lite: "npm:^2.5.0"
     react-markdown: "npm:^9.0.0"
     tsx: "npm:^4.21.0"
@@ -5620,9 +5621,9 @@ __metadata:
   resolution: "@open-mercato/app@workspace:apps/mercato"
   dependencies:
     "@ai-sdk/openai": "npm:^3.0.5"
-    "@mikro-orm/core": "npm:^6.6.2"
-    "@mikro-orm/migrations": "npm:^6.6.2"
-    "@mikro-orm/postgresql": "npm:^6.6.2"
+    "@mikro-orm/core": "npm:^6.6.10"
+    "@mikro-orm/migrations": "npm:^6.6.10"
+    "@mikro-orm/postgresql": "npm:^6.6.10"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/cache": "workspace:*"
     "@open-mercato/checkout": "workspace:*"
@@ -5733,7 +5734,7 @@ __metadata:
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
-    "@mikro-orm/postgresql": ^6.6.2
+    "@mikro-orm/postgresql": ^6.6.10
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
   languageName: unknown
@@ -5743,9 +5744,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/cli@workspace:packages/cli"
   dependencies:
-    "@mikro-orm/core": "npm:^6.6.2"
-    "@mikro-orm/migrations": "npm:^6.6.2"
-    "@mikro-orm/postgresql": "npm:^6.6.2"
+    "@mikro-orm/core": "npm:^6.6.10"
+    "@mikro-orm/migrations": "npm:^6.6.10"
+    "@mikro-orm/postgresql": "npm:^6.6.10"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"
@@ -5753,6 +5754,7 @@ __metadata:
     semver: "npm:^7.7.3"
     testcontainers: "npm:^11.12.0"
     ts-jest: "npm:^29.4.6"
+    tsx: "npm:^4.21.0"
     typescript: "npm:^5.9.3"
   peerDependencies:
     "@open-mercato/shared": "workspace:*"
@@ -5854,7 +5856,7 @@ __metadata:
     stripe: "npm:^17.0.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
-    "@mikro-orm/postgresql": ^6.5.9
+    "@mikro-orm/postgresql": ^6.6.10
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
   languageName: unknown
@@ -5902,7 +5904,7 @@ __metadata:
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
-    "@mikro-orm/core": ^6.6.2
+    "@mikro-orm/core": ^6.6.10
     "@open-mercato/shared": "workspace:*"
     bullmq: ^5.0.0
     ioredis: ^5.0.0
@@ -5964,7 +5966,7 @@ __metadata:
     node-html-markdown: "npm:^2.0.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
-    "@mikro-orm/postgresql": ^6.6.2
+    "@mikro-orm/postgresql": ^6.6.10
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
@@ -6010,7 +6012,7 @@ __metadata:
     jest: "npm:^30.2.0"
     ts-jest: "npm:^29.4.6"
   peerDependencies:
-    "@mikro-orm/postgresql": ^6.6.2
+    "@mikro-orm/postgresql": ^6.6.10
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
@@ -13315,7 +13317,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"dotenv@npm:17.2.3, dotenv@npm:^17.2.3":
+"dotenv@npm:17.3.1":
+  version: 17.3.1
+  resolution: "dotenv@npm:17.3.1"
+  checksum: 10/4dde6571dff22c2323a3e33ac25e1e7d51c4b6d60dc884f59e3efe85c8fd3cc8800d6b3925d05c46b19dca08cba821a0a24e22f75a1b9b768c859b98bb927b04
+  languageName: node
+  linkType: hard
+
+"dotenv@npm:^17.2.3":
   version: 17.2.3
   resolution: "dotenv@npm:17.2.3"
   checksum: 10/f8b78626ebfff6e44420f634773375c9651808b3e1a33df6d4cc19120968eea53e100f59f04ec35f2a20b2beb334b6aba4f24040b2f8ad61773f158ac042a636
@@ -17074,6 +17083,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"isolated-vm@npm:^6.1.2":
+  version: 6.1.2
+  resolution: "isolated-vm@npm:6.1.2"
+  dependencies:
+    node-gyp: "npm:latest"
+    node-gyp-build: "npm:^4.8.4"
+  checksum: 10/705c93375a6342d54d2381efebba45d965147d5a6e534dc5c1e622b625ad02ee8878cacd03a8fd09f9929a3fc2d039b26a900d976632b14a51a94005371ec1d9
+  languageName: node
+  linkType: hard
+
 "istanbul-lib-coverage@npm:^3.0.0, istanbul-lib-coverage@npm:^3.2.0":
   version: 3.2.2
   resolution: "istanbul-lib-coverage@npm:3.2.2"
@@ -17967,9 +17986,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"knex@npm:3.1.0":
-  version: 3.1.0
-  resolution: "knex@npm:3.1.0"
+"knex@npm:3.2.8":
+  version: 3.2.8
+  resolution: "knex@npm:3.2.8"
   dependencies:
     colorette: "npm:2.0.19"
     commander: "npm:^10.0.0"
@@ -17985,6 +18004,8 @@ __metadata:
     resolve-from: "npm:^5.0.0"
     tarn: "npm:^3.0.2"
     tildify: "npm:2.0.0"
+  peerDependencies:
+    pg-query-stream: ^4.14.0
   peerDependenciesMeta:
     better-sqlite3:
       optional: true
@@ -17996,13 +18017,15 @@ __metadata:
       optional: true
     pg-native:
       optional: true
+    pg-query-stream:
+      optional: true
     sqlite3:
       optional: true
     tedious:
       optional: true
   bin:
     knex: bin/cli.js
-  checksum: 10/12eb978ebec9944d6d0225d33d31d44feb54046b3a02f9f14dfa33a4e665a54d784290991b17a68fd8141a14a3336b325c7706af35557f845dae9e500f3c8aae
+  checksum: 10/7a61ca1276701f5b740d516f4cce455bbae5c7af3e46f155a17214f823d58df0eafc2247d72b32c5fd0fabeb5470781bed7f113f6011da495f830522badee587
   languageName: node
   linkType: hard
 
@@ -19508,10 +19531,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"mikro-orm@npm:6.6.4":
-  version: 6.6.4
-  resolution: "mikro-orm@npm:6.6.4"
-  checksum: 10/adc1535e7874b45179f13dcfb3a8054b5acb85c54bb5165f3a8db16f4978c9734b9cb761fbd63afe68729374ec2baed307c9e0e89fbed70ae5042e148fd2e874
+"mikro-orm@npm:6.6.12":
+  version: 6.6.12
+  resolution: "mikro-orm@npm:6.6.12"
+  checksum: 10/c9313a9c6888ca82b328d277d31eab843ef68bcace061bf23adff5b4e139d32fd82782c8b610ff17b3b9402e5a1dd5080c294c1cd81c4e772a53028379dc3477
   languageName: node
   linkType: hard
 
@@ -20121,7 +20144,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-gyp-build@npm:^4.8.1":
+"node-gyp-build@npm:^4.8.1, node-gyp-build@npm:^4.8.4":
   version: 4.8.4
   resolution: "node-gyp-build@npm:4.8.4"
   bin:
@@ -20454,9 +20477,9 @@ __metadata:
   dependencies:
     "@ai-sdk/openai": "npm:^3.0.5"
     "@eslint/eslintrc": "npm:^3.3.3"
-    "@mikro-orm/core": "npm:^6.6.2"
-    "@mikro-orm/migrations": "npm:^6.6.2"
-    "@mikro-orm/postgresql": "npm:^6.6.2"
+    "@mikro-orm/core": "npm:^6.6.10"
+    "@mikro-orm/migrations": "npm:^6.6.10"
+    "@mikro-orm/postgresql": "npm:^6.6.10"
     "@playwright/test": "npm:^1.50.0"
     "@radix-ui/react-checkbox": "npm:^1.3.3"
     "@radix-ui/react-dialog": "npm:^1.0.5"

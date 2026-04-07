@@ -21,6 +21,23 @@ type TodoLinkSummary = {
   }
 }
 
+// SPEC-046b: To enable canonical interactions mode, switch from
+// /api/customers/dashboard/widgets/customer-todos to
+// /api/customers/interactions?status=planned&pageSize={pageSize}
+//
+// Response mapping (InteractionSummary → TodoLinkSummary):
+//   interaction.id               → id, todoId
+//   interaction.interactionType  → todoSource
+//   interaction.title            → todoTitle
+//   interaction.createdAt        → createdAt
+//   interaction.entityId         → entity.id (kind/displayName need enrichment
+//                                   or a follow-up customer lookup)
+//
+// The main gap is the `entity` sub-object: the interactions API returns a flat
+// entityId but not customer displayName/kind. Options:
+//   a) Add an enricher to the interactions list API that resolves entity details
+//   b) Batch-fetch customer details client-side after loading interactions
+//   c) Add a dedicated /api/customers/interactions/widget endpoint
 async function loadTodos(settings: CustomerTodoWidgetSettings): Promise<TodoLinkSummary[]> {
   const params = new URLSearchParams({
     limit: String(settings.pageSize),
@@ -69,9 +86,9 @@ function formatDate(value: string | null, locale?: string): string {
 
 function resolveDetailHref(entity: { id: string | null; kind: string | null }): string | null {
   if (!entity.id) return null
-  if (entity.kind === 'company') return `/backend/customers/companies/${encodeURIComponent(entity.id)}`
-  if (entity.kind === 'person') return `/backend/customers/people/${encodeURIComponent(entity.id)}`
-  return `/backend/customers/people/${encodeURIComponent(entity.id)}`
+  if (entity.kind === 'company') return `/backend/customers/companies-v2/${encodeURIComponent(entity.id)}`
+  if (entity.kind === 'person') return `/backend/customers/people-v2/${encodeURIComponent(entity.id)}`
+  return `/backend/customers/people-v2/${encodeURIComponent(entity.id)}`
 }
 
 const CustomerTodosWidget: React.FC<DashboardWidgetComponentProps<CustomerTodoWidgetSettings>> = ({

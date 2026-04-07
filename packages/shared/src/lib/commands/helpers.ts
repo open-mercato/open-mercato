@@ -144,6 +144,24 @@ export type LogBuilderArgs<TInput, TResult> = {
 
 export type LogBuilder<TInput, TResult> = (args: LogBuilderArgs<TInput, TResult>) => CommandLogMetadata | null | Promise<CommandLogMetadata | null>
 
+export function snapshotsEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true
+  if (a == null || b == null) return a === b
+  if (typeof a !== typeof b) return false
+  if (typeof a !== 'object') return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((value, index) => snapshotsEqual(value, b[index]))
+  }
+  const keysA = Object.keys(a as Record<string, unknown>)
+  const keysB = Object.keys(b as Record<string, unknown>)
+  if (keysA.length !== keysB.length) return false
+  return keysA.every((key) =>
+    snapshotsEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key])
+  )
+}
+
 const AUTHOR_UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 
 export function normalizeAuthorUserId(

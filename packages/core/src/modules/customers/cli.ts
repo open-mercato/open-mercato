@@ -1,6 +1,5 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
-import { cf } from '@open-mercato/shared/modules/dsl'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -12,6 +11,8 @@ import { E as CoreEntities } from '#generated/entities.ids.generated'
 import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { EntityId } from '@open-mercato/shared/modules/entities'
 import {
   CustomerEntity,
   CustomerCompanyProfile,
@@ -22,10 +23,18 @@ import {
   CustomerActivity,
   CustomerAddress,
   CustomerComment,
+  CustomerInteraction,
+  CustomerTodoLink,
   CustomerPipeline,
   CustomerPipelineStage,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
+import { recomputeNextInteraction } from './lib/interactionProjection'
+import {
+  CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+  CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+} from './lib/interactionCompatibility'
+import { CUSTOMER_CUSTOM_FIELD_SETS } from './customFieldDefaults'
 
 type SeedArgs = {
   tenantId: string
@@ -1316,11 +1325,7 @@ async function seedCustomerExamples(
   }
 
   try {
-    await ensureCustomFieldDefinitions(
-      em,
-      CUSTOMER_CUSTOM_FIELD_SETS,
-      { organizationId: null, tenantId }
-    )
+    await ensureCustomerCustomFieldDefinitions(em, tenantId)
   } catch (err) {
     console.warn('[customers.cli] Failed to ensure customer custom field definitions', err)
   }
@@ -1707,7 +1712,7 @@ async function seedCustomerStressTest(
       console.warn('[customers.cli] Failed to install custom entities before stress-test seeding', err)
     }
     try {
-      await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, { organizationId: null, tenantId })
+      await ensureCustomerCustomFieldDefinitions(em, tenantId)
     } catch (err) {
       console.warn('[customers.cli] Failed to ensure custom field definitions for stress-test seeding', err)
     }
@@ -2825,95 +2830,273 @@ async function seedDefaultPipeline(em: EntityManager, { tenantId, organizationId
 export { seedCustomerDictionaries, seedCustomerExamples, seedCustomerStressTest, seedCurrencyDictionary, seedDefaultPipeline }
 export type { SeedArgs as CustomerSeedArgs }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest]
+// ---------------------------------------------------------------------------
+// interactions:backfill — migrate legacy activities & todo-links to interactions
+// ---------------------------------------------------------------------------
+
+const BACKFILL_BATCH_SIZE = 100
+const PROJECTION_BATCH_SIZE = 50
+
+const TITLE_FIELDS_BACKFILL = ['title', 'subject', 'name', 'summary', 'text'] as const
+const IS_DONE_FIELDS_BACKFILL = ['is_done', 'isDone', 'done', 'completed'] as const
+
+function resolveBackfillTodoTitle(raw: Record<string, unknown>): string {
+  for (const key of TITLE_FIELDS_BACKFILL) {
+    const value = raw[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return 'Migrated task'
+}
+
+function resolveBackfillTodoIsDone(raw: Record<string, unknown>): boolean {
+  for (const key of IS_DONE_FIELDS_BACKFILL) {
+    const value = raw[key]
+    if (typeof value === 'boolean') return value
+  }
+  return false
+}
+
+async function backfillInteractions(
+  em: EntityManager,
+  container: { resolve: (name: string) => unknown },
+  args: SeedArgs,
+): Promise<{ activitiesMigrated: number; todosMigrated: number; projectionsRecomputed: number; errors: number }> {
+  const knex = em.getKnex()
+  const { tenantId, organizationId } = args
+
+  let activitiesMigrated = 0
+  let todosMigrated = 0
+  let projectionsRecomputed = 0
+  let errors = 0
+  const affectedEntityIds = new Set<string>()
+
+  // Step 1: Migrate activities → interactions
+  console.log('[backfill] Migrating activities to interactions...')
+  while (true) {
+    const activities = await knex('customer_activities')
+      .select(
+        'customer_activities.id',
+        'customer_activities.organization_id',
+        'customer_activities.tenant_id',
+        'customer_activities.activity_type',
+        'customer_activities.subject',
+        'customer_activities.body',
+        'customer_activities.occurred_at',
+        'customer_activities.author_user_id',
+        'customer_activities.appearance_icon',
+        'customer_activities.appearance_color',
+        'customer_activities.entity_id',
+        'customer_activities.deal_id',
+      )
+      .where('customer_activities.tenant_id', tenantId)
+      .andWhere('customer_activities.organization_id', organizationId)
+      .whereNotExists(
+        knex('customer_interactions')
+          .select(knex.raw('1'))
+          .whereRaw('customer_interactions.id = customer_activities.id')
+      )
+      .orderBy('customer_activities.created_at', 'asc')
+      .limit(BACKFILL_BATCH_SIZE)
+
+    if (activities.length === 0) break
+
+    for (const activity of activities) {
+      try {
+        const status = activity.occurred_at ? 'done' : 'planned'
+        await knex('customer_interactions').insert({
+          id: activity.id,
+          organization_id: activity.organization_id,
+          tenant_id: activity.tenant_id,
+          interaction_type: activity.activity_type,
+          title: activity.subject,
+          body: activity.body,
+          status,
+          scheduled_at: null,
+          occurred_at: activity.occurred_at,
+          author_user_id: activity.author_user_id,
+          appearance_icon: activity.appearance_icon,
+          appearance_color: activity.appearance_color,
+          source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+          entity_id: activity.entity_id,
+          deal_id: activity.deal_id,
+          created_at: new Date(),
+          updated_at: new Date(),
+        })
+        activitiesMigrated++
+        affectedEntityIds.add(activity.entity_id)
+      } catch (err) {
+        errors++
+        console.warn(`[backfill] Error migrating activity ${activity.id}:`, err instanceof Error ? err.message : err)
+      }
+    }
+
+    console.log(`[backfill]   Activities batch: ${activities.length} processed (total migrated: ${activitiesMigrated})`)
+
+    if (activities.length < BACKFILL_BATCH_SIZE) break
+  }
+
+  // Step 2: Migrate todo links → interactions
+  console.log('[backfill] Migrating todo links to interactions...')
+
+  let queryEngine: QueryEngine | null = null
+  try {
+    queryEngine = container.resolve('queryEngine') as QueryEngine
+  } catch {
+    console.warn('[backfill] QueryEngine not available; todo titles will use fallback')
+  }
+
+  while (true) {
+    const todoLinks = await knex('customer_todo_links')
+      .select(
+        'customer_todo_links.id',
+        'customer_todo_links.organization_id',
+        'customer_todo_links.tenant_id',
+        'customer_todo_links.todo_id',
+        'customer_todo_links.todo_source',
+        'customer_todo_links.entity_id',
+        'customer_todo_links.created_at',
+      )
+      .where('customer_todo_links.tenant_id', tenantId)
+      .andWhere('customer_todo_links.organization_id', organizationId)
+      .whereNotExists(
+        knex('customer_interactions')
+          .select(knex.raw('1'))
+          .whereRaw('customer_interactions.id = customer_todo_links.todo_id')
+      )
+      .orderBy('customer_todo_links.created_at', 'asc')
+      .limit(BACKFILL_BATCH_SIZE)
+
+    if (todoLinks.length === 0) break
+
+    // Batch-resolve todo summaries via QueryEngine if available
+    const todoSummaries = new Map<string, { title: string; isDone: boolean }>()
+    if (queryEngine) {
+      const idsBySource = new Map<string, Set<string>>()
+      for (const link of todoLinks) {
+        if (!link.todo_source || !link.todo_id) continue
+        if (!idsBySource.has(link.todo_source)) idsBySource.set(link.todo_source, new Set())
+        idsBySource.get(link.todo_source)!.add(link.todo_id)
+      }
+
+      for (const [source, idSet] of idsBySource.entries()) {
+        const ids = Array.from(idSet)
+        try {
+          const result = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
+            tenantId,
+            organizationIds: [organizationId],
+            filters: { id: { $in: ids } },
+            fields: ['id', ...TITLE_FIELDS_BACKFILL, ...IS_DONE_FIELDS_BACKFILL],
+            includeCustomFields: false,
+            page: { page: 1, pageSize: Math.max(ids.length, 1) },
+          })
+          for (const item of result.items ?? []) {
+            const raw = item as Record<string, unknown>
+            const todoId = typeof raw.id === 'string' ? raw.id : String(raw.id ?? '')
+            if (!todoId) continue
+            todoSummaries.set(`${source}:${todoId}`, {
+              title: resolveBackfillTodoTitle(raw),
+              isDone: resolveBackfillTodoIsDone(raw),
+            })
+          }
+        } catch {
+          // non-critical: todo metadata unavailable
+        }
+      }
+    }
+
+    for (const link of todoLinks) {
+      try {
+        const summary = todoSummaries.get(`${link.todo_source}:${link.todo_id}`)
+        const title = summary?.title ?? 'Migrated task'
+        const status = summary?.isDone ? 'done' : 'planned'
+
+        await knex('customer_interactions').insert({
+          id: link.todo_id,
+          organization_id: link.organization_id,
+          tenant_id: link.tenant_id,
+          interaction_type: 'task',
+          title,
+          body: null,
+          status,
+          scheduled_at: null,
+          occurred_at: null,
+          author_user_id: null,
+          appearance_icon: null,
+          appearance_color: null,
+          source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+          entity_id: link.entity_id,
+          deal_id: null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        })
+        todosMigrated++
+        affectedEntityIds.add(link.entity_id)
+      } catch (err) {
+        errors++
+        console.warn(`[backfill] Error migrating todo link ${link.id}:`, err instanceof Error ? err.message : err)
+      }
+    }
+
+    console.log(`[backfill]   Todo links batch: ${todoLinks.length} processed (total migrated: ${todosMigrated})`)
+
+    if (todoLinks.length < BACKFILL_BATCH_SIZE) break
+  }
+
+  // Step 3: Recompute next-interaction projections for affected entities
+  console.log(`[backfill] Recomputing projections for ${affectedEntityIds.size} entities...`)
+  const entityIdList = Array.from(affectedEntityIds)
+  for (let i = 0; i < entityIdList.length; i += PROJECTION_BATCH_SIZE) {
+    const batch = entityIdList.slice(i, i + PROJECTION_BATCH_SIZE)
+    for (const entityId of batch) {
+      try {
+        await recomputeNextInteraction(em, entityId)
+        projectionsRecomputed++
+      } catch (err) {
+        errors++
+        console.warn(`[backfill] Error recomputing projection for entity ${entityId}:`, err instanceof Error ? err.message : err)
+      }
+    }
+    console.log(`[backfill]   Projections batch: ${Math.min(i + PROJECTION_BATCH_SIZE, entityIdList.length)}/${entityIdList.length}`)
+  }
+
+  return { activitiesMigrated, todosMigrated, projectionsRecomputed, errors }
+}
+
+const interactionsBackfill: ModuleCli = {
+  command: 'interactions:backfill',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const organizationId = String(args.organizationId ?? args.orgId ?? args.org ?? '')
+    if (!tenantId || !organizationId) {
+      console.error('Usage: mercato customers interactions:backfill --tenant <tenantId> --org <organizationId>')
+      return
+    }
+
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+
+    console.log(`[backfill] Starting interactions backfill for tenant=${tenantId} org=${organizationId}`)
+
+    const result = await backfillInteractions(em, container, { tenantId, organizationId })
+
+    console.log('[backfill] Complete.')
+    console.log(`  Activities migrated: ${result.activitiesMigrated}`)
+    console.log(`  Todo links migrated: ${result.todosMigrated}`)
+    console.log(`  Projections recomputed: ${result.projectionsRecomputed}`)
+    console.log(`  Errors/skipped: ${result.errors}`)
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill]
 
 export default customersCliCommands
-const CUSTOMER_CUSTOM_FIELD_SETS = [
-  {
-    entity: CoreEntities.customers.customer_person_profile,
-    fields: [
-      cf.select('buying_role', ['economic_buyer', 'champion', 'technical_evaluator', 'influencer'], {
-        label: 'Buying role',
-        description: 'Contact role within the buying committee.',
-        filterable: true,
-      }),
-      cf.text('preferred_pronouns', {
-        label: 'Preferred pronouns',
-        description: 'How the contact prefers to be addressed.',
-      }),
-      cf.boolean('newsletter_opt_in', {
-        label: 'Newsletter opt-in',
-        description: 'Indicates whether marketing newsletters are permitted.',
-        defaultValue: false,
-      }),
-    ],
-  },
-  {
-    entity: CoreEntities.customers.customer_company_profile,
-    fields: [
-      cf.select('relationship_health', ['healthy', 'monitor', 'at_risk'], {
-        label: 'Relationship health',
-        description: 'Overall account health assessment.',
-        filterable: true,
-      }),
-      cf.select('renewal_quarter', ['Q1', 'Q2', 'Q3', 'Q4'], {
-        label: 'Renewal quarter',
-        description: 'Expected renewal quarter for subscription accounts.',
-        filterable: true,
-      }),
-      cf.multiline('executive_notes', {
-        label: 'Executive notes',
-        description: 'Context shared during executive reviews.',
-        listVisible: false,
-      }),
-      cf.boolean('customer_marketing_case', {
-        label: 'Marketing case study ready',
-        description: 'The customer has approved participation in marketing collateral.',
-        defaultValue: false,
-      }),
-    ],
-  },
-  {
-    entity: CoreEntities.customers.customer_deal,
-    fields: [
-      cf.select('competitive_risk', ['low', 'medium', 'high'], {
-        label: 'Competitive risk',
-        description: 'Perceived threat level from competitors.',
-        filterable: true,
-      }),
-      cf.select('implementation_complexity', ['light', 'standard', 'complex'], {
-        label: 'Implementation complexity',
-        description: 'Expected level of effort for delivery.',
-      }),
-      cf.integer('estimated_seats', {
-        label: 'Estimated seats/licenses',
-        description: 'Projected seat count for the opportunity.',
-        filterable: true,
-      }),
-      cf.boolean('requires_legal_review', {
-        label: 'Requires legal review',
-        description: 'Deal includes terms that need legal approval.',
-        defaultValue: false,
-      }),
-    ],
-  },
-  {
-    entity: CoreEntities.customers.customer_activity,
-    fields: [
-      cf.select('engagement_sentiment', ['positive', 'neutral', 'negative'], {
-        label: 'Engagement sentiment',
-        description: 'Tone of the interaction based on the latest touchpoint.',
-        filterable: true,
-      }),
-      cf.boolean('shared_with_leadership', {
-        label: 'Shared with leadership',
-        description: 'Activity summary was shared with leadership or executives.',
-        defaultValue: false,
-      }),
-      cf.text('follow_up_owner', {
-        label: 'Follow-up owner',
-        description: 'Team member responsible for the next follow-up.',
-      }),
-    ],
-  },
-]
+export async function ensureCustomerCustomFieldDefinitions(
+  em: EntityManager,
+  tenantId: string | null,
+): Promise<void> {
+  await ensureCustomFieldDefinitions(em, CUSTOMER_CUSTOM_FIELD_SETS, {
+    organizationId: null,
+    tenantId,
+  })
+}

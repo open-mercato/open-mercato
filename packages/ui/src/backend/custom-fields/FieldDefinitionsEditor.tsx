@@ -516,6 +516,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
   translate,
 }: FieldDefinitionCardProps) {
   const [local, setLocal] = React.useState<FieldDefinition>(definition)
+  const localRef = React.useRef<FieldDefinition>(definition)
   const [optionValueDraft, setOptionValueDraft] = React.useState('')
   const [optionLabelDraft, setOptionLabelDraft] = React.useState('')
   const [optionDialogOpen, setOptionDialogOpen] = React.useState(false)
@@ -529,7 +530,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     [local.configJson?.fieldset],
   )
   const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
-  React.useEffect(() => { setLocal(definition) }, [definition.key])
+  React.useEffect(() => {
+    localRef.current = definition
+    setLocal(definition)
+  }, [definition.key])
   React.useEffect(() => {
     setOptionValueDraft('')
     setOptionLabelDraft('')
@@ -571,35 +575,37 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     }
   }
 
+  const replaceLocal = React.useCallback((next: FieldDefinition) => {
+    localRef.current = next
+    setLocal(next)
+    return next
+  }, [])
+
   const apply = (patch: Partial<FieldDefinition> | ((current: FieldDefinition) => Partial<FieldDefinition>), propagateNow = false) => {
-    setLocal((prev) => {
-      const resolvedPatch = typeof patch === 'function' ? patch(prev) : patch
-      const next = { ...prev, ...resolvedPatch }
-      if (!propagateNow) return next
-      const sanitized = sanitize(next)
-      onChange(sanitized)
-      return sanitized
-    })
+    const current = localRef.current
+    const resolvedPatch = typeof patch === 'function' ? patch(current) : patch
+    const next = { ...current, ...resolvedPatch }
+    const resolvedNext = propagateNow ? sanitize(next) : next
+    replaceLocal(resolvedNext)
+    if (propagateNow) {
+      onChange(resolvedNext)
+    }
   }
 
   const commit = () => {
-    setLocal((prev) => {
-      const sanitized = sanitize(prev)
-      onChange(sanitized)
-      return sanitized
-    })
+    const sanitized = sanitize(localRef.current)
+    replaceLocal(sanitized)
+    onChange(sanitized)
   }
 
   const handleFieldsetSelect = (value: string) => {
-    setLocal((prev) => {
-      const nextConfig = { ...(prev.configJson || {}) }
-      if (value) nextConfig.fieldset = value
-      else delete nextConfig.fieldset
-      delete nextConfig.group
-      const next = { ...prev, configJson: nextConfig }
-      onChange(next)
-      return next
-    })
+    const nextConfig = { ...(localRef.current.configJson || {}) }
+    if (value) nextConfig.fieldset = value
+    else delete nextConfig.fieldset
+    delete nextConfig.group
+    const next = { ...localRef.current, configJson: nextConfig }
+    replaceLocal(next)
+    onChange(next)
   }
 
   const handleGroupSelect = (value: string) => {

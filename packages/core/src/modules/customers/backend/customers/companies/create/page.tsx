@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -21,24 +21,26 @@ import {
 export default function CreateCompanyPage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
   const formSchema = React.useMemo(() => createCompanyFormSchema(), [])
   const fields = React.useMemo(() => createCompanyFormFields(t), [t])
   const groups = React.useMemo(() => createCompanyFormGroups(t), [t])
+  const returnTo = searchParams.get('returnTo')
 
   return (
     <Page>
       <PageBody>
         <CrudForm<CompanyFormValues>
           title={t('customers.companies.create.title')}
-          backHref="/backend/customers/companies"
+          backHref={returnTo ?? '/backend/customers/companies'}
           fields={fields}
           groups={groups}
           initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t('customers.companies.form.submit')}
-          cancelHref="/backend/customers/companies"
+          cancelHref={returnTo ?? '/backend/customers/companies'}
           schema={formSchema}
           onSubmit={async (values) => {
             const addresses = Array.isArray(values.addresses) ? values.addresses : []
@@ -114,7 +116,8 @@ export default function CreateCompanyPage() {
             }
 
             flash(t('customers.companies.form.success'), 'success')
-            if (newId) router.push(`/backend/customers/companies/${newId}`)
+            if (returnTo) router.push(returnTo)
+            else if (newId) router.push(`/backend/customers/companies-v2/${newId}`)
             else router.push('/backend/customers/companies')
           }}
         />

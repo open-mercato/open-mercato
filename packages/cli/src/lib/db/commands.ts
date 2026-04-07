@@ -1,6 +1,7 @@
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
+import ts from 'typescript'
 import { MikroORM, MetadataStorage, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
@@ -89,32 +90,54 @@ export function makeConstraintDropsIdempotent(sql: string): string {
 }
 
 let tsxLoaderRegistered = false
+let temporaryModuleCounter = 0
+
+async function ensureTsxLoaderRegistered() {
+  if (tsxLoaderRegistered) return
+  try {
+    const { register } = await import('tsx/esm/api')
+    register()
+    tsxLoaderRegistered = true
+  } catch {
+    // Continue without the loader. Relative TypeScript imports may fail in this case.
+  }
+}
 
 async function importWithTypeScriptFile(filePath: string): Promise<any> {
-  const fileUrl = pathToFileURL(filePath).href
-  let tsImportFn: ((fileUrl: string, cwd: string) => Promise<any>) | undefined
+  await ensureTsxLoaderRegistered()
+  const source = fs.readFileSync(filePath, 'utf8')
+  const compiled = ts.transpileModule(source, {
+    fileName: filePath,
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      esModuleInterop: true,
+      resolveJsonModule: true,
+      jsx: ts.JsxEmit.ReactJSX,
+      experimentalDecorators: true,
+      emitDecoratorMetadata: false,
+      useDefineForClassFields: false,
+    },
+  }).outputText
+  const tempPath = `${filePath}.mercato-db-generate-${process.pid}-${temporaryModuleCounter++}.mjs`
+  fs.writeFileSync(tempPath, compiled, 'utf8')
   try {
-    const { register, tsImport } = await import('tsx/esm/api')
-    if (!tsxLoaderRegistered) {
-      register()
-      tsxLoaderRegistered = true
+    return await import(pathToFileURL(tempPath).href)
+  } finally {
+    try {
+      fs.unlinkSync(tempPath)
+    } catch {
+      // Ignore cleanup failures for temporary compiled modules.
     }
-    tsImportFn = tsImport
-  } catch {
-    // Fallback to default import, in case tsx is unavailable in this environment.
   }
-
-  if (tsImportFn) {
-    return await tsImportFn(fileUrl, pathToFileURL(process.cwd() + '/').href)
-  }
-
-  return import(fileUrl)
 }
 
 async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver): Promise<any[]> {
   const roots = resolver.getModulePaths(entry)
   const imps = resolver.getModuleImportBase(entry)
   const isAppModule = entry.from === '@app'
+  const shouldImportFromSource = isAppModule || resolver.isMonorepo()
   const bases = [
     path.join(roots.appBase, 'data'),
     path.join(roots.pkgBase, 'data'),
@@ -129,9 +152,11 @@ async function loadModuleEntities(entry: ModuleEntry, resolver: PackageResolver)
       if (fs.existsSync(p)) {
         const sub = path.basename(base)
         const fromApp = base.startsWith(roots.appBase)
-        const importPath = fromApp ? pathToFileURL(p).href : `${imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
+        const importPath = fromApp || shouldImportFromSource
+          ? pathToFileURL(p).href
+          : `${imps.pkgBase}/${sub}/${f.replace(/\.ts$/, '')}`
         try {
-          const mod = isAppModule && fromApp
+          const mod = fromApp || shouldImportFromSource
             ? await importWithTypeScriptFile(p)
             : await import(importPath)
           const entities = Object.values(mod).filter((v) => typeof v === 'function')

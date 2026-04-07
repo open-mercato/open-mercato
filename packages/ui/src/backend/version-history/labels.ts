@@ -1,15 +1,43 @@
 "use client"
 
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import type { VersionHistoryEntry } from './types'
 
 function fallbackLabel(kind: string): string {
   const segment = kind.split('.').pop() ?? kind
   return segment.replace(/_/g, ' ').replace(/\b\w/g, (ch) => ch.toUpperCase())
 }
 
+function lowercaseInitial(value: string): string {
+  if (!value) return value
+  return value.charAt(0).toLowerCase() + value.slice(1)
+}
+
+function resolveBaseActionLabel(entry: VersionHistoryEntry): string {
+  return entry.actionLabel || entry.commandId
+}
+
+function resolveHistoryAction(entry: VersionHistoryEntry): string | null {
+  const historyAction = entry.context?.historyAction
+  return typeof historyAction === 'string' ? historyAction : null
+}
+
 export function humanizeResourceKind(kind: string | null, t: TranslateFn): string {
   if (!kind) return ''
   return t(`audit_logs.resource_kind.${kind}`, fallbackLabel(kind))
+}
+
+export function getVersionHistoryActionLabel(entry: VersionHistoryEntry, t: TranslateFn): string {
+  const baseAction = resolveBaseActionLabel(entry)
+  const actionParam = lowercaseInitial(baseAction)
+  switch (resolveHistoryAction(entry)) {
+    case 'undo':
+      return t('audit_logs.version_history.action.undo', 'Undo {action}', { action: actionParam })
+    case 'redo':
+      return t('audit_logs.version_history.action.redo', 'Redo {action}', { action: actionParam })
+    default:
+      return baseAction
+  }
 }
 
 export function getVersionHistoryStatusLabel(state: string, t: TranslateFn) {

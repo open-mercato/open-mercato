@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/search",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "type": "module",
   "main": "./dist/index.js",
   "exports": {

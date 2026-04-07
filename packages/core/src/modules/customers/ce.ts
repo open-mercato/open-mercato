@@ -1,3 +1,10 @@
+import {
+  CUSTOMER_ACTIVITY_CUSTOM_FIELDS,
+  CUSTOMER_COMPANY_CUSTOM_FIELDS,
+  CUSTOMER_DEAL_CUSTOM_FIELDS,
+  CUSTOMER_PERSON_CUSTOM_FIELDS,
+} from './customFieldDefaults'
+
 export const entities = [
   {
     id: 'customers:customer_person_profile',
@@ -5,7 +12,7 @@ export const entities = [
     description: 'Individual contact record within the CRM.',
     labelField: 'displayName',
     showInSidebar: false,
-    fields: [],
+    fields: CUSTOMER_PERSON_CUSTOM_FIELDS,
   },
   {
     id: 'customers:customer_company_profile',
@@ -13,7 +20,7 @@ export const entities = [
     description: 'Organization or account tracked within the CRM.',
     labelField: 'displayName',
     showInSidebar: false,
-    fields: [],
+    fields: CUSTOMER_COMPANY_CUSTOM_FIELDS,
   },
   {
     id: 'customers:customer_deal',
@@ -21,7 +28,7 @@ export const entities = [
     description: 'Sales opportunity with value, stage, and close date.',
     labelField: 'title',
     showInSidebar: false,
-    fields: [],
+    fields: CUSTOMER_DEAL_CUSTOM_FIELDS,
   },
   {
     id: 'customers:customer_activity',
@@ -29,8 +36,17 @@ export const entities = [
     description: 'Timeline events and touchpoints logged against people or companies.',
     labelField: 'subject',
     showInSidebar: false,
-    defaultEditor:  false,
-    fields: [],
+    defaultEditor: false,
+    fields: CUSTOMER_ACTIVITY_CUSTOM_FIELDS,
+  },
+  {
+    id: 'customers:customer_interaction',
+    label: 'Customer Interaction',
+    description: 'Unified interaction record combining activities and scheduled tasks.',
+    labelField: 'title',
+    showInSidebar: false,
+    defaultEditor: false,
+    fields: CUSTOMER_ACTIVITY_CUSTOM_FIELDS,
   },
 ]
 

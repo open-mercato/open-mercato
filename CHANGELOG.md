@@ -1,3 +1,58 @@
+# 0.4.10 (2026-04-01)
+
+## Highlights
+This release delivers **Customers v2** 👥 (SPEC-046a & SPEC-046b) — a complete redesign of the customers module with updated people/companies data model and enhanced CRUD operations. It also ships **Integration Marketplace specs** 🔌 for commands, events, and projects, a comprehensive **ACL wildcard hardening** 🔐 effort across navigation and runtime gates, and significant **Standalone & Docker** 🐳 infrastructure improvements.
+
+## ✨ Features
+
+### 👥 Customers v2 — SPEC-046a & SPEC-046b
+- Complete redesign of the customers module with updated data models for people and companies, improved relationships, and enhanced CRUD operations. (#1050) *(@maciej-dudziak)*
+
+### 🔌 Integration Commands, Events & Projects Specs
+- New specifications for integration marketplace commands, events, and project-scoped integration management. (#1092) *(@pkarw)*
+
+## 🐛 Fixes
+
+### 🔐 Security & ACL
+- 🛡️ Harden wildcard ACL handling — aligned wildcard feature matching across navigation sections, runtime gates (menu items, notification handlers, mutation guards, command interceptors), and audit permission checks. (#1079, #1086) *(@pkarw)*
+- 🔒 Hide upload button for users without `attachments.manage` permission. (#1093) *(@BarWyDev)*
+- 🏢 Hide "All Organizations" in directory when user lacks cross-org access. (#1102) *(@mat-gren)*
+- 📦 Bump transitive deps to patch security vulnerabilities. (#1091) *(@pkarw)*
+
+### 💰 Sales & Catalog
+- 🔢 Generate new order number when converting quote to order instead of reusing quote number. (#1097) *(@muhammadusman586)*
+- 🔄 Restore variant list after clearing selection in quote/order line items. (#1073) *(@pkarw)*
+
+### 🖥️ UI & UX
+- 🔔 Notification panel layout and behavior improvements. (#1081) *(@pkarw, @maciej-dudziak)*
+- 🧹 Remove unused webhook settings component from the sidebar. *(@pkarw)*
+- 🔄 Re-fetch LookupSelect items when options transitions from array to undefined. *(@amtmich)*
+
+### 🐳 Standalone & Docker
+- 🔧 Multiple standalone app packaging and runtime fixes. (#1105, #1109) *(@pkarw)*
+- 🐳 Docker permissions, pre-built image support, and healthcheck endpoint fixes. *(@pkarw)*
+- 📁 Update Dockerfile to use `.mercato` directory and adjust build steps. (#1094) *(@MStaniaszek1998)*
+- ✅ Improve standalone `create-app` validation and query alias handling. (#1098) *(@pkarw)*
+
+### ⚙️ Core & Infrastructure
+- 🛑 CLI: wait for child processes on shutdown to prevent stale Next.js lock files. (#1096) *(@mat-gren)*
+- 🔍 Fix onboarding vector reindex hanging. (#1117) *(@pkarw)*
+- 📎 Fix todos attachments handling. (#1121) *(@maciej-dudziak)*
+- ✅ Fix validation logic. (#1122) *(@maciej-dudziak)*
+- 🔧 CR fixes — various code review follow-ups. (#1116, #1128) *(@pkarw)*
+
+## 👥 Contributors
+
+- @pkarw
+- @maciej-dudziak
+- @mat-gren
+- @muhammadusman586
+- @MStaniaszek1998
+- @BarWyDev
+- @amtmich
+
+---
+
 # 0.4.9 (2026-03-25)
 
 ## Highlights

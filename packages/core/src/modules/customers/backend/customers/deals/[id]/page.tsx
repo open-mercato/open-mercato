@@ -595,7 +595,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     <ul className="space-y-2 text-sm">
                       {data.people.map((person) => (
                         <li key={person.id} className="flex flex-col gap-1">
-                          <Link href={`/backend/customers/people/${encodeURIComponent(person.id)}`} className="font-medium text-foreground hover:underline">
+                          <Link href={`/backend/customers/people-v2/${encodeURIComponent(person.id)}`} className="font-medium text-foreground hover:underline">
                             {person.label}
                           </Link>
                           <span className="text-xs text-muted-foreground">
@@ -623,7 +623,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                     <ul className="space-y-2 text-sm">
                       {data.companies.map((company) => (
                         <li key={company.id} className="flex flex-col gap-1">
-                          <Link href={`/backend/customers/companies/${encodeURIComponent(company.id)}`} className="font-medium text-foreground hover:underline">
+                          <Link href={`/backend/customers/companies-v2/${encodeURIComponent(company.id)}`} className="font-medium text-foreground hover:underline">
                             {company.label}
                           </Link>
                           <span className="text-xs text-muted-foreground">

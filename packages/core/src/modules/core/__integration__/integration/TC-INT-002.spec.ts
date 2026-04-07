@@ -35,8 +35,8 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
       await page.locator('form').getByRole('textbox').first().fill(companyName);
       await page.getByPlaceholder('https://example.com').fill('https://example.com');
       await page.locator('form').getByRole('button', { name: /Create Company/i }).click();
-      await expect(page).toHaveURL(/\/backend\/customers\/companies\/[0-9a-f-]{36}$/i);
-      companyId = page.url().match(/\/backend\/customers\/companies\/([0-9a-f-]{36})$/i)?.[1] ?? null;
+      await expect(page).toHaveURL(/\/backend\/customers\/companies-v2\/[0-9a-f-]{36}$/i);
+      companyId = page.url().match(/\/backend\/customers\/companies-v2\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 
       await page.goto('/backend/customers/people/create');
       await page.locator('form').getByRole('textbox').first().fill(personFirst);
@@ -49,8 +49,8 @@ test.describe('TC-INT-002: Customer to Deal to Quote to Order Flow', () => {
         .first()
         .selectOption({ label: companyName });
       await page.getByRole('button', { name: 'Create Person' }).first().click();
-      await expect(page).toHaveURL(/\/backend\/customers\/people\/[0-9a-f-]{36}$/i);
-      personId = page.url().match(/\/backend\/customers\/people\/([0-9a-f-]{36})$/i)?.[1] ?? null;
+      await expect(page).toHaveURL(/\/backend\/customers\/people-v2\/[0-9a-f-]{36}$/i);
+      personId = page.url().match(/\/backend\/customers\/people-v2\/([0-9a-f-]{36})$/i)?.[1] ?? null;
 
       await page.goto('/backend/customers/deals/create');
       await page.locator('form').getByRole('textbox').first().fill(dealTitle);

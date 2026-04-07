@@ -65,6 +65,7 @@ Use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFiel
 - Pass `{ transform }` to normalize values (e.g., `normalizeCustomFieldSubmitValue`)
 - Works for both `cf_` and `cf:` prefixed keys
 - Pass `entityIds` to form helpers so correct custom-field sets are loaded
+- If the module ships default custom fields, declare them in `ce.ts` via `entities[].fields` so `yarn mercato entities install` can repair existing tenants.
 
 ## Search Configuration
 

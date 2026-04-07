@@ -12,6 +12,7 @@ export type EnsureFieldDefinitionsOptions = {
   organizationId: string | null
   tenantId: string | null
   dryRun?: boolean
+  createOnly?: boolean
 }
 
 export type EnsureFieldDefinitionsResult = {
@@ -111,6 +112,10 @@ export async function ensureCustomFieldDefinitions(
       const kindChanged = existing.kind !== field.kind
       const configChanged = !configEquals(existing.configJson ?? null, configJson)
       const needsActivation = existing.isActive !== true || existing.deletedAt != null
+      if (scope.createOnly) {
+        unchanged++
+        continue
+      }
       if (!kindChanged && !configChanged && !needsActivation) {
         unchanged++
         continue

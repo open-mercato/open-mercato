@@ -298,9 +298,9 @@ New keys:
 - Disabling an integration extension does not remove local interactions.
 
 ## Configuration
-- Feature flag: `customers.interactions.unified` (default off in first release, on by default after migration validation).
-- Feature flag: `customers.interactions.legacy-adapters` (default on during transition, removable later).
-- Feature flag: `customers.interactions.external-sync` (default off; enabled per integration rollout).
+- Feature flag: `customers.interactions.unified` (default off until operators complete `mercato customers interactions:backfill`; older underscore alias `customers_interactions_unified` remains readable during transition).
+- Feature flag: `customers.interactions.legacy-adapters` (default on during transition, removable later; older underscore alias `customers_interactions_legacy_adapters` remains readable during transition).
+- Feature flag: `customers.interactions.external-sync` (default off; enabled per integration rollout; older underscore alias `customers_interactions_external_sync` remains readable during transition).
 
 ## Performance & Cache Strategy
 ### Query and N+1 Strategy
@@ -351,10 +351,11 @@ This spec follows the deprecation protocol for contract surfaces (API routes, re
 4. For resolvable external links, upsert integration mappings to canonical interaction IDs (idempotent).
 5. Recompute `next_interaction_*` for all customer entities.
 6. Enable compatibility adapters.
-7. Switch UI to canonical interactions API.
-8. Freeze legacy tables to read-only compatibility/audit role; do not drop in this release.
-9. Enable outbound sync per integration after backfill validation to avoid duplicate provider objects.
-10. Publish deprecation timeline and release notes, then schedule dedicated legacy-removal spec for a later release.
+7. Keep `customers.interactions.unified` off by default until backfill validation is complete; compatibility reads merge canonical adapter writes with legacy fallback while the flag is off.
+8. Switch UI to canonical interactions API only after the flag is enabled for the tenant.
+9. Freeze legacy tables to read-only compatibility/audit role; do not drop in this release.
+10. Enable outbound sync per integration after backfill validation to avoid duplicate provider objects.
+11. Publish deprecation timeline and release notes, then schedule dedicated legacy-removal spec for a later release.
 
 ### Next interaction derivation algorithm
 Given all interactions for one `entity_id`:
@@ -592,6 +593,10 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Fully compliant**: Approved for implementation planning.
 
 ## Changelog
+### 2026-03-19
+- Clarified rollout behavior: dotted feature flags are canonical, underscore aliases remain readable for transition safety, and `customers.interactions.unified` stays off by default until `mercato customers interactions:backfill` is completed per tenant.
+- Clarified compatibility read behavior: legacy adapter GET routes may merge canonical adapter writes with legacy fallback while unified mode is disabled, but canonical interactions remain the only new write source.
+
 ### 2026-03-02
 - Renumbered this specification from `SPEC-049` to `SPEC-046b` as a child workstream of customer detail rewrite.
 - Updated cross-spec dependency link to `SPEC-046c-2026-02-28-example-module-umes-alignment-customer-tasks.md`.

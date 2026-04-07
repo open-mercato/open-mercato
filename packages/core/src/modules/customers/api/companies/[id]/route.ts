@@ -16,6 +16,7 @@ import {
   CustomerDeal,
   CustomerTodoLink,
   CustomerPersonProfile,
+  CustomerInteraction,
 } from '../../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
@@ -24,11 +25,19 @@ import {
   resolveCompanyCustomFieldRouting,
   mergeCompanyCustomFieldValues,
 } from '../../../lib/customFieldRouting'
+import {
+  CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+  CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+  mapInteractionRecordToActivitySummary,
+  mapInteractionRecordToTodoSummary,
+} from '../../../lib/interactionCompatibility'
+import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
+import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -292,12 +301,15 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const includeAddresses = includeTokens.has('addresses')
   const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
   const includeDeals = includeTokens.has('deals')
+  const includeInteractions = includeTokens.has('interactions')
   const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
   const includePeople = includeTokens.has('people')
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
   const em = (container.resolve('em') as EntityManager)
+  const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
+  const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
 
   const company = await em.findOne(
     CustomerEntity,
@@ -333,15 +345,37 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const comments = includeComments
     ? await em.find(CustomerComment, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
     : []
-  const activities = includeActivities
+  const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
+  const canonicalInteractionRows = shouldLoadCanonicalInteractions
+    ? await em.find(
+        CustomerInteraction,
+        interactionFlags.unified
+          ? { entity: company.id, deletedAt: null }
+          : { entity: company.id },
+        { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
+      )
+    : []
+  const canonicalActiveInteractions = canonicalInteractionRows.filter((interaction) => !interaction.deletedAt)
+  const canonicalInteractions = shouldLoadCanonicalInteractions
+    ? await hydrateCanonicalInteractions({
+        em,
+        container,
+        auth,
+        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        interactions: canonicalActiveInteractions,
+        enrich: includeInteractions,
+      })
+    : []
+
+  const activities = includeActivities && !interactionFlags.unified
     ? await em.find(CustomerActivity, { entity: company.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
     : []
-  const todoLinks = includeTodos
+  const todoLinks = includeTodos && !interactionFlags.unified
     ? await em.find(CustomerTodoLink, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
     : []
 
   let todoDetails = new Map<string, TodoDetail>()
-  if (includeTodos && todoLinks.length) {
+  if (includeTodos && !interactionFlags.unified && todoLinks.length) {
     const queryEngine = (container.resolve('queryEngine') as QueryEngine)
     try {
       todoDetails = await resolveTodoDetails(
@@ -354,6 +388,24 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       console.warn('customers.companies.detail: failed to enrich todo links', err)
     }
   }
+
+  const canonicalActivityBridgeIds = new Set(
+    canonicalInteractionRows
+      .filter((interaction) => interaction.source === CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE)
+      .map((interaction) => interaction.id),
+  )
+  const canonicalTodoBridgeIds = new Set(
+    canonicalInteractionRows
+      .filter((interaction) => interaction.source === CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE)
+      .map((interaction) => interaction.id),
+  )
+
+  const canonicalActivityItems = canonicalInteractions
+    .filter((interaction) => interaction.interactionType !== 'task')
+    .map((interaction) => mapInteractionRecordToActivitySummary(interaction))
+  const canonicalTodoItems = canonicalInteractions
+    .filter((interaction) => interaction.interactionType === 'task')
+    .map((interaction) => mapInteractionRecordToTodoSummary(interaction))
 
   const authorIds = new Set<string>()
   if (includeActivities) {
@@ -449,6 +501,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   )
 
   return NextResponse.json({
+    interactionMode,
     company: {
       id: company.id,
       displayName: company.displayName,
@@ -520,20 +573,44 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         })
       : [],
     activities: includeActivities
-      ? activities.map((activity) => ({
-          id: activity.id,
-          activityType: activity.activityType,
-          subject: activity.subject,
-          body: activity.body,
-          occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
-          dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
-          authorUserId: activity.authorUserId,
-          authorName: activity.authorUserId ? userMap.get(activity.authorUserId)?.name ?? null : null,
-          authorEmail: activity.authorUserId ? userMap.get(activity.authorUserId)?.email ?? null : null,
-          createdAt: activity.createdAt.toISOString(),
-          appearanceIcon: activity.appearanceIcon ?? null,
-          appearanceColor: activity.appearanceColor ?? null,
-        }))
+      ? (
+          interactionFlags.unified
+            ? canonicalActivityItems
+            : [
+                ...activities
+                  .filter((activity) => !canonicalActivityBridgeIds.has(activity.id))
+                  .map((activity) => ({
+                    id: activity.id,
+                    activityType: activity.activityType,
+                    subject: activity.subject,
+                    body: activity.body,
+                    occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
+                    dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
+                    authorUserId: activity.authorUserId,
+                    authorName: activity.authorUserId ? userMap.get(activity.authorUserId)?.name ?? null : null,
+                    authorEmail: activity.authorUserId ? userMap.get(activity.authorUserId)?.email ?? null : null,
+                    createdAt: activity.createdAt.toISOString(),
+                    appearanceIcon: activity.appearanceIcon ?? null,
+                    appearanceColor: activity.appearanceColor ?? null,
+                  })),
+                ...canonicalActivityItems.filter(
+                  (activity) =>
+                    canonicalInteractions.some(
+                      (interaction) =>
+                        interaction.id === activity.id &&
+                        interaction.source === CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+                    ),
+                ),
+              ].sort((left, right) => {
+                const leftTime = new Date(left.occurredAt ?? left.createdAt).getTime()
+                const rightTime = new Date(right.occurredAt ?? right.createdAt).getTime()
+                if (leftTime === rightTime) return right.id.localeCompare(left.id)
+                return rightTime - leftTime
+              }).slice(0, 50)
+        )
+      : [],
+    interactions: includeInteractions
+      ? canonicalInteractions
       : [],
     deals: includeDeals
       ? deals.map((deal) => ({
@@ -552,26 +629,47 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         }))
       : [],
     todos: includeTodos
-      ? todoLinks.map((link) => {
-          const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
-          const key = `${source}:${link.todoId}`
-          const detail = todoDetails.get(key)
-          return {
-            id: link.id,
-            todoId: link.todoId,
-            todoSource: source,
-            createdAt: link.createdAt.toISOString(),
-            createdByUserId: link.createdByUserId,
-            title: detail?.title ?? null,
-            isDone: detail?.isDone ?? null,
-            priority: detail?.priority ?? null,
-            severity: detail?.severity ?? null,
-            description: detail?.description ?? null,
-            dueAt: detail?.dueAt ?? null,
-            todoOrganizationId: detail?.organizationId ?? null,
-            customValues: detail?.customValues ?? null,
-          }
-        })
+      ? (
+          interactionFlags.unified
+            ? canonicalTodoItems
+            : [
+                ...todoLinks
+                  .filter((link) => !canonicalTodoBridgeIds.has(link.todoId))
+                  .map((link) => {
+                    const source = typeof link.todoSource === 'string' && link.todoSource.trim().length > 0 ? link.todoSource : 'example:todo'
+                    const key = `${source}:${link.todoId}`
+                    const detail = todoDetails.get(key)
+                    return {
+                      id: link.id,
+                      todoId: link.todoId,
+                      todoSource: source,
+                      createdAt: link.createdAt.toISOString(),
+                      createdByUserId: link.createdByUserId,
+                      title: detail?.title ?? null,
+                      isDone: detail?.isDone ?? null,
+                      priority: detail?.priority ?? null,
+                      severity: detail?.severity ?? null,
+                      description: detail?.description ?? null,
+                      dueAt: detail?.dueAt ?? null,
+                      todoOrganizationId: detail?.organizationId ?? null,
+                      customValues: detail?.customValues ?? null,
+                    }
+                  }),
+                ...canonicalTodoItems.filter(
+                  (todo) =>
+                    canonicalInteractions.some(
+                      (interaction) =>
+                        interaction.id === todo.todoId &&
+                        interaction.source === CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+                    ),
+                ),
+              ].sort((left, right) => {
+                const leftTime = new Date(left.createdAt).getTime()
+                const rightTime = new Date(right.createdAt).getTime()
+                if (leftTime === rightTime) return right.id.localeCompare(left.id)
+                return rightTime - leftTime
+              }).slice(0, 50)
+        )
       : [],
     people: includePeople
       ? relatedPeople.map(({ entity, profile: personProfile }) => ({
@@ -599,10 +697,11 @@ const companyDetailQuerySchema = z.object({
   include: z
     .string()
     .optional()
-    .describe('Comma-separated list of relations to include (addresses, comments, activities, deals, todos, people).'),
+    .describe('Comma-separated list of relations to include (addresses, comments, activities, interactions, deals, todos, people).'),
 }).passthrough()
 
 const companyDetailResponseSchema = z.object({
+  interactionMode: z.enum(['canonical', 'legacy']),
   company: z.object({
     id: z.string().uuid(),
     displayName: z.string().nullable().optional(),
@@ -692,6 +791,34 @@ const companyDetailResponseSchema = z.object({
       appearanceColor: z.string().nullable().optional(),
     }),
   ),
+  interactions: z.array(
+    z.object({
+      id: z.string().uuid(),
+      entityId: z.string().uuid().nullable().optional(),
+      interactionType: z.string(),
+      title: z.string().nullable().optional(),
+      body: z.string().nullable().optional(),
+      status: z.string(),
+      scheduledAt: z.string().nullable().optional(),
+      occurredAt: z.string().nullable().optional(),
+      priority: z.number().nullable().optional(),
+      authorUserId: z.string().uuid().nullable().optional(),
+      ownerUserId: z.string().uuid().nullable().optional(),
+      dealId: z.string().uuid().nullable().optional(),
+      organizationId: z.string().uuid().nullable().optional(),
+      tenantId: z.string().uuid().nullable().optional(),
+      authorName: z.string().nullable().optional(),
+      authorEmail: z.string().nullable().optional(),
+      dealTitle: z.string().nullable().optional(),
+      customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+      appearanceIcon: z.string().nullable().optional(),
+      appearanceColor: z.string().nullable().optional(),
+      source: z.string().nullable().optional(),
+      _integrations: z.record(z.string(), z.unknown()).optional(),
+      createdAt: z.string(),
+      updatedAt: z.string(),
+    }),
+  ),
   deals: z.array(
     z.object({
       id: z.string().uuid(),
@@ -756,7 +883,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Fetch company with related data',
-      description: 'Returns a company customer record with optional related resources such as addresses, comments, activities, deals, todos, and linked people.',
+      description: 'Returns a company customer record with optional related resources such as addresses, comments, activities, interactions, deals, todos, and linked people.',
       query: companyDetailQuerySchema,
       responses: [
         { status: 200, description: 'Company detail payload', schema: companyDetailResponseSchema },

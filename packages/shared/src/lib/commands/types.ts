@@ -13,6 +13,7 @@ export type CommandRuntimeContext = {
 }
 
 export type CommandLogMetadata = {
+  skipLog?: boolean
   tenantId?: string | null
   organizationId?: string | null
   actorUserId?: string | null

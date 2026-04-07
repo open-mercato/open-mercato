@@ -14,10 +14,9 @@ test.describe('TC-CRM-014: Delete Customer', () => {
     const companyId = await createCompanyFixture(request, token, companyName);
 
     await login(page, 'admin');
-    await page.goto(`/backend/customers/companies/${companyId}`, { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('button', { name: 'Delete company' })).toBeVisible();
+    await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
 
-    await page.getByRole('button', { name: 'Delete company' }).click();
+    await page.getByRole('button', { name: /^Delete$/ }).first().click();
     await page.getByRole('button', { name: 'Confirm' }).click();
 
     await expect(page).toHaveURL(/\/backend\/customers\/companies$/);

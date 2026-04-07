@@ -1,45 +1,74 @@
-import { registerCommand, commandRegistry } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandLogMetadata, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerEntity, CustomerTodoLink } from '../data/entities'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { CustomerTodoLink } from '../data/entities'
 import { z } from 'zod'
 import {
   todoLinkWithTodoCreateSchema,
   type TodoLinkWithTodoCreateInput,
+  type InteractionCreateInput,
 } from '../data/validators'
 import {
+  extractUndoPayload,
   ensureOrganizationScope,
   ensureTenantScope,
-  extractUndoPayload,
-  requireCustomerEntity,
-  ensureSameScope,
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import {
+  CUSTOMER_INTERACTION_TASK_SOURCE,
+  CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+} from '../lib/interactionCompatibility'
+import { resolveLegacyTodoDetails } from '../lib/todoCompatibility'
 
-type TodoLinkSnapshot = {
-  id: string
-  entityId: string
-  entityKind: string | null
-  organizationId: string
-  tenantId: string
-  todoId: string
-  todoSource: string
-  createdByUserId: string | null
+type InteractionSnapshot = {
+  interaction: {
+    id: string
+    organizationId: string
+    tenantId: string
+    entityId: string
+    entityKind: string | null
+    dealId: string | null
+    interactionType: string
+    title: string | null
+    body: string | null
+    status: string
+    scheduledAt: Date | null
+    occurredAt: Date | null
+    priority: number | null
+    authorUserId: string | null
+    ownerUserId: string | null
+    appearanceIcon: string | null
+    appearanceColor: string | null
+    source: string | null
+  }
+  custom?: Record<string, unknown>
 }
 
-type TodoLinkUndoPayload = {
-  link?: TodoLinkSnapshot | null
+type InteractionUndoPayload = {
+  before?: InteractionSnapshot | null
+  after?: InteractionSnapshot | null
 }
 
-type TodoCreateUndoPayload = {
-  link?: TodoLinkSnapshot | null
-  todo?: Record<string, unknown> | null
-  delegateCommandId?: string | null
+type LegacyTodoDetail = {
+  title: string | null
+  isDone: boolean | null
+  priority: number | null
+  severity: string | null
+  description: string | null
+  dueAt: string | null
+  organizationId: string | null
+  customValues: Record<string, unknown> | null
+}
+
+type TodoTargetResolution = {
+  interactionId: string
+  before: InteractionSnapshot | null
+  legacyLink: CustomerTodoLink | null
+  detail: LegacyTodoDetail | null
+  canonicalExists: boolean
 }
 
 const unlinkSchema = z.object({
@@ -48,116 +77,308 @@ const unlinkSchema = z.object({
   organizationId: z.string().uuid(),
 })
 
-const todoCrudEvents: CrudEventsConfig = {
-  module: 'customers',
-  entity: 'todo',
-  persistent: true,
-  buildPayload: (ctx) => ({
-    id: ctx.identifiers.id,
-    organizationId: ctx.identifiers.organizationId,
-    tenantId: ctx.identifiers.tenantId,
-  }),
+function getRequiredHandler<TInput, TResult>(id: string): CommandHandler<TInput, TResult> {
+  const handler = commandRegistry.get(id) as CommandHandler<TInput, TResult> | null
+  if (!handler) {
+    throw new Error(`Missing command handler: ${id}`)
+  }
+  return handler
 }
 
-type UnlinkInput = z.infer<typeof unlinkSchema>
+function collectTodoCustomValues(input: TodoLinkWithTodoCreateInput): Record<string, unknown> {
+  const values: Record<string, unknown> = {}
+  if (input.todoCustom && typeof input.todoCustom === 'object') {
+    Object.assign(values, input.todoCustom)
+  }
+  if (input.custom && typeof input.custom === 'object') {
+    Object.assign(values, input.custom)
+  }
+  return values
+}
 
-function captureLinkSnapshot(link: CustomerTodoLink): TodoLinkSnapshot {
-  const entityRef = link.entity
-  const entityKind = (typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef)
-    ? (entityRef as { kind: string }).kind
-    : null
+function resolveTodoScheduledAt(customValues: Record<string, unknown>): string | null {
+  const dueAt = customValues.due_at
+  if (typeof dueAt === 'string' && dueAt.trim().length > 0) return dueAt
+  const camelCaseDueAt = customValues.dueAt
+  if (typeof camelCaseDueAt === 'string' && camelCaseDueAt.trim().length > 0) return camelCaseDueAt
+  return null
+}
+
+function parseTodoScheduledAt(value: string | null): Date | null {
+  if (!value) return null
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function resolveTodoPriority(customValues: Record<string, unknown>): number | null {
+  const raw = customValues.priority
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null
+}
+
+function resolveTodoDescription(customValues: Record<string, unknown>): string | null {
+  const raw = customValues.description
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw : null
+}
+
+function mapTodoCreateInput(
+  input: TodoLinkWithTodoCreateInput,
+): InteractionCreateInput & { customValues?: Record<string, unknown> } {
+  const customValues = collectTodoCustomValues(input)
   return {
-    id: link.id,
-    entityId: typeof entityRef === 'string' ? entityRef : entityRef.id,
-    entityKind,
-    organizationId: link.organizationId,
-    tenantId: link.tenantId,
-    todoId: link.todoId,
-    todoSource: link.todoSource,
-    createdByUserId: link.createdByUserId ?? null,
+    entityId: input.entityId,
+    interactionType: 'task',
+    title: input.title,
+    status: input.is_done === true || input.isDone === true ? 'done' : 'planned',
+    authorUserId: input.createdByUserId ?? null,
+    priority: resolveTodoPriority(customValues),
+    body: resolveTodoDescription(customValues),
+    scheduledAt: parseTodoScheduledAt(resolveTodoScheduledAt(customValues)),
+    source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+    ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
   }
 }
 
-const unlinkTodoCommand: CommandHandler<UnlinkInput, { linkId: string }> = {
+function normalizeUndoCreateLogEntry(
+  logEntry: unknown,
+  payload: InteractionUndoPayload | null | undefined,
+): CommandLogMetadata | Record<string, unknown> {
+  const base = logEntry && typeof logEntry === 'object' ? { ...(logEntry as Record<string, unknown>) } : {}
+  const resourceId =
+    typeof base.resourceId === 'string' && base.resourceId.trim().length > 0
+      ? base.resourceId
+      : payload?.after?.interaction.id ?? null
+  return resourceId ? { ...base, resourceId } : base
+}
+
+async function loadInteractionSnapshot(
+  interactionId: string,
+  ctx: CommandRuntimeContext,
+): Promise<InteractionSnapshot | null> {
+  const canonicalDelete = getRequiredHandler<
+    { body?: Record<string, unknown>; query?: Record<string, unknown> },
+    { interactionId: string }
+  >('customers.interactions.delete')
+  const prepared = await canonicalDelete.prepare?.({ body: { id: interactionId } }, ctx)
+  if (!prepared || typeof prepared !== 'object' || !('before' in prepared)) return null
+  return (prepared.before as InteractionSnapshot | undefined) ?? null
+}
+
+async function loadLegacyTodoDetail(
+  ctx: CommandRuntimeContext,
+  link: CustomerTodoLink,
+): Promise<LegacyTodoDetail | null> {
+  let queryEngine: QueryEngine | null = null
+  try {
+    queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
+  } catch {
+    queryEngine = null
+  }
+  if (!queryEngine) return null
+
+  const details = await resolveLegacyTodoDetails(
+    queryEngine,
+    [link],
+    link.tenantId,
+    [link.organizationId],
+  )
+  const source =
+    typeof link.todoSource === 'string' && link.todoSource.trim().length > 0
+      ? link.todoSource
+      : 'example:todo'
+  return details.get(`${source}:${link.todoId}`) ?? null
+}
+
+function buildSyntheticTodoSnapshot(
+  link: CustomerTodoLink,
+  detail: LegacyTodoDetail | null,
+): InteractionSnapshot {
+  const entityRef = link.entity
+  const entityId = typeof entityRef === 'string' ? entityRef : entityRef.id
+  const entityKind =
+    typeof entityRef === 'object' && entityRef !== null && 'kind' in entityRef
+      ? (entityRef as { kind: string | null }).kind ?? null
+      : null
+  const customValues = { ...(detail?.customValues ?? {}) }
+  if (detail?.priority !== null && detail?.priority !== undefined && customValues.priority === undefined) {
+    customValues.priority = detail.priority
+  }
+  if (detail?.description && customValues.description === undefined) {
+    customValues.description = detail.description
+  }
+  if (detail?.dueAt && customValues.due_at === undefined && customValues.dueAt === undefined) {
+    customValues.due_at = detail.dueAt
+  }
+  return {
+    interaction: {
+      id: link.todoId,
+      organizationId: link.organizationId,
+      tenantId: link.tenantId,
+      entityId,
+      entityKind,
+      dealId: null,
+      interactionType: 'task',
+      title: detail?.title ?? null,
+      body: detail?.description ?? null,
+      status: detail?.isDone ? 'done' : 'planned',
+      scheduledAt: detail?.dueAt ? new Date(detail.dueAt) : null,
+      occurredAt: null,
+      priority: detail?.priority ?? null,
+      authorUserId: link.createdByUserId ?? null,
+      ownerUserId: null,
+      appearanceIcon: null,
+      appearanceColor: null,
+      source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+    },
+    custom: Object.keys(customValues).length > 0 ? customValues : undefined,
+  }
+}
+
+function mapLegacyLinkToInteractionCreateInput(
+  link: CustomerTodoLink,
+  detail: LegacyTodoDetail | null,
+): InteractionCreateInput & { customValues?: Record<string, unknown> } {
+  const entityRef = link.entity
+  const entityId = typeof entityRef === 'string' ? entityRef : entityRef.id
+  const customValues = { ...(detail?.customValues ?? {}) }
+  if (detail?.priority !== null && detail?.priority !== undefined && customValues.priority === undefined) {
+    customValues.priority = detail.priority
+  }
+  if (detail?.description && customValues.description === undefined) {
+    customValues.description = detail.description
+  }
+  if (detail?.dueAt && customValues.due_at === undefined && customValues.dueAt === undefined) {
+    customValues.due_at = detail.dueAt
+  }
+  return {
+    id: link.todoId,
+    entityId,
+    interactionType: 'task',
+    title: detail?.title ?? null,
+    body: detail?.description ?? null,
+    status: detail?.isDone ? 'done' : 'planned',
+    scheduledAt: parseTodoScheduledAt(detail?.dueAt ?? null),
+    priority: detail?.priority ?? null,
+    authorUserId: link.createdByUserId ?? null,
+    source: CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
+    ...(Object.keys(customValues).length > 0 ? { customValues } : {}),
+  }
+}
+
+async function resolveTodoTarget(
+  linkId: string,
+  ctx: CommandRuntimeContext,
+): Promise<TodoTargetResolution> {
+  const directSnapshot = await loadInteractionSnapshot(linkId, ctx)
+  if (directSnapshot) {
+    return {
+      interactionId: linkId,
+      before: directSnapshot,
+      legacyLink: null,
+      detail: null,
+      canonicalExists: true,
+    }
+  }
+
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const legacyLink = await em.findOne(CustomerTodoLink, { id: linkId }, { populate: ['entity'] })
+  if (!legacyLink) {
+    throw new CrudHttpError(404, { error: 'Todo link not found' })
+  }
+
+  const bridgedSnapshot = await loadInteractionSnapshot(legacyLink.todoId, ctx)
+  if (bridgedSnapshot) {
+    return {
+      interactionId: legacyLink.todoId,
+      before: bridgedSnapshot,
+      legacyLink,
+      detail: null,
+      canonicalExists: true,
+    }
+  }
+
+  const detail = await loadLegacyTodoDetail(ctx, legacyLink)
+  return {
+    interactionId: legacyLink.todoId,
+    before: buildSyntheticTodoSnapshot(legacyLink, detail),
+    legacyLink,
+    detail,
+    canonicalExists: false,
+  }
+}
+
+/** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
+const unlinkTodoCommand: CommandHandler<
+  z.infer<typeof unlinkSchema>,
+  { linkId: string; interactionId: string }
+> = {
   id: 'customers.todos.unlink',
   async prepare(rawInput, ctx) {
     const parsed = unlinkSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const link = await em.findOne(CustomerTodoLink, { id: parsed.linkId }, { populate: ['entity'] })
-    if (!link) return {}
-    return { before: captureLinkSnapshot(link) }
+    const target = await resolveTodoTarget(parsed.linkId, ctx)
+    return target.before ? { before: target.before } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = unlinkSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(CustomerTodoLink, { id: parsed.linkId })
-    if (!link) throw new CrudHttpError(404, { error: 'Todo link not found' })
-    ensureSameScope({ organizationId: link.organizationId, tenantId: link.tenantId }, parsed.organizationId, parsed.tenantId)
+    const target = await resolveTodoTarget(parsed.linkId, ctx)
+    if (!target.canonicalExists) {
+      if (!target.legacyLink) {
+        throw new CrudHttpError(404, { error: 'Todo link not found' })
+      }
+      const canonicalCreate = getRequiredHandler<
+        InteractionCreateInput & { customValues?: Record<string, unknown> },
+        { interactionId: string }
+      >('customers.interactions.create')
+      await canonicalCreate.execute(
+        mapLegacyLinkToInteractionCreateInput(target.legacyLink, target.detail),
+        ctx,
+      )
+    }
 
-    em.remove(link)
-    await em.flush()
+    const canonicalDelete = getRequiredHandler<
+      { body?: Record<string, unknown>; query?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.delete')
+    await canonicalDelete.execute({ body: { id: target.interactionId } }, ctx)
 
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'deleted',
-      entity: link,
-      identifiers: {
-        id: link.id,
-        organizationId: link.organizationId,
-        tenantId: link.tenantId,
-      },
-      events: todoCrudEvents,
-    })
-
-    return { linkId: link.id }
+    return { linkId: parsed.linkId, interactionId: target.interactionId }
   },
-  buildLog: async ({ snapshots, input }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const parsed = unlinkSchema.parse(input)
-    const before = snapshots.before as TodoLinkSnapshot | undefined
+    const before = snapshots.before as InteractionSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.todos.unlink', 'Unlink todo'),
       resourceKind: 'customers.todoLink',
-      resourceId: parsed.linkId,
-      parentResourceKind: resolveParentResourceKind(before?.entityKind),
-      parentResourceId: before?.entityId ?? null,
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
+      resourceId: result.linkId,
+      parentResourceKind: resolveParentResourceKind(before?.interaction.entityKind),
+      parentResourceId: before?.interaction.entityId ?? null,
+      tenantId: before?.interaction.tenantId ?? null,
+      organizationId: before?.interaction.organizationId ?? null,
+      snapshotBefore: before ?? null,
       payload: {
         undo: {
-          link: before ?? null,
-        } satisfies TodoLinkUndoPayload,
+          before: before ?? null,
+        } satisfies InteractionUndoPayload,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<TodoLinkUndoPayload>(logEntry)
-    const linkSnapshot = payload?.link
-    if (!linkSnapshot) return
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(CustomerTodoLink, { id: linkSnapshot.id })
-    if (existing) return
-
-    const entity = await requireCustomerEntity(em, linkSnapshot.entityId, undefined, 'Customer not found')
-    const link = em.create(CustomerTodoLink, {
-      id: linkSnapshot.id,
-      entity,
-      organizationId: linkSnapshot.organizationId,
-      tenantId: linkSnapshot.tenantId,
-      todoId: linkSnapshot.todoId,
-      todoSource: linkSnapshot.todoSource,
-      createdByUserId: linkSnapshot.createdByUserId,
+    const canonicalDelete = getRequiredHandler<
+      { body?: Record<string, unknown>; query?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.delete')
+    if (!canonicalDelete.undo) return
+    await canonicalDelete.undo({
+      input: {},
+      ctx,
+      logEntry,
     })
-    em.persist(link)
-    await em.flush()
   },
 }
 
+/** @deprecated Use interaction commands instead. Maintained as a compatibility bridge per SPEC-046b. */
 const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: string; todoId: string }> = {
   id: 'customers.todos.create',
   async execute(rawInput, ctx) {
@@ -165,99 +386,67 @@ const createTodoCommand: CommandHandler<TodoLinkWithTodoCreateInput, { linkId: s
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
-    ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
-
-    const delegateCommandId = `${parsed.todoSource.split(':')[0]}.todos.create`
-    const delegateHandler = commandRegistry.get(delegateCommandId)
-    if (!delegateHandler) {
-      throw new CrudHttpError(400, { error: `Todo source ${parsed.todoSource} is not supported` })
-    }
-
-    const todoPayload = {
-      title: parsed.title,
-      is_done: parsed.is_done ?? parsed.isDone ?? false,
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
-      custom: parsed.todoCustom ?? parsed.custom ?? {},
-    }
-
-    const todoResult = await delegateHandler.execute(todoPayload, ctx) as { id: string }
-    const todoId = todoResult.id
-
-    const link = em.create(CustomerTodoLink, {
-      entity,
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      todoId,
-      todoSource: parsed.todoSource,
-      createdByUserId: ctx.auth?.sub ?? null,
-    })
-    em.persist(link)
-    await em.flush()
-
-    return { linkId: link.id, todoId }
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.create')
+    const result = await canonicalCreate.execute(mapTodoCreateInput(parsed), ctx)
+    return { linkId: result.interactionId, todoId: result.interactionId }
   },
   captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(CustomerTodoLink, { id: result.linkId }, { populate: ['entity'] })
-    if (!link) return null
-    return captureLinkSnapshot(link)
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.create')
+    if (!canonicalCreate.captureAfter) return null
+    return canonicalCreate.captureAfter(
+      {
+        entityId: '00000000-0000-0000-0000-000000000000',
+        interactionType: 'task',
+        status: 'planned',
+      },
+      { interactionId: result.todoId },
+      ctx,
+    )
   },
-  buildLog: async ({ input, result, ctx }) => {
+  buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
-    const parsed = todoLinkWithTodoCreateSchema.parse(input)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(CustomerTodoLink, { id: result.linkId }, { populate: ['entity'] })
-    const linkSnapshot = link ? captureLinkSnapshot(link) : null
-
-    const delegateCommandId = `${parsed.todoSource.split(':')[0]}.todos.create`
-    const delegateHandler = commandRegistry.get(delegateCommandId)
-    let todoSnapshot: Record<string, unknown> | null = null
-    if (delegateHandler?.captureAfter) {
-      todoSnapshot = await delegateHandler.captureAfter(input, { id: result.todoId }, ctx) as Record<string, unknown> | null
-    }
-
+    const snapshot = snapshots.after as InteractionSnapshot | undefined
     return {
       actionLabel: translate('customers.audit.todos.create', 'Create todo'),
       resourceKind: 'customers.todoLink',
       resourceId: result.linkId,
-      parentResourceKind: resolveParentResourceKind(linkSnapshot?.entityKind),
-      parentResourceId: linkSnapshot?.entityId ?? null,
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
+      parentResourceKind: resolveParentResourceKind(snapshot?.interaction.entityKind),
+      parentResourceId: snapshot?.interaction.entityId ?? null,
+      tenantId: snapshot?.interaction.tenantId ?? null,
+      organizationId: snapshot?.interaction.organizationId ?? null,
+      snapshotAfter: snapshot ?? null,
       payload: {
         undo: {
-          link: linkSnapshot,
-          todo: todoSnapshot,
-          delegateCommandId,
-        } satisfies TodoCreateUndoPayload,
+          after: snapshot ?? null,
+        } satisfies InteractionUndoPayload,
+      },
+      context: {
+        todoSource: CUSTOMER_INTERACTION_TASK_SOURCE,
       },
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<TodoCreateUndoPayload>(logEntry)
-    if (!payload) return
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-
-    if (payload.link) {
-      await em.nativeDelete(CustomerTodoLink, { id: payload.link.id })
-    }
-
-    if (payload.delegateCommandId && payload.todo) {
-      const delegateHandler = commandRegistry.get(payload.delegateCommandId)
-      if (delegateHandler?.undo) {
-        await delegateHandler.undo({
-          input: undefined,
-          ctx,
-          logEntry: {
-            commandPayload: { undo: { after: payload.todo } },
-          } as any,
-        })
-      }
-    }
+    const payload = extractUndoPayload<InteractionUndoPayload>(logEntry)
+    const canonicalCreate = getRequiredHandler<
+      InteractionCreateInput & { customValues?: Record<string, unknown> },
+      { interactionId: string }
+    >('customers.interactions.create')
+    if (!canonicalCreate.undo) return
+    await canonicalCreate.undo({
+      input: {
+        entityId: payload?.after?.interaction.entityId ?? '00000000-0000-0000-0000-000000000000',
+        interactionType: 'task',
+        status: 'planned',
+      },
+      ctx,
+      logEntry: normalizeUndoCreateLogEntry(logEntry, payload),
+    })
   },
 }
 

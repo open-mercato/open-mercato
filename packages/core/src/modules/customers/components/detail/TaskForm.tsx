@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
 import type { TaskFormPayload } from './hooks/usePersonTasks'
 import { normalizeCustomFieldSubmitValue } from './customFieldUtils'
 
@@ -17,6 +18,7 @@ export type TaskFormProps = {
   submitLabel?: string
   cancelLabel?: string
   isSubmitting?: boolean
+  formEntityId?: string
 }
 
 export function TaskForm({
@@ -27,6 +29,7 @@ export function TaskForm({
   submitLabel,
   cancelLabel,
   isSubmitting = false,
+  formEntityId = CUSTOMER_INTERACTION_ENTITY_ID,
 }: TaskFormProps) {
   const t = useT()
   const containerRef = React.useRef<HTMLDivElement | null>(null)
@@ -39,6 +42,25 @@ export function TaskForm({
         type: 'text',
         required: true,
         placeholder: t('customers.people.detail.tasks.fields.titlePlaceholder', 'Task title'),
+      },
+      {
+        id: 'scheduledAt',
+        label: t('customers.people.detail.tasks.fields.scheduledAt', 'Scheduled for'),
+        type: 'datetime',
+        placeholder: t('customers.people.detail.tasks.fields.scheduledAtPlaceholder', 'Choose a date and time'),
+      },
+      {
+        id: 'priority',
+        label: t('customers.people.detail.tasks.fields.priority', 'Priority'),
+        type: 'number',
+        placeholder: t('customers.people.detail.tasks.fields.priorityPlaceholder', '0-100'),
+      },
+      {
+        id: 'description',
+        label: t('customers.people.detail.tasks.fields.description', 'Description'),
+        type: 'textarea',
+        placeholder: t('customers.people.detail.tasks.fields.descriptionPlaceholder', 'Add context, outcome, or follow-up notes'),
+        layout: 'full',
       },
       {
         id: 'is_done',
@@ -54,13 +76,13 @@ export function TaskForm({
         id: 'details',
         title: t('customers.people.detail.tasks.form.details', 'Task details'),
         column: 1,
-        fields: ['title'],
+        fields: ['title', 'scheduledAt', 'description'],
       },
       {
         id: 'status',
         title: t('customers.people.detail.tasks.form.status', 'Status'),
         column: 2,
-        fields: ['is_done'],
+        fields: ['priority', 'is_done'],
       },
       {
         id: 'attributes',
@@ -74,7 +96,10 @@ export function TaskForm({
         column: 2,
         component: () => (
           <div className="text-sm text-muted-foreground">
-            {t('customers.people.detail.tasks.form.tipsBody', 'Use clear titles like "Follow up call" or "Send pricing deck".')}
+            {t(
+              'customers.people.detail.tasks.form.tipsBody',
+              'Tasks save independently from the main customer form. Use clear titles like "Follow up call" or "Send pricing deck".',
+            )}
           </div>
         ),
       },
@@ -115,7 +140,7 @@ export function TaskForm({
     <div ref={containerRef} onKeyDown={handleKeyDown}>
       <CrudForm
         embedded
-        entityId="example:todo"
+        entityId={formEntityId}
         fields={fields}
         groups={groups}
         initialValues={initialValues}
@@ -137,10 +162,27 @@ export function buildTaskSubmitPayload(values: Record<string, unknown>, t: (key:
     const message = t('customers.people.detail.tasks.titleRequired', 'Task name is required.')
     throw createCrudFormError(message, { title: message })
   }
+
+  const rawPriority = typeof values.priority === 'number' || typeof values.priority === 'string' ? values.priority : null
+  let priority: number | null = null
+  if (rawPriority !== null && rawPriority !== '') {
+    const parsed = typeof rawPriority === 'number' ? rawPriority : Number(String(rawPriority).trim())
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+      const message = t('customers.people.detail.tasks.priorityInvalid', 'Enter a whole-number priority between 0 and 100.')
+      throw createCrudFormError(message, { priority: message })
+    }
+    priority = parsed
+  }
+
+  const rawDescription = typeof values.description === 'string' ? values.description.trim() : ''
+  const rawScheduledAt = typeof values.scheduledAt === 'string' ? values.scheduledAt.trim() : ''
   const base: TaskFormPayload['base'] = { title: rawTitle }
   if (typeof values.is_done === 'boolean') {
     base.is_done = values.is_done
   }
+  base.description = rawDescription || null
+  base.priority = priority
+  base.scheduledAt = rawScheduledAt || null
   const custom = collectCustomFieldValues(values, {
     transform: (value) => normalizeCustomFieldSubmitValue(value),
   })

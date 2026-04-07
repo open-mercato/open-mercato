@@ -794,6 +794,7 @@ export default function EditCatalogProductPage({
             setValue={setValue}
             errors={errors}
             taxRates={taxRates}
+            isLoadingProduct={loading}
           />
         ),
       },
@@ -1292,6 +1293,7 @@ type ProductDetailsSectionProps = ProductFormGroupProps & { productId: string };
 
 type ProductMetaSectionProps = ProductFormGroupProps & {
   taxRates: TaxRateSummary[];
+  isLoadingProduct?: boolean;
 };
 
 type ProductVariantsSectionProps = Omit<
@@ -2240,13 +2242,25 @@ function ProductMetaSection({
   setValue,
   errors,
   taxRates,
+  isLoadingProduct = false,
 }: ProductMetaSectionProps) {
   const t = useT();
   const handleValue = typeof values.handle === "string" ? values.handle : "";
   const titleSource = typeof values.title === "string" ? values.title : "";
   const autoHandleEnabledRef = React.useRef(handleValue.trim().length === 0);
+  const autoHandleInitializedRef = React.useRef(false);
+  const previousTitleRef = React.useRef(titleSource);
 
   React.useEffect(() => {
+    if (isLoadingProduct) return;
+    if (!autoHandleInitializedRef.current) {
+      autoHandleInitializedRef.current = true;
+      previousTitleRef.current = titleSource;
+      return;
+    }
+    const titleChanged = titleSource !== previousTitleRef.current;
+    previousTitleRef.current = titleSource;
+    if (!titleChanged) return;
     if (!autoHandleEnabledRef.current) return;
     const normalizedTitle = titleSource.trim();
     if (!normalizedTitle) {
@@ -2259,7 +2273,7 @@ function ProductMetaSection({
     if (nextHandle !== handleValue) {
       setValue("handle", nextHandle);
     }
-  }, [titleSource, handleValue, setValue]);
+  }, [handleValue, isLoadingProduct, setValue, titleSource]);
 
   const handleHandleInputChange = React.useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {

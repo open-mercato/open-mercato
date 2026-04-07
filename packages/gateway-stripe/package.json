@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/gateway-stripe",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -69,7 +69,7 @@
     "stripe": "^17.0.0"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^6.5.9",
+    "@mikro-orm/postgresql": "^6.6.10",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0"
   },

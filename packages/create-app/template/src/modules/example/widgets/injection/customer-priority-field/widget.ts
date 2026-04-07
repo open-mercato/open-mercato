@@ -18,14 +18,15 @@ const widget: InjectionFieldWidget = {
   fields: [
     {
       id: '_example.priority',
-      label: 'example.priority.field',
+      label: 'Priority',
+      labelKey: 'example.priority.field',
       type: 'select',
       group: 'details',
       options: [
-        { value: 'low', label: 'example.priority.low' },
-        { value: 'normal', label: 'example.priority.normal' },
-        { value: 'high', label: 'example.priority.high' },
-        { value: 'critical', label: 'example.priority.critical' },
+        { value: 'low', label: 'Low', labelKey: 'example.priority.low' },
+        { value: 'normal', label: 'Normal', labelKey: 'example.priority.normal' },
+        { value: 'high', label: 'High', labelKey: 'example.priority.high' },
+        { value: 'critical', label: 'Critical', labelKey: 'example.priority.critical' },
       ],
     },
   ],

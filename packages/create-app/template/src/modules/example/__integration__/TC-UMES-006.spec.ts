@@ -1,6 +1,18 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 
 test.describe('TC-UMES-006: transformFormData applyToForm opt-in', () => {
+  async function openHandlersPage(
+    page: Page,
+    login: (page: Page, role?: 'superadmin' | 'admin' | 'employee') => Promise<void>,
+  ) {
+    await page.goto('/backend/umes-handlers', { waitUntil: 'domcontentloaded' })
+    if (/\/login(?:[/?#]|$)/.test(page.url())) {
+      await login(page, 'admin')
+      await page.goto('/backend/umes-handlers', { waitUntil: 'domcontentloaded' })
+    }
+    await expect(page.getByTestId('widget-transform-form-data')).toBeVisible({ timeout: 30_000 })
+  }
+
   test('TC-UMES-E20: default path — transformed payload does not update visible form fields', async ({
     page,
   }) => {
@@ -8,9 +20,7 @@ test.describe('TC-UMES-006: transformFormData applyToForm opt-in', () => {
       '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
-    await page.waitForLoadState('domcontentloaded')
-    await expect(page.getByTestId('widget-transform-form-data')).toBeVisible()
+    await openHandlersPage(page, login)
 
     const titleInput = page.locator('[data-crud-field-id="title"] input').first()
     await titleInput.fill('  spaces around  ')
@@ -34,9 +44,7 @@ test.describe('TC-UMES-006: transformFormData applyToForm opt-in', () => {
       '@open-mercato/core/helpers/integration/auth'
     )
     await login(page, 'admin')
-    await page.goto('/backend/umes-handlers')
-    await page.waitForLoadState('domcontentloaded')
-    await expect(page.getByTestId('widget-transform-form-data')).toBeVisible()
+    await openHandlersPage(page, login)
 
     const noteInput = page.locator('[data-crud-field-id="note"] input').first()
     await noteInput.fill('transform: make me uppercase')

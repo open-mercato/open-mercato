@@ -2,6 +2,7 @@
 
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
+import { CUSTOMER_INTERACTION_TASK_SOURCE, CUSTOMER_INTERACTION_TASK_TYPE } from '../../lib/interactionCompatibility'
 
 
 export function formatDate(value?: string | null): string | null {
@@ -35,6 +36,7 @@ export function toLocalDateTimeInput(value?: string | null): string {
 export function resolveTodoHref(source: string, todoId: string | null | undefined): string | null {
   if (!todoId) return null
   if (!source) return null
+  if (source === CUSTOMER_INTERACTION_TASK_SOURCE || source === CUSTOMER_INTERACTION_TASK_TYPE) return null
   const [module] = source.split(':')
   if (!module) return null
   return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
@@ -42,6 +44,9 @@ export function resolveTodoHref(source: string, todoId: string | null | undefine
 
 export function resolveTodoApiPath(source: string): string | null {
   if (!source) return null
+  if (source === CUSTOMER_INTERACTION_TASK_SOURCE || source === CUSTOMER_INTERACTION_TASK_TYPE) {
+    return '/api/customers/todos'
+  }
   const [module] = source.split(':')
   if (!module) return null
   return `/api/${module}/todos`

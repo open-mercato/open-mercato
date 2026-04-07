@@ -47,6 +47,15 @@ const events = [
   { id: 'customers.todo.created', label: 'Todo Created', entity: 'todo', category: 'crud' },
   { id: 'customers.todo.updated', label: 'Todo Updated', entity: 'todo', category: 'crud' },
   { id: 'customers.todo.deleted', label: 'Todo Deleted', entity: 'todo', category: 'crud' },
+
+  // Interactions (canonical)
+  { id: 'customers.interaction.created', label: 'Interaction Created', entity: 'interaction', category: 'crud' },
+  { id: 'customers.interaction.updated', label: 'Interaction Updated', entity: 'interaction', category: 'crud' },
+  { id: 'customers.interaction.completed', label: 'Interaction Completed', entity: 'interaction', category: 'lifecycle' },
+  { id: 'customers.interaction.canceled', label: 'Interaction Canceled', entity: 'interaction', category: 'lifecycle' },
+  { id: 'customers.interaction.reverted', label: 'Interaction Reverted', entity: 'interaction', category: 'lifecycle' },
+  { id: 'customers.interaction.deleted', label: 'Interaction Deleted', entity: 'interaction', category: 'crud' },
+  { id: 'customers.next_interaction.updated', label: 'Next Interaction Updated', entity: 'interaction', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

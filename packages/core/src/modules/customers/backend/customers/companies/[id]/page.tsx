@@ -824,6 +824,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                 return (
                   <ActivitiesSection
                     entityId={companyId}
+                    runGuardedMutation={runMutationWithContext}
                     addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
                     emptyState={{
                       title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
@@ -864,6 +865,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                     onActionChange={handleSectionActionChange}
                     onLoadingChange={handlePeopleLoadingChange}
                     translator={detailTranslator}
+                    runGuardedMutation={runMutationWithContext}
                     onPeopleChange={(next) => {
                       setData((prev) => (prev ? { ...prev, people: next } : prev))
                     }}
@@ -891,6 +893,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                   <TasksSection
                     entityId={companyId}
                     initialTasks={data.todos}
+                    runGuardedMutation={runMutationWithContext}
                     emptyLabel={t('customers.companies.detail.empty.todos', 'No tasks linked to this company.')}
                     addActionLabel={t('customers.companies.detail.tasks.add', 'Add task')}
                     emptyState={{

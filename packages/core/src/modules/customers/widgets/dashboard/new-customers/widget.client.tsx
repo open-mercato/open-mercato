@@ -56,8 +56,8 @@ async function loadNewCustomers(settings: CustomerNewCustomersSettings): Promise
 
 function resolveDetailHref(item: NewCustomerItem): string | null {
   if (!item.id || !item.kind) return null
-  if (item.kind === 'company') return `/backend/customers/companies/${encodeURIComponent(item.id)}`
-  if (item.kind === 'person') return `/backend/customers/people/${encodeURIComponent(item.id)}`
+  if (item.kind === 'company') return `/backend/customers/companies-v2/${encodeURIComponent(item.id)}`
+  if (item.kind === 'person') return `/backend/customers/people-v2/${encodeURIComponent(item.id)}`
   return null
 }
 

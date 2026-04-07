@@ -651,7 +651,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                                         <Link
                                           key={person.id}
                                           className="rounded-full bg-primary/5 px-3 py-1 text-xs text-primary transition-colors hover:bg-primary/10"
-                                          href={`/backend/customers/people/${person.id}`}
+                                          href={`/backend/customers/people-v2/${person.id}`}
                                           draggable={false}
                                           onClick={handleActionClick}
                                         >
@@ -666,7 +666,7 @@ export default function SalesPipelinePage(): React.ReactElement {
                                         <Link
                                           key={company.id}
                                           className="rounded-full bg-secondary/10 px-3 py-1 text-xs text-secondary-foreground transition-colors hover:bg-secondary/20"
-                                          href={`/backend/customers/companies/${company.id}`}
+                                          href={`/backend/customers/companies-v2/${company.id}`}
                                           draggable={false}
                                           onClick={handleActionClick}
                                         >

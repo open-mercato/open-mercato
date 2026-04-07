@@ -149,7 +149,7 @@ export async function POST(req: Request) {
         "The link will expire in 24 hours. If you didn't request this, you can safely ignore this message.",
       ),
       marketingConsent: marketingConsentText,
-      footer: translate('onboarding.email.footer', 'Open Mercato · Tenant onboarding service'),
+      footer: translate('onboarding.email.footer', 'Open Mercato · Onboarding service'),
     }
     const emailReact = VerificationEmail({ verifyUrl, copy: emailCopy })
     try {

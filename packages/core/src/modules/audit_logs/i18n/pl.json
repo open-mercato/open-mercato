@@ -44,6 +44,8 @@
   "audit_logs.hint.view_self_only": "Wyświetlane są tylko Twoje zmiany. Skontaktuj się z administratorem, aby uzyskać szerszy dostęp.",
   "audit_logs.nav.title": "Logi audytu",
   "audit_logs.tabs.label": "Widoki dziennika audytu",
+  "audit_logs.version_history.action.redo": "Ponów {action}",
+  "audit_logs.version_history.action.undo": "Cofnij {action}",
   "audit_logs.version_history.close": "Zamknij",
   "audit_logs.version_history.detail.action": "Akcja",
   "audit_logs.version_history.detail.actor": "Zmienione przez",

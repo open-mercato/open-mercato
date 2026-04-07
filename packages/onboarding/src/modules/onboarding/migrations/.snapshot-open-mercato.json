@@ -90,6 +90,16 @@
           "default": "false",
           "mappedType": "boolean"
         },
+        "marketing_consent": {
+          "name": "marketing_consent",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "default": "false",
+          "mappedType": "boolean"
+        },
         "password_hash": {
           "name": "password_hash",
           "type": "text",
@@ -158,6 +168,26 @@
         },
         "last_email_sent_at": {
           "name": "last_email_sent_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "preparation_completed_at": {
+          "name": "preparation_completed_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
+        "ready_email_sent_at": {
+          "name": "ready_email_sent_at",
           "type": "timestamptz",
           "unsigned": false,
           "autoincrement": false,

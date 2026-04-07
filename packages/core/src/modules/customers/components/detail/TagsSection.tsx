@@ -3,6 +3,7 @@
 import * as React from 'react'
 import {
   TagsSection as SharedTagsSection,
+  type TagsSectionController,
   type TagsSectionLabels,
   type TagOption,
 } from '@open-mercato/ui/backend/detail'
@@ -17,9 +18,17 @@ type TagsSectionProps = {
   onChange?: (next: TagOption[]) => void
   isSubmitting?: boolean
   title?: string
+  controllerRef?: React.MutableRefObject<TagsSectionController | null>
 }
 
-export function TagsSection({ entityId, tags, onChange, isSubmitting = false, title }: TagsSectionProps) {
+export function TagsSection({
+  entityId,
+  tags,
+  onChange,
+  isSubmitting = false,
+  title,
+  controllerRef,
+}: TagsSectionProps) {
   const t = useT()
 
   const fetchTags = React.useCallback(
@@ -142,6 +151,8 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
       edit: t('ui.forms.actions.edit'),
       cancel: t('ui.forms.actions.cancel'),
       success: t('customers.people.detail.tags.success', 'Tags updated.'),
+      saving: t('ui.forms.status.saving', 'Saving…'),
+      autoSaveHint: t('customers.people.detail.tags.autoSaveHint', 'Tags save automatically after each change.'),
     }),
     [t],
   )
@@ -153,6 +164,8 @@ export function TagsSection({ entityId, tags, onChange, isSubmitting = false, ti
       onChange={onChange}
       isSubmitting={isSubmitting}
       canEdit={!!entityId}
+      autoSave
+      controllerRef={controllerRef}
       loadOptions={fetchTags}
       createTag={createTag}
       onSave={handlePersist}

@@ -4,17 +4,25 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import type { SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
+import type { InteractionSummary, SectionAction, TabEmptyStateConfig, TodoLinkSummary, Translator } from './types'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { formatDate, resolveTodoHref } from './utils'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { TimelineItemHeader } from './TimelineItemHeader'
 import { TaskDialog } from './TaskDialog'
 import { usePersonTasks, type TaskFormPayload } from './hooks/usePersonTasks'
+import { useInteractions, type InteractionCreatePayload } from './hooks/useInteractions'
+import { mapInteractionRecordToTodoSummary } from '../../lib/interactionCompatibility'
+
+type GuardedMutationRunner = <T>(
+  operation: () => Promise<T>,
+  mutationPayload?: Record<string, unknown>,
+) => Promise<T>
 
 type TasksSectionProps = {
   entityId: string | null
@@ -24,10 +32,38 @@ type TasksSectionProps = {
   emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
+  onDataRefresh?: () => void
   translator?: Translator
   entityName?: string | null
   dialogContextKey?: string
   dialogContextFallback?: string
+  /** When true, use the canonical interactions API instead of the legacy todos API. */
+  useCanonicalInteractions?: boolean
+  runGuardedMutation?: GuardedMutationRunner
+}
+
+const RESERVED_TASK_CUSTOM_KEYS = new Set(['priority', 'description', 'due_at', 'dueAt'])
+
+function toTimestamp(value: string | null | undefined): number | null {
+  if (!value) return null
+  const timestamp = new Date(value).getTime()
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function sortTaskSummaries(tasks: TodoLinkSummary[]): TodoLinkSummary[] {
+  return [...tasks].sort((left, right) => {
+    const leftDue = toTimestamp(left.dueAt)
+    const rightDue = toTimestamp(right.dueAt)
+    if (leftDue !== null || rightDue !== null) {
+      if (leftDue === null) return 1
+      if (rightDue === null) return -1
+      if (leftDue !== rightDue) return leftDue - rightDue
+    }
+    const leftCreated = toTimestamp(left.createdAt) ?? 0
+    const rightCreated = toTimestamp(right.createdAt) ?? 0
+    if (leftCreated !== rightCreated) return rightCreated - leftCreated
+    return left.id.localeCompare(right.id)
+  })
 }
 
 function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, unknown> | undefined {
@@ -35,13 +71,13 @@ function buildInitialFormValues(task: TodoLinkSummary | null): Record<string, un
   const values: Record<string, unknown> = {
     title: task.title ?? '',
     is_done: task.isDone ?? false,
+    description: task.description ?? '',
+    priority: task.priority ?? '',
+    scheduledAt: task.dueAt ?? '',
   }
-  if (task.priority !== undefined && task.priority !== null) values.cf_priority = task.priority
-  if (task.severity) values.cf_severity = task.severity
-  if (task.description) values.cf_description = task.description
-  if (task.dueAt) values.cf_due_at = task.dueAt
   if (task.customValues) {
     for (const [key, value] of Object.entries(task.customValues)) {
+      if (RESERVED_TASK_CUSTOM_KEYS.has(key)) continue
       const formKey = `cf_${key}`
       if (values[formKey] === undefined) values[formKey] = value
     }
@@ -57,30 +93,108 @@ export function TasksSection({
   emptyState,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   translator,
   entityName,
   dialogContextKey,
   dialogContextFallback,
+  useCanonicalInteractions = false,
+  runGuardedMutation,
 }: TasksSectionProps) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
+  const runWriteMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      if (!runGuardedMutation) {
+        return operation()
+      }
+      return runGuardedMutation(operation, mutationPayload)
+    },
+    [runGuardedMutation],
+  )
 
-  const {
-    tasks,
-    isInitialLoading,
-    isLoadingMore,
-    isMutating,
-    hasMore,
-    loadMore,
-    refresh,
-    createTask,
-    updateTask,
-    toggleTask,
-    unlinkTask,
-    pendingTaskId,
-    error,
-  } = usePersonTasks({ entityId, initialTasks })
+  // Legacy path: usePersonTasks (default)
+  const legacyResult = usePersonTasks({ entityId, initialTasks })
+
+  // Canonical path: useInteractions with planned-status filter
+  const canonicalResult = useInteractions({
+    entityId: useCanonicalInteractions ? entityId : null,
+    typeFilter: 'task',
+  })
+
+  // Map canonical interactions to the TodoLinkSummary shape used by the rendering below
+  const canonicalTasks = React.useMemo<TodoLinkSummary[]>(
+    () => (useCanonicalInteractions ? canonicalResult.interactions.map(mapInteractionRecordToTodoSummary) : []),
+    [useCanonicalInteractions, canonicalResult.interactions],
+  )
+
+  const canonicalCreateTask = React.useCallback(
+    async (payload: TaskFormPayload) => {
+      if (!entityId) throw new Error('Task creation requires an entity id')
+      const interactionPayload: InteractionCreatePayload = {
+        entityId,
+        interactionType: 'task',
+        title: payload.base.title,
+        status: payload.base.is_done ? 'done' : 'planned',
+        priority: payload.base.priority ?? null,
+        body: payload.base.description ?? null,
+        scheduledAt: payload.base.scheduledAt ?? null,
+        customValues: payload.custom,
+      }
+      await canonicalResult.createInteraction(interactionPayload)
+    },
+    [canonicalResult, entityId],
+  )
+
+  const canonicalUpdateTask = React.useCallback(
+    async (task: TodoLinkSummary, payload: TaskFormPayload) => {
+      await canonicalResult.updateInteraction(task.todoId, {
+        title: payload.base.title,
+        status: payload.base.is_done ? 'done' : 'planned',
+        priority: payload.base.priority ?? null,
+        body: payload.base.description ?? null,
+        scheduledAt: payload.base.scheduledAt ?? null,
+        customValues: payload.custom,
+      })
+    },
+    [canonicalResult],
+  )
+
+  const canonicalToggleTask = React.useCallback(
+    async (task: TodoLinkSummary, nextIsDone: boolean) => {
+      if (nextIsDone) {
+        await canonicalResult.completeInteraction(task.todoId)
+      } else {
+        // Reopen: set status back to planned via update
+        await canonicalResult.updateInteraction(task.todoId, { status: 'planned' })
+      }
+    },
+    [canonicalResult],
+  )
+
+  const canonicalUnlinkTask = React.useCallback(
+    async (task: TodoLinkSummary) => {
+      await canonicalResult.deleteInteraction(task.todoId)
+    },
+    [canonicalResult],
+  )
+
+  // Unified interface: pick the active data source based on the flag
+  const tasks = useCanonicalInteractions ? canonicalTasks : legacyResult.tasks
+  const isInitialLoading = useCanonicalInteractions ? canonicalResult.isInitialLoading : legacyResult.isInitialLoading
+  const isLoadingMore = useCanonicalInteractions ? canonicalResult.isLoadingMore : legacyResult.isLoadingMore
+  const isMutating = useCanonicalInteractions ? canonicalResult.isMutating : legacyResult.isMutating
+  const hasMore = useCanonicalInteractions ? canonicalResult.hasMore : legacyResult.hasMore
+  const loadMore = useCanonicalInteractions ? canonicalResult.loadMore : legacyResult.loadMore
+  const refresh = useCanonicalInteractions ? canonicalResult.refresh : legacyResult.refresh
+  const createTask = useCanonicalInteractions ? canonicalCreateTask : legacyResult.createTask
+  const updateTask = useCanonicalInteractions ? canonicalUpdateTask : legacyResult.updateTask
+  const toggleTask = useCanonicalInteractions ? canonicalToggleTask : legacyResult.toggleTask
+  const unlinkTask = useCanonicalInteractions ? canonicalUnlinkTask : legacyResult.unlinkTask
+  const pendingTaskId = useCanonicalInteractions ? canonicalResult.pendingId : legacyResult.pendingTaskId
+  const error = useCanonicalInteractions ? canonicalResult.error : legacyResult.error
+  const sortedTasks = React.useMemo(() => sortTaskSummaries(tasks), [tasks])
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
@@ -153,22 +267,39 @@ export function TasksSection({
   const handleCreate = React.useCallback(
     async (payload: TaskFormPayload) => {
       try {
-        await createTask(payload)
+        await runWriteMutation(
+          () => createTask(payload),
+          {
+            entityId,
+            title: payload.base.title,
+            isDone: payload.base.is_done ?? undefined,
+          },
+        )
         flash(t('customers.people.detail.tasks.createSuccess', 'Task created'), 'success')
+        await Promise.resolve(onDataRefresh?.())
       } catch (err) {
         const message = err instanceof Error ? err.message : t('customers.people.detail.tasks.error', 'Failed to create task')
         flash(message, 'error')
         throw err
       }
     },
-    [createTask, t],
+    [createTask, entityId, onDataRefresh, runWriteMutation, t],
   )
 
   const handleUpdate = React.useCallback(
     async (task: TodoLinkSummary, payload: TaskFormPayload) => {
       try {
-        await updateTask(task, payload)
+        await runWriteMutation(
+          () => updateTask(task, payload),
+          {
+            id: task.id,
+            todoId: task.todoId,
+            title: payload.base.title,
+            isDone: payload.base.is_done ?? undefined,
+          },
+        )
         flash(t('customers.people.detail.tasks.updateSuccess', 'Task updated'), 'success')
+        await Promise.resolve(onDataRefresh?.())
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t('customers.people.detail.tasks.updateError', 'Failed to update task')
@@ -176,33 +307,48 @@ export function TasksSection({
         throw err
       }
     },
-    [t, updateTask],
+    [onDataRefresh, runWriteMutation, t, updateTask],
   )
 
   const handleToggle = React.useCallback(
     async (task: TodoLinkSummary, nextIsDone: boolean) => {
       try {
-        await toggleTask(task, nextIsDone)
+        await runWriteMutation(
+          () => toggleTask(task, nextIsDone),
+          {
+            id: task.id,
+            todoId: task.todoId,
+            isDone: nextIsDone,
+          },
+        )
         flash(
           nextIsDone
             ? t('customers.people.detail.tasks.completeSuccess', 'Task marked as done')
             : t('customers.people.detail.tasks.reopenSuccess', 'Task reopened'),
           'success',
         )
+        await Promise.resolve(onDataRefresh?.())
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t('customers.people.detail.tasks.toggleError', 'Failed to update task status')
         flash(message, 'error')
       }
     },
-    [t, toggleTask],
+    [onDataRefresh, runWriteMutation, t, toggleTask],
   )
 
   const handleDelete = React.useCallback(
     async (task: TodoLinkSummary) => {
       try {
-        await unlinkTask(task)
+        await runWriteMutation(
+          () => unlinkTask(task),
+          {
+            id: task.id,
+            todoId: task.todoId,
+          },
+        )
         flash(t('customers.people.detail.tasks.deleteSuccess', 'Task removed'), 'success')
+        await Promise.resolve(onDataRefresh?.())
         await refresh()
       } catch (err) {
         const message =
@@ -210,12 +356,34 @@ export function TasksSection({
         flash(message, 'error')
       }
     },
-    [refresh, t, unlinkTask],
+    [onDataRefresh, refresh, runWriteMutation, t, unlinkTask],
+  )
+
+  const handleCancel = React.useCallback(
+    async (task: TodoLinkSummary) => {
+      if (!useCanonicalInteractions) return
+      try {
+        await runWriteMutation(
+          () => canonicalResult.cancelInteraction(task.todoId),
+          { id: task.todoId },
+        )
+        flash(t('customers.people.detail.tasks.cancelSuccess', 'Task canceled'), 'success')
+        await Promise.resolve(onDataRefresh?.())
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : t('customers.people.detail.tasks.cancelError', 'Failed to cancel task')
+        flash(message, 'error')
+      }
+    },
+    [canonicalResult, onDataRefresh, runWriteMutation, t, useCanonicalInteractions],
   )
 
   const renderTaskMeta = React.useCallback(
     (task: TodoLinkSummary) => {
       const meta: string[] = []
+      if (task.status === 'canceled') {
+        meta.push(t('customers.people.detail.tasks.status.canceled', 'Canceled'))
+      }
       if (typeof task.priority === 'number') {
         meta.push(t('customers.people.detail.tasks.priorityLabel', 'Priority {{priority}}', { priority: task.priority }))
       }
@@ -250,7 +418,7 @@ export function TasksSection({
     [dialogMode, editingTask, handleCreate, handleUpdate],
   )
 
-  const hasTasks = tasks.length > 0
+  const hasTasks = sortedTasks.length > 0
 
   return (
     <div className="mt-0 space-y-6">
@@ -280,12 +448,13 @@ export function TasksSection({
                 {error}
               </div>
             ) : null}
-            {tasks.map((task) => {
+            {sortedTasks.map((task) => {
               const todoHref = resolveTodoHref(task.todoSource, task.todoId)
               const createdLabel = formatDateTime(task.createdAt) ?? emptyLabel
               const meta = renderTaskMeta(task)
               const title = task.title ?? t('customers.people.detail.tasks.untitled', 'Untitled task')
               const isDone = task.isDone === true
+              const isCanceled = task.status === 'canceled'
               const checkboxId = `person-task-${task.id}`
               const isPendingToggle = pendingTaskId === task.todoId
               return (
@@ -302,10 +471,16 @@ export function TasksSection({
                               const next = event.target.checked
                               void handleToggle(task, next)
                             }}
-                            disabled={isMutating || isPendingToggle}
+                            disabled={isMutating || isPendingToggle || isCanceled}
                             className="h-4 w-4 rounded border"
                           />
-                          <span className={cn('text-sm font-semibold', isDone ? 'line-through text-muted-foreground' : undefined)}>
+                          <span
+                            className={cn(
+                              'text-sm font-semibold',
+                              isDone ? 'line-through text-muted-foreground' : undefined,
+                              isCanceled ? 'text-muted-foreground' : undefined,
+                            )}
+                          >
                             {title}
                           </span>
                         </span>
@@ -314,28 +489,30 @@ export function TasksSection({
                       fallbackTimestampLabel={createdLabel}
                     />
                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                      <Button
+                      <IconButton
                         type="button"
                         variant="ghost"
-                        size="icon"
+                        size="sm"
                         onClick={() => openEditDialog(task)}
                         disabled={isMutating}
+                        aria-label={t('ui.actions.edit', 'Edit')}
                       >
                         {isMutating && editingTask?.id === task.id && dialogMode === 'edit' ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
                         ) : (
                           <Pencil className="h-4 w-4" />
                         )}
-                      </Button>
-                      <Button
+                      </IconButton>
+                      <IconButton
                         type="button"
                         variant="ghost"
-                        size="icon"
+                        size="sm"
                         onClick={() => handleDelete(task)}
                         disabled={isMutating}
+                        aria-label={t('ui.actions.delete', 'Delete')}
                       >
                         {isMutating ? <Loader2 className="h-4 w-4 animate-spin text-destructive" /> : <Trash2 className="h-4 w-4" />}
-                      </Button>
+                      </IconButton>
                     </div>
                   </div>
                   {meta.length ? (
@@ -351,6 +528,18 @@ export function TasksSection({
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{task.description}</p>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-3 text-xs">
+                    {useCanonicalInteractions && !isDone && !isCanceled ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+                        onClick={() => void handleCancel(task)}
+                        disabled={isMutating || isPendingToggle}
+                      >
+                        {t('customers.people.detail.tasks.cancelAction', 'Cancel task')}
+                      </Button>
+                    ) : null}
                     {todoHref ? (
                       <Link href={todoHref} className="text-primary hover:underline">
                         {t('customers.people.detail.tasks.openTask', 'Open task')}
@@ -363,7 +552,7 @@ export function TasksSection({
             <div ref={sentinelRef} />
             {hasMore ? (
               <div className="flex justify-center">
-                <Button variant="outline" size="sm" onClick={() => loadMore().catch(() => {})} disabled={isLoadingMore}>
+                <Button type="button" variant="outline" size="sm" onClick={() => loadMore().catch(() => {})} disabled={isLoadingMore}>
                   {isLoadingMore ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -383,7 +572,7 @@ export function TasksSection({
             ) : null}
             <div className="flex justify-center">
               <Button asChild variant="outline" size="sm">
-                <Link href="/backend/customer-tasks" target="_blank" rel="noreferrer">
+                <Link href="/backend/customer-tasks">
                   {t('customers.people.detail.tasks.viewAll', 'View all tasks')}
                 </Link>
               </Button>

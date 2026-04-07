@@ -1,32 +1,43 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * @deprecated Use /api/customers/interactions instead. This route is maintained
+ * as a compatibility bridge per SPEC-046b and delegates writes to canonical
+ * interaction commands.
+ */
+import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerActivity, CustomerDictionaryEntry, CustomerDeal } from '../../data/entities'
-import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
-import { E } from '#generated/entities.ids.generated'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { parseScopedCommandInput } from '../utils'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
-  createCustomersCrudOpenApi,
-  createPagedListResponseSchema,
-  defaultOkResponseSchema,
-} from '../openapi'
-const rawBodySchema = z.object({}).passthrough()
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CustomerActivity, CustomerDeal, CustomerInteraction } from '../../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { activityCreateSchema, activityUpdateSchema } from '../../data/validators'
+import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
+import {
+  mapInteractionRecordToActivitySummary,
+  CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+} from '../../lib/interactionCompatibility'
+import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFeatureFlags'
+import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
+import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 
-const listSchema = z
-  .object({
-    page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(100).default(50),
-    entityId: z.string().uuid().optional(),
-    dealId: z.string().uuid().optional(),
-    activityType: z.string().optional(),
-    sortField: z.string().optional(),
-    sortDir: z.enum(['asc', 'desc']).optional(),
-  })
-  .passthrough()
+const listSchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
+  entityId: z.string().uuid().optional(),
+  dealId: z.string().uuid().optional(),
+  activityType: z.string().optional(),
+  sortField: z.string().optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
+}).passthrough()
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.activities.view'] },
@@ -37,337 +48,724 @@ const routeMetadata = {
 
 export const metadata = routeMetadata
 
-const crud = makeCrudRoute({
-  metadata: routeMetadata,
-  orm: {
-    entity: CustomerActivity,
-    idField: 'id',
-    orgField: 'organizationId',
-    tenantField: 'tenantId',
-  },
-  indexer: {
-    entityType: E.customers.customer_activity,
-  },
-  list: {
-    schema: listSchema,
-    entityId: E.customers.customer_activity,
-    fields: [
-      'id',
-      'entity_id',
-      'deal_id',
-      'activity_type',
-      'subject',
-      'body',
-      'occurred_at',
-      'author_user_id',
-      'organization_id',
-      'tenant_id',
-      'created_at',
-      'appearance_icon',
-      'appearance_color',
-    ],
-    decorateCustomFields: {
-      entityIds: E.customers.customer_activity,
-    },
-    sortFieldMap: {
-      occurredAt: 'occurred_at',
-      createdAt: 'created_at',
-    },
-    buildFilters: async (query: any) => {
-      const filters: Record<string, any> = {}
-      if (query.entityId) filters.entity_id = { $eq: query.entityId }
-      if (query.dealId) filters.deal_id = { $eq: query.dealId }
-      if (query.activityType) filters.activity_type = { $eq: query.activityType }
-      return filters
-    },
-    transformItem: (item: Record<string, unknown>) => {
-      const record = (item ?? {}) as Record<string, unknown>
-      const toIsoString = (value: unknown): string | null => {
-        if (value == null) return null
-        if (value instanceof Date) return value.toISOString()
-        if (typeof value === 'string') {
-          const trimmed = value.trim()
-          if (!trimmed.length) return null
-          const date = new Date(trimmed)
-          return Number.isNaN(date.getTime()) ? trimmed : date.toISOString()
-        }
-        return null
-      }
-      const readString = (value: unknown): string | null => (typeof value === 'string' ? value : null)
-      const idValue = readString(record.id) ?? (record.id != null ? String(record.id) : '')
-      const activityType =
-        readString(record['activity_type']) ??
-        readString(record['activityType']) ??
-        ''
-      const subject =
-        readString(record.subject) ??
-        (record.subject == null ? null : String(record.subject))
-      const body =
-        readString(record.body) ??
-        (record.body == null ? null : String(record.body))
-      const authorUserId =
-        readString(record['author_user_id']) ?? readString(record['authorUserId']) ?? null
-      const appearanceIconRaw =
-        readString(record['appearance_icon']) ?? readString(record['appearanceIcon'])
-      const appearanceColorRaw =
-        readString(record['appearance_color']) ?? readString(record['appearanceColor'])
-      const organizationId =
-        readString(record['organization_id']) ?? readString(record['organizationId'])
-      const tenantId =
-        readString(record['tenant_id']) ?? readString(record['tenantId'])
-      const output: Record<string, unknown> = {
-        id: idValue,
-        entityId: readString(record['entity_id']) ?? readString(record['entityId']) ?? null,
-        dealId: readString(record['deal_id']) ?? readString(record['dealId']) ?? null,
-        activityType,
-        subject,
-        body,
-        occurredAt: toIsoString(record['occurred_at'] ?? record['occurredAt']),
-        createdAt: toIsoString(record['created_at'] ?? record['createdAt']),
-        authorUserId,
-        organizationId,
-        tenantId,
-        appearanceIcon: appearanceIconRaw && appearanceIconRaw.trim().length ? appearanceIconRaw : null,
-        appearanceColor: appearanceColorRaw && appearanceColorRaw.trim().length ? appearanceColorRaw : null,
-      }
-      for (const [key, value] of Object.entries(record)) {
-        if (key.startsWith('cf_') || key.startsWith('cf:')) {
-          output[key] = value
-        }
-      }
-      return output
-    },
-  },
-  actions: {
-    create: {
-      commandId: 'customers.activities.create',
-      schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
-        const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(activityCreateSchema, raw ?? {}, ctx, translate)
-      },
-      response: ({ result }) => ({ id: result?.activityId ?? result?.id ?? null }),
-      status: 201,
-    },
-    update: {
-      commandId: 'customers.activities.update',
-      schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
-        const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(activityUpdateSchema, raw ?? {}, ctx, translate)
-      },
-      response: () => ({ ok: true }),
-    },
-    delete: {
-      commandId: 'customers.activities.delete',
-      schema: rawBodySchema,
-      mapInput: async ({ parsed, ctx }) => {
-        const { translate } = await resolveTranslations()
-        const id =
-          parsed?.body?.id ??
-          parsed?.id ??
-          parsed?.query?.id ??
-          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
-        if (!id) throw new CrudHttpError(400, { error: translate('customers.errors.activity_required', 'Activity id is required') })
-        return { id }
-      },
-      response: () => ({ ok: true }),
-    },
-  },
-  hooks: {
-    afterList: async (payload, ctx) => {
-      const items = Array.isArray(payload.items) ? payload.items : []
-      if (!items.length) return
-      type ActivityRecord = {
-        id: string
-        activityType: string
-        subject?: string | null
-        body?: string | null
-        occurredAt?: string | null
-        createdAt?: string | null
-        organizationId?: string | null
-        tenantId?: string | null
-        appearanceIcon?: string | null
-        appearanceColor?: string | null
-        activityTypeLabel?: string | null
-        authorUserId?: string | null
-        authorName?: string | null
-        authorEmail?: string | null
-        dealId?: string | null
-        dealTitle?: string | null
-        customFields?: Array<{
-          key: string
-          label: string
-          value: unknown
-          kind: string | null
-          multi: boolean
-        }>
-      } & Record<string, unknown>
-      const typedItems = items as ActivityRecord[]
+const activityCreateBodySchema = activityCreateSchema.omit({
+  organizationId: true,
+  tenantId: true,
+}).passthrough()
 
-      // Resolve dictionary appearance defaults
-      const tenantId = ctx.auth?.tenantId ?? null
-      const normalizedValues = new Set<string>()
-      const organizationIds = new Set<string>()
-      const dealIds = new Set<string>()
-      typedItems.forEach((item) => {
-        const rawType = typeof item.activityType === 'string' ? item.activityType : ''
-        const normalized = rawType.trim().toLowerCase()
-        if (normalized) normalizedValues.add(normalized)
-        const orgId = typeof item.organizationId === 'string' ? item.organizationId : null
-        if (orgId) organizationIds.add(orgId)
-        const dealId = typeof item.dealId === 'string' ? item.dealId.trim() : ''
-        if (dealId.length) dealIds.add(dealId)
-      })
-      if (normalizedValues.size) {
-        try {
-          const em = ctx.container.resolve('em') as any
-          const normalizedList = Array.from(normalizedValues)
-          const orgList = Array.from(organizationIds)
-          const where: Record<string, unknown> = {
-            kind: 'activity_type',
-            normalizedValue: { $in: normalizedList as any },
-          }
-          const andClauses: Record<string, unknown>[] = []
-          if (tenantId) {
-            andClauses.push({ $or: [{ tenantId: tenantId as any }, { tenantId: null }] })
-          } else {
-            andClauses.push({ tenantId: null })
-          }
-          if (orgList.length) {
-            andClauses.push({ $or: [{ organizationId: { $in: orgList as any } }, { organizationId: null }] })
-          } else {
-            andClauses.push({ organizationId: null })
-          }
-          if (andClauses.length) where.$and = andClauses
-          const entries: CustomerDictionaryEntry[] = await em.find(CustomerDictionaryEntry, where)
-          type Bucket = { global?: CustomerDictionaryEntry; byOrg: Map<string, CustomerDictionaryEntry> }
-          const entryMap = new Map<string, Bucket>()
-          entries.forEach((entry) => {
-            let normalized: string | null = null
-            if (typeof entry.normalizedValue === 'string') {
-              const trimmed = entry.normalizedValue.trim()
-              if (trimmed.length) normalized = trimmed
-            }
-            if (!normalized && typeof entry.value === 'string') {
-              const trimmedValue = entry.value.trim()
-              if (trimmedValue.length) normalized = trimmedValue.toLowerCase()
-            }
-            if (!normalized) return
-            const bucket = entryMap.get(normalized) ?? { global: undefined, byOrg: new Map<string, CustomerDictionaryEntry>() }
-            if (entry.organizationId) {
-              bucket.byOrg.set(entry.organizationId, entry)
-            } else if (!bucket.global) {
-              bucket.global = entry
-            }
-            entryMap.set(normalized, bucket)
-          })
-          typedItems.forEach((item) => {
-            const rawType = typeof item.activityType === 'string' ? item.activityType : ''
-            const normalized = rawType.trim().toLowerCase()
-            if (!normalized) return
-            const bucket = entryMap.get(normalized)
-            if (!bucket) return
-            const orgId = typeof item.organizationId === 'string' ? item.organizationId : null
-            const entry = (orgId && bucket.byOrg.get(orgId)) ?? bucket.global
-            if (!entry) return
-            const label =
-              typeof entry.label === 'string' && entry.label.trim().length ? entry.label.trim() : rawType
-            item.activityTypeLabel = label
-            const icon =
-              typeof entry.icon === 'string' && entry.icon.trim().length ? entry.icon.trim() : null
-            if (!item.appearanceIcon || (typeof item.appearanceIcon === 'string' && !item.appearanceIcon.trim().length)) {
-              item.appearanceIcon = icon
-            }
-            const color =
-              typeof entry.color === 'string' && entry.color.trim().length ? entry.color.trim().toLowerCase() : null
-            if (!item.appearanceColor || (typeof item.appearanceColor === 'string' && !item.appearanceColor.trim().length)) {
-              item.appearanceColor = color
-            }
-          })
-        } catch (err) {
-          console.warn('[customers.activities] Failed to resolve dictionary appearance', err)
-        }
-      }
+const activityUpdateBodySchema = activityUpdateSchema.omit({
+  organizationId: true,
+  tenantId: true,
+}).passthrough()
 
-      if (dealIds.size) {
-        try {
-          const em = (ctx.container.resolve('em') as EntityManager)
-          const deals = await em.find(CustomerDeal, { id: { $in: Array.from(dealIds) } })
-          const map = new Map<string, string>()
-          deals.forEach((deal: CustomerDeal) => {
-            if (deal && typeof deal.id === 'string') {
-              map.set(deal.id, typeof deal.title === 'string' ? deal.title : '')
-            }
-          })
-          typedItems.forEach((item) => {
-            const dealId = typeof item.dealId === 'string' ? item.dealId.trim() : ''
-            if (!dealId.length) return
-            item.dealTitle = map.get(dealId) ?? null
-          })
-        } catch (err) {
-          console.warn('[customers.activities] Failed to resolve deal titles', err)
-        }
-      }
-
-      // Resolve author metadata
-      const authorIds = Array.from(
-        new Set(
-          typedItems
-            .map((item) => (typeof item.authorUserId === 'string' ? item.authorUserId : null))
-            .filter((id): id is string => !!id),
-        ),
-      )
-      if (authorIds.length) {
-        try {
-          const em = ctx.container.resolve('em') as any
-          const users = await em.find(User, { id: { $in: authorIds } })
-          const map = new Map<string, { name: string | null; email: string | null }>()
-          users.forEach((user: User) => {
-            map.set(user.id, {
-              name: user.name ?? null,
-              email: user.email ?? null,
-            })
-          })
-          typedItems.forEach((item) => {
-            if (!item.authorUserId) return
-            const info = map.get(item.authorUserId)
-            item.authorName = info?.name ?? null
-            item.authorEmail = info?.email ?? null
-          })
-        } catch (err) {
-          console.warn('[customers.activities] Failed to resolve author metadata', err)
-        }
-      }
-
-    },
-  },
+const activityDeleteBodySchema = z.object({
+  id: z.string().uuid(),
 })
 
-const { POST, PUT, DELETE } = crud
+const ADAPTER_HEADERS = {
+  Deprecation: 'true',
+  Sunset: 'Tue, 30 Jun 2026 00:00:00 GMT',
+  Link: '</api/customers/interactions>; rel="successor-version"',
+}
 
-export { POST, PUT, DELETE }
-export const GET = crud.GET
+type ActivityItem = {
+  id: string
+  activityType: string
+  subject?: string | null
+  body?: string | null
+  occurredAt?: string | null
+  createdAt: string
+  appearanceIcon?: string | null
+  appearanceColor?: string | null
+  entityId?: string | null
+  authorUserId?: string | null
+  authorName?: string | null
+  authorEmail?: string | null
+  dealId?: string | null
+  dealTitle?: string | null
+  customValues?: Record<string, unknown> | null
+  activityTypeLabel?: string | null
+}
+
+type CanonicalActivityListResult = {
+  items: ActivityItem[]
+  total: number
+  bridgeIds: Set<string>
+}
+
+function resolveGuardUserId(auth: {
+  sub?: string | null
+  userId?: string | null
+  keyId?: string | null
+}): string {
+  if (typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
+function withAdapterHeaders(response: Response): Response {
+  const headers = new Headers(response.headers)
+  Object.entries(ADAPTER_HEADERS).forEach(([key, value]) => headers.set(key, value))
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
+async function legacyAdaptersDisabledResponse(): Promise<Response> {
+  const { translate } = await resolveTranslations()
+  return withAdapterHeaders(NextResponse.json(
+    {
+      error: translate(
+        'customers.interactions.legacyAdapters.disabled',
+        'This legacy adapter has been disabled. Use /api/customers/interactions instead.',
+      ),
+    },
+    { status: 410 },
+  ))
+}
+
+function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
+  if (sortField === 'createdAt') {
+    return { createdAt: sortDir }
+  }
+  return { occurredAt: sortDir, createdAt: sortDir } as const
+}
+
+function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
+  if (sortField === 'createdAt') {
+    return { createdAt: sortDir }
+  }
+  return { occurredAt: sortDir, createdAt: sortDir } as const
+}
+
+function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {
+  const raw =
+    sortField === 'createdAt'
+      ? item.createdAt
+      : item.occurredAt ?? item.createdAt
+  const timestamp = raw ? new Date(raw).getTime() : Number.NaN
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function sortActivityItems(
+  items: ActivityItem[],
+  sortField: string | undefined,
+  sortDir: 'asc' | 'desc',
+): ActivityItem[] {
+  return [...items].sort((left, right) => {
+    const leftValue = resolveActivitySortValue(left, sortField)
+    const rightValue = resolveActivitySortValue(right, sortField)
+    if (leftValue === rightValue) {
+      return sortDir === 'asc'
+        ? left.id.localeCompare(right.id)
+        : right.id.localeCompare(left.id)
+    }
+    return sortDir === 'asc' ? leftValue - rightValue : rightValue - leftValue
+  })
+}
+
+function paginateActivityItems(
+  items: ActivityItem[],
+  page: number,
+  pageSize: number,
+): { items: ActivityItem[]; total: number } {
+  const start = (page - 1) * pageSize
+  return {
+    items: items.slice(start, start + pageSize),
+    total: items.length,
+  }
+}
+
+async function decorateActivityItems(
+  em: EntityManager,
+  items: ActivityItem[],
+  decryptionScope?: { tenantId: string; organizationId: string },
+): Promise<ActivityItem[]> {
+  if (items.length === 0) return items
+
+  const authorIds = Array.from(
+    new Set(
+      items
+        .map((item) => (typeof item.authorUserId === 'string' ? item.authorUserId : null))
+        .filter((value): value is string => !!value),
+    ),
+  )
+  const dealIds = Array.from(
+    new Set(
+      items
+        .map((item) => (typeof item.dealId === 'string' ? item.dealId : null))
+        .filter((value): value is string => !!value),
+    ),
+  )
+
+  const [users, deals] = await Promise.all([
+    authorIds.length > 0 ? em.find(User, { id: { $in: authorIds } }) : Promise.resolve([]),
+    dealIds.length > 0
+      ? decryptionScope
+        ? findWithDecryption(em, CustomerDeal, { id: { $in: dealIds } }, undefined, decryptionScope)
+        : em.find(CustomerDeal, { id: { $in: dealIds } })
+      : Promise.resolve([]),
+  ])
+
+  const userMap = new Map(
+    users.map((user) => [
+      user.id,
+      {
+        name: user.name ?? null,
+        email: user.email ?? null,
+      },
+    ]),
+  )
+  const dealMap = new Map(deals.map((deal) => [deal.id, deal.title]))
+
+  return items.map((item) => ({
+    ...item,
+    activityTypeLabel: item.activityType,
+    authorName: item.authorUserId ? userMap.get(item.authorUserId)?.name ?? null : null,
+    authorEmail: item.authorUserId ? userMap.get(item.authorUserId)?.email ?? null : null,
+    dealTitle: item.dealId ? dealMap.get(item.dealId) ?? null : null,
+  }))
+}
+
+function mapLegacyActivity(activity: CustomerActivity): ActivityItem {
+  return {
+    id: activity.id,
+    activityType: activity.activityType,
+    subject: activity.subject ?? null,
+    body: activity.body ?? null,
+    occurredAt: activity.occurredAt ? activity.occurredAt.toISOString() : null,
+    createdAt: activity.createdAt.toISOString(),
+    appearanceIcon: activity.appearanceIcon ?? null,
+    appearanceColor: activity.appearanceColor ?? null,
+    entityId: typeof activity.entity === 'string' ? activity.entity : activity.entity.id,
+    authorUserId: activity.authorUserId ?? null,
+    dealId: activity.deal ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id) : null,
+    customValues: null,
+  }
+}
+
+async function loadLegacyActivityCustomValues(
+  em: EntityManager,
+  activity: CustomerActivity,
+): Promise<Record<string, unknown> | null> {
+  const values = await loadCustomFieldValues({
+    em,
+    entityId: 'customers:customer_activity',
+    recordIds: [activity.id],
+    tenantIdByRecord: { [activity.id]: activity.tenantId },
+    organizationIdByRecord: { [activity.id]: activity.organizationId },
+    tenantFallbacks: [activity.tenantId],
+  })
+  return values[activity.id] ?? null
+}
+
+async function ensureCanonicalActivityBridge(
+  em: EntityManager,
+  commandBus: CommandBus,
+  commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
+  activity: CustomerActivity,
+): Promise<string> {
+  const existing = await em.findOne(CustomerInteraction, { id: activity.id })
+  if (existing) return existing.id
+
+  const entityId = typeof activity.entity === 'string' ? activity.entity : activity.entity.id
+  const dealId = activity.deal
+    ? (typeof activity.deal === 'string' ? activity.deal : activity.deal.id)
+    : null
+  const customValues = await loadLegacyActivityCustomValues(em, activity)
+
+  await commandBus.execute('customers.interactions.create', {
+    input: {
+      id: activity.id,
+      entityId,
+      interactionType: activity.activityType,
+      title: activity.subject ?? null,
+      body: activity.body ?? null,
+      occurredAt: activity.occurredAt ?? null,
+      status: activity.occurredAt ? 'done' : 'planned',
+      dealId,
+      authorUserId: activity.authorUserId ?? null,
+      appearanceIcon: activity.appearanceIcon ?? null,
+      appearanceColor: activity.appearanceColor ?? null,
+      source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+      ...(customValues ? { customValues } : {}),
+    },
+    ctx: commandContext,
+  })
+
+  return activity.id
+}
+
+async function resolveCanonicalActivityTargetId(
+  em: EntityManager,
+  commandBus: CommandBus,
+  commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
+  targetId: string,
+): Promise<string> {
+  const existing = await em.findOne(CustomerInteraction, { id: targetId })
+  if (existing) return existing.id
+
+  const legacy = await em.findOne(CustomerActivity, { id: targetId }, { populate: ['entity', 'deal'] })
+  if (!legacy) return targetId
+
+  return ensureCanonicalActivityBridge(
+    em,
+    commandBus,
+    commandContext,
+    legacy,
+  )
+}
+
+async function listCanonicalActivities(
+  em: EntityManager,
+  container: { resolve: (name: string) => unknown },
+  auth: { tenantId: string | null; orgId: string | null; sub?: string | null; userId?: string | null; keyId?: string | null },
+  selectedOrganizationId: string | null,
+  tenantId: string,
+  organizationIds: string[] | null,
+  query: z.infer<typeof listSchema>,
+  options?: { includeDeleted?: boolean; source?: string | string[] | null; paginate?: boolean },
+): Promise<CanonicalActivityListResult> {
+  const where: Record<string, unknown> = {
+    tenantId,
+    interactionType: { $ne: 'task' },
+  }
+  if (!options?.includeDeleted) {
+    where.deletedAt = null
+  }
+  if (organizationIds && organizationIds.length > 0) {
+    where.organizationId = { $in: organizationIds }
+  }
+  if (query.entityId) where.entity = query.entityId
+  if (query.dealId) where.dealId = query.dealId
+  if (query.activityType) where.interactionType = query.activityType
+  if (options?.source) {
+    where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
+  }
+
+  const findOptions = {
+    orderBy: buildCanonicalOrderBy(query.sortField, query.sortDir ?? 'desc'),
+    ...(options?.paginate === false
+      ? {}
+      : {
+          offset: (query.page - 1) * query.pageSize,
+          limit: query.pageSize,
+        }),
+  }
+
+  const rows =
+    options?.paginate === false
+      ? await em.find(CustomerInteraction, where, findOptions)
+      : (await em.findAndCount(CustomerInteraction, where, findOptions))[0]
+  const total =
+    options?.paginate === false
+      ? rows.filter((row) => !row.deletedAt).length
+      : await em.count(CustomerInteraction, where)
+
+  const activeRows = rows.filter((row) => !row.deletedAt)
+  const hydrated = await hydrateCanonicalInteractions({
+    em,
+    container,
+    auth,
+    selectedOrganizationId,
+    interactions: activeRows,
+  })
+  const items = hydrated.map((row) => ({
+    ...mapInteractionRecordToActivitySummary(row),
+    customValues: row.customValues ?? null,
+    activityTypeLabel: row.interactionType,
+  }))
+
+  return {
+    items,
+    total,
+    bridgeIds: new Set(rows.map((row) => row.id)),
+  }
+}
+
+async function listLegacyActivities(
+  em: EntityManager,
+  tenantId: string,
+  organizationIds: string[] | null,
+  query: z.infer<typeof listSchema>,
+  options?: { paginate?: boolean },
+  selectedOrganizationId?: string | null,
+): Promise<{ items: ActivityItem[]; total: number }> {
+  const where: Record<string, unknown> = { tenantId }
+  if (organizationIds && organizationIds.length > 0) {
+    where.organizationId = { $in: organizationIds }
+  }
+  if (query.entityId) where.entity = query.entityId
+  if (query.dealId) where.deal = query.dealId
+  if (query.activityType) where.activityType = query.activityType
+
+  const findOptions = {
+    populate: ['entity', 'deal'] as const,
+    orderBy: buildLegacyOrderBy(query.sortField, query.sortDir ?? 'desc'),
+    ...(options?.paginate === false
+      ? {}
+      : {
+          offset: (query.page - 1) * query.pageSize,
+          limit: query.pageSize,
+        }),
+  }
+
+  const rows =
+    options?.paginate === false
+      ? await em.find(CustomerActivity, where, findOptions)
+      : (await em.findAndCount(CustomerActivity, where, findOptions))[0]
+  const total =
+    options?.paginate === false
+      ? rows.length
+      : await em.count(CustomerActivity, where)
+
+  return {
+    items: await decorateActivityItems(
+      em,
+      rows.map(mapLegacyActivity),
+      selectedOrganizationId ? { tenantId, organizationId: selectedOrganizationId } : undefined,
+    ),
+    total,
+  }
+}
+
+export async function GET(request: Request): Promise<Response> {
+  try {
+    const url = new URL(request.url)
+    const query = listSchema.parse(Object.fromEntries(url.searchParams))
+    const {
+      auth,
+      em,
+      organizationIds,
+      container,
+      selectedOrganizationId,
+    } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
+
+    const sortDir = query.sortDir ?? 'desc'
+
+    const result = flags.unified
+      ? await listCanonicalActivities(
+          em,
+          container,
+          auth,
+          selectedOrganizationId,
+          auth.tenantId,
+          organizationIds,
+          query,
+        )
+      : await Promise.all([
+        listLegacyActivities(em, auth.tenantId, organizationIds, query, { paginate: false }, selectedOrganizationId),
+        listCanonicalActivities(
+          em,
+          container,
+          auth,
+          selectedOrganizationId,
+          auth.tenantId,
+          organizationIds,
+          query,
+          {
+            includeDeleted: true,
+            paginate: false,
+            source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+          },
+        ),
+      ]).then(([legacy, canonical]) => {
+        const merged = sortActivityItems(
+          [
+            ...legacy.items.filter((item) => !canonical.bridgeIds.has(item.id)),
+            ...canonical.items,
+          ],
+          query.sortField,
+          sortDir,
+        )
+        const paged = paginateActivityItems(merged, query.page, query.pageSize)
+        return {
+          items: paged.items,
+          total: paged.total,
+        }
+      })
+
+    return withAdapterHeaders(
+      NextResponse.json({
+        items: result.items,
+        total: result.total,
+        page: query.page,
+        pageSize: query.pageSize,
+        totalPages: Math.max(1, Math.ceil(result.total / query.pageSize)),
+      }),
+    )
+  } catch (err) {
+    if (err instanceof CrudHttpError) {
+      return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    if (err instanceof z.ZodError) {
+      return withAdapterHeaders(
+        NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
+      )
+    }
+    console.error('customers.activities.get failed', err)
+    return withAdapterHeaders(
+      NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
+    )
+  }
+}
+
+export async function POST(request: Request): Promise<Response> {
+  try {
+    const { commandContext, container, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
+    const body = await readJsonSafe<Record<string, unknown>>(request, {})
+    const parsed = activityCreateBodySchema.parse(body)
+    const guardUserId = resolveGuardUserId(auth)
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId: selectedOrganizationId,
+      userId: guardUserId,
+      resourceKind: 'customers.activity',
+      resourceId: parsed.entityId,
+      operation: 'create',
+      requestMethod: request.method,
+      requestHeaders: request.headers,
+      mutationPayload: parsed,
+    })
+    if (guardResult && !guardResult.ok) {
+      return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
+    }
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const { result } = await commandBus.execute('customers.interactions.create', {
+      input: {
+        entityId: parsed.entityId,
+        interactionType: parsed.activityType,
+        title: parsed.subject ?? null,
+        body: parsed.body ?? null,
+        occurredAt: parsed.occurredAt ?? null,
+        status: parsed.occurredAt ? 'done' : 'planned',
+        dealId: parsed.dealId ?? null,
+        authorUserId: parsed.authorUserId ?? null,
+        appearanceIcon: parsed.appearanceIcon ?? null,
+        appearanceColor: parsed.appearanceColor ?? null,
+        source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+        customFields: (parsed as Record<string, unknown>).customFields,
+        customValues: (parsed as Record<string, unknown>).customValues,
+      },
+      ctx: commandContext,
+    })
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: selectedOrganizationId,
+        userId: guardUserId,
+        resourceKind: 'customers.activity',
+        resourceId: parsed.entityId,
+        operation: 'create',
+        requestMethod: request.method,
+        requestHeaders: request.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    return withAdapterHeaders(
+      NextResponse.json(
+        {
+          id:
+            result &&
+            typeof result === 'object' &&
+            'interactionId' in result &&
+            typeof result.interactionId === 'string'
+              ? result.interactionId
+              : result &&
+                  typeof result === 'object' &&
+                  'id' in result &&
+                  typeof result.id === 'string'
+                ? result.id
+                : null,
+        },
+        { status: 201 },
+      ),
+    )
+  } catch (err) {
+    if (err instanceof CrudHttpError) {
+      return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    if (err instanceof z.ZodError) {
+      return withAdapterHeaders(
+        NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
+      )
+    }
+    console.error('customers.activities.post failed', err)
+    return withAdapterHeaders(
+      NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
+    )
+  }
+}
+
+export async function PUT(request: Request): Promise<Response> {
+  try {
+    const { commandContext, container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
+    const body = await readJsonSafe<Record<string, unknown>>(request, {})
+    const parsed = activityUpdateBodySchema.parse(body)
+    const guardUserId = resolveGuardUserId(auth)
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId: selectedOrganizationId,
+      userId: guardUserId,
+      resourceKind: 'customers.activity',
+      resourceId: parsed.id,
+      operation: 'update',
+      requestMethod: request.method,
+      requestHeaders: request.headers,
+      mutationPayload: parsed,
+    })
+    if (guardResult && !guardResult.ok) {
+      return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
+    }
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const interactionId = flags.unified
+      ? parsed.id
+      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)
+
+    await commandBus.execute('customers.interactions.update', {
+      input: {
+        id: interactionId,
+        interactionType: parsed.activityType,
+        title: parsed.subject ?? undefined,
+        body: parsed.body ?? undefined,
+        occurredAt: parsed.occurredAt ?? undefined,
+        status: parsed.occurredAt ? 'done' : undefined,
+        dealId: parsed.dealId ?? undefined,
+        authorUserId: parsed.authorUserId ?? undefined,
+        appearanceIcon: parsed.appearanceIcon ?? undefined,
+        appearanceColor: parsed.appearanceColor ?? undefined,
+        customFields: (parsed as Record<string, unknown>).customFields,
+        customValues: (parsed as Record<string, unknown>).customValues,
+      },
+      ctx: commandContext,
+    })
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: selectedOrganizationId,
+        userId: guardUserId,
+        resourceKind: 'customers.activity',
+        resourceId: parsed.id,
+        operation: 'update',
+        requestMethod: request.method,
+        requestHeaders: request.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    return withAdapterHeaders(NextResponse.json({ ok: true }))
+  } catch (err) {
+    if (err instanceof CrudHttpError) {
+      return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    if (err instanceof z.ZodError) {
+      return withAdapterHeaders(
+        NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
+      )
+    }
+    console.error('customers.activities.put failed', err)
+    return withAdapterHeaders(
+      NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
+    )
+  }
+}
+
+export async function DELETE(request: Request): Promise<Response> {
+  try {
+    const { commandContext, container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
+    if (!flags.legacyAdapters) {
+      return await legacyAdaptersDisabledResponse()
+    }
+    const body = await readJsonSafe<Record<string, unknown>>(request, {})
+    const parsed = activityDeleteBodySchema.parse(body)
+    const guardUserId = resolveGuardUserId(auth)
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId: selectedOrganizationId,
+      userId: guardUserId,
+      resourceKind: 'customers.activity',
+      resourceId: parsed.id,
+      operation: 'delete',
+      requestMethod: request.method,
+      requestHeaders: request.headers,
+      mutationPayload: parsed,
+    })
+    if (guardResult && !guardResult.ok) {
+      return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
+    }
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const interactionId = flags.unified
+      ? parsed.id
+      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)
+    await commandBus.execute('customers.interactions.delete', {
+      input: { id: interactionId },
+      ctx: commandContext,
+    })
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId: selectedOrganizationId,
+        userId: guardUserId,
+        resourceKind: 'customers.activity',
+        resourceId: parsed.id,
+        operation: 'delete',
+        requestMethod: request.method,
+        requestHeaders: request.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+    return withAdapterHeaders(NextResponse.json({ ok: true }))
+  } catch (err) {
+    if (err instanceof CrudHttpError) {
+      return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    if (err instanceof z.ZodError) {
+      return withAdapterHeaders(
+        NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
+      )
+    }
+    console.error('customers.activities.delete failed', err)
+    return withAdapterHeaders(
+      NextResponse.json({ error: 'Internal server error' }, { status: 500 }),
+    )
+  }
+}
 
 const activityListItemSchema = z
   .object({
     id: z.string().uuid(),
-    entityId: z.string().uuid().nullable(),
-    dealId: z.string().uuid().nullable(),
     activityType: z.string(),
-    subject: z.string().nullable(),
-    body: z.string().nullable(),
-    occurredAt: z.string().nullable(),
-    createdAt: z.string().nullable(),
-    authorUserId: z.string().uuid().nullable(),
-    organizationId: z.string().uuid().nullable().optional(),
-    tenantId: z.string().uuid().nullable().optional(),
-    activityTypeLabel: z.string().nullable().optional(),
-    authorName: z.string().nullable().optional(),
-    authorEmail: z.string().nullable().optional(),
+    subject: z.string().nullable().optional(),
+    body: z.string().nullable().optional(),
+    occurredAt: z.string().nullable().optional(),
+    createdAt: z.string(),
     appearanceIcon: z.string().nullable().optional(),
     appearanceColor: z.string().nullable().optional(),
+    entityId: z.string().uuid().nullable().optional(),
+    authorUserId: z.string().uuid().nullable().optional(),
+    authorName: z.string().nullable().optional(),
+    authorEmail: z.string().nullable().optional(),
+    dealId: z.string().uuid().nullable().optional(),
     dealTitle: z.string().nullable().optional(),
+    customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+    activityTypeLabel: z.string().nullable().optional(),
   })
   .passthrough()
 
@@ -375,23 +773,23 @@ const activityCreateResponseSchema = z.object({
   id: z.string().uuid().nullable(),
 })
 
-export const openApi = createCustomersCrudOpenApi({
+export const openApi: OpenApiRouteDoc = createCustomersCrudOpenApi({
   resourceName: 'Activity',
   querySchema: listSchema,
   listResponseSchema: createPagedListResponseSchema(activityListItemSchema),
   create: {
-    schema: activityCreateSchema,
+    schema: activityCreateBodySchema,
     responseSchema: activityCreateResponseSchema,
-    description: 'Creates a timeline activity linked to an entity or deal.',
+    description: 'DEPRECATED (sunset 2026-06-30): Creates a timeline activity. Use POST /api/customers/interactions instead.',
   },
   update: {
-    schema: activityUpdateSchema,
+    schema: activityUpdateBodySchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates subject, body, scheduling, or custom fields for an existing activity.',
+    description: 'DEPRECATED (sunset 2026-06-30): Updates an activity. Use PUT /api/customers/interactions instead.',
   },
   del: {
-    schema: z.object({ id: z.string().uuid() }),
+    schema: activityDeleteBodySchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Deletes an activity identified by `id`. Accepts id via body or query string.',
+    description: 'DEPRECATED (sunset 2026-06-30): Deletes an activity. Use DELETE /api/customers/interactions instead.',
   },
 })

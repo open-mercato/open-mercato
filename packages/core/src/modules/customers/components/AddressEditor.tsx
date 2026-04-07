@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { Plus, Settings } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -15,6 +16,7 @@ import {
   DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { buildCountryOptions } from '@open-mercato/shared/lib/location/countries'
+import { buildHrefWithReturnTo } from '@open-mercato/shared/lib/navigation/returnTo'
 import type { AddressFormatStrategy } from '../utils/addressFormat'
 import { useAddressTypes } from './detail/hooks/useAddressTypes'
 
@@ -70,6 +72,8 @@ export function AddressEditor({
   hidePrimaryToggle = false,
   showFormatHint = true,
 }: AddressEditorProps) {
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { options: addressTypes, loading: addressTypesLoading, error: addressTypeError, createType } = useAddressTypes(t)
   const [typeDialogOpen, setTypeDialogOpen] = React.useState(false)
   const [typeValue, setTypeValue] = React.useState('')
@@ -120,6 +124,15 @@ export function AddressEditor({
     if (!code.length) return null
     return countryOptions.find((option) => option.code === code) ?? null
   }, [countryOptions, current.country])
+  const returnTo = React.useMemo(() => {
+    const query = searchParams?.toString() ?? ''
+    if (!pathname) return null
+    return query.length ? `${pathname}?${query}` : pathname
+  }, [pathname, searchParams])
+  const manageAddressTypesHref = React.useMemo(
+    () => buildHrefWithReturnTo('/backend/config/customers', returnTo),
+    [returnTo],
+  )
 
   const handleTypeSubmit = React.useCallback(
     async (event: React.FormEvent<HTMLFormElement>) => {
@@ -220,7 +233,7 @@ export function AddressEditor({
             title={t('customers.people.detail.addresses.types.manage', 'Manage address types')}
           >
             <Link
-              href="/backend/config/customers"
+              href={manageAddressTypesHref}
               aria-label={t('customers.people.detail.addresses.types.manage', 'Manage address types')}
             >
               <Settings className="h-4 w-4" />
