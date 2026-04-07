@@ -82,6 +82,95 @@ function countMatches(content: string, pattern: RegExp): number {
   return (content.match(pattern) || []).length
 }
 
+function parseSource(content: string, fileName = 'generated.ts'): ts.SourceFile {
+  return ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+}
+
+function getExportedNames(content: string, fileName = 'generated.ts'): Set<string> {
+  const sourceFile = parseSource(content, fileName)
+  const exportedNames = new Set<string>()
+
+  for (const statement of sourceFile.statements) {
+    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
+    const isExported = modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+
+    if (isExported && ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name)) {
+          exportedNames.add(declaration.name.text)
+        }
+      }
+    }
+
+    if (isExported && ts.isFunctionDeclaration(statement) && statement.name) {
+      exportedNames.add(statement.name.text)
+    }
+
+    if (isExported && ts.isTypeAliasDeclaration(statement)) {
+      exportedNames.add(statement.name.text)
+    }
+
+    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      exportedNames.add('default')
+    }
+
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        exportedNames.add(element.name.text)
+      }
+    }
+  }
+
+  return exportedNames
+}
+
+function expectExports(content: string, names: string[], fileName?: string): void {
+  const exportedNames = getExportedNames(content, fileName)
+  for (const name of names) {
+    expect(exportedNames.has(name)).toBe(true)
+  }
+}
+
+function expectModuleIds(content: string, moduleIds: string[]): void {
+  for (const moduleId of moduleIds) {
+    expect(content).toMatch(new RegExp(`moduleId:\\s*['"]${moduleId}['"]`))
+  }
+}
+
+function hasTypeImport(content: string, symbolName: string, moduleSpecifier?: string): boolean {
+  const sourceFile = parseSource(content)
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue
+    if (
+      moduleSpecifier
+      && (!ts.isStringLiteral(statement.moduleSpecifier) || statement.moduleSpecifier.text !== moduleSpecifier)
+    ) {
+      continue
+    }
+
+    const clause = statement.importClause
+    if (clause.name?.text === symbolName && clause.isTypeOnly) {
+      return true
+    }
+
+    if (!clause.namedBindings || !ts.isNamedImports(clause.namedBindings)) continue
+    for (const element of clause.namedBindings.elements) {
+      if (element.name.text === symbolName || element.propertyName?.text === symbolName) {
+        if (clause.isTypeOnly || element.isTypeOnly) {
+          return true
+        }
+      }
+    }
+  }
+
+  return false
+}
+
 // ---------------------------------------------------------------------------
 // Fixture (same as output-snapshots.test.ts — exercises every convention file)
 // ---------------------------------------------------------------------------
@@ -290,9 +379,9 @@ describe('entities.generated.ts', () => {
     await generateModuleEntities({ resolver, quiet: true })
     const content = readGenerated('entities.generated.ts')
 
-    expect(content).toMatch(/enhanceEntities\(\S+, 'orders'\)/)
-    expect(content).toMatch(/enhanceEntities\(\S+, 'products'\)/)
-    expect(content).toMatch(/enhanceEntities\(\S+, 'custom_app'\)/)
+    expect(content).toMatch(/enhanceEntities\(\S+,\s*["']orders["']\)/)
+    expect(content).toMatch(/enhanceEntities\(\S+,\s*["']products["']\)/)
+    expect(content).toMatch(/enhanceEntities\(\S+,\s*["']custom_app["']\)/)
   })
 })
 
@@ -319,7 +408,7 @@ describe('entities.ids.generated.ts', () => {
     await generateEntityIds({ resolver, quiet: true })
     const content = readGenerated('entities.ids.generated.ts')
 
-    expect(content).toContain('export const E')
+    expectExports(content, ['E'])
     expect(content).toContain('"sales_order": "orders:sales_order"')
     expect(content).toContain('"order_item": "orders:order_item"')
     expect(content).toContain('"product": "products:product"')
@@ -344,19 +433,19 @@ describe('entities.ids.generated.ts', () => {
     const salesOrderPath = path.join(outputDir, 'entities', 'sales_order', 'index.ts')
     expect(fs.existsSync(salesOrderPath)).toBe(true)
     const salesOrderContent = fs.readFileSync(salesOrderPath, 'utf8')
-    expect(salesOrderContent).toContain("export const id = 'id'")
-    expect(salesOrderContent).toContain("export const tenant_id = 'tenant_id'")
-    expect(salesOrderContent).toContain("export const total_gross = 'total_gross'")
-    expect(salesOrderContent).toContain("export const status = 'status'")
-    expect(salesOrderContent).toContain("export const created_at = 'created_at'")
+    expect(salesOrderContent).toContain('export const id = "id"')
+    expect(salesOrderContent).toContain('export const tenant_id = "tenant_id"')
+    expect(salesOrderContent).toContain('export const total_gross = "total_gross"')
+    expect(salesOrderContent).toContain('export const status = "status"')
+    expect(salesOrderContent).toContain('export const created_at = "created_at"')
 
     const productPath = path.join(outputDir, 'entities', 'product', 'index.ts')
     expect(fs.existsSync(productPath)).toBe(true)
     const productContent = fs.readFileSync(productPath, 'utf8')
-    expect(productContent).toContain("export const id = 'id'")
-    expect(productContent).toContain("export const name = 'name'")
-    expect(productContent).toContain("export const sku = 'sku'")
-    expect(productContent).toContain("export const price = 'price'")
+    expect(productContent).toContain('export const id = "id"')
+    expect(productContent).toContain('export const name = "name"')
+    expect(productContent).toContain('export const sku = "sku"')
+    expect(productContent).toContain('export const price = "price"')
   })
 })
 
@@ -538,16 +627,11 @@ describe('events.generated.ts', () => {
   })
 
   it('exports entries, configs, allEvents, and isEventDeclared', () => {
-    expect(content).toContain('export const eventModuleConfigEntries')
-    expect(content).toContain('export const eventModuleConfigs')
-    expect(content).toContain('export const allEvents')
-    expect(content).toContain('export function isEventDeclared')
+    expectExports(content, ['eventModuleConfigEntries', 'eventModuleConfigs', 'allEvents', 'isEventDeclared'])
   })
 
   it('has entries for all 3 modules with events.ts', () => {
-    expect(content).toContain("moduleId: 'orders'")
-    expect(content).toContain("moduleId: 'products'")
-    expect(content).toContain("moduleId: 'custom_app'")
+    expectModuleIds(content, ['orders', 'products', 'custom_app'])
   })
 
   it('imports from all event convention files', () => {
@@ -570,15 +654,11 @@ describe('notifications.generated.ts', () => {
   })
 
   it('exports entries, types, and helper functions', () => {
-    expect(content).toContain('export const notificationTypeEntries')
-    expect(content).toContain('export const notificationTypes')
-    expect(content).toContain('export function getNotificationTypes()')
-    expect(content).toContain('export function getNotificationType(type: string)')
+    expectExports(content, ['notificationTypeEntries', 'notificationTypes', 'getNotificationTypes', 'getNotificationType'])
   })
 
   it('has entries for orders and products modules', () => {
-    expect(content).toContain("moduleId: 'orders'")
-    expect(content).toContain("moduleId: 'products'")
+    expectModuleIds(content, ['orders', 'products'])
   })
 
   it('imports from both notification convention files', () => {
@@ -605,12 +685,12 @@ describe('notification-handlers.generated.ts', () => {
   })
 
   it('has entry for orders module with handlers property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('handlers:')
   })
 
   it('imports NotificationHandler type', () => {
-    expect(content).toContain("import type { NotificationHandler }")
+    expect(hasTypeImport(content, 'NotificationHandler', '@open-mercato/shared/modules/notifications/handler')).toBe(true)
   })
 })
 
@@ -633,7 +713,7 @@ describe('enrichers.generated.ts', () => {
   })
 
   it('has orders module entry with enrichers property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('enrichers:')
   })
 
@@ -661,7 +741,7 @@ describe('interceptors.generated.ts', () => {
   })
 
   it('has orders module entry with interceptors property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('interceptors:')
   })
 })
@@ -685,7 +765,7 @@ describe('guards.generated.ts', () => {
   })
 
   it('has orders module entry with guards property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('guards:')
   })
 })
@@ -709,7 +789,7 @@ describe('command-interceptors.generated.ts', () => {
   })
 
   it('has orders module entry with interceptors property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('interceptors:')
   })
 })
@@ -733,12 +813,12 @@ describe('component-overrides.generated.ts', () => {
   })
 
   it('has orders module entry with componentOverrides property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('componentOverrides:')
   })
 
   it('imports ComponentOverride type', () => {
-    expect(content).toContain("import type { ComponentOverride }")
+    expect(hasTypeImport(content, 'ComponentOverride', '@open-mercato/shared/modules/widgets/component-registry')).toBe(true)
   })
 })
 
@@ -757,14 +837,11 @@ describe('inbox-actions.generated.ts', () => {
   })
 
   it('exports entries, flattened array, and helper functions', () => {
-    expect(content).toContain('export const inboxActionConfigEntries')
-    expect(content).toContain('export const inboxActions')
-    expect(content).toContain('export function getInboxAction(type: string)')
-    expect(content).toContain('export function getRegisteredActionTypes()')
+    expectExports(content, ['inboxActionConfigEntries', 'inboxActions', 'getInboxAction', 'getRegisteredActionTypes'])
   })
 
   it('has orders module entry with actions property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('actions:')
   })
 })
@@ -784,16 +861,15 @@ describe('analytics.generated.ts', () => {
   })
 
   it('exports entries and configs arrays', () => {
-    expect(content).toContain('export const analyticsModuleConfigEntries')
-    expect(content).toContain('export const analyticsModuleConfigs')
+    expectExports(content, ['analyticsModuleConfigEntries', 'analyticsModuleConfigs'])
   })
 
   it('has orders module entry', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
   })
 
   it('imports AnalyticsModuleConfig type', () => {
-    expect(content).toContain("import type { AnalyticsModuleConfig }")
+    expect(hasTypeImport(content, 'AnalyticsModuleConfig', '@open-mercato/shared/modules/analytics')).toBe(true)
   })
 })
 
@@ -817,7 +893,7 @@ describe('ai-tools.generated.ts', () => {
   })
 
   it('has orders module entry with tools property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('tools:')
   })
 })
@@ -837,14 +913,11 @@ describe('translations-fields.generated.ts', () => {
   })
 
   it('exports entries, allTranslatableFields, and allTranslatableEntityTypes', () => {
-    expect(content).toContain('export const translatableFieldEntries')
-    expect(content).toContain('export const allTranslatableFields')
-    expect(content).toContain('export const allTranslatableEntityTypes')
+    expectExports(content, ['translatableFieldEntries', 'allTranslatableFields', 'allTranslatableEntityTypes'])
   })
 
   it('has entries for orders and products modules', () => {
-    expect(content).toContain("moduleId: 'orders'")
-    expect(content).toContain("moduleId: 'products'")
+    expectModuleIds(content, ['orders', 'products'])
   })
 })
 
@@ -863,14 +936,11 @@ describe('message-types.generated.ts', () => {
   })
 
   it('exports entries, flattened types, and helper functions', () => {
-    expect(content).toContain('export const messageTypeEntries')
-    expect(content).toContain('export const messageTypes')
-    expect(content).toContain('export function getMessageTypes()')
-    expect(content).toContain('export function getMessageType(type: string)')
+    expectExports(content, ['messageTypeEntries', 'messageTypes', 'getMessageTypes', 'getMessageType'])
   })
 
   it('has orders module entry with types property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('types:')
   })
 })
@@ -890,14 +960,11 @@ describe('message-objects.generated.ts', () => {
   })
 
   it('exports entries, flattened types, and helper functions', () => {
-    expect(content).toContain('export const messageObjectTypeEntries')
-    expect(content).toContain('export const messageObjectTypes')
-    expect(content).toContain('export function getMessageObjectTypes()')
-    expect(content).toContain('export function getMessageObjectType(')
+    expectExports(content, ['messageObjectTypeEntries', 'messageObjectTypes', 'getMessageObjectTypes', 'getMessageObjectType'])
   })
 
   it('has orders module entry', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
   })
 })
 
@@ -991,7 +1058,7 @@ describe('frontend-middleware.generated.ts', () => {
   })
 
   it('has orders module entry with middleware property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('middleware:')
   })
 })
@@ -1011,7 +1078,7 @@ describe('backend-middleware.generated.ts', () => {
   })
 
   it('has orders module entry with middleware property', () => {
-    expect(content).toContain("moduleId: 'orders'")
+    expectModuleIds(content, ['orders'])
     expect(content).toContain('middleware:')
   })
 })
@@ -1027,9 +1094,8 @@ describe('search.generated.ts', () => {
     await generateModuleRegistry({ resolver, quiet: true })
     const content = readGenerated('search.generated.ts')
 
-    expect(content).toContain('export const searchModuleConfigEntries')
-    expect(content).toContain('export const searchModuleConfigs')
-    expect(content).toContain('import type { SearchModuleConfig }')
+    expectExports(content, ['searchModuleConfigEntries', 'searchModuleConfigs'])
+    expect(hasTypeImport(content, 'SearchModuleConfig', '@open-mercato/shared/modules/search')).toBe(true)
   })
 })
 

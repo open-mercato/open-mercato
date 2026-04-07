@@ -23,6 +23,8 @@ import {
   isModulePageFile,
   resolveStandaloneSourceMirrorBase,
 } from './scanner'
+import { loadGeneratorExtensions } from './extensions'
+import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
@@ -332,6 +334,50 @@ function buildBareImportStatement(importPath: string): string {
 
 function buildDynamicImportExpression(importPath: string): string {
   return `import(${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))})`
+}
+
+function serializeGeneratedImport(
+  statement: string | {
+    moduleSpecifier?: string
+    defaultImport?: string
+    namespaceImport?: string
+    namedImports?: Array<string | { name: string; alias?: string; isTypeOnly?: boolean }>
+    isTypeOnly?: boolean
+  },
+): string {
+  if (typeof statement === 'string') {
+    return statement
+  }
+
+  const moduleSpecifier = statement.moduleSpecifier ?? ''
+  const clauses: string[] = []
+
+  if (statement.defaultImport) {
+    clauses.push(statement.defaultImport)
+  }
+
+  if (statement.namespaceImport) {
+    clauses.push(`* as ${statement.namespaceImport}`)
+  }
+
+  if (statement.namedImports && statement.namedImports.length > 0) {
+    const namedImports = statement.namedImports.map((namedImport) => {
+      if (typeof namedImport === 'string') {
+        return namedImport
+      }
+      const prefix = namedImport.isTypeOnly ? 'type ' : ''
+      const alias = namedImport.alias ? ` as ${namedImport.alias}` : ''
+      return `${prefix}${namedImport.name}${alias}`
+    })
+    clauses.push(`{ ${namedImports.join(', ')} }`)
+  }
+
+  const typePrefix = statement.isTypeOnly ? 'type ' : ''
+  if (clauses.length === 0) {
+    return `import ${toLiteral(moduleSpecifier)}`
+  }
+
+  return `import ${typePrefix}${clauses.join(', ')} from ${toLiteral(moduleSpecifier)}`
 }
 
 function findExistingModuleFile(baseDir: string, relativePath: string): string | null {
@@ -1029,27 +1075,45 @@ function processTranslations(options: {
  *
  * @returns The generated import name, or null if the file was not found.
  */
-function processStandaloneConfig(options: {
-  roots: ModuleRoots
-  imps: ModuleImports
-  modId: string
-  relativePath: string
-  prefix: string
-  importIdRef: { value: number }
-  standaloneImports: string[]
-  standaloneConfigs: string[]
-  configExpr: (importName: string, modId: string) => string
-  /** Also push the import to the shared imports array (used by modules.generated.ts) */
-  sharedImports?: string[]
-}): string | null {
-  const { roots, imps, modId, relativePath, prefix, importIdRef, standaloneImports, standaloneConfigs, configExpr, sharedImports } = options
+function processStandaloneConfig(options: StandaloneConfigOptions): string | null {
+  const {
+    roots,
+    imps,
+    modId,
+    relativePath,
+    prefix,
+    importIdRef,
+    standaloneImports,
+    standaloneEntries,
+    writeConfig,
+    standaloneConfigs,
+    configExpr,
+    sharedImports,
+  } = options
   const resolved = resolveModuleFile(roots, imps, relativePath)
   if (!resolved) return null
   const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
   const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
+  if (standaloneEntries && writeConfig) {
+    const importSpec = {
+      namespaceImport: importName,
+      moduleSpecifier: importPath,
+    }
+    ;(standaloneImports as Array<{ namespaceImport: string; moduleSpecifier: string }>).push(importSpec)
+    if (sharedImports) {
+      ;(sharedImports as Array<{ namespaceImport: string; moduleSpecifier: string }>).push(importSpec)
+    }
+    standaloneEntries.push(writeConfig({ importName, moduleId: modId }))
+    return importName
+  }
+
+  if (!standaloneConfigs || !configExpr) {
+    throw new Error(`Invalid standalone generator configuration for ${relativePath}`)
+  }
+
   const importStmt = buildImportStatement(`* as ${importName}`, importPath)
-  standaloneImports.push(importStmt)
-  if (sharedImports) sharedImports.push(importStmt)
+  ;(standaloneImports as string[]).push(importStmt)
+  if (sharedImports) (sharedImports as string[]).push(importStmt)
   standaloneConfigs.push(configExpr(importName, modId))
   return importName
 }
@@ -1094,56 +1158,11 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const backendRoutesChecksumFile = path.join(outputDir, 'backend-routes.generated.checksum')
   const apiRoutesOutFile = path.join(outputDir, 'api-routes.generated.ts')
   const apiRoutesChecksumFile = path.join(outputDir, 'api-routes.generated.checksum')
-  const widgetsOutFile = path.join(outputDir, 'dashboard-widgets.generated.ts')
-  const widgetsChecksumFile = path.join(outputDir, 'dashboard-widgets.generated.checksum')
-  const injectionWidgetsOutFile = path.join(outputDir, 'injection-widgets.generated.ts')
-  const injectionWidgetsChecksumFile = path.join(outputDir, 'injection-widgets.generated.checksum')
-  const injectionTablesOutFile = path.join(outputDir, 'injection-tables.generated.ts')
-  const injectionTablesChecksumFile = path.join(outputDir, 'injection-tables.generated.checksum')
-  const searchOutFile = path.join(outputDir, 'search.generated.ts')
-  const searchChecksumFile = path.join(outputDir, 'search.generated.checksum')
-  const notificationsOutFile = path.join(outputDir, 'notifications.generated.ts')
-  const notificationsChecksumFile = path.join(outputDir, 'notifications.generated.checksum')
-  const notificationsClientOutFile = path.join(outputDir, 'notifications.client.generated.ts')
-  const notificationsClientChecksumFile = path.join(outputDir, 'notifications.client.generated.checksum')
-  const paymentsClientOutFile = path.join(outputDir, 'payments.client.generated.ts')
-  const paymentsClientChecksumFile = path.join(outputDir, 'payments.client.generated.checksum')
-  const notificationHandlersOutFile = path.join(outputDir, 'notification-handlers.generated.ts')
-  const notificationHandlersChecksumFile = path.join(outputDir, 'notification-handlers.generated.checksum')
-  const messageTypesOutFile = path.join(outputDir, 'message-types.generated.ts')
-  const messageTypesChecksumFile = path.join(outputDir, 'message-types.generated.checksum')
-  const messageObjectsOutFile = path.join(outputDir, 'message-objects.generated.ts')
-  const messageObjectsChecksumFile = path.join(outputDir, 'message-objects.generated.checksum')
-  const messagesClientOutFile = path.join(outputDir, 'messages.client.generated.ts')
-  const messagesClientChecksumFile = path.join(outputDir, 'messages.client.generated.checksum')
-  const aiToolsOutFile = path.join(outputDir, 'ai-tools.generated.ts')
-  const aiToolsChecksumFile = path.join(outputDir, 'ai-tools.generated.checksum')
-  const eventsOutFile = path.join(outputDir, 'events.generated.ts')
-  const eventsChecksumFile = path.join(outputDir, 'events.generated.checksum')
-  const analyticsOutFile = path.join(outputDir, 'analytics.generated.ts')
-  const analyticsChecksumFile = path.join(outputDir, 'analytics.generated.checksum')
   const bootstrapRegsOutFile = path.join(outputDir, 'bootstrap-registrations.generated.ts')
   const bootstrapRegsChecksumFile = path.join(outputDir, 'bootstrap-registrations.generated.checksum')
-  const transFieldsOutFile = path.join(outputDir, 'translations-fields.generated.ts')
-  const transFieldsChecksumFile = path.join(outputDir, 'translations-fields.generated.checksum')
-  const enrichersOutFile = path.join(outputDir, 'enrichers.generated.ts')
-  const enrichersChecksumFile = path.join(outputDir, 'enrichers.generated.checksum')
-  const interceptorsOutFile = path.join(outputDir, 'interceptors.generated.ts')
-  const interceptorsChecksumFile = path.join(outputDir, 'interceptors.generated.checksum')
-  const componentOverridesOutFile = path.join(outputDir, 'component-overrides.generated.ts')
-  const componentOverridesChecksumFile = path.join(outputDir, 'component-overrides.generated.checksum')
-  const inboxActionsOutFile = path.join(outputDir, 'inbox-actions.generated.ts')
-  const inboxActionsChecksumFile = path.join(outputDir, 'inbox-actions.generated.checksum')
-  const guardsOutFile = path.join(outputDir, 'guards.generated.ts')
-  const guardsChecksumFile = path.join(outputDir, 'guards.generated.checksum')
-  const commandInterceptorsOutFile = path.join(outputDir, 'command-interceptors.generated.ts')
-  const commandInterceptorsChecksumFile = path.join(outputDir, 'command-interceptors.generated.checksum')
-  const frontendMiddlewareOutFile = path.join(outputDir, 'frontend-middleware.generated.ts')
-  const frontendMiddlewareChecksumFile = path.join(outputDir, 'frontend-middleware.generated.checksum')
-  const backendMiddlewareOutFile = path.join(outputDir, 'backend-middleware.generated.ts')
-  const backendMiddlewareChecksumFile = path.join(outputDir, 'backend-middleware.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
+  const extensions = loadGeneratorExtensions()
 
   // Pre-pass: collect generator plugins from each enabled module's generators.ts
   const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>()
@@ -1182,46 +1201,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
-  const allDashboardWidgets = new Map<string, { moduleId: string; source: 'app' | 'package'; importPath: string }>()
-  const allInjectionWidgets = new Map<string, { moduleId: string; source: 'app' | 'package'; importPath: string }>()
-  const allInjectionTables: Array<{ moduleId: string; importPath: string; importName: string }> = []
-  const searchConfigs: string[] = []
-  const searchImports: string[] = []
-  const notificationTypes: string[] = []
-  const notificationImports: string[] = []
-  const notificationClientTypes: string[] = []
-  const notificationClientImports: string[] = []
-  const paymentsClientImports: string[] = []
-  const notificationHandlerEntries: string[] = []
-  const notificationHandlerImports: string[] = []
-  const messageTypeEntries: string[] = []
-  const messageTypeImports: string[] = []
-  const messageObjectTypeEntries: string[] = []
-  const messageObjectTypeImports: string[] = []
-  const aiToolsConfigs: string[] = []
-  const aiToolsImports: string[] = []
-  const eventsConfigs: string[] = []
-  const eventsImports: string[] = []
-  const analyticsConfigs: string[] = []
-  const analyticsImports: string[] = []
-  const transFieldsConfigs: string[] = []
-  const transFieldsImports: string[] = []
-  const enricherConfigs: string[] = []
-  const enricherImports: string[] = []
-  const interceptorConfigs: string[] = []
-  const interceptorImports: string[] = []
-  const componentOverrideConfigs: string[] = []
-  const componentOverrideImports: string[] = []
-  const inboxActionsConfigs: string[] = []
-  const inboxActionsImports: string[] = []
-  const guardConfigs: string[] = []
-  const guardImports: string[] = []
-  const commandInterceptorConfigs: string[] = []
-  const commandInterceptorImports: string[] = []
-  const frontendMiddlewareConfigs: string[] = []
-  const frontendMiddlewareImports: string[] = []
-  const backendMiddlewareConfigs: string[] = []
-  const backendMiddlewareImports: string[] = []
 
   // UMES conflict detection: collect file paths during module processing
   const umesConflictSources: Array<{
@@ -1257,13 +1236,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     let fieldsImportName: string | null = null
     let featuresImportName: string | null = null
     let customEntitiesImportName: string | null = null
-    let searchImportName: string | null = null
-    let eventsImportName: string | null = null
-    let analyticsImportName: string | null = null
     let customFieldSetsExpr: string = '[]'
     const dashboardWidgets: string[] = []
-    const injectionWidgets: string[] = []
-    let injectionTableImportName: string | null = null
     let setupImportName: string | null = null
     let integrationImportName: string | null = null
 
@@ -1334,143 +1308,20 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       if (ce) customEntitiesImportName = ce.importName
     }
 
-    // 6. Search: search.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'search.ts')
-      if (resolved) {
-        const importName = `SEARCH_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = buildImportStatement(`* as ${importName}`, resolved.importPath)
-        imports.push(importStmt)
-        searchImports.push(importStmt)
-        searchImportName = importName
-      }
-    }
-
-    // 7. Notifications: notifications.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'notifications.ts',
-      prefix: 'NOTIF',
-      standaloneImports: notificationImports,
-      standaloneConfigs: notificationTypes,
-      configExpr: (n, id) => `{ moduleId: '${id}', types: ((${n}.default ?? ${n}.notificationTypes ?? (${n} as any).types ?? []) as NotificationTypeDefinition[]) }`,
-    })
-
-    // Notification client renderers: notifications.client.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'notifications.client.ts',
-      prefix: 'NOTIF_CLIENT',
-      standaloneImports: notificationClientImports,
-      standaloneConfigs: notificationClientTypes,
-      configExpr: (n, id) => `{ moduleId: '${id}', types: (${n}.default ?? []) }`,
-    })
-
-    {
-      const resolved = resolveFirstModuleFile(roots, imps, [
-        'widgets/payments/client.tsx',
-        'widgets/payments/client.ts',
-      ])
-      if (resolved) {
-        paymentsClientImports.push(buildBareImportStatement(resolved.importPath))
-      }
-    }
-
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'notifications.handlers.ts',
-      prefix: 'NOTIF_HANDLERS',
-      standaloneImports: notificationHandlerImports,
-      standaloneConfigs: notificationHandlerEntries,
-      configExpr: (n, id) => `{ moduleId: '${id}', handlers: ((${n}.default ?? ${n}.notificationHandlers ?? []) as NotificationHandler[]) }`,
-    })
-    // Message types: module root message-types.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'message-types.ts')
-      if (resolved) {
-        const importName = `MSG_TYPES_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = buildImportStatement(`* as ${importName}`, resolved.importPath)
-        messageTypeImports.push(importStmt)
-        messageTypeEntries.push(
-          `{ moduleId: '${modId}', types: ((${importName}.default ?? (${importName} as any).messageTypes ?? (${importName} as any).types ?? []) as MessageTypeDefinition[]) }`
-        )
-      }
-    }
-
-    // Message object types: module root message-objects.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'message-objects.ts')
-      if (resolved) {
-        const importName = `MSG_OBJECTS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = buildImportStatement(`* as ${importName}`, resolved.importPath)
-        messageObjectTypeImports.push(importStmt)
-        messageObjectTypeEntries.push(
-          `{ moduleId: '${modId}', types: ((${importName}.default ?? (${importName} as any).messageObjectTypes ?? (${importName} as any).objectTypes ?? (${importName} as any).types ?? []) as MessageObjectTypeDefinition[]) }`
-        )
-      }
-    }
-
-    // 8. AI Tools: ai-tools.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'ai-tools.ts',
-      prefix: 'AI_TOOLS',
-      standaloneImports: aiToolsImports,
-      standaloneConfigs: aiToolsConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', tools: (${n}.aiTools ?? ${n}.default ?? []) }`,
-    })
-
-    // 9. Events: events.ts (also referenced in module declarations)
-    eventsImportName = processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'events.ts',
-      prefix: 'EVENTS',
-      standaloneImports: eventsImports,
-      standaloneConfigs: eventsConfigs,
+    const extensionContext: ModuleScanContext = {
+      moduleId: modId,
+      roots,
+      imps,
+      importIdRef,
       sharedImports: imports,
-      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.eventsConfig ?? null) as EventModuleConfigBase | null }`,
-    })
-
-    // 10. Analytics: analytics.ts (also referenced in module declarations)
-    analyticsImportName = processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'analytics.ts',
-      prefix: 'ANALYTICS',
-      standaloneImports: analyticsImports,
-      standaloneConfigs: analyticsConfigs,
-      sharedImports: imports,
-      configExpr: (n, id) => `{ moduleId: '${id}', config: (${n}.default ?? ${n}.analyticsConfig ?? ${n}.config ?? null) }`,
-    })
-
-    // 10b. Enrichers: data/enrichers.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'data/enrichers.ts',
-      prefix: 'ENRICHERS',
-      standaloneImports: enricherImports,
-      standaloneConfigs: enricherConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', enrichers: ((${n} as any).enrichers ?? (${n} as any).default ?? []) }`,
-    })
-
-    // 10c. API interceptors: api/interceptors.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'api/interceptors.ts',
-      prefix: 'INTERCEPTORS',
-      standaloneImports: interceptorImports,
-      standaloneConfigs: interceptorConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', interceptors: ((${n} as any).interceptors ?? (${n} as any).default ?? []) }`,
-    })
-
-    // 10d. Component overrides: widgets/components.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'widgets/components.ts',
-      prefix: 'COMPONENT_OVERRIDES',
-      standaloneImports: componentOverrideImports,
-      standaloneConfigs: componentOverrideConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', componentOverrides: ((${n} as any).componentOverrides ?? (${n} as any).default ?? []) }`,
-    })
+      resolveModuleFile,
+      resolveFirstModuleFile,
+      processStandaloneConfig,
+      sanitizeGeneratedModuleSpecifier,
+    }
+    for (const extension of extensions) {
+      extension.scanModule(extensionContext)
+    }
 
     // Track file paths for UMES conflict detection
     {
@@ -1485,18 +1336,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       })
     }
 
-    // Translatable fields: translations.ts (also referenced in module declarations)
-    let transFieldsImportName: string | null = null
-    transFieldsImportName = processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'translations.ts',
-      prefix: 'TRANS_FIELDS',
-      standaloneImports: transFieldsImports,
-      standaloneConfigs: transFieldsConfigs,
-      sharedImports: imports,
-      configExpr: (n, id) => `{ moduleId: '${id}', fields: (${n}.default ?? ${n}.translatableFields ?? {}) as Record<string, string[]> }`,
-    })
-
     // Generator plugins: process each registered plugin's convention file
     for (const plugin of pluginRegistry.values()) {
       processStandaloneConfig({
@@ -1508,59 +1347,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         configExpr: plugin.configExpr,
       })
     }
-
-    // Inbox Actions: inbox-actions.ts
-    {
-      const resolved = resolveModuleFile(roots, imps, 'inbox-actions.ts')
-      if (resolved) {
-        const importName = `INBOX_ACTIONS_${toVar(modId)}_${importIdRef.value++}`
-        const importStmt = buildImportStatement(`* as ${importName}`, resolved.importPath)
-        inboxActionsImports.push(importStmt)
-        inboxActionsConfigs.push(
-          `{ moduleId: '${modId}', actions: (${importName}.default ?? ${importName}.inboxActions ?? []) }`
-        )
-      }
-    }
-
-    // 10e. Mutation guards: data/guards.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'data/guards.ts',
-      prefix: 'GUARDS',
-      standaloneImports: guardImports,
-      standaloneConfigs: guardConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', guards: ((${n} as any).guards ?? (${n} as any).default ?? []) }`,
-    })
-
-    // 10f. Command interceptors: commands/interceptors.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'commands/interceptors.ts',
-      prefix: 'CMD_INTERCEPTORS',
-      standaloneImports: commandInterceptorImports,
-      standaloneConfigs: commandInterceptorConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', interceptors: ((${n} as any).interceptors ?? (${n} as any).default ?? []) }`,
-    })
-
-    // 10g. Frontend page middleware: frontend/middleware.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'frontend/middleware.ts',
-      prefix: 'FRONTEND_MIDDLEWARE',
-      standaloneImports: frontendMiddlewareImports,
-      standaloneConfigs: frontendMiddlewareConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
-    })
-
-    // 10h. Backend page middleware: backend/middleware.ts
-    processStandaloneConfig({
-      roots, imps, modId, importIdRef,
-      relativePath: 'backend/middleware.ts',
-      prefix: 'BACKEND_MIDDLEWARE',
-      standaloneImports: backendMiddlewareImports,
-      standaloneConfigs: backendMiddlewareConfigs,
-      configExpr: (n, id) => `{ moduleId: '${id}', middleware: ((${n} as any).middleware ?? (${n} as any).default ?? []) }`,
-    })
 
     // 11. Setup: setup.ts
     {
@@ -1685,58 +1471,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
         dashboardWidgets.push(
           `{ moduleId: ${toLiteral(entry.moduleId)}, key: ${toLiteral(entry.key)}, source: ${toLiteral(entry.source)}, loader: () => ${buildDynamicImportExpression(entry.importPath)}.then((mod) => mod.default ?? mod) }`
         )
-        const existing = allDashboardWidgets.get(entry.key)
-        if (!existing || (existing.source !== 'app' && entry.source === 'app')) {
-          allDashboardWidgets.set(entry.key, {
-            moduleId: entry.moduleId,
-            source: entry.source,
-            importPath: entry.importPath,
-          })
-        }
       }
     }
-
-    // 20. Injection widgets
-    {
-      const files = scanModuleDir(roots, SCAN_CONFIGS.injectionWidgets)
-      const widgetApp = path.join(roots.appBase, 'widgets', 'injection')
-      for (const { relPath, fromApp } of files) {
-        const segs = relPath.split('/')
-        const file = segs.pop()!
-        const base = file.replace(/\.(t|j)sx?$/, '')
-        const importPath = sanitizeGeneratedModuleSpecifier(
-          `${fromApp ? appImportBase : imps.pkgBase}/widgets/injection/${[...segs, base].join('/')}`
-        )
-        const key = [modId, ...segs, base].filter(Boolean).join(':')
-        const source = fromApp ? 'app' : 'package'
-        injectionWidgets.push(
-          `{ moduleId: ${toLiteral(modId)}, key: ${toLiteral(key)}, source: ${toLiteral(source)}, loader: () => ${buildDynamicImportExpression(importPath)}.then((mod) => mod.default ?? mod) }`
-        )
-        const existing = allInjectionWidgets.get(key)
-        if (!existing || (existing.source !== 'app' && source === 'app')) {
-          allInjectionWidgets.set(key, { moduleId: modId, source, importPath })
-        }
-      }
-    }
-
-    // 21. Injection table
-    {
-      const resolved = resolveModuleFile(roots, imps, 'widgets/injection-table.ts')
-      if (resolved) {
-        const importName = `InjTable_${toVar(modId)}_${importIdRef.value++}`
-        const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
-        imports.push(buildImportStatement(`* as ${importName}`, importPath))
-        injectionTableImportName = importName
-        allInjectionTables.push({ moduleId: modId, importPath, importName })
-      }
-    }
-
-    if (searchImportName) {
-      searchConfigs.push(`{ moduleId: '${modId}', config: (${searchImportName}.default ?? ${searchImportName}.searchConfig ?? ${searchImportName}.config ?? null) }`)
-    }
-
-    // Note: events, analytics, enrichers, notifications, AI tools, and translatable fields
-    // configs are pushed inside processStandaloneConfig() above — no separate push needed here.
 
     moduleDecls.push(`{
       id: ${toLiteral(modId)},
@@ -1876,7 +1612,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
   const output = `// AUTO-GENERATED by mercato generate registry
 import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'
-${imports.join('\n')}
+${imports.map((entry) => serializeGeneratedImport(entry as any)).join('\n')}
 
 export const modules: Module[] = [
   ${moduleDecls.join(',\n  ')}
@@ -1887,7 +1623,7 @@ export default modules
   const runtimeOutput = `// AUTO-GENERATED by mercato generate registry
 import { createElement } from 'react'
 import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'
-${runtimeImports.join('\n')}
+${runtimeImports.map((entry) => serializeGeneratedImport(entry as any)).join('\n')}
 
 export const modules: Module[] = [
   ${runtimeModuleDecls.join(',\n  ')}
@@ -1897,7 +1633,7 @@ export default modules
 `
   const frontendRoutesOutput = `// AUTO-GENERATED by mercato generate registry
 import type { FrontendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
-${frontendRouteManifestImports.join('\n')}
+${frontendRouteManifestImports.map((entry) => serializeGeneratedImport(entry as any)).join('\n')}
 
 export const frontendRoutes: FrontendRouteManifestEntry[] = [
   ${frontendRouteManifestDecls.join(',\n  ')}
@@ -1907,7 +1643,7 @@ export default frontendRoutes
 `
   const backendRoutesOutput = `// AUTO-GENERATED by mercato generate registry
 import type { BackendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
-${backendRouteManifestImports.join('\n')}
+${backendRouteManifestImports.map((entry) => serializeGeneratedImport(entry as any)).join('\n')}
 
 export const backendRoutes: BackendRouteManifestEntry[] = [
   ${backendRouteManifestDecls.join(',\n  ')}
@@ -1924,289 +1660,6 @@ export const apiRoutes: ApiRouteManifestEntry[] = [
 
 export default apiRoutes
 `
-  const widgetEntriesList = Array.from(allDashboardWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
-  const widgetDecls = widgetEntriesList.map(
-    ([key, data]) =>
-      `  { moduleId: ${toLiteral(data.moduleId)}, key: ${toLiteral(key)}, source: ${toLiteral(data.source)}, loader: () => ${buildDynamicImportExpression(data.importPath)}.then((mod) => mod.default ?? mod) }`
-  )
-  const widgetsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ModuleDashboardWidgetEntry } from '@open-mercato/shared/modules/registry'
-
-export const dashboardWidgetEntries: ModuleDashboardWidgetEntry[] = [
-${widgetDecls.join(',\n')}
-]
-`
-  const searchEntriesLiteral = searchConfigs.join(',\n  ')
-  const searchImportSection = searchImports.join('\n')
-  const searchOutput = `// AUTO-GENERATED by mercato generate registry
-import type { SearchModuleConfig } from '@open-mercato/shared/modules/search'
-${searchImportSection ? `\n${searchImportSection}\n` : '\n'}type SearchConfigEntry = { moduleId: string; config: SearchModuleConfig | null }
-
-const entriesRaw: SearchConfigEntry[] = [
-${searchEntriesLiteral ? `  ${searchEntriesLiteral}\n` : ''}]
-const entries = entriesRaw.filter((entry): entry is { moduleId: string; config: SearchModuleConfig } => entry.config != null)
-
-export const searchModuleConfigEntries = entries
-export const searchModuleConfigs: SearchModuleConfig[] = entries.map((entry) => entry.config)
-`
-  const eventsEntriesLiteral = eventsConfigs.join(',\n  ')
-  const eventsImportSection = eventsImports.join('\n')
-  const eventsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { EventModuleConfigBase, EventDefinition } from '@open-mercato/shared/modules/events'
-${eventsImportSection ? `\n${eventsImportSection}\n` : '\n'}type EventConfigEntry = { moduleId: string; config: EventModuleConfigBase | null }
-
-const entriesRaw: EventConfigEntry[] = [
-${eventsEntriesLiteral ? `  ${eventsEntriesLiteral}\n` : ''}]
-const entries = entriesRaw.filter((e): e is { moduleId: string; config: EventModuleConfigBase } => e.config != null)
-
-export const eventModuleConfigEntries = entries
-export const eventModuleConfigs: EventModuleConfigBase[] = entries.map((e) => e.config)
-export const allEvents: EventDefinition[] = entries.flatMap((e) => e.config.events)
-
-// Runtime registry for validation
-const allDeclaredEventIds = new Set(allEvents.map((e) => e.id))
-export function isEventDeclared(eventId: string): boolean {
-  return allDeclaredEventIds.has(eventId)
-}
-`
-
-  const analyticsEntriesLiteral = analyticsConfigs.join(',\n  ')
-  const analyticsImportSection = analyticsImports.join('\n')
-  const analyticsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { AnalyticsModuleConfig } from '@open-mercato/shared/modules/analytics'
-${analyticsImportSection ? `\n${analyticsImportSection}\n` : '\n'}type AnalyticsConfigEntry = { moduleId: string; config: AnalyticsModuleConfig | null }
-
-const entriesRaw: AnalyticsConfigEntry[] = [
-${analyticsEntriesLiteral ? `  ${analyticsEntriesLiteral}\n` : ''}]
-const entries = entriesRaw.filter((entry): entry is { moduleId: string; config: AnalyticsModuleConfig } => entry.config != null)
-
-export const analyticsModuleConfigEntries = entries
-export const analyticsModuleConfigs: AnalyticsModuleConfig[] = entries.map((entry) => entry.config)
-`
-
-  const transFieldsEntriesLiteral = transFieldsConfigs.join(',\n  ')
-  const transFieldsImportSection = transFieldsImports.join('\n')
-  const transFieldsOutput = `// AUTO-GENERATED by mercato generate registry
-import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
-${transFieldsImportSection ? `\n${transFieldsImportSection}\n` : '\n'}type TransFieldsEntry = { moduleId: string; fields: Record<string, string[]> }
-
-const entries: TransFieldsEntry[] = [
-${transFieldsEntriesLiteral ? `  ${transFieldsEntriesLiteral}\n` : ''}]
-
-const allFields: Record<string, string[]> = {}
-for (const entry of entries) {
-  for (const [key, value] of Object.entries(entry.fields)) {
-    allFields[key] = value
-  }
-}
-
-export const translatableFieldEntries = entries
-export const allTranslatableFields = allFields
-export const allTranslatableEntityTypes = Object.keys(allFields)
-
-// Auto-register on import (side-effect)
-registerTranslatableFields(allFields)
-`
-
-  const notificationEntriesLiteral = notificationTypes.join(',\n  ')
-  const notificationImportSection = notificationImports.join('\n')
-  const notificationsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
-${notificationImportSection ? `\n${notificationImportSection}\n` : '\n'}type NotificationTypeEntry = { moduleId: string; types: NotificationTypeDefinition[] }
-
-const entriesRaw: NotificationTypeEntry[] = [
-${notificationEntriesLiteral ? `  ${notificationEntriesLiteral}\n` : ''}]
-
-const allTypes = entriesRaw.flatMap((entry) => entry.types)
-
-export const notificationTypeEntries = entriesRaw
-export const notificationTypes = allTypes
-
-export function getNotificationTypes(): NotificationTypeDefinition[] {
-  return allTypes
-}
-
-export function getNotificationType(type: string): NotificationTypeDefinition | undefined {
-  return allTypes.find((t) => t.type === type)
-}
-`
-  const notificationClientEntriesLiteral = notificationClientTypes.join(',\n  ')
-  const notificationClientImportSection = notificationClientImports.join('\n')
-  const notificationsClientOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ComponentType } from 'react'
-import type { NotificationTypeDefinition, NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
-${notificationClientImportSection ? `\n${notificationClientImportSection}\n` : '\n'}type NotificationTypeEntry = { moduleId: string; types: NotificationTypeDefinition[] }
-export type NotificationRenderers = Record<string, ComponentType<NotificationRendererProps>>
-
-const entriesRaw: NotificationTypeEntry[] = [
-${notificationClientEntriesLiteral ? `  ${notificationClientEntriesLiteral}\n` : ''}]
-
-const allTypes = entriesRaw.flatMap((entry) => entry.types)
-const renderers: NotificationRenderers = Object.fromEntries(
-  allTypes
-    .filter((typeDef) => Boolean(typeDef.Renderer))
-    .map((typeDef) => [typeDef.type, typeDef.Renderer!]),
-)
-
-export const notificationClientTypeEntries = entriesRaw
-export const notificationClientTypes = allTypes
-export const notificationRenderers = renderers
-
-export function getNotificationRenderers(): NotificationRenderers {
-  return renderers
-}
-`
-
-  const notificationHandlersEntriesLiteral = notificationHandlerEntries.join(',\n  ')
-  const notificationHandlersImportSection = notificationHandlerImports.join('\n')
-  const notificationHandlersOutput = `// AUTO-GENERATED by mercato generate registry
-import type { NotificationHandler } from '@open-mercato/shared/modules/notifications/handler'
-${notificationHandlersImportSection ? `\n${notificationHandlersImportSection}\n` : '\n'}type NotificationHandlerEntry = { moduleId: string; handlers: NotificationHandler[] }
-
-export const notificationHandlerEntries: NotificationHandlerEntry[] = [
-${notificationHandlersEntriesLiteral ? `  ${notificationHandlersEntriesLiteral}\n` : ''}]
-`
-
-  const paymentsClientOutput = `// AUTO-GENERATED by mercato generate registry
-${paymentsClientImports.length ? paymentsClientImports.join('\n') + '\n' : '\n'}export const paymentGatewayClientModuleCount = ${paymentsClientImports.length}
-`
-
-  const messageTypeEntriesLiteral = messageTypeEntries.join(',\n  ')
-  const messageTypeImportSection = messageTypeImports.join('\n')
-  const messageTypesOutput = `// AUTO-GENERATED by mercato generate registry
-import type { MessageTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-${messageTypeImportSection ? `\n${messageTypeImportSection}\n` : '\n'}type MessageTypeEntry = { moduleId: string; types: MessageTypeDefinition[] }
-
-const entriesRaw: MessageTypeEntry[] = [
-${messageTypeEntriesLiteral ? `  ${messageTypeEntriesLiteral}\n` : ''}]
-
-const allTypes = entriesRaw.flatMap((entry) => entry.types)
-
-export const messageTypeEntries = entriesRaw
-export const messageTypes = allTypes
-
-export function getMessageTypes(): MessageTypeDefinition[] {
-  return allTypes
-}
-
-export function getMessageType(type: string): MessageTypeDefinition | undefined {
-  return allTypes.find((entry) => entry.type === type)
-}
-`
-
-  const messageObjectEntriesLiteral = messageObjectTypeEntries.join(',\n  ')
-  const messageObjectImportSection = messageObjectTypeImports.join('\n')
-  const messageObjectsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-${messageObjectImportSection ? `\n${messageObjectImportSection}\n` : '\n'}type MessageObjectTypeEntry = { moduleId: string; types: MessageObjectTypeDefinition[] }
-
-const entriesRaw: MessageObjectTypeEntry[] = [
-${messageObjectEntriesLiteral ? `  ${messageObjectEntriesLiteral}\n` : ''}]
-
-const allTypes = entriesRaw.flatMap((entry) => entry.types)
-
-export const messageObjectTypeEntries = entriesRaw
-export const messageObjectTypes = allTypes
-
-export function getMessageObjectTypes(): MessageObjectTypeDefinition[] {
-  return allTypes
-}
-
-export function getMessageObjectType(module: string, entityType: string): MessageObjectTypeDefinition | undefined {
-  return allTypes.find((entry) => entry.module === module && entry.entityType === entityType)
-}
-`
-  const messagesClientOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ComponentType } from 'react'
-import type {
-  MessageTypeDefinition,
-  MessageObjectTypeDefinition,
-  MessageListItemProps,
-  MessageContentProps,
-  MessageActionsProps,
-  ObjectDetailProps,
-  ObjectPreviewProps,
-} from '@open-mercato/shared/modules/messages/types'
-import { registerMessageObjectTypes } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
-import { configureMessageUiComponentRegistry } from '@open-mercato/core/modules/messages/components/utils/typeUiRegistry'
-${messageTypeImportSection ? `\n${messageTypeImportSection}\n` : '\n'}${messageObjectImportSection ? `\n${messageObjectImportSection}\n` : ''}type MessageTypeEntry = { moduleId: string; types: MessageTypeDefinition[] }
-type MessageObjectTypeEntry = { moduleId: string; types: MessageObjectTypeDefinition[] }
-
-export type MessageListItemRenderers = Record<string, ComponentType<MessageListItemProps>>
-export type MessageContentRenderers = Record<string, ComponentType<MessageContentProps>>
-export type MessageActionsRenderers = Record<string, ComponentType<MessageActionsProps>>
-export type MessageObjectDetailRenderers = Record<string, ComponentType<ObjectDetailProps>>
-export type MessageObjectPreviewRenderers = Record<string, ComponentType<ObjectPreviewProps>>
-
-export type MessageUiComponentRegistry = {
-  listItemComponents: MessageListItemRenderers
-  contentComponents: MessageContentRenderers
-  actionsComponents: MessageActionsRenderers
-  objectDetailComponents: MessageObjectDetailRenderers
-  objectPreviewComponents: MessageObjectPreviewRenderers
-}
-
-const messageTypeEntriesRaw: MessageTypeEntry[] = [
-${messageTypeEntriesLiteral ? `  ${messageTypeEntriesLiteral}\n` : ''}]
-const messageObjectTypeEntriesRaw: MessageObjectTypeEntry[] = [
-${messageObjectEntriesLiteral ? `  ${messageObjectEntriesLiteral}\n` : ''}]
-
-const allMessageTypes = messageTypeEntriesRaw.flatMap((entry) => entry.types)
-const allMessageObjectTypes = messageObjectTypeEntriesRaw.flatMap((entry) => entry.types)
-
-const listItemComponents: MessageListItemRenderers = Object.fromEntries(
-  allMessageTypes
-    .filter((typeDef) => Boolean(typeDef.ui?.listItemComponent) && Boolean(typeDef.ListItemComponent))
-    .map((typeDef) => [typeDef.ui!.listItemComponent!, typeDef.ListItemComponent!]),
-)
-
-const contentComponents: MessageContentRenderers = Object.fromEntries(
-  allMessageTypes
-    .filter((typeDef) => Boolean(typeDef.ui?.contentComponent) && Boolean(typeDef.ContentComponent))
-    .map((typeDef) => [typeDef.ui!.contentComponent!, typeDef.ContentComponent!]),
-)
-
-const actionsComponents: MessageActionsRenderers = Object.fromEntries(
-  allMessageTypes
-    .filter((typeDef) => Boolean(typeDef.ui?.actionsComponent) && Boolean(typeDef.ActionsComponent))
-    .map((typeDef) => [typeDef.ui!.actionsComponent!, typeDef.ActionsComponent!]),
-)
-
-const objectDetailComponents: MessageObjectDetailRenderers = Object.fromEntries(
-  allMessageObjectTypes
-    .filter((typeDef) => Boolean(typeDef.DetailComponent))
-    .map((typeDef) => [\`\${typeDef.module}:\${typeDef.entityType}\`, typeDef.DetailComponent!]),
-)
-
-const objectPreviewComponents: MessageObjectPreviewRenderers = Object.fromEntries(
-  allMessageObjectTypes
-    .filter((typeDef) => Boolean(typeDef.PreviewComponent))
-    .map((typeDef) => [\`\${typeDef.module}:\${typeDef.entityType}\`, typeDef.PreviewComponent!]),
-)
-
-const registry: MessageUiComponentRegistry = {
-  listItemComponents,
-  contentComponents,
-  actionsComponents,
-  objectDetailComponents,
-  objectPreviewComponents,
-}
-
-export const messageClientTypeEntries = messageTypeEntriesRaw
-export const messageClientObjectTypeEntries = messageObjectTypeEntriesRaw
-export const messageUiComponentRegistry = registry
-
-export function getMessageUiComponentRegistry(): MessageUiComponentRegistry {
-  return registry
-}
-
-// Side-effects: register all message object types and configure the UI component registry on import.
-for (const entry of messageObjectTypeEntriesRaw) {
-  registerMessageObjectTypes(entry.types)
-}
-configureMessageUiComponentRegistry(registry)
-`
-
   // Validate module dependencies declared via ModuleInfo.requires
   {
     const enabledIds = new Set(enabled.map((e) => e.id))
@@ -2239,64 +1692,20 @@ configureMessageUiComponentRegistry(registry)
   writeGeneratedFile({ outFile: frontendRoutesOutFile, checksumFile: frontendRoutesChecksumFile, content: frontendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: backendRoutesOutFile, checksumFile: backendRoutesChecksumFile, content: backendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: apiRoutesOutFile, checksumFile: apiRoutesChecksumFile, content: apiRoutesOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: widgetsOutFile, checksumFile: widgetsChecksumFile, content: widgetsOutput, structureChecksum, result, quiet })
 
-  const injectionWidgetEntriesList = Array.from(allInjectionWidgets.entries()).sort(([a], [b]) => a.localeCompare(b))
-  const injectionWidgetDecls = injectionWidgetEntriesList.map(
-    ([key, data]) =>
-      `  { moduleId: ${toLiteral(data.moduleId)}, key: ${toLiteral(key)}, source: ${toLiteral(data.source)}, loader: () => ${buildDynamicImportExpression(data.importPath)}.then((mod) => mod.default ?? mod) }`
-  )
-  const injectionWidgetsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
-
-export const injectionWidgetEntries: ModuleInjectionWidgetEntry[] = [
-${injectionWidgetDecls.join(',\n')}
-]
-`
-  const injectionTableImports = allInjectionTables.map(
-    (entry) => buildImportStatement(`* as ${entry.importName}`, entry.importPath)
-  )
-  const injectionTableDecls = allInjectionTables.map(
-    (entry) =>
-      `  { moduleId: ${toLiteral(entry.moduleId)}, table: ((${entry.importName}.default ?? ${entry.importName}.injectionTable) as any) || {} }`
-  )
-  const injectionTablesOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/injection'
-${injectionTableImports.join('\n')}
-
-export const injectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> = [
-${injectionTableDecls.join(',\n')}
-]
-`
-  writeGeneratedFile({ outFile: injectionWidgetsOutFile, checksumFile: injectionWidgetsChecksumFile, content: injectionWidgetsOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: injectionTablesOutFile, checksumFile: injectionTablesChecksumFile, content: injectionTablesOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: searchOutFile, checksumFile: searchChecksumFile, content: searchOutput, structureChecksum, result, quiet })
-
-  // AI Tools generated file
-  const aiToolsOutput = `// AUTO-GENERATED by mercato generate registry
-${aiToolsImports.length ? aiToolsImports.join('\n') + '\n' : ''}
-type AiToolConfigEntry = { moduleId: string; tools: unknown[] }
-
-const aiToolConfigEntriesRaw: AiToolConfigEntry[] = [
-${aiToolsConfigs.length ? '  ' + aiToolsConfigs.join(',\n  ') + '\n' : ''}]
-
-export const aiToolConfigEntries: AiToolConfigEntry[] = aiToolConfigEntriesRaw.filter(
-  (entry): entry is AiToolConfigEntry => Array.isArray(entry.tools) && entry.tools.length > 0,
-)
-
-export const allAiTools = aiToolConfigEntries.flatMap(e => e.tools)
-`
-  writeGeneratedFile({ outFile: aiToolsOutFile, checksumFile: aiToolsChecksumFile, content: aiToolsOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: notificationsOutFile, checksumFile: notificationsChecksumFile, content: notificationsOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: notificationsClientOutFile, checksumFile: notificationsClientChecksumFile, content: notificationsClientOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: paymentsClientOutFile, checksumFile: paymentsClientChecksumFile, content: paymentsClientOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: notificationHandlersOutFile, checksumFile: notificationHandlersChecksumFile, content: notificationHandlersOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: messageTypesOutFile, checksumFile: messageTypesChecksumFile, content: messageTypesOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: messageObjectsOutFile, checksumFile: messageObjectsChecksumFile, content: messageObjectsOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: messagesClientOutFile, checksumFile: messagesClientChecksumFile, content: messagesClientOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: eventsOutFile, checksumFile: eventsChecksumFile, content: eventsOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: analyticsOutFile, checksumFile: analyticsChecksumFile, content: analyticsOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: transFieldsOutFile, checksumFile: transFieldsChecksumFile, content: transFieldsOutput, structureChecksum, result, quiet })
+  for (const extension of extensions) {
+    const outputs = extension.generateOutput()
+    for (const [fileName, content] of outputs) {
+      writeGeneratedFile({
+        outFile: path.join(outputDir, fileName),
+        checksumFile: path.join(outputDir, fileName.replace('.ts', '.checksum')),
+        content,
+        structureChecksum,
+        result,
+        quiet,
+      })
+    }
+  }
 
   // Generator plugin outputs (registered via modules' generators.ts)
   for (const [pluginId, plugin] of pluginRegistry) {
@@ -2334,134 +1743,6 @@ ${body}
 `
     writeGeneratedFile({ outFile: bootstrapRegsOutFile, checksumFile: bootstrapRegsChecksumFile, content: bootstrapRegsOutput, structureChecksum, result, quiet })
   }
-
-  // Enrichers generated file
-  const enricherEntriesLiteral = enricherConfigs.join(',\n  ')
-  const enricherImportSection = enricherImports.join('\n')
-  const enrichersOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
-${enricherImportSection ? `\n${enricherImportSection}\n` : '\n'}type EnricherEntry = { moduleId: string; enrichers: ResponseEnricher[] }
-
-export const enricherEntries: EnricherEntry[] = [
-${enricherEntriesLiteral ? `  ${enricherEntriesLiteral}\n` : ''}]
-`
-  writeGeneratedFile({ outFile: enrichersOutFile, checksumFile: enrichersChecksumFile, content: enrichersOutput, structureChecksum, result, quiet })
-  // Inbox Actions generated file
-  const inboxActionsEntriesLiteral = inboxActionsConfigs.join(',\n  ')
-  const inboxActionsImportSection = inboxActionsImports.join('\n')
-  const inboxActionsOutput = `// AUTO-GENERATED by mercato generate registry — do not edit
-import type { InboxActionDefinition } from '@open-mercato/shared/modules/inbox-actions'
-${inboxActionsImportSection ? `\n${inboxActionsImportSection}\n` : '\n'}
-type InboxActionConfigEntry = { moduleId: string; actions: InboxActionDefinition[] }
-
-const entriesRaw: InboxActionConfigEntry[] = [
-${inboxActionsEntriesLiteral ? `  ${inboxActionsEntriesLiteral}\n` : ''}]
-
-const entries = entriesRaw.filter((e): e is InboxActionConfigEntry => Array.isArray(e.actions) && e.actions.length > 0)
-
-export const inboxActionConfigEntries = entries
-export const inboxActions: InboxActionDefinition[] = entries.flatMap((e) => e.actions)
-
-const actionTypeMap = new Map(inboxActions.map((a) => [a.type, a]))
-export function getInboxAction(type: string): InboxActionDefinition | undefined {
-  return actionTypeMap.get(type)
-}
-export function getRegisteredActionTypes(): string[] {
-  return Array.from(actionTypeMap.keys())
-}
-`
-  writeGeneratedFile({ outFile: inboxActionsOutFile, checksumFile: inboxActionsChecksumFile, content: inboxActionsOutput, structureChecksum, result, quiet })
-
-  const interceptorEntriesLiteral = interceptorConfigs.join(',\n  ')
-  const interceptorImportSection = interceptorImports.join('\n')
-  const interceptorsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
-${interceptorImportSection ? `\n${interceptorImportSection}\n` : '\n'}type InterceptorEntry = { moduleId: string; interceptors: ApiInterceptor[] }
-
-export const interceptorEntries: InterceptorEntry[] = [
-${interceptorEntriesLiteral ? `  ${interceptorEntriesLiteral}\n` : ''}]
-`
-  writeGeneratedFile({ outFile: interceptorsOutFile, checksumFile: interceptorsChecksumFile, content: interceptorsOutput, structureChecksum, result, quiet })
-
-  const componentOverrideEntriesLiteral = componentOverrideConfigs.join(',\n  ')
-  const componentOverrideImportSection = componentOverrideImports.join('\n')
-  const componentOverridesOutput = `// AUTO-GENERATED by mercato generate registry
-import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
-${componentOverrideImportSection ? `\n${componentOverrideImportSection}\n` : '\n'}type ComponentOverrideEntry = { moduleId: string; componentOverrides: ComponentOverride[] }
-
-export const componentOverrideEntries: ComponentOverrideEntry[] = [
-${componentOverrideEntriesLiteral ? `  ${componentOverrideEntriesLiteral}\n` : ''}]
-`
-  writeGeneratedFile({
-    outFile: componentOverridesOutFile,
-    checksumFile: componentOverridesChecksumFile,
-    content: componentOverridesOutput,
-    structureChecksum,
-    result,
-    quiet,
-  })
-
-  const guardEntriesLiteral = guardConfigs.join(',\n  ')
-  const guardImportSection = guardImports.join('\n')
-  const guardsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
-${guardImportSection ? `\n${guardImportSection}\n` : '\n'}type GuardEntry = { moduleId: string; guards: MutationGuard[] }
-
-export const guardEntries: GuardEntry[] = [
-${guardEntriesLiteral ? `  ${guardEntriesLiteral}\n` : ''}]
-`
-  writeGeneratedFile({ outFile: guardsOutFile, checksumFile: guardsChecksumFile, content: guardsOutput, structureChecksum, result, quiet })
-
-  const commandInterceptorEntriesLiteral = commandInterceptorConfigs.join(',\n  ')
-  const commandInterceptorImportSection = commandInterceptorImports.join('\n')
-  const commandInterceptorsOutput = `// AUTO-GENERATED by mercato generate registry
-import type { CommandInterceptor } from '@open-mercato/shared/lib/commands/command-interceptor'
-${commandInterceptorImportSection ? `\n${commandInterceptorImportSection}\n` : '\n'}type CommandInterceptorEntry = { moduleId: string; interceptors: CommandInterceptor[] }
-
-export const commandInterceptorEntries: CommandInterceptorEntry[] = [
-${commandInterceptorEntriesLiteral ? `  ${commandInterceptorEntriesLiteral}\n` : ''}]
-`
-  writeGeneratedFile({ outFile: commandInterceptorsOutFile, checksumFile: commandInterceptorsChecksumFile, content: commandInterceptorsOutput, structureChecksum, result, quiet })
-
-  const frontendMiddlewareEntriesLiteral = frontendMiddlewareConfigs.join(',\n  ')
-  const frontendMiddlewareImportSection = frontendMiddlewareImports.join('\n')
-  const frontendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
-import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
-${frontendMiddlewareImportSection ? `\n${frontendMiddlewareImportSection}\n` : '\n'}type FrontendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
-
-const entriesRaw: FrontendMiddlewareEntry[] = [
-${frontendMiddlewareEntriesLiteral ? `  ${frontendMiddlewareEntriesLiteral}\n` : ''}]
-
-export const frontendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
-`
-  writeGeneratedFile({
-    outFile: frontendMiddlewareOutFile,
-    checksumFile: frontendMiddlewareChecksumFile,
-    content: frontendMiddlewareOutput,
-    structureChecksum,
-    result,
-    quiet,
-  })
-
-  const backendMiddlewareEntriesLiteral = backendMiddlewareConfigs.join(',\n  ')
-  const backendMiddlewareImportSection = backendMiddlewareImports.join('\n')
-  const backendMiddlewareOutput = `// AUTO-GENERATED by mercato generate registry
-import type { PageMiddlewareRegistryEntry, PageRouteMiddleware } from '@open-mercato/shared/modules/middleware/page'
-${backendMiddlewareImportSection ? `\n${backendMiddlewareImportSection}\n` : '\n'}type BackendMiddlewareEntry = { moduleId: string; middleware: PageRouteMiddleware[] }
-
-const entriesRaw: BackendMiddlewareEntry[] = [
-${backendMiddlewareEntriesLiteral ? `  ${backendMiddlewareEntriesLiteral}\n` : ''}]
-
-export const backendMiddlewareEntries: PageMiddlewareRegistryEntry[] = entriesRaw
-`
-  writeGeneratedFile({
-    outFile: backendMiddlewareOutFile,
-    checksumFile: backendMiddlewareChecksumFile,
-    content: backendMiddlewareOutput,
-    structureChecksum,
-    result,
-    quiet,
-  })
 
   return result
 }
@@ -2627,7 +1908,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const output = `// AUTO-GENERATED by mercato generate registry (app version)
 // This file excludes route handlers and CLI commands from the request bootstrap path.
 import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'
-${imports.join('\n')}
+${imports.map((entry) => serializeGeneratedImport(entry as any)).join('\n')}
 
 export const modules: Module[] = [
   ${moduleDecls.join(',\n  ')}
@@ -2864,7 +2145,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const output = `// AUTO-GENERATED by mercato generate registry (CLI version)
 // This file excludes Next.js dependent code (routes, APIs, injection widgets)
 import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'
-${imports.join('\n')}
+${imports.map((entry) => serializeGeneratedImport(entry as any)).join('\n')}
 
 export const modules: Module[] = [
   ${moduleDecls.join(',\n  ')}
