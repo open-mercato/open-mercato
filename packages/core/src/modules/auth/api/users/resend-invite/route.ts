@@ -7,9 +7,6 @@ import { User, PasswordReset } from '@open-mercato/core/modules/auth/data/entiti
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
-import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
-import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
@@ -87,27 +84,6 @@ export async function POST(req: Request) {
   } catch (err) {
     console.error('[auth.users.resend-invite] Failed to send invitation email:', err)
     emailSent = false
-  }
-
-  try {
-    const tenantId = user.tenantId ? String(user.tenantId) : null
-    if (tenantId) {
-      const notificationService = resolveNotificationService(container)
-      const typeDef = notificationTypes.find((type) => type.type === 'auth.user.invited')
-      if (typeDef) {
-        const notificationInput = buildNotificationFromType(typeDef, {
-          recipientUserId: String(user.id),
-          sourceEntityType: 'auth:user',
-          sourceEntityId: String(user.id),
-        })
-        await notificationService.create(notificationInput, {
-          tenantId,
-          organizationId: user.organizationId ? String(user.organizationId) : null,
-        })
-      }
-    }
-  } catch (err) {
-    console.error('[auth.users.resend-invite] Failed to create notification:', err)
   }
 
   if (!emailSent) {

@@ -362,27 +362,6 @@ async function sendInviteToUser(
     emailSent = false
   }
 
-  try {
-    const tenantId = user.tenantId ? String(user.tenantId) : null
-    if (tenantId) {
-      const notificationService = resolveNotificationService(ctx.container)
-      const typeDef = notificationTypes.find((type) => type.type === 'auth.user.invited')
-      if (typeDef) {
-        const notificationInput = buildNotificationFromType(typeDef, {
-          recipientUserId: String(user.id),
-          sourceEntityType: 'auth:user',
-          sourceEntityId: String(user.id),
-        })
-        await notificationService.create(notificationInput, {
-          tenantId,
-          organizationId: user.organizationId ? String(user.organizationId) : null,
-        })
-      }
-    }
-  } catch (err) {
-    console.error('[auth.users.invite] Failed to create notification:', err)
-  }
-
   return { emailSent }
 }
 

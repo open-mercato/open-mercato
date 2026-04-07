@@ -274,6 +274,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
       id: 'organizationId',
       label: t('auth.users.form.field.organization', 'Organization'),
       type: 'custom',
+      required: true,
       component: ({ id, value, setValue }) => {
         const normalizedValue = typeof value === 'string' ? (value.length > 0 ? value : null) : null
         return (
@@ -389,7 +390,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           loadingMessage={t('auth.users.form.loading', 'Loading user data...')}
           submitLabel={t('auth.users.form.action.save', 'Save')}
           cancelHref="/backend/users"
-          extraActions={id && !userHasPassword ? (
+          extraActions={id ? (
             <Button
               type="button"
               variant="outline"
