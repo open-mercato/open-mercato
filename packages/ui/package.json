@@ -116,8 +116,12 @@
     }
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@radix-ui/react-popover": "^1.1.6",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-virtual": "^3.13.23",
     "date-fns": "^4.1.0",
     "react-big-calendar": "^1.19.4",
     "react-day-picker": "^9.6.4",
