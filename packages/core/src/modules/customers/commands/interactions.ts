@@ -28,6 +28,7 @@ import {
   ensureTenantScope,
   requireCustomerEntity,
   extractUndoPayload,
+  emitQueryIndexUpsertEvents,
   requireDealInScope,
   resolveParentResourceKind,
 } from './shared'
@@ -53,6 +54,26 @@ const interactionCrudEvents: CrudEventsConfig = {
     id: ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
+    entityId:
+      ctx.entity && typeof ctx.entity === 'object' && 'entity' in (ctx.entity as Record<string, unknown>)
+        ? (() => {
+            const entityRef = (ctx.entity as CustomerInteraction).entity
+            return typeof entityRef === 'string' ? entityRef : entityRef?.id ?? null
+          })()
+        : null,
+    interactionType:
+      ctx.entity && typeof ctx.entity === 'object' && 'interactionType' in (ctx.entity as Record<string, unknown>)
+        ? (ctx.entity as CustomerInteraction).interactionType
+        : null,
+    status:
+      ctx.entity && typeof ctx.entity === 'object' && 'status' in (ctx.entity as Record<string, unknown>)
+        ? (ctx.entity as CustomerInteraction).status
+        : null,
+    source:
+      ctx.entity && typeof ctx.entity === 'object' && 'source' in (ctx.entity as Record<string, unknown>)
+        ? (ctx.entity as CustomerInteraction).source ?? null
+        : null,
+    ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   }),
 }
 
@@ -167,8 +188,12 @@ async function emitInteractionRevertedEvent(
     id: interaction.id,
     organizationId: interaction.organizationId,
     tenantId: interaction.tenantId,
+    entityId: interaction.entityId,
+    interactionType: interaction.interactionType,
+    source: interaction.source ?? null,
     status: interaction.status,
     occurredAt: interaction.occurredAt?.toISOString() ?? null,
+    ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   })
 }
 
@@ -209,6 +234,12 @@ async function emitNextInteractionUpdatedEvent(
   projection: InteractionProjectionMutation,
   identifiers: InteractionIdentifiers,
 ): Promise<void> {
+  await emitQueryIndexUpsertEvents(ctx, [{
+    entityType: 'customers:customer_entity',
+    recordId: projection.entityId,
+    organizationId: identifiers.organizationId,
+    tenantId: identifiers.tenantId,
+  }])
   await emitLifecycleEvent(ctx, 'customers.next_interaction.updated', {
     id: projection.entityId,
     entityId: projection.entityId,
@@ -287,6 +318,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         organizationId: interaction.organizationId,
         tenantId: interaction.tenantId,
       },
+      syncOrigin: ctx.syncOrigin,
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
@@ -413,6 +445,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         organizationId: interaction.organizationId,
         tenantId: interaction.tenantId,
       },
+      syncOrigin: ctx.syncOrigin,
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
@@ -532,6 +565,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         organizationId: interaction.organizationId,
         tenantId: interaction.tenantId,
       },
+      syncOrigin: ctx.syncOrigin,
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
@@ -587,10 +621,19 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       action: 'updated',
       entity: interaction,
       identifiers,
+      syncOrigin: ctx.syncOrigin,
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
-    await emitLifecycleEvent(ctx, 'customers.interaction.completed', identifiers)
+    await emitLifecycleEvent(ctx, 'customers.interaction.completed', {
+      ...identifiers,
+      entityId,
+      interactionType: interaction.interactionType,
+      status: interaction.status,
+      source: interaction.source ?? null,
+      occurredAt: interaction.occurredAt?.toISOString() ?? null,
+      ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
+    })
     await emitNextInteractionUpdatedEvent(ctx, { entityId, nextInteractionId }, identifiers)
 
     return { interactionId: interaction.id }
@@ -653,6 +696,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
         organizationId: result.interaction.organizationId,
         tenantId: result.interaction.tenantId,
       },
+      syncOrigin: ctx.syncOrigin,
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
@@ -708,10 +752,18 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       action: 'updated',
       entity: interaction,
       identifiers,
+      syncOrigin: ctx.syncOrigin,
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
-    await emitLifecycleEvent(ctx, 'customers.interaction.canceled', identifiers)
+    await emitLifecycleEvent(ctx, 'customers.interaction.canceled', {
+      ...identifiers,
+      entityId,
+      interactionType: interaction.interactionType,
+      status: interaction.status,
+      source: interaction.source ?? null,
+      ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
+    })
     await emitNextInteractionUpdatedEvent(ctx, { entityId, nextInteractionId }, identifiers)
 
     return { interactionId: interaction.id }
@@ -773,6 +825,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
         organizationId: result.interaction.organizationId,
         tenantId: result.interaction.tenantId,
       },
+      syncOrigin: ctx.syncOrigin,
       indexer: interactionCrudIndexer,
       events: interactionCrudEvents,
     })
@@ -828,6 +881,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
           organizationId: interaction.organizationId,
           tenantId: interaction.tenantId,
         },
+        syncOrigin: ctx.syncOrigin,
         indexer: interactionCrudIndexer,
         events: interactionCrudEvents,
       })
@@ -939,6 +993,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
           organizationId: interaction.organizationId,
           tenantId: interaction.tenantId,
         },
+        syncOrigin: ctx.syncOrigin,
         indexer: interactionCrudIndexer,
         events: interactionCrudEvents,
       })

@@ -2585,6 +2585,55 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@dnd-kit/accessibility@npm:^3.1.1":
+  version: 3.1.1
+  resolution: "@dnd-kit/accessibility@npm:3.1.1"
+  dependencies:
+    tslib: "npm:^2.0.0"
+  peerDependencies:
+    react: ">=16.8.0"
+  checksum: 10/961000456a36700a9cd13be51147a818bc100f7dfabb332b80438d02e06f3b556aa0ff46ddf13bdff3b70bc8f9b63dd5a392cc285597ab1f7026e672660c54b6
+  languageName: node
+  linkType: hard
+
+"@dnd-kit/core@npm:^6.3.1":
+  version: 6.3.1
+  resolution: "@dnd-kit/core@npm:6.3.1"
+  dependencies:
+    "@dnd-kit/accessibility": "npm:^3.1.1"
+    "@dnd-kit/utilities": "npm:^3.2.2"
+    tslib: "npm:^2.0.0"
+  peerDependencies:
+    react: ">=16.8.0"
+    react-dom: ">=16.8.0"
+  checksum: 10/a5ae6fa8404765712aa80e308f58cb79bac9a306c274ec8272c405c2a59dd277d24b966348fe8ca6340bb3f0d75f90b8a021fa781edcf65255114d3cf2bef891
+  languageName: node
+  linkType: hard
+
+"@dnd-kit/sortable@npm:^10.0.0":
+  version: 10.0.0
+  resolution: "@dnd-kit/sortable@npm:10.0.0"
+  dependencies:
+    "@dnd-kit/utilities": "npm:^3.2.2"
+    tslib: "npm:^2.0.0"
+  peerDependencies:
+    "@dnd-kit/core": ^6.3.0
+    react: ">=16.8.0"
+  checksum: 10/bc61c25e76905204a53f91294b8116bf106fa27247eebca2c66478450b2051d7177115a384054e7e5639e6c4430083ade63056f79ee45f549da537cf05bc5288
+  languageName: node
+  linkType: hard
+
+"@dnd-kit/utilities@npm:^3.2.2":
+  version: 3.2.2
+  resolution: "@dnd-kit/utilities@npm:3.2.2"
+  dependencies:
+    tslib: "npm:^2.0.0"
+  peerDependencies:
+    react: ">=16.8.0"
+  checksum: 10/6cfe46a5fcdaced943982e7ae66b08b89235493e106eb5bc833737c25905e13375c6ecc3aa0c357d136cb21dae3966213dba063f19b7a60b1235a29a7b05ff84
+  languageName: node
+  linkType: hard
+
 "@docsearch/core@npm:4.5.3":
   version: 4.5.3
   resolution: "@docsearch/core@npm:4.5.3"
@@ -5977,9 +6026,13 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/ui@workspace:packages/ui"
   dependencies:
+    "@dnd-kit/core": "npm:^6.3.1"
+    "@dnd-kit/sortable": "npm:^10.0.0"
+    "@dnd-kit/utilities": "npm:^3.2.2"
     "@open-mercato/shared": "workspace:*"
     "@radix-ui/react-popover": "npm:^1.1.6"
     "@radix-ui/react-tooltip": "npm:^1.2.8"
+    "@tanstack/react-virtual": "npm:^3.13.23"
     "@testing-library/dom": "npm:^10.4.1"
     "@testing-library/jest-dom": "npm:^6.9.1"
     "@testing-library/react": "npm:^16.3.1"
@@ -8086,10 +8139,29 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@tanstack/react-virtual@npm:^3.13.23":
+  version: 3.13.23
+  resolution: "@tanstack/react-virtual@npm:3.13.23"
+  dependencies:
+    "@tanstack/virtual-core": "npm:3.13.23"
+  peerDependencies:
+    react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+    react-dom: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
+  checksum: 10/fb60d65b61f299648325d8d69d00e5d9434ec20e075496c2e451426087d6216d617558565f05d7a503393a482db29112140b19082f709785f4a469800ddc4e31
+  languageName: node
+  linkType: hard
+
 "@tanstack/table-core@npm:8.21.3":
   version: 8.21.3
   resolution: "@tanstack/table-core@npm:8.21.3"
   checksum: 10/aa05e5f80110f0f56d66161e950668ea6ef3e2ea4f3a2ccd5d5980b39b4feea987245b20531aee2c6743e6edd12c0361503413b63090c807f88a61b19bfd04f3
+  languageName: node
+  linkType: hard
+
+"@tanstack/virtual-core@npm:3.13.23":
+  version: 3.13.23
+  resolution: "@tanstack/virtual-core@npm:3.13.23"
+  checksum: 10/17f6e3c3f56d2d91d5818981416a628db2e1038f6a13f39f60e5b2bdcff04b99fba0e79640a6667ea9ef70756a2a086fb468f8b5f065faea9f1a47f8aa3722a5
   languageName: node
   linkType: hard
 
@@ -11950,6 +12022,8 @@ __metadata:
     "@types/node": "npm:^24.10.1"
     esbuild: "npm:^0.25.0"
     picocolors: "npm:^1.1.0"
+    tar: "npm:^7.5.1"
+    tsx: "npm:^4.21.0"
     typescript: "npm:^5.9.3"
   bin:
     create-mercato-app: ./bin/create-mercato-app
@@ -24047,10 +24121,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"serialize-javascript@npm:7.0.3":
-  version: 7.0.3
-  resolution: "serialize-javascript@npm:7.0.3"
-  checksum: 10/ce45e28663ee1fa6f32c408c0a563c4a96e872cdc83dc3064c73126f2412048c6c984bfc1160c40188fcfa06cf5e075f5cc2e3261b0384dc8fdef34675c5adef
+"serialize-javascript@npm:7.0.5":
+  version: 7.0.5
+  resolution: "serialize-javascript@npm:7.0.5"
+  checksum: 10/6237c76ef6df3d1ad61dd4a393b71ca758c7654f4d1cf77529e513134c0f0660302e03b7ec88a8f3a3daa79e1f93d6de8218ecbc45e073d7cc6b66284a1d3e83
   languageName: node
   linkType: hard
 

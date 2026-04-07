@@ -25,15 +25,62 @@ export const metadata = {}
 
 // validation comes from userLoginSchema
 
+type ParsedLoginForm = {
+  email: string
+  password: string
+  remember: boolean
+  tenantIdRaw: string
+  requiredRoles: string[]
+}
+
+function parseRequiredRoles(rawValue: string): string[] {
+  return rawValue
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+}
+
+async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
+  const rawContentType = req.headers.get('content-type') ?? ''
+  const contentType = rawContentType.split(';')[0].trim().toLowerCase()
+
+  try {
+    if (contentType === 'application/x-www-form-urlencoded') {
+      const body = await req.text()
+      const params = new URLSearchParams(body)
+      const requireRoleRaw = String(params.get('requireRole') ?? params.get('role') ?? '').trim()
+      return {
+        email: String(params.get('email') ?? ''),
+        password: String(params.get('password') ?? ''),
+        remember: parseBooleanToken(params.get('remember')) === true,
+        tenantIdRaw: String(params.get('tenantId') ?? params.get('tenant') ?? '').trim(),
+        requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
+      }
+    }
+
+    const form = await req.formData()
+    const requireRoleRaw = String(form.get('requireRole') ?? form.get('role') ?? '').trim()
+    return {
+      email: String(form.get('email') ?? ''),
+      password: String(form.get('password') ?? ''),
+      remember: parseBooleanToken(form.get('remember')?.toString()) === true,
+      tenantIdRaw: String(form.get('tenantId') ?? form.get('tenant') ?? '').trim(),
+      requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
+    }
+  } catch {
+    return {
+      email: '',
+      password: '',
+      remember: false,
+      tenantIdRaw: '',
+      requiredRoles: [],
+    }
+  }
+}
+
 export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
-  const form = await req.formData()
-  const email = String(form.get('email') ?? '')
-  const password = String(form.get('password') ?? '')
-  const remember = parseBooleanToken(form.get('remember')?.toString()) === true
-  const tenantIdRaw = String(form.get('tenantId') ?? form.get('tenant') ?? '').trim()
-  const requireRoleRaw = (String(form.get('requireRole') ?? form.get('role') ?? '')).trim()
-  const requiredRoles = requireRoleRaw ? requireRoleRaw.split(',').map((s) => s.trim()).filter(Boolean) : []
+  const { email, password, remember, tenantIdRaw, requiredRoles } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
     req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
@@ -103,14 +150,14 @@ export async function POST(req: Request) {
     roles: userRoleNames
   })
   void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
+  const rememberMeDays = Number(process.env.REMEMBER_ME_DAYS || '30')
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
     redirect: '/backend',
   }
   if (remember) {
-    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     const sess = await auth.createSession(user, expiresAt)
     responseData.refreshToken = sess.token
   }
@@ -154,8 +201,7 @@ export async function POST(req: Request) {
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   if (remember && refreshTokenForCookie) {
-    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
-    const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
   }
   return res
