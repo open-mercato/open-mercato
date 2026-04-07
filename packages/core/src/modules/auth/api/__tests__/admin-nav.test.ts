@@ -55,11 +55,16 @@ const mockGetModules = jest.fn<ModuleDefinition[], []>()
 const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
 const mockLoadAcl = jest.fn<Promise<{ isSuperAdmin: boolean; features: string[] }>, [string, { tenantId: string | null; organizationId: string | null }]>()
+const mockUserHasAllFeatures = jest.fn<Promise<boolean>, [string, string[], { tenantId: string | null; organizationId: string | null }]>()
 const mockCacheSet = jest.fn<Promise<void>, [string, unknown, { tags: string[] }]>()
 const mockCacheGet = jest.fn<Promise<null>, [string]>()
 const mockApplySidebarPreference = jest.fn(<T extends SidebarGroup>(groups: T[]) => groups)
 const mockLoadSidebarPreference = jest.fn<Promise<null>, [unknown, { userId: string; tenantId: string | null; organizationId: string | null; locale: string }]>()
 const mockLoadFirstRoleSidebarPreference = jest.fn<Promise<null>, [unknown, { roleIds: string[]; tenantId: string | null; locale: string }]>()
+const mockResolveFeatureCheckContext = jest.fn<
+  Promise<{ organizationId: string | null; scope: { tenantId: string | null }; allowedOrganizationIds: string[] | null }>,
+  [unknown]
+>()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (req: Request) => mockGetAuthFromRequest(req),
@@ -80,7 +85,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
         return { find: mockEmFind }
       }
       if (key === 'rbacService') {
-        return { loadAcl: mockLoadAcl }
+        return { loadAcl: mockLoadAcl, userHasAllFeatures: mockUserHasAllFeatures }
       }
       if (key === 'cache') {
         return { get: mockCacheGet, set: mockCacheSet }
@@ -96,6 +101,10 @@ jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', 
     mockLoadSidebarPreference(em, scope),
   loadFirstRoleSidebarPreference: (em: unknown, scope: { roleIds: string[]; tenantId: string | null; locale: string }) =>
     mockLoadFirstRoleSidebarPreference(em, scope),
+}))
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: (args: unknown) => mockResolveFeatureCheckContext(args),
 }))
 
 function makeRequest() {
@@ -157,10 +166,16 @@ describe('GET /api/auth/admin/nav', () => {
       isSuperAdmin: true,
       features: [],
     })
+    mockUserHasAllFeatures.mockResolvedValue(true)
     mockLoadSidebarPreference.mockResolvedValue(null)
     mockLoadFirstRoleSidebarPreference.mockResolvedValue(null)
     mockCacheGet.mockResolvedValue(null)
     mockCacheSet.mockResolvedValue(undefined)
+    mockResolveFeatureCheckContext.mockResolvedValue({
+      organizationId: 'org-1',
+      scope: { tenantId: 'tenant-1' },
+      allowedOrganizationIds: ['org-1'],
+    })
   })
 
   it('attaches dynamic user entity links for the new data-designer group layout', async () => {
@@ -301,5 +316,63 @@ describe('GET /api/auth/admin/nav', () => {
     expect(payload.profilePathPrefixes).toContain('/backend/profile/')
     expect(payload.grantedFeatures).toEqual(expect.arrayContaining(['customer_accounts.*', 'auth.*']))
     expect(payload.roles).toEqual(['admin'])
+  })
+
+  it('passes the request through every scope resolution during hydrated nav generation', async () => {
+    mockGetModules.mockReturnValue([
+      {
+        id: 'dashboard',
+        backendRoutes: [
+          {
+            pattern: '/backend/dashboard',
+            title: 'Dashboard',
+            group: 'Dashboard',
+            order: 1,
+          },
+        ],
+      },
+    ])
+    setupCustomEntities([])
+
+    const request = makeRequest()
+    const response = await GET(request)
+
+    expect(response.status).toBe(200)
+    expect(mockResolveFeatureCheckContext).toHaveBeenCalledTimes(2)
+    for (const [callArgs] of mockResolveFeatureCheckContext.mock.calls) {
+      expect(callArgs).toEqual(expect.objectContaining({ request }))
+    }
+  })
+
+  it('uses per-feature RBAC checks for sidebar inclusion, not only the raw ACL snapshot', async () => {
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: [],
+    })
+    mockUserHasAllFeatures.mockImplementation(async (_userId, required) => {
+      return required.every((feature) => feature === 'customer_accounts.view')
+    })
+    mockGetModules.mockReturnValue([
+      {
+        id: 'customer_accounts',
+        backendRoutes: [
+          {
+            pattern: '/backend/customer_accounts/users',
+            title: 'Users',
+            pageGroupKey: 'customer_accounts.settings.section',
+            group: 'Customer Portal',
+            order: 1,
+            requireFeatures: ['customer_accounts.view'],
+          } as BackendRoute & { requireFeatures: string[] },
+        ],
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+    const customerPortalGroup = groups.find((group) => group.id === 'customer_accounts.settings.section')
+
+    expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
+    expect(mockUserHasAllFeatures).toHaveBeenCalled()
   })
 })

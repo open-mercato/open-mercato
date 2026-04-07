@@ -62,6 +62,7 @@ type ResolveBackendChromePayloadArgs = {
   locale: string
   modules: RouteModule[]
   translate: TranslationFn
+  request?: Request
   selectedOrganizationId?: string | null
   selectedTenantId?: string | null
 }
@@ -219,6 +220,7 @@ export async function resolveBackendChromePayload({
   locale,
   modules,
   translate,
+  request,
   selectedOrganizationId,
   selectedTenantId,
 }: ResolveBackendChromePayloadArgs): Promise<BackendChromePayload> {
@@ -229,6 +231,7 @@ export async function resolveBackendChromePayload({
       isSuperAdmin: boolean
       features: string[]
     }>
+    userHasAllFeatures: (userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }) => Promise<boolean>
   }
 
   let scopedOrganizationId: string | null = auth.orgId ?? null
@@ -239,6 +242,7 @@ export async function resolveBackendChromePayload({
     const { organizationId, scope, allowedOrganizationIds } = await resolveFeatureCheckContext({
       container,
       auth,
+      request,
       selectedId: selectedOrganizationId,
       tenantId: selectedTenantId,
     })
@@ -260,7 +264,22 @@ export async function resolveBackendChromePayload({
     : { isSuperAdmin: false, features: [] }
 
   const grantedFeatures = acl.isSuperAdmin ? ['*'] : acl.features
-  const featureChecker = async (): Promise<string[]> => grantedFeatures
+  const featureChecker = async (features: string[]): Promise<string[]> => {
+    if (!allowNavigation || !features.length) return []
+    const context = {
+      tenantId: scopedTenantId ?? auth.tenantId ?? null,
+      organizationId: scopedOrganizationId ?? null,
+    }
+    const hasAll = await rbac.userHasAllFeatures(auth.sub, features, context)
+    if (hasAll) return features
+
+    const granted: string[] = []
+    for (const feature of features) {
+      const hasFeature = await rbac.userHasAllFeatures(auth.sub, [feature], context)
+      if (hasFeature) granted.push(feature)
+    }
+    return granted
+  }
 
   let userEntities: Array<{ entityId: string; label: string; href: string }> = []
   if (allowNavigation) {

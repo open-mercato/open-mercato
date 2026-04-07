@@ -668,3 +668,43 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Whenever a dnd-kit `DndContext` can be server-rendered, pass a deterministic `id` derived from stable page/table identity instead of relying on auto-generated ids.
 
 **Applies to**: `DataTable` header drag-and-drop, column chooser drag-and-drop, and any future SSR-rendered dnd-kit surface.
+
+## Lazy provider wrappers must not render provider-dependent children before the provider loads
+
+**Context**: Backend chrome hydration moved the AI assistant header integration behind a client-only lazy wrapper that imported the provider component asynchronously.
+
+**Problem**: The wrapper rendered `children` during the loading state, so provider-dependent descendants like `AiChatHeaderButton` mounted before `CommandPaletteProvider` existed and threw runtime context errors.
+
+**Rule**: When a wrapper lazily imports a context provider or integration shell, render nothing or a provider-safe placeholder until the provider is ready. Never render children early if they may call hooks from that provider.
+
+**Applies to**: Client-only integration shells, lazy provider wrappers, and any async-loaded context boundary in backend or portal chrome.
+
+## Hydrated backend chrome payloads must receive the original request for scope-aware RBAC
+
+**Context**: The backend sidebar/header payload moved from server layout assembly to `/api/auth/admin/nav` + client hydration, while org/tenant scope still depends on request cookies and headers.
+
+**Problem**: If the original request is not forwarded into payload resolution, selected org/tenant scope falls back to account defaults, which can empty `grantedFeatures` for the active scope and remove every `requireFeatures` sidebar route.
+
+**Rule**: Any server helper that resolves scoped backend chrome, navigation, or ACL-derived payloads must receive the original `Request` whenever scope can depend on cookies, forwarded headers, or query params.
+
+**Applies to**: Backend chrome payload builders, scoped sidebar/header APIs, organization-aware RBAC helpers, and any refactor that moves scope-sensitive work behind an API boundary.
+
+## Sidebar hydration must preserve the exact RBAC inclusion semantics of the server layout
+
+**Context**: The server-rendered backend layout previously decided sidebar route visibility by calling `rbac.userHasAllFeatures(...)` per route requirement. A hydration refactor replaced that with local matching against `loadAcl().features`.
+
+**Problem**: Even when the raw ACL snapshot looked sparse or scope-normalized differently, the original per-feature RBAC checks could still grant routes. Replacing that logic caused `requireFeatures` sidebar items to disappear after the refactor.
+
+**Rule**: When moving sidebar/header resolution into a shared payload builder or API, keep route inclusion logic behaviorally identical to the previous RBAC gate. Do not replace `userHasAllFeatures(...)` checks with ad hoc filtering against a cached/raw feature array unless equivalence is proven with regression tests.
+
+**Applies to**: Backend chrome payload builders, nav hydration refactors, sidebar route filtering, and any future optimization that tries to replace RBAC service checks with local feature matching.
+
+## Route-aware backend chrome cannot bootstrap from the app-only module manifest
+
+**Context**: The app bootstrap has two generated module manifests: the full `modules.generated.ts` and the lighter `modules.app.generated.ts`, which omits route handlers and backend route metadata.
+
+**Problem**: Registering `modules.app.generated.ts` into the shared module registry makes APIs like `/api/auth/admin/nav` see modules without `backendRoutes`, so hydrated sidebar construction silently returns an empty nav even though the server layout can still resolve page titles from the full manifest.
+
+**Rule**: Any bootstrap path that feeds route-aware consumers such as backend nav, OpenAPI, route lookup, or page registry code must register the full generated module manifest. The app-only manifest is only safe for consumers that do not need route metadata.
+
+**Applies to**: `apps/*/src/bootstrap.ts`, module registry registration, backend chrome/nav hydration, and any future optimization that swaps generated manifests for startup performance.

@@ -140,6 +140,7 @@ export async function GET(req: Request) {
     locale,
     modules: getModules(),
     translate: (key, fallback) => (key ? translate(key, fallback) : fallback),
+    request: req,
     selectedOrganizationId,
     selectedTenantId,
   })

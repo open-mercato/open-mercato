@@ -32,7 +32,7 @@ export function AiAssistantShellIntegration({
     }
   }, [])
 
-  if (!IntegrationComponent) return <>{children}</>
+  if (!IntegrationComponent) return null
 
   return (
     <IntegrationComponent tenantId={tenantId} organizationId={organizationId}>
