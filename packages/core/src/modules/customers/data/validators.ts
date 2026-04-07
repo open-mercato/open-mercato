@@ -336,6 +336,7 @@ export const interactionUpdateSchema = z.object({
   dealId: z.string().uuid().optional().nullable(),
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
   appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
+  pinned: z.boolean().optional(),
 }).passthrough()
 
 export type InteractionUpdateInput = z.infer<typeof interactionUpdateSchema>
@@ -431,3 +432,23 @@ export type PipelineStageCreateInput = z.infer<typeof pipelineStageCreateSchema>
 export type PipelineStageUpdateInput = z.infer<typeof pipelineStageUpdateSchema>
 export type PipelineStageDeleteInput = z.infer<typeof pipelineStageDeleteSchema>
 export type PipelineStageReorderInput = z.infer<typeof pipelineStageReorderSchema>
+
+export const entityRoleCreateSchema = scopedSchema.extend({
+  entityType: z.enum(['company', 'person']),
+  entityId: uuid(),
+  roleType: z.string().trim().min(1).max(100),
+  userId: uuid(),
+})
+
+export const entityRoleUpdateSchema = scopedSchema.extend({
+  id: uuid(),
+  userId: uuid(),
+})
+
+export const entityRoleDeleteSchema = scopedSchema.extend({
+  id: uuid(),
+})
+
+export type EntityRoleCreateInput = z.infer<typeof entityRoleCreateSchema>
+export type EntityRoleUpdateInput = z.infer<typeof entityRoleUpdateSchema>
+export type EntityRoleDeleteInput = z.infer<typeof entityRoleDeleteSchema>

@@ -25,6 +25,9 @@ import {
   mapInteractionRecordToActivitySummary,
 } from '../../lib/interactionCompatibility'
 import type { InteractionSummary } from './types'
+import { ActivityTimelineFilters } from './ActivityTimelineFilters'
+import { PlannedActivitiesSection } from './PlannedActivitiesSection'
+import { ActivityTimeline } from './ActivityTimeline'
 
 type DictionaryOption = {
   value: string
@@ -394,29 +397,124 @@ export function ActivitiesSection({
     [useCanonicalInteractions],
   )
 
+  // --- Timeline filter + planned + pinning state ---
+  const [filterTypes, setFilterTypes] = React.useState<string[]>([])
+  const [filterDateFrom, setFilterDateFrom] = React.useState('')
+  const [filterDateTo, setFilterDateTo] = React.useState('')
+  const [plannedActivities, setPlannedActivities] = React.useState<InteractionSummary[]>([])
+  const [filteredActivities, setFilteredActivities] = React.useState<InteractionSummary[]>([])
+  const [timelineLoaded, setTimelineLoaded] = React.useState(false)
+
+  const loadFilteredTimeline = React.useCallback(async () => {
+    if (!entityId || !useCanonicalInteractions) return
+    const params = new URLSearchParams()
+    params.set('entityId', entityId)
+    params.set('limit', '50')
+    params.set('sortField', 'occurredAt')
+    params.set('sortDir', 'desc')
+    if (filterTypes.length > 0) params.set('type', filterTypes.join(','))
+    if (filterDateFrom) params.set('from', filterDateFrom)
+    if (filterDateTo) params.set('to', filterDateTo)
+
+    try {
+      const data = await readApiResultOrThrow<{ items?: InteractionSummary[] }>(
+        `/api/customers/interactions?${params.toString()}`,
+      )
+      setFilteredActivities(Array.isArray(data?.items) ? data.items : [])
+    } catch (error) {
+      console.error('customers.activities.timeline failed', error)
+      setFilteredActivities([])
+    }
+    setTimelineLoaded(true)
+  }, [entityId, useCanonicalInteractions, filterTypes, filterDateFrom, filterDateTo])
+
+  const loadPlannedActivities = React.useCallback(async () => {
+    if (!entityId || !useCanonicalInteractions) return
+    try {
+      const data = await readApiResultOrThrow<{ items?: InteractionSummary[] }>(
+        `/api/customers/interactions?entityId=${entityId}&status=planned&limit=20&sortField=scheduledAt&sortDir=asc`,
+      )
+      setPlannedActivities(Array.isArray(data?.items) ? data.items : [])
+    } catch (error) {
+      console.error('customers.activities.planned failed', error)
+      setPlannedActivities([])
+    }
+  }, [entityId, useCanonicalInteractions])
+
+  React.useEffect(() => {
+    loadPlannedActivities()
+  }, [loadPlannedActivities])
+
+  React.useEffect(() => {
+    loadFilteredTimeline()
+  }, [loadFilteredTimeline])
+
+  const handlePin = React.useCallback(async (interactionId: string, pinned: boolean) => {
+    try {
+      await runWriteMutation(
+        () => apiCallOrThrow('/api/customers/interactions', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: interactionId, pinned }),
+        }),
+        { id: interactionId, pinned },
+      )
+      setFilteredActivities((prev) =>
+        prev.map((a) => (a.id === interactionId ? { ...a, pinned } : a)),
+      )
+    } catch (error) {
+      console.error('customers.activities.pin failed', error)
+    }
+  }, [runWriteMutation])
+
+  const handleFilterReset = React.useCallback(() => {
+    setFilterTypes([])
+    setFilterDateFrom('')
+    setFilterDateTo('')
+  }, [])
+
   return (
-    <SharedActivitiesSection
-      entityId={entityId}
-      dealId={dealId}
-      dealOptions={dealOptions}
-      entityOptions={entityOptions}
-      defaultEntityId={defaultEntityId ?? undefined}
-      addActionLabel={addActionLabel}
-      emptyState={emptyState}
-      onActionChange={onActionChange}
-      onLoadingChange={onLoadingChange}
-      dataAdapter={sortedActivitiesAdapter}
-      activityTypeLabels={activityTypeLabels}
-      loadActivityOptions={loadActivityOptions}
-      createActivityOption={createActivityOption}
-      resolveActivityPresentation={resolveActivityPresentation}
-      renderCustomFields={renderCustomFields}
-      renderIcon={renderDictionaryIcon}
-      renderColor={renderDictionaryColor}
-      manageHref="/backend/config/customers"
-      appearanceLabels={appearanceLabels}
-      customFieldEntityIds={customFieldEntityIds}
-    />
+    <div className="space-y-4">
+      {useCanonicalInteractions && entityId && (
+        <>
+          <PlannedActivitiesSection activities={plannedActivities} />
+          <ActivityTimelineFilters
+            activeTypes={filterTypes}
+            dateFrom={filterDateFrom}
+            dateTo={filterDateTo}
+            onTypesChange={setFilterTypes}
+            onDateFromChange={setFilterDateFrom}
+            onDateToChange={setFilterDateTo}
+            onReset={handleFilterReset}
+          />
+          {timelineLoaded && (
+            <ActivityTimeline activities={filteredActivities} onPin={handlePin} />
+          )}
+        </>
+      )}
+      <SharedActivitiesSection
+        entityId={entityId}
+        dealId={dealId}
+        dealOptions={dealOptions}
+        entityOptions={entityOptions}
+        defaultEntityId={defaultEntityId ?? undefined}
+        addActionLabel={addActionLabel}
+        emptyState={emptyState}
+        onActionChange={onActionChange}
+        onLoadingChange={onLoadingChange}
+        dataAdapter={sortedActivitiesAdapter}
+        activityTypeLabels={activityTypeLabels}
+        loadActivityOptions={loadActivityOptions}
+        createActivityOption={createActivityOption}
+        resolveActivityPresentation={resolveActivityPresentation}
+        renderCustomFields={renderCustomFields}
+        renderIcon={renderDictionaryIcon}
+        renderColor={renderDictionaryColor}
+        manageHref="/backend/config/customers"
+        appearanceLabels={appearanceLabels}
+        customFieldEntityIds={customFieldEntityIds}
+      />
+    </div>
   )
 }
 

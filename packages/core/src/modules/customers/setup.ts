@@ -87,6 +87,8 @@ export const setup: ModuleSetupConfig = {
       'customers.widgets.next-interactions',
       'customers.widgets.new-customers',
       'customers.widgets.new-deals',
+      'customers.roles.view',
+      'customers.roles.manage',
     ],
   },
 }

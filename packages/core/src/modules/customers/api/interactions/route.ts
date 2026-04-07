@@ -41,9 +41,11 @@ const listSchema = z
     dealId: z.string().uuid().optional(),
     status: z.string().optional(),
     interactionType: z.string().optional(),
+    type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
     from: z.string().optional(),
     to: z.string().optional(),
+    pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -133,6 +135,7 @@ type InteractionListRow = {
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
+  pinned: boolean
   organization_id: string
   tenant_id: string
   created_at: Date
@@ -328,6 +331,7 @@ export async function GET(req: Request) {
         'appearance_icon',
         'appearance_color',
         'source',
+        'pinned',
         'organization_id',
         'tenant_id',
         'created_at',
@@ -352,6 +356,17 @@ export async function GET(req: Request) {
     }
     if (query.interactionType) {
       rowsQuery.andWhere('interaction_type', query.interactionType)
+    }
+    if (query.type) {
+      const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
+      if (types.length > 0) {
+        rowsQuery.whereIn('interaction_type', types)
+      }
+    }
+    if (query.pinned === 'true') {
+      rowsQuery.andWhere('pinned', true)
+    } else if (query.pinned === 'false') {
+      rowsQuery.andWhere('pinned', false)
     }
     if (query.excludeInteractionType) {
       rowsQuery.andWhereNot('interaction_type', query.excludeInteractionType)
@@ -438,6 +453,7 @@ export async function GET(req: Request) {
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
+      pinned: row.pinned ?? false,
       organizationId: row.organization_id,
       tenantId: row.tenant_id,
       createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),

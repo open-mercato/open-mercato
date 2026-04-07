@@ -477,6 +477,9 @@ export const documentUpdateSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
+    closureOutcome: z.enum(['won', 'lost']).nullable().optional(),
+    lossReasonId: z.string().uuid().nullable().optional(),
+    lossNotes: z.string().trim().max(4000).nullable().optional(),
   })
   .refine(
     (input) =>
@@ -506,7 +509,10 @@ export const documentUpdateSchema = z
       input.paymentMethodSnapshot !== undefined ||
       input.tags !== undefined ||
       input.customFields !== undefined ||
-      input.customFieldSetId !== undefined,
+      input.customFieldSetId !== undefined ||
+      input.closureOutcome !== undefined ||
+      input.lossReasonId !== undefined ||
+      input.lossNotes !== undefined,
     { message: "update_payload_empty" },
   );
 
@@ -1131,6 +1137,16 @@ async function applyDocumentUpdate({
     });
   }
 
+  if (input.closureOutcome !== undefined) {
+    (entity as any).closureOutcome = input.closureOutcome ?? null;
+  }
+  if (input.lossReasonId !== undefined) {
+    (entity as any).lossReasonId = input.lossReasonId ?? null;
+  }
+  if (input.lossNotes !== undefined) {
+    (entity as any).lossNotes = input.lossNotes ?? null;
+  }
+
   if (input.customFieldSetId !== undefined) {
     (entity as any).customFieldSetId = input.customFieldSetId ?? null;
   }
@@ -1325,6 +1341,9 @@ async function loadQuoteSnapshot(
         : null,
       metadata: quote.metadata ? cloneJson(quote.metadata) : null,
       customFieldSetId: quote.customFieldSetId ?? null,
+      closureOutcome: quote.closureOutcome ?? null,
+      lossReasonId: quote.lossReasonId ?? null,
+      lossNotes: quote.lossNotes ?? null,
       customFields: quoteCustomFields[quote.id]
         ? cloneJson(quoteCustomFields[quote.id])
         : null,
@@ -1604,6 +1623,9 @@ async function loadOrderSnapshot(
         : null,
       metadata: order.metadata ? cloneJson(order.metadata) : null,
       customFieldSetId: order.customFieldSetId ?? null,
+      closureOutcome: order.closureOutcome ?? null,
+      lossReasonId: order.lossReasonId ?? null,
+      lossNotes: order.lossNotes ?? null,
       customFields: orderCustomFields[order.id]
         ? cloneJson(orderCustomFields[order.id])
         : null,

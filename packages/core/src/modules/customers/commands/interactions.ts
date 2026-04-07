@@ -417,6 +417,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (parsed.ownerUserId !== undefined) interaction.ownerUserId = parsed.ownerUserId ?? null
       if (parsed.appearanceIcon !== undefined) interaction.appearanceIcon = parsed.appearanceIcon ?? null
       if (parsed.appearanceColor !== undefined) interaction.appearanceColor = parsed.appearanceColor ?? null
+      if (parsed.pinned !== undefined) interaction.pinned = parsed.pinned
 
       await trx.flush()
 

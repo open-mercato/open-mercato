@@ -42,6 +42,8 @@ import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/compone
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
 import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import { StageProgressBar, type PipelineStage } from '@open-mercato/core/modules/sales/components/documents/StageProgressBar'
+import { DealClosureDialog } from '@open-mercato/core/modules/sales/components/documents/DealClosureDialog'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useCurrencyDictionary } from '@open-mercato/core/modules/customers/components/detail/hooks/useCurrencyDictionary'
@@ -870,6 +872,9 @@ type DocumentRecord = {
   metadata?: Record<string, unknown> | null
   customFields?: Record<string, unknown> | null
   tags?: TagOption[] | null
+  closureOutcome?: string | null
+  lossReasonId?: string | null
+  lossNotes?: string | null
 }
 
 type DocumentUpdateResult = {
@@ -1885,6 +1890,9 @@ export default function SalesDocumentDetailPage({
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
+  const [pipelineStages, setPipelineStages] = React.useState<PipelineStage[]>([])
+  const [closureDialogOpen, setClosureDialogOpen] = React.useState(false)
+  const [closureDialogOutcome, setClosureDialogOutcome] = React.useState<'won' | 'lost'>('won')
   const [customerOptions, setCustomerOptions] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
   const [customerSaving, setCustomerSaving] = React.useState(false)
@@ -2430,13 +2438,22 @@ export default function SalesDocumentDetailPage({
             return { id, value, label, color, icon }
           })
           .filter((opt): opt is StatusOption => !!opt)
+        setPipelineStages(
+          options.map((option, index) => ({
+            id: option.id,
+            label: option.label,
+            order: index,
+          })),
+        )
         upsertStatusOptions(options)
         return options
       }
+      setPipelineStages([])
       upsertStatusOptions([])
       return []
     } catch (err) {
       console.error('sales.documents.loadStatuses', err)
+      setPipelineStages([])
       flash(t('sales.documents.detail.status.errorLoad', 'Failed to load statuses.'), 'error')
       return []
     } finally {
@@ -3672,6 +3689,62 @@ export default function SalesDocumentDetailPage({
     }
   }, [fetchDocumentByKind, kind, record, runMutationWithContext, t, validForDays])
 
+  const handleStageClick = React.useCallback(async (stageId: string) => {
+    if (!record) return
+    const stage = pipelineStages.find((s) => s.id === stageId)
+    const stageStatusOption = statusOptions.find((option) => option.id === stageId) ?? null
+    const ok = await confirm({
+      title: t('sales.stageBar.confirmChange', 'Move deal to "{{stage}}"?', { stage: stage?.label ?? '' }),
+      variant: 'default',
+    })
+    if (!ok) return
+    try {
+      const call = await updateDocument({ statusEntryId: stageId })
+      const savedStatusEntryId =
+        typeof call.result?.statusEntryId === 'string' ? call.result.statusEntryId : stageId
+      const savedStatus =
+        typeof call.result?.status === 'string'
+          ? call.result.status
+          : stageStatusOption?.value ?? record.status ?? null
+      setRecord((prev) =>
+        prev
+          ? {
+              ...prev,
+              statusEntryId: savedStatusEntryId,
+              status: savedStatus,
+            }
+          : prev,
+      )
+      if (savedStatus) {
+        ensureStatusOption(savedStatus, savedStatusEntryId)
+      }
+      flash(t('sales.stageBar.changed', 'Stage updated'), 'success')
+    } catch {
+      flash(t('sales.stageBar.changeFailed', 'Failed to update stage'), 'error')
+    }
+  }, [confirm, ensureStatusOption, pipelineStages, record, statusOptions, t, updateDocument])
+
+  const handleClosureConfirm = React.useCallback(async (data: { outcome: 'won' | 'lost'; lossReasonId?: string; lossNotes?: string }) => {
+    if (!record) return
+    setClosureDialogOpen(false)
+    try {
+      await updateDocument({
+        closureOutcome: data.outcome,
+        lossReasonId: data.lossReasonId ?? null,
+        lossNotes: data.lossNotes ?? null,
+      })
+      setRecord((prev) => prev ? { ...prev, closureOutcome: data.outcome, lossReasonId: data.lossReasonId ?? null, lossNotes: data.lossNotes ?? null } : prev)
+      flash(
+        data.outcome === 'won'
+          ? t('sales.closure.wonSuccess', 'Deal marked as won')
+          : t('sales.closure.lostSuccess', 'Deal marked as lost'),
+        'success',
+      )
+    } catch {
+      flash(t('sales.closure.error', 'Failed to update deal closure'), 'error')
+    }
+  }, [record, updateDocument, t])
+
   const handleDelete = React.useCallback(async () => {
     if (!record) return
     const ok = await confirm({
@@ -4560,6 +4633,24 @@ export default function SalesDocumentDetailPage({
           onDelete={() => void handleDelete()}
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
+        />
+        {pipelineStages.length > 0 && record && (
+          <div className="rounded-lg border bg-card px-4 py-3">
+            <StageProgressBar
+              stages={pipelineStages}
+              currentStageId={record.statusEntryId ?? null}
+              closureOutcome={(record.closureOutcome as 'won' | 'lost') ?? null}
+              onStageClick={handleStageClick}
+              onWon={() => { setClosureDialogOutcome('won'); setClosureDialogOpen(true) }}
+              onLost={() => { setClosureDialogOutcome('lost'); setClosureDialogOpen(true) }}
+            />
+          </div>
+        )}
+        <DealClosureDialog
+          open={closureDialogOpen}
+          outcome={closureDialogOutcome}
+          onConfirm={handleClosureConfirm}
+          onCancel={() => setClosureDialogOpen(false)}
         />
         <div className="grid gap-4 md:grid-cols-4">
           <div className="md:col-span-3">

@@ -29,6 +29,8 @@ import { TasksSection } from '../../../../components/detail/TasksSection'
 import { TagsSection } from '../../../../components/detail/TagsSection'
 import type { TagSummary } from '../../../../components/detail/types'
 import { DetailTabsLayout } from '../../../../components/detail/DetailTabsLayout'
+import { CollapsibleZoneLayout } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
+import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
 import { formatTemplate } from '../../../../components/detail/utils'
 import { CompanyHighlightsSummary } from '../../../../components/detail/CustomerFormHighlights'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
@@ -323,48 +325,65 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   return (
     <Page>
       <PageBody>
-        <div className="space-y-8">
+        <div className="space-y-4">
           {/* UMES header injection */}
           <InjectionSpot spotId="detail:customers.company:header" context={injectionContext} data={data} />
           <InjectionSpot spotId="detail:customers.company:status-badges" context={injectionContext} data={data} />
 
-          {/* Zone 1: CrudForm */}
-          <CrudForm<CompanyEditFormValues>
-            title={data.company.displayName}
-            backHref="/backend/customers/companies"
-            versionHistory={{
-              resourceKind: 'customers.company',
-              resourceId: companyId,
-            }}
-            injectionSpotId="customers.company"
-            entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
-            schema={formSchema}
-            fields={fields}
-            groups={groups}
-            initialValues={initialValues}
-            contentHeader={contentHeader}
-            onSubmit={handleFormSubmit}
-            onDelete={handleFormDelete}
-          />
+          <CollapsibleZoneLayout
+            entityName={data.company.displayName}
+            pageType="company"
+            zone1={
+              <div className="space-y-4">
+                {/* Zone 1: CrudForm */}
+                <CrudForm<CompanyEditFormValues>
+                  title={data.company.displayName}
+                  backHref="/backend/customers/companies"
+                  versionHistory={{
+                    resourceKind: 'customers.company',
+                    resourceId: companyId,
+                  }}
+                  injectionSpotId="customers.company"
+                  entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
+                  schema={formSchema}
+                  fields={fields}
+                  groups={groups}
+                  initialValues={initialValues}
+                  contentHeader={contentHeader}
+                  onSubmit={handleFormSubmit}
+                  onDelete={handleFormDelete}
+                  collapsibleGroups={{ pageType: 'company' }}
+                />
 
-          <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-            {t(
-              'customers.detail.saveGuide',
-              'Profile fields save with the main Save button. Tags save automatically. The related sections below save independently inside their own tabs and panels.',
-            )}
-          </div>
+                <div className="rounded-md border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                  {t(
+                    'customers.detail.saveGuide',
+                    'Profile fields save with the main Save button. Tags save automatically. The related sections below save independently inside their own tabs and panels.',
+                  )}
+                </div>
 
-          {/* Tags (independent save) */}
-          <TagsSection
-            entityId={companyId}
-            tags={data.tags}
-            onChange={handleTagsChange}
-            isSubmitting={false}
-            controllerRef={tagsSectionControllerRef}
-          />
+                {/* Tags (independent save) */}
+                <TagsSection
+                  entityId={companyId}
+                  tags={data.tags}
+                  onChange={handleTagsChange}
+                  isSubmitting={false}
+                  controllerRef={tagsSectionControllerRef}
+                />
+              </div>
+            }
+            zone2={
+              <div className="space-y-4">
+                {/* Inline Activity Composer */}
+                <InlineActivityComposer
+                  entityType="company"
+                  entityId={companyId}
+                  onActivityCreated={loadData}
+                  runGuardedMutation={runMutationWithContext}
+                />
 
-          {/* Zone 2: Related Data Tabs */}
-          <DetailTabsLayout
+                {/* Zone 2: Related Data Tabs */}
+                <DetailTabsLayout
             className="space-y-6"
             tabs={tabs}
             activeTab={activeTab}
@@ -493,7 +512,10 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
               }
               return null
             })()}
-          </DetailTabsLayout>
+                </DetailTabsLayout>
+              </div>
+            }
+          />
 
           {/* UMES footer injection */}
           <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />

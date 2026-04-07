@@ -495,6 +495,9 @@ export const orderCreateSchema = scoped.extend({
   lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
+  closureOutcome: z.enum(['won', 'lost']).optional().nullable(),
+  lossReasonId: uuid().optional().nullable(),
+  lossNotes: z.string().trim().max(4000).optional().nullable(),
   ...orderTotalsSchema.shape,
 })
 
@@ -538,6 +541,9 @@ export const quoteCreateSchema = scoped.extend({
     .array(quoteAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, quoteId: true }))
     .optional(),
   tags: z.array(uuid()).optional(),
+  closureOutcome: z.enum(['won', 'lost']).optional().nullable(),
+  lossReasonId: uuid().optional().nullable(),
+  lossNotes: z.string().trim().max(4000).optional().nullable(),
   ...quoteTotalsSchema.shape,
 })
 

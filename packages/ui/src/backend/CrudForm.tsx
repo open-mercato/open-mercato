@@ -72,6 +72,7 @@ import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
+import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
@@ -255,6 +256,9 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
   replacementHandle?: string
+  // Enable collapsible group headers with localStorage persistence.
+  // Pass `true` to enable with auto-generated pageType, or `{ pageType }` for explicit key.
+  collapsibleGroups?: boolean | { pageType: string }
 }
 
 // Group-level custom component context
@@ -426,6 +430,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customFieldsetBindings,
   injectionSpotId,
   replacementHandle,
+  collapsibleGroups,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -472,6 +477,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const [fieldsetEditorTarget, setFieldsetEditorTarget] = React.useState<{ entityId: string; fieldsetCode: string | null; view: 'entity' | 'fieldset' } | null>(null)
   const [isInDialog, setIsInDialog] = React.useState(false)
   const rootRef = React.useRef<HTMLDivElement | null>(null)
+
+  // Collapsible groups support
+  const collapsibleGroupsEnabled = Boolean(collapsibleGroups)
+  const collapsiblePageType = typeof collapsibleGroups === 'object' ? collapsibleGroups.pageType : formId
+  const groupCollapseRefs = React.useRef(new Map<string, CollapsibleGroupHandle>())
   const fieldsetManagerRef = React.useRef<FieldDefinitionsManagerHandle | null>(null)
   const resolvedEntityIdsKey = React.useMemo(() => buildResolvedEntityIdsKey(entityId, entityIds), [entityId, entityIds])
   const resolvedEntityIds = React.useMemo(
@@ -1571,6 +1581,20 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return [...(baseGroups.length ? baseGroups : autoGroup), ...injectionGroupCards]
   }, [allFields, groupsWithInjectedFields, injectionGroupCards, shouldAutoGroup])
   const useGroupedLayout = resolvedGroupsForLayout.length > 0
+
+  // Auto-expand collapsed groups that contain validation errors
+  React.useEffect(() => {
+    if (!collapsibleGroupsEnabled || Object.keys(errors).length === 0) return
+    const errorFieldIds = new Set(Object.keys(errors))
+    for (const g of resolvedGroupsForLayout) {
+      const groupFieldIds = (g.fields ?? []).map((f) => (typeof f === 'string' ? f : f.id))
+      const hasError = groupFieldIds.some((id) => errorFieldIds.has(id))
+      if (hasError) {
+        groupCollapseRefs.current.get(g.id)?.expand()
+      }
+    }
+  }, [errors, collapsibleGroupsEnabled, resolvedGroupsForLayout])
+
   const stackedInjectionWidgets = React.useMemo(
     () => (injectionWidgets ?? []).filter((widget) => (widget.placement?.kind ?? 'stack') === 'stack'),
     [injectionWidgets],
@@ -2614,11 +2638,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           continue
         }
         const groupFields = resolveGroupFields(g)
-        nodes.push(
-          <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
-            {g.title ? (
-              <div className="text-sm font-medium">{t(g.title, g.title)}</div>
-            ) : null}
+        const groupFieldIds = (g.fields ?? []).map((f) => (typeof f === 'string' ? f : f.id))
+        const groupErrorCount = groupFieldIds.filter((id) => errors[id]).length
+
+        const groupContent = (
+          <>
             {g.description ? <div className="text-xs text-muted-foreground">{t(g.description, g.description)}</div> : null}
             {componentNode ? (
               <div>{componentNode}</div>
@@ -2631,8 +2655,37 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             >
               {groupFields.length > 0 ? renderFields(groupFields) : <div className="min-h-[1px]" />}
             </DataLoader>
-          </div>,
+          </>
         )
+
+        if (collapsibleGroupsEnabled && g.title) {
+          nodes.push(
+            <CollapsibleGroup
+              key={g.id}
+              ref={(handle) => {
+                if (handle) groupCollapseRefs.current.set(g.id, handle)
+                else groupCollapseRefs.current.delete(g.id)
+              }}
+              groupId={g.id}
+              title={t(g.title, g.title)}
+              pageType={collapsiblePageType}
+              errorCount={groupErrorCount}
+            >
+              <div className="space-y-3">
+                {groupContent}
+              </div>
+            </CollapsibleGroup>,
+          )
+        } else {
+          nodes.push(
+            <div key={g.id} className="rounded-lg border bg-card px-4 py-3 space-y-3">
+              {g.title ? (
+                <div className="text-sm font-medium">{t(g.title, g.title)}</div>
+              ) : null}
+              {groupContent}
+            </div>,
+          )
+        }
       }
       return nodes
     }

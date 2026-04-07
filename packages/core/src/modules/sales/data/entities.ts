@@ -523,6 +523,15 @@ export class SalesOrder {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 
+  @Property({ name: 'closure_outcome', type: 'text', nullable: true })
+  closureOutcome?: string | null
+
+  @Property({ name: 'loss_reason_id', type: 'uuid', nullable: true })
+  lossReasonId?: string | null
+
+  @Property({ name: 'loss_notes', type: 'text', nullable: true })
+  lossNotes?: string | null
+
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 
@@ -986,6 +995,15 @@ export class SalesQuote {
 
   @Property({ name: 'sent_at', type: Date, nullable: true })
   sentAt?: Date | null
+
+  @Property({ name: 'closure_outcome', type: 'text', nullable: true })
+  closureOutcome?: string | null
+
+  @Property({ name: 'loss_reason_id', type: 'uuid', nullable: true })
+  lossReasonId?: string | null
+
+  @Property({ name: 'loss_notes', type: 'text', nullable: true })
+  lossNotes?: string | null
 
   @OneToMany(() => SalesQuoteLine, (line) => line.quote)
   lines = new Collection<SalesQuoteLine>(this)

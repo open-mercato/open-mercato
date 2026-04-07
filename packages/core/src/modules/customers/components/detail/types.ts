@@ -140,6 +140,7 @@ export type InteractionSummary = {
     kind: string | null
   } | null
   _integrations?: Record<string, unknown>
+  pinned?: boolean
   createdAt: string
   updatedAt: string
 }

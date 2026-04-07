@@ -434,7 +434,7 @@ export class CustomerActivity {
   properties: ['tenantId', 'organizationId', 'interactionType'],
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -483,6 +483,9 @@ export class CustomerInteraction {
 
   @Property({ name: 'deal_id', type: 'uuid', nullable: true })
   dealId?: string | null
+
+  @Property({ name: 'pinned', type: 'boolean', default: false })
+  pinned: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -820,4 +823,39 @@ export class CustomerTodoLink {
 
   @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
   entity!: CustomerEntity
+}
+
+@Entity({ tableName: 'customer_entity_roles' })
+@Unique({ name: 'customer_entity_roles_unique', properties: ['entityType', 'entityId', 'roleType'] })
+@Index({ name: 'customer_entity_roles_entity_idx', properties: ['entityType', 'entityId'] })
+@Index({ name: 'customer_entity_roles_scope_idx', properties: ['organizationId', 'tenantId'] })
+export class CustomerEntityRole {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'entity_type', type: 'text' })
+  entityType!: string
+
+  @Property({ name: 'entity_id', type: 'uuid' })
+  entityId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'role_type', type: 'text' })
+  roleType!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
 }

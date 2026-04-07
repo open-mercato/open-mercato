@@ -56,6 +56,11 @@ const events = [
   { id: 'customers.interaction.reverted', label: 'Interaction Reverted', entity: 'interaction', category: 'lifecycle' },
   { id: 'customers.interaction.deleted', label: 'Interaction Deleted', entity: 'interaction', category: 'crud' },
   { id: 'customers.next_interaction.updated', label: 'Next Interaction Updated', entity: 'interaction', category: 'lifecycle' },
+
+  // Entity Roles
+  { id: 'customers.entity_role.created', label: 'Entity Role Created', entity: 'entity_role', category: 'crud' },
+  { id: 'customers.entity_role.updated', label: 'Entity Role Updated', entity: 'entity_role', category: 'crud' },
+  { id: 'customers.entity_role.deleted', label: 'Entity Role Deleted', entity: 'entity_role', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

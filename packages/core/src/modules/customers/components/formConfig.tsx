@@ -31,6 +31,7 @@ import {
   DictionaryEntrySelect,
   type DictionarySelectLabels,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
+import { RolesSection } from './detail/RolesSection'
 import { useQueryClient } from '@tanstack/react-query'
 import { useEmailDuplicateCheck } from '../backend/hooks/useEmailDuplicateCheck'
 import { lookupPhoneDuplicate } from '../utils/phoneDuplicates'
@@ -1508,6 +1509,14 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
     fields: ['displayName', 'primaryEmail', 'primaryPhone', 'status', 'lifecycleStage', 'source'],
   },
   {
+    id: 'roles',
+    title: t('customers.roles.groupTitle', 'Roles'),
+    column: 1,
+    component: ({ values }: CrudFormGroupComponentProps) => (
+      values.id ? <RolesSection entityType="company" entityId={values.id as string} /> : null
+    ),
+  },
+  {
     id: 'profile',
     title: t('customers.companies.form.groups.profile'),
     column: 1,
@@ -1546,6 +1555,14 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
       'source',
     ],
     component: createDisplayNameSection(t),
+  },
+  {
+    id: 'roles',
+    title: t('customers.roles.groupTitle', 'Roles'),
+    column: 1,
+    component: ({ values }: CrudFormGroupComponentProps) => (
+      values.id ? <RolesSection entityType="person" entityId={values.id as string} /> : null
+    ),
   },
   {
     id: 'social',

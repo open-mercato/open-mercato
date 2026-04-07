@@ -1155,6 +1155,80 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       icon: entry.icon,
     })
   }
+  const roleTypeDefaults = [
+    { value: 'sales_owner', label: 'Sales Owner', color: '#2563eb', icon: 'lucide:briefcase' },
+    { value: 'service_owner', label: 'Service Owner', color: '#16a34a', icon: 'lucide:headphones' },
+    { value: 'account_manager', label: 'Account Manager', color: '#f59e0b', icon: 'lucide:user-check' },
+  ]
+  let roleTypeDictionary = await em.findOne(Dictionary, {
+    tenantId,
+    organizationId,
+    key: 'customer-role-types',
+    deletedAt: null,
+  })
+  if (!roleTypeDictionary) {
+    roleTypeDictionary = em.create(Dictionary, {
+      key: 'customer-role-types',
+      name: 'Customer role types',
+      description: 'Reusable customer ownership and relationship roles.',
+      tenantId,
+      organizationId,
+      isSystem: true,
+      isActive: true,
+      managerVisibility: 'default' satisfies DictionaryManagerVisibility,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(roleTypeDictionary)
+    await em.flush()
+  }
+
+  const existingRoleTypeEntries = await em.find(DictionaryEntry, {
+    dictionary: roleTypeDictionary,
+    tenantId,
+    organizationId,
+  })
+  const existingRoleTypeMap = new Map<string, DictionaryEntry>()
+  existingRoleTypeEntries.forEach((entry) => existingRoleTypeMap.set(entry.normalizedValue, entry))
+
+  for (const entry of roleTypeDefaults) {
+    const normalizedValue = entry.value.trim().toLowerCase()
+    const existingEntry = existingRoleTypeMap.get(normalizedValue)
+    if (existingEntry) {
+      let changed = false
+      if (existingEntry.label !== entry.label) {
+        existingEntry.label = entry.label
+        changed = true
+      }
+      if ((existingEntry.color ?? null) !== (entry.color ?? null)) {
+        existingEntry.color = entry.color ?? null
+        changed = true
+      }
+      if ((existingEntry.icon ?? null) !== (entry.icon ?? null)) {
+        existingEntry.icon = entry.icon ?? null
+        changed = true
+      }
+      if (changed) {
+        existingEntry.updatedAt = new Date()
+        em.persist(existingEntry)
+      }
+      continue
+    }
+
+    const createdEntry = em.create(DictionaryEntry, {
+      dictionary: roleTypeDictionary,
+      tenantId,
+      organizationId,
+      value: entry.value,
+      normalizedValue,
+      label: entry.label,
+      color: entry.color ?? null,
+      icon: entry.icon ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    em.persist(createdEntry)
+  }
 }
 
 function resolveCurrencyCodes(): string[] {
