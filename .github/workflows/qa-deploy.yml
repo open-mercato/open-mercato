@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout selected branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.inputs.branch }}
 
