@@ -15,18 +15,14 @@ type TranslationContext = {
   translate: (key: string, fallback?: string) => string
 }
 
-type BackendRoute = {
+type BackendRouteManifest = {
+  moduleId: string
   pattern: string
   title: string
   pageTitleKey?: string
   pageGroupKey?: string
   group?: string
   order?: number
-}
-
-type ModuleDefinition = {
-  id: string
-  backendRoutes: BackendRoute[]
 }
 
 type DynamicEntity = {
@@ -51,7 +47,7 @@ type SidebarGroup = {
 }
 
 const mockGetAuthFromRequest = jest.fn<Promise<AuthContext | null>, [Request]>()
-const mockGetModules = jest.fn<ModuleDefinition[], []>()
+const mockGetBackendRouteManifests = jest.fn<BackendRouteManifest[], []>()
 const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
 const mockLoadAcl = jest.fn<Promise<{ isSuperAdmin: boolean; features: string[] }>, [string, { tenantId: string | null; organizationId: string | null }]>()
@@ -74,8 +70,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: () => mockResolveTranslations(),
 }))
 
-jest.mock('@open-mercato/shared/lib/modules/registry', () => ({
-  getModules: () => mockGetModules(),
+jest.mock('@open-mercato/shared/modules/registry', () => ({
+  getBackendRouteManifests: () => mockGetBackendRouteManifests(),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -111,22 +107,18 @@ function makeRequest() {
   return new Request('http://localhost/api/auth/admin/nav', { method: 'GET' })
 }
 
-function setupModulesForUserEntities(pageGroupKey: string, additionalRoutes: BackendRoute[] = []): void {
-  mockGetModules.mockReturnValue([
+function setupRoutesForUserEntities(pageGroupKey: string, additionalRoutes: BackendRouteManifest[] = []): void {
+  mockGetBackendRouteManifests.mockReturnValue([
     {
-      id: 'entities',
-      backendRoutes: [
-        {
-          pattern: '/backend/entities/user',
-          title: 'User Entities',
-          pageTitleKey: 'entities.nav.userEntities',
-          pageGroupKey,
-          group: 'Data Designer',
-          order: 10,
-        },
-        ...additionalRoutes,
-      ],
+      moduleId: 'entities',
+      pattern: '/backend/entities/user',
+      title: 'User Entities',
+      pageTitleKey: 'entities.nav.userEntities',
+      pageGroupKey,
+      group: 'Data Designer',
+      order: 10,
     },
+    ...additionalRoutes,
   ])
 }
 
@@ -179,7 +171,7 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('attaches dynamic user entity links for the new data-designer group layout', async () => {
-    setupModulesForUserEntities('settings.sections.dataDesigner')
+    setupRoutesForUserEntities('settings.sections.dataDesigner')
     setupCustomEntities([{ entityId: 'contacts', label: 'Contacts' }])
 
     const groups = await getGroupsFromResponse()
@@ -190,7 +182,7 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('keeps legacy compatibility for entities.nav.group', async () => {
-    setupModulesForUserEntities('entities.nav.group')
+    setupRoutesForUserEntities('entities.nav.group')
     setupCustomEntities([{ entityId: 'accounts', label: 'Accounts' }])
 
     const groups = await getGroupsFromResponse()
@@ -201,8 +193,9 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('does not duplicate dynamic links when the same href already exists', async () => {
-    setupModulesForUserEntities('settings.sections.dataDesigner', [
+    setupRoutesForUserEntities('settings.sections.dataDesigner', [
       {
+        moduleId: 'entities',
         pattern: '/backend/entities/user/orders/records',
         title: 'Orders Existing Link',
         pageGroupKey: 'settings.sections.dataDesigner',
@@ -221,17 +214,13 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('returns navigation without throwing when the user entities anchor is missing', async () => {
-    mockGetModules.mockReturnValue([
+    mockGetBackendRouteManifests.mockReturnValue([
       {
-        id: 'dashboard',
-        backendRoutes: [
-          {
-            pattern: '/backend/dashboard',
-            title: 'Dashboard',
-            group: 'Dashboard',
-            order: 1,
-          },
-        ],
+        moduleId: 'dashboard',
+        pattern: '/backend/dashboard',
+        title: 'Dashboard',
+        group: 'Dashboard',
+        order: 1,
       },
     ])
     setupCustomEntities([{ entityId: 'assets', label: 'Assets' }])
@@ -248,20 +237,16 @@ describe('GET /api/auth/admin/nav', () => {
       isSuperAdmin: false,
       features: ['customer_accounts.*'],
     })
-    mockGetModules.mockReturnValue([
+    mockGetBackendRouteManifests.mockReturnValue([
       {
-        id: 'customer_accounts',
-        backendRoutes: [
-          {
-            pattern: '/backend/customer_accounts/users',
-            title: 'Users',
-            pageGroupKey: 'customer_accounts.settings.section',
-            group: 'Customer Portal',
-            order: 1,
-            requireFeatures: ['customer_accounts.view'],
-          } as BackendRoute & { requireFeatures: string[] },
-        ],
-      },
+        moduleId: 'customer_accounts',
+        pattern: '/backend/customer_accounts/users',
+        title: 'Users',
+        pageGroupKey: 'customer_accounts.settings.section',
+        group: 'Customer Portal',
+        order: 1,
+        requireFeatures: ['customer_accounts.view'],
+      } as BackendRouteManifest & { requireFeatures: string[] },
     ])
     setupCustomEntities([])
 
@@ -269,6 +254,23 @@ describe('GET /api/auth/admin/nav', () => {
     const customerPortalGroup = groups.find((group) => group.id === 'customer_accounts.settings.section')
 
     expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
+  })
+
+  it('builds grouped navigation from backend route manifests instead of full module registry', async () => {
+    mockGetBackendRouteManifests.mockReturnValue([
+      {
+        moduleId: 'dashboard',
+        pattern: '/backend/dashboard',
+        title: 'Dashboard',
+        group: 'Dashboard',
+        order: 1,
+      },
+    ])
+    setupCustomEntities([])
+
+    const groups = await getGroupsFromResponse()
+
+    expect(groups.find((group) => group.id === 'Dashboard')?.items.map((item) => item.href)).toContain('/backend/dashboard')
   })
 
   it('returns the extended backend chrome payload fields for client hydration', async () => {
@@ -282,20 +284,16 @@ describe('GET /api/auth/admin/nav', () => {
       isSuperAdmin: false,
       features: ['customer_accounts.*', 'auth.*'],
     })
-    mockGetModules.mockReturnValue([
+    mockGetBackendRouteManifests.mockReturnValue([
       {
-        id: 'auth',
-        backendRoutes: [
-          {
-            pattern: '/backend/settings/auth/users',
-            title: 'Users',
-            pageGroupKey: 'auth.settings.section',
-            group: 'Auth',
-            order: 1,
-            pageContext: 'settings',
-          } as BackendRoute & { pageContext: 'settings' },
-        ],
-      },
+        moduleId: 'auth',
+        pattern: '/backend/settings/auth/users',
+        title: 'Users',
+        pageGroupKey: 'auth.settings.section',
+        group: 'Auth',
+        order: 1,
+        pageContext: 'settings',
+      } as BackendRouteManifest & { pageContext: 'settings' },
     ])
     setupCustomEntities([])
 
@@ -319,17 +317,13 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('passes the request through every scope resolution during hydrated nav generation', async () => {
-    mockGetModules.mockReturnValue([
+    mockGetBackendRouteManifests.mockReturnValue([
       {
-        id: 'dashboard',
-        backendRoutes: [
-          {
-            pattern: '/backend/dashboard',
-            title: 'Dashboard',
-            group: 'Dashboard',
-            order: 1,
-          },
-        ],
+        moduleId: 'dashboard',
+        pattern: '/backend/dashboard',
+        title: 'Dashboard',
+        group: 'Dashboard',
+        order: 1,
       },
     ])
     setupCustomEntities([])
@@ -352,20 +346,16 @@ describe('GET /api/auth/admin/nav', () => {
     mockUserHasAllFeatures.mockImplementation(async (_userId, required) => {
       return required.every((feature) => feature === 'customer_accounts.view')
     })
-    mockGetModules.mockReturnValue([
+    mockGetBackendRouteManifests.mockReturnValue([
       {
-        id: 'customer_accounts',
-        backendRoutes: [
-          {
-            pattern: '/backend/customer_accounts/users',
-            title: 'Users',
-            pageGroupKey: 'customer_accounts.settings.section',
-            group: 'Customer Portal',
-            order: 1,
-            requireFeatures: ['customer_accounts.view'],
-          } as BackendRoute & { requireFeatures: string[] },
-        ],
-      },
+        moduleId: 'customer_accounts',
+        pattern: '/backend/customer_accounts/users',
+        title: 'Users',
+        pageGroupKey: 'customer_accounts.settings.section',
+        group: 'Customer Portal',
+        order: 1,
+        requireFeatures: ['customer_accounts.view'],
+      } as BackendRouteManifest & { requireFeatures: string[] },
     ])
     setupCustomEntities([])
 

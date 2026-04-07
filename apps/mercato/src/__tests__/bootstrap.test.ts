@@ -16,7 +16,7 @@ describe('app bootstrap', () => {
     runBootstrapRegistrationsMock.mockClear()
   })
 
-  it('registers the full generated module manifest, including backend routes', async () => {
+  it('registers the slim app module manifest instead of the route-aware full registry', async () => {
     const fullModules = [{ id: 'full', backendRoutes: [{ pattern: '/backend/customers' }] }]
     const appModules = [{ id: 'app-only' }]
 
@@ -64,7 +64,7 @@ describe('app bootstrap', () => {
     await import('@/bootstrap')
 
     expect(createBootstrapMock).toHaveBeenCalledTimes(1)
-    expect(createBootstrapMock.mock.calls[0][0].modules).toBe(fullModules)
-    expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(appModules)
+    expect(createBootstrapMock.mock.calls[0][0].modules).toBe(appModules)
+    expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(fullModules)
   })
 })

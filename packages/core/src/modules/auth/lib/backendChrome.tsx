@@ -3,7 +3,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { Module } from '@open-mercato/shared/modules/registry'
+import type { BackendRouteManifestEntry, Module } from '@open-mercato/shared/modules/registry'
 import type {
   BackendChromePayload,
   BackendChromeNavGroup,
@@ -33,6 +33,17 @@ import type { SidebarPreferencesSettings } from '@open-mercato/shared/modules/na
 type TranslationFn = (key: string | undefined, fallback: string) => string
 
 type RouteModule = Pick<Module, 'id' | 'backendRoutes'>
+
+export function groupBackendRoutesByModule(routes: BackendRouteManifestEntry[]): RouteModule[] {
+  return Array.from(
+    routes.reduce((grouped, route) => {
+      const list = grouped.get(route.moduleId) ?? []
+      list.push(route)
+      grouped.set(route.moduleId, list)
+      return grouped
+    }, new Map<string, BackendRouteManifestEntry[]>()),
+  ).map(([id, backendRoutes]) => ({ id, backendRoutes }))
+}
 
 type SerializableSectionItem = {
   id: string

@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { z } from 'zod'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { getModules } from '@open-mercato/shared/lib/modules/registry'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getBackendRouteManifests } from '@open-mercato/shared/modules/registry'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { resolveBackendChromePayload } from '../../lib/backendChrome'
+import { groupBackendRoutesByModule, resolveBackendChromePayload } from '../../lib/backendChrome'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -138,7 +138,7 @@ export async function GET(req: Request) {
   const payload = await resolveBackendChromePayload({
     auth,
     locale,
-    modules: getModules(),
+    modules: groupBackendRoutesByModule(getBackendRouteManifests()),
     translate: (key, fallback) => (key ? translate(key, fallback) : fallback),
     request: req,
     selectedOrganizationId,

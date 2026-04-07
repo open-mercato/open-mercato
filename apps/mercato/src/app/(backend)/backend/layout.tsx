@@ -1,6 +1,6 @@
 import { cookies, headers } from 'next/headers'
-import { modules } from '@/.mercato/generated/modules.generated'
-import { findBackendMatch } from '@open-mercato/shared/modules/registry'
+import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
+import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -15,18 +15,16 @@ import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
 
 function collectStaticSettingsPathPrefixes(): string[] {
   const prefixes = new Set<string>()
-  for (const module of modules) {
-    for (const route of module.backendRoutes ?? []) {
-      if (route.pageContext !== 'settings') continue
-      const href = route.pattern ?? route.path ?? ''
-      if (!href || href.includes('[')) continue
-      const parts = href.split('/')
-      const lastSegment = parts[parts.length - 1]
-      if (parts.length > 3 && lastSegment !== 'settings') {
-        prefixes.add(parts.slice(0, -1).join('/'))
-      }
-      prefixes.add(href)
+  for (const route of backendRoutes) {
+    if (route.pageContext !== 'settings') continue
+    const href = route.pattern ?? route.path ?? ''
+    if (!href || href.includes('[')) continue
+    const parts = href.split('/')
+    const lastSegment = parts[parts.length - 1]
+    if (parts.length > 3 && lastSegment !== 'settings') {
+      prefixes.add(parts.slice(0, -1).join('/'))
     }
+    prefixes.add(href)
   }
   return Array.from(prefixes)
 }
@@ -69,7 +67,7 @@ export default async function BackendLayout({
     'Search requires configuring an embedding provider for semantic search.',
   )
 
-  const match = findBackendMatch(modules, path)
+  const match = findRouteManifestMatch(backendRoutes, path)
   const currentTitle = match?.route.titleKey
     ? translate(match.route.titleKey, match.route.title)
     : (match?.route.title ?? '')

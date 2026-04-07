@@ -699,12 +699,12 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Backend chrome payload builders, nav hydration refactors, sidebar route filtering, and any future optimization that tries to replace RBAC service checks with local feature matching.
 
-## Route-aware backend chrome cannot bootstrap from the app-only module manifest
+## Route-aware backend chrome should use route manifests, not the full module registry
 
-**Context**: The app bootstrap has two generated module manifests: the full `modules.generated.ts` and the lighter `modules.app.generated.ts`, which omits route handlers and backend route metadata.
+**Context**: The app bootstrap has two generated module manifests: the full `modules.generated.ts` and the lighter `modules.app.generated.ts`, while route-aware consumers already have dedicated generated manifests such as `backend-routes.generated.ts`.
 
-**Problem**: Registering `modules.app.generated.ts` into the shared module registry makes APIs like `/api/auth/admin/nav` see modules without `backendRoutes`, so hydrated sidebar construction silently returns an empty nav even though the server layout can still resolve page titles from the full manifest.
+**Problem**: Hydrated sidebar work was refactored to call `getModules()` for route data, which forced bootstrap onto the full module manifest and regressed the original fast-path split between app bootstrap and route manifests.
 
-**Rule**: Any bootstrap path that feeds route-aware consumers such as backend nav, OpenAPI, route lookup, or page registry code must register the full generated module manifest. The app-only manifest is only safe for consumers that do not need route metadata.
+**Rule**: Backend chrome, breadcrumbs, static settings path discovery, and other route-aware consumers should read `backend-routes.generated.ts` or `getBackendRouteManifests()`. Keep `modules.app.generated.ts` in bootstrap unless the caller truly needs the full module registry beyond route manifests.
 
-**Applies to**: `apps/*/src/bootstrap.ts`, module registry registration, backend chrome/nav hydration, and any future optimization that swaps generated manifests for startup performance.
+**Applies to**: `apps/*/src/bootstrap.ts`, backend layouts, hydrated sidebar/header APIs, route matching helpers, and any future performance optimization around generated registries.
