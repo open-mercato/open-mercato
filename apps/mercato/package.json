@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node ./scripts/dev.mjs",
+    "dev:classic": "node ./scripts/dev.mjs --classic",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "build": "next build",
     "start": "mercato server start",

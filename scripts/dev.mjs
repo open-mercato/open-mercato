@@ -148,6 +148,11 @@ function normalizePublicBaseUrl(value) {
   }
 }
 
+function isEnabledEnvFlag(value) {
+  if (typeof value !== 'string') return false
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
 const splashPortConfig = (() => {
   try {
     return resolveSplashPortConfig()
@@ -162,6 +167,7 @@ const isMonorepo = runtimeMode === 'monorepo'
 const isWindows = process.platform === 'win32'
 const yarnCommand = isWindows ? 'yarn.cmd' : 'yarn'
 const args = process.argv.slice(2)
+const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
@@ -170,7 +176,7 @@ const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
 const splashMode = greenfield ? 'greenfield' : setupMode ? 'setup' : 'dev'
 const standaloneStageTotal = setupMode ? 5 : 4
-const splashEnabled = !appOnly && splashPortConfig.enabled
+const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
@@ -395,7 +401,9 @@ function launchStandaloneDev(options = {}) {
   }
 
   const runtimeArgs = [standaloneRuntimeScript]
-  if (verbose) {
+  if (classic) {
+    runtimeArgs.push('--classic')
+  } else if (verbose) {
     runtimeArgs.push('--verbose')
   }
 
@@ -808,6 +816,15 @@ function shutdown(exitCode = 0) {
   }, 3000)
 }
 
+async function runRawYarnCommand(commandArgs) {
+  const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
+  const code = await new Promise((resolve) => child.on('close', resolve))
+
+  if ((code ?? 1) !== 0) {
+    shutdown(code ?? 1)
+  }
+}
+
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
 
@@ -1189,6 +1206,21 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 }
 
 function startPackageWatch() {
+  if (classic) {
+    const child = spawnCommand(yarnCommand, ['watch:packages'], {
+      stdio: 'inherit',
+    })
+
+    child.on('close', (code) => {
+      if (!shuttingDown && (code ?? 1) !== 0) {
+        console.error('❌ Package watch stopped')
+        shutdown(code ?? 1)
+      }
+    })
+
+    return child
+  }
+
   const stageCurrent = greenfield ? 5 : 2
   const stageTotal = greenfield ? 5 : 3
   console.log(`👀 ${formatProgressLine('Watching workspace packages', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
@@ -1252,8 +1284,8 @@ function startPackageWatch() {
 }
 
 function launchMonorepoAppDev() {
-  const appArgs = ['workspace', '@open-mercato/app', 'dev']
-  if (verbose) {
+  const appArgs = ['workspace', '@open-mercato/app', classic ? 'dev:classic' : 'dev']
+  if (!classic && verbose) {
     appArgs.push('--verbose')
   }
 
@@ -1296,11 +1328,28 @@ async function runStandardDev() {
   launchMonorepoAppDev()
 }
 
+async function runClassicStandardDev() {
+  await runRawYarnCommand(['build:packages'])
+
+  startPackageWatch()
+  launchMonorepoAppDev()
+}
+
 async function runGreenfieldDev() {
   await runStage('🧱 Greenfield build packages', ['build:packages'], { stageCurrent: 1, stageTotal: 5 })
   await runStage('🧬 Greenfield generate artifacts', ['generate'], { stageCurrent: 2, stageTotal: 5 })
   await runStage('🧱 Greenfield rebuild packages', ['build:packages'], { stageCurrent: 3, stageTotal: 5 })
   await runPassthroughStage('🛠️ Greenfield initialize', ['initialize', '--', '--reinstall'], { stageCurrent: 4, stageTotal: 5 })
+
+  startPackageWatch()
+  launchMonorepoAppDev()
+}
+
+async function runClassicGreenfieldDev() {
+  await runRawYarnCommand(['build:packages'])
+  await runRawYarnCommand(['generate'])
+  await runRawYarnCommand(['build:packages'])
+  await runRawYarnCommand(['initialize', '--', '--reinstall'])
 
   startPackageWatch()
   launchMonorepoAppDev()
@@ -1332,12 +1381,41 @@ async function runStandaloneSetup() {
   })
 }
 
+async function runClassicStandaloneSetup() {
+  ensureStandaloneEnvFile()
+  if (standaloneLocalRegistryRefresh) {
+    await runRawYarnCommand(['cache', 'clean', '--all'])
+  }
+  await runRawYarnCommand(['install'])
+  await runRawYarnCommand(['generate'])
+  await runRawYarnCommand(['db:migrate'])
+  await runRawYarnCommand(reinstall ? ['initialize', '--reinstall'] : ['initialize'])
+  launchStandaloneDev()
+}
+
+async function runClassicStandaloneDev() {
+  if (standaloneLocalRegistryRefresh) {
+    await runRawYarnCommand(['cache', 'clean', '--all'])
+    await runRawYarnCommand(['install'])
+  }
+
+  launchStandaloneDev()
+}
+
 async function main() {
   await startSplashServer()
 
   if (!isMonorepo) {
     if (setupMode) {
+      if (classic) {
+        await runClassicStandaloneSetup()
+        return
+      }
       await runStandaloneSetup()
+      return
+    }
+    if (classic) {
+      await runClassicStandaloneDev()
       return
     }
     if (standaloneLocalRegistryRefresh) {
@@ -1360,7 +1438,16 @@ async function main() {
   }
 
   if (greenfield) {
+    if (classic) {
+      await runClassicGreenfieldDev()
+      return
+    }
     await runGreenfieldDev()
+    return
+  }
+
+  if (classic) {
+    await runClassicStandardDev()
     return
   }
 

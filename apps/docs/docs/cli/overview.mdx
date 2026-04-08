@@ -22,8 +22,11 @@ Run `yarn mercato --help` to list modules and `yarn mercato <module> --help` to 
   - [`yarn db:greenfield`](./db-greenfield) – destructive reset that regenerates a clean schema.
 - **Development Runtime**
   - `yarn dev` – start the compact development runtime with splash-based startup progress on the default local backend port.
+  - `yarn dev:classic` – start the legacy raw passthrough runtime with no splash screen.
   - `yarn dev:verbose` – start the same runtime in raw passthrough mode for debugging.
+  - `yarn dev:greenfield:classic` – run the greenfield boot flow with raw passthrough output and no splash screen.
   - [`yarn dev:ephemeral`](./dev-ephemeral) – start a dev server on a free port, open browser automatically, and register active instances in `.ai/dev-ephemeral-envs.json`.
+  - `yarn dev:ephemeral:classic` – run the ephemeral flow with raw passthrough output and no splash screen.
 - **Code Generation**
   - `mercato generate` or `mercato generate all` – run all generators (entity IDs, registry, entities, DI, API client).
   - `mercato generate entity-ids` – generate entity ID mappings.

@@ -26,6 +26,12 @@ yarn dev
 # Start dev runtime with full raw passthrough logs
 yarn dev:verbose
 
+# Start the backward-compatible raw runtime with no splash screen
+yarn dev:classic
+
+# Run standalone bootstrap + startup in backward-compatible raw mode
+yarn setup:classic
+
 # Build for production
 yarn build
 

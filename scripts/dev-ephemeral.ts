@@ -45,10 +45,16 @@ type CommandResult = {
   stderr: string
 }
 
+function isEnabledEnvFlag(value: string | undefined): boolean {
+  if (typeof value !== 'string') return false
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const projectRootDirectory = path.resolve(scriptDirectory, '..')
 const appDirectory = path.join(projectRootDirectory, 'apps', 'mercato')
 const args = process.argv.slice(2)
+const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const envExamplePath = path.join(appDirectory, '.env.example')
 const envPath = path.join(appDirectory, '.env')
@@ -66,7 +72,7 @@ const postgresPassword = process.env.DEV_EPHEMERAL_POSTGRES_PASSWORD ?? 'postgre
 const postgresPortInContainer = '5432'
 const postgresReadyTimeoutMs = 60000
 const splashProgressTotal = 5
-const autoOpenSplash = process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
+const autoOpenSplash = !classic && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashChildStateFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-splash-child-state.json')
 const splashState = {
   mode: 'dev',
@@ -848,7 +854,9 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
       : {}),
   }
 
-  const devArgs = verbose ? ['workspace', '@open-mercato/app', 'dev:verbose'] : ['workspace', '@open-mercato/app', 'dev']
+  const devArgs = classic
+    ? ['workspace', '@open-mercato/app', 'dev:classic']
+    : (verbose ? ['workspace', '@open-mercato/app', 'dev:verbose'] : ['workspace', '@open-mercato/app', 'dev'])
   const devCommand = spawn('yarn', devArgs, {
     cwd: projectRootDirectory,
     stdio: 'inherit',

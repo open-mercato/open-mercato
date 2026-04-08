@@ -66,7 +66,9 @@ yarn dev
 `yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately. It also seeds default data and will abort if existing users are found. For upgrades on an existing database, run `yarn db:migrate` instead of `yarn initialize`.
 :::
 
-`yarn dev` starts the compact development runtime with a splash screen that shows live startup progress. On native local runs the splash is served on `http://localhost:4000` by default and auto-opens when supported; the terminal also prints the backend URL at `http://localhost:3000/backend`.
+If you prefer the old raw terminal output with no splash screen during standalone bootstrap, use `yarn setup:classic` instead of the compact `setup` flow.
+
+`yarn dev` starts the compact development runtime with a splash screen that shows live startup progress. On native local runs the splash is served on `http://localhost:4000` by default and auto-opens when supported; the terminal also prints the backend URL at `http://localhost:3000/backend`. If you want the previous raw passthrough experience instead, run `yarn dev:classic`.
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
@@ -205,7 +207,9 @@ The project includes a starter integration test at `src/modules/auth/__integrati
 
 | Command | Description |
 | --- | --- |
+| `yarn setup:classic` | Run standalone setup and startup in the legacy raw passthrough mode with no splash screen. |
 | `yarn dev` | Start the compact development runtime with hot reload and a splash progress page. |
+| `yarn dev:classic` | Start the legacy raw passthrough runtime with no splash screen. |
 | `yarn build` | Build the Next.js application for production. |
 | `yarn start` | Start the production server. |
 | `yarn generate` | Run all code generators (registry, entities, DI, API client). |

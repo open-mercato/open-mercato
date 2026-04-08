@@ -12,10 +12,13 @@
   ],
   "scripts": {
     "dev": "node ./scripts/dev.mjs",
+    "dev:classic": "node ./scripts/dev.mjs --classic",
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "dev:ephemeral": "tsx scripts/dev-ephemeral.ts",
+    "dev:ephemeral:classic": "tsx scripts/dev-ephemeral.ts --classic",
     "dev:ephemeral:verbose": "tsx scripts/dev-ephemeral.ts --verbose",
     "dev:greenfield": "node ./scripts/dev.mjs --greenfield",
+    "dev:greenfield:classic": "node ./scripts/dev.mjs --greenfield --classic",
     "dev:greenfield:verbose": "node ./scripts/dev.mjs --greenfield --verbose",
     "dev:app": "node ./scripts/dev.mjs --app-only",
     "dev:app:verbose": "yarn workspace @open-mercato/app dev:verbose",

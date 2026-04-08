@@ -18,6 +18,11 @@ function resolveSplashHelpersImport() {
   throw new Error('Unable to resolve dev splash helpers module')
 }
 
+function isEnabledEnvFlag(value) {
+  if (typeof value !== 'string') return false
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
 const {
   clampPercent,
   connectLineStream,
@@ -33,8 +38,10 @@ const {
 } = await import(resolveSplashHelpersImport())
 
 const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
-const verbose = process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
-const interactiveLogToggle = !verbose && process.stdin.isTTY && process.stdout.isTTY && process.env.CI !== 'true'
+const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
+const verbose = !classic && (process.argv.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose')
+const rawPassthrough = classic || verbose
+const interactiveLogToggle = !rawPassthrough && process.stdin.isTTY && process.stdout.isTTY && process.env.CI !== 'true'
 const splashChildStateFile = process.env.OM_DEV_SPLASH_CHILD_STATE_FILE?.trim() || null
 const splashMode = process.env.OM_DEV_SPLASH_MODE?.trim() || 'dev'
 const setupSplashMode = splashMode === 'setup'
@@ -375,11 +382,11 @@ function looksLikeFailure(line) {
 
 function spawnMercato(args) {
   const child = spawn(command, args, {
-    stdio: verbose ? 'inherit' : 'pipe',
+    stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
       ...process.env,
-      OM_CLI_QUIET: verbose ? process.env.OM_CLI_QUIET : '1',
-      DOTENV_CONFIG_QUIET: verbose ? process.env.DOTENV_CONFIG_QUIET : 'true',
+      OM_CLI_QUIET: rawPassthrough ? process.env.OM_CLI_QUIET : '1',
+      DOTENV_CONFIG_QUIET: rawPassthrough ? process.env.DOTENV_CONFIG_QUIET : 'true',
     },
   })
 
@@ -1455,6 +1462,33 @@ function startFilteredChild(args, label, classifyLine) {
   connectLineStream(child.stdout, reporter)
   connectLineStream(child.stderr, reporter)
   return child
+}
+
+async function runClassicRuntime() {
+  const initialGenerate = spawnMercato(['generate'])
+  const initialGenerateResult = await waitForExit(initialGenerate)
+
+  if (initialGenerateResult.signal) {
+    shutdown(1)
+  }
+
+  if ((initialGenerateResult.code ?? 1) !== 0) {
+    shutdown(initialGenerateResult.code ?? 1)
+  }
+
+  const watch = spawnMercato(['generate', 'watch', '--skip-initial'])
+  const server = spawnMercato(['server', 'dev'])
+  const result = await Promise.race([waitForExit(watch), waitForExit(server)])
+
+  if (result.signal) {
+    shutdown(1)
+  }
+
+  shutdown(result.code ?? 0)
+}
+
+if (classic) {
+  await runClassicRuntime()
 }
 
 await runInitialGenerate()
