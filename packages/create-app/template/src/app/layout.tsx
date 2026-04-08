@@ -34,6 +34,7 @@ export default async function RootLayout({
   const locale = await detectLocale()
   const dict = await loadDictionary(locale)
   const demoModeEnabled = process.env.DEMO_MODE !== 'false'
+  const noticeBarsEnabled = process.env.OM_INTEGRATION_TEST !== 'true'
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
@@ -55,7 +56,7 @@ export default async function RootLayout({
         />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning data-gramm="false">
-        <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled}>
+        <AppProviders locale={locale} dict={dict} demoModeEnabled={demoModeEnabled} noticeBarsEnabled={noticeBarsEnabled}>
           {children}
         </AppProviders>
       </body>

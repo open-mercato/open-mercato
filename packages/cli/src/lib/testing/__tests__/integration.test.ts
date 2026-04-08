@@ -124,6 +124,7 @@ describe('integration cache and options', () => {
         port: 5001,
         ownedByCurrentProcess: false,
       })
+      expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
@@ -167,6 +168,7 @@ describe('integration cache and options', () => {
       })
 
       expect(environment).not.toBeNull()
+      expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBe('true')
     } finally {
       fetchSpy.mockRestore()
