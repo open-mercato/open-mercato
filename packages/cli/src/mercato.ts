@@ -98,6 +98,11 @@ function getDatabaseTargetLabel(): string {
 function formatCliFailureMessage(modName: string, cmdName: string, error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const nestedErrors = collectNestedErrors(error)
+  const fallbackMessage =
+    nestedErrors
+      .map((item) => item.message?.trim() ?? '')
+      .find((item) => item.length > 0)
+    ?? (typeof message === 'string' && message.trim().length > 0 ? message : 'Unknown error')
 
   const isDatabaseCommand = modName === 'db' && ['migrate', 'generate', 'greenfield'].includes(cmdName)
   const hasConnectionRefused = nestedErrors.some((item) => item.code === 'ECONNREFUSED' || /ECONNREFUSED|Connection refused|connect ECONNREFUSED/i.test(item.message || ''))
@@ -109,7 +114,7 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
     return `${target} is not reachable: it ${reason}. Start the database service or fix DATABASE_URL in .env, then retry \`yarn db:${cmdName}\`.`
   }
 
-  return message
+  return fallbackMessage
 }
 
 function isTurbopackCacheCorruption(output: string): boolean {
@@ -251,19 +256,23 @@ async function runModuleCommand(
   moduleName: string,
   commandName: string,
   args: string[] = [],
-  options: { optional?: boolean } = {},
+  options: { optional?: boolean; silentOptional?: boolean } = {},
 ): Promise<void> {
   const mod = allModules.find((m) => m.id === moduleName)
   if (!mod) {
     if (options.optional) {
-      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module not enabled`)
+      if (!options.silentOptional) {
+        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module not enabled`)
+      }
       return
     }
     throw new Error(`Module not found: "${moduleName}"`)
   }
   if (!mod.cli || mod.cli.length === 0) {
     if (options.optional) {
-      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module has no CLI commands`)
+      if (!options.silentOptional) {
+        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — module has no CLI commands`)
+      }
       return
     }
     throw new Error(`Module "${moduleName}" has no CLI commands`)
@@ -271,12 +280,52 @@ async function runModuleCommand(
   const cmd = mod.cli.find((c) => c.command === commandName)
   if (!cmd) {
     if (options.optional) {
-      console.log(`⏭️  Skipping "${moduleName}:${commandName}" — command not found`)
+      if (!options.silentOptional) {
+        console.log(`⏭️  Skipping "${moduleName}:${commandName}" — command not found`)
+      }
       return
     }
     throw new Error(`Command "${commandName}" not found in module "${moduleName}"`)
   }
   await cmd.run(args)
+}
+
+async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void> {
+  try {
+    const [{ bootstrapFromAppRoot }, { createResolver }] = await Promise.all([
+      import('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
+      import('./lib/resolver'),
+    ])
+    const resolver = createResolver()
+    const appDir = resolver.getAppDir()
+    const data = await bootstrapFromAppRoot(appDir)
+    registerCliModules(data.modules)
+    const configsModule = data.modules.find((mod) => mod.id === 'configs')
+    const hasCacheCommand = configsModule?.cli?.some((command) => command.command === 'cache') ?? false
+
+    if (!hasCacheCommand) {
+      if (!quiet) {
+        console.log('[generate] Skipping structural cache purge: "configs cache" is not available in this app.')
+      }
+      return
+    }
+
+    if (!quiet) {
+      console.log('[generate] Purging structural cache for all tenants...')
+    }
+    await runModuleCommand(data.modules, 'configs', 'cache', ['structural', '--all-tenants', '--quiet'], {
+      optional: true,
+      silentOptional: quiet,
+    })
+    if (!quiet) {
+      console.log('[generate] Structural cache purge completed.')
+    }
+  } catch (error) {
+    if (!quiet) {
+      const message = formatCliFailureMessage('configs', 'cache', error)
+      console.log(`[generate] Skipping structural cache purge: ${message}`)
+    }
+  }
 }
 
 // Build all CLI modules (registered + built-in)
@@ -1135,6 +1184,7 @@ export async function run(argv = process.argv) {
 
           console.log('Running all generators...')
           await runGeneratorSuite(quiet)
+          await runPostGenerateStructuralCachePurge(quiet)
           console.log('All generators completed.')
         },
       },
@@ -1177,6 +1227,7 @@ export async function run(argv = process.argv) {
                 console.log(`[generate:watch] Regenerating (${reason})...`)
               }
               await runGeneratorSuite(true)
+              await runPostGenerateStructuralCachePurge(true)
               if (!quiet) {
                 console.log('[generate:watch] Generators completed.')
               }
