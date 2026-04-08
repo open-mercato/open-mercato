@@ -644,9 +644,6 @@ The only observable change is potential whitespace/formatting differences in gen
 - `packages/cli/src/lib/generators/ast/index.ts`
 - `packages/cli/src/lib/generators/ast/source-file.ts`
 - `packages/cli/src/lib/generators/ast/imports.ts`
-- `packages/cli/src/lib/generators/ast/arrays.ts`
-- `packages/cli/src/lib/generators/ast/objects.ts`
-- `packages/cli/src/lib/generators/ast/functions.ts`
 - `packages/cli/src/lib/generators/extension.ts`
 
 ### Phase 2 (Modified Files)
@@ -656,10 +653,11 @@ The only observable change is potential whitespace/formatting differences in gen
 - `packages/cli/src/lib/generators/entity-ids.ts`
 
 ### Phase 3 (New Files)
+- `packages/cli/src/lib/generators/extensions/index.ts`
+- `packages/cli/src/lib/generators/extensions/shared.ts`
 - `packages/cli/src/lib/generators/extensions/search.ts`
 - `packages/cli/src/lib/generators/extensions/notifications.ts`
 - `packages/cli/src/lib/generators/extensions/messages.ts`
-- `packages/cli/src/lib/generators/extensions/payments-client.ts`
 - `packages/cli/src/lib/generators/extensions/ai-tools.ts`
 - `packages/cli/src/lib/generators/extensions/events.ts`
 - `packages/cli/src/lib/generators/extensions/analytics.ts`
@@ -672,14 +670,10 @@ The only observable change is potential whitespace/formatting differences in gen
 - `packages/cli/src/lib/generators/extensions/command-interceptors.ts`
 - `packages/cli/src/lib/generators/extensions/dashboard-widgets.ts`
 - `packages/cli/src/lib/generators/extensions/injection-widgets.ts`
-- `packages/cli/src/lib/generators/extensions/security.ts`
-- `packages/cli/src/lib/generators/extensions/subscribers.ts`
-- `packages/cli/src/lib/generators/ast/routes.ts` (optional — core loop helpers)
-- `packages/cli/src/lib/generators/ast/module-declarations.ts` (optional — core loop helpers)
+- `packages/cli/src/lib/generators/extensions/page-middleware.ts`
 
 ### Phase 3 (Modified Files)
-- `packages/cli/src/lib/generators/module-registry.ts` (reduced from ~2,903 to ~400 lines)
-- `packages/cli/src/lib/generators/extension.ts` (add `loadExtensions()` implementation)
+- `packages/cli/src/lib/generators/module-registry.ts` (standalone output generation extracted to extensions; core registry loop remains in this file)
 
 ---
 
@@ -692,10 +686,27 @@ The only observable change is potential whitespace/formatting differences in gen
 | Plugin system preserved | Pass | `GeneratorPlugin.buildOutput` API unchanged |
 | Convention file paths | Pass | No changes to auto-discovery paths |
 | Performance acceptable | TBD | Must benchmark after Phase 3 |
-| Test coverage adequate | Pass | Snapshot + structural tests cover all 30+ files |
+| Test coverage adequate | Pass | Structural + idempotence tests cover the generated-file contract without pinning formatting |
 | No security implications | Pass | Code generation is a dev-time operation |
 | No database changes | Pass | No entities or migrations involved |
 | Decentralization spec alignment | Pass | Extension interface, classification, and directory structure are consistent |
+
+---
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Snapshot Tests | Done | 2026-04-06 | Replaced the brittle snapshot gate with structural + idempotence checks focused on exports, syntax, file inventory, and repeatability. |
+| Phase 2 — ts-morph Infrastructure + Standalone Generators | Done | 2026-04-07 | Added `ts-morph`, AST helpers, `extension.ts`, and migrated `module-di.ts`, `module-entities.ts`, and `entity-ids.ts` output construction. |
+| Phase 3 — Extension Extraction + ts-morph-backed Standalone Outputs | In Progress | 2026-04-07 | Standalone registry outputs now emit through ts-morph declarations/writers inside `extensions/`. `module-registry.ts` still owns the core `modules*`/routes/API generation and the UMES conflict pass. |
+
+### Phase 3 Detailed Progress
+- [x] Extract search, notifications, messages, AI tools, events, analytics, translatable fields, enrichers, interceptors, component overrides, inbox actions, guards, command interceptors, dashboard widgets, injection widgets/tables, and page middleware into `extensions/`.
+- [x] Preserve plugin-based generator outputs and bootstrap registration aggregation.
+- [x] Replace formatting snapshots with structural + idempotence coverage for generator compatibility.
+- [ ] Migrate the remaining core `module-registry.ts` output templates (`modules.generated.ts`, `modules.runtime.generated.ts`, routes, API manifests) to ts-morph helpers.
+- [ ] Extract the UMES conflict-detection post-pass out of `module-registry.ts`.
 
 ---
 
@@ -705,3 +716,4 @@ The only observable change is potential whitespace/formatting differences in gen
 |------|--------|
 | 2026-04-06 | Initial spec created |
 | 2026-04-06 | Major revision: aligned with [decentralization spec](2026-03-20-decentralize-module-registry-generator.md) for combined implementation. Restructured from 2-phase to 3-phase approach. Phase 1 marked COMPLETE. Phase 2 narrowed to standalone generators. New Phase 3 combines extension extraction + ts-morph migration. Added `GeneratorExtension` interface with `Map<string, string>` return type. Updated extension classification table, directory structure, file lists, and risks. |
+| 2026-04-07 | Implemented Phase 2 and the standalone-output portion of Phase 3. Added `ts-morph`, AST helpers, extension modules, migrated standalone emitters off raw statement strings, and replaced brittle snapshots with structural/idempotence generator tests. |
