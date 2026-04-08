@@ -75,6 +75,10 @@ export function buildFormFieldFromCustomFieldDef(
     case 'integer':
     case 'float':
       return { id, label, type: 'number', description: def.description, required }
+    case 'date':
+      return { id, label, type: 'datepicker', description: def.description, required }
+    case 'datetime':
+      return { id, label, type: 'datetime', description: def.description, required }
     case 'multiline': {
       let editor: 'simple' | 'uiw' | 'html' = 'uiw'
       if (def.editor === 'simpleMarkdown') editor = 'simple'
