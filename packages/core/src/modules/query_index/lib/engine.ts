@@ -239,7 +239,6 @@ export class HybridQueryEngine implements QueryEngine {
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && (field.startsWith('cf:') || field.startsWith('l10n:'))) ||
         cfFilters.length > 0 ||
-        opts.includeCustomFields === true ||
         (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
       )
 
@@ -2081,7 +2080,7 @@ export class HybridQueryEngine implements QueryEngine {
 
   private isForcePartialIndexEnabled(): boolean {
     if (this.forcePartialIndexEnabled != null) return this.forcePartialIndexEnabled
-    this.forcePartialIndexEnabled = resolveBooleanEnv(['FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES'], true)
+    this.forcePartialIndexEnabled = resolveBooleanEnv(['FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES'], false)
     return this.forcePartialIndexEnabled
   }
 

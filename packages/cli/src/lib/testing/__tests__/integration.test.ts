@@ -16,6 +16,7 @@ import {
   resolveBuildCacheTtlSeconds,
   resolveAppReadyTimeoutMs,
   shouldReuseBuildArtifacts,
+  acquireEphemeralRuntimeLock,
 } from '../integration'
 
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
@@ -445,6 +446,53 @@ describe('integration cache and options', () => {
         }),
       ).resolves.toBe(false)
     } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('prevents a second owned ephemeral run from acquiring the workspace runtime lock', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'om-int-runtime-lock-'))
+    const lockPath = path.join(tempRoot, 'ephemeral-runtime.lock')
+
+    try {
+      const firstLock = await acquireEphemeralRuntimeLock('integration', {
+        lockPath,
+      })
+
+      await expect(
+        acquireEphemeralRuntimeLock('ephemeral', {
+          lockPath,
+        }),
+      ).rejects.toThrow(/Another ephemeral environment is already active/)
+
+      await firstLock.release()
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('clears stale runtime locks owned by exited processes before reacquiring them', async () => {
+    const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'om-int-runtime-stale-'))
+    const lockPath = path.join(tempRoot, 'ephemeral-runtime.lock')
+    const warn = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      await mkdir(lockPath, { recursive: true })
+      await writeFile(
+        path.join(lockPath, 'owner.json'),
+        `${JSON.stringify({ pid: 999_999, source: 'integration', acquiredAt: new Date().toISOString() }, null, 2)}\n`,
+        'utf8',
+      )
+
+      const lock = await acquireEphemeralRuntimeLock('integration', {
+        lockPath,
+        isProcessRunning: () => false,
+      })
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Removed stale ephemeral runtime lock'))
+      await lock.release()
+    } finally {
+      warn.mockRestore()
       await rm(tempRoot, { recursive: true, force: true })
     }
   })

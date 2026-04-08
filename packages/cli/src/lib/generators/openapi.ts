@@ -9,6 +9,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { PackageResolver } from '../resolver'
+import { isModuleRouteFile } from './scanner'
 import {
   calculateChecksum,
   readChecksumRecord,
@@ -61,7 +62,7 @@ async function findApiRoutes(resolver: PackageResolver): Promise<ApiRouteInfo[]>
         if (e.isDirectory()) {
           if (e.name === '__tests__' || e.name === '__mocks__') continue
           walkDir(path.join(dir, e.name), [...rel, e.name])
-        } else if (e.isFile() && e.name === 'route.ts') {
+        } else if (e.isFile() && isModuleRouteFile(e.name)) {
           routeFiles.push({
             relativePath: [...rel].join('/'),
             fullPath: path.join(dir, e.name),
@@ -74,11 +75,13 @@ async function findApiRoutes(resolver: PackageResolver): Promise<ApiRouteInfo[]>
     if (fs.existsSync(apiPkg)) walkDir(apiPkg)
     if (fs.existsSync(apiApp)) walkDir(apiApp)
 
-    // Process unique routes (app overrides package)
-    const seen = new Set<string>()
+    // Process unique routes (later app files overwrite earlier package files)
+    const filesByRelativePath = new Map<string, string>()
     for (const { relativePath, fullPath } of routeFiles) {
-      if (seen.has(relativePath)) continue
-      seen.add(relativePath)
+      filesByRelativePath.set(relativePath, fullPath)
+    }
+
+    for (const [relativePath, fullPath] of filesByRelativePath) {
 
       // Build API path
       const routeSegs = relativePath ? relativePath.split('/') : []

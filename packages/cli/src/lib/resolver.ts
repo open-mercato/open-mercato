@@ -49,10 +49,11 @@ export interface PackageResolver {
 
 function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
   if (!isMonorepo) {
-    // Production mode: look in node_modules
-    // Packages ship with src/ included, so we can read TypeScript source files
     const pkgName = from || '@open-mercato/core'
-    return path.join(rootDir, 'node_modules', pkgName, 'src', 'modules')
+    const pkgRoot = path.join(rootDir, 'node_modules', pkgName)
+    const distModules = path.join(pkgRoot, 'dist', 'modules')
+    if (fs.existsSync(distModules)) return distModules
+    return path.join(pkgRoot, 'src', 'modules')
   }
 
   // Monorepo mode - read from src/modules (TypeScript source)
@@ -383,8 +384,9 @@ function discoverPackagesInNodeModules(rootDir: string): PackageInfo[] {
 
     try {
       const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'))
-      // Packages ship with src/ included, so we can read TypeScript source files
-      const modulesPath = path.join(pkgPath, 'src', 'modules')
+      const distModulesPath = path.join(pkgPath, 'dist', 'modules')
+      const srcModulesPath = path.join(pkgPath, 'src', 'modules')
+      const modulesPath = fs.existsSync(distModulesPath) ? distModulesPath : srcModulesPath
 
       if (fs.existsSync(modulesPath)) {
         packages.push({

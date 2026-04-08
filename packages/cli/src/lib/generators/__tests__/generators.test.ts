@@ -16,6 +16,11 @@ describe('generators', () => {
       expect(typeof module.generateModuleRegistry).toBe('function')
     })
 
+    it('should export generateModuleRegistryApp', async () => {
+      const module = await import('../module-registry')
+      expect(typeof module.generateModuleRegistryApp).toBe('function')
+    })
+
     it('should export generateModuleEntities', async () => {
       const module = await import('../module-entities')
       expect(typeof module.generateModuleEntities).toBe('function')
@@ -163,6 +168,12 @@ describe('generator file output patterns', () => {
       const outputDir = '/project/generated'
       const expectedPath = `${outputDir}/modules.generated.ts`
       expect(expectedPath).toContain('modules.generated.ts')
+    })
+
+    it('should output to modules.app.generated.ts', () => {
+      const outputDir = '/project/generated'
+      const expectedPath = `${outputDir}/modules.app.generated.ts`
+      expect(expectedPath).toContain('modules.app.generated.ts')
     })
 
     it('should output dashboard widgets', () => {

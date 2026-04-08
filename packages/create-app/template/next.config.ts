@@ -1,10 +1,17 @@
 import type { NextConfig } from "next";
 
+const isDevelopment = process.env.NODE_ENV !== 'production'
+
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
+    ...(isDevelopment
+      ? {
+          preloadEntriesOnStart: false,
+        }
+      : {}),
   },
   // Transpile @open-mercato packages that have TypeScript in src/
   // Note: @open-mercato/shared is excluded as it has pre-built dist/ files
