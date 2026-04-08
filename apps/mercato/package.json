@@ -9,7 +9,7 @@
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "build": "next build",
     "start": "mercato server start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
     "generate": "mercato generate",

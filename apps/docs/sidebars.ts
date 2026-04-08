@@ -123,7 +123,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/data-encryption"],
+      items: ["architecture/system-overview", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
     },
     {
       type: "category",
@@ -250,6 +250,11 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Entities",
           items: ["cli/entities-install"],
+        },
+        {
+          type: "category",
+          label: "Configs Module",
+          items: ["cli/configs-cache"],
         },
         {
           type: "category",

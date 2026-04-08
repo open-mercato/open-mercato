@@ -62,6 +62,9 @@ mercato test coverage
 # Generate code from modules
 yarn generate
 
+# Manually purge structural navigation/sidebar caches when needed
+yarn mercato configs cache structural --all-tenants
+
 # Database operations
 yarn db:generate    # Generate migrations
 yarn db:migrate     # Run migrations
@@ -116,6 +119,8 @@ Custom modules go in `src/modules/`. Each module can define:
 
 Add new modules to `src/modules.ts` with `from: '@app'`.
 Install official package-backed modules with `yarn mercato module add @open-mercato/<package>`.
+
+The standalone template enables the `configs` module from `@open-mercato/core`, so `yarn mercato configs cache ...` is available here after installation. After structural changes such as enabling or disabling modules, adding or removing backend/frontend pages, or changing sidebar/navigation injections, run `yarn generate`. The generator now performs a best-effort structural cache purge automatically after successful generation; if the cache command is unavailable, generation still succeeds.
 
 ### Path Aliases
 

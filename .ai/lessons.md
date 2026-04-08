@@ -228,6 +228,11 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 1. In integration tests/helpers, do not use `waitForLoadState('networkidle')` as a generic readiness gate on backend pages.
 2. Prefer `waitForLoadState('domcontentloaded')` plus one explicit UI readiness assertion for the interaction target (for example, a key button/input becoming visible).
+3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
+4. For custom-entity record forms, prefer opening the records list first and waiting for the `Create` action to appear before entering the form; this proves definitions loaded in the current app state.
+5. In custom-entity Playwright tests, target form controls via `data-crud-field-id="<fieldKey>"` instead of label-text ancestor traversal. The wrapper id is stable across monorepo and standalone layouts, while label-only selectors are brittle.
+
+**Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales, customers, and custom-entity flows).
 
 ## Projection updates that change indexed parent fields must emit query-index upserts
 
@@ -238,9 +243,6 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any command or projection that directly updates fields surfaced through query-indexed docs must also emit `query_index.upsert_one` for the affected entity records. If child/profile docs denormalize the same parent fields, review whether they need matching upserts too.
 
 **Applies to**: Projection helpers, lifecycle commands, and any write path that bypasses the primary CRUD/indexer helpers while changing search/list-visible fields.
-3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
-
-**Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales/customer flows).
 
 ## Standalone template must include all generated bootstrap registries
 
