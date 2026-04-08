@@ -18,9 +18,10 @@ export function register(container: AppContainer) {
     catalogPricingService: asFunction(({ eventBus }: AppCradle) => {
       return new DefaultCatalogPricingService(eventBus ?? null)
     }).singleton(),
-    catalogOmnibusService: asFunction(({ moduleConfigService, cache }: AppCradle) =>
-      new DefaultCatalogOmnibusService(moduleConfigService, cache)
-    ).singleton(),
+    catalogOmnibusService: asFunction(
+      (moduleConfigService: ModuleConfigService, cache: CacheStrategy) =>
+        new DefaultCatalogOmnibusService(moduleConfigService, cache)
+    ).scoped(),
     CatalogProduct: asValue(CatalogProduct),
     CatalogProductPrice: asValue(CatalogProductPrice),
   })

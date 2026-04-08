@@ -389,7 +389,7 @@ const iso3166Alpha2 = z.string().regex(/^[A-Z]{2}$/, 'Must be ISO 3166-1 alpha-2
 )
 
 export const omnibusChannelConfigSchema = z.object({
-  presentedPriceKindId: uuid(),
+  presentedPriceKindId: uuid().optional(),
   countryCode: iso3166Alpha2.optional(),
   lookbackDays: z.number().int().min(1).max(365).optional(),
   minimizationAxis: z.enum(['gross', 'net']).optional(),

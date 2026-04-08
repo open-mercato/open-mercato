@@ -647,9 +647,12 @@ function isPrivateIPv6(addr: string): boolean {
  * Does not perform DNS resolution — checks the literal host only.
  */
 export function isPrivateUrl(rawUrl: string): boolean {
+  // WHATWG URL does not support IPv6 zone IDs (%25-encoded in URIs: [fe80::1%25eth0])
+  // Strip them before parsing so the address can still be classified correctly
+  const sanitized = rawUrl.replace(/(\[[^\]]*?)%25[^\]]*/i, '$1')
   let hostname: string
   try {
-    hostname = new URL(rawUrl).hostname
+    hostname = new URL(sanitized).hostname
   } catch {
     return false
   }

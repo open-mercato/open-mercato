@@ -2,9 +2,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CatalogPriceHistoryEntry } from '../data/entities'
+import { CatalogPriceHistoryEntry, CatalogProductPrice } from '../data/entities'
 import type { OmnibusConfig, OmnibusChannelConfig } from '../data/validators'
-import { OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, MS_PER_DAY } from '../lib/omnibus'
+import { OMNIBUS_MODULE_ID, OMNIBUS_CONFIG_KEY, MS_PER_DAY, buildHistoryEntry } from '../lib/omnibus'
+import type { PriceHistorySnapshot } from '../lib/omnibus'
 import type {
   OmnibusResolutionContext,
   OmnibusLowestPriceResult,
@@ -22,6 +23,11 @@ export type {
 
 const CACHE_TTL_MS = 5 * 60 * 1000
 
+export interface BackfillChannelResult {
+  inserted: number
+  skipped: number
+}
+
 export interface CatalogOmnibusService {
   getConfig(context?: { organizationId?: string | null }): Promise<OmnibusConfig>
   getLowestPrice(
@@ -35,6 +41,10 @@ export interface CatalogOmnibusService {
     presentedPriceEntry: OmnibusHistoryRow | null,
     priceKindIsPromotion: boolean,
   ): Promise<OmnibusBlock | null>
+  backfillChannel(
+    em: EntityManager,
+    params: { organizationId: string; tenantId: string; channelId: string | null; lookbackDays: number; batchSize?: number },
+  ): Promise<BackfillChannelResult>
 }
 
 export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
@@ -311,6 +321,13 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     offerId: string,
   ): Promise<OmnibusHistoryRow | null> {
     const filters = buildScopeFilters({ ...ctx, offerId })
+    // Narrow to the specific variant/product so we find when THIS item's offer started,
+    // not when any other variant in the same offer first appeared
+    if (ctx.variantId) {
+      filters.variantId = { $eq: ctx.variantId }
+    } else if (ctx.productId) {
+      filters.productId = { $eq: ctx.productId }
+    }
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
@@ -423,6 +440,84 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     }
 
     return null
+  }
+
+  async backfillChannel(
+    em: EntityManager,
+    params: { organizationId: string; tenantId: string; channelId: string | null; lookbackDays: number; batchSize?: number },
+  ): Promise<BackfillChannelResult> {
+    const { organizationId, tenantId, channelId, lookbackDays, batchSize = 500 } = params
+    const windowStart = new Date(Date.now() - lookbackDays * MS_PER_DAY)
+    const recordedAt = new Date(windowStart.getTime() - 1)
+
+    const priceFilters: Record<string, unknown> = { organization_id: organizationId, tenant_id: tenantId }
+    if (channelId) priceFilters.channel_id = channelId
+
+    const totalPrices = await em.count(CatalogProductPrice, priceFilters)
+
+    let offset = 0
+    let inserted = 0
+    let skipped = 0
+
+    while (offset < totalPrices) {
+      const prices = await em.find(
+        CatalogProductPrice,
+        priceFilters,
+        { populate: ['priceKind', 'product', 'variant', 'offer'] as never[], limit: batchSize, offset, orderBy: { id: 'ASC' } },
+      )
+      if (prices.length === 0) break
+
+      const batchPriceIds = prices.map((p) => p.id)
+      const existingEntries = await em.find(
+        CatalogPriceHistoryEntry,
+        { priceId: { $in: batchPriceIds }, organizationId, tenantId },
+        { fields: ['priceId'] as never[] },
+      )
+      const existingPriceIds = new Set(existingEntries.map((e) => e.priceId))
+
+      for (const price of prices) {
+        const priceKind = typeof price.priceKind === 'string' ? null : price.priceKind
+        if (!priceKind) { skipped++; continue }
+        const productId = price.product
+          ? (typeof price.product === 'string' ? price.product : price.product.id)
+          : price.variant
+            ? (typeof price.variant === 'object' && price.variant?.product
+                ? (typeof price.variant.product === 'string' ? price.variant.product : price.variant.product.id)
+                : null)
+            : null
+        if (!productId) { skipped++; continue }
+        if (existingPriceIds.has(price.id)) { skipped++; continue }
+
+        const snapshot: PriceHistorySnapshot = {
+          id: price.id,
+          tenantId: price.tenantId,
+          organizationId: price.organizationId,
+          productId,
+          variantId: price.variant ? (typeof price.variant === 'string' ? price.variant : price.variant.id) : null,
+          offerId: price.offer ? (typeof price.offer === 'string' ? price.offer : price.offer.id) : null,
+          channelId: price.channelId ?? null,
+          priceKindId: priceKind.id,
+          priceKindCode: priceKind.code,
+          currencyCode: price.currencyCode,
+          unitPriceNet: price.unitPriceNet ?? null,
+          unitPriceGross: price.unitPriceGross ?? null,
+          taxRate: price.taxRate ?? null,
+          taxAmount: price.taxAmount ?? null,
+          minQuantity: price.minQuantity,
+          maxQuantity: price.maxQuantity ?? null,
+          startsAt: price.startsAt ? price.startsAt.toISOString() : null,
+          endsAt: price.endsAt ? price.endsAt.toISOString() : null,
+        }
+        const fields = buildHistoryEntry({ snapshot, changeType: 'create', source: 'system' })
+        em.persist(em.create(CatalogPriceHistoryEntry, { ...fields, recordedAt, idempotencyKey: null }))
+        inserted++
+      }
+
+      await em.flush()
+      offset += prices.length
+    }
+
+    return { inserted, skipped }
   }
 
   private resolveNewArrivalAdjustment(

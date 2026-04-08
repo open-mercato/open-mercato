@@ -39,10 +39,16 @@ type PriceKind = {
   title: string
 }
 
+type SalesChannel = {
+  id: string
+  name: string
+}
+
 export function OmnibusSettings() {
   const t = useT()
   const [config, setConfig] = React.useState<OmnibusConfig | null>(null)
   const [priceKinds, setPriceKinds] = React.useState<PriceKind[]>([])
+  const [channels, setChannels] = React.useState<SalesChannel[]>([])
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
@@ -53,12 +59,14 @@ export function OmnibusSettings() {
     Promise.all([
       readApiResultOrThrow<OmnibusConfig>('/api/catalog/config/omnibus'),
       readApiResultOrThrow<{ items?: PriceKind[] }>('/api/catalog/price-kinds'),
-    ]).then(([cfg, pk]) => {
+      readApiResultOrThrow<{ items?: SalesChannel[] }>('/api/sales/channels?pageSize=100'),
+    ]).then(([cfg, pk, ch]) => {
       if (cancelled) return
       const cfgData = cfg ?? {}
       setConfig(cfgData)
       setForm(cfgData)
       setPriceKinds(pk?.items ?? [])
+      setChannels(ch?.items ?? [])
       setLoading(false)
     }).catch(() => {
       if (!cancelled) {
@@ -170,90 +178,146 @@ export function OmnibusSettings() {
               />
             </div>
 
-            {Object.keys(form.channels ?? {}).length > 0 && (
-              <div>
+            <div>
                 <h3 className="text-sm font-semibold mb-2">{t('catalog.omnibus.settings.channelOverrides', 'Per-channel overrides')}</h3>
                 <div className="space-y-4">
-                  {Object.entries(form.channels ?? {}).map(([channelId, ch]) => (
-                    <div key={channelId} className="rounded-lg border p-3 space-y-3">
-                      <p className="text-xs font-medium text-muted-foreground">{t('catalog.omnibus.settings.channel', 'Channel')}: {channelId}</p>
+                  {Object.entries(form.channels ?? {}).map(([channelId, ch]) => {
+                    const channelName = channels.find((c) => c.id === channelId)?.name ?? channelId
+                    return (
+                      <div key={channelId} className="rounded-lg border p-3 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-muted-foreground">{channelName}</p>
+                          <button
+                            type="button"
+                            className="text-xs text-destructive hover:underline"
+                            onClick={() => setForm((f) => {
+                              const next = { ...f.channels }
+                              delete next[channelId]
+                              return { ...f, channels: next }
+                            })}
+                          >
+                            {t('catalog.omnibus.settings.removeChannel', 'Remove')}
+                          </button>
+                        </div>
 
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          id={`progressive-${channelId}`}
-                          checked={ch.progressiveReductionRule ?? false}
-                          onCheckedChange={(v: boolean) => setForm((f) => ({
-                            ...f,
-                            channels: { ...f.channels, [channelId]: { ...ch, progressiveReductionRule: v } },
-                          }))}
-                        />
-                        <Label htmlFor={`progressive-${channelId}`} className="text-xs">
-                          {t('catalog.omnibus.settings.progressiveReductionRule', 'Progressive reduction rule (Art. 6a(5))')}
-                        </Label>
-                      </div>
-
-                      <div>
-                        <Label htmlFor={`perishable-${channelId}`} className="text-xs">
-                          {t('catalog.omnibus.settings.perishableGoodsRule', 'Perishable goods rule')}
-                        </Label>
-                        <select
-                          id={`perishable-${channelId}`}
-                          className="w-full rounded border px-2 py-1.5 text-sm mt-1"
-                          value={ch.perishableGoodsRule ?? 'standard'}
-                          onChange={(e) => setForm((f) => ({
-                            ...f,
-                            channels: { ...f.channels, [channelId]: { ...ch, perishableGoodsRule: e.target.value as 'standard' | 'exempt' | 'last_price' } },
-                          }))}
-                        >
-                          <option value="standard">{t('catalog.omnibus.settings.perishableGoodsRule.standard', 'Standard')}</option>
-                          <option value="exempt">{t('catalog.omnibus.settings.perishableGoodsRule.exempt', 'Exempt')}</option>
-                          <option value="last_price">{t('catalog.omnibus.settings.perishableGoodsRule.lastPrice', 'Use last price')}</option>
-                        </select>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2">
                         <div>
-                          <Label htmlFor={`new-arrival-${channelId}`} className="text-xs">
-                            {t('catalog.omnibus.settings.newArrivalRule', 'New arrivals rule')}
+                          <Label htmlFor={`country-code-${channelId}`} className="text-xs">
+                            {t('catalog.omnibus.settings.countryCode', 'Country code (e.g. PL, DE)')}
                           </Label>
-                          <select
-                            id={`new-arrival-${channelId}`}
-                            className="w-full rounded border px-2 py-1.5 text-sm mt-1"
-                            value={ch.newArrivalRule ?? 'standard'}
+                          <Input
+                            id={`country-code-${channelId}`}
+                            className="mt-1"
+                            value={ch.countryCode ?? ''}
+                            maxLength={2}
+                            placeholder="PL"
                             onChange={(e) => setForm((f) => ({
                               ...f,
-                              channels: { ...f.channels, [channelId]: { ...ch, newArrivalRule: e.target.value as 'standard' | 'shorter_window' } },
+                              channels: { ...f.channels, [channelId]: { ...ch, countryCode: e.target.value.toUpperCase() || undefined } },
+                            }))}
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            id={`progressive-${channelId}`}
+                            checked={ch.progressiveReductionRule ?? false}
+                            onCheckedChange={(v: boolean) => setForm((f) => ({
+                              ...f,
+                              channels: { ...f.channels, [channelId]: { ...ch, progressiveReductionRule: v } },
+                            }))}
+                          />
+                          <Label htmlFor={`progressive-${channelId}`} className="text-xs">
+                            {t('catalog.omnibus.settings.progressiveReductionRule', 'Progressive reduction rule (Art. 6a(5))')}
+                          </Label>
+                        </div>
+
+                        <div>
+                          <Label htmlFor={`perishable-${channelId}`} className="text-xs">
+                            {t('catalog.omnibus.settings.perishableGoodsRule', 'Perishable goods rule')}
+                          </Label>
+                          <select
+                            id={`perishable-${channelId}`}
+                            className="w-full rounded border px-2 py-1.5 text-sm mt-1"
+                            value={ch.perishableGoodsRule ?? 'standard'}
+                            onChange={(e) => setForm((f) => ({
+                              ...f,
+                              channels: { ...f.channels, [channelId]: { ...ch, perishableGoodsRule: e.target.value as 'standard' | 'exempt' | 'last_price' } },
                             }))}
                           >
-                            <option value="standard">{t('catalog.omnibus.settings.newArrivalRule.standard', 'Standard')}</option>
-                            <option value="shorter_window">{t('catalog.omnibus.settings.newArrivalRule.shorterWindow', 'Shorter window')}</option>
+                            <option value="standard">{t('catalog.omnibus.settings.perishableGoodsRule.standard', 'Standard')}</option>
+                            <option value="exempt">{t('catalog.omnibus.settings.perishableGoodsRule.exempt', 'Exempt')}</option>
+                            <option value="last_price">{t('catalog.omnibus.settings.perishableGoodsRule.lastPrice', 'Use last price')}</option>
                           </select>
                         </div>
-                        {ch.newArrivalRule === 'shorter_window' && (
+
+                        <div className="grid grid-cols-2 gap-2">
                           <div>
-                            <Label htmlFor={`new-arrival-days-${channelId}`} className="text-xs">
-                              {t('catalog.omnibus.settings.newArrivalsLookbackDays', 'New arrival window (days)')}
+                            <Label htmlFor={`new-arrival-${channelId}`} className="text-xs">
+                              {t('catalog.omnibus.settings.newArrivalRule', 'New arrivals rule')}
                             </Label>
-                            <Input
-                              id={`new-arrival-days-${channelId}`}
-                              type="number"
-                              min={1}
-                              max={365}
-                              className="mt-1"
-                              value={ch.newArrivalsLookbackDays ?? ''}
+                            <select
+                              id={`new-arrival-${channelId}`}
+                              className="w-full rounded border px-2 py-1.5 text-sm mt-1"
+                              value={ch.newArrivalRule ?? 'standard'}
                               onChange={(e) => setForm((f) => ({
                                 ...f,
-                                channels: { ...f.channels, [channelId]: { ...ch, newArrivalsLookbackDays: parseInt(e.target.value, 10) || null } },
+                                channels: { ...f.channels, [channelId]: { ...ch, newArrivalRule: e.target.value as 'standard' | 'shorter_window' } },
                               }))}
-                            />
+                            >
+                              <option value="standard">{t('catalog.omnibus.settings.newArrivalRule.standard', 'Standard')}</option>
+                              <option value="shorter_window">{t('catalog.omnibus.settings.newArrivalRule.shorterWindow', 'Shorter window')}</option>
+                            </select>
                           </div>
-                        )}
+                          {ch.newArrivalRule === 'shorter_window' && (
+                            <div>
+                              <Label htmlFor={`new-arrival-days-${channelId}`} className="text-xs">
+                                {t('catalog.omnibus.settings.newArrivalsLookbackDays', 'New arrival window (days)')}
+                              </Label>
+                              <Input
+                                id={`new-arrival-days-${channelId}`}
+                                type="number"
+                                min={1}
+                                max={365}
+                                className="mt-1"
+                                value={ch.newArrivalsLookbackDays ?? ''}
+                                onChange={(e) => setForm((f) => ({
+                                  ...f,
+                                  channels: { ...f.channels, [channelId]: { ...ch, newArrivalsLookbackDays: parseInt(e.target.value, 10) || null } },
+                                }))}
+                              />
+                            </div>
+                          )}
+                        </div>
                       </div>
+                    )
+                  })}
+
+                  {channels.filter((c) => !Object.keys(form.channels ?? {}).includes(c.id)).length > 0 && (
+                    <div>
+                      <Label className="text-xs mb-1 block">{t('catalog.omnibus.settings.addChannel', 'Add channel')}</Label>
+                      <select
+                        className="w-full rounded border px-2 py-1.5 text-sm"
+                        value=""
+                        onChange={(e) => {
+                          const id = e.target.value
+                          if (!id) return
+                          setForm((f) => ({
+                            ...f,
+                            channels: { ...f.channels, [id]: {} },
+                          }))
+                        }}
+                      >
+                        <option value="">{t('catalog.omnibus.settings.selectChannel', 'Select channel to configure...')}</option>
+                        {channels
+                          .filter((c) => !Object.keys(form.channels ?? {}).includes(c.id))
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                      </select>
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
-            )}
 
             {backfillWarningChannels.length > 0 && (
               <Alert>
