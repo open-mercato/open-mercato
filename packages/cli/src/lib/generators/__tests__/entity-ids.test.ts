@@ -97,10 +97,10 @@ describe('generateEntityIds', () => {
     const registryPath = path.join(tmpDir, 'app', '.mercato', 'generated', 'entity-fields-registry.ts')
     const registry = fs.readFileSync(registryPath, 'utf8')
 
-    expect(registry).toContain('sales_order: {')
-    expect(registry).toContain("id: 'id'")
-    expect(registry).toContain("tenant_id: 'tenant_id'")
-    expect(registry).toContain("total_gross: 'total_gross'")
+    expect(registry).toContain('"sales_order": {')
+    expect(registry).toContain('"id": "id"')
+    expect(registry).toContain('"tenant_id": "tenant_id"')
+    expect(registry).toContain('"total_gross": "total_gross"')
     expect(registry).not.toContain("import * as sales_order from './entities/sales_order/index'")
   })
 
@@ -161,8 +161,8 @@ export { Organization, Tenant }
     const packageOrganizationPath = path.join(generatedRoot, 'entities', 'organization', 'index.js')
 
     expect(fs.readFileSync(rootIdsPath, 'utf8')).toContain('"organization": "directory:organization"')
-    expect(fs.readFileSync(organizationPath, 'utf8')).toContain("export const name = 'name'")
-    expect(fs.readFileSync(organizationPath, 'utf8')).toContain("export const tenant = 'tenant'")
+    expect(fs.readFileSync(organizationPath, 'utf8')).toContain('export const name = "name"')
+    expect(fs.readFileSync(organizationPath, 'utf8')).toContain('export const tenant = "tenant"')
     expect(fs.readFileSync(packageOrganizationPath, 'utf8')).toContain("export const tenant = 'tenant'")
   })
 })

@@ -1129,7 +1129,7 @@ describe('all generated files are valid with varying subsets', () => {
     await generateModuleRegistry({ resolver, quiet: true })
 
     const search = readGenerated(tmpDir, 'search.generated.ts')!
-    expect(search).toContain('const entriesRaw: SearchConfigEntry[] = [\n]')
+    expect(search).toContain('const entriesRaw: SearchConfigEntry[] = []')
   })
 
   it('events.generated.ts has empty entries when no module provides events.ts', async () => {
@@ -1140,7 +1140,7 @@ describe('all generated files are valid with varying subsets', () => {
     await generateModuleRegistry({ resolver, quiet: true })
 
     const events = readGenerated(tmpDir, 'events.generated.ts')!
-    expect(events).toContain('const entriesRaw: EventConfigEntry[] = [\n]')
+    expect(events).toContain('const entriesRaw: EventConfigEntry[] = []')
   })
 
   it('translations-fields.generated.ts has empty entries when no module provides translations.ts', async () => {
@@ -1218,7 +1218,7 @@ describe('all generated files are valid with varying subsets', () => {
     await generateModuleRegistry({ resolver, quiet: true })
 
     const notifications = readGenerated(tmpDir, 'notifications.generated.ts')!
-    expect(notifications).toContain('as any).types')
+    expect(notifications).toContain('"types"')
     expect(notifications).toContain('as NotificationTypeDefinition[]')
   })
 
@@ -1234,7 +1234,7 @@ describe('all generated files are valid with varying subsets', () => {
 
     const frontendMiddleware = readGenerated(tmpDir, 'frontend-middleware.generated.ts')!
     const backendMiddleware = readGenerated(tmpDir, 'backend-middleware.generated.ts')!
-    expect(frontendMiddleware).toContain("moduleId: 'security'")
-    expect(backendMiddleware).toContain("moduleId: 'security'")
+    expect(frontendMiddleware).toContain('moduleId: "security"')
+    expect(backendMiddleware).toContain('moduleId: "security"')
   })
 })
