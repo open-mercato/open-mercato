@@ -651,7 +651,9 @@ describe('generator output compatibility', () => {
     'api-routes.generated.ts',
     'backend-middleware.generated.ts',
     'backend-routes.generated.ts',
+    'bootstrap-modules.generated.ts',
     'bootstrap-registrations.generated.ts',
+    'cli-modules.generated.ts',
     'command-interceptors.generated.ts',
     'component-overrides.generated.ts',
     'dashboard-widgets.generated.ts',
@@ -673,6 +675,7 @@ describe('generator output compatibility', () => {
     'notifications.generated.ts',
     'payments.client.generated.ts',
     'search.generated.ts',
+    'subscribers.generated.ts',
     'translations-fields.generated.ts',
   ]
 

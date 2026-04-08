@@ -529,6 +529,19 @@ describe('modules.generated.ts', () => {
   })
 })
 
+describe('subscribers.generated.ts', () => {
+  it('exports legacy moduleSubscribers from modules.runtime.generated.ts', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    const content = readGenerated('subscribers.generated.ts')
+
+    expect(content).toContain('modules.runtime.generated')
+    expect(content).toContain("export const moduleSubscribers: NonNullable<Module['subscribers']>")
+    expect(content).toContain('modules.flatMap((module) => (module.subscribers ?? []))')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Route manifests
 // ---------------------------------------------------------------------------
@@ -1169,6 +1182,18 @@ describe('modules.app.generated.ts', () => {
   })
 })
 
+describe('bootstrap-modules.generated.ts', () => {
+  it('exports legacy bootstrapModules alias from modules.app.generated.ts', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryApp({ resolver, quiet: true })
+    const content = readGenerated('bootstrap-modules.generated.ts')
+
+    expect(content).toContain('modules.app.generated')
+    expect(content).toContain('export const bootstrapModules: Module[] = modules')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // modules.cli.generated.ts
 // ---------------------------------------------------------------------------
@@ -1206,5 +1231,20 @@ describe('modules.cli.generated.ts', () => {
     expect(content).toContain('subscribers:')
     expect(content).toContain('features:')
     expect(content).toContain('setup:')
+  })
+})
+
+describe('cli-modules.generated.ts', () => {
+  it('exports legacy cliModules alias from modules.cli.generated.ts', async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistryCli({ resolver, quiet: true })
+    const content = readGenerated('cli-modules.generated.ts')
+
+    expect(content).toContain('modules.cli.generated')
+    expect(content).toContain("export const cliModules: Pick<Module, 'id' | 'cli'>[]")
+    expect(content).toContain('modules.map(({ id, cli }) => ({')
+    expect(content).toContain('id: id')
+    expect(content).toContain('cli: cli')
   })
 })
