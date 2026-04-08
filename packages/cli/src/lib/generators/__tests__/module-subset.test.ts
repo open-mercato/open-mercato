@@ -832,6 +832,24 @@ export default async function handle(): Promise<void> {}
     expect(output).toContain('createLazyModuleWorker(() => import("@open-mercato/core/modules/events/workers/events.worker")')
   })
 
+  it('casts standalone vector config to the module vector type in CLI output', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'search', 'vector.js'),
+      "export const vectorConfig = { entities: [] }\n",
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [
+      { id: 'search', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const outputPath = path.join(tmpDir, '.mercato', 'generated', 'modules.cli.generated.ts')
+    const output = fs.readFileSync(outputPath, 'utf8')
+    expect(output).toContain('vector:')
+    expect(output).toContain("as Module['vector']")
+  })
+
   it('refreshes standalone worker metadata after the source file changes in the same process', async () => {
     touchFile(
       path.join(tmpDir, 'node_modules', 'pkg', 'package.json'),
