@@ -145,4 +145,65 @@ describe('db command failure output', () => {
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
+  it('does not load app CLI while dispatching built-in db commands', async () => {
+    const originalFunction = global.Function
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const dbGenerate = jest.fn().mockResolvedValue(undefined)
+
+    try {
+      ;(global as typeof globalThis & { Function: typeof Function }).Function = jest.fn(() => {
+        throw new Error('app cli import should not run for built-in db commands')
+      }) as unknown as typeof Function
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [{ command: 'generate', run: dbGenerate }],
+        } as any,
+      ])
+
+      const exitCode = await run(['node', 'mercato', 'db', 'generate'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).toHaveBeenCalled()
+    } finally {
+      ;(global as typeof globalThis & { Function: typeof Function }).Function = originalFunction
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+    }
+  })
+
+  it('does not import the DI container module while dispatching built-in db commands', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+    try {
+      jest.resetModules()
+      jest.doMock('@open-mercato/shared/lib/di/container', () => {
+        throw new Error('di container should stay lazy for built-in db commands')
+      })
+
+      const mercato = await import('../mercato')
+      const dbGenerate = jest.fn().mockResolvedValue(undefined)
+
+      mercato.registerCliModules([
+        {
+          id: 'db',
+          cli: [{ command: 'generate', run: dbGenerate }],
+        } as any,
+      ])
+
+      const exitCode = await mercato.run(['node', 'mercato', 'db', 'generate'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGenerate).toHaveBeenCalled()
+    } finally {
+      jest.dontMock('@open-mercato/shared/lib/di/container')
+      jest.resetModules()
+      consoleErrorSpy.mockRestore()
+      consoleLogSpy.mockRestore()
+    }
+  })
 })

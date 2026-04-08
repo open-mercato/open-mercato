@@ -392,6 +392,7 @@ function EntityMultiSelect({
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => addOption(option)}
               disabled={disabled}
+              aria-label={option.label}
             >
               <span className="flex flex-col items-start">
                 <span>{option.label}</span>
