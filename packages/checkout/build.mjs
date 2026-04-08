@@ -2,12 +2,17 @@ import * as esbuild from 'esbuild'
 import { glob } from 'glob'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const watch = process.argv.includes('--watch')
 
-rmSync(join(__dirname, 'dist'), { recursive: true, force: true })
+const distDir = join(__dirname, 'dist')
+if (existsSync(distDir)) {
+  for (const entry of readdirSync(distDir)) {
+    rmSync(join(distDir, entry), { recursive: true, force: true })
+  }
+}
 
 const entryPoints = await glob('src/**/*.{ts,tsx}', {
   cwd: __dirname,

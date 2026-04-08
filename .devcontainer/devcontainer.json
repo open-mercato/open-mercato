@@ -1,7 +1,7 @@
 {
   "name": "Open Mercato",
   "initializeCommand": "bash .devcontainer/scripts/generate-compose-volumes.sh",
-  "dockerComposeFile": ["docker-compose.yml", "docker-compose.volumes.yml"],
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.volumes.yml", "docker-compose.local.yml"],
   "service": "workspace",
   "workspaceFolder": "/workspace",
   "remoteUser": "node",
