@@ -20,18 +20,21 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
     let token: string | null = null;
     let recordId: string | null = null;
 
-    const fillField = async (label: string, fallbackIndex: number, value: string): Promise<void> => {
-      const namedInput = page
-        .getByRole('textbox', { name: new RegExp(`^${escapeRegExp(label)}$`, 'i') })
-        .first();
-      if ((await namedInput.count()) > 0) {
-        await namedInput.fill(value);
-        return;
-      }
+    const fillField = async (label: string, value: string): Promise<void> => {
+      const input = page.getByRole('textbox', { name: new RegExp(`^${escapeRegExp(label)}$`, 'i') }).first();
+      await expect(input).toBeVisible();
+      await input.fill(value);
+    };
 
-      const textboxes = page.locator('main').getByRole('textbox');
-      await expect(textboxes.nth(fallbackIndex)).toBeVisible();
-      await textboxes.nth(fallbackIndex).fill(value);
+    const clickSubmit = async (labels: string[]): Promise<void> => {
+      for (const label of labels) {
+        const button = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(label)}$`, 'i') }).first();
+        if (await button.isVisible().catch(() => false)) {
+          await button.click();
+          return;
+        }
+      }
+      throw new Error(`Submit button not found. Tried: ${labels.join(', ')}`);
     };
 
     try {
@@ -76,10 +79,10 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
       await page.getByRole('link', { name: 'Create' }).click();
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/create$`, 'i'));
-      await fillField('Location', 0, location);
-      await fillField('Title', 1, title);
-      await fillField('Event Date', 2, '2026-02-14');
-      await page.getByRole('button', { name: 'Save' }).first().click();
+      await fillField('Location', location);
+      await fillField('Title', title);
+      await fillField('Event Date', '2026-02-14');
+      await clickSubmit(['Create', 'Save']);
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
       await expect(page.getByRole('row', { name: new RegExp(location, 'i') })).toBeVisible();
@@ -90,8 +93,8 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
         page.url().match(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/([^/?#]+)$`, 'i'))?.[1] ??
         null;
 
-      await fillField('Title', 1, updatedTitle);
-      await page.getByRole('button', { name: 'Save' }).first().click();
+      await fillField('Title', updatedTitle);
+      await clickSubmit(['Save']);
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
       await expect(page.getByRole('row', { name: new RegExp(updatedTitle, 'i') })).toBeVisible();
