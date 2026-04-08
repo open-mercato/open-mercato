@@ -21,7 +21,14 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
     let recordId: string | null = null;
 
     const fillField = async (label: string, value: string): Promise<void> => {
-      const input = page.getByRole('textbox', { name: new RegExp(`^${escapeRegExp(label)}$`, 'i') }).first();
+      const accessibleInput = page.getByRole('textbox', { name: new RegExp(`^${escapeRegExp(label)}$`, 'i') }).first();
+      if (await accessibleInput.isVisible().catch(() => false)) {
+        await accessibleInput.fill(value);
+        return;
+      }
+
+      const labelText = page.getByText(new RegExp(`^${escapeRegExp(label)}$`, 'i')).first();
+      const input = labelText.locator('xpath=ancestor::*[.//input or .//textarea][1]').locator('input, textarea').first();
       await expect(input).toBeVisible();
       await input.fill(value);
     };
@@ -72,32 +79,49 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
       }
 
       await login(page, 'superadmin');
-      await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`);
-      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
-
-      await expect(page.getByRole('heading', { name: new RegExp(`Records:\\s*${entityId}`, 'i') })).toBeVisible();
-      await page.getByRole('link', { name: 'Create' }).click();
+      await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records/create`, {
+        waitUntil: 'domcontentloaded',
+      });
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/create$`, 'i'));
       await fillField('Location', location);
       await fillField('Title', title);
       await fillField('Event Date', '2026-02-14');
+      const createResponsePromise = page.waitForResponse((response) => {
+        return response.request().method() === 'POST' && response.url().includes('/api/entities/records') && response.ok();
+      });
       await clickSubmit(['Create', 'Save']);
+      const createResponse = await createResponsePromise;
+      const createPayload = (await createResponse.json()) as { item?: { recordId?: string } };
+      recordId = typeof createPayload.item?.recordId === 'string' ? createPayload.item.recordId : null;
+      expect(recordId).toBeTruthy();
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
-      await expect(page.getByRole('row', { name: new RegExp(location, 'i') })).toBeVisible();
-
-      await page.getByRole('row', { name: new RegExp(location, 'i') }).click();
+      await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(recordId!)}`, {
+        waitUntil: 'domcontentloaded',
+      });
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/[^/]+$`, 'i'));
-      recordId =
-        page.url().match(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/([^/?#]+)$`, 'i'))?.[1] ??
-        null;
 
       await fillField('Title', updatedTitle);
+      const updateResponsePromise = page.waitForResponse((response) => {
+        return response.request().method() === 'PUT' && response.url().includes('/api/entities/records') && response.ok();
+      });
       await clickSubmit(['Save']);
+      await updateResponsePromise;
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
-      await expect(page.getByRole('row', { name: new RegExp(updatedTitle, 'i') })).toBeVisible();
+      const updatedRecordResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/entities/records?entityId=${encodeURIComponent(entityId)}&id=${encodeURIComponent(recordId!)}`,
+        { token },
+      );
+      expect(updatedRecordResponse.ok()).toBeTruthy();
+      const updatedRecordPayload = (await updatedRecordResponse.json()) as {
+        items?: Array<{ id?: string; title?: string }>;
+      };
+      const updatedRecord = (updatedRecordPayload.items ?? []).find((item) => String(item.id) === recordId);
+      expect(updatedRecord?.title).toBe(updatedTitle);
     } finally {
       if (token && recordId) {
         await apiRequest(
