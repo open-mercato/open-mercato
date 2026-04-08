@@ -13,7 +13,7 @@ const transpiledWorkspacePackages = Object.keys(appPackageJson.dependencies ?? {
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
-  transpilePackages: isDevelopment ? transpiledWorkspacePackages : undefined,
+  //transpilePackages: isDevelopment ? transpiledWorkspacePackages : undefined,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,

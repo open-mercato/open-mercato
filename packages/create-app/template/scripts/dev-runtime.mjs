@@ -411,6 +411,27 @@ function waitForExit(child) {
   })
 }
 
+function isExpectedShutdownSignal(signal) {
+  return signal === 'SIGINT' || signal === 'SIGTERM'
+}
+
+function isGracefulShutdownResult(result) {
+  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+}
+
+function resolveChildExitCode(result, fallback = 1) {
+  if (typeof result?.code === 'number') {
+    return result.code
+  }
+  if (result?.signal === 'SIGINT') {
+    return 130
+  }
+  if (result?.signal === 'SIGTERM') {
+    return 143
+  }
+  return fallback
+}
+
 function joinBaseUrl(baseUrl, pathname) {
   return `${String(baseUrl ?? '').replace(/\/$/, '')}${pathname}`
 }
@@ -1098,8 +1119,14 @@ async function runInitialGenerate() {
   if (verbose) {
     const child = spawnMercato(['generate'])
     const result = await waitForExit(child)
-    if (result.signal) shutdown(1)
-    if ((result.code ?? 1) !== 0) shutdown(result.code ?? 1)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      shutdown(exitCode)
+    }
     return
   }
 
@@ -1117,16 +1144,17 @@ async function runInitialGenerate() {
   connectLineStream(child.stderr, capture)
 
   const result = await waitForExit(child)
-  if (result.signal) {
-    shutdown(1)
+  if (isGracefulShutdownResult(result)) {
+    return
   }
 
-  if ((result.code ?? 1) !== 0) {
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
     console.error('❌ Artifact generation failed')
     for (const line of capturedLines) {
       console.error(line)
     }
-    shutdown(result.code ?? 1)
+    shutdown(exitCode)
   }
 
   updateSplashState({
@@ -1467,24 +1495,23 @@ function startFilteredChild(args, label, classifyLine) {
 async function runClassicRuntime() {
   const initialGenerate = spawnMercato(['generate'])
   const initialGenerateResult = await waitForExit(initialGenerate)
-
-  if (initialGenerateResult.signal) {
-    shutdown(1)
+  if (isGracefulShutdownResult(initialGenerateResult)) {
+    return
   }
 
-  if ((initialGenerateResult.code ?? 1) !== 0) {
-    shutdown(initialGenerateResult.code ?? 1)
+  const initialGenerateExitCode = resolveChildExitCode(initialGenerateResult)
+  if (initialGenerateExitCode !== 0) {
+    shutdown(initialGenerateExitCode)
   }
 
   const watch = spawnMercato(['generate', 'watch', '--skip-initial'])
   const server = spawnMercato(['server', 'dev'])
   const result = await Promise.race([waitForExit(watch), waitForExit(server)])
-
-  if (result.signal) {
-    shutdown(1)
+  if (isGracefulShutdownResult(result)) {
+    return
   }
 
-  shutdown(result.code ?? 0)
+  shutdown(resolveChildExitCode(result, 0))
 }
 
 if (classic) {
@@ -1500,9 +1527,6 @@ const watch = startFilteredChild(['generate', 'watch', '--skip-initial'], 'Gener
 const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServerLine)
 
 const result = await Promise.race([waitForExit(watch), waitForExit(server)])
-
-if (result.signal) {
-  shutdown(1)
+if (!isGracefulShutdownResult(result)) {
+  shutdown(resolveChildExitCode(result, 0))
 }
-
-shutdown(result.code ?? 0)

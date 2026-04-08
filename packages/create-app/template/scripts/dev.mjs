@@ -816,12 +816,45 @@ function shutdown(exitCode = 0) {
   }, 3000)
 }
 
+function waitForClose(child) {
+  return new Promise((resolve) => {
+    child.on('close', (code, signal) => {
+      resolve({ code, signal })
+    })
+  })
+}
+
+function isExpectedShutdownSignal(signal) {
+  return signal === 'SIGINT' || signal === 'SIGTERM'
+}
+
+function isGracefulShutdownResult(result) {
+  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+}
+
+function resolveChildExitCode(result, fallback = 1) {
+  if (typeof result?.code === 'number') {
+    return result.code
+  }
+  if (result?.signal === 'SIGINT') {
+    return 130
+  }
+  if (result?.signal === 'SIGTERM') {
+    return 143
+  }
+  return fallback
+}
+
 async function runRawYarnCommand(commandArgs) {
   const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
-  const code = await new Promise((resolve) => child.on('close', resolve))
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
+    return
+  }
 
-  if ((code ?? 1) !== 0) {
-    shutdown(code ?? 1)
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
+    shutdown(exitCode)
   }
 }
 
@@ -941,8 +974,12 @@ async function resolveWorkspacePackageBuildPlan(commandArgs) {
     stderr += chunk
   })
 
-  const code = await new Promise((resolve) => child.on('close', resolve))
-  if ((code ?? 1) !== 0) {
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
+    return null
+  }
+
+  if (resolveChildExitCode(result) !== 0) {
     return null
   }
 
@@ -1035,11 +1072,16 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
   connectLineStream(child.stdout, capture)
   connectLineStream(child.stderr, capture)
 
-  const code = await new Promise((resolve) => child.on('close', resolve))
-
-  if ((code ?? 1) !== 0) {
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
     progressReporter.clear()
-    await reportStageFailure(label, commandArgs, capturedLines, code, {
+    return
+  }
+
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
+    progressReporter.clear()
+    await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
     })
@@ -1098,9 +1140,14 @@ async function runStage(label, commandArgs, options = {}) {
 
   if (verbose) {
     const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
-    const code = await new Promise((resolve) => child.on('close', resolve))
-    if ((code ?? 1) !== 0) {
-      shutdown(code ?? 1)
+    const result = await waitForClose(child)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      shutdown(exitCode)
     }
     return
   }
@@ -1117,10 +1164,14 @@ async function runStage(label, commandArgs, options = {}) {
   connectLineStream(child.stdout, capture)
   connectLineStream(child.stderr, capture)
 
-  const code = await new Promise((resolve) => child.on('close', resolve))
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
+    return
+  }
 
-  if ((code ?? 1) !== 0) {
-    await reportStageFailure(label, commandArgs, capturedLines, code, {
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
+    await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
     })
@@ -1166,9 +1217,14 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 
   if (verbose) {
     const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
-    const code = await new Promise((resolve) => child.on('close', resolve))
-    if ((code ?? 1) !== 0) {
-      shutdown(code ?? 1)
+    const result = await waitForClose(child)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      shutdown(exitCode)
     }
   } else {
     const child = spawnCommand(yarnCommand, commandArgs)
@@ -1183,9 +1239,14 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     connectLineStream(child.stdout, capture)
     connectLineStream(child.stderr, capture)
 
-    const code = await new Promise((resolve) => child.on('close', resolve))
-    if ((code ?? 1) !== 0) {
-      await reportStageFailure(label, commandArgs, capturedLines, code, {
+    const result = await waitForClose(child)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
         stageCurrent,
         stageTotal,
       })
@@ -1211,10 +1272,16 @@ function startPackageWatch() {
       stdio: 'inherit',
     })
 
-    child.on('close', (code) => {
-      if (!shuttingDown && (code ?? 1) !== 0) {
+    child.on('close', (code, signal) => {
+      const result = { code, signal }
+      if (isGracefulShutdownResult(result)) {
+        return
+      }
+
+      const exitCode = resolveChildExitCode(result)
+      if (!shuttingDown && exitCode !== 0) {
         console.error('❌ Package watch stopped')
-        shutdown(code ?? 1)
+        shutdown(exitCode)
       }
     })
 
@@ -1248,10 +1315,16 @@ function startPackageWatch() {
   })
 
   if (verbose) {
-    child.on('close', (code) => {
-      if (!shuttingDown && (code ?? 1) !== 0) {
+    child.on('close', (code, signal) => {
+      const result = { code, signal }
+      if (isGracefulShutdownResult(result)) {
+        return
+      }
+
+      const exitCode = resolveChildExitCode(result)
+      if (!shuttingDown && exitCode !== 0) {
         console.error('❌ Package watch stopped')
-        shutdown(code ?? 1)
+        shutdown(exitCode)
       }
     })
     return child
@@ -1260,7 +1333,7 @@ function startPackageWatch() {
   let surfacedFailure = false
 
   const handleLine = (line) => {
-    if (isIgnorableTurboLine(line)) return
+    if (shuttingDown || isIgnorableTurboLine(line)) return
 
     if (!surfacedFailure) {
       surfacedFailure = true
@@ -1273,10 +1346,16 @@ function startPackageWatch() {
   connectLineStream(child.stdout, handleLine)
   connectLineStream(child.stderr, handleLine)
 
-  child.on('close', (code) => {
-    if (!shuttingDown && (code ?? 1) !== 0) {
+  child.on('close', (code, signal) => {
+    const result = { code, signal }
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (!shuttingDown && exitCode !== 0) {
       console.error('❌ Package watch stopped')
-      shutdown(code ?? 1)
+      shutdown(exitCode)
     }
   })
 
@@ -1306,9 +1385,9 @@ function launchMonorepoAppDev() {
     env: buildSplashChildEnv(),
   })
 
-  app.on('close', (code) => {
+  app.on('close', (code, signal) => {
     if (!shuttingDown) {
-      shutdown(code ?? 0)
+      shutdown(resolveChildExitCode({ code, signal }, 0))
     }
   })
 }
