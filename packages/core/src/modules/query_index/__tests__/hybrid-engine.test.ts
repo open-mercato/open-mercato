@@ -215,6 +215,7 @@ describe('HybridQueryEngine', () => {
   })
 
   test('emits partial coverage metadata when forcing query index usage', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn() }
@@ -230,7 +231,28 @@ describe('HybridQueryEngine', () => {
     warnSpy.mockRestore()
   })
 
+  test('does not fall back on partial coverage when only projecting all custom fields', async () => {
+    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      includeCustomFields: true,
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(warnSpy).not.toHaveBeenCalled()
+    warnSpy.mockRestore()
+  })
+
   test('emits partial coverage metadata when global scope is out of sync', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn() }
@@ -255,6 +277,7 @@ describe('HybridQueryEngine', () => {
   })
 
   test('propagates partial coverage metadata from custom field sources', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn() }
@@ -291,6 +314,7 @@ describe('HybridQueryEngine', () => {
   })
 
   test('detects mismatch when index count exceeds base count', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 12 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
     const fallback = { query: jest.fn() }

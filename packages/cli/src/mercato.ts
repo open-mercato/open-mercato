@@ -2,7 +2,7 @@
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
 import { runWorker } from '@open-mercato/queue/worker'
-import type { Module } from '@open-mercato/shared/modules/registry'
+import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -10,6 +10,8 @@ import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import { parseModuleInstallArgs } from './lib/module-install-args'
+import { resolveNextBuildIdCandidate } from './lib/next-build-id'
+import { acquireServerStartLock } from './lib/server-start-lock'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -17,6 +19,16 @@ import path from 'node:path'
 import fs from 'node:fs'
 
 let envLoaded = false
+
+function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWorker[] {
+  const allWorkers: ModuleWorker[] = []
+  for (const mod of modules) {
+    if (mod.workers) {
+      allWorkers.push(...mod.workers)
+    }
+  }
+  return allWorkers
+}
 
 export function padByCodePointWidth(value: string, targetWidth: number): string {
   const valueWidth = [...value].length
@@ -30,6 +42,12 @@ type ErrorWithCause = {
   cause?: unknown
   errors?: unknown[]
 }
+
+const TURBOPACK_CORRUPTION_PATTERNS = [
+  'Failed to restore task data (corrupted database or bug)',
+  'Unable to open static sorted file',
+  'TurbopackInternalError',
+]
 
 const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'db', 'server', 'test'])
 
@@ -94,9 +112,18 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
   return message
 }
 
+function isTurbopackCacheCorruption(output: string): boolean {
+  return TURBOPACK_CORRUPTION_PATTERNS.every((pattern) => output.includes(pattern))
+}
+
+function removeTurbopackDevCache(appDir: string): void {
+  fs.rmSync(path.join(appDir, '.mercato', 'next', 'dev'), { recursive: true, force: true })
+}
+
 async function ensureEnvLoaded() {
   if (envLoaded) return
   envLoaded = true
+  const quietDotenv = process.env.DOTENV_CONFIG_QUIET === '1' || process.env.DOTENV_CONFIG_QUIET === 'true'
 
   // Try to find and load .env from the app directory
   // First, try to find the app directory via resolver
@@ -109,7 +136,7 @@ async function ensureEnvLoaded() {
     const envPath = path.join(appDir, '.env')
     if (fs.existsSync(envPath)) {
       const dotenv = await import('dotenv')
-      dotenv.config({ path: envPath })
+      dotenv.config({ path: envPath, quiet: quietDotenv })
       return
     }
   } catch {
@@ -131,6 +158,57 @@ function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): st
   }
   throw new Error(
     `Could not find installed binary "${relativeBinPath}". Checked: ${Array.from(checked).join(', ')}`,
+  )
+}
+
+function buildServerProcessEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const runtimeEnv = { ...environment }
+  runtimeEnv.NODE_ENV = 'production'
+  const normalizedNodeOptions = (runtimeEnv.NODE_OPTIONS ?? '')
+    .replace(/(?:^|\s)--require=newrelic(?=\s|$)/g, ' ')
+    .replace(/(?:^|\s)-r\s+newrelic(?=\s|$)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  if (runtimeEnv.NEW_RELIC_LICENSE_KEY?.trim()) {
+    runtimeEnv.NODE_OPTIONS = normalizedNodeOptions.length > 0
+      ? `${normalizedNodeOptions} -r newrelic`
+      : '-r newrelic'
+    return runtimeEnv
+  }
+
+  if (normalizedNodeOptions.length > 0) {
+    runtimeEnv.NODE_OPTIONS = normalizedNodeOptions
+  } else {
+    delete runtimeEnv.NODE_OPTIONS
+  }
+
+  return runtimeEnv
+}
+
+function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
+  const configuredDistDir = path.join(appDir, '.mercato', 'next')
+  const configuredBuildIdPath = path.join(configuredDistDir, 'BUILD_ID')
+  const configuredBuildId = resolveNextBuildIdCandidate(configuredDistDir)
+  if (configuredBuildId) {
+    if (!fs.existsSync(configuredBuildIdPath)) {
+      fs.mkdirSync(path.dirname(configuredBuildIdPath), { recursive: true })
+      fs.writeFileSync(configuredBuildIdPath, configuredBuildId, 'utf8')
+      console.warn('[server] Reconstructed BUILD_ID inside .mercato/next from existing build artifacts.')
+    }
+    return
+  }
+
+  const fallbackDistDir = path.join(appDir, '.next')
+  const fallbackBuildId = resolveNextBuildIdCandidate(fallbackDistDir)
+  if (!fallbackBuildId) {
+    return
+  }
+
+  fs.mkdirSync(path.dirname(configuredBuildIdPath), { recursive: true })
+  fs.writeFileSync(configuredBuildIdPath, fallbackBuildId, 'utf8')
+  console.warn(
+    '[server] Recovered BUILD_ID from .next build artifacts into .mercato/next to match the configured distDir.',
   )
 }
 
@@ -240,7 +318,7 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
-      const skipExamples = initArgs.includes('--no-examples') || initArgs.includes('--no-exampls')
+      const skipExamples = initArgs.includes('--no-examples')
       const stressTestEnabled =
         initArgs.includes('--stresstest') || initArgs.includes('--stress-test')
       const stressTestLite =
@@ -389,10 +467,11 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistry({ resolver, quiet: true })
+      await generateModuleRegistryApp({ resolver, quiet: true })
       await generateModuleRegistryCli({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
@@ -845,19 +924,7 @@ export async function run(argv = process.argv) {
           const queueName = isAllQueues ? null : args[0]
 
           // Collect all discovered workers from modules
-          type WorkerEntry = {
-            id: string
-            queue: string
-            concurrency: number
-            handler: (job: unknown, ctx: unknown) => Promise<void> | void
-          }
-          const allWorkers: WorkerEntry[] = []
-          for (const mod of getCliModules()) {
-            const modWorkers = (mod as { workers?: WorkerEntry[] }).workers
-            if (modWorkers) {
-              allWorkers.push(...modWorkers)
-            }
-          }
+          const allWorkers = getRegisteredCliWorkers()
           const discoveredQueues = [...new Set(allWorkers.map((w) => w.queue))]
 
           if (!queueName && !isAllQueues) {
@@ -876,7 +943,8 @@ export async function run(argv = process.argv) {
           if (isAllQueues) {
             // Run workers for all discovered queues
             if (discoveredQueues.length === 0) {
-              console.error('[worker] No queues discovered from modules')
+              console.error('[worker] No queues discovered from CLI modules.')
+              console.error('[worker] Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries.')
               return
             }
 
@@ -1032,6 +1100,30 @@ export async function run(argv = process.argv) {
     ],
   } as any)
   
+  const runGeneratorSuite = async (quiet: boolean) => {
+    const { createResolver } = await import('./lib/resolver')
+    const {
+      generateEntityIds,
+      generateModuleRegistry,
+      generateModuleRegistryApp,
+      generateModuleRegistryCli,
+      generateModuleEntities,
+      generateModuleDi,
+      generateModulePackageSources,
+      generateOpenApi,
+    } = await import('./lib/generators')
+    const resolver = createResolver()
+
+    await generateEntityIds({ resolver, quiet })
+    await generateModuleRegistry({ resolver, quiet })
+    await generateModuleRegistryApp({ resolver, quiet })
+    await generateModuleRegistryCli({ resolver, quiet })
+    await generateModuleEntities({ resolver, quiet })
+    await generateModuleDi({ resolver, quiet })
+    await generateModulePackageSources({ resolver, quiet })
+    await generateOpenApi({ resolver, quiet })
+  }
+
   // Built-in CLI module: generate
   all.push({
     id: 'generate',
@@ -1039,20 +1131,85 @@ export async function run(argv = process.argv) {
       {
         command: 'all',
         run: async (args: string[]) => {
-          const { createResolver } = await import('./lib/resolver')
-          const { generateEntityIds, generateModuleRegistry, generateModuleRegistryCli, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
-          const resolver = createResolver()
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await generateEntityIds({ resolver, quiet })
-          await generateModuleRegistry({ resolver, quiet })
-          await generateModuleRegistryCli({ resolver, quiet })
-          await generateModuleEntities({ resolver, quiet })
-          await generateModuleDi({ resolver, quiet })
-          await generateModulePackageSources({ resolver, quiet })
-          await generateOpenApi({ resolver, quiet })
+          await runGeneratorSuite(quiet)
           console.log('All generators completed.')
+        },
+      },
+      {
+        command: 'watch',
+        run: async (args: string[]) => {
+          const { createResolver } = await import('./lib/resolver')
+          const { calculateStructureChecksum } = await import('./lib/utils')
+          const quiet = args.includes('--quiet') || args.includes('-q')
+          const skipInitial = args.includes('--skip-initial')
+          const intervalArg = args.find((arg) => arg.startsWith('--interval='))
+          const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
+          const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
+          let previousChecksum = ''
+          let running = false
+          let pending = false
+
+          const getTrackedPaths = () => {
+            const resolver = createResolver()
+            const tracked = new Set<string>([
+              path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+              path.join(resolver.getAppDir(), 'src', 'modules'),
+            ])
+            for (const entry of resolver.loadEnabledModules()) {
+              const roots = resolver.getModulePaths(entry)
+              tracked.add(roots.appBase)
+              tracked.add(roots.pkgBase)
+            }
+            return Array.from(tracked)
+          }
+
+          const runWatchGeneration = async (reason: string) => {
+            if (running) {
+              pending = true
+              return
+            }
+            running = true
+            try {
+              if (!quiet) {
+                console.log(`[generate:watch] Regenerating (${reason})...`)
+              }
+              await runGeneratorSuite(true)
+              if (!quiet) {
+                console.log('[generate:watch] Generators completed.')
+              }
+            } catch (error) {
+              console.error('[generate:watch] Generation failed:', error instanceof Error ? error.message : error)
+            } finally {
+              running = false
+              if (pending) {
+                pending = false
+                await runWatchGeneration('queued change')
+              }
+            }
+          }
+
+          if (!skipInitial) {
+            await runWatchGeneration('initial')
+          }
+          previousChecksum = calculateStructureChecksum(getTrackedPaths())
+          if (!quiet) {
+            if (skipInitial) {
+              console.log('[generate:watch] Skipping initial regeneration and watching the current generated state.')
+            }
+            console.log(`[generate:watch] Watching structural module files every ${intervalMs}ms`)
+          }
+
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            await new Promise((resolve) => setTimeout(resolve, intervalMs))
+            const nextChecksum = calculateStructureChecksum(getTrackedPaths())
+            if (nextChecksum === previousChecksum) continue
+            previousChecksum = nextChecksum
+            await runWatchGeneration('structure change')
+          }
         },
       },
       {
@@ -1068,9 +1225,11 @@ export async function run(argv = process.argv) {
         command: 'registry',
         run: async (args: string[]) => {
           const { createResolver } = await import('./lib/resolver')
-          const { generateModulePackageSources, generateModuleRegistry } = await import('./lib/generators')
+          const { generateModulePackageSources, generateModuleRegistry, generateModuleRegistryApp, generateModuleRegistryCli } = await import('./lib/generators')
           const resolver = createResolver()
           await generateModuleRegistry({ resolver, quiet: args.includes('--quiet') })
+          await generateModuleRegistryApp({ resolver, quiet: args.includes('--quiet') })
+          await generateModuleRegistryCli({ resolver, quiet: args.includes('--quiet') })
           await generateModulePackageSources({ resolver, quiet: args.includes('--quiet') })
         },
       },
@@ -1147,11 +1306,13 @@ export async function run(argv = process.argv) {
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+          const runtimeEnv = buildServerProcessEnvironment(process.env)
+          let didRetryCorruptedTurbopackCache = false
 
           function cleanup() {
             console.log('[server] Shutting down...')
             for (const proc of processes) {
-              if (!proc.killed) {
+              if (!proc.killed && proc.exitCode === null && proc.signalCode === null) {
                 proc.kill('SIGTERM')
               }
             }
@@ -1191,23 +1352,62 @@ export async function run(argv = process.argv) {
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
 
-          // Start Next.js dev
-          const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
-            stdio: 'inherit',
-            env: process.env,
-            cwd: appDir,
-          })
-          processes.push(nextProcess)
+          const startNextDev = (): Promise<void> =>
+            new Promise((resolve) => {
+              const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+                stdio: ['inherit', 'pipe', 'pipe'],
+                env: process.env,
+                cwd: appDir,
+              })
+              processes.push(nextProcess)
+
+              let combinedOutput = ''
+              const appendOutput = (chunk: string) => {
+                combinedOutput += chunk
+                if (combinedOutput.length > 32_768) {
+                  combinedOutput = combinedOutput.slice(-32_768)
+                }
+              }
+
+              nextProcess.stdout?.on('data', (chunk: Buffer | string) => {
+                const text = typeof chunk === 'string' ? chunk : chunk.toString()
+                process.stdout.write(text)
+                appendOutput(text)
+              })
+              nextProcess.stderr?.on('data', (chunk: Buffer | string) => {
+                const text = typeof chunk === 'string' ? chunk : chunk.toString()
+                process.stderr.write(text)
+                appendOutput(text)
+              })
+
+              nextProcess.on('exit', async () => {
+                if (!didRetryCorruptedTurbopackCache && isTurbopackCacheCorruption(combinedOutput)) {
+                  didRetryCorruptedTurbopackCache = true
+                  console.log('[server] Detected corrupted Turbopack dev cache. Clearing .mercato/next/dev and restarting Next.js once...')
+                  removeTurbopackDevCache(appDir)
+                  await startNextDev()
+                  return resolve()
+                }
+                resolve()
+              })
+            })
+
+          const nextExitPromise = startNextDev()
 
           // Start workers if enabled
           if (autoSpawnWorkers) {
-            console.log('[server] Starting workers for all queues...')
-            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
-              stdio: 'inherit',
-              env: process.env,
-              cwd: appDir,
-            })
-            processes.push(workerProcess)
+            const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+            if (discoveredWorkerQueues.length === 0) {
+              console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+            } else {
+              console.log('[server] Starting workers for all queues...')
+              const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                stdio: 'inherit',
+                env: process.env,
+                cwd: appDir,
+              })
+              processes.push(workerProcess)
+            }
           }
 
           if (autoSpawnScheduler && queueStrategy === 'local') {
@@ -1222,12 +1422,17 @@ export async function run(argv = process.argv) {
 
           // Wait for any process to exit
           await Promise.race(
-            processes.map(
-              (proc) =>
-                new Promise<void>((resolve) => {
-                  proc.on('exit', () => resolve())
-                })
-            )
+            [
+              nextExitPromise,
+              ...processes
+                .filter((proc) => proc.spawnargs[1] !== nextBin)
+                .map(
+                  (proc) =>
+                    new Promise<void>((resolve) => {
+                      proc.on('exit', () => resolve())
+                    })
+                ),
+            ]
           )
 
           await cleanupAndWait()
@@ -1246,6 +1451,10 @@ export async function run(argv = process.argv) {
           const autoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS !== 'false'
           const autoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER !== 'false'
           const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+          const runtimeEnv = buildServerProcessEnvironment(process.env)
+          const serverStartLock = acquireServerStartLock(appDir, {
+            port: runtimeEnv.PORT ?? process.env.PORT ?? null,
+          })
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -1276,47 +1485,57 @@ export async function run(argv = process.argv) {
 
           const nextBin = resolveInstalledBinary(nodeModulesBases, 'next/dist/bin/next')
           const mercatoBin = resolveInstalledBinary(nodeModulesBases, '@open-mercato/cli/bin/mercato')
+          ensureNextBuildIdInConfiguredDistDir(appDir)
 
-          // Start Next.js production server
-          const nextProcess = spawn('node', [nextBin, 'start'], {
-            stdio: 'inherit',
-            env: process.env,
-            cwd: appDir,
-          })
-          processes.push(nextProcess)
-
-          // Start workers if enabled
-          if (autoSpawnWorkers) {
-            console.log('[server] Starting workers for all queues...')
-            const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+          try {
+            // Start Next.js production server
+            const nextProcess = spawn('node', [nextBin, 'start'], {
               stdio: 'inherit',
-              env: process.env,
+              env: runtimeEnv,
               cwd: appDir,
             })
-            processes.push(workerProcess)
-          }
+            processes.push(nextProcess)
 
-          if (autoSpawnScheduler && queueStrategy === 'local') {
-            console.log('[server] Starting scheduler polling engine...')
-            const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
-              stdio: 'inherit',
-              env: process.env,
-              cwd: appDir,
-            })
-            processes.push(schedulerProcess)
-          }
-
-          // Wait for any process to exit
-          await Promise.race(
-            processes.map(
-              (proc) =>
-                new Promise<void>((resolve) => {
-                  proc.on('exit', () => resolve())
+            // Start workers if enabled
+            if (autoSpawnWorkers) {
+              const discoveredWorkerQueues = [...new Set(getRegisteredCliWorkers().map((worker) => worker.queue))]
+              if (discoveredWorkerQueues.length === 0) {
+                console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+              } else {
+                console.log('[server] Starting workers for all queues...')
+                const workerProcess = spawn('node', [mercatoBin, 'queue', 'worker', '--all'], {
+                  stdio: 'inherit',
+                  env: runtimeEnv,
+                  cwd: appDir,
                 })
-            )
-          )
+                processes.push(workerProcess)
+              }
+            }
 
-          await cleanupAndWait()
+            if (autoSpawnScheduler && queueStrategy === 'local') {
+              console.log('[server] Starting scheduler polling engine...')
+              const schedulerProcess = spawn('node', [mercatoBin, 'scheduler', 'start'], {
+                stdio: 'inherit',
+                env: runtimeEnv,
+                cwd: appDir,
+              })
+              processes.push(schedulerProcess)
+            }
+
+            // Wait for any process to exit
+            await Promise.race(
+              processes.map(
+                (proc) =>
+                  new Promise<void>((resolve) => {
+                    proc.on('exit', () => resolve())
+                  })
+              )
+            )
+
+            await cleanupAndWait()
+          } finally {
+            serverStartLock.release()
+          }
         },
       },
     ],

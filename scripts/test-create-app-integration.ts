@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createAppBin, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
+import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
@@ -14,11 +14,6 @@ const green = (value: string) => `\x1b[32m${value}\x1b[0m`
 const cyan = (value: string) => `\x1b[36m${value}\x1b[0m`
 const yellow = (value: string) => `\x1b[33m${value}\x1b[0m`
 const red = (value: string) => `\x1b[31m${value}\x1b[0m`
-const standaloneInstallEnv: NodeJS.ProcessEnv = {
-  ...process.env,
-  YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
-}
-
 function assertExists(filePath: string, label: string): void {
   if (!fs.existsSync(filePath)) {
     throw new Error(`${label} is missing: ${filePath}`)
@@ -75,6 +70,7 @@ async function main(): Promise<void> {
   const cleanup = process.argv.includes('--cleanup')
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'create-mercato-app-integration-'))
   const appDir = path.join(tempRoot, 'standalone-app')
+  const standaloneInstallEnv = createStandaloneInstallEnv(tempRoot)
 
   const integrationEnv: NodeJS.ProcessEnv = {
     JWT_SECRET: 'ci-standalone-test-jwt-secret',

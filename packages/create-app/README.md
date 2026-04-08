@@ -198,9 +198,10 @@ What it does:
 - republishes the current branch packages to Verdaccio
 - scaffolds a fresh standalone app configured for that local registry
 - installs dependencies in the generated app
-- opens a shell in that generated app directory so you can continue with `yarn setup`
+- opens a shell in the generated app directory when run interactively
+- prints the generated app path so you can continue there manually or rerun non-interactively
 
-If you only want the path without opening a shell:
+If you want to keep the smoke test non-interactive:
 
 ```bash
 yarn test:create-app --no-shell

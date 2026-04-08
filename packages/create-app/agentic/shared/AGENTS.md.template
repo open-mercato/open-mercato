@@ -192,7 +192,8 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 
 | Command | Purpose |
 |---|---|
-| `yarn dev` | Start dev server |
+| `yarn dev` | Start compact dev runtime (`d` toggles raw logs) |
+| `yarn dev:verbose` | Start dev runtime with full raw passthrough logs |
 | `yarn generate` | Regenerate `.mercato/generated/` |
 | `yarn mercato module add <package>` | Install and enable an official module package |
 | `yarn mercato db generate` | Create migration for entity changes |

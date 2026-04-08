@@ -213,7 +213,7 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
   
 **Windows:** Use [Docker Setup](#docker-setup) for native setup.
 
-### Quickstart: (Monorepo, core development / contributting)
+### Quickstart: (Monorepo, core development / contributing)
 
 **Prerequisites:** Yarn 4+
 
@@ -252,7 +252,20 @@ For a fresh greenfield boot (build packages, generate registries, reinstall modu
 yarn dev:greenfield
 ```
 
-For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
+### Development runtime modes
+
+- `yarn dev` starts the default compact dev runtime. It shows high-signal startup status, auto-opens the splash page on native local runs, and keeps package/queue/scheduler chatter folded by default.
+- `yarn dev:classic` disables the splash and compact wrappers, and restores the old raw passthrough terminal output.
+- Press `d` while `yarn dev` is running to show or hide raw logs. If a compacted stage fails, the runner automatically expands and prints the raw errored output.
+- `yarn dev:verbose` keeps the old raw passthrough output for debugging.
+- `yarn dev:app` runs only the app runtime in compact mode. `yarn dev:app:verbose` is its raw passthrough variant.
+- `yarn dev:greenfield` keeps the full greenfield flow but compacts package build/generate chatter. `yarn dev:greenfield:verbose` keeps the entire flow raw.
+- `yarn dev:greenfield:classic` keeps the greenfield flow but disables the splash and compact wrappers entirely.
+- `yarn dev:ephemeral` now uses the same splash-first startup experience for its install/build/generate/init stages before handing off to the app runtime. `yarn dev:ephemeral:verbose` keeps the runtime logs raw.
+- `yarn dev:ephemeral:classic` keeps the ephemeral database flow but skips the splash and uses raw passthrough output end to end.
+- Set `OM_DEV_SPLASH_PORT` to override the splash port. Default: `4000`. Use `random` (or `0`) for native local runs when you want a free ephemeral port instead of the stable default.
+
+For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, splash-based startup status, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 
 ```bash
 yarn dev:ephemeral
@@ -273,6 +286,8 @@ npx create-mercato-app my-store
 cd my-store
 yarn setup
 ```
+
+If you want the standalone bootstrap in raw passthrough mode with no splash screen, run `yarn setup:classic`.
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
@@ -342,6 +357,8 @@ yarn docker:test
 yarn docker:install-skills
 yarn docker:dev -- --skip-rebuilt
 ```
+
+When the app container reaches `yarn dev`, it uses the same compact runtime as native local development. Use `yarn docker:dev -- --verbose` if you want the raw passthrough output inside the container instead.
 
 ### Production mode
 

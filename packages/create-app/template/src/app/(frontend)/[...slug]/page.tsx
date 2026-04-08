@@ -1,7 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
-import { findFrontendMatch } from '@open-mercato/shared/modules/registry'
-import { modules } from '@/.mercato/generated/modules.generated'
+import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
+import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -34,7 +34,7 @@ async function renderAccessDenied() {
 export async function generateMetadata({ params }: FrontendParams): Promise<Metadata> {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findFrontendMatch(modules, pathname)
+  const match = findRouteManifestMatch(frontendRoutes, pathname)
   if (!match) {
     return {}
   }
@@ -48,7 +48,7 @@ export async function generateMetadata({ params }: FrontendParams): Promise<Meta
 export default async function SiteCatchAll({ params }: FrontendParams) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
-  const match = findFrontendMatch(modules, pathname)
+  const match = findRouteManifestMatch(frontendRoutes, pathname)
   if (!match) return notFound()
 
   // Customer portal auth gate — separate from staff auth
@@ -66,7 +66,7 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
       const ok = hasAllFeatures(customerFeatures as string[], customerAuth.resolvedFeatures)
       if (!ok) return renderAccessDenied()
     }
-    const Component = match.route.Component
+    const Component = await match.route.load()
     return <Component params={match.params} />
   }
 
@@ -111,6 +111,6 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
     },
   })
   if (middlewareRedirect) redirect(middlewareRedirect)
-  const Component = match.route.Component
+  const Component = await match.route.load()
   return <Component params={match.params} />
 }

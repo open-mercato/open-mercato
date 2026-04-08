@@ -20,8 +20,17 @@ To explore or understand the Open Mercato framework code:
 ## Development Commands
 
 ```bash
-# Start development server
+# Start compact dev runtime (press `d` to toggle raw logs)
 yarn dev
+
+# Start dev runtime with full raw passthrough logs
+yarn dev:verbose
+
+# Start the backward-compatible raw runtime with no splash screen
+yarn dev:classic
+
+# Run standalone bootstrap + startup in backward-compatible raw mode
+yarn setup:classic
 
 # Build for production
 yarn build
