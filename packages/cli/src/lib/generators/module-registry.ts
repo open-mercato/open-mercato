@@ -2949,6 +2949,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
           importName: vectorImportName,
           members: ['default', 'vectorConfig', 'config'],
           fallback: identifier('undefined'),
+          castType: "Module['vector']",
         }),
       })
     }
