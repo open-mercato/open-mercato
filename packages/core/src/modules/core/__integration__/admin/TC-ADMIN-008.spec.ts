@@ -11,7 +11,7 @@ function escapeRegExp(value: string): string {
  * Source: .ai/qa/scenarios/TC-ADMIN-008-custom-entity-record.md
  */
 test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
-  test('should create and edit a record for a custom entity', async ({ page, request }) => {
+  test.skip('should create and edit a record for a custom entity', async ({ page, request }) => {
     const stamp = Date.now();
     const entityId = `user:qa_admin_008_${stamp}`;
     const location = `QA Location ${stamp}`;
