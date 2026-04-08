@@ -254,7 +254,7 @@ jobs:
 
       # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
-        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --registry https://registry.npmjs.org
+        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
 
       - name: Configure standalone app environment
         working-directory: /tmp/standalone-app

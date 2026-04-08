@@ -36472,7 +36472,7 @@
           "length": null,
           "precision": null,
           "scale": null,
-          "default": null,
+          "default": "'example:todo'",
           "comment": null,
           "enumItems": [],
           "mappedType": "text"

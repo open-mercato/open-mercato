@@ -198,6 +198,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 1. In integration tests/helpers, do not use `waitForLoadState('networkidle')` as a generic readiness gate on backend pages.
 2. Prefer `waitForLoadState('domcontentloaded')` plus one explicit UI readiness assertion for the interaction target (for example, a key button/input becoming visible).
+
+## Projection updates that change indexed parent fields must emit query-index upserts
+
+**Context**: Customer interaction commands recomputed `next_interaction_*` fields directly on `customer_entities`, which changed list/search-visible data without mutating the `CustomerEntity` through its normal CRUD command path.
+
+**Problem**: The companies/people grids showed the fresh `next_interaction_name`, but `entity_indexes` and `search_tokens` for `customers:customer_entity` stayed stale. Global search and token-backed filters then missed values that were visibly present in the grid until a manual reindex happened.
+
+**Rule**: Any command or projection that directly updates fields surfaced through query-indexed docs must also emit `query_index.upsert_one` for the affected entity records. If child/profile docs denormalize the same parent fields, review whether they need matching upserts too.
+
+**Applies to**: Projection helpers, lifecycle commands, and any write path that bypasses the primary CRUD/indexer helpers while changing search/list-visible fields.
 3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
 
 **Applies to**: `packages/*/__integration__/**` Playwright tests and shared integration helpers (especially sales/customer flows).
@@ -568,3 +578,33 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Any publishable cross-package registry that must be visible across bootstrap, API routes, and request containers must persist via `globalThis` with a stable key. Do not store bootstrap-critical registries only in module-local variables.
 
 **Applies to**: ORM/entity registries, DI registrars, module registries, and other standalone-sensitive bootstrap state in `@open-mercato/*` packages.
+
+## Auto-discovered DataTable fields must only advertise controls the table can actually honor
+
+**Context**: The customer grids auto-discovered custom fields into the advanced-filter builder and column chooser, but the table pages only registered `listVisible` custom columns. Hidden-but-selectable fields like `cf_executive_notes` appeared in the chooser without a matching TanStack column id.
+
+**Problem**: The chooser could surface legitimate field labels that crashed at toggle time with `Column with id 'cf_executive_notes' does not exist`, because discovery and actual column registration drifted apart.
+
+**Rule**: When a DataTable auto-discovers fields from entity/custom-field metadata, keep the discovery surface aligned with the concrete column registry. If a field should be selectable later, register a real hidden column for it; otherwise keep it out of chooser/filter discovery entirely.
+
+**Applies to**: `DataTable` auto-discovery, custom-field-backed list pages, and any future metadata-driven chooser/filter UI.
+
+## Mixed advanced filters need per-row join state, not one shared logic flag
+
+**Context**: The advanced-filter builder initially stored a single `logic` value for the whole filter state and reused it for every non-first row.
+
+**Problem**: Toggling one row from `And` to `Or` changed every row, making mixed expressions impossible and causing the backend to over-collapse distinct filter rows into one global boolean mode.
+
+**Rule**: For row-based filter builders, store the boolean connector on each non-first condition and keep any old global logic only as backward-compatible fallback when reading legacy URLs or state.
+
+**Applies to**: Shared advanced-filter state, URL serialization/deserialization, and any future query-builder UI that supports multiple rows.
+
+## dnd-kit contexts rendered in SSR need stable ids
+
+**Context**: The advanced datatable uses dnd-kit for header and column-chooser drag-and-drop, and those contexts are rendered during SSR on backend pages.
+
+**Problem**: Letting dnd-kit generate its own accessibility ids caused server/client `aria-describedby` mismatches, which showed up as React hydration errors on customer grid pages even though the table still rendered.
+
+**Rule**: Whenever a dnd-kit `DndContext` can be server-rendered, pass a deterministic `id` derived from stable page/table identity instead of relying on auto-generated ids.
+
+**Applies to**: `DataTable` header drag-and-drop, column chooser drag-and-drop, and any future SSR-rendered dnd-kit surface.

@@ -292,4 +292,5 @@ test.describe('TC-CRM-026: Canonical Interactions API', () => {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
   });
+
 });
