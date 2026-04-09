@@ -30,6 +30,10 @@
       "types": "./src/backend/dashboard/widgetRegistry.ts",
       "default": "./dist/backend/dashboard/widgetRegistry.js"
     },
+    "./backend/BackendChromeProvider": {
+      "types": "./src/backend/BackendChromeProvider.tsx",
+      "default": "./dist/backend/BackendChromeProvider.js"
+    },
     "./backend/detail": {
       "types": "./src/backend/detail/index.ts",
       "default": "./dist/backend/detail/index.js"
