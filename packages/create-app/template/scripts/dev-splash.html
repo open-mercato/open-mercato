@@ -1100,6 +1100,9 @@
         }
       })
       gitRepoLauncher.addEventListener('click', () => {
+        if (gitRepoLauncher.disabled || gitRepoLauncher.getAttribute('aria-disabled') === 'true') {
+          return
+        }
         setGitRepoModalOpen(true)
       })
       gitRepoClose.addEventListener('click', () => {
@@ -1510,8 +1513,19 @@
         const ready = state?.ready === true
         const enabled = gitRepoFlow?.enabled === true && splashBootstrap?.gitRepoFlow?.enabled === true
 
-        gitRepoLauncher.hidden = !enabled || !ready
+        gitRepoLauncher.hidden = !enabled
+        gitRepoLauncher.disabled = !ready
+        gitRepoLauncher.setAttribute('aria-disabled', ready ? 'false' : 'true')
         if (gitRepoLauncher.hidden) {
+          setGitRepoModalOpen(false)
+          gitRepoGrid.hidden = true
+          gitRepoAction.hidden = true
+          gitRepoLink.hidden = true
+          gitRepoSecondary.hidden = true
+          return
+        }
+
+        if (!ready) {
           setGitRepoModalOpen(false)
           gitRepoGrid.hidden = true
           gitRepoAction.hidden = true
