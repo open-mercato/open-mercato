@@ -3,6 +3,12 @@ import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  attachLoggedProcessStreams,
+  createDevLogSession,
+  formatDevLogAnnouncement,
+  noteCommandStart,
+} from './dev-log-files.mjs'
+import {
   clampPercent,
   connectLineStream,
   decorateActivityMessage,
@@ -189,6 +195,20 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
+const devLogSession = createDevLogSession({
+  logDir: process.env.OM_DEV_LOG_DIR?.trim()
+    ? path.resolve(process.env.OM_DEV_LOG_DIR.trim())
+    : (isMonorepo
+      ? path.join(process.cwd(), 'apps', 'mercato', '.mercato', 'logs')
+      : path.join(process.cwd(), '.mercato', 'logs')),
+  role: isMonorepo ? 'dev-runner' : (setupMode ? 'dev-setup' : 'dev-runner'),
+  runId: process.env.OM_DEV_RUN_ID?.trim(),
+})
+const devRunnerLog = devLogSession.openLog('runner', {
+  argv: args,
+  cwd: process.cwd(),
+  mode: splashMode,
+})
 
 const children = new Set()
 let shuttingDown = false
@@ -263,16 +283,35 @@ function printSplashAccessUrls() {
   console.log(`🌐 Backend URL ${resolveExpectedBackendUrl()}`)
 }
 
+function printDevLogLocation() {
+  if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
+  console.log(`📝 Verbose logs ${formatDevLogAnnouncement(devLogSession)}`)
+  process.env.OM_DEV_LOG_ANNOUNCED = '1'
+}
+
 function spawnCommand(command, commandArgs, options = {}) {
+  const mirrorOutput = options.mirrorOutput === true
+  const needsLoggedPipe = mirrorOutput || !!options.logFile
+  const stdio = needsLoggedPipe ? ['inherit', 'pipe', 'pipe'] : (options.stdio ?? 'pipe')
   const child = spawn(command, commandArgs, {
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
       TURBO_NO_UPDATE_NOTIFIER: '1',
+      ...(mirrorOutput && process.stdout.isTTY && !process.env.FORCE_COLOR ? { FORCE_COLOR: '1' } : {}),
       ...options.env,
     },
-    stdio: options.stdio ?? 'pipe',
+    stdio,
   })
+
+  if (options.logFile) {
+    noteCommandStart(options.logFile, options.label ?? command, command, commandArgs)
+    attachLoggedProcessStreams(child, options.logFile, mirrorOutput
+      ? { stdout: process.stdout, stderr: process.stderr }
+      : undefined)
+  } else if (mirrorOutput) {
+    attachLoggedProcessStreams(child, null, { stdout: process.stdout, stderr: process.stderr })
+  }
 
   children.add(child)
 
@@ -406,9 +445,15 @@ function resolveSplashLocaleConfig() {
 }
 
 function buildSplashChildEnv() {
-  if (!splashChildStateFile) return undefined
+  const childEnv = {
+    ...devLogSession.env,
+    OM_DEV_LOG_ANNOUNCED: '1',
+  }
+
+  if (!splashChildStateFile) return childEnv
 
   return {
+    ...childEnv,
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
     OM_DEV_SPLASH_MODE: splashMode,
   }
@@ -929,7 +974,11 @@ function resolveChildExitCode(result, fallback = 1) {
 }
 
 async function runRawYarnCommand(commandArgs) {
-  const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
+  const child = spawnCommand(yarnCommand, commandArgs, {
+    label: commandArgs.join(' '),
+    logFile: devRunnerLog,
+    mirrorOutput: true,
+  })
   const result = await waitForClose(child)
   if (isGracefulShutdownResult(result)) {
     return
@@ -1114,7 +1163,10 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     activity: `${label} started`,
   })
 
-  const child = spawnCommand(yarnCommand, withTurboFullLogs(commandArgs))
+  const child = spawnCommand(yarnCommand, withTurboFullLogs(commandArgs), {
+    label,
+    logFile: devRunnerLog,
+  })
   const capturedLines = []
   const completedPackages = new Set()
 
@@ -1222,7 +1274,11 @@ async function runStage(label, commandArgs, options = {}) {
   })
 
   if (verbose) {
-    const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
+    const child = spawnCommand(yarnCommand, commandArgs, {
+      label,
+      logFile: devRunnerLog,
+      mirrorOutput: true,
+    })
     const result = await waitForClose(child)
     if (isGracefulShutdownResult(result)) {
       return
@@ -1235,7 +1291,10 @@ async function runStage(label, commandArgs, options = {}) {
     return
   }
 
-  const child = spawnCommand(yarnCommand, commandArgs)
+  const child = spawnCommand(yarnCommand, commandArgs, {
+    label,
+    logFile: devRunnerLog,
+  })
   const capturedLines = []
   const capture = (line) => {
     capturedLines.push(line)
@@ -1299,7 +1358,11 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   })
 
   if (verbose) {
-    const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
+    const child = spawnCommand(yarnCommand, commandArgs, {
+      label,
+      logFile: devRunnerLog,
+      mirrorOutput: true,
+    })
     const result = await waitForClose(child)
     if (isGracefulShutdownResult(result)) {
       return
@@ -1310,7 +1373,10 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
       shutdown(exitCode)
     }
   } else {
-    const child = spawnCommand(yarnCommand, commandArgs)
+    const child = spawnCommand(yarnCommand, commandArgs, {
+      label,
+      logFile: devRunnerLog,
+    })
     const capturedLines = []
     const capture = (line) => {
       capturedLines.push(line)
@@ -1352,7 +1418,9 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 function startPackageWatch() {
   if (classic) {
     const child = spawnCommand(yarnCommand, ['watch:packages'], {
-      stdio: 'inherit',
+      label: 'watch:packages',
+      logFile: devRunnerLog,
+      mirrorOutput: true,
     })
 
     child.on('close', (code, signal) => {
@@ -1394,7 +1462,9 @@ function startPackageWatch() {
     '--log-order=grouped',
     '--log-prefix=none',
   ], {
-    stdio: verbose ? 'inherit' : 'pipe',
+    label: 'Watching workspace packages',
+    logFile: devRunnerLog,
+    mirrorOutput: verbose,
   })
 
   if (verbose) {
@@ -1565,6 +1635,7 @@ async function runClassicStandaloneDev() {
 }
 
 async function main() {
+  printDevLogLocation()
   await startSplashServer()
 
   if (!isMonorepo) {
