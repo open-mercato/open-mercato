@@ -253,7 +253,7 @@
         display: grid;
         gap: 10px;
         min-width: 0;
-        flex: 1 1 280px;
+        flex: 0 0 auto;
       }
       .coding-menu {
         position: relative;
@@ -455,13 +455,18 @@
       .button {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
+        gap: 10px;
         min-height: 52px;
         padding: 0 18px;
         border-radius: 14px;
         border: 1px solid transparent;
         text-decoration: none;
+        text-align: left;
         font-weight: 600;
+        font: inherit;
+        cursor: pointer;
+        background: transparent;
         transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
       }
       .button.primary {
@@ -700,7 +705,7 @@
           <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
           <div class="coding-shell" id="coding-shell" hidden>
             <details class="coding-menu" id="coding-menu">
-              <summary class="button secondary coding-summary" id="coding-summary" aria-disabled="true">Start coding with AI</summary>
+              <summary class="button secondary coding-summary" id="coding-summary" aria-disabled="true">🤖 Start coding with AI</summary>
               <div class="coding-menu-panel" id="coding-menu-panel"></div>
             </details>
             <div class="coding-status" id="coding-status" hidden></div>
@@ -818,7 +823,7 @@
           modeDev: 'Standard dev flow',
           modeGreenfield: 'Greenfield dev flow',
           modeSetup: 'Project setup flow',
-          codingButtonLabel: 'Start coding with AI',
+          codingButtonLabel: '🤖 Start coding with AI',
           codingNoTools: 'No supported coding tools were detected on this machine.',
           gitRepoHeading: 'GitHub repository',
           gitRepoOwner: 'Owner',
@@ -855,7 +860,7 @@
           modeDev: 'Standardowy tryb dev',
           modeGreenfield: 'Tryb greenfield',
           modeSetup: 'Tryb konfiguracji projektu',
-          codingButtonLabel: 'Zacznij kodowac z AI',
+          codingButtonLabel: '🤖 Zacznij kodowac z AI',
           codingNoTools: 'Na tej maszynie nie wykryto obslugiwanych narzedzi do kodowania.',
           gitRepoHeading: 'Repozytorium GitHub',
           gitRepoOwner: 'Wlasciciel',
@@ -892,7 +897,7 @@
           modeDev: 'Flujo dev estándar',
           modeGreenfield: 'Flujo dev greenfield',
           modeSetup: 'Flujo de configuración del proyecto',
-          codingButtonLabel: 'Empezar a programar con IA',
+          codingButtonLabel: '🤖 Empezar a programar con IA',
           codingNoTools: 'No se detectaron herramientas de programacion compatibles en esta maquina.',
           gitRepoHeading: 'Repositorio de GitHub',
           gitRepoOwner: 'Propietario',
@@ -929,7 +934,7 @@
           modeDev: 'Standard-Dev-Ablauf',
           modeGreenfield: 'Greenfield-Dev-Ablauf',
           modeSetup: 'Projekt-Setup-Ablauf',
-          codingButtonLabel: 'Mit KI programmieren',
+          codingButtonLabel: '🤖 Mit KI programmieren',
           codingNoTools: 'Auf diesem Rechner wurden keine unterstuetzten Coding-Tools erkannt.',
           gitRepoHeading: 'GitHub-Repository',
           gitRepoOwner: 'Besitzer',
@@ -1256,6 +1261,19 @@
         })
       }
 
+      function isRealGitHubRepoUrl(value) {
+        const raw = typeof value === 'string' ? value.trim() : ''
+        if (!raw) return false
+
+        try {
+          const parsed = new URL(raw)
+          const segments = parsed.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
+          return parsed.protocol === 'https:' && parsed.hostname === 'github.com' && segments.length === 2
+        } catch {
+          return false
+        }
+      }
+
       function renderCodingFlow(state) {
         const codingFlow = state?.codingFlow
         const ready = state?.ready === true
@@ -1423,9 +1441,17 @@
 
         const ownerOptions = Array.isArray(gitRepoFlow?.ownerOptions) ? gitRepoFlow.ownerOptions : []
         const showOwnerField = ownerOptions.length > 0
+        const hasRealRepoUrl = isRealGitHubRepoUrl(gitRepoFlow?.repoUrl)
+        const canOpenRepository = hasRealRepoUrl && (
+          gitRepoFlow?.repoState === 'github_remote'
+          || gitRepoFlow?.remoteRepoExists === true
+          || gitRepoFlow?.actionState === 'done'
+        )
         const showForm = gitRepoFlow?.ghStatus === 'available'
           && gitRepoFlow?.repoState !== 'github_remote'
           && gitRepoFlow?.repoState !== 'other_remote'
+          && gitRepoFlow?.remoteRepoExists !== true
+          && !canOpenRepository
 
         gitRepoGrid.hidden = !showForm
         gitRepoOwnerField.hidden = !showOwnerField
@@ -1466,9 +1492,11 @@
         gitRepoVisibility.disabled = busy || !showForm
         gitRepoOwner.disabled = busy || !showOwnerField
 
-        gitRepoLink.hidden = !(typeof gitRepoFlow?.repoUrl === 'string' && gitRepoFlow.repoUrl)
+        gitRepoLink.hidden = false
         gitRepoLink.textContent = t('gitRepoOpen')
-        gitRepoLink.href = gitRepoFlow?.repoUrl || '#'
+        gitRepoLink.href = canOpenRepository ? gitRepoFlow.repoUrl : '#'
+        gitRepoLink.setAttribute('aria-disabled', canOpenRepository ? 'false' : 'true')
+        gitRepoLink.tabIndex = canOpenRepository ? 0 : -1
       }
 
       function escapeHtml(value) {

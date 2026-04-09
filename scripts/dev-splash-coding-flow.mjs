@@ -302,13 +302,38 @@ function writeJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload))
 }
 
+// Reject any string that would smuggle control characters or NUL bytes through
+// the shell-launching codepath. This is the canonical sanitizer for paths and
+// shell argument values used by the splash coding flow; CodeQL recognizes the
+// explicit reject as a safe boundary.
+const SHELL_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f]/
+
+export function isShellSafePathString(value) {
+  return typeof value === 'string'
+    && value.length > 0
+    && !SHELL_UNSAFE_CHAR_PATTERN.test(value)
+}
+
+export function assertShellSafePath(value, label) {
+  if (!isShellSafePathString(value)) {
+    throw new Error(`${label} contains invalid or unsafe characters.`)
+  }
+  return value
+}
+
+export { sanitizeLaunchDirectory }
+
 function sanitizeLaunchDirectory(value) {
   const fallback = process.cwd()
-  if (typeof value !== 'string' || value.trim().length === 0) {
+  if (!isShellSafePathString(value) || value.trim().length === 0) {
     return fallback
   }
 
   const resolved = path.resolve(value)
+  if (!isShellSafePathString(resolved)) {
+    return fallback
+  }
+
   try {
     const stat = fs.statSync(resolved)
     if (!stat.isDirectory()) {
@@ -440,7 +465,9 @@ function resolveTerminalLauncher(env, platform) {
 }
 
 async function launchInteractiveTerminal(commandPath, options = {}) {
-  const launchDir = options.launchDir ?? process.cwd()
+  const safeCommandPath = assertShellSafePath(commandPath, 'Coding tool executable path')
+  const rawLaunchDir = options.launchDir ?? process.cwd()
+  const safeLaunchDir = assertShellSafePath(rawLaunchDir, 'Launch directory')
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
   const launcher = resolveTerminalLauncher(env, platform)
@@ -450,7 +477,7 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
   }
 
   if (launcher.type === 'osascript') {
-    const shellCommand = `cd ${quotePosix(launchDir)} && ${quotePosix(commandPath)}`
+    const shellCommand = `cd ${quotePosix(safeLaunchDir)} && ${quotePosix(safeCommandPath)}`
     await spawnDetached('osascript', [
       '-e',
       'tell application "Terminal" to activate',
@@ -461,28 +488,32 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
   }
 
   if (launcher.type === 'cmd') {
-    const shellCommand = `cd /d ${quoteWindowsArgument(launchDir)} && ${quoteWindowsArgument(commandPath)}`
+    const shellCommand = `cd /d ${quoteWindowsArgument(safeLaunchDir)} && ${quoteWindowsArgument(safeCommandPath)}`
     await spawnDetached('cmd', ['/c', `start "" cmd /k ${quoteWindowsArgument(shellCommand)}`], {
-      cwd: launchDir,
+      cwd: safeLaunchDir,
       env,
     })
     return
   }
 
-  const shellCommand = `cd ${quotePosix(launchDir)} && ${quotePosix(commandPath)}; exec "\${SHELL:-bash}"`
+  const shellCommand = `cd ${quotePosix(safeLaunchDir)} && ${quotePosix(safeCommandPath)}; exec "\${SHELL:-bash}"`
   await spawnDetached(launcher.command, launcher.argsFor(shellCommand), {
-    cwd: launchDir,
+    cwd: safeLaunchDir,
     env,
   })
 }
 
 async function launchWorkspaceTool(toolState, options = {}) {
-  const launchDir = sanitizeLaunchDirectory(options.launchDir)
+  const launchDir = assertShellSafePath(
+    sanitizeLaunchDirectory(options.launchDir),
+    'Launch directory',
+  )
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
 
   if (toolState.executablePath) {
-    await spawnDetached(toolState.executablePath, ['--reuse-window', launchDir], {
+    const safeExecutable = assertShellSafePath(toolState.executablePath, 'Coding tool executable path')
+    await spawnDetached(safeExecutable, ['--reuse-window', launchDir], {
       cwd: launchDir,
       env,
     })
@@ -490,7 +521,8 @@ async function launchWorkspaceTool(toolState, options = {}) {
   }
 
   if (platform === 'darwin' && toolState.appBundlePath) {
-    await spawnDetached('open', ['-a', toolState.appBundlePath, launchDir], {
+    const safeBundlePath = assertShellSafePath(toolState.appBundlePath, 'Coding tool bundle path')
+    await spawnDetached('open', ['-a', safeBundlePath, launchDir], {
       cwd: launchDir,
       env,
     })
@@ -509,9 +541,12 @@ async function runAgenticInit(toolId, options = {}) {
     return { ran: false, stdout: '', stderr: '' }
   }
 
+  const safeAgenticSetupDir = assertShellSafePath(agenticSetupDir, 'Agentic setup directory')
+  const safeToolId = assertShellSafePath(toolId, 'Coding tool id')
+
   const yarnCommand = platform === 'win32' ? 'yarn.cmd' : 'yarn'
-  const result = await spawnCaptured(yarnCommand, ['mercato', 'agentic:init', `--tool=${toolId}`], {
-    cwd: agenticSetupDir,
+  const result = await spawnCaptured(yarnCommand, ['mercato', 'agentic:init', `--tool=${safeToolId}`], {
+    cwd: safeAgenticSetupDir,
     env: {
       ...env,
       FORCE_COLOR: '0',

@@ -6,8 +6,13 @@ import {
   attachLoggedProcessStreams,
   createDevLogSession,
   formatDevLogAnnouncement,
+  noteCommandEnd,
   noteCommandStart,
 } from './dev-log-files.mjs'
+import {
+  isIgnorableFailureLine,
+  isIgnorableTurboLine,
+} from './dev-orchestration-log-policy.mjs'
 import {
   clampPercent,
   connectLineStream,
@@ -195,20 +200,41 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
-const devLogSession = createDevLogSession({
-  logDir: process.env.OM_DEV_LOG_DIR?.trim()
-    ? path.resolve(process.env.OM_DEV_LOG_DIR.trim())
-    : (isMonorepo
-      ? path.join(process.cwd(), 'apps', 'mercato', '.mercato', 'logs')
-      : path.join(process.cwd(), '.mercato', 'logs')),
-  role: isMonorepo ? 'dev-runner' : (setupMode ? 'dev-setup' : 'dev-runner'),
-  runId: process.env.OM_DEV_RUN_ID?.trim(),
-})
-const devRunnerLog = devLogSession.openLog('runner', {
-  argv: args,
-  cwd: process.cwd(),
-  mode: splashMode,
-})
+const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false'
+
+let devLogSessionInstance = null
+let devRunnerLogInstance = null
+
+function getDevLogSession() {
+  if (devLogSessionInstance) return devLogSessionInstance
+  devLogSessionInstance = createDevLogSession({
+    logDir: process.env.OM_DEV_LOG_DIR?.trim()
+      ? path.resolve(process.env.OM_DEV_LOG_DIR.trim())
+      : (isMonorepo
+        ? path.join(process.cwd(), 'apps', 'mercato', '.mercato', 'logs')
+        : path.join(process.cwd(), '.mercato', 'logs')),
+    role: setupMode ? 'dev-setup' : 'dev-runner',
+    runId: process.env.OM_DEV_RUN_ID?.trim(),
+  })
+  return devLogSessionInstance
+}
+
+function getDevRunnerLog() {
+  if (devLogTeeDisabled) return null
+  if (devRunnerLogInstance) return devRunnerLogInstance
+  devRunnerLogInstance = getDevLogSession().openLog('runner', {
+    argv: args,
+    cwd: process.cwd(),
+    mode: splashMode,
+  })
+  return devRunnerLogInstance
+}
+
+function closeDevLogSession() {
+  if (devLogSessionInstance) {
+    devLogSessionInstance.closeAll?.()
+  }
+}
 
 const children = new Set()
 let shuttingDown = false
@@ -284,39 +310,59 @@ function printSplashAccessUrls() {
 }
 
 function printDevLogLocation() {
+  if (devLogTeeDisabled) return
   if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
-  console.log(`📝 Verbose logs ${formatDevLogAnnouncement(devLogSession)}`)
+  console.log(`📝 Verbose logs ${formatDevLogAnnouncement(getDevLogSession())}`)
   process.env.OM_DEV_LOG_ANNOUNCED = '1'
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
-  const mirrorOutput = options.mirrorOutput === true
-  const needsLoggedPipe = mirrorOutput || !!options.logFile
-  const stdio = needsLoggedPipe ? ['inherit', 'pipe', 'pipe'] : (options.stdio ?? 'pipe')
+  const teeRequested = options.mirrorOutput === true
+  const teeActive = teeRequested && !devLogTeeDisabled
+  const logFile = devLogTeeDisabled ? null : (options.logFile ?? null)
+  const needsLoggedPipe = teeActive || logFile != null
+
+  let stdio
+  if (needsLoggedPipe) {
+    stdio = ['inherit', 'pipe', 'pipe']
+  } else if (teeRequested) {
+    // Tee was requested but disabled via OM_DEV_LOG_TEE=0 — preserve original
+    // stdio: 'inherit' so the child keeps direct TTY access (colors, spinners,
+    // line-rewrites). Logs are not captured for this child in that case.
+    stdio = 'inherit'
+  } else {
+    stdio = options.stdio ?? 'pipe'
+  }
+
   const child = spawn(command, commandArgs, {
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
       TURBO_NO_UPDATE_NOTIFIER: '1',
-      ...(mirrorOutput && process.stdout.isTTY && !process.env.FORCE_COLOR ? { FORCE_COLOR: '1' } : {}),
+      ...(teeActive && process.stdout.isTTY && !process.env.FORCE_COLOR ? { FORCE_COLOR: '1' } : {}),
       ...options.env,
     },
     stdio,
   })
 
-  if (options.logFile) {
-    noteCommandStart(options.logFile, options.label ?? command, command, commandArgs)
-    attachLoggedProcessStreams(child, options.logFile, mirrorOutput
+  const label = options.label ?? command
+
+  if (logFile) {
+    noteCommandStart(logFile, label, command, commandArgs)
+    attachLoggedProcessStreams(child, logFile, teeActive
       ? { stdout: process.stdout, stderr: process.stderr }
       : undefined)
-  } else if (mirrorOutput) {
+  } else if (teeActive) {
     attachLoggedProcessStreams(child, null, { stdout: process.stdout, stderr: process.stderr })
   }
 
   children.add(child)
 
-  child.on('close', () => {
+  child.on('close', (code, signal) => {
     children.delete(child)
+    if (logFile) {
+      noteCommandEnd(logFile, label, code, signal)
+    }
   })
 
   child.on('error', (error) => {
@@ -445,12 +491,16 @@ function resolveSplashLocaleConfig() {
 }
 
 function buildSplashChildEnv() {
-  const childEnv = {
-    ...devLogSession.env,
-    OM_DEV_LOG_ANNOUNCED: '1',
-  }
+  const childEnv = devLogTeeDisabled
+    ? {}
+    : {
+        ...getDevLogSession().env,
+        OM_DEV_LOG_ANNOUNCED: '1',
+      }
 
-  if (!splashChildStateFile) return childEnv
+  if (!splashChildStateFile) {
+    return Object.keys(childEnv).length > 0 ? childEnv : undefined
+  }
 
   return {
     ...childEnv,
@@ -642,16 +692,6 @@ function updateSplashState(patch) {
 
 function normalizeCapturedLine(line) {
   return stripAnsi(String(line ?? '')).replace(/\s+$/, '')
-}
-
-function isIgnorableFailureLine(line) {
-  const plain = normalizeCapturedLine(line).trim()
-  if (!plain) return true
-  if (/^[╭│╰]/.test(plain)) return true
-  if (/^◇ injecting env \(\d+\) from \.env\b/i.test(plain)) return true
-  if (/^\[setup\] (Copied \.env\.example to \.env|Keeping existing \.env)$/i.test(plain)) return true
-  if (/^Open Mercato CLI$/i.test(plain)) return true
-  return false
 }
 
 function extractFailureLines(capturedLines, maxLines = 10) {
@@ -926,6 +966,7 @@ function shutdown(exitCode = 0) {
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
+    closeDevLogSession()
     process.exit(exitCode)
     return
   }
@@ -940,6 +981,7 @@ function shutdown(exitCode = 0) {
         child.kill('SIGKILL')
       }
     }
+    closeDevLogSession()
     process.exit(exitCode)
   }, 3000)
 }
@@ -976,7 +1018,7 @@ function resolveChildExitCode(result, fallback = 1) {
 async function runRawYarnCommand(commandArgs) {
   const child = spawnCommand(yarnCommand, commandArgs, {
     label: commandArgs.join(' '),
-    logFile: devRunnerLog,
+    logFile: getDevRunnerLog(),
     mirrorOutput: true,
   })
   const result = await waitForClose(child)
@@ -992,22 +1034,6 @@ async function runRawYarnCommand(commandArgs) {
 
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
-
-function isIgnorableTurboLine(line) {
-  const plain = stripAnsi(line).trim()
-  if (plain.length === 0) return true
-  if (plain.startsWith('• turbo ')) return true
-  if (plain.startsWith('• Packages in scope:')) return true
-  if (plain.startsWith('• Running build in ')) return true
-  if (plain.startsWith('• Running watch in ')) return true
-  if (plain.startsWith('• Remote caching disabled')) return true
-  if (plain.startsWith('Tasks:')) return true
-  if (plain.startsWith('Cached:')) return true
-  if (plain.startsWith('Time:')) return true
-  if (/^[╭│╰]/.test(plain)) return true
-  if (plain === '^C    ...Finishing writing to cache...') return true
-  return false
-}
 
 function isWorkspacePackageBuildCommand(commandArgs) {
   return Array.isArray(commandArgs)
@@ -1165,7 +1191,7 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
 
   const child = spawnCommand(yarnCommand, withTurboFullLogs(commandArgs), {
     label,
-    logFile: devRunnerLog,
+    logFile: getDevRunnerLog(),
   })
   const capturedLines = []
   const completedPackages = new Set()
@@ -1276,7 +1302,7 @@ async function runStage(label, commandArgs, options = {}) {
   if (verbose) {
     const child = spawnCommand(yarnCommand, commandArgs, {
       label,
-      logFile: devRunnerLog,
+      logFile: getDevRunnerLog(),
       mirrorOutput: true,
     })
     const result = await waitForClose(child)
@@ -1293,7 +1319,7 @@ async function runStage(label, commandArgs, options = {}) {
 
   const child = spawnCommand(yarnCommand, commandArgs, {
     label,
-    logFile: devRunnerLog,
+    logFile: getDevRunnerLog(),
   })
   const capturedLines = []
   const capture = (line) => {
@@ -1360,7 +1386,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   if (verbose) {
     const child = spawnCommand(yarnCommand, commandArgs, {
       label,
-      logFile: devRunnerLog,
+      logFile: getDevRunnerLog(),
       mirrorOutput: true,
     })
     const result = await waitForClose(child)
@@ -1375,7 +1401,7 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   } else {
     const child = spawnCommand(yarnCommand, commandArgs, {
       label,
-      logFile: devRunnerLog,
+      logFile: getDevRunnerLog(),
     })
     const capturedLines = []
     const capture = (line) => {
@@ -1419,7 +1445,7 @@ function startPackageWatch() {
   if (classic) {
     const child = spawnCommand(yarnCommand, ['watch:packages'], {
       label: 'watch:packages',
-      logFile: devRunnerLog,
+      logFile: getDevRunnerLog(),
       mirrorOutput: true,
     })
 
@@ -1463,7 +1489,7 @@ function startPackageWatch() {
     '--log-prefix=none',
   ], {
     label: 'Watching workspace packages',
-    logFile: devRunnerLog,
+    logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
   })
 

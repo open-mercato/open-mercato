@@ -100,10 +100,6 @@ function trimOutput(value) {
   return String(value ?? '').trim()
 }
 
-function buildGitHubRepoUrl(owner, repoName) {
-  return `https://github.com/${owner}/${repoName}`
-}
-
 function describeCommandFailure(command, args, result, fallbackMessage) {
   const detail = [trimOutput(result?.stderr), trimOutput(result?.stdout)].filter(Boolean)[0]
   if (detail) return detail
@@ -575,7 +571,7 @@ export async function runGitRepoPublishAction(options = {}) {
     }
   }
 
-  const repoUrl = buildGitHubRepoUrl(owner, repoName)
+  const repoUrl = `https://github.com/${owner}/${repoName}`
   return {
     repoUrl,
     repoState: 'github_remote',
@@ -610,14 +606,14 @@ export function createDevSplashGitRepoFlow(options = {}) {
     if (flowState.actionState === 'done' || flowState.actionState === 'error') {
       return flowState.message
     }
-      return buildFlowMessage({
-        platform,
-        repoState: flowState.lastDetected?.repoState,
-        repoUrl: flowState.repoUrl ?? flowState.lastDetected?.repoUrl,
-        remoteRepoExists: flowState.remoteRepoExists,
-        ghStatus: flowState.lastDetected?.ghStatus,
-        authStatus: flowState.lastDetected?.authStatus,
-      })
+    return buildFlowMessage({
+      platform,
+      repoState: flowState.lastDetected?.repoState,
+      repoUrl: flowState.repoUrl ?? flowState.lastDetected?.repoUrl,
+      remoteRepoExists: flowState.remoteRepoExists,
+      ghStatus: flowState.lastDetected?.ghStatus,
+      authStatus: flowState.lastDetected?.authStatus,
+    })
   }
 
   async function getSnapshot(extraState = {}) {

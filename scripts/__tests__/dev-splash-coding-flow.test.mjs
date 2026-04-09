@@ -5,8 +5,11 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
+  assertShellSafePath,
   detectSplashCodingTools,
   isCodingFlowEnabled,
+  isShellSafePathString,
+  sanitizeLaunchDirectory,
 } from '../dev-splash-coding-flow.mjs'
 
 function makeTempDir(prefix) {
@@ -145,6 +148,86 @@ test('detectSplashCodingTools finds Linux fallback binaries outside PATH', () =>
 
     assert.ok(claude)
     assert.equal(claude.executablePath, claudePath)
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
+})
+
+test('isShellSafePathString rejects non-strings, empty strings, and control characters', () => {
+  // Valid shell-safe paths
+  assert.equal(isShellSafePathString('/Users/dev/projects/my-app'), true)
+  assert.equal(isShellSafePathString('C:\\Users\\dev\\my app'), true)
+  assert.equal(isShellSafePathString('relative/path/with spaces and-dashes_and.dots'), true)
+  assert.equal(isShellSafePathString("/path/with'single-quote"), true)
+  assert.equal(isShellSafePathString('/path/with"double-quote'), true)
+  assert.equal(isShellSafePathString('/path/with$variable'), true)
+  // Non-strings
+  assert.equal(isShellSafePathString(undefined), false)
+  assert.equal(isShellSafePathString(null), false)
+  assert.equal(isShellSafePathString(42), false)
+  assert.equal(isShellSafePathString({}), false)
+  // Empty strings
+  assert.equal(isShellSafePathString(''), false)
+  // Control characters and NUL bytes
+  assert.equal(isShellSafePathString('/path/with\x00nul'), false)
+  assert.equal(isShellSafePathString('/path/with\nnewline'), false)
+  assert.equal(isShellSafePathString('/path/with\rreturn'), false)
+  assert.equal(isShellSafePathString('/path/with\ttab'), false)
+  assert.equal(isShellSafePathString('/path/with\x1bescape'), false)
+  assert.equal(isShellSafePathString('/path/with\x7fdelete'), false)
+})
+
+test('assertShellSafePath returns the value on success and throws with the label on failure', () => {
+  assert.equal(assertShellSafePath('/safe/path', 'Launch directory'), '/safe/path')
+
+  assert.throws(
+    () => assertShellSafePath('/path/with\x00nul', 'Launch directory'),
+    /Launch directory contains invalid or unsafe characters\./,
+  )
+
+  assert.throws(
+    () => assertShellSafePath(undefined, 'Coding tool executable path'),
+    /Coding tool executable path contains invalid or unsafe characters\./,
+  )
+
+  assert.throws(
+    () => assertShellSafePath('', 'Agentic setup directory'),
+    /Agentic setup directory contains invalid or unsafe characters\./,
+  )
+
+  assert.throws(
+    () => assertShellSafePath(42, 'Coding tool id'),
+    /Coding tool id contains invalid or unsafe characters\./,
+  )
+})
+
+test('sanitizeLaunchDirectory falls back to cwd for invalid input but accepts safe directories', () => {
+  const tempDir = makeTempDir('dev-splash-sanitize-')
+  try {
+    // Valid directory passes through (resolved to absolute)
+    const resolved = sanitizeLaunchDirectory(tempDir)
+    assert.equal(resolved, path.resolve(tempDir))
+
+    // Non-strings fall back to cwd
+    assert.equal(sanitizeLaunchDirectory(undefined), process.cwd())
+    assert.equal(sanitizeLaunchDirectory(null), process.cwd())
+    assert.equal(sanitizeLaunchDirectory(42), process.cwd())
+
+    // Empty / whitespace strings fall back to cwd
+    assert.equal(sanitizeLaunchDirectory(''), process.cwd())
+    assert.equal(sanitizeLaunchDirectory('   '), process.cwd())
+
+    // Control-character poisoned strings fall back to cwd (not throw)
+    assert.equal(sanitizeLaunchDirectory('/tmp/with\x00nul'), process.cwd())
+    assert.equal(sanitizeLaunchDirectory('/tmp/with\nnewline'), process.cwd())
+
+    // Non-existent paths fall back to cwd
+    assert.equal(sanitizeLaunchDirectory(path.join(tempDir, 'does-not-exist')), process.cwd())
+
+    // Files (not directories) fall back to cwd
+    const filePath = path.join(tempDir, 'file.txt')
+    fs.writeFileSync(filePath, 'data')
+    assert.equal(sanitizeLaunchDirectory(filePath), process.cwd())
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true })
   }
