@@ -34,6 +34,7 @@ import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
+import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import crypto from 'node:crypto'
 
 type SerializedUser = {
@@ -159,7 +160,9 @@ async function notifyRoleChanges(
   }
 }
 
-const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
+type CreateUserResult = { user: User; warning?: 'invite_email_failed' }
+
+const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResult> = {
   id: 'auth.users.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
@@ -221,7 +224,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     let inviteEmailSent = false
     if (parsed.sendInviteEmail) {
-      const inviteResult = await sendInviteToUser(em, user, ctx)
+      const inviteResult = await sendInviteToUser(em, user)
       inviteEmailSent = inviteResult.emailSent
     }
 
@@ -242,39 +245,37 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       await notifyRoleChanges(ctx, user, assignedRoles, [])
     }
 
-    if (parsed.sendInviteEmail && !inviteEmailSent) {
-      (user as any)._warning = 'invite_email_failed'
-    }
+    const warning = (parsed.sendInviteEmail && !inviteEmailSent) ? 'invite_email_failed' as const : undefined
 
-    return user
+    return { user, warning }
   },
-  captureAfter: async (_input, result, ctx) => {
+  captureAfter: async (_input, { user }, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const roles = await loadUserRoleNames(em, String(result.id))
+    const roles = await loadUserRoleNames(em, String(user.id))
     const custom = await loadUserCustomSnapshot(
       em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null,
-      result.organizationId ? String(result.organizationId) : null
+      String(user.id),
+      user.tenantId ? String(user.tenantId) : null,
+      user.organizationId ? String(user.organizationId) : null
     )
-    return serializeUser(result, roles, custom)
+    return serializeUser(user, roles, custom)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result: { user }, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const roles = await loadUserRoleNames(em, String(result.id))
+    const roles = await loadUserRoleNames(em, String(user.id))
     const custom = await loadUserCustomSnapshot(
       em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null,
-      result.organizationId ? String(result.organizationId) : null
+      String(user.id),
+      user.tenantId ? String(user.tenantId) : null,
+      user.organizationId ? String(user.organizationId) : null
     )
-    const snapshot = captureUserSnapshots(result, roles, undefined, custom)
+    const snapshot = captureUserSnapshots(user, roles, undefined, custom)
     return {
       actionLabel: translate('auth.audit.users.create', 'Create user'),
       resourceKind: 'auth.user',
-      resourceId: String(result.id),
-      tenantId: result.tenantId ? String(result.tenantId) : null,
+      resourceId: String(user.id),
+      tenantId: user.tenantId ? String(user.tenantId) : null,
       snapshotAfter: snapshot.view,
       payload: {
         undo: {
@@ -334,14 +335,13 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
 async function sendInviteToUser(
   em: EntityManager,
   user: User,
-  ctx: CommandRuntimeContext,
 ): Promise<{ emailSent: boolean }> {
   const token = crypto.randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
-  const row = em.create(PasswordReset as any, { user, token, expiresAt, createdAt: new Date() } as any)
+  const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
+  const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
-  const base = process.env.APP_URL || 'http://localhost:3000'
+  const base = resolveInviteBaseUrl()
   const inviteUrl = `${base}/reset/${token}`
 
   const { translate } = await resolveTranslations()

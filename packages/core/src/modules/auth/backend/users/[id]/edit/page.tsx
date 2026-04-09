@@ -12,6 +12,7 @@ import { TenantSelect } from '@open-mercato/core/modules/directory/components/Te
 import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/roleOptions'
 import { WidgetVisibilityEditor, type WidgetVisibilityEditorHandle } from '@open-mercato/core/modules/dashboards/components/WidgetVisibilityEditor'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/UserConsentsPanel'
@@ -119,7 +120,30 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
   const [resendingInvite, setResendingInvite] = React.useState(false)
-  const [inviteFlash, setInviteFlash] = React.useState<string | null>(null)
+
+  const handleResendInvite = React.useCallback(async () => {
+    if (!id) return
+    setResendingInvite(true)
+    try {
+      const { ok, result } = await apiCall<{ ok?: boolean; warning?: string }>('/api/auth/users/resend-invite', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      if (ok) {
+        if (result?.warning === 'invite_email_failed') {
+          flash(tRef.current('auth.users.flash.inviteEmailFailed', 'Invite token created but the email could not be sent. Please check your email provider configuration.'), 'warning')
+        } else {
+          flash(tRef.current('auth.users.flash.inviteSent', 'Invitation email sent'), 'success')
+        }
+      }
+    } catch (err) {
+      console.error('Failed to resend invite:', err)
+      flash(tRef.current('auth.users.form.errors.inviteResend', 'Failed to send invitation email'), 'error')
+    } finally {
+      setResendingInvite(false)
+    }
+  }, [id])
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(
     () => formatPasswordRequirements(passwordPolicy, t),
@@ -236,9 +260,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           ? t('auth.users.form.field.newPassword', 'New Password')
           : t('auth.users.form.field.setPassword', 'Set Password'),
         type: 'password' as const,
-        description: userHasPassword
-          ? t('auth.users.form.field.passwordChangeHint', 'Leave blank to keep current password')
-          : t('auth.users.form.field.passwordInviteHint', 'Optionally set a password for this user (they were invited via email)'),
+        description: [
+          userHasPassword
+            ? t('auth.users.form.field.passwordChangeHint', 'Leave blank to keep current password')
+            : t('auth.users.form.field.passwordInviteHint', 'Optionally set a password for this user (they were invited via email)'),
+          passwordDescription,
+        ].filter(Boolean).join('. '),
       },
     ]
     if (actorIsSuperAdmin) {
@@ -373,11 +400,6 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
             {error}
           </div>
         )}
-        {inviteFlash && (
-          <div className="p-4 mb-4 bg-green-50 border border-green-200 rounded text-green-800 text-sm">
-            {inviteFlash}
-          </div>
-        )}
         <CrudForm<EditUserFormValues>
           title={t('auth.users.form.title.edit', 'Edit User')}
           backHref="/backend/users"
@@ -390,34 +412,12 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           loadingMessage={t('auth.users.form.loading', 'Loading user data...')}
           submitLabel={t('auth.users.form.action.save', 'Save')}
           cancelHref="/backend/users"
-          extraActions={id ? (
+          extraActions={id && !userHasPassword ? (
             <Button
               type="button"
               variant="outline"
               disabled={resendingInvite}
-              onClick={async () => {
-                setResendingInvite(true)
-                setInviteFlash(null)
-                try {
-                  const { ok, result } = await apiCall<{ ok?: boolean; warning?: string }>('/api/auth/users/resend-invite', {
-                    method: 'POST',
-                    headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify({ id }),
-                  })
-                  if (ok) {
-                    if (result?.warning === 'invite_email_failed') {
-                      setInviteFlash(t('auth.users.flash.inviteEmailFailed', 'Invite token created but the email could not be sent. Please check your email provider configuration.'))
-                    } else {
-                      setInviteFlash(t('auth.users.flash.inviteSent', 'Invitation email sent'))
-                    }
-                  }
-                } catch (err) {
-                  console.error('Failed to resend invite:', err)
-                  setInviteFlash(t('auth.users.form.errors.inviteResend', 'Failed to send invitation email'))
-                } finally {
-                  setResendingInvite(false)
-                }
-              }}
+              onClick={handleResendInvite}
             >
               {resendingInvite
                 ? t('auth.users.form.action.resendingInvite', 'Sending...')

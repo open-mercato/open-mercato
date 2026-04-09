@@ -104,8 +104,8 @@ const crud = makeCrudRoute<CrudInput, CrudInput, Record<string, unknown>>({
         return parsed
       },
       response: ({ result }) => ({
-        id: String(result.id),
-        ...((result as any)._warning ? { _warning: (result as any)._warning } : {}),
+        id: String(result.user.id),
+        ...(result.warning ? { _warning: result.warning } : {}),
       }),
       status: 201,
     },

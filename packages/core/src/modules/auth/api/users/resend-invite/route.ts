@@ -11,6 +11,8 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 
@@ -28,6 +30,11 @@ const responseSchema = z.object({
 
 const errorSchema = z.object({
   error: z.string(),
+})
+
+const validationErrorSchema = z.object({
+  error: z.string(),
+  fieldErrors: z.record(z.string(), z.array(z.string())).optional(),
 })
 
 export const metadata = {
@@ -56,16 +63,61 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
 
-  const user = await em.findOne(User, { id: parsed.data.id, deletedAt: null })
+  let isSuperAdmin = false
+  try {
+    if (auth.sub) {
+      const rbacService = container.resolve('rbacService') as {
+        loadAcl: (userId: string, scope: { tenantId: string | null; organizationId: string | null }) => Promise<{ isSuperAdmin?: boolean } | null>
+      }
+      const acl = await rbacService.loadAcl(auth.sub, {
+        tenantId: auth.tenantId ?? null,
+        organizationId: auth.orgId ?? null,
+      })
+      isSuperAdmin = !!acl?.isSuperAdmin
+    }
+  } catch (err) {
+    console.error('[auth.users.resend-invite] Failed to resolve rbac:', err)
+  }
+
+  const where: Record<string, unknown> = { id: parsed.data.id, deletedAt: null }
+  if (!isSuperAdmin) {
+    if (!auth.tenantId) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    where.tenantId = auth.tenantId
+  }
+
+  const user = await em.findOne(User, where as any)
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
+  if (user.passwordHash) {
+    return NextResponse.json({ error: 'User already has a password' }, { status: 409 })
+  }
+
+  const guardResult = await validateCrudMutationGuard(container, {
+    tenantId: user.tenantId ? String(user.tenantId) : auth.tenantId ?? '',
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+    userId: auth.sub ?? '',
+    resourceKind: 'auth.user',
+    resourceId: String(user.id),
+    operation: 'custom',
+    requestMethod: 'POST',
+    requestHeaders: req.headers,
+  })
+  if (guardResult && !guardResult.ok) {
+    return NextResponse.json(guardResult.body, { status: guardResult.status })
+  }
+
+  await em.nativeUpdate(
+    PasswordReset,
+    { user: user.id, usedAt: null } as any,
+    { usedAt: new Date() },
+  )
+
   const token = crypto.randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000)
-  const row = em.create(PasswordReset as any, { user, token, expiresAt, createdAt: new Date() } as any)
+  const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
+  const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
-  const url = new URL(req.url)
-  const base = process.env.APP_URL || `${url.protocol}//${url.host}`
+  const base = resolveInviteBaseUrl(req.url)
   const inviteUrl = `${base}/reset/${token}`
 
   const { translate } = await resolveTranslations()
@@ -86,6 +138,20 @@ export async function POST(req: Request) {
     emailSent = false
   }
 
+  if (guardResult?.shouldRunAfterSuccess) {
+    await runCrudMutationGuardAfterSuccess(container, {
+      tenantId: user.tenantId ? String(user.tenantId) : auth.tenantId ?? '',
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+      userId: auth.sub ?? '',
+      resourceKind: 'auth.user',
+      resourceId: String(user.id),
+      operation: 'custom',
+      requestMethod: 'POST',
+      requestHeaders: req.headers,
+      metadata: guardResult.metadata,
+    })
+  }
+
   if (!emailSent) {
     return NextResponse.json({ ok: true, warning: 'invite_email_failed' })
   }
@@ -99,7 +165,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Resend invitation email',
-      description: 'Resends the invitation email to a user who has not yet set up their password. Generates a new 48-hour setup token.',
+      description: 'Resends the invitation email to a user who has not yet set up their password. Generates a new 48-hour setup token and invalidates prior tokens.',
       requestBody: {
         contentType: 'application/json',
         schema: requestSchema,
@@ -109,7 +175,8 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 404, description: 'User not found', schema: errorSchema },
-        { status: 422, description: 'Validation error', schema: errorSchema },
+        { status: 409, description: 'User already has a password', schema: errorSchema },
+        { status: 422, description: 'Validation error', schema: validationErrorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: rateLimitErrorSchema },
       ],
     },
