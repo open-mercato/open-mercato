@@ -409,7 +409,7 @@ async function findExistingGitHubRepository(options = {}) {
     }
   } catch {}
 
-  return buildGitHubRepoUrl(owner, repoName)
+  return null
 }
 
 function isGitHubRepositoryAlreadyExistsError(error) {
