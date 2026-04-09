@@ -420,8 +420,22 @@ function resolveTerminalLauncher(env, platform) {
   return null
 }
 
+function normalizeAndValidateLaunchDir(inputDir) {
+  if (typeof inputDir !== 'string' || inputDir.trim().length === 0) {
+    throw new Error('A valid launch directory is required.')
+  }
+
+  const resolvedDir = path.resolve(inputDir)
+  if (/[\u0000-\u001f\u007f]/.test(resolvedDir)) {
+    throw new Error('Launch directory contains invalid control characters.')
+  }
+
+  return resolvedDir
+}
+
 async function launchInteractiveTerminal(commandPath, options = {}) {
-  const launchDir = options.launchDir ?? process.cwd()
+  const launchDir = normalizeAndValidateLaunchDir(options.launchDir ?? process.cwd())
+  const normalizedCommandPath = path.resolve(commandPath)
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
   const launcher = resolveTerminalLauncher(env, platform)
@@ -431,7 +445,7 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
   }
 
   if (launcher.type === 'osascript') {
-    const shellCommand = `cd ${quotePosix(launchDir)} && ${quotePosix(commandPath)}`
+    const shellCommand = `cd ${quotePosix(launchDir)} && ${quotePosix(normalizedCommandPath)}`
     await spawnDetached('osascript', [
       '-e',
       'tell application "Terminal" to activate',
@@ -442,7 +456,7 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
   }
 
   if (launcher.type === 'cmd') {
-    const shellCommand = `cd /d ${quoteWindowsArgument(launchDir)} && ${quoteWindowsArgument(commandPath)}`
+    const shellCommand = `cd /d ${quoteWindowsArgument(launchDir)} && ${quoteWindowsArgument(normalizedCommandPath)}`
     await spawnDetached('cmd', ['/c', `start "" cmd /k ${quoteWindowsArgument(shellCommand)}`], {
       cwd: launchDir,
       env,
@@ -450,7 +464,7 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
     return
   }
 
-  const shellCommand = `cd ${quotePosix(launchDir)} && ${quotePosix(commandPath)}; exec "\${SHELL:-bash}"`
+  const shellCommand = `cd ${quotePosix(launchDir)} && ${quotePosix(normalizedCommandPath)}; exec "\${SHELL:-bash}"`
   await spawnDetached(launcher.command, launcher.argsFor(shellCommand), {
     cwd: launchDir,
     env,
@@ -458,7 +472,7 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
 }
 
 async function launchWorkspaceTool(toolState, options = {}) {
-  const launchDir = options.launchDir ?? process.cwd()
+  const launchDir = normalizeAndValidateLaunchDir(options.launchDir ?? process.cwd())
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
 
@@ -529,7 +543,7 @@ function buildSuccessMessage(toolState, setupApplied) {
 export function createDevSplashCodingFlow(options = {}) {
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
-  const launchDir = options.launchDir ?? process.cwd()
+  const launchDir = normalizeAndValidateLaunchDir(options.launchDir ?? process.cwd())
   const agenticSetupDir = options.agenticSetupDir ?? null
   const enabled = isCodingFlowEnabled(env.OM_ENABLE_CODING_FLOW_FROM_SPLASH)
   const actionToken = enabled ? randomUUID() : null
