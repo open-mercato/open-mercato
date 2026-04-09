@@ -302,6 +302,25 @@ function writeJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload))
 }
 
+function sanitizeLaunchDirectory(value) {
+  const fallback = process.cwd()
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return fallback
+  }
+
+  const resolved = path.resolve(value)
+  try {
+    const stat = fs.statSync(resolved)
+    if (!stat.isDirectory()) {
+      return fallback
+    }
+  } catch {
+    return fallback
+  }
+
+  return resolved
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = ''
@@ -458,7 +477,7 @@ async function launchInteractiveTerminal(commandPath, options = {}) {
 }
 
 async function launchWorkspaceTool(toolState, options = {}) {
-  const launchDir = options.launchDir ?? process.cwd()
+  const launchDir = sanitizeLaunchDirectory(options.launchDir)
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
 
@@ -529,7 +548,7 @@ function buildSuccessMessage(toolState, setupApplied) {
 export function createDevSplashCodingFlow(options = {}) {
   const env = options.env ?? process.env
   const platform = options.platform ?? process.platform
-  const launchDir = options.launchDir ?? process.cwd()
+  const launchDir = sanitizeLaunchDirectory(options.launchDir)
   const agenticSetupDir = options.agenticSetupDir ?? null
   const enabled = isCodingFlowEnabled(env.OM_ENABLE_CODING_FLOW_FROM_SPLASH)
   const actionToken = enabled ? randomUUID() : null
