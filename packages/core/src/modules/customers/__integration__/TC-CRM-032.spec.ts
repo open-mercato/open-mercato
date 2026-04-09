@@ -3,11 +3,15 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 
 /**
  * TC-CRM-032: DataTable Column Chooser
- * Verifies that the column chooser panel opens, allows toggling column visibility,
- * and the table reflects the changes.
+ * Verifies that the Views sidebar (which embeds the column chooser) opens,
+ * allows toggling column visibility, and the table reflects the changes.
+ *
+ * Updated for T-FE-02 / SPEC-070: the standalone "Choose columns" toolbar
+ * button was removed and the column chooser is now hosted inside the
+ * Views sidebar opened from the ViewSwitcherDropdown.
  */
 test.describe('TC-CRM-032: DataTable Column Chooser', () => {
-  test('should toggle column visibility via column chooser on people page', async ({ page }) => {
+  test('should toggle column visibility via Views sidebar on people page', async ({ page }) => {
     test.slow();
 
     await login(page, 'admin');
@@ -17,30 +21,53 @@ test.describe('TC-CRM-032: DataTable Column Chooser', () => {
     const emailHeader = page.locator('thead button', { hasText: 'Email' }).first();
     await expect(emailHeader).toBeVisible();
 
-    const columnChooserButton = page.getByRole('button', { name: 'Choose columns' });
-    await expect(columnChooserButton).toBeVisible();
-    await columnChooserButton.click();
+    // Open Views sidebar via the toolbar button. The sidebar back button has
+    // aria-label "Close", so name="Views" matches only the toolbar trigger.
+    const viewsToolbarButton = page.getByRole('button', { name: 'Views', exact: true });
+    await expect(viewsToolbarButton).toBeVisible();
+    await viewsToolbarButton.click();
 
-    const panelTitle = page.getByRole('heading', { name: 'Columns' });
-    await expect(panelTitle).toBeVisible();
+    const sidebarBackButton = page.getByRole('button', { name: 'Close', exact: true });
+    await expect(sidebarBackButton).toBeVisible();
 
-    // Email is in "Selected columns" section — find its checkbox (role=checkbox sibling of "Email" span)
-    const emailItem = page.locator('div').filter({ hasText: /^Email$/ }).locator('button[role="checkbox"]').first();
-    await expect(emailItem).toBeVisible();
-    await emailItem.click();
+    // Email is in the "Shown" section. Each row contains a label span with the
+    // column name and a Switch (role="switch"). Filter the row by exact text
+    // and the presence of a switch to avoid matching unrelated DOM nodes.
+    const emailShownRow = page
+      .locator('div')
+      .filter({ hasText: /^Email$/ })
+      .filter({ has: page.locator('[role="switch"]') })
+      .first();
+    const emailShownSwitch = emailShownRow.getByRole('switch');
+    await expect(emailShownSwitch).toBeVisible();
+    await expect(emailShownSwitch).toHaveAttribute('aria-checked', 'true');
+    await emailShownSwitch.click();
 
-    const closeButton = page.getByRole('button', { name: 'Close' });
-    await closeButton.click();
-
+    // Close sidebar to verify the table reflects the change.
+    await sidebarBackButton.click();
+    await expect(sidebarBackButton).not.toBeVisible();
     await expect(emailHeader).not.toBeVisible();
 
-    // Re-enable: Email is now in "Available columns" section as a label with checkbox
-    await columnChooserButton.click();
-    await expect(panelTitle).toBeVisible();
-    const emailAvailable = page.locator('label').filter({ hasText: 'Email' }).locator('button[role="checkbox"]').first();
-    await expect(emailAvailable).toBeVisible();
-    await emailAvailable.click();
-    await page.getByRole('button', { name: 'Close' }).click();
+    // Re-open the sidebar and re-enable Email from the "Available" section.
+    await viewsToolbarButton.click();
+    await expect(sidebarBackButton).toBeVisible();
+
+    // Available columns are grouped and collapsed by default; typing in the
+    // search input filters and auto-expands matching groups.
+    const searchInput = page.getByPlaceholder('Search columns...');
+    await searchInput.fill('Email');
+
+    const emailAvailableRow = page
+      .locator('div')
+      .filter({ hasText: /^Email$/ })
+      .filter({ has: page.locator('[role="switch"]') })
+      .first();
+    const emailAvailableSwitch = emailAvailableRow.getByRole('switch');
+    await expect(emailAvailableSwitch).toBeVisible();
+    await expect(emailAvailableSwitch).toHaveAttribute('aria-checked', 'false');
+    await emailAvailableSwitch.click();
+
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
 
     await expect(page.locator('thead button', { hasText: 'Email' }).first()).toBeVisible();
   });
