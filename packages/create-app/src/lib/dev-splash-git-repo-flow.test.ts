@@ -249,3 +249,124 @@ test('publishes an existing local-only repository without reinitializing git or 
     rmSync(targetDir, { recursive: true, force: true })
   }
 })
+
+test('opens an existing GitHub repository instead of trying to create it again', async () => {
+  const targetDir = makeTempDir('create-app-git-flow-existing-remote-')
+  const binDir = join(targetDir, 'bin')
+  const commands: string[] = []
+
+  try {
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(join(binDir, 'gh'), '#!/bin/sh\n')
+    writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ name: 'demo-store' }))
+
+    const result = await runGitRepoPublishAction({
+      launchDir: targetDir,
+      env: { PATH: binDir },
+      platform: 'darwin',
+      runCommand: async (command: string, args: string[]) => {
+        commands.push([command, ...args].join(' '))
+        if (args.join(' ') === 'auth status --active --hostname github.com') {
+          return { code: 0, signal: null, stdout: '', stderr: '' }
+        }
+        if (command === 'git' && args.join(' ') === 'remote get-url origin') {
+          return { code: 2, signal: null, stdout: '', stderr: 'no remote' }
+        }
+        if (command === 'git' && args.join(' ') === 'rev-parse --verify HEAD') {
+          return { code: 128, signal: null, stdout: '', stderr: 'missing head' }
+        }
+        if (args[0] === 'api' && args[1] === '/user') {
+          return { code: 0, signal: null, stdout: JSON.stringify({ login: 'pkarw' }), stderr: '' }
+        }
+        if (args[0] === 'api' && args[1] === '/user/orgs') {
+          return { code: 0, signal: null, stdout: '[]', stderr: '' }
+        }
+        if (args[0] === 'repo' && args[1] === 'view') {
+          return {
+            code: 0,
+            signal: null,
+            stdout: JSON.stringify({ url: 'https://github.com/pkarw/demo-store' }),
+            stderr: '',
+          }
+        }
+        assert.fail(`Unexpected command: ${[command, ...args].join(' ')}`)
+      },
+    })
+
+    assert.equal(result.repoUrl, 'https://github.com/pkarw/demo-store')
+    assert.equal(result.remoteRepoExists, true)
+    assert.equal(result.message, 'This GitHub repository already exists. Open it below.')
+    assert.equal(commands.some((entry) => entry.includes('gh repo create pkarw/demo-store')), false)
+    assert.equal(commands.includes('git init -b main'), false)
+    assert.equal(commands.includes('git add -A'), false)
+    assert.equal(commands.includes('git commit -m Initial commit'), false)
+  } finally {
+    rmSync(targetDir, { recursive: true, force: true })
+  }
+})
+
+test('falls back to opening an existing GitHub repository when create reports a duplicate name', async () => {
+  const targetDir = makeTempDir('create-app-git-flow-duplicate-create-')
+  const binDir = join(targetDir, 'bin')
+  const commands: string[] = []
+  let repoViewCallCount = 0
+
+  try {
+    mkdirSync(join(targetDir, '.git'), { recursive: true })
+    mkdirSync(binDir, { recursive: true })
+    writeFileSync(join(binDir, 'gh'), '#!/bin/sh\n')
+    writeFileSync(join(targetDir, 'package.json'), JSON.stringify({ name: 'demo-store' }))
+
+    const result = await runGitRepoPublishAction({
+      launchDir: targetDir,
+      env: { PATH: binDir },
+      platform: 'darwin',
+      runCommand: async (command: string, args: string[]) => {
+        commands.push([command, ...args].join(' '))
+        if (args.join(' ') === 'auth status --active --hostname github.com') {
+          return { code: 0, signal: null, stdout: '', stderr: '' }
+        }
+        if (command === 'git' && args.join(' ') === 'remote get-url origin') {
+          return { code: 2, signal: null, stdout: '', stderr: 'no remote' }
+        }
+        if (command === 'git' && args.join(' ') === 'rev-parse --verify HEAD') {
+          return { code: 0, signal: null, stdout: 'abc123\n', stderr: '' }
+        }
+        if (args[0] === 'api' && args[1] === '/user') {
+          return { code: 0, signal: null, stdout: JSON.stringify({ login: 'pkarw' }), stderr: '' }
+        }
+        if (args[0] === 'api' && args[1] === '/user/orgs') {
+          return { code: 0, signal: null, stdout: '[]', stderr: '' }
+        }
+        if (args[0] === 'repo' && args[1] === 'view') {
+          repoViewCallCount += 1
+          if (repoViewCallCount === 1) {
+            return { code: 1, signal: null, stdout: '', stderr: 'not found' }
+          }
+          return {
+            code: 0,
+            signal: null,
+            stdout: JSON.stringify({ url: 'https://github.com/pkarw/demo-store' }),
+            stderr: '',
+          }
+        }
+        if (args[0] === 'repo' && args[1] === 'create') {
+          return {
+            code: 1,
+            signal: null,
+            stdout: '',
+            stderr: 'GraphQL: Name already exists on this account (createRepository)',
+          }
+        }
+        assert.fail(`Unexpected command: ${[command, ...args].join(' ')}`)
+      },
+    })
+
+    assert.equal(result.repoUrl, 'https://github.com/pkarw/demo-store')
+    assert.equal(result.remoteRepoExists, true)
+    assert.equal(repoViewCallCount, 2)
+    assert.equal(commands.some((entry) => entry.includes('gh repo create pkarw/demo-store --private --source . --remote origin --push')), true)
+  } finally {
+    rmSync(targetDir, { recursive: true, force: true })
+  }
+})

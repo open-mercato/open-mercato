@@ -100,6 +100,10 @@ function trimOutput(value) {
   return String(value ?? '').trim()
 }
 
+function buildGitHubRepoUrl(owner, repoName) {
+  return `https://github.com/${owner}/${repoName}`
+}
+
 function describeCommandFailure(command, args, result, fallbackMessage) {
   const detail = [trimOutput(result?.stderr), trimOutput(result?.stdout)].filter(Boolean)[0]
   if (detail) return detail
@@ -327,6 +331,9 @@ function buildFlowMessage(input = {}) {
   if (input.ghStatus === 'missing' && input.repoState !== 'github_remote' && input.repoState !== 'other_remote') {
     return buildGhInstallMessage(input.platform)
   }
+  if (input.remoteRepoExists === true && input.repoUrl) {
+    return 'This GitHub repository already exists. Open it below.'
+  }
   if (input.repoState === 'github_remote' && input.repoUrl) {
     return 'This project is already connected to GitHub.'
   }
@@ -376,6 +383,43 @@ async function runChecked(command, args, options = {}) {
   throw new Error(describeCommandFailure(command, args, result, options.failureMessage || 'Command failed.'))
 }
 
+async function findExistingGitHubRepository(options = {}) {
+  const ghPath = options.ghPath
+  const owner = trimOutput(options.owner)
+  const repoName = trimOutput(options.repoName)
+
+  if (!ghPath || !owner || !repoName) {
+    return null
+  }
+
+  const runCommand = options.runCommand ?? defaultRunCommand
+  const result = await runCommand(ghPath, ['repo', 'view', `${owner}/${repoName}`, '--json', 'url'], {
+    cwd: options.cwd ?? process.cwd(),
+    env: options.env ?? process.env,
+  })
+
+  if (result.code !== 0) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(result.stdout)
+    if (typeof parsed?.url === 'string' && parsed.url.trim().length > 0) {
+      return parsed.url.trim()
+    }
+  } catch {}
+
+  return buildGitHubRepoUrl(owner, repoName)
+}
+
+function isGitHubRepositoryAlreadyExistsError(error) {
+  const message = trimOutput(error instanceof Error ? error.message : error)
+  if (!message) return false
+
+  return /name already exists on this account/i.test(message)
+    || /already exists/i.test(message)
+}
+
 export async function runGitRepoPublishAction(options = {}) {
   const launchDir = options.launchDir ?? process.cwd()
   const env = options.env ?? process.env
@@ -423,6 +467,27 @@ export async function runGitRepoPublishAction(options = {}) {
     throw new Error('No GitHub owner is available. Authenticate with GitHub and try again.')
   }
 
+  const existingRepoUrl = await findExistingGitHubRepository({
+    ghPath: detected.ghPath,
+    owner,
+    repoName,
+    cwd: launchDir,
+    env,
+    runCommand: options.runCommand,
+  })
+
+  if (existingRepoUrl) {
+    return {
+      repoUrl: existingRepoUrl,
+      repoState: detected.repoState,
+      owner,
+      repoName,
+      visibility,
+      remoteRepoExists: true,
+      message: 'This GitHub repository already exists. Open it below.',
+    }
+  }
+
   const bootstrapPlan = planLocalRepoBootstrap({
     repoState: detected.repoState,
     hasCommits: detected.hasCommits,
@@ -464,30 +529,60 @@ export async function runGitRepoPublishAction(options = {}) {
     actionState: 'creating_remote_repo',
     message: 'Creating the GitHub repository and pushing the current branch...',
   })
-  await runChecked(detected.ghPath, [
-    'repo',
-    'create',
-    `${owner}/${repoName}`,
-    visibility === 'public' ? '--public' : '--private',
-    '--source',
-    '.',
-    '--remote',
-    'origin',
-    '--push',
-  ], {
-    cwd: launchDir,
-    env,
-    runCommand: options.runCommand,
-    failureMessage: 'Unable to create the GitHub repository.',
-  })
+  try {
+    await runChecked(detected.ghPath, [
+      'repo',
+      'create',
+      `${owner}/${repoName}`,
+      visibility === 'public' ? '--public' : '--private',
+      '--source',
+      '.',
+      '--remote',
+      'origin',
+      '--push',
+    ], {
+      cwd: launchDir,
+      env,
+      runCommand: options.runCommand,
+      failureMessage: 'Unable to create the GitHub repository.',
+    })
+  } catch (error) {
+    if (!isGitHubRepositoryAlreadyExistsError(error)) {
+      throw error
+    }
 
-  const repoUrl = `https://github.com/${owner}/${repoName}`
+    const duplicateRepoUrl = await findExistingGitHubRepository({
+      ghPath: detected.ghPath,
+      owner,
+      repoName,
+      cwd: launchDir,
+      env,
+      runCommand: options.runCommand,
+    })
+
+    if (!duplicateRepoUrl) {
+      throw error
+    }
+
+    return {
+      repoUrl: duplicateRepoUrl,
+      repoState: detected.repoState,
+      owner,
+      repoName,
+      visibility,
+      remoteRepoExists: true,
+      message: 'This GitHub repository already exists. Open it below.',
+    }
+  }
+
+  const repoUrl = buildGitHubRepoUrl(owner, repoName)
   return {
     repoUrl,
     repoState: 'github_remote',
     owner,
     repoName,
     visibility,
+    remoteRepoExists: false,
     message: 'GitHub repository created and current branch pushed successfully.',
   }
 }
@@ -507,6 +602,7 @@ export function createDevSplashGitRepoFlow(options = {}) {
     actionState: 'idle',
     message: null,
     repoUrl: null,
+    remoteRepoExists: false,
     lastDetected: null,
   }
 
@@ -514,13 +610,14 @@ export function createDevSplashGitRepoFlow(options = {}) {
     if (flowState.actionState === 'done' || flowState.actionState === 'error') {
       return flowState.message
     }
-    return buildFlowMessage({
-      platform,
-      repoState: flowState.lastDetected?.repoState,
-      repoUrl: flowState.repoUrl ?? flowState.lastDetected?.repoUrl,
-      ghStatus: flowState.lastDetected?.ghStatus,
-      authStatus: flowState.lastDetected?.authStatus,
-    })
+      return buildFlowMessage({
+        platform,
+        repoState: flowState.lastDetected?.repoState,
+        repoUrl: flowState.repoUrl ?? flowState.lastDetected?.repoUrl,
+        remoteRepoExists: flowState.remoteRepoExists,
+        ghStatus: flowState.lastDetected?.ghStatus,
+        authStatus: flowState.lastDetected?.authStatus,
+      })
   }
 
   async function getSnapshot(extraState = {}) {
@@ -545,6 +642,7 @@ export function createDevSplashGitRepoFlow(options = {}) {
         actionState: flowState.actionState,
         message: 'GitHub publishing will be available once the app is ready.',
         repoUrl: null,
+        remoteRepoExists: false,
       }
     }
 
@@ -558,6 +656,9 @@ export function createDevSplashGitRepoFlow(options = {}) {
       })
       if (!flowState.repoUrl && flowState.lastDetected.repoUrl) {
         flowState.repoUrl = flowState.lastDetected.repoUrl
+      }
+      if (flowState.lastDetected.repoState === 'github_remote') {
+        flowState.remoteRepoExists = false
       }
     }
 
@@ -582,6 +683,7 @@ export function createDevSplashGitRepoFlow(options = {}) {
       actionState: flowState.actionState,
       message: flowState.busy ? flowState.message : getIdleMessage(extraState),
       repoUrl: flowState.repoUrl ?? detected.repoUrl ?? null,
+      remoteRepoExists: flowState.remoteRepoExists,
     }
   }
 
@@ -663,6 +765,7 @@ export function createDevSplashGitRepoFlow(options = {}) {
       })
 
       flowState.repoUrl = result.repoUrl
+      flowState.remoteRepoExists = result.remoteRepoExists === true
       flowState.actionState = 'done'
       flowState.message = result.message
       flowState.lastDetected = await detectGitRepoFlowState({
