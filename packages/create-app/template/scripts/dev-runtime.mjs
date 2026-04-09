@@ -1230,9 +1230,7 @@ function createFilteredReporter(label, classifyLine) {
       return
     }
 
-    if (shouldIgnoreSplashPassthroughLine(plain, {
-      startupReady: splashState.ready || runtimeWarmupState.completed,
-    })) {
+    if (shouldIgnoreSplashPassthroughLine(plain)) {
       return
     }
 
