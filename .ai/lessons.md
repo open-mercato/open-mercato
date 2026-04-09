@@ -88,6 +88,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `scripts/dev.mjs`, `apps/mercato/scripts/dev.mjs`, `packages/create-app/template/scripts/dev.mjs`, and `packages/create-app/template/scripts/dev-runtime.mjs`.
 
+## Startup splash must distinguish blocking bootstrap failures from non-blocking runtime warnings
+
+**Context**: The compact splash runtime promoted any raw log line containing `failed` or `Error:` into a blocking startup failure.
+
+**Problem**: Non-fatal search/vector warnings such as `[SearchService] Strategy index failed ...` and `[search.customers] Failed to load ...` flipped setup/dev splash screens into a blocking error even after Next had become ready. Once warmup later succeeded, the splash still looked like launch had failed.
+
+**Rule**: Splash startup classification must keep an explicit allowlist for known non-blocking runtime warnings, and once launch is already ready/warmed the splash must not demote the session back to failed because of later raw output. Keep this policy mirrored between the monorepo runtime and the standalone template copy.
+
+**Applies to**: `apps/mercato/scripts/dev.mjs`, `apps/mercato/scripts/dev-runtime-log-policy.mjs`, `packages/create-app/template/scripts/dev-runtime.mjs`, and `packages/create-app/template/scripts/dev-runtime-log-policy.mjs`.
+
 ## `dbMigrate` must not write migration snapshots during initialize flows
 
 **Context**: A branch change started passing a custom MikroORM `snapshotName` into `dbMigrate`, while `yarn initialize` always runs `dbMigrate`.
@@ -187,6 +197,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When detecting circular references in JSON serialization, use stack-based ancestor tracking (checking only the current path from root to node) instead of a `WeakSet` (which tracks all previously visited nodes globally). Shared references are legitimate and must be cloned, not dropped.
 
 **Applies to**: Any serialization code that processes object graphs with shared references (common in Zod schema conversions, AST tools, and dependency graphs).
+
+## Tool-scoped regeneration commands must not be blocked by unrelated existing files
+
+**Context**: `yarn mercato agentic:init --tool=<tool>` is meant to support incremental setup of one coding tool at a time, including retroactive setup from the splash screen.
+
+**Problem**: A broad "any agentic file exists" guard causes false positives. Existing `.codex` files should not block adding Cursor, and existing Cursor files should not block adding Claude Code.
+
+**Rule**: When a CLI/setup command supports scoped tool selection, preflight "already configured" checks must be scoped to the selected tool's own files, not the union of all tool outputs.
+
+**Applies to**: `packages/cli/src/lib/agentic-init.ts` and any future tool-scoped bootstrap or regeneration commands.
 
 ## Inject TypeScript types into LLM tool descriptions for correct API payloads
 

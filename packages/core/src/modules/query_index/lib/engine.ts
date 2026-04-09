@@ -753,7 +753,7 @@ export class HybridQueryEngine implements QueryEngine {
       join: ResolvedJoin,
     ): Promise<boolean> => {
       if (!searchEnabled || !join.entityId) return false
-      if (!['eq', 'like', 'ilike'].includes(filter.op)) return false
+      if (!['like', 'ilike'].includes(filter.op)) return false
       if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return false
 
       let searchAvailable = joinSearchAvailability.get(join.entityId)

@@ -2,6 +2,10 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  createRuntimeNoiseFilter,
+  isStatelessRuntimeNoiseLine,
+} from './dev-runtime-log-policy.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -306,35 +310,16 @@ function updateSplashState(patch) {
 }
 
 function collectRuntimeFailureLines(maxLines = 10) {
+  const ignoreLine = createRuntimeNoiseFilter()
   const lines = []
 
-  for (let index = rawLogBuffer.length - 1; index >= 0; index -= 1) {
-    const normalized = stripAnsi(String(rawLogBuffer[index] ?? '')).replace(/\s+$/, '')
-    const plain = normalized.trim()
-    if (!plain) continue
-    if (plain.startsWith('[queue:')) continue
-    if (plain.startsWith('[scheduler:')) continue
-    if (plain === 'Press Ctrl+C to stop.') continue
-    if (plain.startsWith('Warning: Ignoring extra certs from')) continue
-    if (isIgnorableDerivedKeyWarningLine(plain)) continue
-    lines.unshift(normalized)
-    if (lines.length >= maxLines) break
+  for (const entry of rawLogBuffer) {
+    const normalized = stripAnsi(String(entry ?? '')).replace(/\s+$/, '')
+    if (ignoreLine(normalized, { startupReady: splashState.ready })) continue
+    lines.push(normalized)
   }
 
-  return lines
-}
-
-function isIgnorableDerivedKeyWarningLine(line) {
-  return line.startsWith('⚠️ [encryption][kms] Vault read error')
-    || line.startsWith('⚠️ [encryption][kms] No tenant DEK found in Vault')
-    || line.startsWith("path: 'secret/data/tenant_key_")
-    || line.startsWith("error: 'fetch failed'")
-    || line === '}'
-    || line.startsWith('━━━━━━━━')
-    || line.includes('Using derived tenant encryption keys')
-    || line.startsWith('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
-    || line.startsWith('Secret: ')
-    || line.startsWith('Persist this secret securely.')
+  return lines.slice(-maxLines)
 }
 
 function publishRuntimeFailure(detail, options = {}) {
@@ -367,10 +352,7 @@ function publishRuntimeFailure(detail, options = {}) {
 }
 
 function looksLikeFailure(line) {
-  if (isIgnorableDerivedKeyWarningLine(line)) return false
-  if (line.startsWith('⨯ preloadEntriesOnStart')) return false
-  if (line.startsWith('⨯ serverMinification')) return false
-  if (line.startsWith('⨯ turbopackMinify')) return false
+  if (isStatelessRuntimeNoiseLine(line)) return false
 
   return /^error\b/i.test(line)
     || /^Error:/i.test(line)
@@ -1171,6 +1153,7 @@ async function runInitialGenerate() {
 
 function createFilteredReporter(label, classifyLine) {
   let passthrough = false
+  const ignoreLine = createRuntimeNoiseFilter()
 
   return (line) => {
     const plain = stripAnsi(line).trim()
@@ -1180,6 +1163,10 @@ function createFilteredReporter(label, classifyLine) {
     captureBackgroundServiceLine(plain)
 
     if (passthrough) {
+      return
+    }
+
+    if (ignoreLine(plain, { startupReady: splashState.ready })) {
       return
     }
 
@@ -1293,9 +1280,6 @@ function classifyWatchLine(line) {
       progressLabel: 'Watching structural module files',
     }
   }
-  if (line.startsWith('[Bootstrap] Entity IDs re-registered')) {
-    return { type: 'ignore' }
-  }
   if (line.includes('All generators completed')) {
     return {
       type: 'status',
@@ -1311,9 +1295,6 @@ function classifyWatchLine(line) {
 }
 
 function classifyServerLine(line) {
-  if (isIgnorableDerivedKeyWarningLine(line)) {
-    return { type: 'ignore' }
-  }
   if (line.startsWith('🚀 Running server:dev')) {
     return {
       type: 'status',
@@ -1439,30 +1420,6 @@ function classifyServerLine(line) {
       progressCurrent: 3,
       progressLabel: 'Starting app server',
     }
-  }
-
-  if (
-    line.startsWith('Source: ')
-    || line.startsWith('Secret: ')
-    || line.startsWith('Persist this secret securely.')
-    || line.startsWith('▲ Next.js ')
-    || line === '✓ Starting...'
-    || line.startsWith('- Network:')
-    || line.startsWith('- Environments:')
-    || line.startsWith('- Experiments')
-    || line.startsWith('⨯ preloadEntriesOnStart')
-    || line.startsWith('⨯ serverMinification')
-    || line.startsWith('⨯ turbopackMinify')
-    || line.startsWith('[Bootstrap] Entity IDs re-registered')
-    || line.startsWith('[queue:')
-    || line.startsWith('[scheduler:')
-    || line.startsWith('🚀 Starting scheduler')
-    || line.startsWith('✓ Local scheduler started')
-    || line === 'Press Ctrl+C to stop.'
-    || line.startsWith('💡 Tip:')
-    || line.startsWith('━━━━━━━━')
-  ) {
-    return { type: 'ignore' }
   }
 
   if (line.startsWith('⚠ ')) {

@@ -12,6 +12,8 @@ import {
   isEndpointResponsive,
   redactPostgresUrl,
 } from '../packages/cli/src/lib/testing/runtime-utils'
+import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
+import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 
 type DevEphemeralInstance = {
   id: string
@@ -50,6 +52,39 @@ function isEnabledEnvFlag(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
+function parsePortNumber(value: string | number | undefined | null): number | null {
+  if (typeof value !== 'string' && typeof value !== 'number') return null
+  const parsed = Number.parseInt(String(value).trim(), 10)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    return null
+  }
+  return parsed
+}
+
+function resolveSplashPortConfig(): { enabled: boolean; port: number | null } {
+  const rawValue = process.env.OM_DEV_SPLASH_PORT?.trim()
+
+  if (!rawValue) {
+    return { enabled: true, port: 0 }
+  }
+
+  const normalized = rawValue.toLowerCase()
+  if (['0', 'auto', 'ephemeral', 'random'].includes(normalized)) {
+    return { enabled: true, port: 0 }
+  }
+
+  if (['disabled', 'false', 'none', 'off'].includes(normalized)) {
+    return { enabled: false, port: null }
+  }
+
+  const port = parsePortNumber(rawValue)
+  if (port !== null) {
+    return { enabled: true, port }
+  }
+
+  throw new Error(`Invalid OM_DEV_SPLASH_PORT="${rawValue}". Use a port number, "random", or "off".`)
+}
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url))
 const projectRootDirectory = path.resolve(scriptDirectory, '..')
 const appDirectory = path.join(projectRootDirectory, 'apps', 'mercato')
@@ -72,7 +107,19 @@ const postgresPassword = process.env.DEV_EPHEMERAL_POSTGRES_PASSWORD ?? 'postgre
 const postgresPortInContainer = '5432'
 const postgresReadyTimeoutMs = 60000
 const splashProgressTotal = 5
-const autoOpenSplash = !classic && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
+const splashPortConfig = (() => {
+  try {
+    return resolveSplashPortConfig()
+  } catch (error) {
+    console.error(`❌ ${error instanceof Error ? error.message : 'Invalid OM_DEV_SPLASH_PORT value'}`)
+    process.exit(1)
+  }
+})()
+const autoOpenSplash = !classic
+  && splashPortConfig.enabled
+  && process.stdout.isTTY
+  && process.env.CI !== 'true'
+  && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashChildStateFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-splash-child-state.json')
 const splashState = {
   mode: 'dev',
@@ -100,6 +147,12 @@ let splashServer: ReturnType<typeof createServer> | null = null
 let splashHtmlTemplate: string | null = null
 let splashLogoSvg: string | null = null
 let shuttingDown = false
+const codingFlow = createDevSplashCodingFlow({
+  env: process.env,
+  platform: process.platform,
+  launchDir: projectRootDirectory,
+  agenticSetupDir: null,
+})
 
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0
@@ -212,25 +265,31 @@ function readSplashChildState(): Record<string, unknown> | null {
 
 function getMergedSplashState(): typeof splashState {
   const childState = readSplashChildState()
-  if (!childState) {
-    return { ...splashState }
-  }
+  const mergedState = !childState
+    ? normalizeSplashDisplayState({ ...splashState })
+    : normalizeSplashDisplayState({
+        ...splashState,
+        ...(childState as Partial<typeof splashState>),
+        activities: (() => {
+          const childActivities = Array.isArray(childState.activities)
+            ? childState.activities.filter((value): value is string => typeof value === 'string')
+            : []
+          const activities = [...splashState.activities]
+          for (const activity of childActivities) {
+            if (activities[activities.length - 1] !== activity) {
+              activities.push(activity)
+            }
+          }
+          return activities.slice(-14)
+        })(),
+      })
 
-  const childActivities = Array.isArray(childState.activities)
-    ? childState.activities.filter((value): value is string => typeof value === 'string')
-    : []
-  const activities = [...splashState.activities]
-  for (const activity of childActivities) {
-    if (activities[activities.length - 1] !== activity) {
-      activities.push(activity)
-    }
-  }
-
-  return {
-    ...splashState,
-    ...(childState as Partial<typeof splashState>),
-    activities: activities.slice(-14),
-  }
+  return Object.assign(mergedState, {
+    codingFlow: codingFlow.getSnapshot({
+      ready: mergedState.ready,
+      failed: mergedState.failed,
+    }),
+  })
 }
 
 function loadSplashHtmlTemplate(): string {
@@ -259,7 +318,7 @@ function resolveSplashLogoSvg(): string {
 }
 
 function renderSplashHtml(): string {
-  const localeBootstrap = JSON.stringify({
+  const splashBootstrap = JSON.stringify({
     supportedLocales: ['en', 'pl', 'es', 'de'],
     defaultLocale: 'en',
     initialLocale: 'en',
@@ -269,12 +328,13 @@ function renderSplashHtml(): string {
       es: 'Español',
       de: 'Deutsch',
     },
+    codingFlow: codingFlow.getBootstrapPayload(),
   }).replace(/</g, '\\u003c')
 
   return loadSplashHtmlTemplate()
     .replace('__SPLASH_INITIAL_LOCALE__', 'en')
     .replace('__SPLASH_INLINE_LOGO_SVG__', resolveSplashLogoSvg())
-    .replace('__SPLASH_BOOTSTRAP__', localeBootstrap)
+    .replace('__SPLASH_BOOTSTRAP__', splashBootstrap)
 }
 
 async function startSplashServer(): Promise<void> {
@@ -283,37 +343,88 @@ async function startSplashServer(): Promise<void> {
   mkdirSync(path.dirname(splashChildStateFilePath), { recursive: true })
   rmSync(splashChildStateFilePath, { force: true })
 
-  splashServer = createServer((req, res) => {
+  const createSplashHttpServer = () => createServer((req, res) => {
     if (!req.url) {
       res.statusCode = 404
       res.end('Not found')
       return
     }
 
-    if (req.url === '/status') {
+    const mergedState = getMergedSplashState()
+
+    void (async () => {
+      if (await codingFlow.handleRequest(req, res, {
+        ready: mergedState.ready,
+        failed: mergedState.failed,
+      })) {
+        return
+      }
+
+      if (req.url === '/status') {
+        res.setHeader('Content-Type', 'application/json; charset=utf-8')
+        res.end(JSON.stringify(mergedState))
+        return
+      }
+
+      if (req.url === '/' || req.url.startsWith('/?')) {
+        res.setHeader('Content-Type', 'text/html; charset=utf-8')
+        res.end(renderSplashHtml())
+        return
+      }
+
+      res.statusCode = 404
+      res.end('Not found')
+    })().catch((error) => {
+      res.statusCode = 500
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      res.end(JSON.stringify(getMergedSplashState()))
+      res.end(JSON.stringify({
+        ok: false,
+        error: error instanceof Error ? error.message : 'Unexpected splash server error.',
+      }))
+    })
+  })
+
+  const listenSplashServer = (port: number) => new Promise<void>((resolve, reject) => {
+    if (!splashServer) {
+      reject(new Error('Splash server is not initialized.'))
       return
     }
 
-    if (req.url === '/' || req.url.startsWith('/?')) {
-      res.setHeader('Content-Type', 'text/html; charset=utf-8')
-      res.end(renderSplashHtml())
-      return
+    const handleError = (error: Error & { code?: string }) => {
+      splashServer?.off('listening', handleListening)
+      reject(error)
+    }
+    const handleListening = () => {
+      splashServer?.off('error', handleError)
+      resolve()
     }
 
-    res.statusCode = 404
-    res.end('Not found')
+    splashServer.once('error', handleError)
+    splashServer.once('listening', handleListening)
+    splashServer.listen(port, '127.0.0.1')
   })
 
-  await new Promise<void>((resolve, reject) => {
-    splashServer?.once('error', reject)
-    splashServer?.listen(0, '127.0.0.1', () => resolve())
-  })
+  splashServer = createSplashHttpServer()
+
+  try {
+    await listenSplashServer(splashPortConfig.port ?? 0)
+  } catch (error) {
+    if (splashPortConfig.port !== null && splashPortConfig.port !== 0 && typeof error === 'object' && error && 'code' in error && error.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Dev splash port ${splashPortConfig.port} is already in use. Switching to a random free port.`)
+      splashServer.close()
+      splashServer = createSplashHttpServer()
+      await listenSplashServer(0)
+    } else {
+      throw error
+    }
+  }
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
   const splashUrl = `http://localhost:${address.port}`
+  if (splashPortConfig.port !== null && splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
+    console.log(`🪟 Dev splash moved to ${splashUrl}`)
+  }
   console.log(`[dev:ephemeral] Dev splash ${splashUrl}`)
   updateSplashState({
     activity: 'Splash page opened for ephemeral startup status',
@@ -899,6 +1010,19 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   const serverReady = await waitForDevServerReady(baseUrl)
   if (serverReady) {
     console.log(`[dev:ephemeral] Runtime became reachable at ${backendUrl}`)
+    updateSplashState({
+      phase: 'App is ready',
+      detail: `Runtime is available at ${backendUrl}`,
+      failed: false,
+      failureLines: [],
+      failureCommand: null,
+      ready: true,
+      readyUrl: baseUrl,
+      loginUrl: `${baseUrl}/login`,
+      progressCurrent: 5,
+      progressLabel: 'App is ready',
+      activity: `Ephemeral runtime is available at ${backendUrl}`,
+    })
     if (!autoOpenSplash) {
       const browserOpened = await openUrlInBrowser(backendUrl)
       if (browserOpened) {
@@ -1038,6 +1162,17 @@ async function main(): Promise<void> {
     shutdown(exitCode)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    updateSplashState({
+      phase: 'Ephemeral startup failed',
+      detail: message,
+      failed: true,
+      failureLines: [message],
+      failureCommand: 'yarn dev:ephemeral',
+      ready: false,
+      progressLabel: 'Ephemeral startup failed',
+      activity: 'Ephemeral startup failed',
+    })
+    await waitForSplashFailureRender()
     console.error(`[dev:ephemeral] ${message}`)
     shutdown(1)
   }
