@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3 } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, ChevronDown, Check } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -23,6 +23,8 @@ import { serializeExport, defaultExportFilename, type PreparedExport } from '@op
 import { apiCall } from './utils/apiCall'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
+import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
@@ -45,7 +47,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { AdvancedFilterState, FilterFieldDef as AdvancedFilterFieldDef } from '@open-mercato/shared/lib/query/advanced-filter'
 import { createEmptyCondition, getDefaultOperator } from '@open-mercato/shared/lib/query/advanced-filter'
 import { AdvancedFilterBuilder } from './filters/AdvancedFilterBuilder'
-import { ColumnChooserPanel, type ColumnChooserField } from './columns/ColumnChooserPanel'
+import { type ColumnChooserField } from './columns/ColumnChooserPanel'
 import { useAutoDiscoveredFields } from './utils/useAutoDiscoveredFields'
 import { useCustomFieldDefs } from './utils/customFieldDefs'
 import {
@@ -717,6 +719,104 @@ function SortableHeaderCell({ id, children, className }: { id: string; children:
   )
 }
 
+function ViewSwitcherDropdown({
+  activePerspectiveId,
+  perspectives,
+  rolePerspectives,
+  onClear,
+  onActivate,
+  onOpenSidebar,
+  t,
+}: {
+  activePerspectiveId: string | null
+  perspectives: PerspectiveDto[]
+  rolePerspectives: RolePerspectiveDto[]
+  onClear: () => void
+  onActivate: (item: PerspectiveDto | RolePerspectiveDto, source: 'personal' | 'role') => void
+  onOpenSidebar: () => void
+  t: (key: string, fallback: string) => string
+}) {
+  const [open, setOpen] = React.useState(false)
+  const allViews = [...perspectives, ...rolePerspectives]
+  const activeName = allViews.find((v) => v.id === activePerspectiveId)?.name.trim() || ''
+  const activeLabel = activeName || t('ui.dataTable.perspectives.allViews', 'All views')
+  return (
+    <div className="inline-flex h-9 items-center rounded-md border border-input text-sm">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onOpenSidebar}
+        className="h-full rounded-none rounded-l-md px-3 font-medium"
+      >
+        <SlidersHorizontal className="size-4 mr-1.5" />
+        {t('ui.dataTable.perspectives.button', 'Views')}
+      </Button>
+      <div className="h-5 w-px bg-border" />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-full max-w-[200px] rounded-none rounded-r-md px-3 font-normal text-muted-foreground"
+          >
+            <span className="truncate">{activeLabel}</span>
+            <ChevronDown className="size-3.5 shrink-0 ml-1.5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[220px] p-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={cn(
+              'w-full justify-start h-auto px-2 py-1.5 text-sm font-normal',
+              !activePerspectiveId && 'bg-accent text-accent-foreground'
+            )}
+            onClick={() => { onClear(); setOpen(false) }}
+          >
+            <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId ? 'invisible' : '')} />
+            {t('ui.dataTable.perspectives.noView', '— No view —')}
+          </Button>
+          {perspectives.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'w-full justify-start h-auto px-2 py-1.5 text-sm font-normal',
+                activePerspectiveId === p.id && 'bg-accent text-accent-foreground'
+              )}
+              onClick={() => { onActivate(p, 'personal'); setOpen(false) }}
+            >
+              <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
+              <span className="truncate">{p.name.trim() || t('ui.perspectives.untitled', 'Untitled view')}</span>
+            </Button>
+          ))}
+          {rolePerspectives.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className={cn(
+                'w-full justify-start h-auto px-2 py-1.5 text-sm font-normal',
+                activePerspectiveId === p.id && 'bg-accent text-accent-foreground'
+              )}
+              onClick={() => { onActivate(p, 'role'); setOpen(false) }}
+            >
+              <Check className={cn('size-4 shrink-0 mr-2', activePerspectiveId !== p.id ? 'invisible' : '')} />
+              <span className="truncate">{p.name.trim() || t('ui.perspectives.untitled', 'Untitled view')}</span>
+            </Button>
+          ))}
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
 export function DataTable<T>({
   columns,
   data,
@@ -790,25 +890,15 @@ export function DataTable<T>({
   const perspectiveConfig = perspective ?? null
   const perspectiveTableId = perspectiveConfig?.tableId ?? null
   const perspectiveEnabled = Boolean(perspectiveTableId)
+  // Snapshot from localStorage is read post-mount via useLayoutEffect to avoid SSR/CSR
+  // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
   const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
-  const snapshotTableIdRef = React.useRef<string | null>(null)
-  if (typeof window !== 'undefined') {
-    if (perspectiveTableId !== snapshotTableIdRef.current) {
-      initialSnapshotRef.current = perspectiveTableId ? readPerspectiveSnapshot(perspectiveTableId) : null
-      snapshotTableIdRef.current = perspectiveTableId ?? null
-    }
-  } else if (snapshotTableIdRef.current !== perspectiveTableId) {
-    snapshotTableIdRef.current = perspectiveTableId ?? null
-    initialSnapshotRef.current = null
-  }
-  const initialSnapshot = initialSnapshotRef.current
+  const snapshotHydratedTableRef = React.useRef<string | null>(null)
   const initialSettingsFromConfig = sanitizePerspectiveSettings(perspectiveConfig?.initialState?.initialSettings ?? null)
-  const initialSettingsFromSnapshot = sanitizePerspectiveSettings(initialSnapshot?.settings ?? null)
-  const mergedInitialSettings = initialSettingsFromConfig ?? initialSettingsFromSnapshot ?? null
-  const initialActiveId = perspectiveConfig?.initialState?.activePerspectiveId ?? initialSnapshot?.perspectiveId ?? null
+  const mergedInitialSettings = initialSettingsFromConfig
+  const initialActiveId = perspectiveConfig?.initialState?.activePerspectiveId ?? null
   const [isPerspectiveOpen, setPerspectiveOpen] = React.useState(false)
   const [isAdvancedFilterOpen, setAdvancedFilterOpen] = React.useState(false)
-  const [isColumnChooserOpen, setColumnChooserOpen] = React.useState(false)
   const [activePerspectiveId, setActivePerspectiveId] = React.useState<string | null>(initialActiveId)
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(() => mergedInitialSettings?.columnVisibility ?? {})
   const [columnOrder, setColumnOrder] = React.useState<string[]>(() => mergedInitialSettings?.columnOrder ?? [])
@@ -1297,12 +1387,24 @@ export function DataTable<T>({
     }
   }, [onFiltersApply, onSearchChange, onSortingChange, perspectiveTableId, table])
 
+  React.useLayoutEffect(() => {
+    if (!perspectiveTableId) return
+    if (snapshotHydratedTableRef.current === perspectiveTableId) return
+    snapshotHydratedTableRef.current = perspectiveTableId
+    const snapshot = readPerspectiveSnapshot(perspectiveTableId)
+    if (!snapshot) return
+    initialSnapshotRef.current = snapshot
+    applyPerspectiveSettings(snapshot.settings, snapshot.perspectiveId ?? null)
+    initialPerspectiveAppliedRef.current = true
+  }, [perspectiveTableId, applyPerspectiveSettings])
+
   type SavePerspectivePayload = {
     name: string
     isDefault: boolean
     applyToRoles: string[]
     setRoleDefault: boolean
     perspectiveId?: string | null
+    settings?: PerspectiveSettings
   }
 
   const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
@@ -1312,7 +1414,7 @@ export function DataTable<T>({
       const payload = {
         perspectiveId: input.perspectiveId ?? undefined,
         name: input.name,
-        settings: getCurrentSettings(),
+        settings: input.settings ?? getCurrentSettings(),
         isDefault: input.isDefault,
         applyToRoles: input.applyToRoles,
         setRoleDefault: input.setRoleDefault,
@@ -1358,27 +1460,6 @@ export function DataTable<T>({
     if (typeof header === 'function') return normalizeLabel(column.id)
     return normalizeLabel(column.id)
   }, [])
-
-  const columnOptions = React.useMemo(() => {
-    const leaves = table.getAllLeafColumns()
-    const baseOrder = columnOrder.length ? columnOrder : leaves.map((column) => column.id)
-    const seen = new Set<string>()
-    const ordered = baseOrder
-      .map((id) => {
-        const col = leaves.find((column) => column.id === id)
-        if (!col) return null
-        seen.add(id)
-        return col
-      })
-      .filter(Boolean) as Array<TableColumn<T, unknown>>
-    leaves.forEach((column) => { if (!seen.has(column.id)) ordered.push(column) })
-    return ordered.map((column) => ({
-      id: column.id,
-      label: resolveColumnLabel(column),
-      visible: columnVisibility[column.id] ?? column.getIsVisible(),
-      canHide: column.getCanHide(),
-    }))
-  }, [table, columnOrder, resolveColumnLabel, columnVisibility, columns])
 
   const activePersonalPerspectiveId = React.useMemo(() => {
     if (!perspectiveData || !activePerspectiveId) return null
@@ -1461,17 +1542,17 @@ export function DataTable<T>({
 
   const handlePerspectiveActivate = React.useCallback((item: PerspectiveDto | RolePerspectiveDto, _source?: 'personal' | 'role') => {
     applyPerspectiveSettings(item.settings, item.id)
-    setPerspectiveOpen(false)
   }, [applyPerspectiveSettings])
 
-  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean }) => {
+  const handlePerspectiveSave = React.useCallback(async (input: { name: string; isDefault: boolean; applyToRoles: string[]; setRoleDefault: boolean; perspectiveId?: string | null; settings?: PerspectiveSettings }) => {
     const normalizedRoles = Array.from(new Set(input.applyToRoles))
     await savePerspectiveMutation.mutateAsync({
       name: input.name.trim(),
       isDefault: input.isDefault,
       applyToRoles: normalizedRoles,
       setRoleDefault: normalizedRoles.length > 0 ? input.setRoleDefault : false,
-      perspectiveId: activePersonalPerspectiveId,
+      perspectiveId: input.perspectiveId !== undefined ? input.perspectiveId : activePersonalPerspectiveId,
+      settings: input.settings,
     })
   }, [savePerspectiveMutation, activePersonalPerspectiveId])
 
@@ -1482,33 +1563,6 @@ export function DataTable<T>({
   const handleClearRole = React.useCallback(async (roleId: string) => {
     await clearRoleMutation.mutateAsync({ roleId })
   }, [clearRoleMutation])
-
-  const handleToggleColumn = React.useCallback((columnId: string, visible: boolean) => {
-    const column = table.getColumn(columnId)
-    if (!column) return
-    setColumnVisibility((prev) => {
-      const next = { ...prev }
-      if (visible) delete next[columnId]
-      else next[columnId] = false
-      return next
-    })
-    column.toggleVisibility(visible)
-  }, [table])
-
-  const handleMoveColumn = React.useCallback((columnId: string, direction: 'up' | 'down') => {
-    setColumnOrder((prev) => {
-      const idx = prev.indexOf(columnId)
-      if (idx === -1) return prev
-      const swap = direction === 'up' ? idx - 1 : idx + 1
-      if (swap < 0 || swap >= prev.length) return prev
-      const next = [...prev]
-      const tmp = next[swap]
-      next[swap] = next[idx]
-      next[idx] = tmp
-      table.setColumnOrder(next)
-      return next
-    })
-  }, [table])
 
   const handleColumnChooserToggle = React.useCallback((key: string) => {
     const column = table.getColumn(key)
@@ -1591,6 +1645,7 @@ export function DataTable<T>({
   React.useLayoutEffect(() => {
     if (!canUsePerspectives) return
     if (!perspectiveTableId) return
+    if (initialSnapshotRef.current) return
     if (initialPerspectiveAppliedRef.current && activePerspectiveId != null) return
 
     const source = perspectiveData ?? perspectiveConfig?.initialState?.response
@@ -1849,6 +1904,21 @@ export function DataTable<T>({
     ? autoDiscovered.columnChooserFields
     : columnChooser?.availableColumns ?? []
 
+  const effectiveColumnChooserFields = React.useMemo<ColumnChooserField[]>(() => {
+    if (resolvedColumnChooserFields.length > 0) return resolvedColumnChooserFields
+    return table.getAllLeafColumns().map((col) => ({
+      key: col.id,
+      label: resolveColumnLabel(col),
+      group: 'Columns',
+      alwaysVisible: !col.getCanHide(),
+    }))
+  }, [resolvedColumnChooserFields, table, resolveColumnLabel, columns])
+
+  const visibleColumnKeys = React.useMemo(
+    () => table.getAllLeafColumns().filter((c) => c.getIsVisible()).map((c) => c.id),
+    [table, columnVisibility, columns],
+  )
+
   const selectedRows = React.useMemo<T[]>(() => {
     if (!hasInjectedBulkActions) return []
     return table.getSelectedRowModel().rows.map((row) => row.original as T)
@@ -1977,10 +2047,15 @@ export function DataTable<T>({
     const injectedOnly = injectedFilters.filter((f) => !existing.has(f.id) && !cfOnly.some((cf) => cf.id === f.id))
     const combined: FilterDef[] = [...baseList, ...cfOnly, ...injectedOnly]
     const perspectiveButton = canUsePerspectives ? (
-      <Button variant="outline" className="h-9" onClick={() => setPerspectiveOpen(true)}>
-        <SlidersHorizontal className="mr-2 h-4 w-4" />
-        {t('ui.dataTable.perspectives.button', 'Perspectives')}
-      </Button>
+      <ViewSwitcherDropdown
+        activePerspectiveId={activePerspectiveId}
+        perspectives={perspectiveData?.perspectives ?? []}
+        rolePerspectives={perspectiveData?.rolePerspectives ?? []}
+        onClear={() => applyPerspectiveSettings({}, null)}
+        onActivate={handlePerspectiveActivate}
+        onOpenSidebar={() => setPerspectiveOpen(true)}
+        t={t}
+      />
     ) : null
     const fieldsetSelector =
       supportsCustomFieldFilterFieldsets && resolvedEntityIds.length === 1
@@ -2197,24 +2272,11 @@ export function DataTable<T>({
                       ) : null}
                     </Button>
                   ) : null}
-                  {columnChooser ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setColumnChooserOpen(true)}
-                      aria-label={t('ui.columnChooser.toggle', 'Choose columns')}
-                      title={t('ui.columnChooser.toggle', 'Choose columns')}
-                    >
-                      <Columns3 className="h-4 w-4" />
-                    </Button>
-                  ) : null}
                   {canUsePerspectives ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="icon"
-                      onClick={() => setPerspectiveOpen(true)}
                       aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
                       title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
                     >
@@ -2484,28 +2546,15 @@ export function DataTable<T>({
           onClearRole={handleClearRole}
           onSave={handlePerspectiveSave}
           canApplyToRoles={Boolean(perspectiveData?.canApplyToRoles && canUseRoleDefaultsFeature)}
-          columnOptions={columnOptions}
-          onToggleColumn={handleToggleColumn}
-          onMoveColumn={handleMoveColumn}
+          availableColumns={effectiveColumnChooserFields}
+          visibleColumnKeys={visibleColumnKeys}
+          columnOrder={columnOrder}
+          onToggleColumn={handleColumnChooserToggle}
+          onReorderColumns={handleColumnChooserReorder}
           saving={savePerspectiveMutation.isPending}
           deletingIds={deletingIds}
           roleClearingIds={roleClearingIds}
           apiWarning={perspectiveApiWarning}
-        />
-      ) : null}
-      {columnChooser ? (
-        <ColumnChooserPanel
-          open={isColumnChooserOpen}
-          onOpenChange={setColumnChooserOpen}
-          availableColumns={resolvedColumnChooserFields}
-          visibleColumnKeys={table
-            .getAllLeafColumns()
-            .filter((column) => column.getIsVisible())
-            .map((column) => column.id)}
-          columnOrder={columnOrder}
-          onToggleColumn={handleColumnChooserToggle}
-          onReorderColumns={handleColumnChooserReorder}
-          dndContextId={`${stableDndContextId}-chooser`}
         />
       ) : null}
     </div>
