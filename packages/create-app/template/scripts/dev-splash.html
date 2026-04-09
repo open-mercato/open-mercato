@@ -1557,11 +1557,12 @@
           || gitRepoFlow?.remoteRepoExists === true
           || gitRepoFlow?.actionState === 'done'
         )
+        const repositoryResolved = canOpenRepository
+          || gitRepoFlow?.remoteRepoExists === true
+          || gitRepoFlow?.repoState === 'github_remote'
         const showForm = gitRepoFlow?.ghStatus === 'available'
-          && gitRepoFlow?.repoState !== 'github_remote'
+          && !repositoryResolved
           && gitRepoFlow?.repoState !== 'other_remote'
-          && gitRepoFlow?.remoteRepoExists !== true
-          && !canOpenRepository
 
         gitRepoGrid.hidden = !showForm
         gitRepoOwnerField.hidden = !showOwnerField
@@ -1587,7 +1588,8 @@
           || gitRepoFlow?.actionState === 'authenticating'
           || gitRepoFlow?.actionState === 'creating_local_repo'
           || gitRepoFlow?.actionState === 'creating_remote_repo'
-        const canStart = showForm
+        const canStart = !repositoryResolved
+          && showForm
           && gitRepoFlow?.ghStatus === 'available'
           && (gitRepoFlow?.repoState === 'missing' || gitRepoFlow?.repoState === 'local_only')
 
