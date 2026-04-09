@@ -15,6 +15,7 @@ export type ParsedRedisConnection = {
   port: number
   password?: string
   db?: number
+  tls?: Record<string, never>
 }
 
 /**
@@ -45,6 +46,7 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
       port: parseInt(parsed.port, 10) || 6379,
       password: parsed.password || undefined,
       db,
+      tls: parsed.protocol === 'rediss:' ? {} : undefined,
     }
   } catch {
     const safeUrl = url.replace(/\/\/[^:]*:[^@]*@/, '//<redacted>@')
