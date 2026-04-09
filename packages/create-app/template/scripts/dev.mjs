@@ -11,6 +11,9 @@ import {
   resolveProgressPercent,
   stripAnsi,
 } from './dev-splash-helpers.mjs'
+import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
+import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
+import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -134,6 +137,12 @@ function resolveSplashPortConfig() {
   throw new Error(`Invalid OM_DEV_SPLASH_PORT="${rawValue}". Use a port number, "random", or "off".`)
 }
 
+function shouldRetrySplashServerWithRandomPort(error) {
+  if (splashPortConfig.port === 0) return false
+  if (!error || typeof error !== 'object') return false
+  return error.code === 'EADDRINUSE'
+}
+
 function normalizePublicBaseUrl(value) {
   if (typeof value !== 'string' || value.trim().length === 0) return null
 
@@ -218,6 +227,18 @@ const splashState = {
     : (setupMode ? 'Preparing project setup' : 'Preparing app runtime'),
   activities: [],
 }
+const codingFlow = createDevSplashCodingFlow({
+  env: process.env,
+  platform: process.platform,
+  launchDir: process.cwd(),
+  agenticSetupDir: !isMonorepo && fs.existsSync(path.join(process.cwd(), 'src', 'modules.ts')) ? process.cwd() : null,
+})
+const gitRepoFlow = createDevSplashGitRepoFlow({
+  env: process.env,
+  platform: process.platform,
+  launchDir: process.cwd(),
+  enabled: !isMonorepo,
+})
 
 function formatProgressLine(label, current, total, percent) {
   const meta = Number.isFinite(current) && Number.isFinite(total) && total > 0
@@ -665,15 +686,18 @@ function readSplashChildState() {
 
 function getMergedSplashState() {
   const childState = readSplashChildState()
-  if (!childState) {
-    return { ...splashState }
-  }
-
-  return {
+  const mergedState = childState ? normalizeSplashDisplayState({
     ...splashState,
     ...childState,
     activities: mergeActivities(splashState.activities, childState.activities),
-  }
+  }) : normalizeSplashDisplayState({ ...splashState })
+
+  mergedState.codingFlow = codingFlow.getSnapshot({
+    ready: mergedState.ready,
+    failed: mergedState.failed,
+  })
+
+  return mergedState
 }
 
 function renderSplashHtml(req) {
@@ -691,6 +715,8 @@ function renderSplashHtml(req) {
     defaultLocale: localeConfig.defaultLocale,
     initialLocale,
     localeLabels,
+    codingFlow: codingFlow.getBootstrapPayload(),
+    gitRepoFlow: gitRepoFlow.getBootstrapPayload(),
   })
   return loadSplashHtmlTemplate()
     .replace('__SPLASH_INITIAL_LOCALE__', initialLocale)
@@ -705,16 +731,36 @@ async function startSplashServer() {
   fs.mkdirSync(path.dirname(splashChildStateFile), { recursive: true })
   writeSplashChildStateFileClear()
 
-  splashServer = createServer((req, res) => {
+  const createSplashHttpServer = () => createServer(async (req, res) => {
     if (!req.url) {
       res.statusCode = 404
       res.end('Not found')
       return
     }
 
+    const mergedState = getMergedSplashState()
+
+    if (await codingFlow.handleRequest(req, res, {
+      ready: mergedState.ready,
+      failed: mergedState.failed,
+    })) {
+      return
+    }
+
+    if (await gitRepoFlow.handleRequest(req, res, {
+      ready: mergedState.ready,
+      failed: mergedState.failed,
+    })) {
+      return
+    }
+
     if (req.url === '/status') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      res.end(JSON.stringify(getMergedSplashState()))
+      const enrichedState = await gitRepoFlow.enrichState(mergedState, {
+        ready: mergedState.ready,
+        failed: mergedState.failed,
+      })
+      res.end(JSON.stringify(enrichedState))
       return
     }
 
@@ -728,27 +774,64 @@ async function startSplashServer() {
     res.end('Not found')
   })
 
+  const listenSplashServer = (port) => new Promise((resolve, reject) => {
+    if (!splashServer) {
+      reject(new Error('Splash server is not initialized.'))
+      return
+    }
+
+    const handleError = (error) => {
+      splashServer?.off('listening', handleListening)
+      reject(error)
+    }
+    const handleListening = () => {
+      splashServer?.off('error', handleError)
+      resolve()
+    }
+
+    splashServer.once('error', handleError)
+    splashServer.once('listening', handleListening)
+    splashServer.listen(port, splashBindHost)
+  })
+
+  splashServer = createSplashHttpServer()
   try {
-    await new Promise((resolve, reject) => {
-      splashServer.once('error', reject)
-      splashServer.listen(splashPortConfig.port, splashBindHost, () => resolve())
-    })
+    await listenSplashServer(splashPortConfig.port)
   } catch (error) {
-    const portLabel = splashPortConfig.port === 0 ? 'a random port' : `port ${splashPortConfig.port}`
-    console.error(`❌ Unable to start dev splash on ${portLabel}`)
-    if (splashPortConfig.port !== 0) {
-      console.error('   Change `OM_DEV_SPLASH_PORT` or set it to `random` to use an ephemeral port.')
+    if (shouldRetrySplashServerWithRandomPort(error)) {
+      console.warn(`⚠️ Dev splash port ${splashPortConfig.port} is already in use. Switching to a random free port.`)
+      splashServer.close()
+      splashServer = createSplashHttpServer()
+      try {
+        await listenSplashServer(0)
+      } catch (fallbackError) {
+        console.error('❌ Unable to start dev splash on a random port')
+        if (fallbackError instanceof Error && fallbackError.message) {
+          console.error(`   ${fallbackError.message}`)
+        }
+        shutdown(1)
+        return
+      }
+    } else {
+      const portLabel = splashPortConfig.port === 0 ? 'a random port' : `port ${splashPortConfig.port}`
+      console.error(`❌ Unable to start dev splash on ${portLabel}`)
+      if (splashPortConfig.port !== 0) {
+        console.error('   Change `OM_DEV_SPLASH_PORT` or set it to `random` to use an ephemeral port.')
+      }
+      if (error instanceof Error && error.message) {
+        console.error(`   ${error.message}`)
+      }
+      shutdown(1)
+      return
     }
-    if (error instanceof Error && error.message) {
-      console.error(`   ${error.message}`)
-    }
-    shutdown(1)
-    return
   }
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
   splashUrl = `http://localhost:${address.port}`
+  if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
+    console.log(`🪟 Dev splash moved to ${splashUrl}`)
+  }
   printSplashAccessUrls()
   updateSplashState({
     activity: autoOpenSplash

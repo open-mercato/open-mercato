@@ -24,6 +24,6 @@ export function isIgnorableSearchWarningLine(line) {
 
 export function shouldIgnoreSplashPassthroughLine(line, options = {}) {
   if (typeof line !== 'string') return false
-  if (options.startupReady === true) return true
+  void options
   return isIgnorableSearchWarningLine(line)
 }

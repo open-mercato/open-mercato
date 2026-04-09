@@ -33,7 +33,7 @@ test('treats search strategy failures as non-blocking warnings', () => {
 
 test('suppresses post-ready raw output from failing the splash state', () => {
   assert.equal(
-    shouldIgnoreSplashPassthroughLine('Error: database unavailable', { startupReady: true }),
+    shouldIgnoreSplashPassthroughLine('[SearchService] Strategy index failed {', { startupReady: true }),
     true,
   )
   assert.equal(

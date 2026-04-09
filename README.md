@@ -264,6 +264,10 @@ yarn dev:greenfield
 - `yarn dev:ephemeral` now uses the same splash-first startup experience for its install/build/generate/init stages before handing off to the app runtime. `yarn dev:ephemeral:verbose` keeps the runtime logs raw.
 - `yarn dev:ephemeral:classic` keeps the ephemeral database flow but skips the splash and uses raw passthrough output end to end.
 - Set `OM_DEV_SPLASH_PORT` to override the splash port. Default: `4000`. Use `random` (or `0`) for native local runs when you want a free ephemeral port instead of the stable default.
+- Set `OM_DEV_AUTO_OPEN=0` to keep the splash from opening automatically in your browser.
+- The standalone app splash can expose two ready-state helpers:
+  - `Start coding with AI` launches detected coding tools from the splash when the coding flow is enabled.
+  - `Create new GitHub repository` / `Publish to GitHub` appears in standalone apps when `gh` is installed and `OM_DEV_CREATE_GIT_REPO_FLOW` is not disabled.
 
 For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, splash-based startup status, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 
