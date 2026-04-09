@@ -75,6 +75,33 @@ yarn initialize
 yarn reinstall
 ```
 
+## Dev Splash Features
+
+- `yarn dev` serves the compact splash screen on `http://localhost:4000` by default and auto-opens it on supported local runs.
+- When enabled, the splash can launch detected coding tools from the `Start coding with AI` menu.
+- In standalone apps, the splash can also create or publish a GitHub repository through `gh` once the app is ready.
+
+## Recommended Local Tooling
+
+- GitHub CLI (`gh`) is recommended for the splash GitHub publish flow: <https://cli.github.com/>
+- Codex CLI is recommended for the OpenAI terminal workflow surfaced by the splash: <https://developers.openai.com/codex/cli>
+- Claude Code is recommended for the Anthropic terminal workflow surfaced by the splash: <https://code.claude.com/docs/en/setup>
+- Visual Studio Code is the recommended general-purpose editor: <https://code.visualstudio.com/Download>
+- Cursor is a recommended AI-first editor: <https://cursor.com/download>
+
+## Dev Splash Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OM_DEV_SPLASH_PORT` | `4000` | Override the splash port. Use `random` or `0` for an ephemeral free port. |
+| `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open for the splash. |
+| `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Set to `false` to hide the standalone GitHub publish panel from the splash. |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the coding tools menu from the splash. |
+| `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI. |
+| `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI. |
+| `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI. |
+| `OM_DEV_SPLASH_CODEX_PATH` | auto-detect | Optional path override for the Codex CLI. |
+
 ## Infrastructure
 
 Start required services via Docker Compose:

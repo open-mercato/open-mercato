@@ -182,6 +182,7 @@
         gap: 18px;
         justify-content: flex-start;
         background: var(--panel-strong);
+        overflow: visible;
       }
       .status-line {
         font-size: 15px;
@@ -246,18 +247,24 @@
         gap: 12px;
         flex-wrap: wrap;
         align-items: flex-start;
+        overflow: visible;
       }
       .coding-shell {
         display: grid;
         gap: 10px;
+        min-width: 0;
+        flex: 1 1 280px;
       }
       .coding-menu {
         position: relative;
+        width: fit-content;
+        max-width: 100%;
       }
       .coding-summary {
         list-style: none;
         cursor: pointer;
         user-select: none;
+        max-width: 100%;
       }
       .coding-summary::-webkit-details-marker {
         display: none;
@@ -280,6 +287,26 @@
         background: var(--panel-strong);
         box-shadow: var(--shadow);
         z-index: 20;
+      }
+      .coding-menu[data-align="end"] .coding-menu-panel {
+        left: auto;
+        right: 0;
+      }
+      .coding-menu[data-layout="stacked"] {
+        width: 100%;
+      }
+      .coding-menu[data-layout="stacked"] .coding-summary {
+        width: 100%;
+      }
+      .coding-menu[data-layout="stacked"] .coding-menu-panel {
+        position: static;
+        top: auto;
+        left: auto;
+        right: auto;
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+        margin-top: 10px;
       }
       .coding-item {
         width: 100%;
@@ -608,6 +635,26 @@
           grid-template-columns: 1fr;
         }
       }
+      @media (max-width: 640px) {
+        .actions {
+          align-items: stretch;
+        }
+        .coding-shell,
+        .coding-menu,
+        .coding-summary {
+          width: 100%;
+        }
+        .coding-menu-panel {
+          position: static;
+          top: auto;
+          left: auto;
+          right: auto;
+          min-width: 0;
+          max-width: none;
+          width: 100%;
+          margin-top: 10px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -748,6 +795,7 @@
       const activitySeenAt = new Map()
       let codingActionInFlight = false
       let gitRepoActionInFlight = false
+      let codingMenuLayoutRaf = 0
       const translations = {
         en: {
           badge: 'Open Mercato Dev',
@@ -977,6 +1025,12 @@
           codingMenu.open = false
         }
       })
+      codingMenu.addEventListener('toggle', () => {
+        scheduleCodingMenuLayout()
+      })
+      window.addEventListener('resize', () => {
+        scheduleCodingMenuLayout()
+      })
 
       function template(value, vars = {}) {
         return String(value).replace(/\{(\w+)\}/g, (_, key) => String(vars[key] ?? ''))
@@ -1166,6 +1220,42 @@
         }
       }
 
+      function updateCodingMenuLayout() {
+        if (codingShell.hidden) {
+          delete codingMenu.dataset.align
+          delete codingMenu.dataset.layout
+          return
+        }
+
+        const viewportPadding = 24
+        const summaryRect = codingSummary.getBoundingClientRect()
+        const availableViewportWidth = Math.max(0, window.innerWidth - (viewportPadding * 2))
+        const preferredPanelWidth = Math.min(380, availableViewportWidth)
+        const panelWidth = Math.max(Math.min(preferredPanelWidth, 380), Math.min(320, availableViewportWidth))
+        const rightOverflow = summaryRect.left + panelWidth > window.innerWidth - viewportPadding
+        const leftOverflow = summaryRect.right - panelWidth < viewportPadding
+        const shouldStack = window.innerWidth <= 640 || (rightOverflow && leftOverflow)
+
+        if (shouldStack) {
+          codingMenu.dataset.layout = 'stacked'
+          delete codingMenu.dataset.align
+          return
+        }
+
+        delete codingMenu.dataset.layout
+        codingMenu.dataset.align = rightOverflow ? 'end' : 'start'
+      }
+
+      function scheduleCodingMenuLayout() {
+        if (codingMenuLayoutRaf) {
+          window.cancelAnimationFrame(codingMenuLayoutRaf)
+        }
+        codingMenuLayoutRaf = window.requestAnimationFrame(() => {
+          codingMenuLayoutRaf = 0
+          updateCodingMenuLayout()
+        })
+      }
+
       function renderCodingFlow(state) {
         const codingFlow = state?.codingFlow
         const ready = state?.ready === true
@@ -1176,6 +1266,8 @@
           codingMenu.open = false
           codingMenuPanel.innerHTML = ''
           codingStatus.hidden = true
+          delete codingMenu.dataset.align
+          delete codingMenu.dataset.layout
           return
         }
 
@@ -1211,6 +1303,7 @@
           codingStatus.hidden = false
           codingStatus.dataset.kind = lastResult.kind || 'info'
           codingStatus.textContent = translateMessage(lastResult.message)
+          scheduleCodingMenuLayout()
           return
         }
 
@@ -1218,12 +1311,14 @@
           codingStatus.hidden = false
           codingStatus.dataset.kind = 'info'
           codingStatus.textContent = t('codingNoTools')
+          scheduleCodingMenuLayout()
           return
         }
 
         codingStatus.hidden = true
         codingStatus.textContent = ''
         codingStatus.dataset.kind = ''
+        scheduleCodingMenuLayout()
       }
 
       gitRepoName.addEventListener('input', () => {

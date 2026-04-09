@@ -269,6 +269,16 @@ yarn dev:greenfield
   - `Start coding with AI` launches detected coding tools from the splash when the coding flow is enabled.
   - `Create new GitHub repository` / `Publish to GitHub` appears in standalone apps when `gh` is installed and `OM_DEV_CREATE_GIT_REPO_FLOW` is not disabled.
 
+### Recommended tools
+
+If you are using the native dev runtime or building a standalone app, these tools are recommended:
+
+- **GitHub CLI (`gh`)** for the standalone splash GitHub publish flow: <https://cli.github.com/>
+- **Codex CLI** for the OpenAI terminal workflow surfaced by `Start coding with AI`: <https://developers.openai.com/codex/cli>
+- **Claude Code** for the Anthropic terminal workflow surfaced by `Start coding with AI`: <https://code.claude.com/docs/en/setup>
+- **Visual Studio Code** as the recommended general-purpose editor: <https://code.visualstudio.com/Download>
+- **Cursor** as a recommended AI-first editor: <https://cursor.com/download>
+
 For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, splash-based startup status, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 
 ```bash
