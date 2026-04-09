@@ -84,6 +84,9 @@ export type DealSummary = {
   description?: string | null
   ownerUserId?: string | null
   source?: string | null
+  closureOutcome?: string | null
+  lossReasonId?: string | null
+  lossNotes?: string | null
   createdAt?: string | null
   updatedAt?: string | null
   customValues?: Record<string, unknown> | null
@@ -141,6 +144,7 @@ export type InteractionSummary = {
   } | null
   _integrations?: Record<string, unknown>
   pinned?: boolean
+  duration?: number | null
   createdAt: string
   updatedAt: string
 }

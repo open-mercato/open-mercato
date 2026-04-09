@@ -88,6 +88,9 @@ type DealSnapshot = {
     expectedCloseAt: Date | null
     ownerUserId: string | null
     source: string | null
+    closureOutcome: string | null
+    lossReasonId: string | null
+    lossNotes: string | null
   }
   people: string[]
   companies: string[]
@@ -144,6 +147,9 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
       expectedCloseAt: deal.expectedCloseAt ?? null,
       ownerUserId: deal.ownerUserId ?? null,
       source: deal.source ?? null,
+      closureOutcome: deal.closureOutcome ?? null,
+      lossReasonId: deal.lossReasonId ?? null,
+      lossNotes: deal.lossNotes ?? null,
     },
     people: peopleLinks.map((link) =>
       typeof link.person === 'string' ? link.person : link.person.id
@@ -223,6 +229,9 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
       expectedCloseAt: parsed.expectedCloseAt ?? null,
       ownerUserId: parsed.ownerUserId ?? null,
       source: parsed.source ?? null,
+      closureOutcome: parsed.closureOutcome ?? null,
+      lossReasonId: parsed.lossReasonId ?? null,
+      lossNotes: parsed.lossNotes ?? null,
     })
     em.persist(deal)
 
@@ -333,6 +342,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null
     if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
     if (parsed.source !== undefined) record.source = parsed.source ?? null
+    if (parsed.closureOutcome !== undefined) record.closureOutcome = parsed.closureOutcome ?? null
+    if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
+    if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
 
     await syncDealPeople(em, record, parsed.personIds)
     await syncDealCompanies(em, record, parsed.companyIds)
@@ -446,6 +458,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         expectedCloseAt: before.deal.expectedCloseAt,
         ownerUserId: before.deal.ownerUserId,
         source: before.deal.source,
+        closureOutcome: before.deal.closureOutcome,
+        lossReasonId: before.deal.lossReasonId,
+        lossNotes: before.deal.lossNotes,
       })
       em.persist(deal)
     } else {
@@ -461,6 +476,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       deal.expectedCloseAt = before.deal.expectedCloseAt
       deal.ownerUserId = before.deal.ownerUserId
       deal.source = before.deal.source
+      deal.closureOutcome = before.deal.closureOutcome
+      deal.lossReasonId = before.deal.lossReasonId
+      deal.lossNotes = before.deal.lossNotes
     }
     await em.flush()
     await syncDealPeople(em, deal, before.people)
@@ -574,6 +592,9 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           expectedCloseAt: before.deal.expectedCloseAt,
           ownerUserId: before.deal.ownerUserId,
           source: before.deal.source,
+          closureOutcome: before.deal.closureOutcome,
+          lossReasonId: before.deal.lossReasonId,
+          lossNotes: before.deal.lossNotes,
         })
         em.persist(deal)
       }

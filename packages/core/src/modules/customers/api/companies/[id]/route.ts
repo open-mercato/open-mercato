@@ -15,6 +15,7 @@ import {
   CustomerDealCompanyLink,
   CustomerDeal,
   CustomerTodoLink,
+  CustomerPersonCompanyLink,
   CustomerPersonProfile,
   CustomerInteraction,
 } from '../../../data/entities'
@@ -453,20 +454,42 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
   let relatedPeople: Array<{ entity: CustomerEntity; profile: CustomerPersonProfile | null }> = []
   if (includePeople) {
+    const relatedPeopleById = new Map<string, { entity: CustomerEntity; profile: CustomerPersonProfile | null }>()
+    const companyLinks = await em.find(
+      CustomerPersonCompanyLink,
+      {
+        company: company.id,
+        organizationId: company.organizationId,
+        tenantId: company.tenantId,
+      },
+      {
+        populate: ['person', 'person.personProfile'],
+        orderBy: { isPrimary: 'desc', createdAt: 'asc' },
+      },
+    )
+    companyLinks.forEach((link) => {
+      const entity = typeof link.person === 'string' ? null : link.person
+      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
+      const personProfile =
+        entity.personProfile && typeof entity.personProfile !== 'string'
+          ? entity.personProfile
+          : null
+      relatedPeopleById.set(entity.id, { entity, profile: personProfile })
+    })
+
     const profiles = await em.find(
       CustomerPersonProfile,
       { company: company.id, entity: { deletedAt: null } },
       { populate: ['entity'] },
     )
-    relatedPeople = profiles.reduce<Array<{ entity: CustomerEntity; profile: CustomerPersonProfile | null }>>(
-      (acc, entry) => {
-        const entity = entry.entity as CustomerEntity | null
-        if (!entity || entity.kind !== 'person' || entity.deletedAt) return acc
-        acc.push({ entity, profile: entry ?? null })
-        return acc
-      },
-      [],
-    )
+    profiles.forEach((entry) => {
+      const entity = entry.entity as CustomerEntity | null
+      if (!entity || entity.kind !== 'person' || entity.deletedAt) return
+      if (!relatedPeopleById.has(entity.id)) {
+        relatedPeopleById.set(entity.id, { entity, profile: entry ?? null })
+      }
+    })
+    relatedPeople = Array.from(relatedPeopleById.values())
   }
 
   const entityCustomFieldValues = await loadCustomFieldValues({

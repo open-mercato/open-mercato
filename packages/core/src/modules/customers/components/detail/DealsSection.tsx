@@ -18,6 +18,7 @@ import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
 import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { DealClosureDialog } from '@open-mercato/core/modules/sales/components/documents/DealClosureDialog'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
@@ -33,6 +34,7 @@ type DealsScope =
 type PendingAction =
   | { kind: 'create' }
   | { kind: 'update'; id: string }
+  | { kind: 'close'; id: string }
   | { kind: 'delete'; id: string }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -230,6 +232,18 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
         : deal.ownerUserId ?? null,
     source:
       typeof deal.source === 'string' && deal.source.trim().length ? deal.source : deal.source ?? null,
+    closureOutcome:
+      typeof deal.closureOutcome === 'string' && deal.closureOutcome.trim().length
+        ? deal.closureOutcome
+        : deal.closureOutcome ?? null,
+    lossReasonId:
+      typeof deal.lossReasonId === 'string' && deal.lossReasonId.trim().length
+        ? deal.lossReasonId
+        : deal.lossReasonId ?? null,
+    lossNotes:
+      typeof deal.lossNotes === 'string' && deal.lossNotes.trim().length
+        ? deal.lossNotes
+        : deal.lossNotes ?? null,
     createdAt: toIso(deal.createdAt ?? null),
     updatedAt: toIso(deal.updatedAt ?? null),
     personIds,
@@ -339,6 +353,7 @@ export function DealsSection({
   const [initialValues, setInitialValues] = React.useState<
     Partial<DealFormBaseValues & Record<string, unknown>> | undefined
   >(undefined)
+  const [closingDeal, setClosingDeal] = React.useState<NormalizedDeal | null>(null)
   const pendingCounterRef = React.useRef(0)
 
   const pushLoading = React.useCallback(() => {
@@ -439,6 +454,24 @@ export function DealsSection({
           typeof record.source === 'string' && record.source.trim().length
             ? record.source
             : null
+        const closureOutcome =
+          typeof record.closureOutcome === 'string' && record.closureOutcome.trim().length
+            ? record.closureOutcome
+            : typeof record.closure_outcome === 'string' && record.closure_outcome.trim().length
+              ? record.closure_outcome
+              : null
+        const lossReasonId =
+          typeof record.lossReasonId === 'string' && record.lossReasonId.trim().length
+            ? record.lossReasonId
+            : typeof record.loss_reason_id === 'string' && record.loss_reason_id.trim().length
+              ? record.loss_reason_id
+              : null
+        const lossNotes =
+          typeof record.lossNotes === 'string' && record.lossNotes.trim().length
+            ? record.lossNotes
+            : typeof record.loss_notes === 'string' && record.loss_notes.trim().length
+              ? record.loss_notes
+              : null
         const createdAt =
           typeof record.createdAt === 'string' && record.createdAt.trim().length
             ? record.createdAt
@@ -482,6 +515,9 @@ export function DealsSection({
           description,
           ownerUserId,
           source,
+          closureOutcome,
+          lossReasonId,
+          lossNotes,
           createdAt,
           updatedAt,
           personIds: personIds as string[] | undefined,
@@ -740,6 +776,42 @@ export function DealsSection({
     [confirm, translate],
   )
 
+  const handleMarkLost = React.useCallback(async (deal: NormalizedDeal, payload: { outcome: 'won' | 'lost'; lossReasonId?: string; lossNotes?: string }) => {
+    setPendingAction({ kind: 'close', id: deal.id })
+    try {
+      await updateCrud('customers/deals', {
+        id: deal.id,
+        status: payload.outcome,
+        closureOutcome: payload.outcome,
+        lossReasonId: payload.lossReasonId,
+        lossNotes: payload.lossNotes,
+      }, {
+        errorMessage: translate('customers.people.detail.deals.updateError', 'Failed to update deal.'),
+      })
+      setDeals((prev) =>
+        prev.map((entry) =>
+          entry.id === deal.id
+            ? normalizeDeal({
+                ...entry,
+                status: payload.outcome,
+                closureOutcome: payload.outcome,
+                lossReasonId: payload.lossReasonId ?? null,
+                lossNotes: payload.lossNotes ?? null,
+                updatedAt: new Date().toISOString(),
+              })
+            : entry,
+        ),
+      )
+      flash(translate('customers.people.detail.deals.markLostSuccess', 'Deal marked as lost.'), 'success')
+      setClosingDeal(null)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : translate('customers.people.detail.deals.updateError', 'Failed to update deal.')
+      flash(message, 'error')
+    } finally {
+      setPendingAction(null)
+    }
+  }, [translate])
+
   const handleDialogSubmit = React.useCallback(
     async (payload: DealFormSubmitPayload) => {
       try {
@@ -819,6 +891,7 @@ export function DealsSection({
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
           const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === deal.id
+          const isClosePending = pendingAction?.kind === 'close' && pendingAction.id === deal.id
           const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === deal.id
           const statusLabel =
             deal.status && statusDictionaryMap
@@ -838,6 +911,23 @@ export function DealsSection({
                     {statusLabel}
                   </span>
                   <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    {deal.status !== 'won' && deal.status !== 'lost' && deal.status !== 'closed' ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-[10px] px-3 text-xs"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          setClosingDeal(deal)
+                        }}
+                        disabled={pendingAction !== null}
+                      >
+                        {isClosePending
+                          ? t('customers.people.detail.deals.closing', 'Closing…')
+                          : t('customers.people.detail.deals.markLost', 'Mark lost')}
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       variant="ghost"
@@ -960,6 +1050,16 @@ export function DealsSection({
           await handleDialogSubmit(payload)
         }}
         isSubmitting={Boolean(isFormPending)}
+      />
+      <DealClosureDialog
+        open={closingDeal !== null}
+        outcome="lost"
+        dealLabel={closingDeal?.title ?? undefined}
+        onCancel={() => setClosingDeal(null)}
+        onConfirm={(payload) => {
+          if (!closingDeal) return
+          void handleMarkLost(closingDeal, payload)
+        }}
       />
       {ConfirmDialogElement}
     </div>

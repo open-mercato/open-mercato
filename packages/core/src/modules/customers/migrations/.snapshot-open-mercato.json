@@ -118,38 +118,6 @@
           "enumItems": [],
           "mappedType": "text"
         },
-        "pipeline_id": {
-          "name": "pipeline_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "pipeline_stage_id": {
-          "name": "pipeline_stage_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
         "value_amount": {
           "name": "value_amount",
           "type": "numeric(14,2)",
@@ -184,15 +152,15 @@
         },
         "probability": {
           "name": "probability",
-          "type": "int",
+          "type": "int4",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
           "unique": false,
           "length": null,
-          "precision": null,
-          "scale": null,
+          "precision": 32,
+          "scale": 0,
           "default": null,
           "comment": null,
           "enumItems": [],
@@ -200,7 +168,7 @@
         },
         "expected_close_at": {
           "name": "expected_close_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -248,7 +216,7 @@
         },
         "created_at": {
           "name": "created_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -264,7 +232,7 @@
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -280,7 +248,7 @@
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -293,36 +261,117 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "datetime"
+        },
+        "pipeline_id": {
+          "name": "pipeline_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "pipeline_stage_id": {
+          "name": "pipeline_stage_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "closure_outcome": {
+          "name": "closure_outcome",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "loss_reason_id": {
+          "name": "loss_reason_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "loss_notes": {
+          "name": "loss_notes",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
         }
       },
       "name": "customer_deals",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "customer_deals_org_tenant_idx",
           "columnNames": [
             "organization_id",
             "tenant_id"
           ],
           "composite": true,
           "constraint": false,
-          "primary": false,
-          "unique": false
+          "keyName": "customer_deals_org_tenant_idx",
+          "unique": false,
+          "primary": false
         },
         {
-          "keyName": "customer_deals_pkey",
           "columnNames": [
             "id"
           ],
           "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
+          "constraint": false,
+          "keyName": "customer_deals_pkey",
+          "unique": true,
+          "primary": true
         }
       ],
       "checks": [],
       "foreignKeys": {},
-      "nativeEnums": {}
+      "nativeEnums": {},
+      "comment": null
     },
     {
       "columns": {
@@ -2764,7 +2813,7 @@
         },
         "scheduled_at": {
           "name": "scheduled_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -2780,7 +2829,7 @@
         },
         "occurred_at": {
           "name": "occurred_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -2796,15 +2845,15 @@
         },
         "priority": {
           "name": "priority",
-          "type": "int",
+          "type": "int4",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
           "nullable": true,
           "unique": false,
           "length": null,
-          "precision": null,
-          "scale": null,
+          "precision": 32,
+          "scale": 0,
           "default": null,
           "comment": null,
           "enumItems": [],
@@ -2906,25 +2955,9 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "pinned": {
-          "name": "pinned",
-          "type": "boolean",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": "false",
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "boolean"
-        },
         "created_at": {
           "name": "created_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -2940,7 +2973,7 @@
         },
         "updated_at": {
           "name": "updated_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -2956,7 +2989,7 @@
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "timestamptz",
+          "type": "timestamptz(6)",
           "unsigned": false,
           "autoincrement": false,
           "primary": false,
@@ -2985,38 +3018,156 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "pinned": {
+          "name": "pinned",
+          "type": "bool",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
+        "duration_minutes": {
+          "name": "duration_minutes",
+          "type": "int4",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": 32,
+          "scale": 0,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "all_day": {
+          "name": "all_day",
+          "type": "bool",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
+        "recurrence_rule": {
+          "name": "recurrence_rule",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "recurrence_end": {
+          "name": "recurrence_end",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "participants": {
+          "name": "participants",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
+        "reminder_minutes": {
+          "name": "reminder_minutes",
+          "type": "int4",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": 32,
+          "scale": 0,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
+        "visibility": {
+          "name": "visibility",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "text"
         }
       },
       "name": "customer_interactions",
       "schema": "public",
       "indexes": [
         {
-          "keyName": "customer_interactions_type_idx",
-          "columnNames": [
-            "tenant_id",
-            "organization_id",
-            "interaction_type"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "customer_interactions_org_tenant_status_idx",
-          "columnNames": [
-            "organization_id",
-            "tenant_id",
-            "status",
-            "scheduled_at"
-          ],
-          "composite": true,
-          "constraint": false,
-          "primary": false,
-          "unique": false
-        },
-        {
-          "keyName": "customer_interactions_entity_status_scheduled_idx",
           "columnNames": [
             "entity_id",
             "status",
@@ -3025,36 +3176,283 @@
           ],
           "composite": true,
           "constraint": false,
-          "primary": false,
-          "unique": false
+          "keyName": "customer_interactions_entity_status_scheduled_idx",
+          "unique": false,
+          "primary": false
         },
         {
-          "keyName": "customer_interactions_pkey",
+          "columnNames": [
+            "organization_id",
+            "tenant_id",
+            "status",
+            "scheduled_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "customer_interactions_org_tenant_status_idx",
+          "unique": false,
+          "primary": false
+        },
+        {
           "columnNames": [
             "id"
           ],
           "composite": false,
-          "constraint": true,
-          "primary": true,
-          "unique": true
+          "constraint": false,
+          "keyName": "customer_interactions_pkey",
+          "unique": true,
+          "primary": true
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "interaction_type"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "customer_interactions_type_idx",
+          "unique": false,
+          "primary": false
         }
       ],
       "checks": [],
       "foreignKeys": {
         "customer_interactions_entity_id_foreign": {
-          "constraintName": "customer_interactions_entity_id_foreign",
           "columnNames": [
             "entity_id"
           ],
+          "constraintName": "customer_interactions_entity_id_foreign",
           "localTableName": "public.customer_interactions",
+          "referencedTableName": "public.customer_entities",
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.customer_entities",
-          "updateRule": "cascade"
+          "updateRule": "cascade",
+          "deleteRule": "no action"
         }
       },
-      "nativeEnums": {}
+      "nativeEnums": {},
+      "comment": null
+    },
+    {
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": true,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "gen_random_uuid()",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "is_primary": {
+          "name": "is_primary",
+          "type": "bool",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
+        "person_entity_id": {
+          "name": "person_entity_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": true,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
+        "company_entity_id": {
+          "name": "company_entity_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        }
+      },
+      "name": "customer_person_company_links",
+      "schema": "public",
+      "indexes": [
+        {
+          "columnNames": [
+            "company_entity_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "customer_person_company_links_company_idx",
+          "unique": false,
+          "primary": false
+        },
+        {
+          "columnNames": [
+            "person_entity_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "customer_person_company_links_person_idx",
+          "unique": false,
+          "primary": false
+        },
+        {
+          "columnNames": [
+            "id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "keyName": "customer_person_company_links_pkey",
+          "unique": true,
+          "primary": true
+        },
+        {
+          "columnNames": [
+            "organization_id",
+            "tenant_id"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "customer_person_company_links_scope_idx",
+          "unique": false,
+          "primary": false
+        },
+        {
+          "columnNames": [
+            "person_entity_id",
+            "company_entity_id"
+          ],
+          "composite": true,
+          "constraint": true,
+          "keyName": "customer_person_company_links_unique",
+          "unique": true,
+          "primary": false
+        }
+      ],
+      "checks": [],
+      "foreignKeys": {
+        "customer_person_company_links_company_entity_id_foreign": {
+          "columnNames": [
+            "company_entity_id"
+          ],
+          "constraintName": "customer_person_company_links_company_entity_id_foreign",
+          "localTableName": "public.customer_person_company_links",
+          "referencedTableName": "public.customer_entities",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "updateRule": "cascade",
+          "deleteRule": "no action"
+        },
+        "customer_person_company_links_person_entity_id_foreign": {
+          "columnNames": [
+            "person_entity_id"
+          ],
+          "constraintName": "customer_person_company_links_person_entity_id_foreign",
+          "localTableName": "public.customer_person_company_links",
+          "referencedTableName": "public.customer_entities",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "updateRule": "cascade",
+          "deleteRule": "no action"
+        }
+      },
+      "nativeEnums": {},
+      "comment": null
     },
     {
       "columns": {

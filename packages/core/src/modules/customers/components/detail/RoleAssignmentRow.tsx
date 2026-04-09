@@ -1,11 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { X } from 'lucide-react'
+import { MoreHorizontal } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 interface RoleAssignment {
@@ -41,6 +43,7 @@ export function RoleAssignmentRow({
   const t = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [removing, setRemoving] = React.useState(false)
+  const [changingUser, setChangingUser] = React.useState(false)
 
   const searchUsers = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
     try {
@@ -139,32 +142,84 @@ export function RoleAssignmentRow({
     [role.userEmail, role.userId, role.userName],
   )
 
+  const initials = React.useMemo(() => {
+    const name = role.userName ?? role.userEmail ?? ''
+    const words = name.trim().split(/\s+/)
+    if (words.length === 0 || !words[0]) return '?'
+    if (words.length === 1) return words[0].charAt(0).toUpperCase()
+    return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase()
+  }, [role.userName, role.userEmail])
+
+  const displayName = role.userName ?? role.userEmail ?? role.userId
+
   return (
     <>
       {ConfirmDialogElement}
-      <div className="flex items-center gap-3">
-        <span className="min-w-[120px] shrink-0 text-sm text-muted-foreground">
-          {roleTypeLabel}:
-        </span>
-        <div className="min-w-0 flex-1">
-          <LookupSelect
-            value={role.userId}
-            options={currentUserOptions}
-            fetchItems={searchUsers}
-            onChange={handleUserChange}
-            searchPlaceholder={t('customers.roles.assignPlaceholder', 'Search staff...')}
-          />
+      <div className="flex items-center gap-3 rounded-md px-1 py-1.5">
+        {/* Avatar circle */}
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+          {initials}
         </div>
-        <IconButton
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={handleRemove}
-          disabled={removing}
-          aria-label={t('customers.roles.remove', 'Remove role')}
-        >
-          <X className="size-3.5" />
-        </IconButton>
+
+        {/* Role info */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">{roleTypeLabel}</span>
+          </div>
+          {changingUser ? (
+            <div className="mt-0.5 text-xs">
+              <LookupSelect
+                value={role.userId}
+                onChange={async (userId) => {
+                  await handleUserChange(userId)
+                  setChangingUser(false)
+                }}
+                fetchItems={searchUsers}
+                options={currentUserOptions}
+                placeholder={t('customers.roles.searchPlaceholder', 'Search team member...')}
+              />
+            </div>
+          ) : (
+            <span className="block truncate text-sm font-medium">{displayName}</span>
+          )}
+        </div>
+
+        {/* Three-dot menu */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="xs"
+              aria-label={t('customers.roles.moreActions', 'More actions')}
+            >
+              <MoreHorizontal className="size-3.5" />
+            </IconButton>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-40 p-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs"
+              onClick={() => {
+                setChangingUser(true)
+              }}
+            >
+              {t('customers.roles.changeUser', 'Change user')}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-xs text-destructive hover:text-destructive"
+              onClick={handleRemove}
+              disabled={removing}
+            >
+              {t('customers.roles.remove', 'Remove role')}
+            </Button>
+          </PopoverContent>
+        </Popover>
       </div>
     </>
   )

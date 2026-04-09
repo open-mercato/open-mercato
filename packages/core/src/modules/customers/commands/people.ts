@@ -18,6 +18,7 @@ import {
   CustomerInteraction,
   CustomerDeal,
   CustomerDealPersonLink,
+  CustomerPersonCompanyLink,
   CustomerTodoLink,
   CustomerEntity,
   CustomerPersonProfile,
@@ -51,6 +52,11 @@ import {
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  loadPersonCompanyLinks,
+  summarizePersonCompanies,
+  syncLegacyPrimaryCompanyLink,
+} from '../lib/personCompanies'
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 
@@ -157,6 +163,12 @@ type PersonSnapshot = {
     twitterUrl: string | null
     companyEntityId: string | null
   }
+  companies: Array<{
+    linkId: string | null
+    companyId: string
+    displayName: string
+    isPrimary: boolean
+  }>
   tagIds: string[]
   addresses: PersonAddressSnapshot[]
   comments: PersonCommentSnapshot[]
@@ -230,6 +242,7 @@ function serializePersonSnapshot(
   interactions: Array<PersonInteractionSnapshot>,
   custom?: Record<string, unknown>
 ): PersonSnapshot {
+  const companies = summarizePersonCompanies(profile, [])
   return {
     entity: {
       id: entity.id,
@@ -267,6 +280,7 @@ function serializePersonSnapshot(
           : profile.company.id
         : null,
     },
+    companies,
     tagIds,
     addresses: addresses.map((address) => ({
       id: address.id,
@@ -345,6 +359,7 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
     { tenantId: entity.tenantId, organizationId: entity.organizationId },
   )
   if (!profile) return null
+  const companyLinks = await loadPersonCompanyLinks(em, entity)
   const tagIds = await loadEntityTagIds(em, entity)
   const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
   const comments = await findWithDecryption(
@@ -416,7 +431,9 @@ async function loadPersonSnapshot(em: EntityManager, entityId: string): Promise<
       }),
     })),
   )
-  return serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, activities, todoLinks, interactionSnapshots, custom)
+  const snapshot = serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, activities, todoLinks, interactionSnapshots, custom)
+  snapshot.companies = summarizePersonCompanies(profile, companyLinks)
+  return snapshot
 }
 
 async function resolveCompanyReference(
@@ -535,8 +552,6 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       isActive: parsed.isActive ?? true,
     })
 
-    const company = await resolveCompanyReference(em, parsed.companyEntityId ?? null, parsed.organizationId, parsed.tenantId)
-
     const profile = em.create(CustomerPersonProfile, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -550,7 +565,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       timezone,
       linkedInUrl,
       twitterUrl,
-      company,
+      company: null,
     })
 
     em.persist(entity)
@@ -579,6 +594,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         value: source,
       })
     }
+    await syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null)
     await em.flush()
 
     const tenantId = entity.tenantId
@@ -741,7 +757,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     if (parsed.twitterUrl !== undefined) profile.twitterUrl = normalizeOptionalString(parsed.twitterUrl)
 
     if (parsed.companyEntityId !== undefined) {
-      profile.company = await resolveCompanyReference(em, parsed.companyEntityId, record.organizationId, record.tenantId)
+      await syncLegacyPrimaryCompanyLink(em, record, profile, parsed.companyEntityId)
     }
 
     const profileFieldsUpdated = [
@@ -856,14 +872,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         twitterUrl: before.profile.twitterUrl,
       })
       em.persist(profile)
-      if (before.profile.companyEntityId) {
-        profile.company = await resolveCompanyReference(
-          em,
-          before.profile.companyEntityId,
-          before.entity.organizationId,
-          before.entity.tenantId
-        )
-      }
+      await syncLegacyPrimaryCompanyLink(em, newEntity, profile, before.profile.companyEntityId)
       await em.flush()
       await syncEntityTags(em, newEntity, before.tagIds)
       await em.flush()
@@ -894,14 +903,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
         profile.timezone = before.profile.timezone
         profile.linkedInUrl = before.profile.linkedInUrl
         profile.twitterUrl = before.profile.twitterUrl
-        profile.company = before.profile.companyEntityId
-          ? await resolveCompanyReference(
-              em,
-              before.profile.companyEntityId,
-              before.entity.organizationId,
-              before.entity.tenantId
-            )
-          : null
+        await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
       }
       await syncEntityTags(em, entity, before.tagIds)
       await em.flush()
@@ -958,6 +960,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.nativeDelete(CustomerTodoLink, { entity: record })
       await em.nativeDelete(CustomerTagAssignment, { entity: record })
       await em.nativeDelete(CustomerDealPersonLink, { person: record })
+      await em.nativeDelete(CustomerPersonCompanyLink, { person: record })
       em.remove(record)
       await em.flush()
 
@@ -1128,17 +1131,31 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         profile.twitterUrl = before.profile.twitterUrl
       }
 
-      if (before.profile.companyEntityId) {
-        profile.company = await resolveCompanyReference(
-          em,
-          before.profile.companyEntityId,
-          before.entity.organizationId,
-          before.entity.tenantId
-        )
-      } else {
-        profile.company = null
-      }
+      await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
 
+      await em.flush()
+      await em.nativeDelete(CustomerPersonCompanyLink, { person: entity })
+      for (const companyLink of before.companies ?? []) {
+        const company = await resolveCompanyReference(
+          em,
+          companyLink.companyId,
+          before.entity.organizationId,
+          before.entity.tenantId,
+        )
+        if (!company) continue
+        const restoredLink = em.create(CustomerPersonCompanyLink, {
+          id: companyLink.linkId ?? undefined,
+          organizationId: before.entity.organizationId,
+          tenantId: before.entity.tenantId,
+          person: entity,
+          company,
+          isPrimary: companyLink.isPrimary,
+        })
+        em.persist(restoredLink)
+        if (companyLink.isPrimary) {
+          profile.company = company
+        }
+      }
       await em.flush()
       await syncEntityTags(em, entity, before.tagIds)
       await em.flush()

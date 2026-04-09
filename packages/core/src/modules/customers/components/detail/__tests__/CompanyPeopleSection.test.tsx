@@ -24,6 +24,10 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
 
+jest.mock('../RolesSection', () => ({
+  RolesSection: () => null,
+}))
+
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) => (open ? <div>{children}</div> : null),
   DialogContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div data-testid="dialog-content" {...props}>{children}</div>,
@@ -86,7 +90,7 @@ describe('CompanyPeopleSection', () => {
     readApiResultOrThrowMock.mockReset()
   })
 
-  it('preserves returnTo when creating a person from the empty state', () => {
+  it('opens the inline create dialog from the empty state', () => {
     renderWithProviders(
       <CompanyPeopleSection
         companyId="company-123"
@@ -99,9 +103,7 @@ describe('CompanyPeopleSection', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create person' }))
 
-    expect(pushMock).toHaveBeenCalledWith(
-      '/backend/customers/people/create?companyId=company-123&returnTo=%2Fbackend%2Fcustomers%2Fcompanies-v2%2Fcompany-123%3Ftab%3Dpeople',
-    )
+    expect(screen.getByText('Add new person')).toBeInTheDocument()
   })
 
   it('links an existing person through the guarded mutation path', async () => {
@@ -142,10 +144,10 @@ describe('CompanyPeopleSection', () => {
 
     expect(runGuardedMutation).toHaveBeenCalled()
     expect(apiCallOrThrowMock).toHaveBeenCalledWith(
-      '/api/customers/people',
+      '/api/customers/people/person-2/companies',
       expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({ id: 'person-2', companyEntityId: 'company-123' }),
+        method: 'POST',
+        body: JSON.stringify({ companyId: 'company-123' }),
       }),
       expect.any(Object),
     )
@@ -194,10 +196,10 @@ describe('CompanyPeopleSection', () => {
     })
 
     expect(apiCallOrThrowMock).toHaveBeenCalledWith(
-      '/api/customers/people',
+      '/api/customers/people/person-2/companies',
       expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({ id: 'person-2', companyEntityId: 'company-123' }),
+        method: 'POST',
+        body: JSON.stringify({ companyId: 'company-123' }),
       }),
       expect.any(Object),
     )
@@ -283,11 +285,8 @@ describe('CompanyPeopleSection', () => {
 
     expect(runGuardedMutation).toHaveBeenCalled()
     expect(apiCallOrThrowMock).toHaveBeenCalledWith(
-      '/api/customers/people',
-      expect.objectContaining({
-        method: 'PUT',
-        body: JSON.stringify({ id: 'person-1', companyEntityId: null }),
-      }),
+      '/api/customers/people/person-1/companies/company-123',
+      expect.objectContaining({ method: 'DELETE' }),
       expect.any(Object),
     )
     await waitFor(() => {

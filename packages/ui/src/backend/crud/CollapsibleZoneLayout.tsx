@@ -1,11 +1,17 @@
 'use client'
 import * as React from 'react'
-import { ChevronLeft, ChevronRight, AlertCircle } from 'lucide-react'
-import { cn } from '@open-mercato/shared/lib/utils'
+import { ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '../../primitives/button'
-import { IconButton } from '../../primitives/icon-button'
 import { useZoneCollapse } from './useZoneCollapse'
+import type { LucideIcon } from 'lucide-react'
+
+export interface ZoneSectionDescriptor {
+  id: string
+  icon: LucideIcon
+  label: string
+  errorCount?: number
+}
 
 export interface CollapsibleZoneLayoutProps {
   zone1: React.ReactNode
@@ -15,6 +21,8 @@ export interface CollapsibleZoneLayoutProps {
   zone1DefaultWidth?: string
   errorCount?: number
   isDirty?: boolean
+  /** Section descriptors for the collapsed rail icon sidebar. When omitted the rail shows the legacy minimal view. */
+  sections?: ZoneSectionDescriptor[]
 }
 
 function subscribeViewport(callback: () => void) {
@@ -38,6 +46,7 @@ export function CollapsibleZoneLayout({
   pageType,
   errorCount = 0,
   isDirty = false,
+  sections,
 }: CollapsibleZoneLayoutProps) {
   const t = useT()
   const { collapsed, toggle, setCollapsed } = useZoneCollapse(pageType)
@@ -57,85 +66,76 @@ export function CollapsibleZoneLayout({
     })
   }, [canCollapse, toggle])
 
-  const handleExpandWithErrors = React.useCallback(() => {
-    setCollapsed(false)
-  }, [setCollapsed])
-
   return (
     <div className="flex flex-col lg:flex-row gap-4">
-      {/* Zone 1 — CrudForm area */}
-      <div
-        className={cn(
-          'motion-safe:transition-all motion-safe:duration-250',
-          effectiveCollapsed
-            ? 'hidden lg:flex lg:w-12 lg:flex-col lg:items-center lg:gap-2 lg:py-3 lg:border lg:rounded-lg lg:bg-card lg:shrink-0'
-            : 'w-full lg:w-[40%] lg:shrink-0'
-        )}
-      >
-        {effectiveCollapsed ? (
-          <>
-            <IconButton
+      {effectiveCollapsed ? (
+        <>
+          <div className="hidden lg:flex shrink-0 flex-col items-center gap-3">
+            <Button
               ref={expandButtonRef}
-              variant="ghost"
-              size="sm"
               type="button"
+              variant="default"
+              size="sm"
               onClick={toggle}
+              className="h-auto rounded-[10px] px-1.5 py-2 shadow-sm"
               aria-label={t('ui.zone.expand', 'Expand form panel')}
             >
-              <ChevronRight className="size-4" />
-            </IconButton>
-            {errorCount > 0 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleExpandWithErrors}
-                className="h-auto min-w-0 flex-col gap-0.5 px-1 py-1 text-destructive hover:text-destructive"
-                title={t('ui.zone.validationErrors', '{{count}} validation error(s)', { count: errorCount })}
-              >
-                <AlertCircle className="size-4" />
-                <span className="text-[10px] font-medium">{errorCount}</span>
-              </Button>
-            )}
-            {isDirty && (
-              <span
-                className="size-2 rounded-full bg-amber-500"
-                title={t('ui.zone.unsavedChanges', 'Unsaved changes')}
-              />
-            )}
-            <span
-              className="mt-2 text-xs text-muted-foreground font-medium truncate max-w-[2.5rem]"
-              style={{ writingMode: 'vertical-lr', textOrientation: 'mixed' }}
-              title={entityName}
-            >
-              {entityName}
-            </span>
-          </>
-        ) : (
-          <div className="relative">
-            {zone1}
-            <div className="hidden lg:flex absolute top-2 right-2">
-              <IconButton
-                variant="ghost"
-                size="xs"
-                type="button"
-                onClick={handleCollapse}
-                aria-label={t('ui.zone.collapse', 'Collapse form panel')}
-              >
-                <ChevronLeft className="size-3" />
-              </IconButton>
-            </div>
+              <ChevronsRight className="size-4" />
+            </Button>
+            {sections?.length ? (
+              <div className="flex flex-col items-center gap-2 rounded-[14px] border border-border/70 bg-card px-2 py-3">
+                {sections.map((section) => {
+                  const SectionIcon = section.icon
+                  const hasErrors = Boolean(section.errorCount && section.errorCount > 0)
+                  return (
+                    <div
+                      key={section.id}
+                      className="relative flex size-9 items-center justify-center rounded-[10px] border border-transparent bg-muted/70 text-muted-foreground"
+                      title={section.label}
+                    >
+                      <SectionIcon className="size-4" />
+                      {hasErrors ? (
+                        <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-destructive" />
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : null}
           </div>
-        )}
-      </div>
+          {/* Zone 2 takes full width */}
+          <div className="min-w-0 flex-1">
+            {zone2}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Zone 1 — CrudForm area */}
+          <div className="w-full lg:w-[40%] lg:shrink-0">
+            {zone1}
+          </div>
 
-      {/* Zone 2 — Tabs / related data area */}
-      <div className={cn(
-        'min-w-0',
-        effectiveCollapsed ? 'flex-1' : 'w-full lg:flex-1'
-      )}>
-        {zone2}
-      </div>
+          {/* Divider with collapse toggle */}
+          <div className="hidden lg:flex relative shrink-0 w-8 items-start justify-center pt-4">
+            <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleCollapse}
+              className="relative z-10 h-auto rounded-[6px] border bg-card px-1.5 py-2"
+              aria-label={t('ui.zone.collapse', 'Collapse form panel')}
+            >
+              <ChevronsLeft className="size-4" />
+            </Button>
+          </div>
+
+          {/* Zone 2 — Tabs / related data area */}
+          <div className="min-w-0 w-full lg:flex-1">
+            {zone2}
+          </div>
+        </>
+      )}
     </div>
   )
 }

@@ -1,16 +1,27 @@
 'use client'
 import * as React from 'react'
-import { Clock, AlertCircle, CalendarClock } from 'lucide-react'
+import { Phone, Mail, Users, StickyNote, Clock, AlertCircle, CalendarClock, Check, MoreHorizontal, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { InteractionSummary } from './types'
+
+const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  call: Phone,
+  email: Mail,
+  meeting: Users,
+  note: StickyNote,
+}
 
 interface PlannedActivitiesSectionProps {
   activities: InteractionSummary[]
   onComplete?: (id: string) => void
+  onSchedule?: () => void
 }
 
-export function PlannedActivitiesSection({ activities, onComplete }: PlannedActivitiesSectionProps) {
+export function PlannedActivitiesSection({ activities, onComplete, onSchedule }: PlannedActivitiesSectionProps) {
   const t = useT()
 
   if (activities.length === 0) return null
@@ -27,66 +38,168 @@ export function PlannedActivitiesSection({ activities, onComplete }: PlannedActi
   const upcoming = classified.filter((a) => !a.isOverdue)
 
   return (
-    <div className="rounded-lg border bg-card px-4 py-3 space-y-2">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <CalendarClock className="size-4 text-muted-foreground" />
-        {t('customers.timeline.planned.title', 'Planned activities')}
+    <div className="rounded-lg border bg-card">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <CalendarClock className="size-4 text-muted-foreground" />
+          {t('customers.timeline.planned.title', 'Planned activities')}
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            {activities.length}
+          </span>
+          {overdue.length > 0 && (
+            <span className="flex items-center gap-1 text-xs font-medium text-destructive">
+              <AlertCircle className="size-3" />
+              {overdue.length} {t('customers.timeline.planned.overdueCount', 'overdue')}
+            </span>
+          )}
+        </div>
+        {onSchedule && (
+          <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={onSchedule}>
+            <Plus className="mr-1 size-3" />
+            {t('customers.timeline.planned.schedule', 'Schedule')}
+          </Button>
+        )}
       </div>
 
-      {overdue.map((activity) => (
-        <div
-          key={activity.id}
-          className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-sm"
-        >
-          <AlertCircle className="size-4 text-destructive mt-0.5 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-destructive">
-                {t('customers.timeline.planned.overdue', 'Overdue')}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {activity.scheduledAt ? formatDate(activity.scheduledAt) : ''}
-              </span>
+      {/* Items */}
+      <div className="divide-y">
+        {overdue.map((activity) => {
+          const TypeIcon = TYPE_ICONS[activity.interactionType]
+          return (
+            <div
+              key={activity.id}
+              className="flex items-center gap-3 border-l-2 border-l-destructive px-4 py-3"
+            >
+              <div className="flex items-center justify-center size-8 rounded-full bg-destructive/10 shrink-0">
+                {TypeIcon ? <TypeIcon className="size-4 text-destructive" /> : <AlertCircle className="size-4 text-destructive" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium block truncate">
+                  {activity.title ?? activity.body ?? activity.interactionType}
+                </span>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1 font-medium text-destructive">
+                    {t('customers.timeline.planned.overdue', 'Overdue')}
+                  </span>
+                  <span>
+                    {activity.scheduledAt ? formatRelativeOverdue(activity.scheduledAt, t) : ''}
+                  </span>
+                  {activity.authorName && (
+                    <>
+                      <span>·</span>
+                      <span>{activity.authorName}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {onComplete && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0 text-xs"
+                  onClick={() => onComplete(activity.id)}
+                >
+                  <Check className="mr-1 size-3" />
+                  {t('customers.timeline.planned.markDone', 'Mark done')}
+                </Button>
+              )}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.more', 'More')}>
+                    <MoreHorizontal className="size-3.5" />
+                  </IconButton>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-40 p-1">
+                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs">
+                    {t('customers.timeline.planned.reschedule', 'Reschedule')}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-destructive hover:text-destructive">
+                    {t('customers.timeline.planned.cancel', 'Cancel')}
+                  </Button>
+                </PopoverContent>
+              </Popover>
             </div>
-            <span className="text-sm truncate block">
-              {activity.title ?? activity.body ?? activity.interactionType}
-            </span>
-          </div>
-        </div>
-      ))}
+          )
+        })}
 
-      {upcoming.map((activity) => (
-        <div
-          key={activity.id}
-          className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm"
-        >
-          <Clock className="size-4 text-green-600 mt-0.5 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-green-600">
-                {t('customers.timeline.planned.upcoming', 'Upcoming')}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {activity.scheduledAt ? formatDate(activity.scheduledAt) : ''}
-              </span>
+        {upcoming.map((activity) => {
+          const TypeIcon = TYPE_ICONS[activity.interactionType]
+          return (
+            <div
+              key={activity.id}
+              className="flex items-center gap-3 px-4 py-3"
+            >
+              <div className="flex items-center justify-center size-8 rounded-full bg-muted shrink-0">
+                {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : <Clock className="size-4 text-muted-foreground" />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <span className="text-sm font-medium block truncate">
+                  {activity.title ?? activity.body ?? activity.interactionType}
+                </span>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt) : ''}</span>
+                  {activity.authorName && (
+                    <>
+                      <span>·</span>
+                      <span>{activity.authorName}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.timeline.more', 'More')}>
+                    <MoreHorizontal className="size-3.5" />
+                  </IconButton>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-40 p-1">
+                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs">
+                    {t('customers.timeline.planned.reschedule', 'Reschedule')}
+                  </Button>
+                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-destructive hover:text-destructive">
+                    {t('customers.timeline.planned.cancel', 'Cancel')}
+                  </Button>
+                </PopoverContent>
+              </Popover>
             </div>
-            <span className="text-sm truncate block">
-              {activity.title ?? activity.body ?? activity.interactionType}
-            </span>
-          </div>
-        </div>
-      ))}
+          )
+        })}
+      </div>
     </div>
   )
 }
 
-function formatDate(isoString: string): string {
+function formatRelativeOverdue(isoString: string, t: TranslateFn): string {
   try {
-    return new Date(isoString).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    })
+    const date = new Date(isoString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    if (diffDays <= 0) return t('customers.timeline.planned.overdueToday', 'due today')
+    if (diffDays === 1) return t('customers.timeline.planned.overdueSince', 'since yesterday')
+    return t('customers.timeline.planned.overdueDays', 'overdue {{days}} days', { days: diffDays })
+  } catch {
+    return ''
+  }
+}
+
+function formatScheduledDate(isoString: string): string {
+  try {
+    const date = new Date(isoString)
+    const now = new Date()
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
+    const dayName = date.toLocaleDateString(undefined, { weekday: 'short' })
+    const dateStr = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+    const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+
+    if (date.toDateString() === tomorrow.toDateString()) {
+      return `Tomorrow ${timeStr}`
+    }
+    return `${dayName}, ${dateStr} · ${timeStr}`
   } catch {
     return isoString
   }

@@ -1,0 +1,252 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  CustomerEntity,
+  CustomerPersonCompanyLink,
+  CustomerPersonProfile,
+} from '../data/entities'
+
+export type PersonCompanySummary = {
+  linkId: string | null
+  companyId: string
+  displayName: string
+  isPrimary: boolean
+  synthetic?: boolean
+}
+
+async function requireCompany(
+  em: EntityManager,
+  companyId: string,
+  organizationId: string,
+  tenantId: string,
+): Promise<CustomerEntity> {
+  const company = await em.findOne(CustomerEntity, { id: companyId, kind: 'company', deletedAt: null })
+  if (!company) {
+    throw new CrudHttpError(404, { error: 'Company not found' })
+  }
+  if (company.organizationId !== organizationId || company.tenantId !== tenantId) {
+    throw new CrudHttpError(403, { error: 'Cannot link company outside current scope' })
+  }
+  return company
+}
+
+export async function loadPersonCompanyLinks(
+  em: EntityManager,
+  person: CustomerEntity,
+): Promise<CustomerPersonCompanyLink[]> {
+  return em.find(
+    CustomerPersonCompanyLink,
+    { person, organizationId: person.organizationId, tenantId: person.tenantId },
+    { populate: ['company'], orderBy: { isPrimary: 'desc', createdAt: 'asc' } },
+  )
+}
+
+export function summarizePersonCompanies(
+  profile: CustomerPersonProfile | null,
+  links: CustomerPersonCompanyLink[],
+): PersonCompanySummary[] {
+  if (links.length > 0) {
+    const items: PersonCompanySummary[] = []
+    links.forEach((link) => {
+      const company = typeof link.company === 'string' ? null : link.company
+      if (!company) return
+      items.push({
+        linkId: link.id,
+        companyId: company.id,
+        displayName: company.displayName,
+        isPrimary: Boolean(link.isPrimary),
+      })
+    })
+    return items
+  }
+
+  const fallbackCompany = profile?.company && typeof profile.company !== 'string' ? profile.company : null
+  if (!fallbackCompany) return []
+
+  return [
+    {
+      linkId: fallbackCompany.id,
+      companyId: fallbackCompany.id,
+      displayName: fallbackCompany.displayName,
+      isPrimary: true,
+      synthetic: true,
+    },
+  ]
+}
+
+async function clearPrimaryFlags(em: EntityManager, person: CustomerEntity): Promise<void> {
+  await em.nativeUpdate(
+    CustomerPersonCompanyLink,
+    { person, organizationId: person.organizationId, tenantId: person.tenantId, isPrimary: true },
+    { isPrimary: false },
+  )
+}
+
+export async function syncLegacyPrimaryCompanyLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  profile: CustomerPersonProfile,
+  companyId: string | null | undefined,
+): Promise<void> {
+  const normalizedCompanyId = typeof companyId === 'string' && companyId.trim().length > 0 ? companyId.trim() : null
+  const existingLinks = await loadPersonCompanyLinks(em, person)
+
+  if (!normalizedCompanyId) {
+    if (existingLinks.some((link) => link.isPrimary)) {
+      await clearPrimaryFlags(em, person)
+    }
+    profile.company = null
+    return
+  }
+
+  const company = await requireCompany(em, normalizedCompanyId, person.organizationId, person.tenantId)
+  const currentLink =
+    existingLinks.find((link) => (typeof link.company === 'string' ? link.company : link.company.id) === company.id) ?? null
+
+  if (currentLink) {
+    if (!currentLink.isPrimary) {
+      await clearPrimaryFlags(em, person)
+      currentLink.isPrimary = true
+    } else if (existingLinks.some((link) => link.id !== currentLink.id && link.isPrimary)) {
+      await clearPrimaryFlags(em, person)
+      currentLink.isPrimary = true
+    }
+  } else {
+    await clearPrimaryFlags(em, person)
+    const link = em.create(CustomerPersonCompanyLink, {
+      organizationId: person.organizationId,
+      tenantId: person.tenantId,
+      person,
+      company,
+      isPrimary: true,
+    })
+    em.persist(link)
+  }
+
+  profile.company = company
+}
+
+export async function addPersonCompanyLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  profile: CustomerPersonProfile,
+  companyId: string,
+  options?: { isPrimary?: boolean },
+): Promise<CustomerPersonCompanyLink> {
+  const company = await requireCompany(em, companyId, person.organizationId, person.tenantId)
+  const existingLinks = await loadPersonCompanyLinks(em, person)
+  const makePrimary = Boolean(options?.isPrimary) || existingLinks.length === 0
+  const existing =
+    existingLinks.find((link) => (typeof link.company === 'string' ? link.company : link.company.id) === company.id) ?? null
+
+  if (existing) {
+    if (makePrimary && !existing.isPrimary) {
+      await clearPrimaryFlags(em, person)
+      existing.isPrimary = true
+      profile.company = company
+    }
+    return existing
+  }
+
+  if (makePrimary) {
+    await clearPrimaryFlags(em, person)
+  }
+
+  const link = em.create(CustomerPersonCompanyLink, {
+    organizationId: person.organizationId,
+    tenantId: person.tenantId,
+    person,
+    company,
+    isPrimary: makePrimary,
+  })
+  em.persist(link)
+
+  if (makePrimary) {
+    profile.company = company
+  } else if (!profile.company && existingLinks.length === 0) {
+    profile.company = company
+    link.isPrimary = true
+  }
+
+  return link
+}
+
+export async function updatePersonCompanyLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  profile: CustomerPersonProfile,
+  linkId: string,
+  patch: { isPrimary?: boolean },
+): Promise<CustomerPersonCompanyLink | null> {
+  const existingLinks = await loadPersonCompanyLinks(em, person)
+  const link = existingLinks.find((entry) => entry.id === linkId)
+    ?? existingLinks.find((entry) => (typeof entry.company === 'string' ? entry.company : entry.company.id) === linkId)
+    ?? null
+
+  if (!link && profile.company && typeof profile.company !== 'string' && profile.company.id === linkId && patch.isPrimary === false) {
+    profile.company = null
+    return null
+  }
+
+  if (!link) {
+    throw new CrudHttpError(404, { error: 'Company link not found' })
+  }
+
+  if (patch.isPrimary === true) {
+    await clearPrimaryFlags(em, person)
+    link.isPrimary = true
+    if (typeof link.company !== 'string') {
+      profile.company = link.company
+    }
+  } else if (patch.isPrimary === false) {
+    link.isPrimary = false
+    if (profile.company && typeof link.company !== 'string' && profile.company.id === link.company.id) {
+      profile.company = null
+    }
+  }
+
+  return link
+}
+
+export async function removePersonCompanyLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  profile: CustomerPersonProfile,
+  linkId: string,
+): Promise<void> {
+  const existingLinks = await loadPersonCompanyLinks(em, person)
+  const link = existingLinks.find((entry) => entry.id === linkId)
+    ?? existingLinks.find((entry) => (typeof entry.company === 'string' ? entry.company : entry.company.id) === linkId)
+    ?? null
+
+  if (!link) {
+    if (profile.company && typeof profile.company !== 'string' && profile.company.id === linkId) {
+      profile.company = null
+      return
+    }
+    throw new CrudHttpError(404, { error: 'Company link not found' })
+  }
+
+  const removedCompanyId = typeof link.company === 'string' ? link.company : link.company.id
+  const removedWasPrimary = link.isPrimary
+  em.remove(link)
+  const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
+
+  if (removedWasPrimary) {
+    const nextPrimary = remainingLinks[0] ?? null
+    if (nextPrimary) {
+      await clearPrimaryFlags(em, person)
+      nextPrimary.isPrimary = true
+      if (typeof nextPrimary.company !== 'string') {
+        profile.company = nextPrimary.company
+      }
+    } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === removedCompanyId) {
+      profile.company = null
+    }
+  } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === removedCompanyId) {
+    const primary = remainingLinks.find((entry) => entry.isPrimary) ?? null
+    if (primary && typeof primary.company !== 'string') {
+      profile.company = primary.company
+    }
+  }
+}

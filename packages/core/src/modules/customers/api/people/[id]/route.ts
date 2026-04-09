@@ -35,6 +35,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -406,6 +407,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   let customFields: Record<string, unknown> = {}
   let viewerUserId: string | null = null
   let profile: CustomerPersonProfile | null = null
+  let companies: Array<{ linkId: string | null; companyId: string; displayName: string; isPrimary: boolean; synthetic?: boolean }> = []
 
   try {
     const parse = paramsSchema.safeParse({ id: ctx.params?.id })
@@ -467,6 +469,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
 
     profile = await em.findOne(CustomerPersonProfile, { entity: person }, { populate: ['company'] })
     profiler.mark('profile_loaded', { found: !!profile })
+    companies = summarizePersonCompanies(profile, await loadPersonCompanyLinks(em, person))
 
     if (includeAddresses) {
       addresses = await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
@@ -764,6 +767,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
             ownerUserId: deal.ownerUserId,
             source: deal.source,
+            closureOutcome: deal.closureOutcome ?? null,
+            lossReasonId: deal.lossReasonId ?? null,
+            lossNotes: deal.lossNotes ?? null,
             createdAt: deal.createdAt.toISOString(),
             updatedAt: deal.updatedAt.toISOString(),
           }))
@@ -811,9 +817,18 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
                 }).slice(0, 50)
           )
         : [],
-      company: profile?.company && typeof profile.company !== 'string'
-        ? { id: profile.company.id, displayName: profile.company.displayName }
-        : null,
+      isPrimary: companies.some((entry) => entry.isPrimary),
+      companies: companies.map((entry) => ({
+        id: entry.companyId,
+        displayName: entry.displayName,
+        isPrimary: entry.isPrimary,
+      })),
+      company: (() => {
+        const primaryCompany = companies.find((entry) => entry.isPrimary) ?? companies[0] ?? null
+        return primaryCompany
+          ? { id: primaryCompany.companyId, displayName: primaryCompany.displayName }
+          : null
+      })(),
       viewer: {
         userId: viewerUserIdFinal,
         name: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.name ?? null : null,
@@ -991,6 +1006,9 @@ const personDetailResponseSchema = z.object({
       expectedCloseAt: z.string().nullable().optional(),
       ownerUserId: z.string().uuid().nullable().optional(),
       source: z.string().nullable().optional(),
+      closureOutcome: z.string().nullable().optional(),
+      lossReasonId: z.string().uuid().nullable().optional(),
+      lossNotes: z.string().nullable().optional(),
       createdAt: z.string(),
       updatedAt: z.string(),
     }),
@@ -1010,6 +1028,14 @@ const personDetailResponseSchema = z.object({
       dueAt: z.string().nullable().optional(),
       todoOrganizationId: z.string().uuid().nullable().optional(),
       customValues: z.record(z.string(), z.unknown()).nullable().optional(),
+    }),
+  ),
+  isPrimary: z.boolean(),
+  companies: z.array(
+    z.object({
+      id: z.string().uuid(),
+      displayName: z.string(),
+      isPrimary: z.boolean(),
     }),
   ),
   viewer: z.object({

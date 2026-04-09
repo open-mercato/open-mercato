@@ -1,49 +1,24 @@
 'use client'
 import * as React from 'react'
-import { Phone, Mail, Handshake, StickyNote, Pin, PinOff } from 'lucide-react'
-import { cn } from '@open-mercato/shared/lib/utils'
+import { Phone, Mail, Users, StickyNote, User } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { AiActionChips } from './AiActionChips'
 import type { InteractionSummary } from './types'
 
 const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   call: Phone,
   email: Mail,
-  meeting: Handshake,
+  meeting: Users,
   note: StickyNote,
 }
 
 interface ActivityTimelineProps {
   activities: InteractionSummary[]
-  onPin: (id: string, pinned: boolean) => void
 }
 
-export function ActivityTimeline({ activities, onPin }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities }: ActivityTimelineProps) {
   const t = useT()
-
-  const pinned = activities.filter((a) => a.pinned)
-  const unpinned = activities.filter((a) => !a.pinned)
-
-  const groupedByYear = React.useMemo(() => {
-    const groups: Array<{ year: number; items: InteractionSummary[] }> = []
-    let currentYear: number | null = null
-    let currentGroup: InteractionSummary[] = []
-
-    for (const activity of unpinned) {
-      const dateStr = activity.occurredAt ?? activity.createdAt
-      const year = new Date(dateStr).getFullYear()
-      if (currentYear !== null && year !== currentYear) {
-        groups.push({ year: currentYear, items: currentGroup })
-        currentGroup = []
-      }
-      currentYear = year
-      currentGroup.push(activity)
-    }
-    if (currentYear !== null && currentGroup.length > 0) {
-      groups.push({ year: currentYear, items: currentGroup })
-    }
-    return groups
-  }, [unpinned])
 
   if (activities.length === 0) {
     return (
@@ -54,28 +29,14 @@ export function ActivityTimeline({ activities, onPin }: ActivityTimelineProps) {
   }
 
   return (
-    <div className="space-y-3">
-      {pinned.length > 0 && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground px-1">
-            <Pin className="size-3" />
-            {t('customers.timeline.pinned', 'Pinned')}
-          </div>
-          {pinned.map((activity) => (
-            <TimelineEntry key={activity.id} activity={activity} onPin={onPin} t={t} />
-          ))}
-        </div>
-      )}
-
-      {groupedByYear.map(({ year, items }) => (
-        <div key={year} className="space-y-1">
-          <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b py-1 px-1">
-            <span className="text-xs font-medium text-muted-foreground">{year}</span>
-          </div>
-          {items.map((activity) => (
-            <TimelineEntry key={activity.id} activity={activity} onPin={onPin} t={t} />
-          ))}
-        </div>
+    <div>
+      {activities.map((activity, index) => (
+        <TimelineEntry
+          key={activity.id}
+          activity={activity}
+          t={t}
+          withBorder={index < activities.length - 1}
+        />
       ))}
     </div>
   )
@@ -83,55 +44,86 @@ export function ActivityTimeline({ activities, onPin }: ActivityTimelineProps) {
 
 function TimelineEntry({
   activity,
-  onPin,
   t,
+  withBorder,
 }: {
   activity: InteractionSummary
-  onPin: (id: string, pinned: boolean) => void
-  t: (key: string, fallback?: string) => string
+  t: TranslateFn
+  withBorder: boolean
 }) {
-  const dateStr = activity.occurredAt ?? activity.createdAt
+  const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
+  const title = activity.title ?? activity.body ?? activity.interactionType
+  const duration = activity.duration ? ` (${activity.duration} min)` : ''
 
   return (
-    <div className="group flex items-start gap-3 rounded-md px-2 py-1.5 hover:bg-accent/50">
-      <span className="text-xs text-muted-foreground min-w-[60px] pt-0.5 shrink-0">
-        {formatShortDate(dateStr)}
-      </span>
-      <div className="flex items-center justify-center size-5 rounded-full bg-muted shrink-0 mt-0.5">
-        {TypeIcon ? <TypeIcon className="size-3 text-muted-foreground" /> : null}
+    <div className={`px-5 py-4 ${withBorder ? 'border-b border-border/60' : ''}`}>
+      <div className="grid items-start gap-3" style={{ gridTemplateColumns: '72px 40px 1fr' }}>
+        {/* Column 1: Date */}
+        <div className="shrink-0 pt-0.5">
+          <span className="block text-[12px] font-bold leading-tight">
+            {formatRelativeDate(dateStr, t)}
+          </span>
+          <span className="block text-[12px] leading-tight text-muted-foreground">
+            {formatTime(dateStr)}
+          </span>
+        </div>
+
+        {/* Column 2: Type icon */}
+        <div className="flex size-10 items-center justify-center rounded-[10px] bg-muted shrink-0">
+          {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : null}
+        </div>
+
+        {/* Column 3: Content */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-semibold leading-5">
+              {title}{duration}
+            </span>
+          </div>
+
+          {activity.body && activity.title && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {activity.body}
+            </p>
+          )}
+
+          {activity.authorName && (
+            <div className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+              <User className="size-3 shrink-0" />
+              <span>{t('customers.timeline.author', 'by {{name}}', { name: activity.authorName })}</span>
+            </div>
+          )}
+
+          <div className="mt-2">
+            <AiActionChips activityType={activity.interactionType} />
+          </div>
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <span className="text-sm truncate block">
-          {activity.title ?? activity.body ?? activity.interactionType}
-        </span>
-        {activity.authorName && (
-          <span className="text-xs text-muted-foreground">{activity.authorName}</span>
-        )}
-      </div>
-      <IconButton
-        type="button"
-        variant="ghost"
-        size="xs"
-        onClick={() => onPin(activity.id, !activity.pinned)}
-        aria-label={activity.pinned ? t('customers.timeline.unpin', 'Unpin') : t('customers.timeline.pin', 'Pin')}
-        className={cn(
-          'opacity-0 group-hover:opacity-100 transition-opacity',
-          activity.pinned && 'opacity-100 text-primary',
-        )}
-      >
-        {activity.pinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
-      </IconButton>
     </div>
   )
 }
 
-function formatShortDate(isoString: string): string {
+function formatRelativeDate(isoString: string, t: TranslateFn): string {
   try {
-    return new Date(isoString).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-    })
+    const date = new Date(isoString)
+    const now = new Date()
+    // Compare calendar dates (not time-based diff) to correctly handle same-day future times
+    const dateDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    const nowDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const diffDays = Math.round((nowDay.getTime() - dateDay.getTime()) / (1000 * 60 * 60 * 24))
+
+    if (diffDays === 0) return t('customers.timeline.date.today', 'today')
+    if (diffDays === 1) return t('customers.timeline.date.yesterday', 'yesterday')
+    return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+  } catch {
+    return ''
+  }
+}
+
+function formatTime(isoString: string): string {
+  try {
+    return new Date(isoString).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
   } catch {
     return ''
   }

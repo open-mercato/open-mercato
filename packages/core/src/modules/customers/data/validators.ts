@@ -120,6 +120,9 @@ export const dealCreateSchema = scopedSchema.extend({
   expectedCloseAt: z.coerce.date().optional(),
   ownerUserId: uuid().optional(),
   source: z.string().max(150).optional(),
+  closureOutcome: z.enum(['won', 'lost']).optional(),
+  lossReasonId: uuid().optional(),
+  lossNotes: z.string().max(4000).optional(),
   companyIds: z.array(uuid()).optional(),
   personIds: z.array(uuid()).optional(),
 })

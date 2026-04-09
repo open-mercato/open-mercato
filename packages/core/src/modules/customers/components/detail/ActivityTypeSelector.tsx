@@ -1,15 +1,15 @@
 'use client'
 import * as React from 'react'
-import { Phone, Mail, Handshake, StickyNote } from 'lucide-react'
+import { Phone, Mail, Users, StickyNote } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 const ACTIVITY_TYPES = [
-  { type: 'call', icon: Phone, labelKey: 'customers.activityComposer.types.call' },
-  { type: 'email', icon: Mail, labelKey: 'customers.activityComposer.types.email' },
-  { type: 'meeting', icon: Handshake, labelKey: 'customers.activityComposer.types.meeting' },
-  { type: 'note', icon: StickyNote, labelKey: 'customers.activityComposer.types.note' },
+  { type: 'call', icon: Phone, labelKey: 'customers.activityComposer.types.call', fallback: 'Call' },
+  { type: 'email', icon: Mail, labelKey: 'customers.activityComposer.types.email', fallback: 'Email' },
+  { type: 'meeting', icon: Users, labelKey: 'customers.activityComposer.types.meeting', fallback: 'Meeting' },
+  { type: 'note', icon: StickyNote, labelKey: 'customers.activityComposer.types.note', fallback: 'Note' },
 ] as const
 
 export type ActivityType = (typeof ACTIVITY_TYPES)[number]['type']
@@ -23,23 +23,29 @@ export function ActivityTypeSelector({ selectedType, onSelect }: ActivityTypeSel
   const t = useT()
 
   return (
-    <div className="flex items-center gap-1">
-      {ACTIVITY_TYPES.map(({ type, icon: Icon, labelKey }) => (
-        <IconButton
-          key={type}
-          type="button"
-          variant={selectedType === type ? 'outline' : 'ghost'}
-          size="sm"
-          onClick={() => onSelect(type)}
-          aria-label={t(labelKey)}
-          aria-pressed={selectedType === type}
-          className={cn(
-            selectedType === type && 'border-primary bg-primary/5 text-primary'
-          )}
-        >
-          <Icon className="size-4" />
-        </IconButton>
-      ))}
+    <div className="grid grid-cols-4 gap-2">
+      {ACTIVITY_TYPES.map(({ type, icon: Icon, labelKey, fallback }) => {
+        const isSelected = selectedType === type
+        return (
+          <Button
+            key={type}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => onSelect(type)}
+            aria-pressed={isSelected}
+            className={cn(
+              'h-10 gap-2 rounded-lg',
+              isSelected
+                ? 'border-foreground bg-background text-foreground shadow-sm'
+                : 'border-border text-muted-foreground',
+            )}
+          >
+            <Icon className="size-4" />
+            {t(labelKey, fallback)}
+          </Button>
+        )
+      })}
     </div>
   )
 }

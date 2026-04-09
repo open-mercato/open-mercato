@@ -1,10 +1,11 @@
 /**
  * @jest-environment jsdom
  */
+import { waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { ActivitiesSection as CustomerActivitiesSection } from '../ActivitiesSection'
 
-const sharedActivitiesSectionMock = jest.fn(() => null)
+const activityTimelineMock = jest.fn(() => null)
 const readApiResultOrThrowMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -46,20 +47,25 @@ jest.mock('../CustomFieldValuesList', () => ({
   CustomFieldValuesList: () => null,
 }))
 
-jest.mock('@open-mercato/ui/backend/detail', () => ({
-  ActivitiesSection: (props: unknown) => {
-    sharedActivitiesSectionMock(props)
+jest.mock('../ActivityTimelineFilters', () => ({
+  ActivityTimelineFilters: () => null,
+}))
+
+jest.mock('../ActivityTimeline', () => ({
+  ActivityTimeline: (props: unknown) => {
+    activityTimelineMock(props)
     return null
   },
 }))
 
 describe('Customer ActivitiesSection wrapper', () => {
   beforeEach(() => {
-    sharedActivitiesSectionMock.mockClear()
+    activityTimelineMock.mockClear()
     readApiResultOrThrowMock.mockReset()
   })
 
-  it('keeps the shared data adapter stable across rerenders and targets canonical interaction fields', () => {
+  it('loads canonical interactions without hitting the legacy activities route', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({ items: [] })
     const props = {
       entityId: 'company-123',
       useCanonicalInteractions: true,
@@ -70,20 +76,14 @@ describe('Customer ActivitiesSection wrapper', () => {
       },
     }
 
-    const { rerender } = renderWithProviders(<CustomerActivitiesSection {...props} />)
-    const firstProps = sharedActivitiesSectionMock.mock.calls[sharedActivitiesSectionMock.mock.calls.length - 1]?.[0] as {
-      dataAdapter: unknown
-      customFieldEntityIds: string[]
-    }
+    renderWithProviders(<CustomerActivitiesSection {...props} />)
 
-    rerender(<CustomerActivitiesSection {...props} />)
-    const secondProps = sharedActivitiesSectionMock.mock.calls[sharedActivitiesSectionMock.mock.calls.length - 1]?.[0] as {
-      dataAdapter: unknown
-      customFieldEntityIds: string[]
-    }
-
-    expect(secondProps.dataAdapter).toBe(firstProps.dataAdapter)
-    expect(secondProps.customFieldEntityIds).toEqual(['customers:customer_interaction'])
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        '/api/customers/interactions?entityId=company-123&limit=50&sortField=occurredAt&sortDir=desc&excludeInteractionType=task',
+      )
+    })
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('/api/customers/activities?'))
   })
 
   it('sorts upcoming canonical interactions ahead of historical activity items', async () => {
@@ -141,12 +141,17 @@ describe('Customer ActivitiesSection wrapper', () => {
       />,
     )
 
-    const props = sharedActivitiesSectionMock.mock.calls[sharedActivitiesSectionMock.mock.calls.length - 1]?.[0] as {
-      dataAdapter: { list: (params: { entityId: string }) => Promise<Array<{ id: string }>> }
+    await waitFor(() => {
+      const latestProps = activityTimelineMock.mock.calls[activityTimelineMock.mock.calls.length - 1]?.[0] as {
+        activities: Array<{ id: string }>
+      }
+      expect(latestProps.activities).toHaveLength(4)
+    })
+    const timelineProps = activityTimelineMock.mock.calls[activityTimelineMock.mock.calls.length - 1]?.[0] as {
+      activities: Array<{ id: string }>
     }
-    const items = await props.dataAdapter.list({ entityId: 'company-123' })
 
-    expect(items.map((item) => item.id)).toEqual([
+    expect(timelineProps.activities.map((item) => item.id)).toEqual([
       'upcoming-soon',
       'upcoming-later',
       'recent-history',

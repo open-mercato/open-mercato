@@ -3,6 +3,9 @@ import * as React from 'react'
 import Link from 'next/link'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
+import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { DataLoader } from '../primitives/DataLoader'
 import { flash } from './FlashMessages'
 import dynamic from 'next/dynamic'
@@ -73,6 +76,7 @@ import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
+import { useGroupOrder } from './crud/useGroupOrder'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
@@ -247,6 +251,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   embedded?: boolean
   // Hide the footer action bar (Save/Cancel/Delete) when embedding in a custom layout
   hideFooterActions?: boolean
+  onDirtyChange?: (dirty: boolean) => void
   // Optional custom content injected between the header actions and the form body
   contentHeader?: React.ReactNode
   readOnly?: boolean
@@ -258,7 +263,9 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   replacementHandle?: string
   // Enable collapsible group headers with localStorage persistence.
   // Pass `true` to enable with auto-generated pageType, or `{ pageType }` for explicit key.
-  collapsibleGroups?: boolean | { pageType: string }
+  collapsibleGroups?: boolean | { pageType: string; chevronPosition?: 'left' | 'right' }
+  // Enable drag-and-drop reordering of groups with localStorage persistence.
+  sortableGroups?: boolean | { pageType: string }
 }
 
 // Group-level custom component context
@@ -397,6 +404,21 @@ class FieldDefinitionsManagerErrorBoundary extends React.Component<
   }
 }
 
+function SortableGroupItem({ id, children, disabled }: { id: string; children: React.ReactNode; disabled?: boolean }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative' as const,
+  }
+  return (
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </div>
+  )
+}
+
 export function CrudForm<TValues extends Record<string, unknown>>({
   schema,
   fields,
@@ -422,6 +444,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customEntity = false,
   embedded = false,
   hideFooterActions = false,
+  onDirtyChange,
   extraActions,
   versionHistory,
   contentHeader,
@@ -431,6 +454,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   injectionSpotId,
   replacementHandle,
   collapsibleGroups,
+  sortableGroups,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -481,7 +505,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // Collapsible groups support
   const collapsibleGroupsEnabled = Boolean(collapsibleGroups)
   const collapsiblePageType = typeof collapsibleGroups === 'object' ? collapsibleGroups.pageType : formId
+  const collapsibleChevronPosition = typeof collapsibleGroups === 'object' ? collapsibleGroups.chevronPosition : undefined
   const groupCollapseRefs = React.useRef(new Map<string, CollapsibleGroupHandle>())
+
+  // Sortable groups support
+  const sortableGroupsEnabled = Boolean(sortableGroups)
+  const sortablePageType = typeof sortableGroups === 'object' ? sortableGroups.pageType : formId
   const fieldsetManagerRef = React.useRef<FieldDefinitionsManagerHandle | null>(null)
   const resolvedEntityIdsKey = React.useMemo(() => buildResolvedEntityIdsKey(entityId, entityIds), [entityId, entityIds])
   const resolvedEntityIds = React.useMemo(
@@ -546,11 +575,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const popStateRollbackRef = React.useRef(false)
 
   React.useEffect(() => {
-    if (embedded) {
-      isDirtyRef.current = false
-      setHasUnsavedChanges(false)
-      return
-    }
     const snapshot = dirtyBaselineSnapshotRef.current
     if (!snapshot) {
       isDirtyRef.current = false
@@ -561,7 +585,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
-  }, [embedded, values])
+  }, [values])
+
+  React.useEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges)
+  }, [hasUnsavedChanges, onDirtyChange])
 
   const allowNextNavigation = React.useCallback(() => {
     navigationPromptBypassRef.current = true
@@ -1582,6 +1610,24 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [allFields, groupsWithInjectedFields, injectionGroupCards, shouldAutoGroup])
   const useGroupedLayout = resolvedGroupsForLayout.length > 0
 
+  // Sortable group order
+  const defaultGroupIds = React.useMemo(() => resolvedGroupsForLayout.map((g) => g.id), [resolvedGroupsForLayout])
+  const { orderedIds: sortedGroupIds, reorder: reorderGroups } = useGroupOrder(
+    sortablePageType,
+    defaultGroupIds,
+  )
+  const sortableSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  )
+  const handleGroupDragEnd = React.useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = sortedGroupIds.indexOf(String(active.id))
+    const newIndex = sortedGroupIds.indexOf(String(over.id))
+    if (oldIndex !== -1 && newIndex !== -1) reorderGroups(oldIndex, newIndex)
+  }, [sortedGroupIds, reorderGroups])
+
   // Auto-expand collapsed groups that contain validation errors
   React.useEffect(() => {
     if (!collapsibleGroupsEnabled || Object.keys(errors).length === 0) return
@@ -2591,12 +2637,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // If groups are provided, render the two-column grouped layout
   if (useGroupedLayout) {
 
+    // Sort groups by user-preferred order when sortable is enabled
+    const sortedGroups = sortableGroupsEnabled
+      ? [...resolvedGroupsForLayout].sort((a, b) => {
+          const ai = sortedGroupIds.indexOf(a.id)
+          const bi = sortedGroupIds.indexOf(b.id)
+          return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+        })
+      : resolvedGroupsForLayout
+
     const col1: CrudFormGroup[] = []
     const col2: CrudFormGroup[] = []
-    for (const g of resolvedGroupsForLayout) {
+    for (const g of sortedGroups) {
       if ((g.column ?? 1) === 2) col2.push(g)
       else col1.push(g)
     }
+    const col1Ids = col1.map((g) => g.id)
 
     const renderGroupedCards = (items: CrudFormGroup[]) => {
       const nodes: React.ReactNode[] = []
@@ -2604,7 +2660,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         const isCustomFieldsGroup = g.kind === 'customFields'
         if (isCustomFieldsGroup) {
           if (isLoadingCustomFields) {
-            nodes.push(
+            const loadingContent = (
               <div key={`${g.id}-loading`} className="rounded-lg border bg-card p-4">
                 <DataLoader
                   isLoading
@@ -2614,19 +2670,74 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 >
                   <div />
                 </DataLoader>
-              </div>,
+              </div>
             )
+            if (collapsibleGroupsEnabled && g.title) {
+              nodes.push(
+                <CollapsibleGroup
+                  key={`${g.id}-loading-collapsible`}
+                  groupId={g.id}
+                  title={t(g.title, g.title)}
+                  pageType={collapsiblePageType}
+                  chevronPosition={collapsibleChevronPosition}
+                >
+                  {loadingContent}
+                </CollapsibleGroup>,
+              )
+            } else {
+              nodes.push(loadingContent)
+            }
             continue
           }
+
+          const customFieldsInnerNodes: React.ReactNode[] = []
           if (g.component) {
-            nodes.push(
+            customFieldsInnerNodes.push(
               <div key={`${g.id}-component`} className="rounded-lg border bg-card px-4 py-3">
                 {g.component({ values, setValue, errors })}
               </div>,
             )
           }
           const renderedSections = renderCustomFieldsContent()
-          if (renderedSections.length) nodes.push(...renderedSections)
+          if (renderedSections.length) customFieldsInnerNodes.push(...renderedSections)
+
+          if (collapsibleGroupsEnabled && g.title) {
+            const customFieldCount = customFieldLayout.reduce(
+              (sum, entity) => sum + entity.sections.reduce(
+                (sSum, section) => sSum + section.groups.reduce(
+                  (gSum, group) => gSum + group.fields.length, 0,
+                ), 0,
+              ), 0,
+            )
+            const customFieldErrors = customFieldLayout.reduce(
+              (sum, entity) => sum + entity.sections.reduce(
+                (sSum, section) => sSum + section.groups.reduce(
+                  (gSum, group) => gSum + group.fields.filter((f) => errors[f.id]).length, 0,
+                ), 0,
+              ), 0,
+            )
+            nodes.push(
+              <CollapsibleGroup
+                key={g.id}
+                ref={(handle) => {
+                  if (handle) groupCollapseRefs.current.set(g.id, handle)
+                  else groupCollapseRefs.current.delete(g.id)
+                }}
+                groupId={g.id}
+                title={t(g.title, g.title)}
+                pageType={collapsiblePageType}
+                errorCount={customFieldErrors}
+                fieldCount={customFieldCount}
+                chevronPosition={collapsibleChevronPosition}
+              >
+                <div className="space-y-3">
+                  {customFieldsInnerNodes}
+                </div>
+              </CollapsibleGroup>,
+            )
+          } else {
+            nodes.push(...customFieldsInnerNodes)
+          }
           continue
         }
 
@@ -2670,6 +2781,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               title={t(g.title, g.title)}
               pageType={collapsiblePageType}
               errorCount={groupErrorCount}
+              fieldCount={groupFields.length}
+              chevronPosition={collapsibleChevronPosition}
             >
               <div className="space-y-3">
                 {groupContent}
@@ -2690,8 +2803,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       return nodes
     }
 
-    const col1Content = renderGroupedCards(col1)
+    const col1Nodes = renderGroupedCards(col1)
     const col2Content = renderGroupedCards(col2)
+
+    // Wrap col1 nodes in sortable items when enabled
+    const col1Content = sortableGroupsEnabled
+      ? col1Nodes.map((node, i) => (
+          <SortableGroupItem key={col1[i]?.id ?? i} id={col1[i]?.id ?? String(i)}>
+            {node}
+          </SortableGroupItem>
+        ))
+      : col1Nodes
     const hasSecondaryColumn = col2Content.length > 0
 
     return (
@@ -2739,7 +2861,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
                 : 'grid grid-cols-1 gap-4'}
             >
-              <div className="space-y-3">{col1Content}</div>
+              {sortableGroupsEnabled ? (
+                <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
+                  <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
+                    <div className="space-y-3">{col1Content}</div>
+                  </SortableContext>
+                </DndContext>
+              ) : (
+                <div className="space-y-3">{col1Content}</div>
+              )}
               {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-red-600">{formError}</div> : null}

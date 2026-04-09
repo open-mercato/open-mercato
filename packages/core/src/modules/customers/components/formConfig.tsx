@@ -211,10 +211,9 @@ export function DictionarySelectField({
       createOption={createOption}
       labels={labels}
       selectClassName={selectClassName}
-      allowInlineCreate
-      allowAppearance
-      appearanceLabels={appearanceLabels}
-      manageHref="/backend/config/customers"
+      allowInlineCreate={false}
+      allowAppearance={false}
+      showManage={false}
       showLabelInput
     />
   )
@@ -276,8 +275,8 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
 })
 
 type DictionaryFieldDefinition = {
-  id: 'jobTitle' | 'status' | 'lifecycleStage' | 'source'
-  kind: 'job-titles' | 'statuses' | 'lifecycle-stages' | 'sources'
+  id: 'status' | 'lifecycleStage' | 'source'
+  kind: 'statuses' | 'lifecycle-stages' | 'sources'
   labelKey: string
   placeholderKey: string
   addLabelKey: string
@@ -288,16 +287,6 @@ type DictionaryFieldDefinition = {
 
 const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
   {
-    id: 'jobTitle',
-    kind: 'job-titles',
-    labelKey: 'customers.people.form.jobTitle',
-    placeholderKey: 'customers.people.form.jobTitle.placeholder',
-    addLabelKey: 'customers.people.form.dictionary.addJobTitle',
-    promptKey: 'customers.people.form.dictionary.promptJobTitle',
-    dialogTitleKey: 'customers.people.form.dictionary.dialogTitleJobTitle',
-    layout: 'half',
-  },
-  {
     id: 'status',
     kind: 'statuses',
     labelKey: 'customers.people.form.status',
@@ -305,6 +294,7 @@ const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
     addLabelKey: 'customers.people.form.dictionary.addStatus',
     promptKey: 'customers.people.form.dictionary.promptStatus',
     dialogTitleKey: 'customers.people.form.dictionary.dialogTitleStatus',
+    layout: 'half',
   },
   {
     id: 'lifecycleStage',
@@ -314,6 +304,7 @@ const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
     addLabelKey: 'customers.people.form.dictionary.addLifecycleStage',
     promptKey: 'customers.people.form.dictionary.promptLifecycleStage',
     dialogTitleKey: 'customers.people.form.dictionary.dialogTitleLifecycleStage',
+    layout: 'half',
   },
   {
     id: 'source',
@@ -323,6 +314,7 @@ const dictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
     addLabelKey: 'customers.people.form.dictionary.addSource',
     promptKey: 'customers.people.form.dictionary.promptSource',
     dialogTitleKey: 'customers.people.form.dictionary.dialogTitleSource',
+    layout: 'half',
   },
 ]
 
@@ -813,6 +805,7 @@ const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition
     { id: 'displayName', label: t('customers.people.form.displayName.label'), type: 'text', required: true },
     { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text', required: true, layout: 'half' },
     { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text', required: true, layout: 'half' },
+    { id: 'jobTitle', label: t('customers.people.form.jobTitle', 'Job title'), type: 'text', placeholder: t('customers.people.form.jobTitle.placeholder', 'Job title') },
     contactSection,
     createPrimaryEmailField(t),
     createPrimaryPhoneField(t),
@@ -928,17 +921,14 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
     fields: [
       'firstName',
       'lastName',
-      '__contactInformationSection',
+      'jobTitle',
       'primaryEmail',
       'primaryPhone',
-      '__companyInformationSection',
-      'jobTitle',
       'companyEntityId',
       'status',
       'lifecycleStage',
       'source',
     ],
-    component: createDisplayNameSection(t),
   },
   {
     id: 'addresses',
@@ -1536,6 +1526,49 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
   },
 ]
 
+/**
+ * Groups for the "Dane firmy" tab layout (Figma SPEC-048 mockup).
+ * Reorganises fields into 4 logical sections on column 1, with notes + custom fields on column 2.
+ */
+export const createCompanyDaneFiremyGroups = (t: Translator): CrudFormGroup[] => [
+  {
+    id: 'identity',
+    title: t('customers.companies.form.groups.identity', 'Tożsamość').toUpperCase(),
+    column: 1,
+    fields: ['displayName', 'legalName', 'brandName'],
+  },
+  {
+    id: 'contact',
+    title: t('customers.companies.form.groups.contact', 'Kontakt').toUpperCase(),
+    column: 1,
+    fields: ['primaryEmail', 'primaryPhone', 'domain', 'websiteUrl'],
+  },
+  {
+    id: 'classification',
+    title: t('customers.companies.form.groups.classification', 'Klasyfikacja').toUpperCase(),
+    column: 1,
+    fields: ['status', 'lifecycleStage', 'source'],
+  },
+  {
+    id: 'businessProfile',
+    title: t('customers.companies.form.groups.businessProfile', 'Profil biznesowy').toUpperCase(),
+    column: 1,
+    fields: ['industry', 'sizeBucket', 'annualRevenue'],
+  },
+  {
+    id: 'notes',
+    title: t('customers.companies.form.groups.notes', 'Notatki'),
+    column: 2,
+    fields: ['description'],
+  },
+  {
+    id: 'customFields',
+    title: t('customers.companies.form.groups.customAttributes', 'Atrybuty niestandardowe'),
+    column: 2,
+    kind: 'customFields',
+  },
+]
+
 export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
   {
     id: 'details',
@@ -1581,6 +1614,45 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
     title: t('customers.people.form.groups.custom'),
     column: 2,
     kind: 'customFields',
+  },
+]
+
+/**
+ * Groups for the Person v2 "Dane osobowe" Figma layout (SPEC-048 mockup).
+ * All groups in column 1 (Zone 1). Notes handled separately in Zone 2 tabs.
+ */
+export const createPersonDaneOsoboweGroups = (t: Translator): CrudFormGroup[] => [
+  {
+    id: 'personalData',
+    title: t('customers.people.form.groups.personalData', 'Personal data'),
+    column: 1,
+    fields: ['firstName', 'lastName', 'jobTitle', 'primaryEmail', 'primaryPhone'],
+  },
+  {
+    id: 'companyRole',
+    title: t('customers.people.form.groups.companyRole', 'Company & role'),
+    column: 1,
+    fields: ['companyEntityId', 'status', 'lifecycleStage', 'source'],
+  },
+  {
+    id: 'customFields',
+    title: t('customers.people.form.groups.customAttributes', 'Custom attributes'),
+    column: 1,
+    kind: 'customFields',
+  },
+  {
+    id: 'roles',
+    title: t('customers.people.form.groups.roles', 'My roles'),
+    column: 1,
+    component: ({ values }: CrudFormGroupComponentProps) => (
+      values.id ? (
+        <RolesSection
+          entityType="person"
+          entityId={values.id as string}
+          entityName={typeof values.displayName === 'string' ? values.displayName : null}
+        />
+      ) : null
+    ),
   },
 ]
 
@@ -1715,6 +1787,13 @@ export type PersonOverview = {
   deals: DealSummary[]
   todos: TodoLinkSummary[]
   interactionMode?: 'canonical' | 'legacy'
+  /** Whether this person is the primary contact for any linked company. */
+  isPrimary?: boolean
+  companies?: Array<{
+    id: string
+    displayName: string
+    isPrimary: boolean
+  }>
   company?: {
     id: string
     displayName: string

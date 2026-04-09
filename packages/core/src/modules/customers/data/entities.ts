@@ -132,6 +132,12 @@ export class CustomerEntity {
   @OneToMany(() => CustomerDealCompanyLink, (link) => link.company)
   dealCompanyLinks = new Collection<CustomerDealCompanyLink>(this)
 
+  @OneToMany(() => CustomerPersonCompanyLink, (link) => link.person)
+  personCompanyLinks = new Collection<CustomerPersonCompanyLink>(this)
+
+  @OneToMany(() => CustomerPersonCompanyLink, (link) => link.company)
+  linkedPeople = new Collection<CustomerPersonCompanyLink>(this)
+
   @OneToMany(() => CustomerPersonProfile, (person) => person.company)
   companyMembers = new Collection<CustomerPersonProfile>(this)
 }
@@ -199,6 +205,39 @@ export class CustomerPersonProfile {
     nullable: true,
   })
   company?: CustomerEntity | null
+}
+
+@Entity({ tableName: 'customer_person_company_links' })
+@Index({ name: 'customer_person_company_links_person_idx', properties: ['person'] })
+@Index({ name: 'customer_person_company_links_company_idx', properties: ['company'] })
+@Index({ name: 'customer_person_company_links_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_person_company_links_unique', properties: ['person', 'company'] })
+export class CustomerPersonCompanyLink {
+  [OptionalProps]?: 'isPrimary' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'is_primary', type: 'boolean', default: false })
+  isPrimary: boolean = false
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'person_entity_id' })
+  person!: CustomerEntity
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'company_entity_id' })
+  company!: CustomerEntity
 }
 
 @Entity({ tableName: 'customer_companies' })
@@ -304,6 +343,15 @@ export class CustomerDeal {
 
   @Property({ name: 'source', type: 'text', nullable: true })
   source?: string | null
+
+  @Property({ name: 'closure_outcome', type: 'text', nullable: true })
+  closureOutcome?: string | null
+
+  @Property({ name: 'loss_reason_id', type: 'uuid', nullable: true })
+  lossReasonId?: string | null
+
+  @Property({ name: 'loss_notes', type: 'text', nullable: true })
+  lossNotes?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -434,7 +482,7 @@ export class CustomerActivity {
   properties: ['tenantId', 'organizationId', 'interactionType'],
 })
 export class CustomerInteraction {
-  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'status' | 'pinned' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'durationMinutes' | 'location' | 'allDay' | 'recurrenceRule' | 'recurrenceEnd' | 'participants' | 'reminderMinutes' | 'visibility'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -483,6 +531,30 @@ export class CustomerInteraction {
 
   @Property({ name: 'deal_id', type: 'uuid', nullable: true })
   dealId?: string | null
+
+  @Property({ name: 'duration_minutes', type: 'int', nullable: true })
+  durationMinutes?: number | null
+
+  @Property({ name: 'location', type: 'text', nullable: true })
+  location?: string | null
+
+  @Property({ name: 'all_day', type: 'boolean', nullable: true })
+  allDay?: boolean | null
+
+  @Property({ name: 'recurrence_rule', type: 'text', nullable: true })
+  recurrenceRule?: string | null
+
+  @Property({ name: 'recurrence_end', type: Date, nullable: true })
+  recurrenceEnd?: Date | null
+
+  @Property({ name: 'participants', type: 'jsonb', nullable: true })
+  participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+
+  @Property({ name: 'reminder_minutes', type: 'int', nullable: true })
+  reminderMinutes?: number | null
+
+  @Property({ name: 'visibility', type: 'text', nullable: true })
+  visibility?: string | null
 
   @Property({ name: 'pinned', type: 'boolean', default: false })
   pinned: boolean = false
