@@ -2,6 +2,10 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  isIgnorableDerivedKeyWarningLine,
+  shouldIgnoreSplashPassthroughLine,
+} from './dev-runtime-log-policy.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -317,24 +321,12 @@ function collectRuntimeFailureLines(maxLines = 10) {
     if (plain === 'Press Ctrl+C to stop.') continue
     if (plain.startsWith('Warning: Ignoring extra certs from')) continue
     if (isIgnorableDerivedKeyWarningLine(plain)) continue
+    if (shouldIgnoreSplashPassthroughLine(plain)) continue
     lines.unshift(normalized)
     if (lines.length >= maxLines) break
   }
 
   return lines
-}
-
-function isIgnorableDerivedKeyWarningLine(line) {
-  return line.startsWith('⚠️ [encryption][kms] Vault read error')
-    || line.startsWith('⚠️ [encryption][kms] No tenant DEK found in Vault')
-    || line.startsWith("path: 'secret/data/tenant_key_")
-    || line.startsWith("error: 'fetch failed'")
-    || line === '}'
-    || line.startsWith('━━━━━━━━')
-    || line.includes('Using derived tenant encryption keys')
-    || line.startsWith('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
-    || line.startsWith('Secret: ')
-    || line.startsWith('Persist this secret securely.')
 }
 
 function publishRuntimeFailure(detail, options = {}) {
@@ -368,6 +360,7 @@ function publishRuntimeFailure(detail, options = {}) {
 
 function looksLikeFailure(line) {
   if (isIgnorableDerivedKeyWarningLine(line)) return false
+  if (shouldIgnoreSplashPassthroughLine(line)) return false
   if (line.startsWith('⨯ preloadEntriesOnStart')) return false
   if (line.startsWith('⨯ serverMinification')) return false
   if (line.startsWith('⨯ turbopackMinify')) return false
@@ -1234,6 +1227,12 @@ function createFilteredReporter(label, classifyLine) {
         console.log(renderedMessage)
         maybeStartTargetedRouteWarmup()
       }
+      return
+    }
+
+    if (shouldIgnoreSplashPassthroughLine(plain, {
+      startupReady: splashState.ready || runtimeWarmupState.completed,
+    })) {
       return
     }
 

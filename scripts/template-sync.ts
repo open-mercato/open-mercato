@@ -51,6 +51,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
     rel: 'scripts/dev-runtime.mjs',
   },
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev-runtime-log-policy.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
+    rel: 'scripts/dev-runtime-log-policy.mjs',
+  },
 ] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
