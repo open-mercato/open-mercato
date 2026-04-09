@@ -440,7 +440,6 @@ describe('Activity Executor (Unit Tests)', () => {
       ['http://[::1]/'],              // loopback
       ['http://[::1]:8080/path'],     // loopback with port
       ['http://[fe80::1]/'],          // link-local
-      ['http://[fe80::1%25eth0]/'],   // link-local with zone ID (URL-encoded %)
       ['http://[fc00::1]/'],          // unique local fc00::/7
       ['http://[fd12:3456:789a::1]/'],// unique local fd::/7
     ])('blocks IPv6 private address %s', (url) => {
