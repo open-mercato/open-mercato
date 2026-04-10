@@ -141,6 +141,13 @@ module.exports = {
       configExpr: function(n, id) { return "{ moduleId: '" + id + "', providers: ((" + n + ".default ?? " + n + ".mfaProviders ?? []) as unknown[]) }" },
       outputFileName: 'security-mfa-providers.generated.ts',
       buildOutput: buildMfaOutput,
+      bootstrapRegistration: {
+        entriesExportName: 'securityMfaProviderEntries',
+        registrationImports: [
+          "import { registerSecurityMfaProviderEntries } from '@open-mercato/enterprise/modules/security/lib/module-security-registry'",
+        ],
+        buildCall: function(name) { return "registerSecurityMfaProviderEntries(" + name + ")" },
+      },
     },
     {
       id: 'security.sudo',
@@ -149,6 +156,13 @@ module.exports = {
       configExpr: function(n, id) { return "{ moduleId: '" + id + "', targets: ((" + n + ".default ?? " + n + ".sudoTargets ?? []) as Array<Record<string, unknown>>) }" },
       outputFileName: 'security-sudo.generated.ts',
       buildOutput: buildSudoOutput,
+      bootstrapRegistration: {
+        entriesExportName: 'securitySudoTargetEntries',
+        registrationImports: [
+          "import { registerSecuritySudoTargetEntries } from '@open-mercato/enterprise/modules/security/lib/module-security-registry'",
+        ],
+        buildCall: function(name) { return "registerSecuritySudoTargetEntries(" + name + ")" },
+      },
     },
   ],
 }
@@ -1205,6 +1219,27 @@ describe('all generated files are valid with varying subsets', () => {
     expect(sudoTargets).not.toContain('no_security')
   })
 
+  it('omits bootstrap registrations when generator plugins discover no entries', async () => {
+    scaffoldModule(tmpDir, 'no_security', 'pkg', ['setup.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'no_security', 'generators.ts'),
+      SECURITY_GENERATORS_CONTENT,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'no_security', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const bootstrapRegistrations = readGenerated(tmpDir, 'bootstrap-registrations.generated.ts')!
+
+    expect(bootstrapRegistrations).toContain('export function runBootstrapRegistrations(): void {')
+    expect(bootstrapRegistrations).not.toContain('registerSecurityMfaProviderEntries')
+    expect(bootstrapRegistrations).not.toContain('registerSecuritySudoTargetEntries')
+    expect(bootstrapRegistrations).not.toContain('./security-mfa-providers.generated')
+    expect(bootstrapRegistrations).not.toContain('./security-sudo.generated')
+    expect(bootstrapRegistrations).not.toContain('@open-mercato/enterprise')
+  })
+
   it('discovers security convention files into dedicated generated registries', async () => {
     scaffoldModule(tmpDir, 'security_ext', 'pkg', [
       'security.mfa-providers.ts',
@@ -1226,6 +1261,28 @@ describe('all generated files are valid with varying subsets', () => {
     expect(mfaProviders).toContain('mfaProviders')
     expect(sudoTargets).toContain('security_ext')
     expect(sudoTargets).toContain('sudoTargets')
+  })
+
+  it('keeps bootstrap registrations when generator plugins discover entries', async () => {
+    scaffoldModule(tmpDir, 'security_ext', 'pkg', [
+      'security.mfa-providers.ts',
+      'security.sudo.ts',
+    ])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'security_ext', 'generators.ts'),
+      SECURITY_GENERATORS_CONTENT,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'security_ext', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const bootstrapRegistrations = readGenerated(tmpDir, 'bootstrap-registrations.generated.ts')!
+
+    expect(bootstrapRegistrations).toContain('registerSecurityMfaProviderEntries')
+    expect(bootstrapRegistrations).toContain('registerSecuritySudoTargetEntries')
+    expect(bootstrapRegistrations).toContain('./security-mfa-providers.generated')
+    expect(bootstrapRegistrations).toContain('./security-sudo.generated')
   })
 
   it('notifications.generated.ts uses typed fallback for legacy "types" export', async () => {

@@ -2401,6 +2401,9 @@ export default apiRoutes
     const allRegImports: string[] = []
     const allCalls: string[] = []
     for (const plugin of bootstrapPlugins) {
+      const state = pluginState.get(plugin.id)
+      if (!state || state.configs.length === 0) continue
+
       const reg = plugin.bootstrapRegistration!
       const outputBase = plugin.outputFileName.replace('.ts', '')
       allEntryImports.push(buildImportStatement(`{ ${reg.entriesExportName} }`, `./${outputBase}`))
