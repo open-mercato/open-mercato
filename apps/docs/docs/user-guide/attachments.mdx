@@ -1,0 +1,40 @@
+---
+title: Attachments
+description: Upload files, organize them in partitions, and manage metadata from the shared attachment library.
+---
+
+The **Attachments** workspace gives operators a shared file library across products, resources, team members, and other records. Open **Storage -> Attachments** to upload new files, search the library, or update metadata without returning to the original record first.
+
+![Attachments library](/screenshots/open-mercato-attachments.png)
+
+## Browse the library
+
+- **Search by file name** to find a document or image quickly.
+- **Filter by partition or tag** when the workspace stores both internal files and public assets.
+- **Review assignments** to see which records currently use each file.
+- **Upload directly from the library** when you want to prepare assets before assigning them to a specific record.
+
+## Edit attachment details
+
+Open any row to inspect the file, update metadata, or download the original upload.
+
+![Attachment details view](/screenshots/open-mercato-attachment-details.png)
+
+- **Preview supported file types** and download the source file from the details panel.
+- **Add tags** so the file is easier to discover later.
+- **Manage assignments** to link one file to one or more records, with optional labels or destination URLs.
+- **Generate resized image URLs** for image attachments when you need a constrained width or height in storefronts, emails, or integrations.
+- **Review extracted text** when the selected partition is configured for OCR or text extraction.
+
+## Where to upload files
+
+- **From a record detail page** when the file clearly belongs to one product, resource, or team member.
+- **From Storage -> Attachments** when you want to build a reusable library first and assign files afterward.
+- **Into the right partition** so visibility, storage, and optional OCR rules match the type of file you are uploading.
+
+## Partitions and access control
+
+- **Partitions** help separate files by purpose or visibility, such as internal attachments and public assets.
+- **Admins can manage partitions** in **Settings -> Storage**.
+- **View access** requires `attachments.view`.
+- **Upload, edit metadata, delete files, and manage partitions** require `attachments.manage`.
