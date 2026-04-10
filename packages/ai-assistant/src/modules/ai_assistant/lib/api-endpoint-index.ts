@@ -127,6 +127,9 @@ export async function loadRichOpenApiSpec(): Promise<OpenApiDocument | null> {
         version: '1.0.0',
         servers: [{ url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }],
       })
+      if (!doc.paths || Object.keys(doc.paths).length === 0) {
+        return null
+      }
       console.error(`[API Index] Rich OpenAPI spec built from ${modulesWithApis.length} modules (Tier 2)`)
       rawSpecCache = doc
       return doc
@@ -289,6 +292,9 @@ async function parseApiEndpointsFromModules(): Promise<ApiEndpoint[]> {
         version: '1.0.0',
         servers: [{ url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }],
       })
+      if (!doc.paths || Object.keys(doc.paths).length === 0) {
+        return []
+      }
 
       return extractEndpoints(doc)
     }
@@ -661,4 +667,3 @@ export function simplifyRequestBodySchema(
 
   return { required, properties }
 }
-

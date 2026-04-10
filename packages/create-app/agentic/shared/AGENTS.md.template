@@ -44,6 +44,7 @@ step, you WILL produce incorrect imports and miss required patterns.
 | Add/modify an entity, create migration | `.ai/guides/core.md` → Module Files, then `yarn mercato db generate` |
 | Add a REST API endpoint | `.ai/guides/core.md` → API Routes |
 | Add a backend page | `.ai/guides/ui.md` → CrudForm / DataTable |
+| Configure sidebar navigation, page groups, settings pages | `.ai/skills/module-scaffold/references/navigation-patterns.md` |
 | Add event subscribers or emit events | `.ai/guides/events.md` |
 | Add real-time browser updates (SSE) | `.ai/guides/events.md` → DOM Event Bridge |
 | Add search to a module | `.ai/guides/search.md` |
@@ -56,6 +57,22 @@ step, you WILL produce incorrect imports and miss required patterns.
 | Add notifications | `.ai/guides/core.md` → Notifications |
 | Add custom fields | `.ai/guides/core.md` → Custom Fields |
 
+### Module-Specific Guides
+
+These guides ship automatically when the corresponding module is installed.
+
+| Task | Load |
+|---|---|
+| Build CRUD modules — reference patterns, commands, custom fields, search | `.ai/guides/core.customers.md` (if available) |
+| Use workflow automation, triggers, user tasks, signals | `.ai/guides/core.workflows.md` (if available) |
+| Use product catalog, pricing engine, variants, offers | `.ai/guides/core.catalog.md` (if available) |
+| Use sales orders, quotes, invoices, shipments, payments | `.ai/guides/core.sales.md` (if available) |
+| Use staff authentication, RBAC, roles, feature guards | `.ai/guides/core.auth.md` (if available) |
+| Use multi-currency, exchange rates, dual recording | `.ai/guides/core.currencies.md` (if available) |
+| Build integration providers, credentials, health checks | `.ai/guides/core.integrations.md` (if available) |
+| Build data sync adapters, import/export connectors | `.ai/guides/core.data_sync.md` (if available) |
+| Use customer portal auth, customer RBAC, portal pages | `.ai/guides/core.customer_accounts.md` (if available) |
+
 ### Quality & Process
 
 | Task | Load |
@@ -63,6 +80,8 @@ step, you WILL produce incorrect imports and miss required patterns.
 | Debug / fix errors | `.ai/skills/troubleshooter/SKILL.md` |
 | Review code changes | `.ai/skills/code-review/SKILL.md` |
 | Write a spec | `.ai/skills/spec-writing/SKILL.md`, `.ai/specs/SPEC-000-template.md` |
+| Implement a spec (or selected phases) | `.ai/skills/implement-spec/SKILL.md` |
+| Create / run integration tests | `.ai/skills/integration-tests/SKILL.md` |
 
 ## Module Anatomy
 
@@ -104,7 +123,7 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 ## CRITICAL rules — always follow without exception
 
 1. **After editing any entity file**: run `yarn mercato db generate` (never hand-write migrations)
-2. **After editing `src/modules.ts`** or any module file: run `yarn generate`
+2. **After editing `src/modules.ts`** or any structural module file: run `yarn generate`
 3. **Never edit `.mercato/generated/*`** — auto-generated. Never edit `node_modules/@open-mercato/*` — eject instead.
 4. **Confirm migrations with user** before running `yarn mercato db migrate`
 5. **BEFORE writing ANY code**, you MUST:
@@ -117,7 +136,12 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 ## Additional Conventions
 
 - Custom modules use `from: '@app'` in `src/modules.ts`
+- Standalone apps expose `yarn mercato configs cache ...` because the template enables the `configs` module from `@open-mercato/core`
+- `yarn generate` automatically runs a best-effort structural cache purge (`yarn mercato configs cache structural --all-tenants`) after successful generation; if the cache command is unavailable, generation still succeeds
 - Sidebar icons MUST use `lucide-react` components — never inline SVG via `React.createElement`
+- `page.meta.ts` MUST include `pageGroup`, `pageGroupKey`, and `pageOrder` for sidebar grouping
+- Settings pages MUST use `pageContext: 'settings' as const` with `navHidden: true`
+- All related pages within a module MUST share the same `pageGroupKey`
 - DataTable MUST wire pagination props (`page`, `pageSize`, `totalCount`, `onPageChange`)
 
 ## Naming Conventions
@@ -170,8 +194,10 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 
 | Command | Purpose |
 |---|---|
-| `yarn dev` | Start dev server |
+| `yarn dev` | Start compact dev runtime (`d` toggles raw logs) |
+| `yarn dev:verbose` | Start dev runtime with full raw passthrough logs |
 | `yarn generate` | Regenerate `.mercato/generated/` |
+| `yarn mercato configs cache structural --all-tenants` | Manually purge structural navigation/sidebar cache entries |
 | `yarn mercato module add <package>` | Install and enable an official module package |
 | `yarn mercato db generate` | Create migration for entity changes |
 | `yarn mercato db migrate` | Apply pending migrations |

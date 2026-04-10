@@ -238,6 +238,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
 - Run `npm run modules:prepare` after adding/modifying module files
+- Agents MUST automatically run `yarn mercato configs cache structural --all-tenants` after enabling/disabling modules in `src/modules.ts`, adding/removing backend or frontend pages, or changing sidebar/navigation injection — stale `nav:*` cache can hide structural changes until it is purged
 - New integration providers MUST own their env-backed preconfiguration inside the provider package: implement preset reading/application in the provider module, apply it from `setup.ts`, expose a rerunnable provider CLI command when practical, and document the env variables. Do not add provider-specific preconfiguration logic to core modules.
 
 ## Backward Compatibility Contract
@@ -313,7 +314,10 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 ## Key Commands
 
 ```bash
-yarn dev                  # Start development server
+yarn dev                  # Start compact dev runtime; press `d` to toggle raw logs
+yarn dev:verbose          # Start dev runtime with full raw passthrough logs
+yarn dev:app              # Start compact app-only runtime
+yarn dev:app:verbose      # Start app-only runtime with raw passthrough logs
 yarn build                # Build everything
 yarn build:packages       # Build packages only
 yarn lint                 # Lint all packages
@@ -322,7 +326,8 @@ yarn generate             # Run module generators
 yarn db:generate          # Generate database migrations
 yarn db:migrate           # Apply database migrations
 yarn initialize           # Full project initialization
-yarn dev:greenfield       # Fresh dev environment setup
+yarn dev:greenfield       # Fresh compact dev boot with build/generate/reinstall stages
+yarn dev:greenfield:verbose  # Greenfield boot with full raw passthrough logs
 yarn test:integration     # Run integration tests (Playwright, headless)
 yarn test:integration:report  # View HTML test report
 ```

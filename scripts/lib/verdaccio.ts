@@ -3,6 +3,16 @@ import { spawnSync } from 'node:child_process'
 
 export const VERDACCIO_URL = process.env.VERDACCIO_URL ?? 'http://localhost:4873'
 
+export function createStandaloneInstallEnv(cacheRoot: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    YARN_ENABLE_IMMUTABLE_INSTALLS: '0',
+    YARN_ENABLE_GLOBAL_CACHE: '0',
+    YARN_ENABLE_MIRROR: '0',
+    YARN_CACHE_FOLDER: path.join(cacheRoot, '.yarn-cache'),
+  }
+}
+
 type RunOptions = {
   cwd: string
   input?: string

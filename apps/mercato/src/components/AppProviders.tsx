@@ -14,9 +14,10 @@ type AppProvidersProps = {
   locale: Locale
   dict: Dict
   demoModeEnabled: boolean
+  noticeBarsEnabled: boolean
 }
 
-export function AppProviders({ children, locale, dict, demoModeEnabled }: AppProvidersProps) {
+export function AppProviders({ children, locale, dict, demoModeEnabled, noticeBarsEnabled }: AppProvidersProps) {
   return (
     <I18nProvider locale={locale} dict={dict}>
       <ClientBootstrapProvider>
@@ -24,7 +25,7 @@ export function AppProviders({ children, locale, dict, demoModeEnabled }: AppPro
           <ThemeProvider>
             <QueryProvider>
               <FrontendLayout footer={<AuthFooter />}>{children}</FrontendLayout>
-              <GlobalNoticeBars demoModeEnabled={demoModeEnabled} />
+              {noticeBarsEnabled ? <GlobalNoticeBars demoModeEnabled={demoModeEnabled} /> : null}
             </QueryProvider>
           </ThemeProvider>
         </ComponentOverridesBootstrap>

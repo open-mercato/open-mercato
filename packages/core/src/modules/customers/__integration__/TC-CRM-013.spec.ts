@@ -57,7 +57,7 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
 
       await page.goto('/backend/customers/deals');
       await expect(page.getByRole('heading', { name: 'Deals' })).toBeVisible();
-      await page.getByRole('textbox', { name: /Search deals/i }).fill(dealTitle);
+      await page.getByPlaceholder(/Search by title/i).fill(dealTitle);
       const dealRow = page.locator('tr').filter({ hasText: dealTitle }).first();
       await expect(dealRow).toBeVisible();
       await expect(dealRow).toContainText('Opportunity');

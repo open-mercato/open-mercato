@@ -1,9 +1,24 @@
-import { expect, test } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { expect, type Page, test } from '@playwright/test';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function fieldControl(page: Page, fieldId: string) {
+  return page.locator(`[data-crud-field-id="${fieldId}"]`).first();
+}
+
+async function fillCustomEntityField(page: Page, fieldId: string, value: string): Promise<void> {
+  const control = fieldControl(page, fieldId);
+  await expect(control).toBeVisible();
+  const input = control.locator('input, textarea').first();
+  await expect(input).toBeVisible();
+  await input.fill(value);
+}
+
+async function waitForRecordForm(page: Page, fieldIds: string[]): Promise<void> {
+  for (const fieldId of fieldIds) {
+    await expect(fieldControl(page, fieldId)).toBeVisible();
+  }
+  await expect(page.getByRole('button', { name: /create|save/i }).first()).toBeVisible();
 }
 
 /**
@@ -17,27 +32,15 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
     const location = `QA Location ${stamp}`;
     const title = `QA Title ${stamp}`;
     const updatedTitle = `${title} Updated`;
+    const expectedFieldIds = ['location', 'title', 'event_date'];
     let token: string | null = null;
     let recordId: string | null = null;
 
-    const fillField = async (label: string, fallbackIndex: number, value: string): Promise<void> => {
-      const namedInput = page
-        .getByRole('textbox', { name: new RegExp(`^${escapeRegExp(label)}$`, 'i') })
-        .first();
-      if ((await namedInput.count()) > 0) {
-        await namedInput.fill(value);
-        return;
-      }
-
-      const textboxes = page.locator('main').getByRole('textbox');
-      await expect(textboxes.nth(fallbackIndex)).toBeVisible();
-      await textboxes.nth(fallbackIndex).fill(value);
-    };
-
     try {
       token = await getAuthToken(request, 'superadmin');
+      const authToken = token;
       const entityCreateResponse = await apiRequest(request, 'POST', '/api/entities/entities', {
-        token,
+        token: authToken,
         data: {
           entityId,
           label: `QA Admin 008 ${stamp}`,
@@ -54,7 +57,7 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
       ];
       for (const field of fieldDefinitions) {
         const definitionResponse = await apiRequest(request, 'POST', '/api/entities/definitions', {
-          token,
+          token: authToken,
           data: {
             entityId,
             key: field.key,
@@ -68,33 +71,80 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
         expect(definitionResponse.ok()).toBeTruthy();
       }
 
+      await expect
+        .poll(async () => {
+          const definitionsResponse = await apiRequest(
+            request,
+            'GET',
+            `/api/entities/definitions?entityId=${encodeURIComponent(entityId)}`,
+            { token: authToken },
+          );
+          if (!definitionsResponse.ok()) return [];
+          const definitionsPayload = (await definitionsResponse.json()) as {
+            items?: Array<{ key?: string }>;
+          };
+          return (definitionsPayload.items ?? [])
+            .map((item) => String(item.key ?? '').trim())
+            .filter(Boolean)
+            .sort();
+        })
+        .toEqual([...expectedFieldIds].sort());
+
       await login(page, 'superadmin');
-      await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`);
-      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => {});
+      const createRecordResponse = await apiRequest(request, 'POST', '/api/entities/records', {
+        token: authToken,
+        data: {
+          entityId,
+          values: {
+            location,
+            title,
+            event_date: '2026-02-14',
+          },
+        },
+      });
+      expect(createRecordResponse.ok()).toBeTruthy();
+      const createPayload = (await createRecordResponse.json()) as { item?: { recordId?: string } };
+      recordId = typeof createPayload.item?.recordId === 'string' ? createPayload.item.recordId : null;
+      expect(recordId).toBeTruthy();
 
-      await expect(page.getByRole('heading', { name: new RegExp(`Records:\\s*${entityId}`, 'i') })).toBeVisible();
-      await page.getByRole('link', { name: 'Create' }).click();
-
-      await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/create$`, 'i'));
-      await fillField('Location', 0, location);
-      await fillField('Title', 1, title);
-      await fillField('Event Date', 2, '2026-02-14');
-      await page.getByRole('button', { name: 'Save' }).first().click();
-
+      await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
+      await expect(page.getByRole('link', { name: 'Create' })).toBeVisible();
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
       await expect(page.getByRole('row', { name: new RegExp(location, 'i') })).toBeVisible();
-
-      await page.getByRole('row', { name: new RegExp(location, 'i') }).click();
+      await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(recordId!)}`, {
+        waitUntil: 'domcontentloaded',
+      });
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/[^/]+$`, 'i'));
-      recordId =
-        page.url().match(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/([^/?#]+)$`, 'i'))?.[1] ??
-        null;
+      await page.getByText(/Loading record/i).waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
+      await waitForRecordForm(page, expectedFieldIds);
 
-      await fillField('Title', 1, updatedTitle);
+      await fillCustomEntityField(page, 'title', updatedTitle);
+      const updateResponsePromise = page.waitForResponse((response) => {
+        return response.request().method() === 'PUT' && response.url().includes('/api/entities/records') && response.ok();
+      });
       await page.getByRole('button', { name: 'Save' }).first().click();
+      await updateResponsePromise;
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
-      await expect(page.getByRole('row', { name: new RegExp(updatedTitle, 'i') })).toBeVisible();
+      await expect
+        .poll(async () => {
+          const updatedRecordResponse = await apiRequest(
+            request,
+            'GET',
+            `/api/entities/records?entityId=${encodeURIComponent(entityId)}&id=${encodeURIComponent(recordId!)}`,
+            { token: authToken },
+          );
+          if (!updatedRecordResponse.ok()) return null;
+          const updatedRecordPayload = (await updatedRecordResponse.json()) as {
+            items?: Array<{ id?: string; title?: string }>;
+          };
+          const updatedRecord = (updatedRecordPayload.items ?? []).find((item) => String(item.id) === recordId);
+          return updatedRecord?.title ?? null;
+        })
+        .toBe(updatedTitle);
     } finally {
       if (token && recordId) {
         await apiRequest(

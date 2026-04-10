@@ -69,6 +69,15 @@ const companyCrudEvents: CrudEventsConfig = {
   }),
 }
 
+function companyEntityIndexEntry(entity: CustomerEntity): QueryIndexEventEntry {
+  return {
+    entityType: E.customers.customer_entity,
+    recordId: entity.id,
+    tenantId: entity.tenantId,
+    organizationId: entity.organizationId,
+  }
+}
+
 type CompanyAddressSnapshot = {
   id: string
   name: string | null
@@ -462,6 +471,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       indexer: companyCrudIndexer,
       events: companyCrudEvents,
     })
+    await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(entity)])
 
     return { entityId: entity.id, companyId: profile.id }
   },
@@ -513,6 +523,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       indexer: companyCrudIndexer,
       events: companyCrudEvents,
     })
+    await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(entity)])
   },
 }
 
@@ -587,6 +598,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       indexer: companyCrudIndexer,
       events: companyCrudEvents,
     })
+    await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(record)])
 
     return { entityId: record.id }
   },
@@ -746,6 +758,7 @@ const updateCompanyCommand: CommandHandler<CompanyUpdateInput, { entityId: strin
       indexer: companyCrudIndexer,
       events: companyCrudEvents,
     })
+    await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(entity)])
 
     const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
     if (Object.keys(resetValues).length) {
@@ -864,6 +877,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         events: companyCrudEvents,
       })
 
+      await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(record)])
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
@@ -1222,6 +1236,7 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
       if (Object.keys(resetValues).length) {
         await setCompanyCustomFields(ctx, profile.id, entity.organizationId, entity.tenantId, resetValues)
       }
+      await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(entity)])
       await emitQueryIndexUpsertEvents(ctx, childUpserts)
       await emitQueryIndexUpsertEvents(ctx, memberUpserts)
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
