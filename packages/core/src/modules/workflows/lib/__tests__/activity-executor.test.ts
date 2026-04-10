@@ -440,6 +440,7 @@ describe('Activity Executor (Unit Tests)', () => {
       ['http://[::1]/'],              // loopback
       ['http://[::1]:8080/path'],     // loopback with port
       ['http://[fe80::1]/'],          // link-local
+      ['http://[fe80::1%25eth0]/'],   // link-local with zone ID (URL-encoded %)
       ['http://[fc00::1]/'],          // unique local fc00::/7
       ['http://[fd12:3456:789a::1]/'],// unique local fd::/7
     ])('blocks IPv6 private address %s', (url) => {
@@ -463,6 +464,24 @@ describe('Activity Executor (Unit Tests)', () => {
       ['http://localhost:3000/'],
       ['http://foo.localhost/'],
     ])('blocks localhost hostname %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
+    // 0.0.0.0/8 — Linux routes outbound TCP to loopback
+    test.each([
+      ['http://0.0.0.0/'],
+      ['http://0.1.2.3/'],
+      ['http://0.255.255.255/'],
+    ])('blocks 0.0.0.0/8 address %s', (url) => {
+      expect(activityExecutor.isPrivateUrl(url)).toBe(true)
+    })
+
+    // Trailing-dot localhost — WHATWG URL preserves trailing dot, must still be blocked
+    test.each([
+      ['http://localhost./'],
+      ['http://localhost.:3000/path'],
+      ['http://foo.localhost./'],
+    ])('blocks localhost with trailing dot %s', (url) => {
       expect(activityExecutor.isPrivateUrl(url)).toBe(true)
     })
 
@@ -691,6 +710,7 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const prev = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
 
@@ -706,8 +726,16 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('SSRF protection is bypassed')
+        )
       } finally {
-        process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prev
+        warnSpy.mockRestore()
+        if (prev === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prev
+        }
       }
     })
   })
