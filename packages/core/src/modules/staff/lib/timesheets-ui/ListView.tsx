@@ -1,6 +1,7 @@
 'use client'
 
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
 type TimeEntry = {
   id: string
@@ -17,25 +18,30 @@ type TimeEntry = {
 
 type ListViewProps = {
   entries: TimeEntry[]
-  weekStart: Date
-  weekEnd: Date
 }
 
-function formatDayLabel(dateStr: string): string {
+function getLocalDateStr(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatDayLabel(dateStr: string, translate: TranslateFn): string {
   const today = new Date()
-  const todayStr = today.toISOString().slice(0, 10)
+  const todayStr = getLocalDateStr(today)
 
   const yesterday = new Date(today)
   yesterday.setDate(yesterday.getDate() - 1)
-  const yesterdayStr = yesterday.toISOString().slice(0, 10)
+  const yesterdayStr = getLocalDateStr(yesterday)
 
-  if (dateStr === todayStr) return 'Today'
-  if (dateStr === yesterdayStr) return 'Yesterday'
+  if (dateStr === todayStr) return translate('staff.timesheets.my.list.today', 'Today')
+  if (dateStr === yesterdayStr) return translate('staff.timesheets.my.list.yesterday', 'Yesterday')
 
   const date = new Date(dateStr + 'T00:00:00')
-  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' })
+  const dayName = date.toLocaleDateString(undefined, { weekday: 'short' })
   const day = date.getDate()
-  const month = date.toLocaleDateString('en-US', { month: 'short' })
+  const month = date.toLocaleDateString(undefined, { month: 'short' })
 
   return `${dayName}, ${day} ${month}`
 }
@@ -55,7 +61,7 @@ function formatTimeRange(startedAt: string, endedAt: string): string {
   const end = new Date(endedAt)
 
   const format = (date: Date) =>
-    date.toLocaleTimeString('en-US', {
+    date.toLocaleTimeString(undefined, {
       hour: 'numeric',
       minute: '2-digit',
       hour12: true,
@@ -64,7 +70,7 @@ function formatTimeRange(startedAt: string, endedAt: string): string {
   return `${format(start)} - ${format(end)}`
 }
 
-export function ListView({ entries, weekStart, weekEnd }: ListViewProps) {
+export function ListView({ entries }: ListViewProps) {
   const t = useT()
 
   if (entries.length === 0) {
@@ -99,7 +105,7 @@ export function ListView({ entries, weekStart, weekEnd }: ListViewProps) {
         return (
           <div key={dateStr} className="rounded-lg border mb-4">
             <div className="flex justify-between items-center p-4 border-b bg-muted/30 font-medium text-sm">
-              <span>{formatDayLabel(dateStr)}</span>
+              <span>{formatDayLabel(dateStr, t)}</span>
               <span className="font-mono tabular-nums">
                 {formatDuration(dailyTotal)}
               </span>

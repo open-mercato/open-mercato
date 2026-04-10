@@ -11,9 +11,12 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import Link from 'next/link'
-import { ViewSwitcher } from './components/ViewSwitcher'
-import { CalendarPicker } from './components/CalendarPicker'
-import { ListView } from './components/ListView'
+import { ViewSwitcher } from '../../../lib/timesheets-ui/ViewSwitcher'
+import { CalendarPicker } from '../../../lib/timesheets-ui/CalendarPicker'
+import { ListView } from '../../../lib/timesheets-ui/ListView'
+import { TimerBar } from '../../../lib/timesheets-ui/TimerBar'
+import { AddRowDropdown } from '../../../lib/timesheets-ui/AddRowDropdown'
+import { CreateProjectDialog } from '../../../lib/timesheets-ui/CreateProjectDialog'
 
 // --- Types ---
 
@@ -87,7 +90,9 @@ function decimalToMinutes(value: string): number {
   return Math.min(Math.round(num * 60), 1440)
 }
 
-const DAY_NAMES_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+function getLocalizedDayName(date: Date): string {
+  return date.toLocaleDateString(undefined, { weekday: 'short' })
+}
 
 // --- Derived date ranges ---
 
@@ -152,6 +157,8 @@ export default function MyTimesheetsPage() {
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
   const [canManageProjects, setCanManageProjects] = React.useState(false)
+  const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
+  const [allAssignedProjects, setAllAssignedProjects] = React.useState<ProjectRow[]>([])
 
   // --- Feature check ---
   React.useEffect(() => {
@@ -227,8 +234,10 @@ export default function MyTimesheetsPage() {
   }, [viewMode, weekStart, monthYear, monthIndex])
 
   // --- Data loading ---
+  const isInitialLoadRef = React.useRef(true)
+
   const loadData = React.useCallback(async () => {
-    if (!isInitialLoad) setIsRefreshing(true)
+    if (!isInitialLoadRef.current) setIsRefreshing(true)
     try {
       const selfRes = await readApiResultOrThrow<{ member?: { id: string; displayName: string } | null }>(
         '/api/staff/team-members/self',
@@ -274,11 +283,17 @@ export default function MyTimesheetsPage() {
       ])
 
       const projectItems = Array.isArray(projectsRes.items) ? projectsRes.items : []
-      setProjects(projectItems.map((item) => ({
+      const mappedProjects = projectItems.map((item) => ({
         id: String(item.id ?? ''),
         name: String(item.name ?? ''),
         code: typeof item.code === 'string' ? item.code : null,
-      })))
+      }))
+      setAllAssignedProjects(mappedProjects)
+      setProjects((prev) => {
+        const prevIds = new Set(prev.map((p) => p.id))
+        const newProjects = mappedProjects.filter((p) => !prevIds.has(p.id))
+        return prev.length === 0 ? mappedProjects : [...prev, ...newProjects]
+      })
 
       const entryItems = Array.isArray(entriesRes.items) ? entriesRes.items : []
       setRawEntries(entryItems)
@@ -304,10 +319,11 @@ export default function MyTimesheetsPage() {
       console.error('staff.timesheets.my.load', error)
       flash(t('staff.timesheets.my.errors.load', 'Failed to load timesheets.'), 'error')
     } finally {
+      isInitialLoadRef.current = false
       setIsInitialLoad(false)
       setIsRefreshing(false)
     }
-  }, [dateRange.from, dateRange.to, t, isInitialLoad])
+  }, [dateRange.from, dateRange.to, t])
 
   React.useEffect(() => {
     void loadData()
@@ -478,6 +494,22 @@ export default function MyTimesheetsPage() {
     }
   }, [weekStart, monthYear, monthIndex])
 
+  // --- Add row handler ---
+  const visibleProjectIds = React.useMemo(() => new Set(projects.map((p) => p.id)), [projects])
+
+  const handleAddProject = React.useCallback((project: ProjectRow) => {
+    setProjects((prev) => {
+      if (prev.some((p) => p.id === project.id)) return prev
+      return [...prev, project]
+    })
+  }, [])
+
+  const handleProjectCreated = React.useCallback((project: { id: string; name: string; code: string | null }) => {
+    setAllAssignedProjects((prev) => [...prev, project])
+    setProjects((prev) => [...prev, project])
+    setCreateDialogOpen(false)
+  }, [])
+
   // --- Loading ---
   if (isInitialLoad) {
     return <Page><PageBody><LoadingMessage label={t('staff.timesheets.my.loading', 'Loading timesheets...')} /></PageBody></Page>
@@ -509,6 +541,13 @@ export default function MyTimesheetsPage() {
   return (
     <Page>
       <PageBody>
+        {/* Timer bar */}
+        <TimerBar
+          projects={allAssignedProjects}
+          staffMemberId={staffMemberId}
+          onTimerStopped={loadData}
+        />
+
         {/* Summary cards */}
         <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div className="rounded-lg border bg-card p-4">
@@ -600,7 +639,7 @@ export default function MyTimesheetsPage() {
             </div>
           </div>
         ) : viewType === 'list' ? (
-          <ListView entries={listViewEntries} weekStart={weekStart} weekEnd={getSunday(weekStart)} />
+          <ListView entries={listViewEntries} />
         ) : (
           <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm table-fixed">
@@ -617,7 +656,7 @@ export default function MyTimesheetsPage() {
                     {t('staff.timesheets.my.project', 'Project')}
                   </th>
                   {visibleDays.map((date) => {
-                    const dayName = DAY_NAMES_SHORT[date.getDay()]
+                    const dayName = getLocalizedDayName(date)
                     const weekend = isWeekendDay(date)
                     return (
                       <th
@@ -659,7 +698,7 @@ export default function MyTimesheetsPage() {
                               type="text"
                               inputMode="decimal"
                               className={`mx-auto block rounded border text-center tabular-nums transition-colors
-                                ${viewMode === 'weekly' ? 'w-12 px-1 py-0.5 text-xs' : 'w-8 px-0 py-0 text-[10px]'}
+                                ${viewMode === 'weekly' ? 'w-12 px-1 py-0.5 text-xs' : 'w-8 px-0 py-1 text-[10px]'}
                                 ${isDirty ? 'border-amber-400 bg-amber-50' : 'border-muted-foreground/20 bg-transparent'}
                                 ${cellMinutes > 0 ? 'font-semibold' : 'text-muted-foreground'}
                                 hover:border-muted-foreground/40 focus:border-primary focus:bg-background focus:outline-none`}
@@ -677,6 +716,17 @@ export default function MyTimesheetsPage() {
                     </td>
                   </tr>
                 ))}
+                <tr className="border-b">
+                  <td colSpan={visibleDays.length + 2} className="sticky left-0 bg-background px-1 py-0.5">
+                    <AddRowDropdown
+                      assignedProjects={allAssignedProjects}
+                      visibleProjectIds={visibleProjectIds}
+                      canCreateProject={canManageProjects}
+                      onAddProject={handleAddProject}
+                      onCreateProject={() => setCreateDialogOpen(true)}
+                    />
+                  </td>
+                </tr>
               </tbody>
               <tfoot>
                 <tr className="border-t bg-muted/50 font-semibold">
@@ -701,6 +751,11 @@ export default function MyTimesheetsPage() {
         </div>
       </PageBody>
       {ConfirmDialogElement}
+      <CreateProjectDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        onProjectCreated={handleProjectCreated}
+      />
     </Page>
   )
 }

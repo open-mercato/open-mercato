@@ -12,27 +12,27 @@ type CalendarPickerProps = {
 }
 
 function getMonday(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
+  const result = new Date(date)
+  const day = result.getDay()
   const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  d.setHours(0, 0, 0, 0)
-  return d
+  result.setDate(result.getDate() + diff)
+  result.setHours(0, 0, 0, 0)
+  return result
 }
 
 function getWeekNumber(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
-  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7))
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
-  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
+  const target = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  target.setUTCDate(target.getUTCDate() + 4 - (target.getUTCDay() || 7))
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1))
+  return Math.ceil(((target.getTime() - yearStart.getTime()) / 86400000 + 1) / 7)
 }
 
-function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+function isSameDay(first: Date, second: Date): boolean {
+  return first.getFullYear() === second.getFullYear() && first.getMonth() === second.getMonth() && first.getDate() === second.getDate()
 }
 
-function isSameWeek(a: Date, b: Date): boolean {
-  return isSameDay(getMonday(a), getMonday(b))
+function isSameWeek(first: Date, second: Date): boolean {
+  return isSameDay(getMonday(first), getMonday(second))
 }
 
 function buildWeeks(year: number, month: number): Date[][] {
@@ -41,19 +41,26 @@ function buildWeeks(year: number, month: number): Date[][] {
   const weeks: Date[][] = []
   const current = new Date(start)
 
-  for (let w = 0; w < 6; w++) {
+  for (let weekIdx = 0; weekIdx < 6; weekIdx++) {
     const week: Date[] = []
-    for (let d = 0; d < 7; d++) {
+    for (let dayIdx = 0; dayIdx < 7; dayIdx++) {
       week.push(new Date(current))
       current.setDate(current.getDate() + 1)
     }
     weeks.push(week)
-    if (current.getMonth() !== month && w >= 3) break
+    if (current.getMonth() !== month && weekIdx >= 3) break
   }
   return weeks
 }
 
-const DAY_HEADERS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+function getLocalizedDayHeaders(): string[] {
+  const baseMonday = new Date(2024, 0, 1) // Known Monday
+  return Array.from({ length: 7 }, (_, idx) => {
+    const date = new Date(baseMonday)
+    date.setDate(date.getDate() + idx)
+    return date.toLocaleDateString(undefined, { weekday: 'narrow' })
+  })
+}
 
 export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPickerProps) {
   const t = useT()
@@ -61,6 +68,8 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
   const [viewYear, setViewYear] = React.useState(selectedWeekStart.getFullYear())
   const [viewMonth, setViewMonth] = React.useState(selectedWeekStart.getMonth())
   const containerRef = React.useRef<HTMLDivElement>(null)
+
+  const dayHeaders = React.useMemo(() => getLocalizedDayHeaders(), [])
 
   React.useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -92,14 +101,14 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
 
   const goToPrevMonth = React.useCallback(() => {
     setViewMonth((prev) => {
-      if (prev === 0) { setViewYear((y) => y - 1); return 11 }
+      if (prev === 0) { setViewYear((yr) => yr - 1); return 11 }
       return prev - 1
     })
   }, [])
 
   const goToNextMonth = React.useCallback(() => {
     setViewMonth((prev) => {
-      if (prev === 11) { setViewYear((y) => y + 1); return 0 }
+      if (prev === 11) { setViewYear((yr) => yr + 1); return 0 }
       return prev + 1
     })
   }, [])
@@ -135,9 +144,9 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
               size="sm"
               className="h-auto px-2 py-1 text-xs"
               onClick={() => {
-                const d = new Date()
-                d.setDate(d.getDate() - 7)
-                handleWeekClick(getMonday(d))
+                const lastWeek = new Date()
+                lastWeek.setDate(lastWeek.getDate() - 7)
+                handleWeekClick(getMonday(lastWeek))
               }}
             >
               {t('staff.timesheets.my.calendar.lastWeek', 'Last week')}
@@ -146,11 +155,23 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
 
           {/* Month navigation */}
           <div className="mb-2 flex items-center justify-between">
-            <IconButton variant="ghost" size="xs" type="button" onClick={goToPrevMonth} aria-label="Previous month">
+            <IconButton
+              variant="ghost"
+              size="xs"
+              type="button"
+              onClick={goToPrevMonth}
+              aria-label={t('staff.timesheets.my.calendar.prevMonth', 'Previous month')}
+            >
               <ChevronLeft className="size-3.5" />
             </IconButton>
             <span className="text-sm font-medium">{monthLabel}</span>
-            <IconButton variant="ghost" size="xs" type="button" onClick={goToNextMonth} aria-label="Next month">
+            <IconButton
+              variant="ghost"
+              size="xs"
+              type="button"
+              onClick={goToNextMonth}
+              aria-label={t('staff.timesheets.my.calendar.nextMonth', 'Next month')}
+            >
               <ChevronRight className="size-3.5" />
             </IconButton>
           </div>
@@ -158,8 +179,8 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
           {/* Day headers */}
           <div className="grid grid-cols-[32px_repeat(7,1fr)] gap-0 mb-1">
             <div />
-            {DAY_HEADERS.map((day) => (
-              <div key={day} className="text-center text-[11px] font-medium text-muted-foreground py-1">
+            {dayHeaders.map((day, idx) => (
+              <div key={idx} className="text-center text-[11px] font-medium text-muted-foreground py-1">
                 {day}
               </div>
             ))}
@@ -172,11 +193,12 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
             const isSelected = isSameWeek(monday, selectedWeekStart)
 
             return (
-              <button
+              <Button
                 key={monday.toISOString()}
                 type="button"
-                className={`grid grid-cols-[32px_repeat(7,1fr)] gap-0 w-full rounded-md cursor-pointer transition-colors
-                  ${isSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
+                variant="ghost"
+                className={`grid grid-cols-[32px_repeat(7,1fr)] gap-0 w-full h-auto rounded-md px-0 py-0 hover:bg-muted
+                  ${isSelected ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
                 onClick={() => handleWeekClick(monday)}
               >
                 <span className={`text-[10px] font-medium py-1.5 text-center ${isSelected ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
@@ -184,20 +206,20 @@ export function CalendarPicker({ selectedWeekStart, onWeekSelect }: CalendarPick
                 </span>
                 {week.map((date) => {
                   const inMonth = date.getMonth() === viewMonth
-                  const isToday = isSameDay(date, today)
+                  const isTodayDate = isSameDay(date, today)
                   return (
                     <span
                       key={date.toISOString()}
                       className={`text-xs py-1.5 text-center
                         ${!inMonth && !isSelected ? 'text-muted-foreground/40' : ''}
-                        ${isToday && !isSelected ? 'font-bold text-primary' : ''}
-                        ${isToday && isSelected ? 'font-bold underline' : ''}`}
+                        ${isTodayDate && !isSelected ? 'font-bold text-primary' : ''}
+                        ${isTodayDate && isSelected ? 'font-bold underline' : ''}`}
                     >
                       {date.getDate()}
                     </span>
                   )
                 })}
-              </button>
+              </Button>
             )
           })}
         </div>
