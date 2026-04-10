@@ -51,6 +51,7 @@ export async function createSyncExcelUploadAttachment(input: {
       module: 'sync_excel',
       temporary: true,
       uploadId: input.uploadId,
+      inlineCsvBase64: input.buffer.toString('base64'),
     },
   })
 
@@ -60,7 +61,14 @@ export async function createSyncExcelUploadAttachment(input: {
   return attachment
 }
 
-export async function readSyncExcelUploadBuffer(attachment: Attachment): Promise<Buffer> {
+export async function readSyncExcelUploadBuffer(
+  attachment: Pick<Attachment, 'partitionCode' | 'storagePath' | 'storageDriver' | 'storageMetadata'>,
+): Promise<Buffer> {
+  const inlineCsvBase64 = attachment.storageMetadata?.inlineCsvBase64
+  if (typeof inlineCsvBase64 === 'string' && inlineCsvBase64.length > 0) {
+    return Buffer.from(inlineCsvBase64, 'base64')
+  }
+
   const absolutePath = resolveAttachmentAbsolutePath(
     attachment.partitionCode,
     attachment.storagePath,

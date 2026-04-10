@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, flattened primary-address mapping/import for one address per CSV row, resumable upload/mapping state in the integration detail view, polling-based run/log/health refresh, duplicate-risk warnings, and automated unit/integration coverage. The only remaining merge blocker in the current worktree is generating the DB migration for `sync_excel_uploads`, which is currently blocked locally by missing `DATABASE_URL` / PostgreSQL.
+Add the first upstreamable `sync_excel` slice as a file-upload-based `data_sync` provider for CSV imports into `customers.person`. The slice now includes the additive `data_sync` contract changes (`runId`, richer field mapping semantics), a provider-owned upload session entity, upload/preview/import APIs, a `customers.person` adapter with external-ID/email dedupe, an integration-detail admin tab, tenant custom-field mapping support in the preview/import flow, flattened primary-address mapping/import for one address per CSV row, resumable upload/mapping state in the integration detail view, polling-based run/log/health refresh, duplicate-risk warnings, and automated unit/integration coverage. After production verification on split ECS web/worker tasks, the upload attachment now also stores an inline CSV copy in attachment metadata so imports do not depend on container-local attachment storage.
 
 ## Overview
 
@@ -24,7 +24,7 @@ Implement `sync_excel` as a first-class `data_sync` provider with these capabili
 
 1. Add optional `runId` to `StreamImportInput` and `StreamExportInput`
 2. Add optional `mappingKind` and `dedupeRole` to `FieldMapping`
-3. Introduce provider-owned `SyncExcelUpload` state backed by attachments
+3. Introduce provider-owned `SyncExcelUpload` state backed by attachments with an inline attachment-metadata CSV fallback for worker-safe reads
 4. Expose provider APIs for upload, preview, and import start
 5. Reuse `data_sync` runs, queue orchestration, and progress lifecycle for background execution
 6. Scope the first target adapter to `customers.person`
@@ -63,7 +63,7 @@ This keeps the architecture aligned with upstream `SPEC-045b` and avoids a stand
 ### Execution model
 
 1. Admin uploads a CSV file to `sync_excel`
-2. Provider stores the file via `attachments` and persists a `SyncExcelUpload` record
+2. Provider stores the file via `attachments`, persists a `SyncExcelUpload` record, and keeps an inline CSV copy in attachment metadata for worker-safe reads
 3. Provider returns headers, sample rows, row count, and suggested mapping
 4. Admin confirms mapping and starts import
 5. Provider persists/updates `SyncMapping`, creates a `SyncRun`, links it to the upload session, and enqueues a normal `data_sync` run
@@ -163,10 +163,7 @@ This slice intentionally does **not** yet add an Import button directly to custo
 
 No new env vars are introduced by the feature itself.
 
-Local merge blocker:
-
-- `yarn db:generate` still requires `DATABASE_URL`
-- the current worktree has no reachable Postgres instance, so the migration for `sync_excel_uploads` has not yet been generated locally
+No new migration is required for the split-task fix because the worker-safe CSV copy is stored in existing `attachments.storage_metadata`.
 
 ## Alternatives Considered
 
@@ -198,8 +195,7 @@ Rejected because provider-owned upload flows should remain behind provider APIs 
 
 ### Still required before merge
 
-1. generate and commit the DB migration for `sync_excel_uploads`
-2. run full verification that depends on a working DB-backed local environment
+1. run full verification in an environment that exercises separate web and worker tasks
 
 ## Risks & Impact Review
 
@@ -209,7 +205,7 @@ Rejected because provider-owned upload flows should remain behind provider APIs 
 | CSV mapping UI drops unmapped columns | Medium | `sync_excel` preview/import | Preview preserves all headers and distinguishes unmapped columns explicitly | Low |
 | File-backed imports create duplicate people | Medium | `customers.person` import | Prefer external ID mapping, fallback to email dedupe, keep scope limited to one entity type in v1 | Low |
 | First PR scope grows into company/address/deals | Medium | reviewability / upstream acceptance | Current slice limits target support to `customers.person` only | Low |
-| Missing migration blocks merge even though code compiles | High | release readiness | Explicit blocker tracked in this spec; migration must be generated once DB is available | Medium |
+| Split web/worker deployments lose access to container-local upload files | High | release readiness | Persist inline CSV fallback in attachment metadata and verify imports on ECS | Low |
 
 ## Migration & Backward Compatibility
 
@@ -227,7 +223,7 @@ Compatibility strategy:
 - no existing route IDs, event IDs, ACL feature IDs, or widget spot IDs were renamed or removed
 - schema change is additive only (`sync_excel_uploads`)
 
-The branch is **not merge-ready until the generated DB migration is added**.
+This branch remains additive-only because the operational fix reuses existing attachment columns and does not introduce a schema change.
 
 ## Test Plan
 
@@ -279,7 +275,7 @@ The branch is **not merge-ready until the generated DB migration is added**.
 - Preserves backward compatibility through additive-only changes
 - Keeps `sync_excel` inside the upstream `data_sync` architecture instead of creating a parallel subsystem
 - Integration and unit coverage added for the implemented API paths and primary happy path
-- Remaining blocker is explicit: DB migration generation requires a working local `DATABASE_URL`
+- Remaining verification focus is explicit: confirm end-to-end imports on split ECS web/worker tasks
 
 ## Changelog
 
@@ -290,7 +286,7 @@ The branch is **not merge-ready until the generated DB migration is added**.
 - Added `customers.person` import adapter with external ID / email dedupe
 - Added integration-detail UI tab for CSV import administration
 - Added unit and integration coverage for the first upstream slice
-- Recorded local merge blocker: missing DB migration generation because `DATABASE_URL` is unavailable in the current environment
+- Recorded production hardening change: inline CSV fallback in attachment metadata removes the split-task filesystem dependency without a schema change
 
 ### 2026-04-01
 
