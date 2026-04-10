@@ -159,15 +159,15 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
       let staffMap = new Map<string, StaffMemberRecord>()
       if (staffMemberIds.length > 0) {
         try {
-          const staffPayload = await readApiResultOrThrow<StaffMembersResponse>(
+          const staffRes = await apiCall<StaffMembersResponse>(
             `/api/staff/team-members?ids=${staffMemberIds.join(',')}&pageSize=100`,
-            undefined,
-            { errorMessage: '', fallback: { items: [] } },
           )
-          const staffItems = Array.isArray(staffPayload.items) ? staffPayload.items : []
-          staffMap = new Map(staffItems.map((member) => [member.id, member]))
+          if (staffRes.ok) {
+            const staffItems = Array.isArray(staffRes.result?.items) ? staffRes.result.items : []
+            staffMap = new Map(staffItems.map((member) => [member.id, member]))
+          }
         } catch {
-          // name resolution failed — show IDs as fallback
+          // name resolution failed (e.g. 403 for employees) — show IDs as fallback
         }
       }
 

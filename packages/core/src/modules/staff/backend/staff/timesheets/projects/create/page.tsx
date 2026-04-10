@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -59,8 +60,26 @@ export default function TimesheetProjectCreatePage() {
               { errorMessage: t('staff.timesheets.projects.errors.save', 'Failed to save project.') },
             )
 
-            flash(t('staff.timesheets.projects.messages.saved', 'Project saved.'), 'success')
             const newId = created?.id
+
+            // Auto-assign creator to the project
+            if (newId) {
+              try {
+                const selfRes = await apiCall<{ member?: { id?: string } | null }>('/api/staff/team-members/self')
+                const staffMemberId = selfRes.result?.member?.id
+                if (staffMemberId) {
+                  await createCrud('staff/timesheets/time-projects/' + newId + '/employees', {
+                    staffMemberId,
+                    assignedStartDate: new Date().toISOString().slice(0, 10),
+                    status: 'active',
+                  }, { errorMessage: '' })
+                }
+              } catch {
+                // non-critical — project created, self-assignment is best-effort
+              }
+            }
+
+            flash(t('staff.timesheets.projects.messages.saved', 'Project saved.'), 'success')
             if (newId) router.push(`/backend/staff/timesheets/projects/${newId}`)
             else router.push(BACK_HREF)
           }}
