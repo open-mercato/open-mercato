@@ -32,9 +32,10 @@ When changes affect app shell behavior, verify all relevant template files are r
 2. `apps/mercato/src/app/(backend)/backend/layout.tsx` ↔ `packages/create-app/template/src/app/(backend)/backend/layout.tsx`
 3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*`
 4. `scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev.mjs`
-5. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`
-6. `scripts/dev-splash-helpers.mjs` ↔ `packages/create-app/template/scripts/dev-splash-helpers.mjs`
-7. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
+5. `scripts/dev-log-files.mjs` ↔ `packages/create-app/template/scripts/dev-log-files.mjs`
+6. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`
+7. `scripts/dev-splash-helpers.mjs` ↔ `packages/create-app/template/scripts/dev-splash-helpers.mjs`
+8. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
 
 ## Dev Runtime Expectations
 

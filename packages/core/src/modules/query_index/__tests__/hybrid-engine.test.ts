@@ -441,6 +441,56 @@ describe('HybridQueryEngine', () => {
     expect(hasEqualityFilter).toBe(true)
   })
 
+  test('customFieldSources equality filters stay exact when search tokens are available', async () => {
+    const fakeKnex = createFakeKnex({
+      baseTable: 'customer_entities',
+      hasIndexAny: true,
+      baseCount: 1,
+      indexCount: 1,
+      columns: [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+        { table_name: 'customer_people', column_name: 'id' },
+        { table_name: 'customer_people', column_name: 'tenant_id' },
+      ],
+    })
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      customFieldSources: [
+        {
+          entityId: 'customers:customer_person_profile',
+          table: 'customer_people',
+          alias: 'person_profile',
+          join: { fromField: 'id', toField: 'entity_id' },
+        },
+      ],
+      filters: {
+        'person_profile.id': { $eq: 'profile-1' },
+      },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeKnex._calls.find((call: any) => call._ops.alias === 'b')
+    expect(baseCall).toBeTruthy()
+    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
+    expect(existsFilter).toBeTruthy()
+    const subQuery = existsFilter[1]
+    expect(subQuery?._ops?.table).toBe('customer_people')
+    const hasEqualityFilter = Array.isArray(subQuery?._ops?.wheres)
+      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'person_profile.id' && w[1] === 'profile-1')
+      : false
+    expect(hasEqualityFilter).toBe(true)
+  })
+
   test('uses search tokens for index document fields on base entities', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 1, indexCount: 1 })
     const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
