@@ -74,6 +74,8 @@
     "i18n:check": "tsx scripts/i18n-check-sync.ts && tsx scripts/i18n-check-usage.ts",
     "i18n:fix": "tsx scripts/i18n-check-sync.ts --fix",
     "check:dep-versions": "tsx scripts/check-dep-versions.ts",
+    "review:light": "tsx scripts/light-code-review.ts --scope=push --typecheck",
+    "review:light:staged": "tsx scripts/light-code-review.ts --scope=staged",
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
@@ -90,6 +92,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.12",
     "@ai-sdk/openai": "^3.0.5",
     "@mikro-orm/core": "^6.6.10",
     "@mikro-orm/migrations": "^6.6.10",
