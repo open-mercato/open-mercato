@@ -11,6 +11,8 @@ import {
   WidgetDataValidationError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { StaffTeamMember } from '@open-mercato/core/modules/staff/data/entities'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 
@@ -170,10 +172,42 @@ export async function POST(req: Request) {
     return undefined
   })()
 
+  // Self-scope enforcement for timesheets: non-manage_all users can only query their own data
+  const requestData = { ...parsed.data, filters: [...(parsed.data.filters ?? [])] }
+  if (requestData.entityType === 'staff:staff_time_entries') {
+    const rbac = container.resolve<{
+      userHasAllFeatures: (
+        userId: string,
+        features: string[],
+        scope: { tenantId: string; organizationId?: string | null },
+      ) => Promise<boolean>
+    }>('rbacService')
+    const hasManageAll = await rbac.userHasAllFeatures(auth.sub, ['staff.timesheets.manage_all'], {
+      tenantId,
+      organizationId: organizationIds?.[0] ?? auth.orgId,
+    })
+    if (!hasManageAll) {
+      const orgId = organizationIds?.[0] ?? auth.orgId ?? null
+      const staffMember = orgId
+        ? await findOneWithDecryption(
+            em,
+            StaffTeamMember,
+            { userId: auth.sub, tenantId, organizationId: orgId, deletedAt: null },
+            {},
+            { tenantId, organizationId: orgId },
+          )
+        : null
+      if (!staffMember) {
+        return NextResponse.json({ error: 'No staff member profile found' }, { status: 403 })
+      }
+      requestData.filters.push({ field: 'staffMemberId', operator: 'eq' as const, value: staffMember.id })
+    }
+  }
+
   try {
     const cache = container.resolve<CacheStrategy>('cache')
     const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
-    const result = await service.fetchWidgetData(parsed.data as WidgetDataRequest)
+    const result = await service.fetchWidgetData(requestData as WidgetDataRequest)
     return NextResponse.json(result)
   } catch (err) {
     console.error('[widgets/data] Error:', err)

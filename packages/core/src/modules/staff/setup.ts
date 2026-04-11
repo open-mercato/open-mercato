@@ -20,6 +20,9 @@ export const setup: ModuleSetupConfig = {
       'staff.my_availability.manage',
       'staff.my_leave_requests.view',
       'staff.my_leave_requests.send',
+      'staff.timesheets.view',
+      'staff.timesheets.manage_own',
+      'staff.timesheets.projects.view',
     ],
   },
 }
