@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -222,12 +222,17 @@ describe('loadPaymentSnapshot — scope forwarding to findOneWithDecryption', ()
 // ---------------------------------------------------------------------------
 
 describe('createPaymentCommand.execute — tenant-scoped entity lookups', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+  })
+
   it('includes tenantId and organizationId when querying SalesOrder', async () => {
     const execute = commandRegistry.get('sales.payments.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
-    const { em, ctx } = buildCommandCtx()
-    // em.findOne returns null → assertFound throws CrudHttpError(404)
+    const { ctx } = buildCommandCtx()
+    // findOneWithDecryption returns null → assertFound throws CrudHttpError(404)
 
     await expect(
       execute?.(
@@ -236,35 +241,34 @@ describe('createPaymentCommand.execute — tenant-scoped entity lookups', () => 
       )
     ).rejects.toBeDefined()
 
-    const orderCall = em.findOne.mock.calls.find(
-      ([_entity, filter]: [unknown, Record<string, unknown>]) => filter?.id === TEST_ORDER_ID
+    const orderCall = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) => filter?.id === TEST_ORDER_ID
     )
     expect(orderCall).toBeDefined()
-    expect(orderCall[1]).toMatchObject({ id: TEST_ORDER_ID, tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID })
+    expect(orderCall[2]).toMatchObject({ id: TEST_ORDER_ID })
+    expect(orderCall[4]).toMatchObject({ tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID })
   })
 
   it('includes tenantId and organizationId when querying SalesPaymentMethod', async () => {
     const execute = commandRegistry.get('sales.payments.create')?.execute
     expect(execute).toBeInstanceOf(Function)
 
-    const { em, ctx } = buildCommandCtx({
-      findOne: jest.fn().mockImplementation(async (_entity: unknown, filter: Record<string, unknown>) => {
-        if (filter?.id === TEST_ORDER_ID) {
-          return {
-            id: TEST_ORDER_ID,
-            tenantId: TEST_TENANT_ID,
-            organizationId: TEST_ORG_ID,
-            deletedAt: null,
-            currencyCode: 'USD',
-            paymentMethodId: null,
-            paymentMethodCode: null,
-            orderNumber: 'ORD-001',
-            grandTotalGrossAmount: '0',
-          }
-        }
-        return null // payment method lookup → assertFound throws
-      }),
-    })
+    const mockOrder = {
+      id: TEST_ORDER_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      deletedAt: null,
+      currencyCode: 'USD',
+      paymentMethodId: null,
+      paymentMethodCode: null,
+      orderNumber: 'ORD-001',
+      grandTotalGrossAmount: '0',
+    }
+
+    // First call returns the order; subsequent calls return null (method lookup → assertFound throws)
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(mockOrder).mockResolvedValue(null)
+
+    const { ctx } = buildCommandCtx()
 
     await expect(
       execute?.(
@@ -280,11 +284,12 @@ describe('createPaymentCommand.execute — tenant-scoped entity lookups', () => 
       )
     ).rejects.toBeDefined()
 
-    const methodCall = em.findOne.mock.calls.find(
-      ([_entity, filter]: [unknown, Record<string, unknown>]) => filter?.id === TEST_METHOD_ID
+    const methodCall = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) => filter?.id === TEST_METHOD_ID
     )
     expect(methodCall).toBeDefined()
-    expect(methodCall[1]).toMatchObject({ id: TEST_METHOD_ID, tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID })
+    expect(methodCall[2]).toMatchObject({ id: TEST_METHOD_ID })
+    expect(methodCall[4]).toMatchObject({ tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID })
   })
 })
 
@@ -327,14 +332,18 @@ describe('updatePaymentCommand.execute — flush ordering (scalar mutations befo
       updatedAt: new Date(),
     }
 
-    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(mockPayment)
+    // Both scopeSeed and payment lookups in updatePaymentCommand.execute use findOneWithDecryption
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(mockPayment)  // scopeSeed lookup
+      .mockResolvedValueOnce(mockPayment)  // payment lookup (with populate: ['order'])
+
+    // Track allocation queries via findWithDecryption instead of em.find
+    ;(findWithDecryption as jest.Mock).mockImplementation((_em: unknown, _entity: unknown, filter: Record<string, unknown>) => {
+      if (filter?.payment !== undefined) callOrder.push('find:allocations')
+      return Promise.resolve([])
+    })
 
     const { em, ctx } = buildCommandCtx({
-      findOne: jest.fn().mockResolvedValue(mockPayment),
-      find: jest.fn().mockImplementation((_entity: unknown, filter: Record<string, unknown>) => {
-        if (filter?.payment !== undefined) callOrder.push('find:allocations')
-        return Promise.resolve([])
-      }),
       flush: jest.fn().mockImplementation(() => {
         callOrder.push('flush')
         return Promise.resolve()
@@ -365,21 +374,25 @@ describe('updatePaymentCommand.execute — flush ordering (scalar mutations befo
 // ---------------------------------------------------------------------------
 
 describe('createPaymentCommand.undo — tenant-scoped SalesOrder lookup', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    ;(findWithDecryption as jest.Mock).mockClear()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
+
   it('uses tenantId and organizationId from the snapshot when fetching the order', async () => {
     const undo = commandRegistry.get('sales.payments.create')?.undo
     expect(undo).toBeInstanceOf(Function)
 
     const after = buildPaymentSnapshot()
 
-    const { em, ctx } = buildCommandCtx({
-      findOne: jest.fn().mockImplementation(async (_entity: unknown, filter: Record<string, unknown>) => {
-        // First call: SalesPayment lookup by id only (no tenantId)
-        if (filter?.id === TEST_PAYMENT_ID && !filter?.tenantId) {
-          return { id: TEST_PAYMENT_ID, order: { id: TEST_ORDER_ID } }
-        }
-        return null
-      }),
-    })
+    // Payment lookup returns existing payment; subsequent calls (SalesOrder) return null
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce({ id: TEST_PAYMENT_ID, order: { id: TEST_ORDER_ID } })
+      .mockResolvedValue(null)
+
+    const { ctx } = buildCommandCtx()
 
     const logEntry = {
       payload: {
@@ -389,13 +402,14 @@ describe('createPaymentCommand.undo — tenant-scoped SalesOrder lookup', () => 
 
     await undo?.({ logEntry: logEntry as any, ctx: ctx as any })
 
-    const scopedOrderCall = em.findOne.mock.calls.find(
-      ([_entity, filter]: [unknown, Record<string, unknown>]) =>
-        filter?.id === TEST_ORDER_ID && 'tenantId' in (filter as object)
+    // The order lookup inside the undo loop must carry tenantId and organizationId as scope
+    const scopedOrderCall = (findOneWithDecryption as jest.Mock).mock.calls.find(
+      ([_em, _entity, filter]: [unknown, unknown, Record<string, unknown>]) =>
+        filter?.id === TEST_ORDER_ID
     )
     expect(scopedOrderCall).toBeDefined()
-    expect(scopedOrderCall[1]).toMatchObject({
-      id: TEST_ORDER_ID,
+    expect(scopedOrderCall[2]).toMatchObject({ id: TEST_ORDER_ID })
+    expect(scopedOrderCall[4]).toMatchObject({
       tenantId: TEST_TENANT_ID,
       organizationId: TEST_ORG_ID,
     })
