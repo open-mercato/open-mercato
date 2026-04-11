@@ -468,6 +468,7 @@ export default function ResourcesResourcesPage() {
     <Page>
       <PageBody>
         <DataTable
+          stickyActionsColumn
           title={t('resources.resources.page.title', 'Resources')}
           actions={canManage ? (
             <Button asChild>

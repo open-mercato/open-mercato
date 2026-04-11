@@ -124,6 +124,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 ## DataTable Guidelines
 
 - Use `DataTable` as the default list view.
+- For wide list views where rightmost `rowActions` can scroll out of view, enable `stickyActionsColumn` on the host `DataTable`; keep it opt-in instead of making all actions columns sticky by default.
 - DataTable extension spots include: `data-table:<tableId>:columns`, `:row-actions`, `:bulk-actions`, `:filters` (in addition to `:header`/`:footer`).
 - Populate `columns` with explicit renderers and set `meta.truncate`/`meta.maxWidth` where truncation is needed.
 - For filters, use `FilterBar`/`FilterOverlay` with async option loaders; keep `pageSize` at or below 100.
