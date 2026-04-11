@@ -13,7 +13,7 @@ High
 UI Test + API Fixture Setup
 
 ## Description
-Verify that an enrolled user can add a TOTP MFA method from the security profile, complete an MFA-gated login with the TOTP code, consume a recovery code when the TOTP code is unavailable, and regenerate the recovery code set from the MFA settings area.
+Verify that a user can add a TOTP MFA method from the security profile, complete an MFA-gated login with the TOTP code, generate and consume a recovery code when the TOTP code is unavailable, and regenerate the recovery code set from the MFA settings area.
 
 ## Prerequisites
 - Application is running with the enterprise `security` module enabled
@@ -24,11 +24,11 @@ Verify that an enrolled user can add a TOTP MFA method from the security profile
 ## Test Steps
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| 1 | Create a tenant-scoped user fixture and sign in to `/login` | User reaches the backend and has access to `/backend/profile/security/mfa` |
+| 1 | Create a tenant-scoped user fixture and establish an authenticated session for the test user | User can reach `/backend/profile/security/mfa` without relying on seeded/demo accounts |
 | 2 | Open `/backend/profile/security/mfa` and inspect available providers | TOTP is listed as an available provider and no TOTP method is enrolled yet |
 | 3 | Start TOTP setup through `/backend/profile/security/mfa/totp` or the provider action on the MFA page | The UI requests setup data from `POST /api/security/mfa/provider/totp` and shows QR/manual-secret details |
-| 4 | Generate a valid TOTP code from the returned secret and confirm setup through `PUT /api/security/mfa/provider/totp` | TOTP enrollment succeeds and recovery codes are shown once |
-| 5 | Persist one recovery code for later use and return to the MFA overview | The TOTP method appears in the enrolled methods list with active status |
+| 4 | Generate a valid TOTP code from the returned secret and confirm setup through `PUT /api/security/mfa/provider/totp` | TOTP enrollment succeeds and the provider appears in the MFA overview as configured |
+| 5 | Open `/backend/profile/security/mfa/recovery-codes` and generate a recovery-code set through `POST /api/security/mfa/recovery-codes/regenerate` | A fresh set of 10 recovery codes is shown and one code can be persisted for later use |
 | 6 | Sign out, then sign in again with the same email and password | Login response is intercepted and the flow switches to MFA challenge instead of issuing a full session immediately |
 | 7 | Submit a valid TOTP code through the MFA challenge flow | MFA verification succeeds, a verified session is issued, and the user is redirected to `/backend` |
 | 8 | Sign out again and repeat login, but complete the challenge with an unused recovery code via `POST /api/security/mfa/recovery` | Login succeeds and the recovery code is consumed |
@@ -39,7 +39,8 @@ Verify that an enrolled user can add a TOTP MFA method from the security profile
 - TOTP enrollment works end to end through the provider route pair:
   - `POST /api/security/mfa/provider/totp`
   - `PUT /api/security/mfa/provider/totp`
-- First MFA enrollment returns recovery codes exactly once during setup
+- Recovery codes are generated and displayed through the dedicated recovery-code flow:
+  - `POST /api/security/mfa/recovery-codes/regenerate`
 - Password login for a user with active MFA methods produces an MFA challenge instead of a full session
 - Successful TOTP verification completes login and redirects to `/backend`
 - Recovery code verification works exactly once per code
