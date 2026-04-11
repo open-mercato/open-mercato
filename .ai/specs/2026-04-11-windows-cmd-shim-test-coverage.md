@@ -175,3 +175,6 @@ Fully compliant — ready for implementation.
 
 ### 2026-04-11
 - Initial specification
+- Implemented Phase 1: exported `resolveWindowsCommandShim` / `resolveYarnBinary` with optional `platform` parameter from `module-install.ts`, `testing/integration.ts`, `scripts/lib/verdaccio.ts`, `scripts/dev-ephemeral.ts`; created `packages/cli/src/lib/__tests__/windows-shim.test.ts` (11 cases covering both CLI and verdaccio variants)
+- Implemented Phase 2: `resolve-environment.test.ts` — `trySymlink()` helper with EPERM-guard skips symlink tests gracefully on Windows without Developer Mode; `ready-apps.test.ts` — `pathToFileURL(mockFetchModulePath).href` fixes `ERR_UNSUPPORTED_ESM_URL_SCHEME` on Windows
+- Note: during investigation found an additional pre-existing Node 24 regression in `openapi-paths.ts` (`fileURLToPath` without explicit `windows` option throws on Node 24 with POSIX URLs); tracked and fixed separately on branch `fix/node24-fileURLToPath-windows`
