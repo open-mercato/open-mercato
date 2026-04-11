@@ -1219,7 +1219,7 @@ describe('all generated files are valid with varying subsets', () => {
     expect(sudoTargets).not.toContain('no_security')
   })
 
-  it('omits bootstrap registrations when generator plugins discover no entries', async () => {
+  it('omits bootstrap registrations when generator plugins discover no entries and the registration package is unavailable', async () => {
     scaffoldModule(tmpDir, 'no_security', 'pkg', ['setup.ts'])
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'no_security', 'generators.ts'),
@@ -1238,6 +1238,27 @@ describe('all generated files are valid with varying subsets', () => {
     expect(bootstrapRegistrations).not.toContain('./security-mfa-providers.generated')
     expect(bootstrapRegistrations).not.toContain('./security-sudo.generated')
     expect(bootstrapRegistrations).not.toContain('@open-mercato/enterprise')
+  })
+
+  it('keeps bootstrap registrations when generator plugins discover no entries but the registration package is available', async () => {
+    scaffoldModule(tmpDir, 'no_security', 'pkg', ['setup.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'no_security', 'generators.ts'),
+      SECURITY_GENERATORS_CONTENT,
+    )
+    fs.mkdirSync(path.join(tmpDir, 'packages', 'enterprise'), { recursive: true })
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'no_security', from: '@open-mercato/core' },
+    ])
+    await generateModuleRegistry({ resolver, quiet: true })
+
+    const bootstrapRegistrations = readGenerated(tmpDir, 'bootstrap-registrations.generated.ts')!
+
+    expect(bootstrapRegistrations).toContain('registerSecurityMfaProviderEntries')
+    expect(bootstrapRegistrations).toContain('registerSecuritySudoTargetEntries')
+    expect(bootstrapRegistrations).toContain('./security-mfa-providers.generated')
+    expect(bootstrapRegistrations).toContain('./security-sudo.generated')
+    expect(bootstrapRegistrations).toContain('@open-mercato/enterprise')
   })
 
   it('discovers security convention files into dedicated generated registries', async () => {

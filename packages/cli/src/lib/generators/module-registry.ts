@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript'
@@ -373,6 +374,39 @@ function buildBareImportStatement(importPath: string): string {
 
 function buildDynamicImportExpression(importPath: string): string {
   return `import(${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))})`
+}
+
+function extractGeneratedImportModuleSpecifier(statement: string): string | null {
+  const fromMatch = statement.match(/\bfrom\s+['"]([^'"]+)['"]\s*$/)
+  if (fromMatch) {
+    return fromMatch[1]
+  }
+
+  const bareImportMatch = statement.match(/^import\s+['"]([^'"]+)['"]\s*$/)
+  if (bareImportMatch) {
+    return bareImportMatch[1]
+  }
+
+  return null
+}
+
+function isGeneratedImportAvailable(resolver: PackageResolver, moduleSpecifier: string): boolean {
+  if (moduleSpecifier.startsWith('.')) {
+    return true
+  }
+
+  const workspacePackageMatch = moduleSpecifier.match(/^@open-mercato\/([^/]+)(?:\/.*)?$/)
+  if (workspacePackageMatch) {
+    return fs.existsSync(resolver.getPackageRoot(`@open-mercato/${workspacePackageMatch[1]}`))
+  }
+
+  try {
+    const requireFromRoot = createRequire(path.join(resolver.getRootDir(), 'package.json'))
+    requireFromRoot.resolve(moduleSpecifier)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function serializeGeneratedImport(
@@ -2402,9 +2436,15 @@ export default apiRoutes
     const allCalls: string[] = []
     for (const plugin of bootstrapPlugins) {
       const state = pluginState.get(plugin.id)
-      if (!state || state.configs.length === 0) continue
+      if (!state) continue
 
       const reg = plugin.bootstrapRegistration!
+      const registrationImportsAvailable = reg.registrationImports.every((statement) => {
+        const moduleSpecifier = extractGeneratedImportModuleSpecifier(statement)
+        return moduleSpecifier ? isGeneratedImportAvailable(resolver, moduleSpecifier) : true
+      })
+      if (!registrationImportsAvailable) continue
+
       const outputBase = plugin.outputFileName.replace('.ts', '')
       allEntryImports.push(buildImportStatement(`{ ${reg.entriesExportName} }`, `./${outputBase}`))
       allRegImports.push(...reg.registrationImports)
