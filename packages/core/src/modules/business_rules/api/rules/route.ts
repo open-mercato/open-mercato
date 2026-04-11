@@ -203,10 +203,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
-  const rule = em.create(BusinessRule, parsed.data)
-  await em.persistAndFlush(rule)
-
-  return NextResponse.json({ id: rule.id }, { status: 201 })
+  try {
+    const rule = em.create(BusinessRule, parsed.data)
+    await em.persistAndFlush(rule)
+    return NextResponse.json({ id: rule.id }, { status: 201 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create rule'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
 
 export async function PUT(req: Request) {
@@ -253,10 +257,14 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
   }
 
-  em.assign(rule, parsed.data)
-  await em.persistAndFlush(rule)
-
-  return NextResponse.json({ ok: true })
+  try {
+    em.assign(rule, parsed.data)
+    await em.persistAndFlush(rule)
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to update rule'
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: Request) {
