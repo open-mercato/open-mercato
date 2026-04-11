@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { Knex } from 'knex'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
