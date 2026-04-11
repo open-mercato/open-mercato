@@ -17,6 +17,7 @@ export function mapCustomFieldKindToFilterType(kind: string): FilterFieldType {
     case 'float':
       return 'number'
     case 'date':
+    case 'datetime':
       return 'date'
     case 'select':
     case 'dictionary':

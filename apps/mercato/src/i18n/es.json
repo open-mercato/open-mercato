@@ -667,6 +667,8 @@
   "ui.advancedFilter.textPlaceholder": "Value...",
   "ui.advancedFilter.textValue": "Text value",
   "ui.advancedFilter.toggle": "Advanced filters",
+  "ui.advancedFilter.toggleJoin": "Cambiar operador de unión del filtro",
+  "ui.advancedFilter.toggleJoinHint": "Haz clic para alternar entre Y y O",
   "ui.advancedFilter.where": "Where",
   "ui.badges.severity.high": "Alto",
   "ui.badges.severity.low": "Bajo",

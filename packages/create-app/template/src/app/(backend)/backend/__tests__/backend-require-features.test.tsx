@@ -3,8 +3,10 @@
  */
 import React from 'react'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-// Avoid loading the full generated modules (which pull example modules and DSL)
-jest.mock('@/generated/modules.generated', () => ({ modules: [] }))
+
+jest.mock('@/.mercato/generated/backend-routes.generated', () => ({
+  backendRoutes: [],
+}))
 
 import BackendCatchAll from '@/app/(backend)/backend/[...slug]/page'
 
@@ -26,12 +28,13 @@ jest.mock('next/headers', () => ({
 
 // Mock registry to return a match with requireFeatures
 jest.mock('@open-mercato/shared/modules/registry', () => ({
-  findBackendMatch: jest.fn(() => ({
+  findRouteManifestMatch: jest.fn(() => ({
     route: {
       requireAuth: true,
       requireRoles: [],
       requireFeatures: ['entities.records.view'],
       title: 'Test',
+      load: async () => () => React.createElement('div', null, 'OK'),
       Component: () => React.createElement('div', null, 'OK'),
     },
     params: {},
@@ -158,14 +161,15 @@ describe('Backend requireFeatures guard', () => {
 
   it('renders access denied when user lacks required roles', async () => {
     await setAuthMock({ sub: 'u1', tenantId: 't1', orgId: 'o1', roles: ['employee'] })
-    const { findBackendMatch } = await import('@open-mercato/shared/modules/registry')
-    const mocked = findBackendMatch as jest.MockedFunction<typeof findBackendMatch>
+    const { findRouteManifestMatch } = await import('@open-mercato/shared/modules/registry')
+    const mocked = findRouteManifestMatch as jest.MockedFunction<typeof findRouteManifestMatch>
     mocked.mockReturnValueOnce({
       route: {
         requireAuth: true,
         requireRoles: ['admin'],
         requireFeatures: [],
         title: 'Admin Only',
+        load: async () => () => React.createElement('div', null, 'Admin'),
         Component: () => React.createElement('div', null, 'Admin'),
       },
       params: {},

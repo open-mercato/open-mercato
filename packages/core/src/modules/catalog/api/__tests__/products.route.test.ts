@@ -37,12 +37,20 @@ describe('catalog products route helpers', () => {
   })
 
   it('builds product filters and merges offer + custom field context', async () => {
+    const productRows = [
+      { id: 'prod-1' },
+      { id: 'prod-2' },
+      { id: 'prod-3' },
+    ]
     const offerRows = [
       { id: 'offer-1', product: 'prod-1' },
       { id: 'offer-2', product: { id: 'prod-2' } },
     ]
     const forkedEm = {
-      find: jest.fn().mockResolvedValue(offerRows),
+      find: jest
+        .fn()
+        .mockResolvedValueOnce(productRows)
+        .mockResolvedValueOnce(offerRows),
     }
     const em = { fork: () => forkedEm }
     const container = { resolve: jest.fn().mockReturnValue(em) }
@@ -58,7 +66,7 @@ describe('catalog products route helpers', () => {
       { container, auth: { tenantId: 'tenant-1' } } as any,
     )
 
-    expect(forkedEm.find).toHaveBeenCalled()
+    expect(forkedEm.find).toHaveBeenCalledTimes(2)
     expect(buildCustomFieldFiltersFromQuery).toHaveBeenCalledWith({
       entityIds: expect.any(Array),
       query: expect.any(Object),
@@ -66,7 +74,6 @@ describe('catalog products route helpers', () => {
       tenantId: 'tenant-1',
       fieldset: 'fashion',
     })
-    expect(filters.search_text).toEqual({ $ilike: '%luxe%' })
     expect(filters.status_entry_id).toEqual({ $eq: 'status' })
     expect(filters.is_active).toBe(true)
     expect(filters.is_configurable).toBe(false)

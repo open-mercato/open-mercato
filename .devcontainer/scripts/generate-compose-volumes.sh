@@ -39,3 +39,22 @@ ${volume_declarations}
 EOF
 
 echo "Generated $OUTPUT with dist volumes for $(echo "$volume_declarations" | grep -c ':') packages."
+
+# --- Generate default docker-compose.local.yml if it doesn't exist ---
+LOCAL_OVERRIDE="$SCRIPT_DIR/../docker-compose.local.yml"
+if [ ! -f "$LOCAL_OVERRIDE" ]; then
+  cat > "$LOCAL_OVERRIDE" <<'LOCALEOF'
+# Personal overrides — gitignored, never committed.
+# Add extra bind mounts, env vars, or services here.
+#
+# Example: mount a sibling repo into the container
+#
+# services:
+#   workspace:
+#     volumes:
+#       - ../../my-other-repo:/workspace/.external/my-other-repo:cached
+
+services: {}
+LOCALEOF
+  echo "Created default $LOCAL_OVERRIDE (customize for your local setup)."
+fi
