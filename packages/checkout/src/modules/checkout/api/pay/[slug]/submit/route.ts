@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
@@ -41,6 +42,11 @@ type CheckoutLegalDocumentRequirement = {
 type CheckoutCustomerFieldRequirement = {
   key: string
   required?: boolean
+}
+
+type PaymentSessionStartResult = {
+  transaction: CheckoutTransaction
+  sessionStarted: boolean
 }
 
 function normalizePort(url: URL): string {
@@ -391,104 +397,104 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
     const sessionCurrencyCode = transaction.currencyCode
     if (!transaction.gatewayTransactionId) {
-      const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
-        ? link.gatewaySettings.paymentTypes.filter(
-            (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
-          )
-        : []
-      const rendererKey = typeof link.gatewaySettings?.rendererKey === 'string' && link.gatewaySettings.rendererKey.trim().length > 0
-        ? link.gatewaySettings.rendererKey.trim()
-        : undefined
-      const rendererSettings = link.gatewaySettings?.rendererSettings
-        && typeof link.gatewaySettings.rendererSettings === 'object'
-        && !Array.isArray(link.gatewaySettings.rendererSettings)
-        ? link.gatewaySettings.rendererSettings as Record<string, unknown>
-        : undefined
-      const presentationMode = link.gatewaySettings?.presentationMode === 'embedded'
-        || link.gatewaySettings?.presentationMode === 'redirect'
-        || link.gatewaySettings?.presentationMode === 'auto'
-        ? link.gatewaySettings.presentationMode
-        : undefined
-      try {
-        const sessionResult = await paymentGatewayService.createPaymentSession({
-          providerKey: link.gatewayProviderKey,
-          paymentId: transactionId,
-          amount: sessionAmount,
-          currencyCode: sessionCurrencyCode,
-          paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
-          description: link.title ?? link.name,
-          successUrl,
-          cancelUrl,
-          metadata: {
-            checkoutLinkId: link.id,
-            checkoutSlug: link.slug,
-          },
-          presentation: rendererKey || rendererSettings || presentationMode
-            ? {
-                ...(presentationMode ? { mode: presentationMode } : {}),
-                ...(rendererKey ? { rendererKey } : {}),
-                ...(rendererSettings ? { rendererSettings } : {}),
-              }
-            : undefined,
+      let paymentSessionError: unknown = null
+      const sessionStart = await em.transactional(async (tx): Promise<PaymentSessionStartResult> => {
+        const lockedTransaction = await findOneWithDecryption(tx, CheckoutTransaction, {
+          id: transaction.id,
           organizationId: link.organizationId,
           tenantId: link.tenantId,
-        })
-        await commandBus.execute('checkout.transaction.updateStatus', {
-          input: {
-            id: transaction.id,
-            status: mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus),
-            paymentStatus: sessionResult.transaction.unifiedStatus,
-            gatewayTransactionId: sessionResult.transaction.id,
+        }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { organizationId: link.organizationId, tenantId: link.tenantId })
+        if (!lockedTransaction) {
+          throw new CrudHttpError(404, { error: 'Transaction not found' })
+        }
+        if (lockedTransaction.gatewayTransactionId) {
+          return { transaction: lockedTransaction, sessionStarted: false }
+        }
+        const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
+          ? link.gatewaySettings.paymentTypes.filter(
+              (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
+            )
+          : []
+        const rendererKey = typeof link.gatewaySettings?.rendererKey === 'string' && link.gatewaySettings.rendererKey.trim().length > 0
+          ? link.gatewaySettings.rendererKey.trim()
+          : undefined
+        const rendererSettings = link.gatewaySettings?.rendererSettings
+          && typeof link.gatewaySettings.rendererSettings === 'object'
+          && !Array.isArray(link.gatewaySettings.rendererSettings)
+          ? link.gatewaySettings.rendererSettings as Record<string, unknown>
+          : undefined
+        const presentationMode = link.gatewaySettings?.presentationMode === 'embedded'
+          || link.gatewaySettings?.presentationMode === 'redirect'
+          || link.gatewaySettings?.presentationMode === 'auto'
+          ? link.gatewaySettings.presentationMode
+          : undefined
+        try {
+          const sessionResult = await paymentGatewayService.createPaymentSession({
+            providerKey: link.gatewayProviderKey,
+            paymentId: lockedTransaction.id,
+            amount: sessionAmount,
+            currencyCode: sessionCurrencyCode,
+            paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
+            description: link.title ?? link.name,
+            successUrl,
+            cancelUrl,
+            metadata: {
+              checkoutLinkId: link.id,
+              checkoutSlug: link.slug,
+            },
+            presentation: rendererKey || rendererSettings || presentationMode
+              ? {
+                  ...(presentationMode ? { mode: presentationMode } : {}),
+                  ...(rendererKey ? { rendererKey } : {}),
+                  ...(rendererSettings ? { rendererSettings } : {}),
+                }
+              : undefined,
             organizationId: link.organizationId,
             tenantId: link.tenantId,
-          },
-          ctx,
-        })
-      } catch (error) {
-        await commandBus.execute('checkout.transaction.updateStatus', {
-          input: {
-            id: transaction.id,
-            status: 'failed',
-            paymentStatus: transaction.paymentStatus ?? 'failed',
-            organizationId: link.organizationId,
-            tenantId: link.tenantId,
-          },
-          ctx,
-        }).catch(() => undefined)
+          })
+          lockedTransaction.status = mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus)
+          lockedTransaction.paymentStatus = sessionResult.transaction.unifiedStatus
+          lockedTransaction.gatewayTransactionId = sessionResult.transaction.id
+          await tx.flush()
+          return { transaction: lockedTransaction, sessionStarted: true }
+        } catch (error) {
+          paymentSessionError = error
+          lockedTransaction.status = 'failed'
+          lockedTransaction.paymentStatus = lockedTransaction.paymentStatus ?? 'failed'
+          await tx.flush()
+          return { transaction: lockedTransaction, sessionStarted: false }
+        }
+      })
+      if (paymentSessionError) {
         console.error('[checkout] Failed to create payment session', {
           linkId: link.id,
           transactionId: transaction.id,
           providerKey: link.gatewayProviderKey,
-          error: error instanceof Error ? error.message : String(error),
+          error: paymentSessionError instanceof Error ? paymentSessionError.message : String(paymentSessionError),
         })
         throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
       }
-      const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
-        id: transaction.id,
-        organizationId: link.organizationId,
-        tenantId: link.tenantId,
-      }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
-      if (!refreshedTransaction) {
-        throw new CrudHttpError(404, { error: 'Transaction not found' })
+      const refreshedTransaction = sessionStart.transaction
+      if (sessionStart.sessionStarted) {
+        await emitCheckoutEvent('checkout.transaction.sessionStarted', {
+          transactionId: refreshedTransaction.id,
+          linkId: refreshedTransaction.linkId,
+          templateId: link.templateId ?? null,
+          slug: link.slug,
+          status: refreshedTransaction.status,
+          paymentStatus: refreshedTransaction.paymentStatus ?? null,
+          amount: Number(refreshedTransaction.amount),
+          currency: refreshedTransaction.currencyCode,
+          gatewayProvider: link.gatewayProviderKey,
+          gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
+          occurredAt: new Date().toISOString(),
+          tenantId: link.tenantId,
+          organizationId: link.organizationId,
+        }).catch(() => undefined)
       }
-      await emitCheckoutEvent('checkout.transaction.sessionStarted', {
-        transactionId: refreshedTransaction.id,
-        linkId: refreshedTransaction.linkId,
-        templateId: link.templateId ?? null,
-        slug: link.slug,
-        status: refreshedTransaction.status,
-        paymentStatus: refreshedTransaction.paymentStatus ?? null,
-        amount: Number(refreshedTransaction.amount),
-        currency: refreshedTransaction.currencyCode,
-        gatewayProvider: link.gatewayProviderKey,
-        gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
-        occurredAt: new Date().toISOString(),
-        tenantId: link.tenantId,
-        organizationId: link.organizationId,
-      }).catch(() => undefined)
       return NextResponse.json(
         await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),
-        { status: 201 },
+        { status: sessionStart.sessionStarted ? 201 : 200 },
       )
     }
     return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
