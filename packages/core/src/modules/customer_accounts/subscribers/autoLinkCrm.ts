@@ -21,7 +21,7 @@ export default async function handle(
   const em = ctx.resolve<EntityManager>('em')
 
   try {
-    const user = await findOneWithDecryption(em, CustomerUser, { id: userId, tenantId, deletedAt: null }, { tenantId, organizationId })
+    const user = await findOneWithDecryption(em, CustomerUser, { id: userId, tenantId, deletedAt: null }, undefined, { tenantId, organizationId })
     if (!user) return
     if (user.personEntityId) return
 

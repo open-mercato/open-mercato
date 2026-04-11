@@ -48,33 +48,32 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     customerEntityId: auth.customerEntityId,
     tenantId: auth.tenantId,
     deletedAt: null,
-  }, { tenantId: auth.tenantId, organizationId: auth.orgId })
+  }, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
   if (!targetUser) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
-  // Validate all roles are customer_assignable
+  // Validate all roles are customer_assignable and collect for assignment
+  const validatedRoles: InstanceType<typeof CustomerRole>[] = []
   for (const roleId of parsed.data.roleIds) {
-    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null }, { tenantId: auth.tenantId, organizationId: auth.orgId })
+    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null }, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
     if (!role || !role.customerAssignable) {
       return NextResponse.json({ ok: false, error: 'Role not found or not assignable' }, { status: 400 })
     }
+    validatedRoles.push(role)
   }
 
   // Remove existing roles
   await em.nativeDelete(CustomerUserRole, { user: targetUser.id as any })
 
   // Assign new roles
-  for (const roleId of parsed.data.roleIds) {
-    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null }, { tenantId: auth.tenantId, organizationId: auth.orgId })
-    if (role) {
-      const userRole = em.create(CustomerUserRole, {
-        user: targetUser,
-        role,
-        createdAt: new Date(),
-      } as any)
-      em.persist(userRole)
-    }
+  for (const role of validatedRoles) {
+    const userRole = em.create(CustomerUserRole, {
+      user: targetUser,
+      role,
+      createdAt: new Date(),
+    } as any)
+    em.persist(userRole)
   }
   await em.flush()
 
