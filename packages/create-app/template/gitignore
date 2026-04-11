@@ -14,10 +14,8 @@ node_modules/
 
 # testing
 /coverage
-/test-results
-/playwright-report
-.ai/qa/test-results
-.ai/qa/playwright-report
+test-results/
+playwright-report/
 
 # next.js
 .next/
