@@ -18,6 +18,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
+}
+
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })
