@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type WorkflowEvent = {
   id: string
@@ -253,6 +254,24 @@ export default function WorkflowEventsPage() {
     },
   ]
 
+  if (error) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage
+            label={t('workflows.events.messages.loadFailed')}
+            description={error.message}
+            action={(
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                {t('common.retry', 'Retry')}
+              </Button>
+            )}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -265,7 +284,6 @@ export default function WorkflowEventsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
-          error={error ? t('workflows.events.messages.loadFailed') : undefined}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
           actions={
             <Button

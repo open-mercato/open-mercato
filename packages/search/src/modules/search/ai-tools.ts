@@ -299,7 +299,7 @@ const searchSchemaTool: AiToolDefinition = {
 const searchAggregateTool: AiToolDefinition = {
   name: 'search_aggregate',
   description:
-    'Get record counts grouped by a field value. Useful for analytics like "how many deals by stage?" or "customers by status".',
+    'Get record counts grouped by a field value. Useful for analytics like "how many deals by stage?" or "customers by status". Samples up to 100 records — percentages may not reflect the full dataset for large entity sets.',
   inputSchema: z.object({
     entityType: z
       .string()
@@ -331,7 +331,7 @@ const searchAggregateTool: AiToolDefinition = {
     const result = await queryEngine.query(input.entityType, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      page: { page: 1, pageSize: 1000 }, // Fetch up to 1000 for aggregation
+      page: { page: 1, pageSize: 100 },
     })
 
     const counts = new Map<string | null, number>()
