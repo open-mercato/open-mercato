@@ -1,16 +1,79 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import {
   clearAuthCookie,
   createAdminApiToken,
   createUserFixture,
   deleteUserFixture,
-  enrollTotp,
   fetchJson,
+  generateTotpCode,
   loginViaApi,
   setAuthCookie,
-  verifyTotpChallenge,
 } from './helpers/securityFixtures'
 
+type ProvidersResponse = {
+  providers: Array<{ type: string }>
+}
+
+type MethodsResponse = {
+  methods: Array<{ type: string }>
+}
+
+type TotpSetupResponse = {
+  setupId?: string
+  clientData?: {
+    secret?: string
+  }
+}
+
+type RecoveryCodesResponse = {
+  recoveryCodes?: string[]
+}
+
+async function submitLoginForm(page: Page, email: string, password: string): Promise<void> {
+  await clearAuthCookie(page)
+  await page.goto('/login')
+  await page.getByLabel('Email').fill(email)
+  const passwordInput = page.getByLabel('Password')
+  await passwordInput.fill(password)
+  await passwordInput.press('Enter')
+}
+
+async function waitForMfaChallenge(page: Page): Promise<void> {
+  await expect(page.getByTestId('security-mfa-challenge-panel')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Two-factor authentication' })).toBeVisible()
+}
+
+async function openRecoveryCodeChallenge(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'More options' }).click()
+  await page.getByRole('button', { name: '2FA recovery code' }).click()
+  await expect(page.getByLabel('Recovery code')).toBeVisible()
+}
+
+async function generateRecoveryCodesFromUi(page: Page): Promise<string[]> {
+  await page.goto('/backend/profile/security/mfa/recovery-codes')
+  await expect(page.getByRole('button', { name: 'Generate new recovery codes' })).toBeVisible()
+
+  const responsePromise = page.waitForResponse((response) =>
+    response.request().method() === 'POST'
+      && response.url().endsWith('/api/security/mfa/recovery-codes/regenerate'),
+  )
+
+  await page.getByRole('button', { name: 'Generate new recovery codes' }).click()
+
+  const response = await responsePromise
+  expect(response.status()).toBe(200)
+
+  const body = await response.json() as RecoveryCodesResponse
+  const recoveryCodes = Array.isArray(body.recoveryCodes) ? body.recoveryCodes : []
+  expect(recoveryCodes).toHaveLength(10)
+  await expect(page.getByText(recoveryCodes[0] ?? '')).toBeVisible()
+  return recoveryCodes
+}
+
+/**
+ * TC-SEC-002: TOTP enrollment, MFA login, and recovery codes
+ * Source: .ai/qa/scenarios/TC-SEC-002-totp-enrollment-login-recovery-codes.md
+ */
 test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
   let adminToken: string
   let userId: string | null = null
@@ -28,11 +91,11 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     await deleteUserFixture(request, adminToken ?? null, userId)
   })
 
-  test('enrolls TOTP, completes MFA login, consumes a recovery code, and rotates the recovery set', async ({ request, page }) => {
+  test('enrolls TOTP in the UI, completes MFA login, uses a recovery code, and invalidates the old recovery set', async ({ request, page }) => {
     const firstLogin = await loginViaApi(request, userEmail, userPassword)
     const userToken = firstLogin.token
 
-    const providerResponse = await fetchJson<{ providers: Array<{ type: string }> }>(
+    const providerResponse = await fetchJson<ProvidersResponse>(
       request,
       'GET',
       '/api/security/mfa/providers',
@@ -41,13 +104,42 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(providerResponse.status).toBe(200)
     expect(providerResponse.body.providers.map((provider) => provider.type)).toContain('totp')
 
-    const enrollment = await enrollTotp(request, userToken)
-
     await setAuthCookie(page, userToken)
     await page.goto('/backend/profile/security/mfa')
     await expect(page.getByRole('button', { name: /Authenticator app/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Recovery codes/ })).toBeVisible()
 
-    const methodsResponse = await fetchJson<{ methods: Array<{ type: string }> }>(
+    const setupResponsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'POST'
+        && response.url().endsWith('/api/security/mfa/provider/totp'),
+    )
+    await page.goto('/backend/profile/security/mfa/totp')
+    await expect(page.getByText('Scan the QR code')).toBeVisible()
+    await expect(page.getByText('Verify the code from the app')).toBeVisible()
+
+    const setupResponse = await setupResponsePromise
+    expect(setupResponse.status()).toBe(200)
+    const setupBody = await setupResponse.json() as TotpSetupResponse
+    const secret = setupBody.clientData?.secret
+    expect(typeof secret).toBe('string')
+
+    await page.getByRole('button', { name: 'Use manual setup instead' }).click()
+    await expect(page.getByText(secret as string)).toBeVisible()
+
+    const confirmResponsePromise = page.waitForResponse((response) =>
+      response.request().method() === 'PUT'
+        && response.url().endsWith('/api/security/mfa/provider/totp'),
+    )
+    await page.getByPlaceholder('XXXXXX').fill(generateTotpCode(secret as string))
+    await page.getByRole('button', { name: 'Save' }).click()
+
+    const confirmResponse = await confirmResponsePromise
+    expect(confirmResponse.status()).toBe(200)
+    await expect(page).toHaveURL(/\/backend\/profile\/security\/mfa$/)
+    await expect(page.getByRole('button', { name: /Authenticator app/ })).toBeVisible()
+    await expect(page.getByText('Configured')).toBeVisible()
+
+    const methodsResponse = await fetchJson<MethodsResponse>(
       request,
       'GET',
       '/api/security/mfa/methods',
@@ -56,72 +148,33 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(methodsResponse.status).toBe(200)
     expect(methodsResponse.body.methods.map((method) => method.type)).toContain('totp')
 
-    await clearAuthCookie(page)
+    const initialRecoveryCodes = await generateRecoveryCodesFromUi(page)
+    const consumedRecoveryCode = initialRecoveryCodes[0]
+    expect(consumedRecoveryCode).toBeTruthy()
 
-    const mfaLogin = await loginViaApi(request, userEmail, userPassword)
-    expect(mfaLogin.mfa_required).toBe(true)
-    expect(mfaLogin.challenge_id).toBeTruthy()
-    expect(mfaLogin.available_methods?.map((method) => method.type)).toContain('totp')
+    await submitLoginForm(page, userEmail, userPassword)
+    await waitForMfaChallenge(page)
+    await page.getByLabel('Verification code').fill(generateTotpCode(secret as string))
+    await page.getByRole('button', { name: 'Verify' }).click()
+    await expect(page).toHaveURL(/\/backend$/)
 
-    const totpVerify = await verifyTotpChallenge(
-      request,
-      mfaLogin.token,
-      mfaLogin.challenge_id as string,
-      enrollment.secret,
-    )
-    expect(totpVerify.status).toBe(200)
-    expect(totpVerify.body.ok).toBe(true)
-    expect(totpVerify.body.redirect).toBe('/backend')
+    await submitLoginForm(page, userEmail, userPassword)
+    await waitForMfaChallenge(page)
+    await openRecoveryCodeChallenge(page)
+    await page.getByLabel('Recovery code').fill(consumedRecoveryCode as string)
+    await page.getByRole('button', { name: 'Verify' }).click()
+    await expect(page).toHaveURL(/\/backend$/)
 
-    const regenerateResponse = await fetchJson<{ recoveryCodes?: string[] }>(
-      request,
-      'POST',
-      '/api/security/mfa/recovery-codes/regenerate',
-      {
-        token: userToken,
-        data: {},
-      },
-    )
-    expect(regenerateResponse.status).toBe(200)
-    expect(regenerateResponse.body.recoveryCodes).toHaveLength(10)
+    const rotatedRecoveryCodes = await generateRecoveryCodesFromUi(page)
+    expect(rotatedRecoveryCodes).toHaveLength(10)
+    expect(rotatedRecoveryCodes).not.toContain(consumedRecoveryCode as string)
 
-    const recoveryLogin = await loginViaApi(request, userEmail, userPassword)
-    const recoveryVerify = await fetchJson<{ ok?: boolean; redirect?: string }>(
-      request,
-      'POST',
-      '/api/security/mfa/recovery',
-      {
-        token: recoveryLogin.token,
-        data: { code: regenerateResponse.body.recoveryCodes?.[0] },
-      },
-    )
-    expect(recoveryVerify.status).toBe(200)
-    expect(recoveryVerify.body.ok).toBe(true)
-
-    const verifiedToken = typeof totpVerify.body.token === 'string' ? totpVerify.body.token : userToken
-    const rotateResponse = await fetchJson<{ recoveryCodes?: string[] }>(
-      request,
-      'POST',
-      '/api/security/mfa/recovery-codes/regenerate',
-      {
-        token: verifiedToken,
-        data: {},
-      },
-    )
-    expect(rotateResponse.status).toBe(200)
-    expect(rotateResponse.body.recoveryCodes).toHaveLength(10)
-
-    const staleRecoveryLogin = await loginViaApi(request, userEmail, userPassword)
-    const staleRecoveryResponse = await fetchJson<{ error?: string }>(
-      request,
-      'POST',
-      '/api/security/mfa/recovery',
-      {
-        token: staleRecoveryLogin.token,
-        data: { code: regenerateResponse.body.recoveryCodes?.[0] },
-      },
-    )
-    expect(staleRecoveryResponse.status).toBe(401)
-    expect(staleRecoveryResponse.body.error).toContain('Invalid recovery code')
+    await submitLoginForm(page, userEmail, userPassword)
+    await waitForMfaChallenge(page)
+    await openRecoveryCodeChallenge(page)
+    await page.getByLabel('Recovery code').fill(consumedRecoveryCode as string)
+    await page.getByRole('button', { name: 'Verify' }).click()
+    await expect(page.getByRole('alert')).toContainText('Invalid recovery code.')
+    await expect(page.getByTestId('security-mfa-challenge-panel')).toBeVisible()
   })
 })
