@@ -50,7 +50,7 @@ type RoleSnapshots = {
   undo: RoleUndoSnapshot
 }
 
-const RESERVED_ROLE_NAMES = new Set(['superadmin'])
+const RESERVED_ROLE_NAMES = new Set(['superadmin', 'admin'])
 
 function assertRoleNameAllowed(name: string | undefined | null) {
   if (typeof name !== 'string') return
