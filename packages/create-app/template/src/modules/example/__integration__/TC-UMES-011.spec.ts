@@ -18,6 +18,11 @@ import {
   detectMissingFeatureDeclarations,
 } from '@open-mercato/shared/lib/umes/conflict-detection'
 
+type CliFixture = {
+  cwd: string
+  binPath: string
+}
+
 function findProjectRoot(): string {
   let dir = process.cwd()
   for (let i = 0; i < 10; i++) {
@@ -29,26 +34,84 @@ function findProjectRoot(): string {
 
 const ROOT = findProjectRoot()
 
-function resolveMercatoBin(): string {
-  const candidates = [
-    path.join(ROOT, 'node_modules/.bin/mercato'),
-    path.join(ROOT, 'node_modules/@open-mercato/cli/bin/mercato'),
-    path.join(ROOT, 'packages/cli/bin/mercato'),
-  ]
+function createStandaloneCliFixture(): CliFixture {
+  const fixtureRoot = path.join(ROOT, '.tmp', `umes-cli-fixture-${process.pid}-${Date.now()}`)
+  const packageRoot = path.join(fixtureRoot, 'node_modules', '@open-mercato')
+  const exampleRoot = path.join(fixtureRoot, 'src', 'modules', 'example')
 
-  const match = candidates.find((candidate) => fs.existsSync(candidate))
-  if (!match) {
-    throw new Error(`Could not find mercato bin. Checked: ${candidates.join(', ')}`)
+  fs.rmSync(fixtureRoot, { recursive: true, force: true })
+  fs.mkdirSync(packageRoot, { recursive: true })
+  fs.mkdirSync(path.join(exampleRoot, 'widgets'), { recursive: true })
+
+  for (const pkg of ['cli', 'core', 'shared']) {
+    const targetRoot = path.join(packageRoot, pkg)
+    fs.mkdirSync(targetRoot, { recursive: true })
+    fs.cpSync(path.join(ROOT, 'packages', pkg, 'dist'), path.join(targetRoot, 'dist'), { recursive: true })
+    fs.copyFileSync(path.join(ROOT, 'packages', pkg, 'package.json'), path.join(targetRoot, 'package.json'))
   }
 
-  return match
+  fs.writeFileSync(
+    path.join(fixtureRoot, 'package.json'),
+    `${JSON.stringify({ name: 'umes-cli-fixture', private: true, type: 'module' }, null, 2)}\n`,
+  )
+  fs.writeFileSync(
+    path.join(fixtureRoot, 'src', 'modules.ts'),
+    [
+      'export const enabledModules = [',
+      "  { id: 'shipping_carriers', from: '@open-mercato/core' },",
+      "  { id: 'example', from: '@app' },",
+      ']',
+      '',
+    ].join('\n'),
+  )
+  fs.writeFileSync(
+    path.join(exampleRoot, 'acl.ts'),
+    [
+      'export const features = [',
+      "  { id: 'example.backend' },",
+      "  { id: 'example.view' },",
+      ']',
+      'export default features',
+      '',
+    ].join('\n'),
+  )
+  fs.writeFileSync(
+    path.join(exampleRoot, 'widgets', 'components.ts'),
+    [
+      'export const componentOverrides = [',
+      '  {',
+      "    target: { componentId: 'section:ui.detail.NotesSection' },",
+      '    priority: 50,',
+      '    wrapper: (Original) => Original,',
+      '  },',
+      ']',
+      'export default componentOverrides',
+      '',
+    ].join('\n'),
+  )
+  fs.writeFileSync(
+    path.join(exampleRoot, 'widgets', 'injection-table.ts'),
+    [
+      'export const injectionTable = {',
+      "  'menu:sidebar:main': { widgetId: 'example.injection.example-menus', priority: 50 },",
+      "  'portal:dashboard:sections': 'example.injection.portal-stats',",
+      '}',
+      'export default injectionTable',
+      '',
+    ].join('\n'),
+  )
+
+  return {
+    cwd: fixtureRoot,
+    binPath: path.join(fixtureRoot, 'node_modules', '@open-mercato', 'cli', 'dist', 'bin.js'),
+  }
 }
 
-const MERCATO_BIN = resolveMercatoBin()
+let standaloneCliFixture: CliFixture
 
 function runMercato(args: string[]): { stdout: string; stderr: string; exitCode: number } {
-  const result = spawnSync(MERCATO_BIN, args, {
-    cwd: ROOT,
+  const result = spawnSync(process.execPath, [standaloneCliFixture.binPath, ...args], {
+    cwd: standaloneCliFixture.cwd,
     encoding: 'utf-8',
     timeout: 60_000,
     env: { ...process.env, FORCE_COLOR: '0', NODE_NO_WARNINGS: '1' },
@@ -61,27 +124,78 @@ function runMercato(args: string[]): { stdout: string; stderr: string; exitCode:
   }
 }
 
+function expectContainsAll(output: string, snippets: readonly string[]): void {
+  for (const snippet of snippets) {
+    expect(output).toContain(snippet)
+  }
+}
+
 test.describe('TC-UMES-011: CLI commands', () => {
-  test('umes:list shows registered extensions from example module', () => {
-    const { stdout, exitCode } = runMercato(['umes:list'])
-    expect(exitCode).toBe(0)
-
-    // Should list example module extensions in the output
-    expect(stdout).toContain('example')
-
-    // Should show injection-widget or component-override entries
-    expect(stdout.toLowerCase()).toMatch(/injection-widget|component-override|enricher/i)
+  test.beforeAll(() => {
+    standaloneCliFixture = createStandaloneCliFixture()
   })
 
-  test('umes:inspect shows extension tree for example module', () => {
-    const { stdout, exitCode } = runMercato(['umes:inspect', '--module', 'example'])
+  test.afterAll(() => {
+    fs.rmSync(standaloneCliFixture.cwd, { recursive: true, force: true })
+  })
+
+  test('umes:list shows collector output for app and package-backed modules', () => {
+    const { stdout, stderr, exitCode } = runMercato(['umes:list'])
     expect(exitCode).toBe(0)
+    expect(stderr).toBe('')
 
-    // Should show the example module header
-    expect(stdout).toContain('example')
+    expectContainsAll(stdout, [
+      'example',
+      'example.section:ui.detail.NotesSection',
+      'example.injection.example-menus',
+      'menu:sidebar:main',
+      'example.injection.portal-stats',
+      'portal:dashboard:sections',
+      'shipping_carriers',
+      'shipping_carriers.sales-shipment-carrier',
+      'sales.shipment',
+      'shipping_carriers.validate-provider',
+      'POST,GET shipping-carriers/*',
+      'shipping_carriers.injection.tracking-column',
+      'data-table:sales.shipments:columns',
+    ])
+  })
 
-    // Should list extension type sections (title-case headers in tree output)
-    expect(stdout).toMatch(/Injection Widgets|Component Overrides|Declared Features/)
+  test('umes:inspect shows extension tree for the app example module', () => {
+    const { stdout, stderr, exitCode } = runMercato(['umes:inspect', '--module', 'example'])
+    expect(exitCode).toBe(0)
+    expect(stderr).toBe('')
+
+    expectContainsAll(stdout, [
+      'UMES Extensions for module: example',
+      'Declared Features',
+      'example.backend',
+      'example.view',
+      'example.section:ui.detail.NotesSection',
+      'target: section:ui.detail.NotesSection',
+      'example.injection.example-menus',
+      'target: menu:sidebar:main',
+      'example.injection.portal-stats',
+      'target: portal:dashboard:sections',
+    ])
+  })
+
+  test('umes:inspect shows extension tree for compiled package-backed modules', () => {
+    const { stdout, stderr, exitCode } = runMercato(['umes:inspect', '--module', 'shipping_carriers'])
+    expect(exitCode).toBe(0)
+    expect(stderr).toBe('')
+
+    expectContainsAll(stdout, [
+      'UMES Extensions for module: shipping_carriers',
+      'Declared Features',
+      'shipping_carriers.view',
+      'shipping_carriers.sales-shipment-carrier',
+      'target: sales.shipment',
+      'shipping_carriers.validate-provider',
+      'target: POST,GET shipping-carriers/*',
+      'shipping_carriers.injection.tracking-column',
+      'target: data-table:sales.shipments:columns',
+    ])
   })
 
   test('umes:inspect reports missing modules on stderr and exits non-zero', () => {
@@ -90,6 +204,7 @@ test.describe('TC-UMES-011: CLI commands', () => {
     expect(stderr).toContain('Module "missing-module" not found.')
     expect(stderr).toContain('Available modules:')
     expect(stderr).toContain('example')
+    expect(stderr).toContain('shipping_carriers')
   })
 
   test('umes:check exits 0 with no conflicts', () => {

@@ -20,7 +20,7 @@ function loadCollectorModule(options: {
   requireModuleImpl: (absolutePath: string) => unknown
   resolveModuleFileImpl: ResolveModuleFileImpl
 }) {
-  const sourcePath = path.resolve(process.cwd(), 'packages/cli/src/lib/umes/collector.ts')
+  const sourcePath = path.resolve(__dirname, '..', 'collector.ts')
   const source = fs.readFileSync(sourcePath, 'utf8')
   const requireModule = jest.fn(options.requireModuleImpl)
   const createRequire = jest.fn(() => requireModule)
