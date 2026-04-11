@@ -5,6 +5,30 @@ export function formatDateTime(value?: string | null): string | null {
   if (Number.isNaN(date.getTime())) return null
   return date.toLocaleString()
 }
+
+/**
+ * Normalize a date value to the `YYYY-MM-DD` shape expected by
+ * `<input type="date">`. Accepts ISO strings, plain date strings, and
+ * `Date` instances. When the input already begins with `YYYY-MM-DD`
+ * (as `toISOString()` output always does) those characters are taken
+ * directly, avoiding any timezone reinterpretation.
+ */
+export function toDateInputValue(value?: string | Date | null): string | null {
+  if (!value) return null
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null
+    return value.toISOString().slice(0, 10)
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return null
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) return trimmed.slice(0, 10)
+    const parsed = new Date(trimmed)
+    if (Number.isNaN(parsed.getTime())) return null
+    return parsed.toISOString().slice(0, 10)
+  }
+  return null
+}
 export type RelativeTimeTranslator = (
   key: string,
   fallback?: string,
