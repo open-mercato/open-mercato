@@ -17,6 +17,7 @@ node_modules/
 /test-results
 /playwright-report
 .ai/qa/test-results
+.ai/qa/playwright-report
 
 # next.js
 .next/
