@@ -390,6 +390,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
     name: 'external-non-workspace',
     setup(build: any) {
       build.onResolve({ filter: /^[^./]/ }, (args: any) => {
+        if (path.isAbsolute(args.path)) return undefined
         if (args.path.startsWith('@open-mercato/')) return undefined
         if (args.path.startsWith('@/')) return undefined
         if (args.path.startsWith('#generated/')) return undefined

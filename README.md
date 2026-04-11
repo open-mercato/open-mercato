@@ -260,6 +260,7 @@ Prerequisites:
 - **Yarn via Corepack**
 - **Git**
 - **Docker Desktop with WSL 2 backend enabled**
+- **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
 
 One-time setup:
 
@@ -268,6 +269,14 @@ corepack enable
 corepack prepare yarn@stable --activate
 git config --global core.autocrlf false
 ```
+
+On a fresh Windows machine, install the Visual C++ toolchain before `yarn install`. Some dependencies include native modules and will fail during install without it:
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+```
+
+After the install finishes, open a new terminal and continue with the monorepo setup.
 
 From the monorepo root, start only infrastructure services:
 
@@ -283,9 +292,9 @@ You may then run the optional Windows optimizer:
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-optimize.ps1
 ```
 
-The optimizer shows a plan first, then asks whether to relaunch itself as Administrator. If you accept, a new elevated PowerShell window opens, shows the same plan again, and asks for execution confirmation before applying changes. Close the original non-elevated window and restart your development terminal after the optimizer completes so user-level `NODE_OPTIONS` changes take effect.
+The optimizer shows a plan first, then asks whether to relaunch itself as Administrator. If you accept, a new elevated PowerShell window opens, shows the same plan again, and asks for execution confirmation before applying changes. Close the original non-elevated window after the optimizer completes.
 
-The optimizer does not disable Microsoft Defender globally. It only adds Defender exclusions for the project root, Node/Yarn/pnpm/turbo user directories, `C:\Program Files\nodejs`, and the `node.exe`, `yarn.js`, and `turbo.exe` processes. It also enables Windows long paths, sets global Git values (`core.longpaths`, `core.autocrlf`, `core.eol`, `core.fscache`, `core.preloadindex`), appends `--max-old-space-size=4096` to user-level `NODE_OPTIONS` if no max-old-space-size flag is already present, and saves rollback state once to `.mercato\windows-optimize-state.json`.
+The optimizer does not disable Microsoft Defender globally. It only adds a Defender exclusion for the current project root and saves rollback state once to `.mercato\windows-optimize-state.json`.
 
 Then continue with the monorepo setup:
 
