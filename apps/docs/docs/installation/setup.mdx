@@ -87,7 +87,9 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn build:packages
    yarn generate
+   yarn build:packages
    ```
+   Run `yarn build:packages` again after `yarn generate` on a fresh local setup. This second build makes sure newly generated scripts are compiled before `yarn initialize` runs; otherwise `yarn initialize` may not detect them and can fail during bootstrap.
 6. **Bootstrap data**
    ```bash
    yarn initialize
@@ -99,6 +101,80 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```
    `yarn dev` starts the compact development runtime. On native local runs it serves a startup splash screen with live progress on `http://localhost:4000` by default, auto-opens that page when possible, and prints the backend URL in the terminal. Once the runtime is ready, continue to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
+## Windows native local development
+
+This is the preferred Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but it can be slower on Windows/WSL because a large Node.js monorepo with bind-mounted source files does many watched file reads across the Windows/Linux filesystem boundary.
+
+### Prerequisites
+
+- **Node.js 24+** - required by the monorepo runtime.
+- **Yarn via Corepack**:
+  ```powershell
+  corepack enable
+  corepack prepare yarn@stable --activate
+  ```
+- **Git** - required by the optional optimizer for global Git settings.
+- **Docker Desktop with WSL 2 backend** - for PostgreSQL, Redis, and Meilisearch.
+
+### Monorepo flow
+
+Start only infrastructure services from the repository root:
+
+```powershell
+docker compose up -d
+```
+
+The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+
+Optionally run the Windows optimizer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-optimize.ps1
+```
+
+The optimizer shows a plan, asks whether to relaunch itself as Administrator, then opens a new elevated PowerShell window if you accept. Continue in the elevated window: it shows the plan again and asks for confirmation before applying changes. Close the original non-elevated window and restart your development terminal after the optimizer completes so user-level `NODE_OPTIONS` changes take effect.
+
+The optimizer does not disable Microsoft Defender globally. It adds only the listed path exclusions (project root, Node/Yarn/pnpm/turbo user directories, and `C:\Program Files\nodejs`) and process exclusions (`node.exe`, `yarn.js`, `turbo.exe`). It also enables Windows long paths, sets global Git config values (`core.longpaths`, `core.autocrlf`, `core.eol`, `core.fscache`, `core.preloadindex`), appends `--max-old-space-size=4096` to user-level `NODE_OPTIONS` when no max-old-space-size flag is present, and creates `.mercato\windows-optimize-state.json` once for rollback.
+
+Continue with the normal monorepo setup:
+
+```powershell
+yarn install
+yarn build:packages
+yarn generate
+yarn build:packages
+yarn initialize
+yarn dev
+```
+
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps. On a fresh local setup, run it both before and after `yarn generate` so `yarn initialize` can see the generated scripts.
+
+For an existing database where you only need to apply new migrations:
+
+```powershell
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+### Roll back the optional optimizer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-rollback.ps1
+```
+
+Rollback reads `.mercato\windows-optimize-state.json`, preserves Defender exclusions that existed before optimization, removes only newly added exclusions, restores the captured `LongPathsEnabled`, global Git config, and user-level `NODE_OPTIONS` values, and deletes the state file after a completed rollback. If the state file is absent, rollback exits with an error instead of guessing. Restart your terminal after rollback so environment variable changes take effect.
+
+### Optional Windows cleanup scripts
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-generated-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-packages-windows.ps1
+```
+
+Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato/generated`, `.mercato/next`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
+
+Use `clean-packages-windows.ps1` for a deeper dependency/build reset. It stops repo-scoped `esbuild`/`turbo` processes, removes `node_modules`, `dist`, `*.tsbuildinfo`, `.yarn\cache`, and `.yarn\install-state.gz`, then you should run `yarn install` again.
 ### Native dev runtime splash screen
 
 When you run `yarn dev` on the host, Open Mercato starts a compact development runtime with a dedicated splash page that shows startup progress while packages, generators, and the app server warm up.
