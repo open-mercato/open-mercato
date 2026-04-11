@@ -3755,4 +3755,932 @@ SOBOTA 10:00–11:00 (BLOK 6 — Wrap-up):
 
 ---
 
-*Koniec supplementu. Sekcje E-J stanowią kompletny, egzekucyjny plan design systemu.*
+---
+
+## K. Module Scaffold & Contributor Guardrails
+
+### K.1 Page Templates
+
+Trzy szablony pokrywają ~95% stron w systemie. Każdy używa wyłącznie komponentów z design systemu.
+
+#### K.1.1 List Page Template
+
+```tsx
+// backend/<module>/page.tsx — szablon strony listy
+'use client'
+
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable, type ColumnDef } from '@open-mercato/ui/backend/DataTable'
+import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { Plus } from 'lucide-react'
+import { useEffect, useState } from 'react'
+
+export default function ListPage() {
+  const t = useT()
+  const { confirm } = useConfirmDialog()
+  const [rows, setRows] = useState<YourEntity[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 25, total: 0, totalPages: 0 })
+  const [search, setSearch] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setIsLoading(true)
+    apiCall(`/api/your-module?page=${pagination.page}&pageSize=${pagination.pageSize}&search=${search}`)
+      .then((res) => {
+        if (cancelled) return
+        if (res.ok) {
+          setRows(res.result.data)
+          setPagination((prev) => ({ ...prev, total: res.result.total, totalPages: res.result.totalPages }))
+        }
+      })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+    return () => { cancelled = true }
+  }, [pagination.page, pagination.pageSize, search])
+
+  const columns: ColumnDef<YourEntity>[] = [
+    { accessorKey: 'name', header: t('module.name', 'Name') },
+    {
+      accessorKey: 'status',
+      header: t('module.status', 'Status'),
+      cell: ({ row }) => (
+        <StatusBadge variant={mapStatusToVariant(row.original.status)}>
+          {t(`module.status.${row.original.status}`, row.original.status)}
+        </StatusBadge>
+      ),
+    },
+  ]
+
+  // ✅ WYMAGANE: EmptyState gdy brak danych (nie polegaj na pustej tabeli)
+  if (!isLoading && rows.length === 0 && !search) {
+    return (
+      <Page>
+        <PageBody>
+          <EmptyState
+            title={t('module.empty.title', 'No items yet')}
+            description={t('module.empty.description', 'Create your first item to get started.')}
+            action={{ label: t('module.create', 'Create item'), onClick: () => router.push('create') }}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable
+          columns={columns}
+          data={rows}
+          isLoading={isLoading}
+          pagination={pagination}
+          onPageChange={(page) => setPagination((prev) => ({ ...prev, page }))}
+          searchValue={search}
+          onSearchChange={setSearch}
+          headerActions={
+            <Button size="sm" onClick={() => router.push('create')}>
+              <Plus className="mr-2 h-4 w-4" />
+              {t('module.create', 'Create')}
+            </Button>
+          }
+        />
+      </PageBody>
+    </Page>
+  )
+}
+
+// Metadata — wymagane dla RBAC i breadcrumbs
+export const metadata = {
+  title: 'module.list.title',
+  requireAuth: true,
+  requireFeatures: ['module.view'],
+  breadcrumb: [{ labelKey: 'module.list.title', label: 'Items' }],
+}
+```
+
+#### K.1.2 Create Page Template
+
+```tsx
+// backend/<module>/create/page.tsx — szablon strony tworzenia
+'use client'
+
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
+import { useRouter } from 'next/navigation'
+
+export default function CreatePage() {
+  const t = useT()
+  const router = useRouter()
+
+  const fields: CrudField[] = [
+    { id: 'name', label: t('module.name', 'Name'), type: 'text', required: true },
+    { id: 'status', label: t('module.status', 'Status'), type: 'select', options: STATUS_OPTIONS },
+    { id: 'description', label: t('module.description', 'Description'), type: 'textarea' },
+  ]
+
+  const handleSubmit = async (values: Record<string, unknown>) => {
+    const customFields = collectCustomFieldValues(values)
+    const result = await createCrud('/api/your-module', { ...values, customFields })
+    if (!result.ok) {
+      throw createCrudFormError(
+        t('module.create.error', 'Failed to create item'),
+        result.errors,
+      )
+    }
+    flash(t('module.create.success', 'Item created'), 'success')
+    router.push(`/backend/your-module/${result.result.id}`)
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm
+          title={t('module.create.title', 'Create item')}
+          fields={fields}
+          entityIds={['your_entity']}  {/* ← custom fields */}
+          onSubmit={handleSubmit}
+          backHref="/backend/your-module"
+          cancelHref="/backend/your-module"
+          submitLabel={t('common.create', 'Create')}
+        />
+      </PageBody>
+    </Page>
+  )
+}
+
+export const metadata = {
+  title: 'module.create.title',
+  requireAuth: true,
+  requireFeatures: ['module.create'],
+  breadcrumb: [
+    { labelKey: 'module.list.title', label: 'Items', href: '/backend/your-module' },
+    { labelKey: 'module.create.title', label: 'Create' },
+  ],
+}
+```
+
+#### K.1.3 Detail Page Template
+
+```tsx
+// backend/<module>/[id]/page.tsx — szablon strony szczegółów
+'use client'
+
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+
+export default function DetailPage({ params }: { params: { id: string } }) {
+  const t = useT()
+  const router = useRouter()
+  const { confirm } = useConfirmDialog()
+  const [data, setData] = useState<YourEntity | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    apiCall(`/api/your-module/${params.id}`)
+      .then((res) => {
+        if (cancelled) return
+        if (res.ok) setData(res.result)
+        else setError(t('module.detail.notFound', 'Item not found'))
+      })
+      .finally(() => { if (!cancelled) setIsLoading(false) })
+    return () => { cancelled = true }
+  }, [params.id])
+
+  // ✅ WYMAGANE: LoadingMessage zamiast surowego Spinner
+  if (isLoading) return <LoadingMessage />
+  // ✅ WYMAGANE: ErrorMessage zamiast surowego tekstu
+  if (error || !data) return <ErrorMessage message={error ?? t('module.detail.notFound', 'Not found')} />
+
+  const handleDelete = async () => {
+    const confirmed = await confirm({
+      title: t('module.delete.confirm.title', 'Delete item?'),
+      description: t('module.delete.confirm.description', 'This action cannot be undone.'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    const result = await deleteCrud(`/api/your-module/${params.id}`)
+    if (result.ok) {
+      flash(t('module.delete.success', 'Item deleted'), 'success')
+      router.push('/backend/your-module')
+    } else {
+      flash(t('module.delete.error', 'Failed to delete'), 'error')
+    }
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">{data.name}</h2>
+            <StatusBadge variant={mapStatusToVariant(data.status)}>
+              {t(`module.status.${data.status}`, data.status)}
+            </StatusBadge>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => router.push(`edit`)}>
+              {t('common.edit', 'Edit')}
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              {t('common.delete', 'Delete')}
+            </Button>
+          </div>
+        </div>
+        {/* Sekcje szczegółów — tab layout jeśli >3 sekcji */}
+      </PageBody>
+    </Page>
+  )
+}
+
+export const metadata = {
+  title: 'module.detail.title',
+  requireAuth: true,
+  requireFeatures: ['module.view'],
+}
+```
+
+### K.2 Reference Module Documentation
+
+Moduł **customers** (`packages/core/src/modules/customers/`) to referencyjny wzorzec z ~300 plików. Poniżej kluczowe pliki do studiowania przy tworzeniu nowego modułu:
+
+| Wzorzec | Plik referencyjny | Co studiować |
+|---------|-------------------|--------------|
+| Lista z DataTable | `backend/customers/companies/page.tsx` | Kolumny, paginacja, filtry, RowActions, bulk actions |
+| Tworzenie z CrudForm | `backend/customers/companies/create/page.tsx` | Pola formularza, walidacja, custom fields, flash |
+| Szczegóły z tabami | `backend/customers/companies/[id]/page.tsx` | Ładowanie, taby, sekcje, guarded mutations |
+| CRUD API route | `api/companies/route.ts` | makeCrudRoute, openApi, query engine |
+| Komendy (Command pattern) | `commands/companies.ts` | create/update/delete z undo, before/after snapshots |
+| Walidatory Zod | `data/validators.ts` | Schema per entity, reużywalność |
+| Encje ORM | `data/entities.ts` | PK, FK, organization_id, timestamps |
+| ACL features | `acl.ts` | Konwencja `module.action`, granulacja |
+| Setup tenanta | `setup.ts` | defaultRoleFeatures, seedDefaults |
+| Eventy | `events.ts` | createModuleEvents, CRUD events |
+| Search config | `search.ts` | Fulltext fields, facets, entity mapping |
+| Custom entities | `ce.ts` | Deklaracje pól per encja |
+| Tłumaczenia | `i18n/en.json` | Klucze, struktura, fallbacki |
+
+**Zasada**: zanim napiszesz nowy moduł, przeczytaj **cały** `packages/core/src/modules/customers/AGENTS.md`.
+
+### K.3 Scaffold Script
+
+Skrypt generujący szkielet nowego modułu z page templates wbudowanymi:
+
+```bash
+#!/usr/bin/env bash
+# ds-scaffold-module.sh — scaffold nowego modułu z DS-compliant templates
+# Użycie: ./ds-scaffold-module.sh <module_name> <entity_name>
+# Przykład: ./ds-scaffold-module.sh invoices invoice
+
+set -euo pipefail
+
+MODULE="$1"
+ENTITY="$2"
+
+if [[ -z "$MODULE" || -z "$ENTITY" ]]; then
+  echo "Usage: $0 <module_name> <entity_name>"
+  echo "  module_name: plural, snake_case (e.g., invoices)"
+  echo "  entity_name: singular, snake_case (e.g., invoice)"
+  exit 1
+fi
+
+# Walidacja konwencji nazewniczej
+if [[ "$MODULE" =~ [A-Z] ]]; then
+  echo "ERROR: module_name must be snake_case (got: $MODULE)"
+  exit 1
+fi
+
+MODULE_DIR="packages/core/src/modules/${MODULE}"
+
+if [[ -d "$MODULE_DIR" ]]; then
+  echo "ERROR: Module directory already exists: $MODULE_DIR"
+  exit 1
+fi
+
+ENTITY_CAMEL=$(echo "$ENTITY" | perl -pe 's/_(\w)/uc($1)/ge')
+ENTITY_PASCAL=$(echo "$ENTITY_CAMEL" | perl -pe 's/^(\w)/uc($1)/e')
+MODULE_CAMEL=$(echo "$MODULE" | perl -pe 's/_(\w)/uc($1)/ge')
+
+echo "Scaffolding module: $MODULE (entity: $ENTITY)"
+
+# Tworzenie struktury katalogów
+mkdir -p "$MODULE_DIR"/{api/"$MODULE",backend/"$MODULE"/{create,"[id]"},commands,components,data,i18n,lib,widgets}
+
+# index.ts
+cat > "$MODULE_DIR/index.ts" << 'TMPL'
+import type { ModuleMetadata } from '@open-mercato/shared/lib/module'
+
+export const metadata: ModuleMetadata = {
+  id: '__MODULE__',
+  label: '__ENTITY_PASCAL__s',
+}
+TMPL
+perl -i -pe "s/__MODULE__/$MODULE/g; s/__ENTITY_PASCAL__/$ENTITY_PASCAL/g" "$MODULE_DIR/index.ts"
+
+# acl.ts
+cat > "$MODULE_DIR/acl.ts" << 'TMPL'
+import type { FeatureDefinition } from '@open-mercato/shared/lib/acl'
+
+export const features: FeatureDefinition[] = [
+  { id: '__MODULE__.view', label: 'View __MODULE__' },
+  { id: '__MODULE__.create', label: 'Create __MODULE__' },
+  { id: '__MODULE__.update', label: 'Update __MODULE__' },
+  { id: '__MODULE__.delete', label: 'Delete __MODULE__' },
+]
+TMPL
+perl -i -pe "s/__MODULE__/$MODULE/g" "$MODULE_DIR/acl.ts"
+
+# data/validators.ts
+cat > "$MODULE_DIR/data/validators.ts" << 'TMPL'
+import { z } from 'zod'
+
+export const __ENTITY_CAMEL__Schema = z.object({
+  name: z.string().min(1),
+})
+
+export type __ENTITY_PASCAL__Input = z.infer<typeof __ENTITY_CAMEL__Schema>
+TMPL
+perl -i -pe "s/__ENTITY_CAMEL__/$ENTITY_CAMEL/g; s/__ENTITY_PASCAL__/$ENTITY_PASCAL/g" "$MODULE_DIR/data/validators.ts"
+
+# i18n/en.json — klucze tłumaczeń
+cat > "$MODULE_DIR/i18n/en.json" << TMPL
+{
+  "$MODULE": {
+    "list": { "title": "${ENTITY_PASCAL}s" },
+    "create": { "title": "Create $ENTITY_PASCAL", "success": "$ENTITY_PASCAL created", "error": "Failed to create" },
+    "detail": { "title": "$ENTITY_PASCAL details", "notFound": "$ENTITY_PASCAL not found" },
+    "delete": {
+      "success": "$ENTITY_PASCAL deleted",
+      "error": "Failed to delete",
+      "confirm": { "title": "Delete $ENTITY_PASCAL?", "description": "This action cannot be undone." }
+    },
+    "empty": { "title": "No ${ENTITY_PASCAL}s yet", "description": "Create your first $ENTITY_PASCAL to get started." },
+    "name": "Name",
+    "status": "Status"
+  }
+}
+TMPL
+
+echo ""
+echo "✓ Module scaffolded at: $MODULE_DIR"
+echo ""
+echo "Next steps:"
+echo "  1. Add entities in data/entities.ts (copy pattern from customers)"
+echo "  2. Add backend pages (templates already follow DS guidelines)"
+echo "  3. Add API routes in api/$MODULE/route.ts"
+echo "  4. Register in apps/mercato/src/modules.ts"
+echo "  5. Run: yarn generate && yarn db:generate"
+echo "  6. Run: yarn lint && yarn build:packages"
+echo ""
+echo "Reference: packages/core/src/modules/customers/"
+```
+
+**Kluczowe cechy scaffoldu:**
+- Wymusza snake_case dla nazw modułów
+- Generuje i18n klucze od razu (brak hardcoded strings)
+- Tworzy strukturę katalogów zgodną z auto-discovery
+- Nie generuje stron — contributor kopiuje z K.1 templates i dostosowuje
+
+---
+
+## L. Structural Lint Rules
+
+Sześć reguł ESLint do egzekwowania design systemu. Projekt używa ESLint v9 flat config (`eslint.config.mjs`). Reguły zaimplementowane jako custom plugin `eslint-plugin-open-mercato-ds`.
+
+### L.0 Strategia wdrożenia
+
+```
+eslint-plugin-open-mercato-ds/
+├── index.ts                    — plugin entry, exportuje rules + recommended config
+├── rules/
+│   ├── require-empty-state.ts
+│   ├── require-page-wrapper.ts
+│   ├── no-raw-table.ts
+│   ├── require-loading-state.ts
+│   ├── require-status-badge.ts
+│   └── no-hardcoded-status-colors.ts
+└── utils/
+    └── ast-helpers.ts          — wspólne selektory AST
+```
+
+Dodanie do `eslint.config.mjs`:
+
+```js
+import omDs from './eslint-plugin-open-mercato-ds/index.js'
+
+export default [
+  // ... existing config
+  {
+    plugins: { 'om-ds': omDs },
+    files: ['packages/core/src/modules/**/backend/**/*.tsx'],
+    rules: {
+      'om-ds/require-empty-state': 'warn',      // warn → error po migracji
+      'om-ds/require-page-wrapper': 'error',
+      'om-ds/no-raw-table': 'error',
+      'om-ds/require-loading-state': 'warn',
+      'om-ds/require-status-badge': 'warn',
+      'om-ds/no-hardcoded-status-colors': 'error',
+    },
+  },
+]
+```
+
+**Rollout plan**: Wszystkie reguły startują jako `warn` na istniejącym kodzie. Nowe moduły (tworzone po hackathonie) mają `error`. Po migracji modułu → przełączamy na `error` globalnie.
+
+### L.1 `om-ds/require-empty-state`
+
+**Cel**: Każda strona z DataTable musi mieć EmptyState.
+
+```ts
+// rules/require-empty-state.ts — pseudo-implementacja
+import type { Rule } from 'eslint'
+
+export const requireEmptyState: Rule.RuleModule = {
+  meta: {
+    type: 'suggestion',
+    docs: {
+      description: 'Require EmptyState component in pages that use DataTable',
+    },
+    messages: {
+      missingEmptyState:
+        'Pages with DataTable must include an EmptyState component for the zero-data case. ' +
+        'Import EmptyState from @open-mercato/ui/backend/EmptyState.',
+    },
+    schema: [],
+  },
+  create(context) {
+    let hasDataTable = false
+    let hasEmptyState = false
+
+    return {
+      // Szukamy importu DataTable
+      ImportDeclaration(node) {
+        const source = node.source.value
+        if (typeof source === 'string' && source.includes('DataTable')) {
+          for (const spec of node.specifiers) {
+            if (spec.type === 'ImportSpecifier' && spec.imported.name === 'DataTable') {
+              hasDataTable = true
+            }
+          }
+        }
+        if (typeof source === 'string' && source.includes('EmptyState')) {
+          hasEmptyState = true
+        }
+      },
+      // Szukamy użycia <EmptyState w JSX
+      JSXIdentifier(node: any) {
+        if (node.name === 'EmptyState') {
+          hasEmptyState = true
+        }
+      },
+      'Program:exit'(node) {
+        if (hasDataTable && !hasEmptyState) {
+          context.report({ node, messageId: 'missingEmptyState' })
+        }
+      },
+    }
+  },
+}
+```
+
+### L.2 `om-ds/require-page-wrapper`
+
+**Cel**: Backend pages muszą używać `<Page>` + `<PageBody>` jako wrapper.
+
+```ts
+// rules/require-page-wrapper.ts — pseudo-implementacja
+export const requirePageWrapper: Rule.RuleModule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description: 'Require Page and PageBody wrappers in backend pages',
+    },
+    messages: {
+      missingPage: 'Backend pages must wrap content in <Page><PageBody>...</PageBody></Page>. ' +
+        'Import from @open-mercato/ui/backend/Page.',
+      missingPageBody: 'Found <Page> without <PageBody> child.',
+    },
+    schema: [],
+  },
+  create(context) {
+    let hasPageImport = false
+    let hasPageBodyImport = false
+    let hasPageJSX = false
+    let hasPageBodyJSX = false
+
+    return {
+      ImportDeclaration(node) {
+        const source = node.source.value
+        if (typeof source === 'string' && source.includes('/Page')) {
+          for (const spec of node.specifiers) {
+            if (spec.type === 'ImportSpecifier') {
+              if (spec.imported.name === 'Page') hasPageImport = true
+              if (spec.imported.name === 'PageBody') hasPageBodyImport = true
+            }
+          }
+        }
+      },
+      JSXIdentifier(node: any) {
+        if (node.name === 'Page') hasPageJSX = true
+        if (node.name === 'PageBody') hasPageBodyJSX = true
+      },
+      'Program:exit'(node) {
+        // Tylko pliki w backend/ z default export (page components)
+        const filename = context.filename ?? context.getFilename()
+        if (!filename.includes('/backend/')) return
+
+        const hasDefaultExport = node.body.some(
+          (n: any) => n.type === 'ExportDefaultDeclaration' ||
+            (n.type === 'ExportNamedDeclaration' && n.declaration?.declarations?.[0]?.id?.name === 'default'),
+        )
+        if (!hasDefaultExport) return
+
+        if (!hasPageJSX) {
+          context.report({ node, messageId: 'missingPage' })
+        } else if (!hasPageBodyJSX) {
+          context.report({ node, messageId: 'missingPageBody' })
+        }
+      },
+    }
+  },
+}
+```
+
+### L.3 `om-ds/no-raw-table`
+
+**Cel**: Zakaz użycia `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<td>`, `<th>` bezpośrednio w backend pages. Wymuszenie DataTable lub primitives/table.
+
+```ts
+// rules/no-raw-table.ts — pseudo-implementacja
+const RAW_TABLE_ELEMENTS = ['table', 'thead', 'tbody', 'tr', 'td', 'th']
+
+export const noRawTable: Rule.RuleModule = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description: 'Disallow raw HTML table elements in backend pages',
+    },
+    messages: {
+      noRawTable:
+        'Do not use raw <{{element}}> in backend pages. ' +
+        'Use DataTable from @open-mercato/ui/backend/DataTable or ' +
+        'Table primitives from @open-mercato/ui/primitives/table.',
+    },
+    schema: [],
+  },
+  create(context) {
+    return {
+      JSXOpeningElement(node: any) {
+        const filename = context.filename ?? context.getFilename()
+        if (!filename.includes('/backend/')) return
+
+        if (node.name.type === 'JSXIdentifier' && RAW_TABLE_ELEMENTS.includes(node.name.name)) {
+          context.report({
+            node,
+            messageId: 'noRawTable',
+            data: { element: node.name.name },
+          })
+        }
+      },
+    }
+  },
+}
+```
+
+### L.4 `om-ds/require-loading-state`
+
+**Cel**: Strony z asynchronicznym pobieraniem danych muszą mieć LoadingMessage lub przekazywać `isLoading` do DataTable.
+
+```ts
+// rules/require-loading-state.ts — pseudo-implementacja
+export const requireLoadingState: Rule.RuleModule = {
+  meta: {
+    type: 'suggestion',
+    docs: {
+      description: 'Require explicit loading state handling in pages with async data',
+    },
+    messages: {
+      missingLoadingState:
+        'Pages using apiCall() must handle loading state. ' +
+        'Use LoadingMessage from @open-mercato/ui/backend/detail ' +
+        'or pass isLoading prop to DataTable.',
+    },
+    schema: [],
+  },
+  create(context) {
+    let hasApiCall = false
+    let hasLoadingMessage = false
+    let hasIsLoadingProp = false
+    let hasSpinner = false
+
+    return {
+      CallExpression(node: any) {
+        if (node.callee.name === 'apiCall' || node.callee.name === 'apiCallOrThrow') {
+          hasApiCall = true
+        }
+      },
+      JSXIdentifier(node: any) {
+        if (node.name === 'LoadingMessage') hasLoadingMessage = true
+        if (node.name === 'Spinner') hasSpinner = true
+      },
+      JSXAttribute(node: any) {
+        if (node.name?.name === 'isLoading') hasIsLoadingProp = true
+      },
+      'Program:exit'(node) {
+        if (hasApiCall && !hasLoadingMessage && !hasIsLoadingProp && !hasSpinner) {
+          context.report({ node, messageId: 'missingLoadingState' })
+        }
+      },
+    }
+  },
+}
+```
+
+### L.5 `om-ds/require-status-badge`
+
+**Cel**: Statusy (active/inactive, draft/published, itp.) muszą używać StatusBadge, nie surowego tekstu ani custom `<span>`.
+
+```ts
+// rules/require-status-badge.ts — pseudo-implementacja
+// Heurystyka: szukamy kolumn DataTable z accessorKey zawierającym 'status'
+// które nie renderują StatusBadge w cell renderer
+
+export const requireStatusBadge: Rule.RuleModule = {
+  meta: {
+    type: 'suggestion',
+    docs: {
+      description: 'Require StatusBadge for status-like columns in DataTable',
+    },
+    messages: {
+      useStatusBadge:
+        'Status columns should use <StatusBadge> for consistent visual treatment. ' +
+        'Import from @open-mercato/ui/primitives/status-badge.',
+    },
+    schema: [],
+  },
+  create(context) {
+    // Heurystyka: Zbieramy definicje kolumn z accessorKey zawierającym 'status'
+    // i sprawdzamy czy cell renderer zawiera JSX z StatusBadge lub Badge
+
+    let hasStatusBadgeImport = false
+    let hasBadgeImport = false
+
+    return {
+      ImportDeclaration(node) {
+        const source = String(node.source.value)
+        for (const spec of node.specifiers) {
+          if (spec.type === 'ImportSpecifier') {
+            if (spec.imported.name === 'StatusBadge') hasStatusBadgeImport = true
+            if (spec.imported.name === 'Badge') hasBadgeImport = true
+          }
+        }
+      },
+      // Szukamy obiektów z accessorKey: '...status...' i brak StatusBadge w cell
+      Property(node: any) {
+        if (
+          node.key?.name === 'accessorKey' &&
+          node.value?.type === 'Literal' &&
+          typeof node.value.value === 'string' &&
+          node.value.value.toLowerCase().includes('status')
+        ) {
+          // Jeśli moduł nie importuje StatusBadge ani Badge — raportuj
+          if (!hasStatusBadgeImport && !hasBadgeImport) {
+            context.report({ node, messageId: 'useStatusBadge' })
+          }
+        }
+      },
+    }
+  },
+}
+```
+
+### L.6 `om-ds/no-hardcoded-status-colors`
+
+**Cel**: Zakaz hardcoded kolorów statusów. Wymuszenie semantic tokens.
+
+```ts
+// rules/no-hardcoded-status-colors.ts — pseudo-implementacja
+// Rozszerzenie istniejącej logiki z sekcji E
+
+const FORBIDDEN_PATTERNS = [
+  // Tailwind hardcoded status colors
+  /\b(?:text|bg|border)-(?:red|green|yellow|orange|blue|emerald|amber|rose|lime)-\d{2,3}\b/,
+  // Inline style colors for statuses
+  /color:\s*(?:#(?:ef4444|f59e0b|10b981|3b82f6|dc2626|eab308))/i,
+  // oklch hardcoded (powinny być tokeny)
+  /oklch\(\s*0\.(?:577|704)\s+0\.(?:245|191)\s+(?:27|22)\b/,
+]
+
+const ALLOWED_REPLACEMENTS: Record<string, string> = {
+  'text-red-600': 'text-destructive',
+  'text-red-500': 'text-destructive',
+  'bg-red-50': 'bg-status-error-bg',
+  'bg-red-100': 'bg-status-error-bg',
+  'border-red-200': 'border-status-error-border',
+  'text-green-600': 'text-status-success-text',
+  'text-green-500': 'text-status-success-text',
+  'bg-green-50': 'bg-status-success-bg',
+  'bg-green-100': 'bg-status-success-bg',
+  'text-yellow-600': 'text-status-warning-text',
+  'text-amber-600': 'text-status-warning-text',
+  'bg-yellow-50': 'bg-status-warning-bg',
+  'bg-amber-50': 'bg-status-warning-bg',
+  'text-blue-600': 'text-status-info-text',
+  'bg-blue-50': 'bg-status-info-bg',
+}
+
+export const noHardcodedStatusColors: Rule.RuleModule = {
+  meta: {
+    type: 'problem',
+    fixable: 'code',
+    docs: {
+      description: 'Disallow hardcoded status colors — use semantic DS tokens',
+    },
+    messages: {
+      hardcodedColor:
+        'Hardcoded status color "{{found}}" detected. ' +
+        'Use semantic token instead: {{replacement}}. ' +
+        'See globals.css for --status-* tokens.',
+    },
+    schema: [],
+  },
+  create(context) {
+    return {
+      // Sprawdzamy atrybuty className w JSX
+      JSXAttribute(node: any) {
+        if (node.name?.name !== 'className') return
+
+        const value = node.value
+        if (!value) return
+
+        // String literal
+        if (value.type === 'Literal' && typeof value.value === 'string') {
+          checkClassString(context, node, value.value)
+        }
+
+        // Template literal
+        if (value.type === 'JSXExpressionContainer' && value.expression?.type === 'TemplateLiteral') {
+          for (const quasi of value.expression.quasis) {
+            checkClassString(context, node, quasi.value.raw)
+          }
+        }
+      },
+    }
+
+    function checkClassString(ctx: Rule.RuleContext, node: any, classStr: string) {
+      const classes = classStr.split(/\s+/)
+      for (const cls of classes) {
+        const replacement = ALLOWED_REPLACEMENTS[cls]
+        if (replacement) {
+          ctx.report({
+            node,
+            messageId: 'hardcodedColor',
+            data: { found: cls, replacement },
+          })
+        }
+      }
+    }
+  },
+}
+```
+
+### L.7 Podsumowanie reguł
+
+| Reguła | Severity (nowy kod) | Severity (legacy) | Auto-fix |
+|--------|---------------------|--------------------|----------|
+| `om-ds/require-empty-state` | error | warn | ✗ |
+| `om-ds/require-page-wrapper` | error | error | ✗ |
+| `om-ds/no-raw-table` | error | error | ✗ |
+| `om-ds/require-loading-state` | error | warn | ✗ |
+| `om-ds/require-status-badge` | error | warn | ✗ |
+| `om-ds/no-hardcoded-status-colors` | error | error | ✓ (sugestia) |
+
+**Metryka sukcesu**: 0 warnings na nowych modułach, legacy warnings ↓30% per sprint.
+
+---
+
+## M. Contributor Onboarding — "Your First Module" Guide
+
+### M.1 Before-You-Start Checklist
+
+Zanim napiszesz pierwszą linijkę kodu nowego modułu, sprawdź:
+
+- [ ] **Przeczytałem AGENTS.md** — Task Router wskazuje na właściwe guide'y
+- [ ] **Przeczytałem `packages/core/AGENTS.md`** — auto-discovery, module files, konwencje
+- [ ] **Przeczytałem `packages/core/src/modules/customers/AGENTS.md`** — referencyjny moduł CRUD
+- [ ] **Przeczytałem `packages/ui/AGENTS.md`** — komponenty UI, DataTable, CrudForm
+- [ ] **Sprawdziłem `.ai/specs/`** — czy istnieje spec dla mojego modułu
+- [ ] **Mam zainstalowane narzędzia**: `yarn`, Node ≥20, Docker (dla DB)
+- [ ] **Zbudowałem projekt**: `yarn initialize` przeszło bez błędów
+- [ ] **Uruchomiłem dev**: `yarn dev` działa, widzę dashboard w przeglądarce
+
+### M.2 Step-by-Step: Tworzenie modułu
+
+**Krok 1 — Scaffold**
+```bash
+# Opcja A: scaffold script (z sekcji K.3)
+./ds-scaffold-module.sh invoices invoice
+
+# Opcja B: ręcznie — skopiuj strukturę z customers i wyczyść
+```
+
+**Krok 2 — Zdefiniuj encję**
+```
+data/entities.ts → MikroORM entity z id, organization_id, timestamps
+data/validators.ts → Zod schema per endpoint
+```
+Wzór: `packages/core/src/modules/customers/data/entities.ts`
+
+**Krok 3 — Dodaj CRUD API**
+```
+api/<module>/route.ts → makeCrudRoute + openApi export
+```
+Wzór: `packages/core/src/modules/customers/api/companies/route.ts`
+
+**Krok 4 — Stwórz strony backend**
+```
+backend/<module>/page.tsx       → List (template K.1.1)
+backend/<module>/create/page.tsx → Create (template K.1.2)
+backend/<module>/[id]/page.tsx   → Detail (template K.1.3)
+```
+**WAŻNE**: Każdy template wymaga — `Page`+`PageBody`, `useT()`, `EmptyState`, `LoadingMessage`/`isLoading`, `StatusBadge` dla statusów.
+
+**Krok 5 — ACL + Setup**
+```
+acl.ts   → features: view, create, update, delete
+setup.ts → defaultRoleFeatures (admin = all, user = view)
+```
+
+**Krok 6 — i18n**
+```
+i18n/en.json → wszystkie user-facing strings
+i18n/pl.json → tłumaczenia (jeśli dotyczy)
+```
+
+**Krok 7 — Rejestracja**
+```
+apps/mercato/src/modules.ts → dodaj moduł
+yarn generate && yarn db:generate && yarn db:migrate
+```
+
+**Krok 8 — Weryfikacja**
+```bash
+yarn lint                 # 0 errors, 0 warnings
+yarn build:packages       # builds clean
+yarn test                 # existing tests pass
+yarn dev                  # nowy moduł widoczny w sidebar
+```
+
+### M.3 Self-Check: 10 pytań przed PR
+
+Odpowiedz TAK na każde pytanie zanim otworzysz Pull Request:
+
+| # | Pytanie | Dotyczy |
+|---|---------|---------|
+| 1 | Czy **każda** strona listy ma `<EmptyState>` z akcją tworzenia? | UX |
+| 2 | Czy strony detail/edit mają `<LoadingMessage>` i `<ErrorMessage>`? | UX |
+| 3 | Czy **wszystkie** user-facing strings używają `useT()` / `resolveTranslations()`? | i18n |
+| 4 | Czy statusy renderowane są przez `<StatusBadge>` (nie surowy tekst/span)? | Design System |
+| 5 | Czy kolory statusów używają semantic tokens (`text-destructive`, `bg-status-*-bg`)? | Design System |
+| 6 | Czy formularze używają `<CrudForm>` (nie ręczne `<form>`)? | Spójność |
+| 7 | Czy API routes mają `openApi` export? | Dokumentacja |
+| 8 | Czy strony mają `metadata` z `requireAuth` i `requireFeatures`? | Bezpieczeństwo |
+| 9 | Czy `setup.ts` deklaruje `defaultRoleFeatures` dla features z `acl.ts`? | RBAC |
+| 10 | Czy `yarn lint && yarn build:packages` przechodzi bez błędów? | CI |
+
+### M.4 Top 5 Anti-Patterns
+
+| # | Anti-pattern | Dlaczego źle | Co zamiast |
+|---|-------------|--------------|------------|
+| 1 | **Hardcoded strings** `<h1>My Module</h1>` | Łamie i18n, blokuje tłumaczenia | `<h1>{t('module.title', 'My Module')}</h1>` |
+| 2 | **Pusta tabela zamiast EmptyState** — DataTable z 0 rows bez żadnego CTA | Użytkownik nie wie co robić, bounce rate ↑ | Warunkowy `<EmptyState>` z akcją tworzenia gdy `rows.length === 0 && !search` |
+| 3 | **Raw `fetch()`** zamiast `apiCall()` | Brak obsługi auth, cache, error handling | `apiCall('/api/...')` z `@open-mercato/ui/backend/utils/apiCall` |
+| 4 | **Tailwind color classes** `text-red-600`, `bg-green-100` dla statusów | Niespójne z dark mode, brak central governance | Semantic tokens: `text-destructive`, `bg-status-success-bg` |
+| 5 | **Brak `metadata` z RBAC** — strona bez `requireAuth` / `requireFeatures` | Każdy zalogowany widzi stronę, nawet bez uprawnień | Dodaj `metadata.requireFeatures: ['module.view']` |
+
+---
+
+*Koniec supplementu K-M. Sekcje E-M stanowią kompletny egzekucyjny plan design systemu z guardrails dla contributorów.*
