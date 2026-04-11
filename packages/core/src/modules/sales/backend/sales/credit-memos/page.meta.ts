@@ -10,7 +10,7 @@ const creditMemoIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.credit_memos.manage'],
+  requireFeatures: ['sales.credit_memos.view'],
   pageTitle: 'Credit Memos',
   pageTitleKey: 'sales.credit_memos.title',
   pageGroup: 'Sales',
