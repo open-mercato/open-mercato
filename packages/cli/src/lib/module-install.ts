@@ -23,8 +23,18 @@ type InstallTarget = {
   args: string[]
 }
 
-function resolveYarnBinary(): string {
-  return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
+/** @internal */
+export function resolveYarnBinary(platform = process.platform): string {
+  return platform === 'win32' ? 'yarn.cmd' : 'yarn'
+}
+
+/** @internal */
+export function resolveWindowsCommandShim(binary: string, args: string[], platform = process.platform): { command: string; args: string[] } {
+  if (platform !== 'win32' || !binary.toLowerCase().endsWith('.cmd')) {
+    return { command: binary, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', binary, ...args] }
 }
 
 function readAppPackageName(appDir: string): string {
@@ -61,7 +71,8 @@ function runCommand(
   cwd: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const commandSpec = resolveWindowsCommandShim(command, args)
+    const child = spawn(commandSpec.command, commandSpec.args, {
       cwd,
       env: process.env,
       stdio: 'inherit',

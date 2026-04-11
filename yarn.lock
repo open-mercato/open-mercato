@@ -5653,6 +5653,7 @@ __metadata:
     ai: "npm:^6.0.33"
     cmdk: "npm:^1.0.0"
     framer-motion: "npm:^11.0.0"
+    isolated-vm: "npm:^6.1.2"
     react-json-view-lite: "npm:^2.5.0"
     react-markdown: "npm:^9.0.0"
     tsx: "npm:^4.21.0"
@@ -17175,6 +17176,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"isolated-vm@npm:^6.1.2":
+  version: 6.1.2
+  resolution: "isolated-vm@npm:6.1.2"
+  dependencies:
+    node-gyp: "npm:latest"
+    node-gyp-build: "npm:^4.8.4"
+  checksum: 10/705c93375a6342d54d2381efebba45d965147d5a6e534dc5c1e622b625ad02ee8878cacd03a8fd09f9929a3fc2d039b26a900d976632b14a51a94005371ec1d9
+  languageName: node
+  linkType: hard
+
 "istanbul-lib-coverage@npm:^3.0.0, istanbul-lib-coverage@npm:^3.2.0":
   version: 3.2.2
   resolution: "istanbul-lib-coverage@npm:3.2.2"
@@ -20226,7 +20237,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"node-gyp-build@npm:^4.8.1":
+"node-gyp-build@npm:^4.8.1, node-gyp-build@npm:^4.8.4":
   version: 4.8.4
   resolution: "node-gyp-build@npm:4.8.4"
   bin:

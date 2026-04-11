@@ -593,6 +593,86 @@ async function resolveDictionaryEntryId(
 }
 
 /**
+ * Returns true if the dotted-decimal IPv4 string is in a private/internal range.
+ * Covers RFC 1918, loopback (127/8), and link-local (169.254/16).
+ */
+function isPrivateIPv4(ip: string): boolean {
+  const parts = ip.split('.').map(Number)
+  const [a, b] = parts
+  return (
+    a === 10 || // 10.0.0.0/8
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 192 && b === 168) || // 192.168.0.0/16
+    a === 127 || // 127.0.0.0/8 loopback
+    (a === 169 && b === 254) // 169.254.0.0/16 link-local
+  )
+}
+
+/**
+ * Returns true if the bare IPv6 address (brackets already stripped) is private.
+ * Covers: loopback (::1), link-local (fe80::/10), unique local (fc00::/7),
+ * and IPv4-mapped addresses (::ffff:<ipv4>) whose embedded IPv4 is private.
+ */
+function isPrivateIPv6(addr: string): boolean {
+  const lower = addr.toLowerCase()
+
+  // Loopback ::1
+  if (lower === '::1') return true
+
+  // Link-local fe80::/10 — hex prefix fe8x through febx (bits 1111111010xxxxxx)
+  if (/^fe[89ab]/i.test(lower)) return true
+
+  // Unique local fc00::/7 — hex prefix fc or fd (bits 1111110x)
+  if (/^f[cd]/i.test(lower)) return true
+
+  // IPv4-mapped ::ffff:<dotted-decimal>  e.g. ::ffff:192.168.1.1
+  const mixedMatch = lower.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/)
+  if (mixedMatch) return isPrivateIPv4(mixedMatch[1])
+
+  // IPv4-mapped ::ffff:<hex16>:<hex16>  e.g. ::ffff:c0a8:0101 (= 192.168.1.1)
+  const hexMatch = lower.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/)
+  if (hexMatch) {
+    const hi = parseInt(hexMatch[1].padStart(4, '0'), 16)
+    const lo = parseInt(hexMatch[2].padStart(4, '0'), 16)
+    return isPrivateIPv4(`${hi >> 8}.${hi & 0xff}.${lo >> 8}.${lo & 0xff}`)
+  }
+
+  return false
+}
+
+/**
+ * Returns true if the URL targets a private/internal host.
+ * Covers IPv4 RFC 1918/loopback/link-local, IPv6 loopback/link-local/unique-local,
+ * IPv4-mapped IPv6, and the localhost hostname family.
+ * Does not perform DNS resolution — checks the literal host only.
+ */
+export function isPrivateUrl(rawUrl: string): boolean {
+  let hostname: string
+  try {
+    hostname = new URL(rawUrl).hostname
+  } catch {
+    return false
+  }
+
+  // IPv6 — WHATWG URL includes brackets in hostname: [::1], [fc00::1], etc.
+  if (hostname.startsWith('[') && hostname.endsWith(']')) {
+    return isPrivateIPv6(hostname.slice(1, -1))
+  }
+
+  // IPv4 dotted-decimal
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) {
+    return isPrivateIPv4(hostname)
+  }
+
+  // Loopback hostname
+  if (hostname === 'localhost' || hostname.endsWith('.localhost')) {
+    return true
+  }
+
+  return false
+}
+
+/**
  * CALL_WEBHOOK activity handler
  *
  * Makes HTTP request to external URL
@@ -605,6 +685,13 @@ export async function executeCallWebhook(
 
   if (!url) {
     throw new Error('CALL_WEBHOOK requires "url" field')
+  }
+
+  const allowPrivate = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS === 'true'
+  if (!allowPrivate && isPrivateUrl(url)) {
+    throw new Error(
+      `CALL_WEBHOOK blocked: "${url}" resolves to a private/internal address (SSRF prevention). Set WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS=true to allow.`
+    )
   }
 
   // Make HTTP request
