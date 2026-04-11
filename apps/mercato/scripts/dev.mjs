@@ -336,6 +336,14 @@ function publishRuntimeFailure(detail, options = {}) {
     ? options.progressLabel
     : (startupProgress.current >= runtimeProgressCurrent ? startupProgress.label : 'Starting app server')
 
+  if (runtimeWarmupState.completed) {
+    updateSplashState({
+      detail: failureDetail,
+      activity: failureDetail,
+    })
+    return
+  }
+
   updateSplashState({
     phase: 'Runtime error detected',
     detail: failureDetail,
