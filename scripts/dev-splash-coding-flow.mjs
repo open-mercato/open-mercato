@@ -376,7 +376,8 @@ function readJsonBody(req) {
 
 function spawnDetached(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const commandSpec = resolveWindowsCommandShim(command, args, options.platform)
+    const child = spawn(commandSpec.command, commandSpec.args, {
       cwd: options.cwd,
       env: options.env,
       detached: true,
@@ -393,7 +394,8 @@ function spawnDetached(command, args, options = {}) {
 
 function spawnCaptured(command, args, options = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const commandSpec = resolveWindowsCommandShim(command, args, options.platform)
+    const child = spawn(commandSpec.command, commandSpec.args, {
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -415,6 +417,14 @@ function spawnCaptured(command, args, options = {}) {
       resolve({ code, signal, stdout, stderr })
     })
   })
+}
+
+function resolveWindowsCommandShim(command, args, platform = process.platform) {
+  if (platform !== 'win32' || !command.toLowerCase().endsWith('.cmd')) {
+    return { command, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', command, ...args] }
 }
 
 function quoteAppleScript(value) {
@@ -551,6 +561,7 @@ async function runAgenticInit(toolId, options = {}) {
       ...env,
       FORCE_COLOR: '0',
     },
+    platform,
   })
 
   if (result.code !== 0) {
