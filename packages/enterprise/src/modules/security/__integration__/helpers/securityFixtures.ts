@@ -1,11 +1,21 @@
 import { createHmac } from 'node:crypto'
 import { expect, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test'
-import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { apiRequest, getAuthToken, postForm } from '@open-mercato/core/helpers/integration/api'
+import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const AUTH_COOKIE_NAME = 'auth_token'
 const BUILT_IN_PROVIDER_TYPES = ['totp', 'passkey', 'otp_email'] as const
+const LOGIN_FORM_READY_SELECTOR = 'form[data-auth-ready="1"]'
+const MFA_CHALLENGE_PANEL_SELECTOR = '[data-testid="security-mfa-challenge-panel"]'
+
+type CdpSessionLike = {
+  send: (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>
+}
+
+type ChromiumBrowserContext = BrowserContext & {
+  newCDPSession?: (page: Page) => Promise<CdpSessionLike>
+}
 
 type JwtPayload = {
   sub?: string
@@ -47,6 +57,14 @@ type PasskeyEnrollmentResult = {
   setupId: string
   credentialId: string
   challenge: string
+}
+
+type LoginUiResult = 'backend' | 'mfa'
+
+type VirtualWebAuthnHandle = {
+  supported: boolean
+  reason?: string
+  cleanup: () => Promise<void>
 }
 
 export function decodeJwtPayload(token: string): JwtPayload {
@@ -135,6 +153,148 @@ export async function clearAuthCookie(target: BrowserContext | Page): Promise<vo
     httpOnly: true,
     expires: 0,
   }])
+}
+
+async function suppressGlobalNotices(page: Page): Promise<void> {
+  await page.context().addCookies([
+    {
+      name: 'om_demo_notice_ack',
+      value: 'ack',
+      url: BASE_URL,
+      sameSite: 'Lax',
+    },
+    {
+      name: 'om_cookie_notice_ack',
+      value: 'ack',
+      url: BASE_URL,
+      sameSite: 'Lax',
+    },
+    {
+      name: 'om_feedback_suppress',
+      value: '1',
+      url: BASE_URL,
+      sameSite: 'Lax',
+    },
+    {
+      name: 'om_feedback_shown',
+      value: new Date().toISOString().slice(0, 10),
+      url: BASE_URL,
+      sameSite: 'Lax',
+    },
+  ])
+}
+
+export async function loginWithCredentials(
+  page: Page,
+  email: string,
+  password: string,
+): Promise<LoginUiResult> {
+  await suppressGlobalNotices(page)
+  await page.goto('/login', { waitUntil: 'domcontentloaded' })
+  await page.waitForSelector(LOGIN_FORM_READY_SELECTOR, { state: 'visible', timeout: 10_000 })
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: /sign in/i }).click()
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (/\/backend(?:\/.*)?$/.test(page.url())) {
+      return 'backend'
+    }
+    if (await page.locator(MFA_CHALLENGE_PANEL_SELECTOR).isVisible().catch(() => false)) {
+      return 'mfa'
+    }
+    const errorAlert = page.getByRole('alert').first()
+    if (await errorAlert.isVisible().catch(() => false)) {
+      const errorMessage = (await errorAlert.textContent())?.trim() || 'Unknown login error'
+      throw new Error(`Login failed: ${errorMessage}`)
+    }
+    await page.waitForTimeout(100)
+  }
+
+  throw new Error(`Login did not reach the backend or MFA challenge. Current URL: ${page.url()}`)
+}
+
+export async function logout(page: Page): Promise<void> {
+  await page.goto('/api/auth/logout', { waitUntil: 'domcontentloaded' })
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (/\/login(?:\?.*)?$/.test(page.url())) {
+      await page.waitForSelector(LOGIN_FORM_READY_SELECTOR, { state: 'visible', timeout: 10_000 })
+      return
+    }
+    await page.waitForTimeout(100)
+  }
+
+  throw new Error(`Logout did not return to the login page. Current URL: ${page.url()}`)
+}
+
+export async function configureVirtualWebAuthn(page: Page): Promise<VirtualWebAuthnHandle> {
+  const browserHasWebAuthn = await page.evaluate(() => (
+    typeof window.PublicKeyCredential !== 'undefined'
+    && typeof navigator.credentials?.create === 'function'
+    && typeof navigator.credentials?.get === 'function'
+  ))
+
+  if (!browserHasWebAuthn) {
+    return {
+      supported: false,
+      reason: 'WebAuthn is unavailable in the current runtime.',
+      cleanup: async () => undefined,
+    }
+  }
+
+  const chromiumContext = page.context() as ChromiumBrowserContext
+  if (typeof chromiumContext.newCDPSession !== 'function') {
+    return {
+      supported: false,
+      reason: 'Chromium CDP sessions are unavailable, so the test cannot provision a virtual authenticator.',
+      cleanup: async () => undefined,
+    }
+  }
+
+  let session: CdpSessionLike | null = null
+  let authenticatorId: string | null = null
+
+  try {
+    session = await chromiumContext.newCDPSession(page)
+    await session.send('WebAuthn.enable')
+    const response = await session.send('WebAuthn.addVirtualAuthenticator', {
+      options: {
+        protocol: 'ctap2',
+        transport: 'internal',
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified: true,
+        automaticPresenceSimulation: true,
+      },
+    })
+    authenticatorId = typeof response.authenticatorId === 'string' ? response.authenticatorId : null
+
+    if (!authenticatorId) {
+      throw new Error('Chromium did not return a virtual authenticator id.')
+    }
+
+    return {
+      supported: true,
+      cleanup: async () => {
+        if (!session) return
+        if (authenticatorId) {
+          await session.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId }).catch(() => undefined)
+        }
+        await session.send('WebAuthn.disable').catch(() => undefined)
+      },
+    }
+  } catch (error) {
+    if (session) {
+      await session.send('WebAuthn.disable').catch(() => undefined)
+    }
+    const reason = error instanceof Error ? error.message : 'Failed to configure virtual WebAuthn support.'
+    return {
+      supported: false,
+      reason,
+      cleanup: async () => undefined,
+    }
+  }
 }
 
 export async function fetchJson<T>(
