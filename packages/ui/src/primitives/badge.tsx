@@ -16,6 +16,7 @@ const badgeVariants = cva(
         warning: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
         info: 'border-status-info-border bg-status-info-bg text-status-info-text',
         neutral: 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text',
+        error: 'border-status-error-border bg-status-error-bg text-status-error-text',
       },
     },
     defaultVariants: {
