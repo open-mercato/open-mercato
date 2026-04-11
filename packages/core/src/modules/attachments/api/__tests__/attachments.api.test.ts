@@ -1,4 +1,11 @@
 /** @jest-environment node */
+jest.mock('/home/wh173-p0ny/hackathon_6/open-mercato/packages/core/generated/entities.ids.generated', () => ({
+  E: {
+    attachments: { attachment: 'attachments:attachment' },
+    catalog: { catalog_product: 'catalog:catalog_product' },
+  },
+}), { virtual: true })
+
 import { GET as list, POST as upload } from '@open-mercato/core/modules/attachments/api/route'
 
 const partitions = [
@@ -88,6 +95,19 @@ describe('attachments API', () => {
     expect(res.status).toBe(400)
     const j = await res.json()
     expect(j.error).toMatch(/not allowed/i)
+  })
+
+  it('rejects active content uploads even when the client claims a safe image mime type', async () => {
+    const file = new File(
+      [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', 'utf8')],
+      'avatar.jpg',
+      { type: 'image/jpeg' },
+    )
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file, { fieldKey: '' }) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/active content/i)
   })
 
   it('accepts allowed small pdf', async () => {
@@ -200,6 +220,18 @@ describe('attachments API', () => {
         expect.objectContaining({ type: 'example:todo', id: 'r1' }),
       ]),
     )
+  })
+
+  it('rejects explicit uploads to unrelated public partitions', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request(
+      'http://x/api/attachments',
+      { method: 'POST', body: fdWith(file, { partitionCode: 'productsMedia' }) as any },
+    )
+    const res = await upload(req)
+    expect(res.status).toBe(403)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/public storage partitions/i)
   })
 
   it('lists attachments with sanitized metadata via GET', async () => {

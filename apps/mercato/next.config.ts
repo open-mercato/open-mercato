@@ -11,6 +11,19 @@ const transpiledWorkspacePackages = Object.keys(appPackageJson.dependencies ?? {
   (packageName) => packageName.startsWith('@open-mercato/') && packageName !== '@open-mercato/cli',
 )
 
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "font-src 'self' data: https:",
+  "form-action 'self'",
+  "frame-ancestors 'self'",
+  "img-src 'self' data: blob: https:",
+  "object-src 'none'",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  "style-src 'self' 'unsafe-inline'",
+  "connect-src 'self' https: ws: wss:",
+].join('; ')
+
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
   //transpilePackages: isDevelopment ? transpiledWorkspacePackages : undefined,
@@ -33,6 +46,19 @@ const nextConfig: NextConfig = {
     '@esbuild/darwin-arm64',
     '@open-mercato/cli',
   ],
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: contentSecurityPolicy },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      },
+    ]
+  },
 }
 
 export default nextConfig
