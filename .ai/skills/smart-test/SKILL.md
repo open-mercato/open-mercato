@@ -95,13 +95,40 @@ fs.writeFileSync('.test-cache.json', JSON.stringify(plan, null, 2));
 Build one changed-file list and reuse it for cache invalidation, classification, Jest, and
 Playwright mapping. Include PR diff, local staged/unstaged changes, and untracked files:
 
+First resolve the comparison base. Do **not** guess `origin/main` when the branch is based on
+`develop`; comparing a develop-based branch to `origin/main` can pull in unrelated
+`packages/shared/` changes from the long-lived develop branch and incorrectly force the full
+suite.
+
 ```bash
+BASE_REF="${SMART_TEST_BASE_REF:-}"
+if [ -z "$BASE_REF" ]; then
+  BASE_REF="$(git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>/dev/null || true)"
+fi
+if [ -z "$BASE_REF" ] && git rev-parse --verify --quiet origin/develop >/dev/null; then
+  if git merge-base --fork-point origin/develop HEAD >/dev/null 2>&1 || git merge-base --is-ancestor origin/develop HEAD; then
+    BASE_REF="origin/develop"
+  fi
+fi
+if [ -z "$BASE_REF" ] && git rev-parse --verify --quiet develop >/dev/null; then
+  if git merge-base --fork-point develop HEAD >/dev/null 2>&1 || git merge-base --is-ancestor develop HEAD; then
+    BASE_REF="develop"
+  fi
+fi
+
 CHANGED_FILES=$({
-  git diff --name-only origin/develop...HEAD
+  if [ -n "$BASE_REF" ]; then
+    git diff --name-only "$BASE_REF"...HEAD
+  fi
   git diff --name-only HEAD
   git ls-files --others --exclude-standard
 } | awk '!seen[$0]++')
 ```
+
+If `git diff --name-only origin/main...HEAD` contains `packages/shared/` but `$BASE_REF` is
+`origin/develop`/`develop` and the `$BASE_REF...HEAD` diff does not contain
+`packages/shared/`, do not classify the branch as wide-scope. Report it as a base-ref
+mismatch and use the resolved develop base.
 
 If there is no upstream PR context, use only local changes and untracked files:
 
@@ -227,6 +254,7 @@ Pass `--layer` so the script can apply the correct triggering rules:
 SPEC_FILES=$(printf '%s\n' "$CHANGED_FILES" \
   | python3 .ai/skills/smart-test/scripts/find_affected_integration_tests.py \
     --project-root . \
+    --base auto \
     --layer "$LAYER")
 
 if [ "$SPEC_FILES" = "--all" ]; then

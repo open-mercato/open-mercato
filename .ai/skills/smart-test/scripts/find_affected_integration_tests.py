@@ -10,7 +10,7 @@ Usage:
   git diff --name-only origin/develop...HEAD | python3 find_affected_integration_tests.py --project-root . --layer api-logic
 
   # Let the script call git diff internally, including local and untracked files
-  python3 find_affected_integration_tests.py --project-root . --base origin/develop --layer ui-component
+  python3 find_affected_integration_tests.py --project-root . --base auto --layer ui-component
 
   # Explicit base and head
   python3 find_affected_integration_tests.py --project-root . --base origin/develop --head HEAD --layer data
@@ -55,6 +55,7 @@ IGNORED_DIRS = frozenset({
 
 META_FILE_NAMES = ("meta.ts", "index.ts")
 DEPENDENCY_KEYS = ("dependsOnModules", "requiredModules", "requiresModules")
+AUTO_BASE_CANDIDATES = ("origin/develop", "develop", "origin/main", "main")
 
 
 def run_git_names(args: list[str]) -> list[str]:
@@ -65,6 +66,16 @@ def run_git_names(args: list[str]) -> list[str]:
         check=False,
     )
     return [line for line in result.stdout.strip().split("\n") if line]
+
+
+def run_git_text(args: list[str]) -> tuple[int, str]:
+    result = subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode, result.stdout.strip()
 
 
 def unique_paths(paths: list[str]) -> list[str]:
@@ -78,6 +89,29 @@ def unique_paths(paths: list[str]) -> list[str]:
         result.append(normalized)
     return result
 
+
+def git_ref_exists(ref: str) -> bool:
+    code, _output = run_git_text(["rev-parse", "--verify", "--quiet", ref])
+    return code == 0
+
+
+def resolve_auto_base_ref() -> str | None:
+    code, upstream = run_git_text(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+    if code == 0 and upstream:
+        return upstream
+
+    for candidate in AUTO_BASE_CANDIDATES:
+        if not git_ref_exists(candidate):
+            continue
+        code, _fork_point = run_git_text(["merge-base", "--fork-point", candidate, "HEAD"])
+        if code == 0:
+            return candidate
+        code, _is_ancestor = run_git_text(["merge-base", "--is-ancestor", candidate, "HEAD"])
+        if code == 0:
+            return candidate
+
+    return None
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -90,6 +124,9 @@ def get_changed_files(base_ref: str | None, head_ref: str | None) -> list[str]:
             return stdin_paths
 
     paths: list[str] = []
+    if base_ref == "auto":
+        base_ref = resolve_auto_base_ref()
+
     has_explicit_base = bool(base_ref or head_ref)
     if base_ref and head_ref:
         paths.extend(run_git_names(["diff", "--name-only", f"{base_ref}...{head_ref}"]))
