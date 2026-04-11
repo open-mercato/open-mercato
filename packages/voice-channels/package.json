@@ -58,11 +58,20 @@
         "./src/*/*/*/*/*.tsx"
       ],
       "default": "./dist/*/*/*/*/*.js"
+    },
+    "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json",
+    "./*/*/*/*/*/*": {
+      "types": [
+        "./src/*/*/*/*/*/*.ts",
+        "./src/*/*/*/*/*/*.tsx"
+      ],
+      "default": "./dist/*/*/*/*/*/*.js"
     }
   },
   "dependencies": {
     "@open-mercato/core": "workspace:*",
-    "@open-mercato/events": "workspace:*"
+    "@open-mercato/events": "workspace:*",
+    "@open-mercato/ui": "workspace:*"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*"

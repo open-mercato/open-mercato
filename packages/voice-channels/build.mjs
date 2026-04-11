@@ -1,7 +1,7 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { readFileSync, writeFileSync, existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { readFileSync, writeFileSync, existsSync, rmSync, mkdirSync, copyFileSync } from 'node:fs'
+import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -18,6 +18,22 @@ if (entryPoints.length === 0) {
 }
 
 console.log(`Found ${entryPoints.length} entry points`)
+
+rmSync(join(__dirname, 'dist'), { recursive: true, force: true })
+
+async function copyStaticAssets() {
+  const assetFiles = await glob('src/**/*.json', {
+    cwd: __dirname,
+    absolute: true,
+  })
+
+  for (const assetFile of assetFiles) {
+    const relativePath = relative(join(__dirname, 'src'), assetFile)
+    const destination = join(__dirname, 'dist', relativePath)
+    mkdirSync(dirname(destination), { recursive: true })
+    copyFileSync(assetFile, destination)
+  }
+}
 
 const addJsExtension = {
   name: 'add-js-extension',
@@ -59,6 +75,7 @@ const addJsExtension = {
 await esbuild.build({
   entryPoints,
   outdir: 'dist',
+  outbase: 'src',
   format: 'esm',
   platform: 'node',
   target: 'node18',
@@ -66,5 +83,7 @@ await esbuild.build({
   jsx: 'automatic',
   plugins: [addJsExtension],
 })
+
+await copyStaticAssets()
 
 console.log('voice-channels built successfully')

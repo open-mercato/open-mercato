@@ -1,0 +1,21 @@
+{
+  "callId": "demo-call-acme-steel-001",
+  "phoneNumber": "+48 22 555 01 23",
+  "direction": "inbound",
+  "customerId": "cust-acme-steel",
+  "customerName": "Marek Nowakowski",
+  "companyName": "ACME Steel Sp. z o.o.",
+  "language": "pl-PL",
+  "segments": [
+    { "segmentId": 1, "speaker": "rep", "text": "Dzień dobry, Open Mercato — Anna Kowalska, w czym mogę pomóc?", "delayMs": 1200 },
+    { "segmentId": 2, "speaker": "customer", "text": "Dzień dobry, Marek Nowakowski z ACME Steel. Dzwonię w sprawie pilnego zamówienia.", "delayMs": 2800 },
+    { "segmentId": 3, "speaker": "rep", "text": "Oczywiście Panie Marku, już patrzę na Państwa konto. Słucham.", "delayMs": 2400 },
+    { "segmentId": 4, "speaker": "customer", "text": "Potrzebujemy pilnie 200 sztuk profili stalowych 80x80, mamy budowę która stoi.", "delayMs": 3600, "expectedIntent": "product_need" },
+    { "segmentId": 5, "speaker": "rep", "text": "Rozumiem, sprawdzam dostępność w magazynie.", "delayMs": 2600 },
+    { "segmentId": 6, "speaker": "customer", "text": "Tylko szczerze mówiąc, ostatnio dostaliśmy lepszą ofertę od konkurencji — musicie zejść z ceną.", "delayMs": 4200, "expectedIntent": "price_objection" },
+    { "segmentId": 7, "speaker": "rep", "text": "Proszę chwilę, sprawdzę co mogę dla Państwa zrobić.", "delayMs": 2400 },
+    { "segmentId": 8, "speaker": "customer", "text": "A przy okazji — jak wygląda nasza ostatnia reklamacja? Miała być odpowiedź do wczoraj.", "delayMs": 4000, "expectedIntent": "complaint" },
+    { "segmentId": 9, "speaker": "rep", "text": "Już sprawdzam status reklamacji w systemie.", "delayMs": 2200 },
+    { "segmentId": 10, "speaker": "customer", "text": "Dobra, jeśli damy radę z ceną i dostawą na jutro — bierzemy od razu 200 sztuk i dołożymy zamówienie na blachy.", "delayMs": 4600, "expectedIntent": "order_intent" }
+  ]
+}
