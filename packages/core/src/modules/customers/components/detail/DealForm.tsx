@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { z } from 'zod'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { toDateInputValue } from '@open-mercato/shared/lib/time'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -157,16 +158,6 @@ const schema = z.object({
   personIds: z.array(z.string().trim().min(1)).optional(),
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
-
-function toDateInputValue(value: string | null | undefined): string {
-  if (!value) return ''
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-  const year = parsed.getUTCFullYear()
-  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(parsed.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 
 function normalizeCurrency(value: string | null | undefined): string {
   if (!value) return ''
@@ -842,7 +833,7 @@ export function DealForm({
       valueAmount: normalizeNumber(initialValues?.valueAmount ?? null),
       valueCurrency: normalizeCurrency(initialValues?.valueCurrency ?? null),
       probability: normalizeNumber(initialValues?.probability ?? null),
-      expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null),
+      expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null) ?? '',
       description: initialValues?.description ?? '',
       personIds: sanitizeIdList(initialValues?.personIds ?? resolveIdsFromSource(initialValues?.people)),
       companyIds: sanitizeIdList(initialValues?.companyIds ?? resolveIdsFromSource(initialValues?.companies)),

@@ -10,6 +10,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { toDateInputValue } from '@open-mercato/shared/lib/time'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 
 type JobHistoryRecord = {
@@ -165,8 +166,8 @@ export function JobHistorySection({ memberId }: { memberId: string | null }) {
         name: activeRecord.name,
         companyName: activeRecord.companyName ?? '',
         description: activeRecord.description ?? '',
-        startDate: toDateInputValue(activeRecord.startDate),
-        endDate: toDateInputValue(activeRecord.endDate),
+        startDate: toDateInputValue(activeRecord.startDate) ?? '',
+        endDate: toDateInputValue(activeRecord.endDate) ?? '',
       }
     : {
         name: '',
@@ -304,13 +305,6 @@ function buildJobHistoryPayload(values: JobHistoryFormValues) {
   if (values.startDate) payload.startDate = values.startDate
   if (values.endDate) payload.endDate = values.endDate
   return payload
-}
-
-function toDateInputValue(value?: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toISOString().slice(0, 10)
 }
 
 function formatDateRange(
