@@ -1,19 +1,12 @@
-import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { SalesCreditMemo } from '../../data/entities'
+import { E } from '#generated/entities.ids.generated'
+import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
+import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultDeleteRequestSchema } from '../openapi'
+import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { SalesCreditMemo } from '../../data/entities'
-import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
-import { withScopedPayload } from '../utils'
-import {
-  createPagedListResponseSchema,
-  createSalesCrudOpenApi,
-  defaultDeleteRequestSchema,
-} from '../openapi'
-import { E } from '#generated/entities.ids.generated'
-
-const rawBodySchema = z.object({}).passthrough()
+import { z } from 'zod'
 
 const listSchema = z
   .object({
@@ -24,19 +17,13 @@ const listSchema = z
     orderId: z.string().uuid().optional(),
     invoiceId: z.string().uuid().optional(),
     sortField: z.string().optional(),
-    sortDir: z.enum(['asc', 'desc']).optional(),
+    sortOrder: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
 
-const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  POST: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  PUT: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-  DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
-}
+const rawBodySchema = z.object({}).passthrough()
 
 const crud = makeCrudRoute({
-  metadata: routeMetadata,
   orm: {
     entity: SalesCreditMemo,
     idField: 'id',
@@ -44,31 +31,16 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: {
-    entityType: E.sales.sales_credit_memo,
+  indexer: { entityType: E.sales.sales_credit_memo },
+  metadata: {
+    GET: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+    POST: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+    PUT: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
+    DELETE: { requireAuth: true, requireFeatures: ['sales.credit_memos.manage'] },
   },
   list: {
     schema: listSchema,
     entityId: E.sales.sales_credit_memo,
-    fields: [
-      'id',
-      'order_id',
-      'invoice_id',
-      'credit_memo_number',
-      'status_entry_id',
-      'status',
-      'reason',
-      'issue_date',
-      'currency_code',
-      'subtotal_net_amount',
-      'subtotal_gross_amount',
-      'tax_total_amount',
-      'grand_total_net_amount',
-      'grand_total_gross_amount',
-      'metadata',
-      'created_at',
-      'updated_at',
-    ],
     sortFieldMap: {
       creditMemoNumber: 'credit_memo_number',
       status: 'status',
@@ -77,17 +49,16 @@ const crud = makeCrudRoute({
       grandTotalGrossAmount: 'grand_total_gross_amount',
       createdAt: 'created_at',
     },
-    buildFilters: async (query: z.infer<typeof listSchema>) => {
+    buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
-      if (query.id) filters.id = { $eq: query.id }
-      if (query.orderId) filters.order_id = { $eq: query.orderId }
-      if (query.invoiceId) filters.invoice_id = { $eq: query.invoiceId }
+      if (query.id) filters.id = query.id
+      if (query.orderId) filters.orderId = query.orderId
+      if (query.invoiceId) filters.invoiceId = query.invoiceId
       if (query.search) {
-        const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
-          { credit_memo_number: { $ilike: term } },
-          { status: { $ilike: term } },
-          { reason: { $ilike: term } },
+          { creditMemoNumber: { $ilike: `%${query.search}%` } },
+          { status: { $ilike: `%${query.search}%` } },
+          { reason: { $ilike: `%${query.search}%` } },
         ]
       }
       return filters
@@ -99,28 +70,43 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return creditMemoCreateSchema.parse(base)
+        const { base, custom } = splitCustomFieldPayload(raw ?? {})
+        const parsed = parseScopedCommandInput(
+          creditMemoCreateSchema,
+          Object.keys(custom).length ? { ...base, customFields: custom } : base,
+          ctx,
+          translate,
+        )
+        return parsed
       },
+      response: ({ result }: { result: any }) => ({ creditMemoId: result?.creditMemoId ?? result?.id ?? null }),
+      status: 201,
     },
     update: {
       commandId: 'sales.credit_memos.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base } = splitCustomFieldPayload(scoped)
-        return creditMemoUpdateSchema.parse(base)
+        const { base, custom } = splitCustomFieldPayload(raw ?? {})
+        const parsed = parseScopedCommandInput(
+          creditMemoUpdateSchema,
+          Object.keys(custom).length ? { ...base, customFields: custom } : base,
+          ctx,
+          translate,
+        )
+        return parsed
       },
+      response: ({ result }: { result: any }) => ({ creditMemoId: result?.creditMemoId ?? result?.id ?? null }),
     },
     delete: {
       commandId: 'sales.credit_memos.delete',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        return withScopedPayload(raw ?? {}, ctx, translate)
+        const id = resolveCrudRecordId(parsed, ctx, translate)
+        return { id }
       },
+      response: () => ({ ok: true }),
     },
   },
 })
