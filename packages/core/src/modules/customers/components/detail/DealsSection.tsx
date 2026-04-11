@@ -6,7 +6,7 @@ import { ArrowUpRightSquare, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -30,10 +30,15 @@ type DealsScope =
   | { kind: 'person'; entityId: string }
   | { kind: 'company'; entityId: string }
 
+type GuardedMutationRunner = <T>(
+  operation: () => Promise<T>,
+  mutationPayload?: Record<string, unknown>,
+) => Promise<T>
+
 type PendingAction =
   | { kind: 'create' }
   | { kind: 'update'; id: string }
-  | { kind: 'delete'; id: string }
+  | { kind: 'remove'; id: string }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -305,6 +310,7 @@ export type DealsSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   translator?: Translator
+  runGuardedMutation?: GuardedMutationRunner
 }
 
 export function DealsSection({
@@ -315,6 +321,7 @@ export function DealsSection({
   onActionChange,
   onLoadingChange,
   translator,
+  runGuardedMutation,
 }: DealsSectionProps) {
   const tHook = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -357,6 +364,15 @@ export function DealsSection({
       return value === key && fallback ? fallback : value
     },
     [t],
+  )
+  const runWriteMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      if (!runGuardedMutation) {
+        return operation()
+      }
+      return runGuardedMutation(operation, mutationPayload)
+    },
+    [runGuardedMutation],
   )
 
   const loadDeals = React.useCallback(async ({ append }: { append: boolean }) => {
@@ -595,9 +611,13 @@ export function DealsSection({
           companyIds,
         }
         if (Object.keys(custom).length) payload.customFields = custom
-        const { result } = await createCrud<{ id?: string }>('customers/deals', payload, {
-          errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
-        })
+        const { result } = await runWriteMutation(
+          () =>
+            createCrud<{ id?: string }>('customers/deals', payload, {
+              errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
+            }),
+          payload,
+        )
         const dealId =
           typeof result?.id === 'string' && result.id.trim().length ? result.id : generateTempId()
         const belongsToScope =
@@ -632,7 +652,7 @@ export function DealsSection({
         popLoading()
       }
     },
-    [popLoading, pushLoading, scope, translate],
+    [popLoading, pushLoading, runWriteMutation, scope, translate],
   )
 
   const handleUpdate = React.useCallback(
@@ -660,9 +680,13 @@ export function DealsSection({
           companyIds,
         }
         if (Object.keys(custom).length) payload.customFields = custom
-        await updateCrud('customers/deals', payload, {
-          errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
-        })
+        await runWriteMutation(
+          () =>
+            updateCrud('customers/deals', payload, {
+              errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
+            }),
+          payload,
+        )
         const hasCustomChanges = Object.keys(custom).length > 0
         const customValuesForState = hasCustomChanges ? sanitizeCustomValues(custom) : null
         const remainsInScope =
@@ -706,38 +730,66 @@ export function DealsSection({
         popLoading()
       }
     },
-    [popLoading, pushLoading, scope, translate],
+    [popLoading, pushLoading, runWriteMutation, scope, translate],
   )
 
-  const handleDelete = React.useCallback(
+  const handleRemove = React.useCallback(
     async (deal: NormalizedDeal) => {
+      if (!scope) return
       const confirmed = await confirm({
         title: translate(
-          'customers.people.detail.deals.deleteConfirm',
-          'Delete this deal? You can restore it using version history.',
+          'customers.people.detail.deals.removeConfirm',
+          'Remove this deal from this record? The deal itself will not be deleted.',
         ),
         variant: 'destructive',
       })
       if (!confirmed) return
-      setPendingAction({ kind: 'delete', id: deal.id })
+      const mutationPayload =
+        scope.kind === 'person'
+          ? {
+              id: deal.id,
+              personIds: deal.personIds.filter((personId) => personId !== scope.entityId),
+            }
+          : {
+              id: deal.id,
+              companyIds: deal.companyIds.filter((companyId) => companyId !== scope.entityId),
+            }
+      setPendingAction({ kind: 'remove', id: deal.id })
+      pushLoading()
       try {
-        await deleteCrud('customers/deals', {
-          id: deal.id,
-          errorMessage: translate('customers.people.detail.deals.deleteError', 'Failed to delete deal.'),
-        })
+        await runWriteMutation(
+          () =>
+            updateCrud('customers/deals', mutationPayload, {
+              errorMessage: translate(
+                'customers.people.detail.deals.removeError',
+                'Failed to remove deal from this record.',
+              ),
+            }),
+          mutationPayload,
+        )
         setDeals((prev) => prev.filter((item) => item.id !== deal.id))
-        flash(translate('customers.people.detail.deals.deleteSuccess', 'Deal deleted.'), 'success')
+        flash(
+          translate(
+            'customers.people.detail.deals.removeSuccess',
+            'Deal removed from this record.',
+          ),
+          'success',
+        )
       } catch (err) {
         const message =
           err instanceof Error
             ? err.message
-            : translate('customers.people.detail.deals.deleteError', 'Failed to delete deal.')
+            : translate(
+                'customers.people.detail.deals.removeError',
+                'Failed to remove deal from this record.',
+              )
         flash(message, 'error')
       } finally {
         setPendingAction(null)
+        popLoading()
       }
     },
-    [confirm, translate],
+    [confirm, popLoading, pushLoading, runWriteMutation, scope, translate],
   )
 
   const handleDialogSubmit = React.useCallback(
@@ -819,7 +871,7 @@ export function DealsSection({
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
           const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === deal.id
-          const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === deal.id
+          const isRemovePending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id
           const statusLabel =
             deal.status && statusDictionaryMap
               ? statusDictionaryMap[deal.status]?.label ?? deal.status
@@ -860,11 +912,11 @@ export function DealsSection({
                       size="icon"
                       onClick={(event) => {
                         event.preventDefault()
-                        handleDelete(deal)
+                        handleRemove(deal)
                       }}
                       disabled={pendingAction !== null}
                     >
-                      {isDeletePending ? (
+                      {isRemovePending ? (
                         <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
                           <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
                         </span>
