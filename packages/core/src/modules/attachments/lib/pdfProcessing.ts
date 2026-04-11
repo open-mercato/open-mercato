@@ -110,7 +110,7 @@ export async function preparePdfPagesForOcr(filePath: string): Promise<PdfOcrPre
     standardFontDataUrl,
   })
 
-  const pdfDocument = (await loadingTask.promise) as PdfDocumentProxyLike
+  const pdfDocument = (await loadingTask.promise) as unknown as PdfDocumentProxyLike
 
   try {
     const pages: PdfPageOcrInput[] = []
