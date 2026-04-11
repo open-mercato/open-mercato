@@ -352,6 +352,60 @@ describe('progress service', () => {
     )
   })
 
+  it('isCancellationRequested — returns true when cancelRequestedAt is set for matching tenant', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      tenantId: baseCtx.tenantId,
+      cancelRequestedAt: new Date(),
+    } as unknown as ProgressJob
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.isCancellationRequested('job-1', baseCtx.tenantId)
+
+    expect(result).toBe(true)
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId })
+    )
+  })
+
+  it('isCancellationRequested — returns false when job belongs to a different tenant', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    em.findOne.mockResolvedValue(null)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.isCancellationRequested('job-1', 'other-tenant-id')
+
+    expect(result).toBe(false)
+    expect(em.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'job-1', tenantId: 'other-tenant-id' })
+    )
+  })
+
+  it('isCancellationRequested — returns false when cancelRequestedAt is null', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      tenantId: baseCtx.tenantId,
+      cancelRequestedAt: null,
+    } as unknown as ProgressJob
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    const result = await service.isCancellationRequested('job-1', baseCtx.tenantId)
+
+    expect(result).toBe(false)
+  })
+
   it('getRecentlyCompletedJobs — queries completed/failed jobs with tenant scope', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }

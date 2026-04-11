@@ -243,8 +243,8 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       return job
     },
 
-    async isCancellationRequested(jobId) {
-      const job = await em.findOne(ProgressJob, { id: jobId })
+    async isCancellationRequested(jobId, tenantId) {
+      const job = await em.findOne(ProgressJob, { id: jobId, tenantId })
       return job?.cancelRequestedAt != null
     },
 
