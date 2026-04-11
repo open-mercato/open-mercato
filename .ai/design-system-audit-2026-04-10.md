@@ -1794,75 +1794,105 @@ Tydzien 4+:
 
 ---
 
-# B. PLAN NA HACKATHON (2-3 DNI)
+# B. PLAN NA HACKATHON
 
-## Dzien 1: Foundations + Semantic Tokens
+**Czas trwania:** 11 kwietnia 2026 (piatek) 9:00 – 12 kwietnia 2026 (sobota) 11:00
+**Budzet czasu:** ~18h roboczych (26h kalendarzowych minus sen/przerwy)
+**Strategia:** Foundations first, potem komponenty, na koniec dokumentacja. Kazdy blok konczy sie commitem.
 
-**Rano (4h):**
-- [ ] Zdefiniowac semantic color tokens w `globals.css`:
-  - `--status-error-bg`, `--status-error-text`, `--status-error-border`
-  - `--status-success-bg`, `--status-success-text`, `--status-success-border`
-  - `--status-warning-bg`, `--status-warning-text`, `--status-warning-border`
-  - `--status-info-bg`, `--status-info-text`, `--status-info-border`
-  - `--status-neutral-bg`, `--status-neutral-text`, `--status-neutral-border`
-- [ ] Zmapowac na Tailwind utilities w `@theme`
-- [ ] Udokumentowac typography scale (tabela rozmiarow z kiedy uzywac)
-- [ ] Udokumentowac spacing guidelines
+---
 
-**Popoludnie (4h):**
-- [ ] Zunifikowac Alert + Notice → jeden komponent `Alert` z 5 wariantami opartymi na semantic tokens
-- [ ] Dodac deprecation notice na Notice
-- [ ] Zaktualizowac FlashMessages na semantic tokens
+## BLOK 1 — Piątek 9:00–12:00 (3h): Foundations + Tokens
 
-## Dzien 2: Komponenty + Badge System
+**Cel: miec dzialajace semantic color tokens w Tailwind**
 
-**Rano (4h):**
-- [ ] Stworzyc `FormField` wrapper (label + input slot + description + error)
-- [ ] Stworzyc `StatusBadge` komponent (success, warning, error, info, neutral)
-- [ ] Dodac status warianty do Badge (success, warning, info)
+- [ ] Dodac 20 CSS custom properties do `globals.css` (light mode)
+- [ ] Dodac 20 CSS custom properties do `.dark` (dark mode)
+- [ ] Dodac `text-overline` token (11px)
+- [ ] Dodac `@theme inline` mappings dla Tailwind v4
+- [ ] Zweryfikowac contrast w Chrome DevTools (light + dark) — wszystkie 5 statusow
+- [ ] Udokumentowac typography scale (tabela)
+- [ ] Udokumentowac spacing guidelines (usage rules)
+→ **Commit:** `feat(ds): add semantic status tokens, text-overline, and foundation docs`
 
-**Popoludnie (4h):**
-- [ ] Stworzyc `SectionHeader` komponent (title + action + optional collapse)
-- [ ] Udokumentowac Empty State usage guidelines
-- [ ] Udokumentowac border-radius usage guidelines
-- [ ] Zdefiniowac z-index scale
+## BLOK 2 — Piątek 13:00–17:00 (4h): Migracja primitives
 
-## Dzien 3: Documentation + Reference Screen
+**Cel: wszystkie primitives uzywaja semantic tokenow**
 
-**Rano (4h):**
-- [ ] Napisac Design Principles document
+- [ ] Zamienic Alert CVA variants na semantic tokens (`alert.tsx` — 4 linie)
+- [ ] Zamienic Notice colors na semantic tokens + deprecation warning (`Notice.tsx`)
+- [ ] Zamienic FlashMessages colors (`FlashMessages.tsx`)
+- [ ] Zamienic Notification severity colors
+- [ ] Dodac status warianty do Badge (`badge.tsx` — success, warning, info)
+- [ ] Zmigrować CrudForm FieldControl colors (`text-red-600` → `text-destructive`)
+→ **Commit:** `refactor(ds): migrate all primitives to semantic status tokens`
+
+## BLOK 3 — Piątek 18:00–21:00 (3h): Nowe komponenty
+
+**Cel: 3 nowe komponenty gotowe do uzycia**
+
+- [ ] Stworzyc `FormField` wrapper (`packages/ui/src/primitives/form-field.tsx`)
+- [ ] Stworzyc `StatusBadge` (`packages/ui/src/primitives/status-badge.tsx`)
+- [ ] Stworzyc `Section` / `SectionHeader` (`packages/ui/src/backend/Section.tsx`)
+→ **Commit:** `feat(ds): add FormField, StatusBadge, Section components`
+
+## BLOK 4 — Piątek 21:00–23:00 (2h): Migracja referencyjnego modulu
+
+**Cel: customers module w pelni zmigrowany — proof of concept**
+
+- [ ] Uruchomic `ds-migrate-colors.sh` na `packages/core/src/modules/customers/`
+- [ ] Uruchomic `ds-migrate-typography.sh` na tym samym module
+- [ ] Manual review + fix edge cases
+- [ ] Screenshot before/after (light + dark)
+→ **Commit:** `refactor(ds): migrate customers module to DS tokens`
+
+## BLOK 5 — Sobota 8:00–11:00 (3h): Dokumentacja + Wrap-up
+
+**Cel: wszystko udokumentowane, gotowe do uzycia przez contributorow**
+
+- [ ] Napisac Design Principles document (skrocona wersja do README)
 - [ ] Napisac PR Review Checklist
-- [ ] Udokumentowac wszystkie foundations w jednym dokumencie
-- [ ] Zaktualizowac AGENTS.md z design system guidelines
+- [ ] Zaktualizowac AGENTS.md z DS rules
+- [ ] Zaktualizowac PR template z DS compliance checkboxami
+- [ ] Zdefiniowac z-index scale w globals.css
+- [ ] Udokumentowac border-radius usage guidelines
+- [ ] Uruchomic `ds-health-check.sh` — zapisac baseline
+→ **Commit:** `docs(ds): add principles, update AGENTS.md and PR template`
 
-**Popoludnie (4h):**
-- [ ] Zbudowac 1 ekran referencyjny (np. customers list) uzywajac wylacznie DS komponentow
-- [ ] Porownac before/after
-- [ ] Przygotowac prezentacje wynikow hackathonu
+---
+
+**Bufor bezpieczenstwa:** Plan pokrywa ~15h. Zostaja ~3h buforu na:
+- Edge case'y w migracji customers
+- Debugging dark mode contrast
+- Niespodzianki w CrudForm FieldControl
+- Odswiezenie przed prezentacja
 
 ---
 
 # C. DELIVERABLES
 
-Po hackathonie powinny byc gotowe:
+Po hackathonie (SO 12.04 11:00) powinny byc gotowe:
 
-1. **Audit checklist** — ten dokument (Czesc 1)
-2. **Design Principles** — 8 principles z checklist do PR review (Czesc 2)
-3. **Foundations v0** — semantic color tokens, typography scale, spacing guidelines, z-index scale, border-radius guidelines (Czesc 3)
-4. **Lista komponentow MVP** — z priorytetami i statusem (Czesc 4)
-5. **Nowe/zaktualizowane komponenty**:
-   - Alert (unified)
+1. **Audit checklist** — ten dokument (Czesc 1) ✅ (gotowy przed hackathon)
+2. **Design Principles** — 8 principles z checklist do PR review (BLOK 5)
+3. **Foundations v0** — semantic color tokens w globals.css, typography scale, spacing guidelines, z-index scale, border-radius guidelines (BLOK 1 + BLOK 5)
+4. **Lista komponentow MVP** — z priorytetami i statusem ✅ (gotowa przed hackathon)
+5. **Nowe/zaktualizowane komponenty** (BLOK 2 + BLOK 3):
+   - Alert (semantic tokens + compact + dismissible)
+   - Notice (deprecated, deleguje do Alert)
    - FormField wrapper
    - StatusBadge
-   - SectionHeader
-   - Badge (status variants)
+   - SectionHeader / Section
+   - Badge (+ status variants)
    - FlashMessages (semantic tokens)
-6. **Documentation**:
+   - CrudForm FieldControl (semantic tokens)
+6. **Zmigrowany modul referencyjny** — customers module (BLOK 4)
+7. **Documentation** (BLOK 5):
    - Design Principles document
-   - PR Review Checklist
-   - Foundations reference
-   - Component usage guidelines
-7. **1 ekran referencyjny** — before/after porownanie
+   - PR Review Checklist (checkboxes)
+   - AGENTS.md update z DS rules
+   - PR template update
+   - ds-health-check.sh baseline report
 
 ---
 
@@ -3482,45 +3512,48 @@ const severityColors = {
 
 ## J.4 Kolejność operacji na hackathonie
 
+**Timing:** PT 11.04.2026 9:00 – SO 12.04.2026 11:00 (~18h roboczych)
+
 ```
-DZIEŃ 1 RANO:
+PIĄTEK 9:00–12:00 (BLOK 1 — Foundations):
   1. Dodaj CSS custom properties (sekcja I — token values) do globals.css
   2. Dodaj @theme inline mappings
   3. Dodaj text-overline token
   4. Zweryfikuj contrast w Chrome DevTools (light + dark)
+  5. Udokumentuj typography scale + spacing guidelines
   → Commit: "feat(ds): add semantic status tokens and text-overline"
 
-DZIEŃ 1 POPOŁUDNIE:
-  5. Zamień Alert CVA variants na semantic tokens (alert.tsx — 4 linie)
-  6. Zamień Notice colors na semantic tokens + dodaj deprecation (Notice.tsx)
-  7. Zamień FlashMessages colors (FlashMessages.tsx)
-  8. Zamień Notification severity colors
-  → Commit: "refactor(ds): migrate primitives to semantic status tokens"
+PIĄTEK 13:00–17:00 (BLOK 2 — Migracja primitives):
+  6. Zamień Alert CVA variants na semantic tokens (alert.tsx — 4 linie)
+  7. Zamień Notice colors na semantic tokens + dodaj deprecation (Notice.tsx)
+  8. Zamień FlashMessages colors (FlashMessages.tsx)
+  9. Zamień Notification severity colors
+  10. Dodaj Badge status variants (badge.tsx)
+  11. Zmigruj CrudForm FieldControl colors (text-red-600 → text-destructive)
+  → Commit: "refactor(ds): migrate all primitives to semantic status tokens"
 
-DZIEŃ 2 RANO:
-  9. Stwórz FormField component (packages/ui/src/primitives/form-field.tsx)
-  10. Stwórz StatusBadge component (packages/ui/src/primitives/status-badge.tsx)
-  11. Dodaj Badge status variants (badge.tsx)
-  → Commit: "feat(ds): add FormField, StatusBadge components"
+PIĄTEK 18:00–21:00 (BLOK 3 — Nowe komponenty):
+  12. Stwórz FormField component (packages/ui/src/primitives/form-field.tsx)
+  13. Stwórz StatusBadge component (packages/ui/src/primitives/status-badge.tsx)
+  14. Stwórz SectionHeader/Section (packages/ui/src/backend/Section.tsx)
+  → Commit: "feat(ds): add FormField, StatusBadge, Section components"
 
-DZIEŃ 2 POPOŁUDNIE:
-  12. Stwórz SectionHeader/Section (packages/ui/src/backend/Section.tsx)
-  13. Zmigruj CrudForm FieldControl colors (text-red-600 → text-destructive)
-  → Commit: "feat(ds): add Section component, migrate CrudForm colors"
-
-DZIEŃ 3 RANO:
-  14. Uruchom ds-migrate-colors.sh na packages/core/src/modules/customers/
-  15. Uruchom ds-migrate-typography.sh na tym samym module
-  16. Manual review + fix edge cases
+PIĄTEK 21:00–23:00 (BLOK 4 — Migracja customers):
+  15. Uruchom ds-migrate-colors.sh na packages/core/src/modules/customers/
+  16. Uruchom ds-migrate-typography.sh na tym samym module
+  17. Manual review + fix edge cases + screenshots
   → Commit: "refactor(ds): migrate customers module to DS tokens"
 
-DZIEŃ 3 POPOŁUDNIE:
-  17. Napisz Design Principles doc
-  18. Zaktualizuj AGENTS.md z DS rules
-  19. Zaktualizuj PR template
-  20. Uruchom ds-health-check.sh — zapisz baseline
+SOBOTA 8:00–11:00 (BLOK 5 — Dokumentacja + Wrap-up):
+  18. Napisz Design Principles doc + PR Review Checklist
+  19. Zaktualizuj AGENTS.md z DS rules
+  20. Zaktualizuj PR template z DS compliance checkboxami
+  21. Zdefiniuj z-index scale + border-radius guidelines
+  22. Uruchom ds-health-check.sh — zapisz baseline
   → Commit: "docs(ds): add principles, update AGENTS.md and PR template"
 ```
+
+**Bufor:** ~3h na edge case'y, dark mode debugging, niespodzianki.
 
 ---
 
