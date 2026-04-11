@@ -36,6 +36,7 @@ import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import crypto from 'node:crypto'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 
 type SerializedUser = {
   email: string
@@ -337,8 +338,9 @@ async function sendInviteToUser(
   user: User,
 ): Promise<{ emailSent: boolean }> {
   const token = crypto.randomBytes(32).toString('hex')
+  const tokenHash = hashOpaqueToken(token)
   const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
-  const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
+  const row = em.create(PasswordReset, { user, token: tokenHash, tokenHash, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
   const base = resolveInviteBaseUrl()

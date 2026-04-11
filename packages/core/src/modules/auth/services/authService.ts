@@ -4,6 +4,7 @@ import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core
 import crypto from 'node:crypto'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
@@ -96,19 +97,23 @@ export class AuthService {
     const user = await this.findUserByEmail(email)
     if (!user) return null
     const token = crypto.randomBytes(32).toString('hex')
+    const tokenHash = hashOpaqueToken(token)
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-    const row = this.em.create(PasswordReset as any, { user, token, expiresAt, createdAt: new Date() } as any)
+    const row = this.em.create(PasswordReset as any, { user, token: tokenHash, tokenHash, expiresAt, createdAt: new Date() } as any)
     await this.em.persistAndFlush(row)
     return { user, token }
   }
 
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
-    const row = await this.em.findOne(PasswordReset, { token })
+    const tokenHash = hashOpaqueToken(token)
+    const row = await this.em.findOne(PasswordReset, { tokenHash }) ?? await this.em.findOne(PasswordReset, { token })
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: row.user.id })
     if (!user) return null
     user.passwordHash = await hash(newPassword, 10)
+    row.tokenHash = tokenHash
+    row.token = tokenHash
     row.usedAt = new Date()
     await this.em.flush()
     await this.deleteAllUserSessions(String(user.id))

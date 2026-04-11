@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 import { Message, MessageAccessToken, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 
@@ -18,7 +19,8 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
     const input = consumeTokenSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const accessToken = await em.findOne(MessageAccessToken, { token: input.token })
+    const tokenHash = hashOpaqueToken(input.token)
+    const accessToken = await em.findOne(MessageAccessToken, { tokenHash }) ?? await em.findOne(MessageAccessToken, { token: input.token })
     if (!accessToken) {
       throw new Error('Invalid or expired link')
     }
@@ -46,6 +48,8 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
       throw new Error('Invalid or expired link')
     }
 
+    accessToken.tokenHash = tokenHash
+    accessToken.token = tokenHash
     accessToken.usedAt = new Date()
     accessToken.useCount += 1
     let becameRead = false

@@ -5,6 +5,7 @@ import {
   MessageObject,
   MessageRecipient,
 } from '@open-mercato/core/modules/messages/data/entities'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 
 const createRequestContainerMock = jest.fn()
 const getAuthFromRequestMock = jest.fn()
@@ -50,7 +51,8 @@ describe('messages /api/messages/token/[token]', () => {
   function createValidToken() {
     return {
       id: 'token-1',
-      token: 'ok',
+      token: hashOpaqueToken('ok'),
+      tokenHash: hashOpaqueToken('ok'),
       messageId: 'message-1',
       recipientUserId: 'user-1',
       expiresAt: new Date('2030-01-01T00:00:00.000Z'),
@@ -94,10 +96,11 @@ describe('messages /api/messages/token/[token]', () => {
 
   it('returns 410 when token is expired', async () => {
     const { commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'expired') {
+      if (entity === MessageAccessToken && where.tokenHash === hashOpaqueToken('expired')) {
         return {
           ...createValidToken(),
-          token: 'expired',
+          token: hashOpaqueToken('expired'),
+          tokenHash: hashOpaqueToken('expired'),
           expiresAt: new Date('2020-01-01T00:00:00.000Z'),
         }
       }
@@ -113,10 +116,11 @@ describe('messages /api/messages/token/[token]', () => {
 
   it('returns 409 when token usage exceeds max count', async () => {
     const { commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'limit') {
+      if (entity === MessageAccessToken && where.tokenHash === hashOpaqueToken('limit')) {
         return {
           ...createValidToken(),
-          token: 'limit',
+          token: hashOpaqueToken('limit'),
+          tokenHash: hashOpaqueToken('limit'),
           useCount: 25,
         }
       }
@@ -134,7 +138,7 @@ describe('messages /api/messages/token/[token]', () => {
     const message = createMessage()
 
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.tokenHash === hashOpaqueToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return message
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null
@@ -171,7 +175,7 @@ describe('messages /api/messages/token/[token]', () => {
 
   it('returns only auth preflight for protected token when unauthenticated', async () => {
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.tokenHash === hashOpaqueToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return createMessage()
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null
@@ -201,7 +205,7 @@ describe('messages /api/messages/token/[token]', () => {
   it('returns 403 for protected token when authenticated user is not the recipient', async () => {
     getAuthFromRequestMock.mockResolvedValueOnce({ sub: 'other-user', tenantId: 'tenant-1', orgId: 'org-1' })
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.tokenHash === hashOpaqueToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return createMessage()
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null
@@ -227,7 +231,7 @@ describe('messages /api/messages/token/[token]', () => {
   it('returns protected payload for the authenticated recipient', async () => {
     getAuthFromRequestMock.mockResolvedValueOnce({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
     const { em, commandBus } = setupContainer(async (entity, where) => {
-      if (entity === MessageAccessToken && where.token === 'ok') return createValidToken()
+      if (entity === MessageAccessToken && where.tokenHash === hashOpaqueToken('ok')) return createValidToken()
       if (entity === Message && where.id === 'message-1') return createMessage()
       if (entity === MessageRecipient && where.messageId === 'message-1') return createRecipient()
       return null

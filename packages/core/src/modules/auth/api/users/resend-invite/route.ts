@@ -15,6 +15,7 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 
 const resendInviteRateLimitConfig = readEndpointRateLimitConfig('RESEND_INVITE', {
   points: 3, duration: 300, blockDuration: 300, keyPrefix: 'resend-invite',
@@ -113,8 +114,9 @@ export async function POST(req: Request) {
   )
 
   const token = crypto.randomBytes(32).toString('hex')
+  const tokenHash = hashOpaqueToken(token)
   const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
-  const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
+  const row = em.create(PasswordReset, { user, token: tokenHash, tokenHash, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
   const base = resolveInviteBaseUrl(req.url)
