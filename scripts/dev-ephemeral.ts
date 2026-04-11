@@ -52,8 +52,9 @@ function isEnabledEnvFlag(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
-function resolveWindowsCommandShim(command: string, args: string[]): { command: string; args: string[] } {
-  if (process.platform !== 'win32') {
+/** @internal */
+export function resolveWindowsCommandShim(command: string, args: string[], platform = process.platform): { command: string; args: string[] } {
+  if (platform !== 'win32') {
     return { command, args }
   }
 

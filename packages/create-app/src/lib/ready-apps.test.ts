@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import * as tar from 'tar'
 import {
   downloadReadyAppSnapshot,
@@ -269,7 +269,7 @@ globalThis.fetch = async (input) => {
   try {
     const result = spawnSync(
       process.execPath,
-      ['--import', 'tsx', '--import', mockFetchModulePath, CLI_ENTRY, targetDir, '--app', 'prm'],
+      ['--import', 'tsx', '--import', pathToFileURL(mockFetchModulePath).href, CLI_ENTRY, targetDir, '--app', 'prm'],
       {
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
