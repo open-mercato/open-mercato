@@ -176,7 +176,7 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 ## Getting Started
 
 
-This is a quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
+This is the quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
 
 <table>
   <tr>
