@@ -142,20 +142,21 @@ export async function POST(req: Request) {
   } catch {
     // optional warmup
   }
-  const token = signJwt({
-    sub: String(user.id),
-    tenantId: resolvedTenantId,
-    orgId: user.organizationId ? String(user.organizationId) : null,
-    email: user.email,
-    roles: userRoleNames
-  })
-  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
   const rememberMeDays = Number(process.env.REMEMBER_ME_DAYS || '30')
   const accessTokenMaxAgeSeconds = 60 * 60 * 8
   const sessionExpiresAt = remember
     ? new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     : new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
   const loginSession = await auth.createSession(user, sessionExpiresAt)
+  const token = signJwt({
+    sub: String(user.id),
+    sid: String(loginSession.id),
+    tenantId: resolvedTenantId,
+    orgId: user.organizationId ? String(user.organizationId) : null,
+    email: user.email,
+    roles: userRoleNames
+  })
+  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,

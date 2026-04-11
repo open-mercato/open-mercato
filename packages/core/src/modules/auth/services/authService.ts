@@ -78,18 +78,29 @@ export class AuthService {
     await this.em.nativeDelete(Session, { token })
   }
 
+  async deleteSessionById(sessionId: string) {
+    await this.em.nativeDelete(Session, { id: sessionId })
+  }
+
+  async findActiveSessionById(sessionId: string): Promise<Session | null> {
+    const session = await this.em.findOne(Session, { id: sessionId, deletedAt: null })
+    if (!session) return null
+    if (session.expiresAt.getTime() < Date.now()) return null
+    return session
+  }
+
   async deleteAllUserSessions(userId: string) {
     await this.em.nativeDelete(Session, { user: userId })
   }
 
   async refreshFromSessionToken(token: string) {
     const now = new Date()
-    const sess = await this.em.findOne(Session, { token })
+    const sess = await this.em.findOne(Session, { token, deletedAt: null })
     if (!sess || sess.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: sess.user.id })
     if (!user) return null
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
-    return { user, roles }
+    return { user, roles, session: sess }
   }
 
   async requestPasswordReset(email: string) {

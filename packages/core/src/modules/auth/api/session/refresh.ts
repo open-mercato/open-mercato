@@ -72,8 +72,8 @@ export async function GET(req: Request) {
       NextResponse.redirect(buildRequestOriginUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
     )
   }
-  const { user, roles } = ctx
-  const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
+  const { user, roles, session } = ctx
+  const jwt = signJwt({ sub: String(user.id), sid: session ? String(session.id) : undefined, tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
   const res = NextResponse.redirect(buildRequestOriginUrl(req, redirectTo))
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
@@ -123,9 +123,10 @@ export async function POST(req: Request) {
     )
   }
 
-  const { user, roles } = ctx
+  const { user, roles, session } = ctx
   const jwt = signJwt({
     sub: String(user.id),
+    sid: session ? String(session.id) : undefined,
     tenantId: String(user.tenantId),
     orgId: String(user.organizationId),
     email: user.email,

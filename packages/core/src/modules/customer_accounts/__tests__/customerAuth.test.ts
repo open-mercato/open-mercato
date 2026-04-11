@@ -1,114 +1,126 @@
-const verifyJwt = jest.fn()
-const createRequestContainer = jest.fn()
-const findOneWithDecryptionMock = jest.fn()
+/** @jest-environment node */
+import {
+  signAudienceJwt,
+  signJwt,
+} from '@open-mercato/shared/lib/auth/jwt'
 
-jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
-  verifyJwt: (...args: unknown[]) => verifyJwt(...args),
+const findActiveSessionById = jest.fn()
+const containerResolve = jest.fn()
+const createRequestContainer = jest.fn(async () => ({
+  resolve: (name: string) => containerResolve(name),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
 }))
 
-jest.mock('@open-mercato/core/modules/customer_accounts/data/entities', () => ({
-  CustomerUser: 'CustomerUser',
-}))
+// Import after mocks are set up.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { getCustomerAuthFromRequest } = require('@open-mercato/core/modules/customer_accounts/lib/customerAuth') as typeof import('@open-mercato/core/modules/customer_accounts/lib/customerAuth')
 
-jest.mock('@open-mercato/shared/lib/auth/featureMatch', () => ({
-  hasAllFeatures: jest.fn(() => true),
-}))
+const CUSTOMER_AUDIENCE = 'customer'
+const sessionId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const userId = 'uuuuuuuu-uuuu-4uuu-8uuu-uuuuuuuuuuuu'
+const tenantId = 'tttttttt-tttt-4ttt-8ttt-tttttttttttt'
+const orgId = 'oooooooo-oooo-4ooo-8ooo-oooooooooooo'
 
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
-}))
-
-jest.mock('next/server', () => ({
-  NextResponse: { json: jest.fn((body: unknown, init?: unknown) => ({ body, init })) },
-}))
-
-const em = {}
-
-function makeRequest(token: string, via: 'cookie' | 'bearer' = 'cookie'): Request {
-  const headers: Record<string, string> = via === 'cookie'
-    ? { cookie: `customer_auth_token=${token}` }
-    : { authorization: `Bearer ${token}` }
-  return new Request('https://example.test/api/portal/test', { headers })
+function buildCustomerCookieHeader(token: string): string {
+  return `customer_auth_token=${token}`
 }
 
-const validPayload = {
-  sub: '11111111-1111-4111-8111-111111111111',
-  type: 'customer',
-  tenantId: '22222222-2222-4222-8222-222222222222',
-  orgId: '33333333-3333-4333-8333-333333333333',
-  email: 'customer@example.com',
-  displayName: 'Test Customer',
-  customerEntityId: null,
-  personEntityId: null,
-  resolvedFeatures: ['portal.view'],
-  iat: 1000,
-  exp: 9999999999,
+function buildCustomerPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    sub: userId,
+    sid: sessionId,
+    type: 'customer',
+    tenantId,
+    orgId,
+    email: 'customer@example.test',
+    displayName: 'Customer User',
+    resolvedFeatures: ['customer_portal.view'],
+    ...overrides,
+  }
 }
 
-describe('getCustomerAuthFromRequest — sessions_revoked_at check', () => {
+describe('getCustomerAuthFromRequest — session revocation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    jest.resetModules()
-    createRequestContainer.mockResolvedValue({ resolve: () => em })
+    containerResolve.mockImplementation((name: string) => {
+      if (name === 'customerSessionService') {
+        return { findActiveSessionById }
+      }
+      return null
+    })
+    findActiveSessionById.mockResolvedValue({
+      id: sessionId,
+      deletedAt: null,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    })
   })
 
-  it('returns auth context when sessionsRevokedAt is null', async () => {
-    const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
-
-    verifyJwt.mockReturnValue(validPayload)
-    findOneWithDecryptionMock.mockResolvedValue({ sessionsRevokedAt: null })
-
-    const auth = await getCustomerAuthFromRequest(makeRequest('jwt-token'))
-    expect(auth).not.toBeNull()
-    expect(auth!.sub).toBe(validPayload.sub)
-  })
-
-  it('returns null when jwt.iat is before sessionsRevokedAt', async () => {
-    const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
-
-    verifyJwt.mockReturnValue({ ...validPayload, iat: 1000 })
-    findOneWithDecryptionMock.mockResolvedValue({
-      sessionsRevokedAt: new Date(2000 * 1000), // epoch 2000
+  it('accepts a valid customer token and looks up the referenced session', async () => {
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
     })
 
-    const auth = await getCustomerAuthFromRequest(makeRequest('jwt-token'))
-    expect(auth).toBeNull()
+    const result = await getCustomerAuthFromRequest(req)
+
+    expect(result).toMatchObject({ sub: userId, sid: sessionId, type: 'customer' })
+    expect(findActiveSessionById).toHaveBeenCalledWith(sessionId)
   })
 
-  it('returns auth context when jwt.iat is after sessionsRevokedAt', async () => {
-    const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
+  it('rejects the token once the underlying session row has been revoked', async () => {
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    findActiveSessionById.mockResolvedValueOnce(null)
 
-    verifyJwt.mockReturnValue({ ...validPayload, iat: 3000 })
-    findOneWithDecryptionMock.mockResolvedValue({
-      sessionsRevokedAt: new Date(2000 * 1000), // epoch 2000
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
     })
 
-    const auth = await getCustomerAuthFromRequest(makeRequest('jwt-token'))
-    expect(auth).not.toBeNull()
-    expect(auth!.sub).toBe(validPayload.sub)
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
   })
 
-  it('returns null when user is not found in DB', async () => {
-    const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
+  it('rejects tokens that are missing the sid claim so legacy/stolen tokens cannot survive the fix', async () => {
+    const payload = buildCustomerPayload()
+    delete payload.sid
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, payload)
 
-    verifyJwt.mockReturnValue(validPayload)
-    findOneWithDecryptionMock.mockResolvedValue(null)
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
 
-    const auth = await getCustomerAuthFromRequest(makeRequest('jwt-token'))
-    expect(auth).toBeNull()
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+    expect(findActiveSessionById).not.toHaveBeenCalled()
   })
 
-  it('returns null when container creation fails (fail-closed)', async () => {
-    const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
+  it('rejects staff JWTs replayed on the customer portal cookie', async () => {
+    // A staff JWT is signed with the staff audience secret and carries aud=staff. Even if an
+    // attacker copies it into the `customer_auth_token` cookie, the verifier must refuse it.
+    const staffToken = signJwt({
+      sub: userId,
+      sid: sessionId,
+      tenantId,
+      orgId,
+      email: 'staff@example.test',
+      roles: ['admin'],
+    })
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(staffToken) },
+    })
 
-    verifyJwt.mockReturnValue(validPayload)
-    createRequestContainer.mockRejectedValue(new Error('DI unavailable'))
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+    expect(findActiveSessionById).not.toHaveBeenCalled()
+  })
 
-    const auth = await getCustomerAuthFromRequest(makeRequest('jwt-token'))
-    expect(auth).toBeNull()
+  it('fails closed when session lookup throws (degraded backend)', async () => {
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    findActiveSessionById.mockRejectedValueOnce(new Error('db unavailable'))
+
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
   })
 })
