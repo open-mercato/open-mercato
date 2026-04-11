@@ -224,12 +224,6 @@ export function createFormGroups(
   ]
 }
 
-function toDateInputValue(value: string | Date): string | null {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  return date.toISOString().slice(0, 10)
-}
-
 /**
  * Parse workflow definition to form values
  */
@@ -240,8 +234,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     description: workflow.description || null,
     version: workflow.version || 1,
     enabled: workflow.enabled ?? true,
-    effectiveFrom: workflow.effectiveFrom ? toDateInputValue(workflow.effectiveFrom) : null,
-    effectiveTo: workflow.effectiveTo ? toDateInputValue(workflow.effectiveTo) : null,
+    effectiveFrom: typeof workflow.effectiveFrom === 'string' ? workflow.effectiveFrom.slice(0, 10) : null,
+    effectiveTo: typeof workflow.effectiveTo === 'string' ? workflow.effectiveTo.slice(0, 10) : null,
     metadata: workflow.metadata || { tags: [], category: '', icon: '' },
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
@@ -258,8 +252,8 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
     description: values.description || null,
     version: values.version,
     enabled: values.enabled,
-    effectiveFrom: values.effectiveFrom ? new Date(values.effectiveFrom).toISOString() : null,
-    effectiveTo: values.effectiveTo ? new Date(values.effectiveTo).toISOString() : null,
+    effectiveFrom: values.effectiveFrom || null,
+    effectiveTo: values.effectiveTo || null,
     metadata: values.metadata || null,
     definition: {
       steps: values.steps,
