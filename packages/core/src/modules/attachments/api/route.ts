@@ -304,7 +304,9 @@ export async function POST(req: Request) {
       : resolveDefaultAttachmentOcrEnabled()
   let extractedContent: string | null = null
   const fileMimeType = (file as any).type || 'application/octet-stream'
-  const useLlmOcr = requiresOcr && shouldUseLlmOcr(fileMimeType, safeName)
+  const wantsLlmOcr = requiresOcr && shouldUseLlmOcr(fileMimeType, safeName)
+  const ocrService = wantsLlmOcr ? new OcrService() : null
+  const useLlmOcr = Boolean(wantsLlmOcr && ocrService?.available)
 
   if (requiresOcr && !useLlmOcr) {
     try {
@@ -342,14 +344,11 @@ export async function POST(req: Request) {
   await em.persistAndFlush(att)
 
   if (useLlmOcr) {
-    const ocrService = new OcrService()
-    if (ocrService.available) {
-      requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
-        console.error('[attachments] failed to queue OCR processing', error)
-      })
-    } else {
-      console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured')
-    }
+    requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
+      console.error('[attachments] failed to queue OCR processing', error)
+    })
+  } else if (wantsLlmOcr) {
+    console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
   }
 
   if (dataEngine) {
