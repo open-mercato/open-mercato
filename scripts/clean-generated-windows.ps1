@@ -1,5 +1,6 @@
-# Clean all generated files and directories on Windows
-# - .mercato folder in Next.js apps
+# Clean generated files and build directories on Windows
+# - .mercato/generated folders
+# - .mercato/next build folders
 # - generated/ folders in packages
 # - .turbo cache folders
 # - .next build folders
@@ -50,8 +51,10 @@ Set-Location $ProjectRoot
 Write-Host "Cleaning generated files..."
 
 $dirs = @()
-$dirs += Get-ChildItem $ProjectRoot -Recurse -Directory -Filter ".mercato" -ErrorAction SilentlyContinue | Where-Object { Test-IsCleanablePath $_.FullName }
 $dirs += Get-ChildItem $ProjectRoot -Recurse -Directory -Filter "generated" -ErrorAction SilentlyContinue | Where-Object { Test-IsCleanablePath $_.FullName }
+$dirs += Get-ChildItem $ProjectRoot -Recurse -Directory -Filter "next" -ErrorAction SilentlyContinue | Where-Object {
+    Test-IsCleanablePath $_.FullName -and $_.Parent -and $_.Parent.Name -eq ".mercato"
+}
 $dirs += Get-ChildItem $ProjectRoot -Recurse -Directory -Filter ".turbo" -ErrorAction SilentlyContinue | Where-Object { Test-IsCleanablePath $_.FullName }
 $dirs += Get-ChildItem $ProjectRoot -Recurse -Directory -Filter ".next" -ErrorAction SilentlyContinue | Where-Object { Test-IsCleanablePath $_.FullName }
 $dirs += Get-ChildItem $ProjectRoot -Recurse -Directory -Filter "dist" -ErrorAction SilentlyContinue | Where-Object { Test-IsCleanablePath $_.FullName }
@@ -60,4 +63,4 @@ foreach ($dir in $dirs) {
     Remove-Dir $dir.FullName
 }
 
-Write-Ok "Done! Cleaned: .mercato, generated/, .turbo, .next, dist/"
+Write-Ok "Done! Cleaned: .mercato/generated, .mercato/next, generated/, .turbo, .next, dist/"

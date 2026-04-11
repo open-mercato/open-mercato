@@ -169,7 +169,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\clean-generated-windows.ps1
 powershell -ExecutionPolicy Bypass -File .\scripts\clean-packages-windows.ps1
 ```
 
-Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
+Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato/generated`, `.mercato/next`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
 
 Use `clean-packages-windows.ps1` for a deeper dependency/build reset. It stops repo-scoped `esbuild`/`turbo` processes, removes `node_modules`, `dist`, `*.tsbuildinfo`, `.yarn\cache`, and `.yarn\install-state.gz`, then you should run `yarn install` again.
 
