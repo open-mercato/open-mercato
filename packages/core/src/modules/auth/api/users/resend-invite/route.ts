@@ -13,6 +13,7 @@ import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { AppOriginConfigurationError, AppOriginRejectedError } from '@open-mercato/shared/lib/url'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 
@@ -106,6 +107,20 @@ export async function POST(req: Request) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
+  let base: string
+  try {
+    base = resolveInviteBaseUrl(req.url)
+  } catch (error) {
+    if (error instanceof AppOriginRejectedError) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 400 })
+    }
+    if (error instanceof AppOriginConfigurationError) {
+      console.error('[auth.users.resend-invite] APP_URL is required for invitation emails in production')
+      return NextResponse.json({ error: 'Invitation email is not configured' }, { status: 500 })
+    }
+    throw error
+  }
+
   await em.nativeUpdate(
     PasswordReset,
     { user: user.id, usedAt: null } as any,
@@ -117,7 +132,6 @@ export async function POST(req: Request) {
   const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
-  const base = resolveInviteBaseUrl(req.url)
   const inviteUrl = `${base}/reset/${token}`
 
   const { translate } = await resolveTranslations()
@@ -174,10 +188,12 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Invite email sent', schema: responseSchema },
       ],
       errors: [
+        { status: 400, description: 'Invalid request origin', schema: errorSchema },
         { status: 404, description: 'User not found', schema: errorSchema },
         { status: 409, description: 'User already has a password', schema: errorSchema },
         { status: 422, description: 'Validation error', schema: validationErrorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: rateLimitErrorSchema },
+        { status: 500, description: 'Invitation email origin is not configured', schema: errorSchema },
       ],
     },
   },

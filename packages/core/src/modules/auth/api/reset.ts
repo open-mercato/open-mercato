@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { AppOriginConfigurationError, AppOriginRejectedError, toSecurityEmailUrl } from '@open-mercato/shared/lib/url'
 
 const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
   points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
@@ -36,14 +37,25 @@ export async function POST(req: Request) {
     const fieldErrors = parsed.error.flatten().fieldErrors
     return NextResponse.json({ error: 'Validation failed', fieldErrors }, { status: 422 })
   }
+  let resetUrlTemplate: string
+  try {
+    resetUrlTemplate = toSecurityEmailUrl(req, '/reset/__token__')
+  } catch (error) {
+    if (error instanceof AppOriginRejectedError) {
+      return NextResponse.json({ error: 'Invalid request origin' }, { status: 400 })
+    }
+    if (error instanceof AppOriginConfigurationError) {
+      console.error('[auth.reset] APP_URL is required for password reset emails in production')
+      return NextResponse.json({ error: 'Password reset is not configured' }, { status: 500 })
+    }
+    throw error
+  }
   const c = await createRequestContainer()
   const auth = c.resolve<AuthService>('authService')
   const resReq = await auth.requestPasswordReset(parsed.data.email)
   if (!resReq) return NextResponse.json({ ok: true })
   const { user, token } = resReq
-  const url = new URL(req.url)
-  const base = process.env.APP_URL || `${url.protocol}//${url.host}`
-  const resetUrl = `${base}/reset/${token}`
+  const resetUrl = resetUrlTemplate.replace('__token__', token)
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.resetPassword.subject', 'Reset your password')
@@ -89,6 +101,10 @@ const passwordResetResponseSchema = z.object({
   ok: z.literal(true),
 })
 
+const passwordResetErrorSchema = z.object({
+  error: z.string(),
+})
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Authentication & Accounts',
   summary: 'Request password reset',
@@ -104,7 +120,9 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Reset email dispatched (or ignored for unknown accounts)', schema: passwordResetResponseSchema },
       ],
       errors: [
+        { status: 400, description: 'Invalid request origin', schema: passwordResetErrorSchema },
         { status: 429, description: 'Too many password reset requests', schema: rateLimitErrorSchema },
+        { status: 500, description: 'Password reset email origin is not configured', schema: passwordResetErrorSchema },
       ],
     },
   },
