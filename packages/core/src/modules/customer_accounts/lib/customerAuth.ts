@@ -37,7 +37,7 @@ async function isSessionRevoked(sub: string, iat: unknown): Promise<boolean> {
   const user = await findOneWithDecryption(em, CustomerUser, { id: sub }, { fields: ['sessionsRevokedAt'] })
   if (!user) return true
   if (!user.sessionsRevokedAt || typeof iat !== 'number') return false
-  return iat < Math.floor(user.sessionsRevokedAt.getTime() / 1000)
+  return iat * 1000 < user.sessionsRevokedAt.getTime()
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
