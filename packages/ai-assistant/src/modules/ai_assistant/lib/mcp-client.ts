@@ -35,6 +35,14 @@ export type HttpClientOptions = {
  */
 export type McpClientOptions = StdioClientOptions | HttpClientOptions
 
+function resolveDefaultStdioCommand(): { command: string; argsPrefix: string[] } {
+  if (process.platform !== 'win32') {
+    return { command: 'yarn', argsPrefix: [] }
+  }
+
+  return { command: 'cmd.exe', argsPrefix: ['/d', '/s', '/c', 'yarn.cmd'] }
+}
+
 /**
  * MCP protocol client for connecting to MCP servers.
  *
@@ -75,7 +83,9 @@ export class McpClient implements McpClientInterface {
    * Connect via stdio transport (spawn subprocess).
    */
   private static async connectStdio(options: StdioClientOptions): Promise<McpClient> {
-    const command = options.command ?? 'yarn'
+    const defaultCommand = resolveDefaultStdioCommand()
+    const command = options.command ?? defaultCommand.command
+    const argsPrefix = options.command ? [] : defaultCommand.argsPrefix
     const args = options.args ?? [
       'mercato',
       'ai_assistant',
@@ -84,8 +94,9 @@ export class McpClient implements McpClientInterface {
       options.apiKeySecret,
     ]
     const cwd = options.cwd ?? process.cwd()
+    const effectiveArgs = [...argsPrefix, ...args]
 
-    const childProcess = spawn(command, args, {
+    const childProcess = spawn(command, effectiveArgs, {
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
@@ -101,7 +112,7 @@ export class McpClient implements McpClientInterface {
 
     const transport = new StdioClientTransport({
       command,
-      args,
+      args: effectiveArgs,
       cwd,
       env: process.env as Record<string, string>,
     })

@@ -4,6 +4,29 @@
 
 Recurring patterns and mistakes to avoid. Review at session start.
 
+## Spawning `.cmd` shims on Windows requires `cmd.exe /d /s /c` wrapping
+
+**Context**: Windows package-manager commands (`yarn.cmd`, `npx.cmd`) and CLI shims (`mercato.cmd`) are `.cmd` scripts, not native executables. Node's `child_process.spawn` with `shell: false` cannot execute them directly and either stalls or throws `ENOENT`.
+
+**Problem**: Dev/build/test workflows that spawned `.cmd` binaries directly hung silently or failed with unhelpful errors on Windows, while working fine on Linux/macOS.
+
+**Rule**: At every `spawn`/`spawnSync` call site, resolve the platform-appropriate binary and wrap `.cmd` files:
+
+```js
+function resolveWindowsCommandShim(command, args) {
+  if (process.platform !== 'win32' || !command.toLowerCase().endsWith('.cmd')) {
+    return { command, args }
+  }
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', command, ...args] }
+}
+```
+
+For bare `'yarn'` calls on Windows, first resolve `'yarn.cmd'` (either via a `resolveYarnBinary()` helper or at the call site), then pass the result to the shim. The shim itself must only handle `.cmd` wrapping — do not embed platform selection inside it if the call site already resolves the binary name.
+
+**Important**: Never use `cmd.exe /c <command> <arg1> <arg2>` via a single concatenated string — always pass `['/d', '/s', '/c', binary, ...args]` as a proper array so argument quoting is handled by Node, not the shell.
+
+**Applies to**: Any `spawn`/`spawnSync`/`exec` call in root scripts, `packages/cli`, `packages/create-app/template/scripts`, `packages/ai-assistant`, and any new process helper added in the future.
+
 ## We've got centralized helpers for extracting `UndoPayload`
 
 Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.

@@ -286,6 +286,14 @@ const gitRepoFlow = createDevSplashGitRepoFlow({
   enabled: !isMonorepo,
 })
 
+function resolveWindowsCommandShim(command, commandArgs) {
+  if (!isWindows || !command.toLowerCase().endsWith('.cmd')) {
+    return { command, args: commandArgs }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', command, ...commandArgs] }
+}
+
 function formatProgressLine(label, current, total, percent) {
   const meta = Number.isFinite(current) && Number.isFinite(total) && total > 0
     ? `${current}/${total}`
@@ -334,7 +342,8 @@ function spawnCommand(command, commandArgs, options = {}) {
     stdio = options.stdio ?? 'pipe'
   }
 
-  const child = spawn(command, commandArgs, {
+  const commandSpec = resolveWindowsCommandShim(command, commandArgs)
+  const child = spawn(commandSpec.command, commandSpec.args, {
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
