@@ -21,7 +21,7 @@ Verify that `yarn docker:initialize -- --reinstall` runs the full initialization
 | Step | Action | Expected Result |
 |------|--------|-----------------|
 | 1 | Run `yarn docker:dev` to reinitialize the development environment before the exec test | Dev environment is reinitialized and ready for command parity validation |
-| 2 | Run `yarn docker:initialize -- --reinstall` from repo root | Helper prints exec log line with `yarn initialize --reinstall` |
+| 2 | Run `yarn docker:initialize -- --reinstall` from repo root | Helper prints the forwarded container command, currently `yarn initialize -- --reinstall` |
 | 3 | Observe output | Initialization sequence runs: migrations, seeds, CLI reinstall |
 | 4 | Wait for command to complete | Process exits with code 0 |
 | 5 | Navigate to `http://localhost:3000/backend` | Login page accessible; default credentials printed during init work |
