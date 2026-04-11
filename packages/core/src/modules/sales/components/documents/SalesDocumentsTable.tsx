@@ -657,6 +657,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     <Page>
       <PageBody>
         <DataTable<SalesDocumentRow>
+          stickyActionsColumn
           title={(
             <div className="flex flex-col">
               <span>{title}</span>
