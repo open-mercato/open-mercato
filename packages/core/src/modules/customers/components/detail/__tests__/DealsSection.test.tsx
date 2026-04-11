@@ -88,6 +88,7 @@ describe('DealsSection', () => {
 
   it('removes a deal from a person detail page by updating person assignments instead of deleting the record', async () => {
     const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
+    const onDataRefresh = jest.fn(async () => {})
     readApiResultOrThrowMock.mockResolvedValue({
       items: [
         {
@@ -112,6 +113,7 @@ describe('DealsSection', () => {
           title: 'No deals yet',
           actionLabel: 'Create deal',
         }}
+        onDataRefresh={onDataRefresh}
         runGuardedMutation={runGuardedMutation}
       />,
     )
@@ -140,6 +142,7 @@ describe('DealsSection', () => {
     await waitFor(() => {
       expect(screen.queryByText('Expansion opportunity')).not.toBeInTheDocument()
     })
+    expect(onDataRefresh).toHaveBeenCalledTimes(1)
   })
 
   it('removes a deal from a company detail page by updating company assignments instead of deleting the record', async () => {

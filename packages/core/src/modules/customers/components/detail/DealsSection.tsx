@@ -309,6 +309,7 @@ export type DealsSectionProps = {
   emptyState: TabEmptyStateConfig
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
+  onDataRefresh?: () => Promise<void> | void
   translator?: Translator
   runGuardedMutation?: GuardedMutationRunner
 }
@@ -320,6 +321,7 @@ export function DealsSection({
   emptyState,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   translator,
   runGuardedMutation,
 }: DealsSectionProps) {
@@ -374,6 +376,9 @@ export function DealsSection({
     },
     [runGuardedMutation],
   )
+  const refreshParentData = React.useCallback(async () => {
+    await Promise.resolve(onDataRefresh?.())
+  }, [onDataRefresh])
 
   const loadDeals = React.useCallback(async ({ append }: { append: boolean }) => {
     if (!scope) {
@@ -646,13 +651,14 @@ export function DealsSection({
           })
           setDeals((prev) => [normalized, ...prev])
         }
+        await refreshParentData()
         flash(translate('customers.people.detail.deals.success', 'Deal created.'), 'success')
       } finally {
         setPendingAction(null)
         popLoading()
       }
     },
-    [popLoading, pushLoading, runWriteMutation, scope, translate],
+    [popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
   const handleUpdate = React.useCallback(
@@ -724,13 +730,14 @@ export function DealsSection({
             ),
           )
         }
+        await refreshParentData()
         flash(translate('customers.people.detail.deals.updateSuccess', 'Deal updated.'), 'success')
       } finally {
         setPendingAction(null)
         popLoading()
       }
     },
-    [popLoading, pushLoading, runWriteMutation, scope, translate],
+    [popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
   const handleRemove = React.useCallback(
@@ -768,6 +775,7 @@ export function DealsSection({
           mutationPayload,
         )
         setDeals((prev) => prev.filter((item) => item.id !== deal.id))
+        await refreshParentData()
         flash(
           translate(
             'customers.people.detail.deals.removeSuccess',
@@ -789,7 +797,7 @@ export function DealsSection({
         popLoading()
       }
     },
-    [confirm, popLoading, pushLoading, runWriteMutation, scope, translate],
+    [confirm, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
   const handleDialogSubmit = React.useCallback(
