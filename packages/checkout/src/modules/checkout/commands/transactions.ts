@@ -50,7 +50,7 @@ const createTransactionCommand: CommandHandler<Record<string, unknown>, { id: st
     let lockedLinkTemplateId: string | null = null
     let lockedLinkGatewayProvider: string | null = null
     let shouldEmitLockedEvent = false
-    const transaction = await em.transactional(async (tx) => {
+    const transaction = await em.transactional(async (tx: EntityManager) => {
       const currentLink = await tx.findOne(CheckoutLink, {
         id: parsed.linkId,
         organizationId: scope.organizationId,
@@ -148,7 +148,7 @@ const updateTransactionStatusCommand: CommandHandler<Record<string, unknown>, { 
     let emitUsageLimitReached = false
     let usageLimitReachedLinkId: string | null = null
     let usageLimitReachedLinkSlug: string | null = null
-    await em.transactional(async (tx) => {
+    await em.transactional(async (tx: EntityManager) => {
       const transaction = await tx.findOne(CheckoutTransaction, {
         id: parsed.id,
         organizationId: scope.organizationId,
