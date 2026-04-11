@@ -1,14 +1,14 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 type CreditMemoRecord = {
   id: string
@@ -43,19 +43,25 @@ type CreditMemoRecord = {
 
 export default function SalesCreditMemoDetailPage({ params }: { params: { id: string } }) {
   const t = useT()
-  const router = useRouter()
   const [loading, setLoading] = React.useState(true)
   const [record, setRecord] = React.useState<CreditMemoRecord | null>(null)
+  const [notFound, setNotFound] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     async function load() {
       setLoading(true)
-      const result = await apiCall<{ items?: CreditMemoRecord[] }>(`/api/sales/credit-memos?id=${params.id}&populate=lines`)
-      if (result.ok && result.result?.items?.[0]) {
-        setRecord(result.result.items[0] as CreditMemoRecord)
-      } else {
-        setError(t('sales.credit_memos.errors.notFound', 'Credit memo not found'))
+      try {
+        const result = await apiCall<CreditMemoRecord>(`/api/sales/credit-memos/${params.id}?populate=lines`)
+        if (result.ok && result.result) {
+          setRecord(result.result)
+        } else {
+          setNotFound(true)
+        }
+      } catch {
+        const message = t('sales.credit_memos.errors.loadFailed', 'Failed to load credit memo')
+        setError(message)
+        flash(message, 'error')
       }
       setLoading(false)
     }
@@ -63,7 +69,36 @@ export default function SalesCreditMemoDetailPage({ params }: { params: { id: st
   }, [params.id, t])
 
   if (loading) return <LoadingMessage label={t('common.loading', 'Loading...')} />
-  if (error || !record) return <ErrorMessage label={error ?? 'Not found'} />
+
+  if (notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={t('sales.credit_memos.errors.notFound', 'Credit memo not found')} />
+          <div className="mt-4">
+            <Link href="/backend/sales/credit-memos" className="text-sm text-primary hover:underline">
+              {t('sales.credit_memos.backToList', '← Back to credit memos')}
+            </Link>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error || !record) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error ?? t('common.error', 'An error occurred')} />
+          <div className="mt-4">
+            <Link href="/backend/sales/credit-memos" className="text-sm text-primary hover:underline">
+              {t('sales.credit_memos.backToList', '← Back to credit memos')}
+            </Link>
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
@@ -156,14 +191,18 @@ export default function SalesCreditMemoDetailPage({ params }: { params: { id: st
           {/* Related document links */}
           <div className="flex gap-2">
             {record.orderId && (
-              <Button variant="outline" onClick={() => router.push(`/backend/sales/orders/${record.orderId}`)}>
-                {t('sales.credit_memos.viewOrder', 'View Source Order')}
-              </Button>
+              <Link href={`/backend/sales/orders/${record.orderId}`}>
+                <Button variant="outline">
+                  {t('sales.credit_memos.viewOrder', 'View Source Order')}
+                </Button>
+              </Link>
             )}
             {record.invoiceId && (
-              <Button variant="outline" onClick={() => router.push(`/backend/sales/invoices/${record.invoiceId}`)}>
-                {t('sales.credit_memos.viewInvoice', 'View Source Invoice')}
-              </Button>
+              <Link href={`/backend/sales/invoices/${record.invoiceId}`}>
+                <Button variant="outline">
+                  {t('sales.credit_memos.viewInvoice', 'View Source Invoice')}
+                </Button>
+              </Link>
             )}
           </div>
         </div>

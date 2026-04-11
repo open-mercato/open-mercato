@@ -6,6 +6,7 @@ import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultDeleteReq
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { z } from 'zod'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -18,7 +19,7 @@ const listSchema = z
     id: z.string().uuid().optional(),
     orderId: z.string().uuid().optional(),
     sortField: z.string().optional(),
-    sortOrder: z.enum(['asc', 'desc']).optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
 
@@ -53,9 +54,10 @@ const crud = makeCrudRoute({
       if (query.id) filters.id = query.id
       if (query.orderId) filters.orderId = query.orderId
       if (query.search) {
+        const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
-          { invoiceNumber: { $ilike: `%${query.search}%` } },
-          { status: { $ilike: `%${query.search}%` } },
+          { invoiceNumber: { $ilike: term } },
+          { status: { $ilike: term } },
         ]
       }
       return filters
@@ -134,5 +136,5 @@ export const openApi = createSalesCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(invoiceItemSchema),
   create: { schema: invoiceCreateSchema, description: 'Create a new invoice' },
   update: { schema: invoiceUpdateSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Update an invoice' },
-  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ invoiceId: z.string().uuid() }), description: 'Delete an invoice' },
+  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ ok: z.boolean() }), description: 'Delete an invoice' },
 })
