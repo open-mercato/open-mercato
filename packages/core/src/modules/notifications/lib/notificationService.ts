@@ -4,6 +4,7 @@ import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
 import type { NotificationPollData } from '@open-mercato/shared/modules/notifications/types'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from './events'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   buildNotificationEntity,
   emitNotificationCreated,
@@ -332,8 +333,11 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         read_at: knex.fn.now(),
       })
 
-      const notifications = await em.find(Notification, {
+      const notifications = await findWithDecryption(em, Notification, {
         id: { $in: targetRows.map((row) => row.id) },
+      }, undefined, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId ?? null,
       })
 
       for (const notification of notifications) {

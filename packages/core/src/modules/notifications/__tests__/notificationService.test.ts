@@ -2,10 +2,15 @@ import { createNotificationService } from '../lib/notificationService'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
   getRecipientUserIdsForFeature: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(),
 }))
 
 const baseNotificationInput = {
@@ -221,7 +226,7 @@ describe('notification service', () => {
       },
     ] as Notification[]
 
-    em.find.mockResolvedValue(notifications)
+    ;(findWithDecryption as jest.Mock).mockResolvedValue(notifications)
 
     const knexUpdate = jest.fn().mockResolvedValue(notifications.length)
     const knexSelect = jest.fn().mockResolvedValue(
@@ -263,6 +268,13 @@ describe('notification service', () => {
       status: 'unread',
     })
     expect(knexBuilder.where).toHaveBeenCalledWith('organization_id', 'org-1')
+    expect(findWithDecryption).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      { id: { $in: ['note-11', 'note-12'] } },
+      undefined,
+      { tenantId: baseCtx.tenantId, organizationId: 'org-1' },
+    )
     expect(eventBus.emit).toHaveBeenCalledTimes(4)
     for (const note of notifications) {
       expect(eventBus.emit).toHaveBeenCalledWith(
