@@ -7,6 +7,7 @@ import type {
   CallEndEventPayload,
   TranscriptSegmentEventPayload,
 } from '@open-mercato/voice-channels/modules/voice_channels/types'
+import { emitVoiceEvent } from '../../events'
 
 interface ActiveMockCall {
   script: MockCallScript
@@ -144,8 +145,6 @@ export class MockTranscriptSimulator {
     tenantId: string,
     organizationId: string
   ): Promise<void> {
-    // Use the module's typed event emitter (imported at top of file)
-    const { emitVoiceEvent } = require('../../events')
     await emitVoiceEvent(eventId as any, {
       ...payload,
       tenantId,

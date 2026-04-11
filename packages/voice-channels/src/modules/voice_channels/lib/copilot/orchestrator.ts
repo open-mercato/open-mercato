@@ -11,6 +11,7 @@ import type {
   CopilotOpenDealsResult,
 } from '@open-mercato/voice-channels/modules/voice_channels/types'
 import { IntentDetector } from './intent-detector'
+import { emitVoiceEvent } from '../../events'
 
 /**
  * Copilot Orchestrator
@@ -364,7 +365,6 @@ export class CopilotOrchestrator {
   }
 
   private async emitSuggestion(session: CopilotSession, card: SuggestionCard): Promise<void> {
-    const { emitVoiceEvent } = require('../../events')
     await emitVoiceEvent('voice_channels.copilot.suggestion' as any, {
       callId: session.callId,
       suggestion: card,
