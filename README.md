@@ -298,6 +298,7 @@ The **recommended way to build on Open Mercato** without modifying the core is t
 ```bash
 npx create-mercato-app my-store
 cd my-store
+docker-compose up -d
 yarn setup
 ```
 
