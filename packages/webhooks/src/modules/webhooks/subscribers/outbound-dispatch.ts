@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { SubscriberContext } from '@open-mercato/events/types'
 import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { matchAnyWebhookEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { createWebhookDelivery } from '../lib/delivery'
 import { enqueueWebhookDelivery } from '../lib/queue'
@@ -82,7 +82,7 @@ export default async function handler(
       })
     } catch (error) {
       if (createdDeliveryId) {
-        const failedDelivery = await em.findOne(WebhookDeliveryEntity, { id: createdDeliveryId })
+        const failedDelivery = await findOneWithDecryption(em, WebhookDeliveryEntity, { id: createdDeliveryId, tenantId: webhook.tenantId, organizationId: webhook.organizationId }, undefined, { tenantId: webhook.tenantId, organizationId: webhook.organizationId })
         if (failedDelivery) {
           failedDelivery.status = 'failed'
           failedDelivery.errorMessage = error instanceof Error ? `Queue enqueue failed: ${error.message}` : 'Queue enqueue failed'

@@ -108,6 +108,7 @@ describe('quote send + accept flow', () => {
   test('public view returns expired flag', async () => {
     const quote = {
       id: 'q-1',
+      tenantId: '00000000-0000-4000-8000-000000000000',
       quoteNumber: 'SQ-1',
       currencyCode: 'USD',
       status: 'sent',
@@ -158,6 +159,164 @@ describe('quote send + accept flow', () => {
       'sales.quotes.convert_to_order',
       expect.objectContaining({ input: { quoteId: quote.id } })
     )
+  })
+})
+
+describe('public view - tenant isolation (fix: cross-tenant auth returns 404)', () => {
+  const TENANT_ID = '00000000-0000-4000-8000-000000000000'
+  const OTHER_TENANT_ID = 'ffffffff-ffff-4fff-bfff-ffffffffffff'
+  const TOKEN = '00000000-0000-4000-8000-000000000001'
+
+  const baseQuote = {
+    id: 'q-tenant-test',
+    tenantId: TENANT_ID,
+    quoteNumber: 'SQ-T1',
+    currencyCode: 'USD',
+    status: 'sent',
+    validFrom: null,
+    validUntil: null,
+    subtotalNetAmount: '0',
+    subtotalGrossAmount: '0',
+    discountTotalAmount: '0',
+    taxTotalAmount: '0',
+    grandTotalNetAmount: '0',
+    grandTotalGrossAmount: '0',
+  }
+
+  function makePublicReq() {
+    return new Request(`http://localhost/api/sales/quotes/public/${TOKEN}`)
+  }
+
+  function makePublicCtx() {
+    return { params: { token: TOKEN } } as any
+  }
+
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    mockEm.fork.mockReturnValue(mockEm)
+    mockEm.findOne.mockResolvedValue({ ...baseQuote })
+    mockEm.find.mockResolvedValue([])
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
+  })
+
+  test('unauthenticated request returns quote (200)', async () => {
+    const res = await getPublicQuote(makePublicReq(), makePublicCtx())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.quote.quoteNumber).toBe('SQ-T1')
+  })
+
+  test('authenticated same-tenant request returns quote (200)', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: TENANT_ID })
+
+    const res = await getPublicQuote(makePublicReq(), makePublicCtx())
+    expect(res.status).toBe(200)
+  })
+
+  test('authenticated cross-tenant request returns 404', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: OTHER_TENANT_ID })
+
+    const res = await getPublicQuote(makePublicReq(), makePublicCtx())
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toBeTruthy()
+  })
+})
+
+describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption scope)', () => {
+  const TENANT_ID = '00000000-0000-4000-8000-000000000000'
+  const OTHER_TENANT_ID = 'ffffffff-ffff-4fff-bfff-ffffffffffff'
+  const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-000000000002'
+
+  // Fresh quote per test — the route mutates quote.status to 'confirmed' so it must not be shared
+  let quote: Record<string, unknown>
+
+  function makeAcceptReq() {
+    return new Request('http://localhost/api/sales/quotes/accept', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: ACCEPTANCE_TOKEN }),
+    })
+  }
+
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    mockEm.fork.mockReturnValue(mockEm)
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-sec-1' } })
+    // Recreate quote each test so route mutations (status → 'confirmed') don't leak
+    quote = {
+      id: '55555555-5555-4555-8555-555555555555',
+      tenantId: TENANT_ID,
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-SEC-1',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+    // Simulate DB: honour tenantId in where clause (cross-tenant lookup returns null)
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) {
+        if (where?.tenantId && where.tenantId !== TENANT_ID) return null
+        return where?.acceptanceToken === ACCEPTANCE_TOKEN ? quote : null
+      }
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: 'order-sec-1', orderNumber: 'SO-SEC-1', deletedAt: null }
+      return null
+    })
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
+  })
+
+  test('unauthenticated accept succeeds (no tenantId filter applied)', async () => {
+    const res = await acceptQuote(makeAcceptReq())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.orderId).toBe('order-sec-1')
+  })
+
+  test('same-tenant auth accepts quote (200)', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: TENANT_ID })
+
+    const res = await acceptQuote(makeAcceptReq())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.orderId).toBe('order-sec-1')
+  })
+
+  test('cross-tenant auth returns 404 — tenantId included in lookup filter', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: OTHER_TENANT_ID })
+
+    const res = await acceptQuote(makeAcceptReq())
+    expect(res.status).toBe(404)
+    const body = await res.json()
+    expect(body.error).toBeTruthy()
+  })
+
+  test('authenticated accept passes tenantId in the em.findOne where clause', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ tenantId: TENANT_ID })
+
+    let capturedWhere: Record<string, unknown> | null = null
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) {
+        capturedWhere = where
+        return where?.acceptanceToken === ACCEPTANCE_TOKEN ? quote : null
+      }
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: 'order-sec-1', orderNumber: 'SO-SEC-1', deletedAt: null }
+      return null
+    })
+
+    await acceptQuote(makeAcceptReq())
+    expect(capturedWhere?.tenantId).toBe(TENANT_ID)
   })
 })
 

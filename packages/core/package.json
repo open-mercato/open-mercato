@@ -65,6 +65,10 @@
       "types": "./src/modules/auth/lib/setup-app.ts",
       "default": "./dist/modules/auth/lib/setup-app.js"
     },
+    "./modules/auth/emails/InviteUserEmail": {
+      "types": "./src/modules/auth/emails/InviteUserEmail.tsx",
+      "default": "./dist/modules/auth/emails/InviteUserEmail.js"
+    },
     "./modules/directory": {
       "types": "./src/modules/directory/index.ts",
       "default": "./dist/modules/directory/index.js"

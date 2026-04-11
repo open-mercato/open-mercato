@@ -661,6 +661,7 @@ export default function ProductsDataTable() {
         exporter={exportConfig}
         isLoading={isLoading}
         perspective={{ tableId: 'catalog.products.list' }}
+        stickyActionsColumn
         rowActions={(row) => (
           <RowActions
             items={[

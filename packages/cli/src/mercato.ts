@@ -20,6 +20,18 @@ import fs from 'node:fs'
 
 let envLoaded = false
 
+async function runWithCapturedExitCode(action: () => Promise<void>): Promise<number> {
+  const previousExitCode = process.exitCode
+  process.exitCode = undefined
+
+  try {
+    await action()
+    return process.exitCode ?? 0
+  } finally {
+    process.exitCode = previousExitCode
+  }
+}
+
 function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWorker[] {
   const allWorkers: ModuleWorker[] = []
   for (const mod of modules) {
@@ -862,14 +874,74 @@ export async function run(argv = process.argv) {
       return 1
     }
     const { runUmesInspect } = await import('./lib/umes/inspect')
-    await runUmesInspect(moduleArg)
-    return 0
+    return runWithCapturedExitCode(() => runUmesInspect(moduleArg))
   }
 
   if (first === 'umes:check') {
     const { runUmesCheck } = await import('./lib/umes/check')
-    await runUmesCheck()
-    return 0
+    return runWithCapturedExitCode(() => runUmesCheck())
+  }
+
+  if (first === 'seed:defaults') {
+    await ensureEnvLoaded()
+    const moduleFilter = parts.includes('--module') ? parts[parts.indexOf('--module') + 1] : null
+
+    try {
+      const [{ bootstrapFromAppRoot }, { createResolver }] = await Promise.all([
+        import('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
+        import('./lib/resolver'),
+      ])
+      const resolver = createResolver()
+      const data = await bootstrapFromAppRoot(resolver.getAppDir())
+      registerCliModules(data.modules)
+      const allModules = data.modules
+
+      const modulesToSeed = moduleFilter
+        ? allModules.filter((mod) => mod.id === moduleFilter)
+        : allModules
+
+      if (moduleFilter && modulesToSeed.length === 0) {
+        console.error(`❌ Module "${moduleFilter}" not found.`)
+        return 1
+      }
+
+      const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+      const seedContainer = await createRequestContainer()
+      const seedEm = seedContainer.resolve('em') as any
+
+      const { Organization } = await import('@open-mercato/core/modules/directory/data/entities')
+      const orgs = await seedEm.find(Organization, { deletedAt: null }, { populate: ['tenant'] as const })
+
+      if (orgs.length === 0) {
+        console.error('❌ No organizations found. Run yarn initialize first.')
+        return 1
+      }
+
+      console.log(`📚 Running seed:defaults for ${orgs.length} org(s)...\n`)
+      for (const org of orgs) {
+        const tenantId = String(org.tenant.id)
+        const organizationId = String(org.id)
+        const seedCtx = { em: seedEm, tenantId, organizationId, container: seedContainer }
+
+        console.log(`  🏢 org=${organizationId} tenant=${tenantId}`)
+        for (const mod of modulesToSeed) {
+          if (mod.setup?.seedDefaults) {
+            console.log(`    📦 ${mod.id}...`)
+            await mod.setup.seedDefaults(seedCtx)
+          }
+        }
+
+        const { ensureCustomRoleAcls } = await import('@open-mercato/core/modules/auth/lib/setup-app')
+        await ensureCustomRoleAcls(seedEm, tenantId, allModules)
+      }
+
+      console.log('\n✅ seed:defaults complete.')
+      return 0
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error(`❌ seed:defaults failed: ${message}`)
+      return 1
+    }
   }
 
   let modName = first
