@@ -155,6 +155,8 @@ export interface CopilotSuggestionEventPayload {
 
 export interface CallStartEventPayload {
   callId: string
+  providerKey?: string
+  providerCallId?: string
   phoneNumber: string
   direction: 'inbound' | 'outbound'
   customerId?: string
@@ -165,6 +167,8 @@ export interface CallStartEventPayload {
 
 export interface CallEndEventPayload {
   callId: string
+  providerKey?: string
+  providerCallId?: string
   durationSeconds: number
   segmentCount: number
   suggestionCount: number
