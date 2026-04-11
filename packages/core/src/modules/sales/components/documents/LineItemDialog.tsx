@@ -278,7 +278,7 @@ function buildPriceScopeReason(
 
 function buildPlaceholder(label?: string | null) {
   return (
-    <div className="flex h-8 w-8 items-center justify-center rounded border bg-muted text-[10px] uppercase text-muted-foreground">
+    <div className="flex h-8 w-8 items-center justify-center rounded border bg-muted text-xs uppercase text-muted-foreground">
       {(label ?? "").slice(0, 2) || "•"}
     </div>
   );
