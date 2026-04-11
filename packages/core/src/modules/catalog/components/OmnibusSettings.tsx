@@ -53,6 +53,9 @@ export function OmnibusSettings() {
   const [loadError, setLoadError] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [form, setForm] = React.useState<OmnibusConfig>({})
+  // Local raw text state for the country codes input so commas are preserved while typing.
+  // Parsed into the form state only on blur.
+  const [countryCodesText, setCountryCodesText] = React.useState('')
 
   React.useEffect(() => {
     let cancelled = false
@@ -65,6 +68,7 @@ export function OmnibusSettings() {
       const cfgData = cfg ?? {}
       setConfig(cfgData)
       setForm(cfgData)
+      setCountryCodesText((cfgData.enabledCountryCodes ?? []).join(', '))
       setPriceKinds(pk?.items ?? [])
       setChannels(ch?.items ?? [])
       setLoading(false)
@@ -79,16 +83,23 @@ export function OmnibusSettings() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
+    // Flush any pending country-codes text before saving
+    const pendingCodes = countryCodesText
+      .split(',')
+      .map((s) => s.trim().toUpperCase())
+      .filter(Boolean)
+    const formToSave = { ...form, enabledCountryCodes: pendingCodes }
     setSaving(true)
     try {
       const res = await apiCallOrThrow('/api/catalog/config/omnibus', {
         method: 'PATCH',
-        body: JSON.stringify(form),
+        body: JSON.stringify(formToSave),
         headers: { 'Content-Type': 'application/json' },
       })
       const data = res.result as OmnibusConfig ?? {}
       setConfig(data)
       setForm(data)
+      setCountryCodesText((data.enabledCountryCodes ?? []).join(', '))
       flash(t('catalog.omnibus.settings.saved', 'Omnibus settings saved'), 'success')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : t('catalog.omnibus.settings.saveError', 'Failed to save settings')
@@ -147,6 +158,11 @@ export function OmnibusSettings() {
                   <option value="best_effort">{t('catalog.omnibus.settings.noChannelMode.bestEffort', 'Best effort (blend all channels)')}</option>
                   <option value="require_channel">{t('catalog.omnibus.settings.noChannelMode.requireChannel', 'Require channel (fail closed)')}</option>
                 </select>
+                {form.noChannelMode === 'require_channel' && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('catalog.omnibus.settings.noChannelMode.requireChannelHint', "When 'Require channel' is active, each channel must have a country code configured in the per-channel overrides below.")}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -169,13 +185,21 @@ export function OmnibusSettings() {
               <Label htmlFor="enabled-country-codes" className="mb-1 block">{t('catalog.omnibus.settings.enabledCountryCodes', 'Active in EU markets')}</Label>
               <Input
                 id="enabled-country-codes"
-                value={(form.enabledCountryCodes ?? []).join(', ')}
-                onChange={(e) => setForm((f) => ({
-                  ...f,
-                  enabledCountryCodes: e.target.value.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),
-                }))}
+                value={countryCodesText}
+                onChange={(e) => setCountryCodesText(e.target.value)}
+                onBlur={(e) => {
+                  const codes = e.target.value
+                    .split(',')
+                    .map((s) => s.trim().toUpperCase())
+                    .filter(Boolean)
+                  setCountryCodesText(codes.join(', '))
+                  setForm((f) => ({ ...f, enabledCountryCodes: codes }))
+                }}
                 placeholder="DE, FR, PL, IT, ES..."
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                {t('catalog.omnibus.settings.enabledCountryCodesHint', 'Enter ISO 3166-1 alpha-2 country codes separated by commas (e.g. PL, DE, FR).')}
+              </p>
             </div>
 
             <div>
@@ -200,21 +224,51 @@ export function OmnibusSettings() {
                           </button>
                         </div>
 
-                        <div>
-                          <Label htmlFor={`country-code-${channelId}`} className="text-xs">
-                            {t('catalog.omnibus.settings.countryCode', 'Country code (e.g. PL, DE)')}
-                          </Label>
-                          <Input
-                            id={`country-code-${channelId}`}
-                            className="mt-1"
-                            value={ch.countryCode ?? ''}
-                            maxLength={2}
-                            placeholder="PL"
-                            onChange={(e) => setForm((f) => ({
-                              ...f,
-                              channels: { ...f.channels, [channelId]: { ...ch, countryCode: e.target.value.toUpperCase() || undefined } },
-                            }))}
-                          />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <Label htmlFor={`lookback-days-${channelId}`} className="text-xs">
+                              {t('catalog.omnibus.settings.channelLookbackDays', 'Lookback window (days)')}
+                            </Label>
+                            <Input
+                              id={`lookback-days-${channelId}`}
+                              type="number"
+                              min={1}
+                              max={365}
+                              className="mt-1"
+                              value={ch.lookbackDays ?? ''}
+                              placeholder={String(form.lookbackDays ?? 30)}
+                              onChange={(e) => {
+                                const n = parseInt(e.target.value, 10)
+                                setForm((f) => ({
+                                  ...f,
+                                  channels: {
+                                    ...f.channels,
+                                    [channelId]: { ...ch, lookbackDays: !Number.isNaN(n) && n >= 1 ? n : undefined },
+                                  },
+                                }))
+                              }}
+                            />
+                          </div>
+
+                          <div>
+                            <Label htmlFor={`country-code-${channelId}`} className="text-xs">
+                              {t('catalog.omnibus.settings.countryCode', 'Country code (e.g. PL, DE)')}
+                            </Label>
+                            <Input
+                              id={`country-code-${channelId}`}
+                              className="mt-1"
+                              value={ch.countryCode ?? ''}
+                              maxLength={2}
+                              placeholder="PL"
+                              onChange={(e) => setForm((f) => ({
+                                ...f,
+                                channels: { ...f.channels, [channelId]: { ...ch, countryCode: e.target.value.toUpperCase() || undefined } },
+                              }))}
+                            />
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {t('catalog.omnibus.settings.countryCodeHint', "Must be listed in 'Active in EU markets' above.")}
+                            </p>
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -265,7 +319,7 @@ export function OmnibusSettings() {
                               }))}
                             >
                               <option value="standard">{t('catalog.omnibus.settings.newArrivalRule.standard', 'Standard')}</option>
-                              <option value="shorter_window">{t('catalog.omnibus.settings.newArrivalRule.shorterWindow', 'Shorter window')}</option>
+                              <option value="shorter_window">{t('catalog.omnibus.settings.newArrivalRule.shorterWindow', 'Shorter window (new products)')}</option>
                             </select>
                           </div>
                           {ch.newArrivalRule === 'shorter_window' && (

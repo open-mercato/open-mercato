@@ -321,13 +321,6 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     offerId: string,
   ): Promise<OmnibusHistoryRow | null> {
     const filters = buildScopeFilters({ ...ctx, offerId })
-    // Narrow to the specific variant/product so we find when THIS item's offer started,
-    // not when any other variant in the same offer first appeared
-    if (ctx.variantId) {
-      filters.variantId = { $eq: ctx.variantId }
-    } else if (ctx.productId) {
-      filters.productId = { $eq: ctx.productId }
-    }
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
@@ -544,7 +537,10 @@ function buildScopeFilters(ctx: OmnibusResolutionContext): Record<string, unknow
   }
   if (ctx.offerId) {
     filters.offerId = { $eq: ctx.offerId }
-  } else if (ctx.variantId) {
+  }
+  // Always scope to the specific variant or product when available,
+  // even when an offer ID is also present (an offer can span multiple products).
+  if (ctx.variantId) {
     filters.variantId = { $eq: ctx.variantId }
   } else if (ctx.productId) {
     filters.productId = { $eq: ctx.productId }

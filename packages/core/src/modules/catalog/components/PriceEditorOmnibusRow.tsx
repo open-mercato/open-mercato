@@ -7,6 +7,8 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 type OmnibusBlock = {
   lowestPriceNet: string | null
   lowestPriceGross: string | null
+  previousPriceNet: string | null
+  previousPriceGross: string | null
   lookbackDays: number
   coverageStartAt: string | null
   applicabilityReason: string
@@ -66,6 +68,61 @@ export function PriceEditorOmnibusRow({
   if (loading) return <p className="text-xs text-muted-foreground mt-1">…</p>
   if (!block) return null
 
+  const reason = block.applicabilityReason
+
+  // Progressive reduction: show reference price (before the sequence) and current price separately.
+  if (reason === 'progressive_reduction_frozen') {
+    const refPrice = block.previousPriceGross ?? block.previousPriceNet
+    const currentPrice = block.lowestPriceGross ?? block.lowestPriceNet
+    return (
+      <div className="mt-1 space-y-0.5">
+        {refPrice ? (
+          <p className="text-xs text-muted-foreground">
+            {t('catalog.omnibus.priceEditor.progressiveRef', 'Reference price (before reduction):')}
+            {' '}
+            <span className="font-medium">{refPrice} {currencyCode}</span>
+          </p>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            {t('catalog.omnibus.priceEditor.progressiveRefUnavailable', 'No reference price recorded before the promotion started.')}
+          </p>
+        )}
+        {currentPrice && (
+          <p className="text-xs text-muted-foreground">
+            {t('catalog.omnibus.priceEditor.progressiveCurrent', 'Current (progressive reduction, Art. 6a(5)):')}
+            {' '}
+            <span className="font-medium">{currentPrice} {currencyCode}</span>
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // Failure / non-applicable reason codes — show a specific message instead of the generic "no history".
+  if (reason === 'not_in_eu_market') {
+    return (
+      <p className="text-xs text-muted-foreground mt-1">
+        {t('catalog.omnibus.priceEditor.notInEuMarket', 'Channel not configured for EU market — add a country code in Omnibus settings.')}
+      </p>
+    )
+  }
+
+  if (reason === 'missing_channel_context') {
+    return (
+      <p className="text-xs text-muted-foreground mt-1">
+        {t('catalog.omnibus.priceEditor.missingChannelContext', 'Select a sales channel to view Omnibus data (channel is required).')}
+      </p>
+    )
+  }
+
+  if (reason === 'perishable_exempt') {
+    return (
+      <p className="text-xs text-muted-foreground mt-1">
+        {t('catalog.omnibus.priceEditor.perishableExempt', 'Exempt from Omnibus (perishable goods rule).')}
+      </p>
+    )
+  }
+
   const lowestPrice = block.lowestPriceGross ?? block.lowestPriceNet
   const coverageDate = block.coverageStartAt
     ? new Date(block.coverageStartAt).toLocaleDateString(locale)
@@ -100,7 +157,7 @@ export function PriceEditorOmnibusRow({
           {t('catalog.omnibus.priceEditor.anchoredWindow', 'Reference window anchored to promotion start: {date}').replace('{date}', anchorDate)}
         </p>
       ) : null}
-      {block.applicabilityReason === 'insufficient_history' && coverageDate ? (
+      {reason === 'insufficient_history' && coverageDate ? (
         <p className="text-xs text-amber-600">
           {t('catalog.omnibus.priceEditor.insufficientHistory', "Coverage starts {date} — display as 'lowest since {date}', not 'lowest in 30 days'")
             .replace(/\{date\}/g, coverageDate)}

@@ -38,8 +38,17 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const body = await req.json()
-    const parsed = omnibusConfigSchema.parse(body)
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+    const parseResult = omnibusConfigSchema.safeParse(body)
+    if (!parseResult.success) {
+      return NextResponse.json({ error: 'Invalid config', details: parseResult.error.flatten() }, { status: 400 })
+    }
+    const parsed = parseResult.data
 
     const moduleConfigService = container.resolve<ModuleConfigService>('moduleConfigService')
     const orgContext = { organizationId: auth.orgId }
