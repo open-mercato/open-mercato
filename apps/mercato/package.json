@@ -17,7 +17,8 @@
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",
     "initialize": "mercato init",
-    "reinstall": "mercato init --reinstall"
+    "reinstall": "mercato init --reinstall",
+    "seed:defaults": "mercato seed:defaults"
   },
   "engines": {
     "node": "24.x"
