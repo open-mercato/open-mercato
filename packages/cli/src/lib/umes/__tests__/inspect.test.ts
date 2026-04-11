@@ -72,6 +72,16 @@ describe('runUmesInspect', () => {
           },
           {
             moduleId: 'example',
+            type: 'enricher',
+            id: 'example.company.enricher',
+            target: 'customers.company',
+            priority: 15,
+            details: {
+              timeout: 2_500,
+            },
+          },
+          {
+            moduleId: 'example',
             type: 'interceptor',
             id: 'example.people.list',
             target: 'GET /api/customers/people',
@@ -118,13 +128,15 @@ describe('runUmesInspect', () => {
     expect(output).toContain('Declared Features (2):')
     expect(output).toContain('  - example.view')
     expect(output).toContain('  - example.manage')
-    expect(output).toContain('Response Enrichers (1):')
+    expect(output).toContain('Response Enrichers (2):')
     expect(output).toContain('API Interceptors (1):')
     expect(output).toContain('Component Overrides (1):')
     expect(output).toContain('Injection Widgets (1):')
+    expect(output).toContain('example.company.enricher')
     expect(output).toContain('features: example.view')
     expect(output).toContain('features: example.manage')
     expect(output).toContain('critical: true')
+    expect(output).toContain('timeout: 2500')
     expect(output).toContain('timeout: 5000')
     expect(output).toContain('hasBefore: true')
     expect(output).toContain('targetRoute: /api/customers/people')
