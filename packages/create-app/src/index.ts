@@ -145,7 +145,7 @@ const FILE_RENAMES: Record<string, string> = {
   gitignore: '.gitignore',
 }
 
-const SKIP_DIRS = new Set(['__tests__', '__integration__'])
+const SKIP_DIRS = new Set(['__tests__'])
 
 function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
   if (!existsSync(dest)) {
