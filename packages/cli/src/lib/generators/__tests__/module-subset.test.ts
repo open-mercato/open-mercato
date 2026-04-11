@@ -229,6 +229,46 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain('subscriber_meta:on-event')
   })
 
+  it('extracts typed subscriber metadata from source export lists when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'subscriber_typed', 'subscribers', 'on-event.ts'),
+      `type SubscriberMeta = {
+  id?: string
+  event: string
+  persistent?: boolean
+  sync?: boolean
+  priority?: number
+}
+
+const metadata: SubscriberMeta = ({
+  id: 'subscriber_typed:on-event',
+  event: 'subscriber.typed.created',
+  persistent: true,
+  sync: true,
+  priority: 7,
+} as SubscriberMeta)
+
+export { metadata }
+
+export default async function handler() {}
+`,
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'subscriber_typed', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('id: "subscriber_typed:on-event"')
+    expect(output).toContain('event: "subscriber.typed.created"')
+    expect(output).toContain('persistent: true')
+    expect(output).toContain('sync: true')
+    expect(output).toContain('priority: 7')
+  })
+
   it('keeps backend route metadata runtime-backed when icons are non-serializable', async () => {
     touchFile(
       path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic', 'backend', 'dashboard', 'page.tsx'),
@@ -248,6 +288,40 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(result.errors).toEqual([])
     const output = readGenerated(tmpDir, 'backend-routes.generated.ts')!
     expect(output).toMatch(/import \* as .* from "@open-mercato\/core\/modules\/iconic\/backend\/dashboard\/page\.meta"/)
+    expect(output).not.toContain('"pageTitle":"Dashboard"')
+    expect(output).toContain('pattern: "/backend/dashboard"')
+  })
+
+  it('keeps backend route metadata runtime-backed when source metadata includes visible callbacks', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'gated_pages', 'backend', 'dashboard', 'page.tsx'),
+      'export default function Page() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'gated_pages', 'backend', 'dashboard', 'page.meta.ts'),
+      `type PageMetadata = {
+  requireAuth: boolean
+  pageTitle: string
+  visible: () => boolean
+}
+
+export const metadata: PageMetadata = {
+  requireAuth: true,
+  pageTitle: 'Dashboard',
+  visible: () => true,
+}
+`,
+    )
+
+    const enabled: ModuleEntry[] = [
+      { id: 'gated_pages', from: '@open-mercato/core' },
+    ]
+    const resolver = createMockResolver(tmpDir, enabled)
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'backend-routes.generated.ts')!
+    expect(output).toMatch(/import \* as .* from "@open-mercato\/core\/modules\/gated_pages\/backend\/dashboard\/page\.meta"/)
     expect(output).not.toContain('"pageTitle":"Dashboard"')
     expect(output).toContain('pattern: "/backend/dashboard"')
   })
@@ -655,6 +729,40 @@ export default async function handle(): Promise<void> {}
     expect(output).toContain('concurrency: 2')
     expect(output).toContain('createLazyModuleWorker(() => import("../../src/modules/app_worker_mod/workers/process-job")')
     expect(output).toContain("workers:")
+  })
+
+  it('extracts typed worker metadata from source fallback when runtime import fails', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'worker_typed', 'workers', 'process-job.ts'),
+      `type WorkerMeta = {
+  id?: string
+  queue: string
+  concurrency?: number
+}
+
+export const metadata = ({
+  id: 'worker_typed:process-job',
+  queue: 'typed.jobs',
+  concurrency: 4,
+} as WorkerMeta)
+
+export default async function handler() {}
+`,
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'worker_typed', from: '@open-mercato/core' },
+    ])
+
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'modules.generated.ts')!
+    expect(output).toContain('id: "worker_typed"')
+    expect(output).toContain('queue: "typed.jobs"')
+    expect(output).toContain('concurrency: 4')
+    expect(output).toContain('worker_typed:process-job')
+    expect(output).toContain('createLazyModuleWorker(() => import("@open-mercato/core/modules/worker_typed/workers/process-job")')
   })
 
   it('handles disabling a module that was previously enabled', async () => {
