@@ -45,6 +45,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const userRoles = await em.find(CustomerUserRole, {
     user: user.id as any,
+    tenantId: auth.tenantId,
     deletedAt: null,
   }, { populate: ['role'] })
   const roles = userRoles.map((ur) => ({

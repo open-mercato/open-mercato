@@ -21,13 +21,11 @@ export default async function handle(
   const em = ctx.resolve<EntityManager>('em')
 
   try {
-    let email: string | undefined
-    if (data?.email) {
-      email = (data.email as string).toLowerCase().trim()
-    } else {
-      const user = await em.findOne(CustomerUser, { id: userId, tenantId, deletedAt: null })
-      if (user) email = user.email?.toLowerCase().trim()
-    }
+    const user = await em.findOne(CustomerUser, { id: userId, tenantId, deletedAt: null })
+    if (!user) return
+    if (user.personEntityId) return
+
+    const email = (data?.email ? (data.email as string) : user.email)?.toLowerCase().trim()
     if (!email) return
 
     const { CustomerEntity } = await import('@open-mercato/core/modules/customers/data/entities')

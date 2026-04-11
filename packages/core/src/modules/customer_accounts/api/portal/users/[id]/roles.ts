@@ -65,7 +65,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   // Assign new roles
   for (const roleId of parsed.data.roleIds) {
-    const role = await em.findOne(CustomerRole, { id: roleId })
+    const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
     if (role) {
       const userRole = em.create(CustomerUserRole, {
         user: targetUser,
