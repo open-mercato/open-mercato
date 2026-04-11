@@ -16,13 +16,20 @@ type TranslationContext = {
 }
 
 type BackendRouteManifest = {
-  moduleId: string
+  moduleId?: string
   pattern: string
   title: string
   pageTitleKey?: string
   pageGroupKey?: string
   group?: string
   order?: number
+  requireFeatures?: string[]
+  pageContext?: 'main' | 'admin' | 'settings' | 'profile'
+}
+
+type ModuleRegistryEntry = {
+  id: string
+  backendRoutes: BackendRouteManifest[]
 }
 
 type DynamicEntity = {
@@ -47,7 +54,7 @@ type SidebarGroup = {
 }
 
 const mockGetAuthFromRequest = jest.fn<Promise<AuthContext | null>, [Request]>()
-const mockGetBackendRouteManifests = jest.fn<BackendRouteManifest[], []>()
+const mockGetModules = jest.fn<ModuleRegistryEntry[], []>()
 const mockResolveTranslations = jest.fn<Promise<TranslationContext>, []>()
 const mockEmFind = jest.fn<Promise<unknown[]>, [unknown, unknown, unknown?]>()
 const mockLoadAcl = jest.fn<Promise<{ isSuperAdmin: boolean; features: string[] }>, [string, { tenantId: string | null; organizationId: string | null }]>()
@@ -67,11 +74,8 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  getModules: () => mockGetModules(),
   resolveTranslations: () => mockResolveTranslations(),
-}))
-
-jest.mock('@open-mercato/shared/modules/registry', () => ({
-  getBackendRouteManifests: () => mockGetBackendRouteManifests(),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -107,8 +111,22 @@ function makeRequest() {
   return new Request('http://localhost/api/auth/admin/nav', { method: 'GET' })
 }
 
+function setupModules(routes: BackendRouteManifest[]): void {
+  const grouped = new Map<string, BackendRouteManifest[]>()
+  for (const route of routes) {
+    const moduleId = route.moduleId ?? 'test'
+    grouped.set(moduleId, [...(grouped.get(moduleId) ?? []), route])
+  }
+  mockGetModules.mockReturnValue(
+    Array.from(grouped.entries()).map(([id, backendRoutes]) => ({
+      id,
+      backendRoutes,
+    })),
+  )
+}
+
 function setupRoutesForUserEntities(pageGroupKey: string, additionalRoutes: BackendRouteManifest[] = []): void {
-  mockGetBackendRouteManifests.mockReturnValue([
+  setupModules([
     {
       moduleId: 'entities',
       pattern: '/backend/entities/user',
@@ -163,6 +181,7 @@ describe('GET /api/auth/admin/nav', () => {
     mockLoadFirstRoleSidebarPreference.mockResolvedValue(null)
     mockCacheGet.mockResolvedValue(null)
     mockCacheSet.mockResolvedValue(undefined)
+    mockGetModules.mockReturnValue([])
     mockResolveFeatureCheckContext.mockResolvedValue({
       organizationId: 'org-1',
       scope: { tenantId: 'tenant-1' },
@@ -214,7 +233,7 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('returns navigation without throwing when the user entities anchor is missing', async () => {
-    mockGetBackendRouteManifests.mockReturnValue([
+    setupModules([
       {
         moduleId: 'dashboard',
         pattern: '/backend/dashboard',
@@ -237,7 +256,7 @@ describe('GET /api/auth/admin/nav', () => {
       isSuperAdmin: false,
       features: ['customer_accounts.*'],
     })
-    mockGetBackendRouteManifests.mockReturnValue([
+    setupModules([
       {
         moduleId: 'customer_accounts',
         pattern: '/backend/customer_accounts/users',
@@ -246,7 +265,7 @@ describe('GET /api/auth/admin/nav', () => {
         group: 'Customer Portal',
         order: 1,
         requireFeatures: ['customer_accounts.view'],
-      } as BackendRouteManifest & { requireFeatures: string[] },
+      },
     ])
     setupCustomEntities([])
 
@@ -256,8 +275,8 @@ describe('GET /api/auth/admin/nav', () => {
     expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
   })
 
-  it('builds grouped navigation from backend route manifests instead of full module registry', async () => {
-    mockGetBackendRouteManifests.mockReturnValue([
+  it('builds grouped navigation from registered module backend routes', async () => {
+    setupModules([
       {
         moduleId: 'dashboard',
         pattern: '/backend/dashboard',
@@ -284,7 +303,7 @@ describe('GET /api/auth/admin/nav', () => {
       isSuperAdmin: false,
       features: ['customer_accounts.*', 'auth.*'],
     })
-    mockGetBackendRouteManifests.mockReturnValue([
+    setupModules([
       {
         moduleId: 'auth',
         pattern: '/backend/settings/auth/users',
@@ -293,7 +312,7 @@ describe('GET /api/auth/admin/nav', () => {
         group: 'Auth',
         order: 1,
         pageContext: 'settings',
-      } as BackendRouteManifest & { pageContext: 'settings' },
+      },
     ])
     setupCustomEntities([])
 
@@ -317,7 +336,7 @@ describe('GET /api/auth/admin/nav', () => {
   })
 
   it('passes the request through every scope resolution during hydrated nav generation', async () => {
-    mockGetBackendRouteManifests.mockReturnValue([
+    setupModules([
       {
         moduleId: 'dashboard',
         pattern: '/backend/dashboard',
@@ -346,7 +365,7 @@ describe('GET /api/auth/admin/nav', () => {
     mockUserHasAllFeatures.mockImplementation(async (_userId, required) => {
       return required.every((feature) => feature === 'customer_accounts.view')
     })
-    mockGetBackendRouteManifests.mockReturnValue([
+    setupModules([
       {
         moduleId: 'customer_accounts',
         pattern: '/backend/customer_accounts/users',
@@ -355,7 +374,7 @@ describe('GET /api/auth/admin/nav', () => {
         group: 'Customer Portal',
         order: 1,
         requireFeatures: ['customer_accounts.view'],
-      } as BackendRouteManifest & { requireFeatures: string[] },
+      },
     ])
     setupCustomEntities([])
 
