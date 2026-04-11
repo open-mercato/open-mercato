@@ -77,10 +77,11 @@ const tenantB = 'b0b0b0b0-b0b0-4b0b-8b0b-b0b0b0b0b0b0'
 const userId = 'c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0'
 const actorId = 'd0d0d0d0-d0d0-4d0d-8d0d-d0d0d0d0d0d0'
 const orgId = 'e0e0e0e0-e0e0-4e0e-8e0e-e0e0e0e0e0e0'
+const originalEnv = process.env
 
-function makeRequest(body: Record<string, unknown>) {
+function makeRequest(body: Record<string, unknown>, url = 'http://localhost/api/auth/users/resend-invite') {
   __readJsonBody.current = body
-  return new Request('http://localhost/api/auth/users/resend-invite', {
+  return new Request(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -101,6 +102,12 @@ function makeUser(overrides: Record<string, unknown> = {}) {
 describe('POST /api/auth/users/resend-invite', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    process.env = {
+      ...originalEnv,
+      APP_URL: undefined,
+      NEXT_PUBLIC_APP_URL: undefined,
+      APP_ALLOWED_ORIGINS: undefined,
+    }
     mockGetAuthFromRequest.mockResolvedValue({
       sub: actorId,
       tenantId: tenantA,
@@ -114,6 +121,10 @@ describe('POST /api/auth/users/resend-invite', () => {
     mockPersistAndFlush.mockResolvedValue(undefined)
     mockNativeUpdate.mockResolvedValue(undefined)
     mockSendEmail.mockResolvedValue(undefined)
+  })
+
+  afterAll(() => {
+    process.env = originalEnv
   })
 
   test('returns 401 when unauthenticated', async () => {
@@ -208,5 +219,21 @@ describe('POST /api/auth/users/resend-invite', () => {
     const body = await res.json()
     expect(body.error).toBe('Record locked')
     expect(mockPersistAndFlush).not.toHaveBeenCalled()
+  })
+
+  test('rejects a poisoned host before rotating invite tokens', async () => {
+    process.env = {
+      ...process.env,
+      APP_URL: 'https://app.example.com',
+    }
+
+    const res = await POST(makeRequest({ id: userId }, 'https://evil.example/api/auth/users/resend-invite'))
+    const body = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(body.error).toBe('Invalid request origin')
+    expect(mockNativeUpdate).not.toHaveBeenCalled()
+    expect(mockPersistAndFlush).not.toHaveBeenCalled()
+    expect(mockSendEmail).not.toHaveBeenCalled()
   })
 })
