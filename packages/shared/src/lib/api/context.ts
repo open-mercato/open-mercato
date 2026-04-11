@@ -25,10 +25,13 @@ export async function resolveRequestContext(req: Request): Promise<ResolveReques
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   const { translate } = await resolveTranslations()
+  const selectedOrganizationId = auth?.orgId ?? null
 
   const ctx: RequestContext = {
     container,
     auth,
+    selectedOrganizationId,
+    organizationIds: selectedOrganizationId ? [selectedOrganizationId] : null,
     translate,
   }
 
