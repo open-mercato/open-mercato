@@ -309,17 +309,47 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
     async markAllAsRead(ctx) {
       const em = rootEm.fork()
       const knex = getKnex(em)
-
-      const result = await knex('notifications')
+      const baseQuery = knex('notifications')
         .where({
           recipient_user_id: ctx.userId,
           tenant_id: ctx.tenantId,
           status: 'unread',
         })
-        .update({
-          status: 'read',
-          read_at: knex.fn.now(),
+
+      if (ctx.organizationId) {
+        baseQuery.where('organization_id', ctx.organizationId)
+      }
+
+      const targetRows = await baseQuery.clone()
+        .select('id', 'organization_id', 'recipient_user_id')
+
+      if (!targetRows.length) {
+        return 0
+      }
+
+      const result = await baseQuery.clone().update({
+        status: 'read',
+        read_at: knex.fn.now(),
+      })
+
+      const notifications = await em.find(Notification, {
+        id: { $in: targetRows.map((row) => row.id) },
+      })
+
+      for (const notification of notifications) {
+        await eventBus.emit(NOTIFICATION_EVENTS.READ, {
+          notificationId: notification.id,
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
         })
+
+        await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
+          tenantId: notification.tenantId,
+          organizationId: notification.organizationId ?? null,
+          recipientUserId: notification.recipientUserId,
+          notification: toNotificationDto(notification),
+        })
+      }
 
       return result
     },

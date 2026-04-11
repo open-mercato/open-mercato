@@ -193,6 +193,94 @@ describe('notification service', () => {
     )
   })
 
+  it('marks all as read, scopes by org, and emits events per notification', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const notifications = [
+      {
+        id: 'note-11',
+        recipientUserId: baseCtx.userId,
+        tenantId: baseCtx.tenantId,
+        organizationId: 'org-1',
+        status: 'read',
+        readAt: new Date('2026-03-01T00:00:00Z'),
+        createdAt: new Date('2026-02-28T00:00:00Z'),
+        type: 'system',
+        title: 'Hello',
+      },
+      {
+        id: 'note-12',
+        recipientUserId: baseCtx.userId,
+        tenantId: baseCtx.tenantId,
+        organizationId: 'org-1',
+        status: 'read',
+        readAt: new Date('2026-03-01T00:00:01Z'),
+        createdAt: new Date('2026-02-28T00:00:01Z'),
+        type: 'system',
+        title: 'Hi again',
+      },
+    ] as Notification[]
+
+    em.find.mockResolvedValue(notifications)
+
+    const knexUpdate = jest.fn().mockResolvedValue(notifications.length)
+    const knexSelect = jest.fn().mockResolvedValue(
+      notifications.map((n) => ({
+        id: n.id,
+        organization_id: n.organizationId,
+        recipient_user_id: n.recipientUserId,
+      }))
+    )
+
+    const knexBuilder: any = {
+      where: jest.fn().mockReturnThis(),
+      whereNull: jest.fn().mockReturnThis(),
+      select: knexSelect,
+      update: knexUpdate,
+      clone: jest.fn(function clone() {
+        return this
+      }),
+      fn: { now: jest.fn(() => 'now') },
+    }
+
+    const knexMock = Object.assign(
+      jest.fn().mockReturnValue(knexBuilder),
+      { fn: knexBuilder.fn },
+    )
+
+    em.getConnection.mockReturnValue({
+      getKnex: () => knexMock,
+    })
+
+    const service = createNotificationService({ em, eventBus })
+
+    const count = await service.markAllAsRead({ ...baseCtx, organizationId: 'org-1' })
+
+    expect(count).toBe(2)
+    expect(knexBuilder.where).toHaveBeenCalledWith({
+      recipient_user_id: baseCtx.userId,
+      tenant_id: baseCtx.tenantId,
+      status: 'unread',
+    })
+    expect(knexBuilder.where).toHaveBeenCalledWith('organization_id', 'org-1')
+    expect(eventBus.emit).toHaveBeenCalledTimes(4)
+    for (const note of notifications) {
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        NOTIFICATION_EVENTS.READ,
+        expect.objectContaining({ notificationId: note.id, userId: baseCtx.userId, tenantId: baseCtx.tenantId })
+      )
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        NOTIFICATION_SSE_EVENTS.CREATED,
+        expect.objectContaining({
+          tenantId: note.tenantId,
+          organizationId: note.organizationId,
+          recipientUserId: note.recipientUserId,
+          notification: expect.objectContaining({ id: note.id, status: 'read' }),
+        })
+      )
+    }
+  })
+
   it('executes notification action via command bus', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
