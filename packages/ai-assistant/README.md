@@ -13,7 +13,7 @@ AI-powered chat and tool execution for Open Mercato, using MCP (Model Context Pr
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 24+
 - Docker (for OpenCode)
 - An LLM API key (Anthropic, OpenAI, or Google)
 - An Open Mercato API key (created via Backend > Settings > API Keys)
