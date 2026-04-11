@@ -13,7 +13,7 @@
 .turbo
 
 # testing
-/coverage
+coverage/
 test-results/
 playwright-report/
 published-app/

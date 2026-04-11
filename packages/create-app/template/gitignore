@@ -13,7 +13,7 @@ node_modules/
 .turbo
 
 # testing
-/coverage
+coverage/
 test-results/
 playwright-report/
 
