@@ -1,8 +1,9 @@
+import path from 'node:path'
 import { createRequire } from 'node:module'
 import type { PackageResolver } from '../resolver'
 import { resolveModuleFile } from '../generators/scanner'
 
-const requireModule = createRequire(import.meta.url)
+const requireModule = createRequire(path.join(process.cwd(), 'package.json'))
 
 export interface UmesExtensionEntry {
   moduleId: string
