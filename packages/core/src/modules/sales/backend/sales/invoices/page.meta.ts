@@ -11,7 +11,7 @@ const invoiceIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.invoices.manage'],
+  requireFeatures: ['sales.invoices.view'],
   pageTitle: 'Invoices',
   pageTitleKey: 'sales.invoices.title',
   pageGroup: 'Sales',

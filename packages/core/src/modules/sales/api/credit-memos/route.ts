@@ -1,4 +1,4 @@
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { SalesCreditMemo } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { creditMemoCreateSchema, creditMemoUpdateSchema } from '../../data/validators'
@@ -6,6 +6,7 @@ import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultDeleteReq
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { z } from 'zod'
 
 const listSchema = z
@@ -17,7 +18,7 @@ const listSchema = z
     orderId: z.string().uuid().optional(),
     invoiceId: z.string().uuid().optional(),
     sortField: z.string().optional(),
-    sortOrder: z.enum(['asc', 'desc']).optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
 
@@ -55,10 +56,11 @@ const crud = makeCrudRoute({
       if (query.orderId) filters.orderId = query.orderId
       if (query.invoiceId) filters.invoiceId = query.invoiceId
       if (query.search) {
+        const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
-          { creditMemoNumber: { $ilike: `%${query.search}%` } },
-          { status: { $ilike: `%${query.search}%` } },
-          { reason: { $ilike: `%${query.search}%` } },
+          { creditMemoNumber: { $ilike: term } },
+          { status: { $ilike: term } },
+          { reason: { $ilike: term } },
         ]
       }
       return filters
@@ -68,7 +70,7 @@ const crud = makeCrudRoute({
     create: {
       commandId: 'sales.credit_memos.create',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
         const { base, custom } = splitCustomFieldPayload(raw ?? {})
         const parsed = parseScopedCommandInput(
@@ -85,7 +87,7 @@ const crud = makeCrudRoute({
     update: {
       commandId: 'sales.credit_memos.update',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
         const { base, custom } = splitCustomFieldPayload(raw ?? {})
         const parsed = parseScopedCommandInput(
@@ -101,7 +103,7 @@ const crud = makeCrudRoute({
     delete: {
       commandId: 'sales.credit_memos.delete',
       schema: rawBodySchema,
-      mapInput: async ({ parsed, ctx }) => {
+      mapInput: async ({ parsed, ctx }: { parsed: any; ctx: CrudCtx }) => {
         const { translate } = await resolveTranslations()
         const id = resolveCrudRecordId(parsed, ctx, translate)
         return { id }
@@ -135,5 +137,5 @@ export const openApi = createSalesCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(creditMemoItemSchema),
   create: { schema: creditMemoCreateSchema, description: 'Create a new credit memo' },
   update: { schema: creditMemoUpdateSchema, responseSchema: z.object({ creditMemoId: z.string().uuid() }), description: 'Update a credit memo' },
-  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ creditMemoId: z.string().uuid() }), description: 'Delete a credit memo' },
+  del: { schema: defaultDeleteRequestSchema, responseSchema: z.object({ ok: z.boolean() }), description: 'Delete a credit memo' },
 })
