@@ -1,17 +1,5 @@
 import type { WorkflowDefinition } from '../../data/entities'
 
-const PLAIN_DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
-  timeZone: 'UTC',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-})
-
-function formatPlainDate(value: Date | null | undefined): string | null {
-  if (!value) return null
-  return PLAIN_DATE_FORMATTER.format(value)
-}
-
 export function serializeWorkflowDefinition(definition: WorkflowDefinition) {
   return {
     id: definition.id,
@@ -22,8 +10,8 @@ export function serializeWorkflowDefinition(definition: WorkflowDefinition) {
     definition: definition.definition,
     metadata: definition.metadata ?? null,
     enabled: definition.enabled,
-    effectiveFrom: formatPlainDate(definition.effectiveFrom),
-    effectiveTo: formatPlainDate(definition.effectiveTo),
+    effectiveFrom: definition.effectiveFrom?.toISOString() ?? null,
+    effectiveTo: definition.effectiveTo?.toISOString() ?? null,
     tenantId: definition.tenantId,
     organizationId: definition.organizationId,
     createdBy: definition.createdBy ?? null,
