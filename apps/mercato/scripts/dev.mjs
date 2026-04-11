@@ -336,14 +336,6 @@ function publishRuntimeFailure(detail, options = {}) {
     ? options.progressLabel
     : (startupProgress.current >= runtimeProgressCurrent ? startupProgress.label : 'Starting app server')
 
-  if (runtimeWarmupState.completed) {
-    updateSplashState({
-      detail: failureDetail,
-      activity: failureDetail,
-    })
-    return
-  }
-
   updateSplashState({
     phase: 'Runtime error detected',
     detail: failureDetail,
@@ -437,6 +429,14 @@ function resolveWarmupCredentials() {
   return {
     email: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com',
     password: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret',
+  }
+}
+
+class LoginError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.name = 'LoginError'
+    this.status = status
   }
 }
 
@@ -692,9 +692,7 @@ async function runTargetedRouteWarmup() {
           throw createWarmupTransientError('login warmup required tenant selection')
         }
       }
-      const loginError = new Error(`login warmup failed: ${failure}`)
-      loginError.warmupLoginStatus = loginResponse.status
-      throw loginError
+      throw new LoginError(`login warmup failed: ${failure}`, loginResponse.status)
     }
 
     const cookieHeader = buildCookieHeader(loginResponse)
@@ -804,8 +802,7 @@ async function runTargetedRouteWarmup() {
     }
 
     const errorMessage = error instanceof Error ? error.message : 'unknown error'
-    const loginStatus = error && typeof error === 'object' ? error.warmupLoginStatus : undefined
-    const isCredentialsFailure = loginStatus === 401
+    const isCredentialsFailure = error instanceof LoginError && error.status === 401
     const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
     const loginUrl = runtimeWarmupState.baseUrl
       ? `${runtimeWarmupState.baseUrl}/login`
