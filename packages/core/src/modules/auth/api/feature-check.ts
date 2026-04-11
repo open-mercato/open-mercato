@@ -15,6 +15,7 @@ const featureCheckRequestSchema = z.object({
 const featureCheckResponseSchema = z.object({
   ok: z.boolean().describe('Indicates whether all requested features are granted'),
   granted: z.array(z.string()).describe('Features the current user may access'),
+  userId: z.string().describe('ID of the authenticated user'),
 })
 
 export async function POST(req: Request) {
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
 
   const features = parsed.data.features
   if (!features.length) {
-    return NextResponse.json({ ok: true, granted: [] })
+    return NextResponse.json({ ok: true, granted: [], userId: auth.sub })
   }
 
   const container = await createRequestContainer()
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
   const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
   // Return which features the user has (for batch checking)
   if (ok) {
-    return NextResponse.json({ ok: true, granted: features })
+    return NextResponse.json({ ok: true, granted: features, userId: auth.sub })
   }
 
   // Check individually to see which features are granted
@@ -53,7 +54,7 @@ export async function POST(req: Request) {
     if (hasFeature) granted.push(f)
   }
 
-  return NextResponse.json({ ok: false, granted })
+  return NextResponse.json({ ok: false, granted, userId: auth.sub })
 }
 
 const featureCheckMethodDoc: OpenApiMethodDoc = {
