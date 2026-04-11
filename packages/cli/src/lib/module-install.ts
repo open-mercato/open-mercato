@@ -23,12 +23,14 @@ type InstallTarget = {
   args: string[]
 }
 
-function resolveYarnBinary(): string {
-  return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
+/** @internal */
+export function resolveYarnBinary(platform = process.platform): string {
+  return platform === 'win32' ? 'yarn.cmd' : 'yarn'
 }
 
-function resolveWindowsCommandShim(binary: string, args: string[]): { command: string; args: string[] } {
-  if (process.platform !== 'win32' || !binary.toLowerCase().endsWith('.cmd')) {
+/** @internal */
+export function resolveWindowsCommandShim(binary: string, args: string[], platform = process.platform): { command: string; args: string[] } {
+  if (platform !== 'win32' || !binary.toLowerCase().endsWith('.cmd')) {
     return { command: binary, args }
   }
 

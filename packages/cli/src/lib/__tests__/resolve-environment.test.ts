@@ -4,6 +4,16 @@ import { realpathSync } from 'node:fs'
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
 import { resolveEnvironment } from '../resolver'
 
+async function trySymlink(target: string, linkPath: string): Promise<boolean> {
+  try {
+    await symlink(target, linkPath)
+    return true
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'EPERM') return false
+    throw err
+  }
+}
+
 const normalizePath = (p: string) => p.replace(/\\/g, '/')
 
 async function makeDir(root: string, ...segments: string[]): Promise<string> {
@@ -108,7 +118,12 @@ describe('resolveEnvironment', () => {
       //            tempRoot/node_modules/@open-mercato/core -> ../../packages/core (symlink)
       const packagesCore = await makeDir(tempRoot, 'packages', 'core')
       const nmOpen = await makeDir(tempRoot, 'node_modules', '@open-mercato')
-      await symlink(packagesCore, path.join(nmOpen, 'core'))
+      const created = await trySymlink(packagesCore, path.join(nmOpen, 'core'))
+
+      if (!created) {
+        // Windows without Developer Mode — symlink creation requires elevated permissions
+        return
+      }
 
       const env = resolveEnvironment(tempRoot)
 
@@ -119,7 +134,12 @@ describe('resolveEnvironment', () => {
     it('resolves packageRoot under packages/ in monorepo mode', async () => {
       const packagesCore = await makeDir(tempRoot, 'packages', 'core')
       const nmOpen = await makeDir(tempRoot, 'node_modules', '@open-mercato')
-      await symlink(packagesCore, path.join(nmOpen, 'core'))
+      const created = await trySymlink(packagesCore, path.join(nmOpen, 'core'))
+
+      if (!created) {
+        // Windows without Developer Mode — symlink creation requires elevated permissions
+        return
+      }
 
       const env = resolveEnvironment(tempRoot)
 
