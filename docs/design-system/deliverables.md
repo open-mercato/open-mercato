@@ -1,29 +1,29 @@
 # C. Deliverables
 
-> Lista oczekiwanych wyników po hackathonie.
+> List of expected outputs after the hackathon.
 
 ---
 
-Po hackathonie (SO 12.04 11:00) powinny byc gotowe:
+After the hackathon (SAT 04/12 11:00) the following should be ready:
 
-1. **Audit checklist** — ten dokument (Czesc 1) ✅ (gotowy przed hackathon)
-2. **Design Principles** — 8 principles z checklist do PR review (BLOK 5)
-3. **Foundations v0** — semantic color tokens w globals.css, typography scale, spacing guidelines, z-index scale, border-radius guidelines (BLOK 1 + BLOK 5)
-4. **Lista komponentow MVP** — z priorytetami i statusem ✅ (gotowa przed hackathon)
-5. **Nowe/zaktualizowane komponenty** (BLOK 2 + BLOK 3):
+1. **Audit checklist** — this document (Part 1) ✅ (ready before hackathon)
+2. **Design Principles** — 8 principles with PR review checklist (BLOCK 5)
+3. **Foundations v0** — semantic color tokens in globals.css, typography scale, spacing guidelines, z-index scale, border-radius guidelines (BLOCK 1 + BLOCK 5)
+4. **Component MVP list** — with priorities and status ✅ (ready before hackathon)
+5. **New/updated components** (BLOCK 2 + BLOCK 3):
    - Alert (semantic tokens + compact + dismissible)
-   - Notice (deprecated, deleguje do Alert)
+   - Notice (deprecated, delegates to Alert)
    - FormField wrapper
    - StatusBadge
    - SectionHeader / Section
    - Badge (+ status variants)
    - FlashMessages (semantic tokens)
    - CrudForm FieldControl (semantic tokens)
-6. **Zmigrowany modul referencyjny** — customers module (BLOK 4)
-7. **Documentation** (BLOK 5):
+6. **Migrated reference module** — customers module (BLOCK 4)
+7. **Documentation** (BLOCK 5):
    - Design Principles document
    - PR Review Checklist (checkboxes)
-   - AGENTS.md update z DS rules
+   - AGENTS.md update with DS rules
    - PR template update
    - ds-health-check.sh baseline report
 
@@ -31,6 +31,6 @@ Po hackathonie (SO 12.04 11:00) powinny byc gotowe:
 
 ## See also
 
-- [Hackathon Plan](./hackathon-plan.md) — plan realizacji
-- [Components](./components.md) — lista komponentów MVP
+- [Hackathon Plan](./hackathon-plan.md) — execution plan
+- [Components](./components.md) — component MVP list
 - [Foundations](./foundations.md) — foundations v0

@@ -1,7 +1,7 @@
 #!/bin/bash
 # ds-migrate-colors.sh
 # Portable: macOS + Linux (uses perl -i -pe instead of sed -i)
-# Uruchamiać per-moduł, potem review diff
+# Run per module, then review the diff
 
 set -euo pipefail
 MODULE_PATH="$1"

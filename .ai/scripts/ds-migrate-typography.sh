@@ -1,10 +1,10 @@
 #!/bin/bash
 # ds-migrate-typography.sh
 # Portable: macOS + Linux (uses perl -i -pe instead of sed -i)
-# Uruchamiać per-moduł, potem review diff
+# Run per module, then review the diff
 
 set -euo pipefail
-MODULE_PATH="$1"  # np. packages/core/src/modules/customers
+MODULE_PATH="$1"  # e.g. packages/core/src/modules/customers
 
 if [ -z "$MODULE_PATH" ]; then
   echo "Usage: bash ds-migrate-typography.sh <module-path>"

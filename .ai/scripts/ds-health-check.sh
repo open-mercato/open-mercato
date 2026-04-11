@@ -1,7 +1,7 @@
 #!/bin/bash
-# ds-health-check.sh — uruchamiac co sprint
-# Uzycie: bash .ai/scripts/ds-health-check.sh
-# Portable: dziala na macOS i Linux
+# ds-health-check.sh — run every sprint
+# Usage: bash .ai/scripts/ds-health-check.sh
+# Portable: works on macOS and Linux
 
 set -euo pipefail
 
@@ -11,12 +11,12 @@ mkdir -p "$REPORT_DIR"
 DATE=$(date +%Y-%m-%d)
 REPORT_FILE="$REPORT_DIR/ds-health-$DATE.txt"
 
-# Funkcja zapisu do stdout i pliku jednoczesnie
+# Write to stdout and file simultaneously
 report() {
   echo "$1" | tee -a "$REPORT_FILE"
 }
 
-# Wyczysc plik raportu (nowy raport)
+# Clear report file (new report)
 > "$REPORT_FILE"
 
 report "=== DESIGN SYSTEM HEALTH CHECK ==="
@@ -68,7 +68,7 @@ report "  Pages with loading state: $LS / $PAGES ($LPCT%)"
 report ""
 report "=== END REPORT ==="
 
-# Porownanie z poprzednim raportem
+# Compare with previous report
 PREV=$(ls -1 "$REPORT_DIR"/ds-health-*.txt 2>/dev/null | grep -v "$DATE" | sort | tail -1)
 if [ -n "${PREV:-}" ] && [ -f "$PREV" ]; then
   echo ""

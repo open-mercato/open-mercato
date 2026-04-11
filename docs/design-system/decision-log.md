@@ -1,124 +1,124 @@
 # R. Decision Log
 
-> Rejestr decyzji architektonicznych DS (DR-001 – DR-010) z kontekstem, alternatywami i datami.
+> Registry of DS architectural decisions (DR-001 – DR-010) with context, alternatives, and dates.
 
 ---
 
 
-### R.1 Format Decision Record
+### R.1 Decision Record Format
 
 ```markdown
-### DR-NNN: [Tytuł decyzji]
-**Data:** YYYY-MM-DD
+### DR-NNN: [Decision title]
+**Date:** YYYY-MM-DD
 **Status:** Accepted | Proposed | Deprecated
-**Kontekst:** [1-2 zdania — jaki problem rozwiązujemy]
-**Decyzja:** [1-2 zdania — co zdecydowaliśmy]
-**Uzasadnienie:** [2-3 zdania — dlaczego tak, a nie inaczej]
-**Alternatywy rozważane:** [lista odrzuconych opcji z 1-zdaniowym powodem]
-**Konsekwencje:** [co to oznacza w praktyce]
+**Context:** [1-2 sentences — what problem we're solving]
+**Decision:** [1-2 sentences — what we decided]
+**Rationale:** [2-3 sentences — why this and not another option]
+**Alternatives considered:** [list of rejected options with a 1-sentence reason]
+**Consequences:** [what this means in practice]
 ```
 
-**Gdzie przechowywać: `packages/ui/decisions/` jako pliki DR-NNN.md.**
+**Where to store: `packages/ui/decisions/` as individual DR-NNN.md files.**
 
-Uzasadnienie: Obok kodu, wersjonowane w git, reviewowane w PR-ach. Nie GitHub Discussions — bo te toną w feedzie i nie są wersjonowane. Nie w głównym dokumencie DS — bo rośnie za szybko. Osobne pliki = łatwy link z komentarzy PR ("see DR-001 for why we don't use opacity tokens").
+Rationale: Next to the code, versioned in git, reviewed in PRs. Not GitHub Discussions — those get buried in the feed and are not versioned. Not in the main DS document — it grows too quickly. Separate files = easy to link from PR comments ("see DR-001 for why we don't use opacity tokens").
 
-### R.2 Kluczowe decyzje
+### R.2 Key Decisions
 
-#### DR-001: Flat tokens zamiast opacity-based
-**Data:** 2026-04-10
+#### DR-001: Flat tokens instead of opacity-based
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** Potrzebujemy tokenów kolorów statusowych (error/success/warning/info) z oddzielnymi wartościami dla bg, text, border, icon. Do wyboru: jeden bazowy token + opacity modifiers w Tailwind (`bg-status-error/5`) vs oddzielne flat tokens per rola.
-**Decyzja:** Flat tokens — oddzielna CSS custom property per rola z pełną wartością koloru, oddzielną dla light i dark mode.
-**Uzasadnienie:** Opacity-based tokens nie kontrolują kontrastu w dark mode. `oklch(0.577 0.245 27) / 5%` na białym tle daje subtlny róż, ale na czarnym tle jest niewidoczny. Flat tokens dają pełną kontrolę kontrastu w obu trybach. 20 dodatkowych custom properties to akceptowalny koszt wobec gwarancji accessibility.
-**Alternatywy rozważane:** Opacity-based (mniej tokenów, ale broken dark mode), hybrid (complex, two mental models).
-**Konsekwencje:** 20+20 CSS custom properties (light+dark). Naming: `--status-{status}-{role}`. Tailwind mapping via `@theme inline`.
+**Context:** We need status color tokens (error/success/warning/info) with separate values for bg, text, border, icon. Options: one base token + opacity modifiers in Tailwind (`bg-status-error/5`) vs separate flat tokens per role.
+**Decision:** Flat tokens — a separate CSS custom property per role with the full color value, separate for light and dark mode.
+**Rationale:** Opacity-based tokens don't control contrast in dark mode. `oklch(0.577 0.245 27) / 5%` on a white background gives a subtle pink, but on a black background it is invisible. Flat tokens provide full contrast control in both modes. 20 additional custom properties are an acceptable cost for guaranteed accessibility.
+**Alternatives considered:** Opacity-based (fewer tokens, but broken dark mode), hybrid (complex, two mental models).
+**Consequences:** 20+20 CSS custom properties (light+dark). Naming: `--status-{status}-{role}`. Tailwind mapping via `@theme inline`.
 
-#### DR-002: Geist Sans jako primary font
-**Data:** 2026-04-10
+#### DR-002: Geist Sans as the primary font
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** Projekt używa Geist Sans od początku. Alternatywy to Inter (popularny w SaaS) lub System UI stack (zero web font loading).
-**Decyzja:** Zachowujemy Geist Sans. Zero zmian.
-**Uzasadnienie:** Geist jest już wdrożone z font optimization w Next.js. Zmiana fontu to zmiana visual identity — wykracza poza scope DS foundation. Geist ma świetny rendering w małych rozmiarach co jest kluczowe dla dense data UI jak ERP.
-**Alternatywy rozważane:** Inter (requires migration, minimal visual difference), System UI (inconsistent across OS).
-**Konsekwencje:** Brak dodatkowej pracy. Font załadowany via `next/font/local`.
+**Context:** The project has been using Geist Sans from the beginning. Alternatives are Inter (popular in SaaS) or a System UI stack (zero web font loading).
+**Decision:** Keep Geist Sans. Zero changes.
+**Rationale:** Geist is already implemented with font optimization in Next.js. Changing the font means changing the visual identity — that is beyond the scope of DS foundations. Geist has excellent rendering at small sizes, which is critical for dense data UI like ERP.
+**Alternatives considered:** Inter (requires migration, minimal visual difference), System UI (inconsistent across OS).
+**Consequences:** No additional work. Font loaded via `next/font/local`.
 
-#### DR-003: lucide-react jako jedyna icon library
-**Data:** 2026-04-10
+#### DR-003: lucide-react as the only icon library
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** Codebase używa lucide-react plus 14 plików z inline SVG (portal, auth, workflows). Dostępne alternatywy: Phosphor, Heroicons, mix.
-**Decyzja:** lucide-react jako jedyne źródło ikon. Inline SVG do zmigrowania.
-**Uzasadnienie:** lucide-react jest już dominującą biblioteką w projekcie. Ma 1400+ ikon, spójne stroke width (2px default), tree-shakeable. Dodanie drugiej biblioteki ikon to gwarantowana niespójność (różne stroke widths, sizing conventions). 14 inline SVG to jednorazowa migracja.
-**Alternatywy rozważane:** Phosphor (6 weight variants — overkill), Heroicons (smaller set, different style), mix (inconsistent).
-**Konsekwencje:** Nowe ikony tylko z lucide-react. Inline SVG zmigrowane w ramach module migration.
+**Context:** The codebase uses lucide-react plus 14 files with inline SVGs (portal, auth, workflows). Available alternatives: Phosphor, Heroicons, mix.
+**Decision:** lucide-react as the sole source of icons. Inline SVGs to be migrated.
+**Rationale:** lucide-react is already the dominant icon library in the project. It has 1400+ icons, consistent stroke width (2px default), and is tree-shakeable. Adding a second icon library guarantees inconsistency (different stroke widths, sizing conventions). The 14 inline SVGs are a one-time migration.
+**Alternatives considered:** Phosphor (6 weight variants — overkill), Heroicons (smaller set, different style), mix (inconsistent).
+**Consequences:** New icons come only from lucide-react. Inline SVGs migrated as part of module migration.
 
-#### DR-004: Alert jako unified feedback component
-**Data:** 2026-04-10
+#### DR-004: Alert as the unified feedback component
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** Dwa komponenty inline feedback — Notice (3 warianty, 7 importów) i Alert (5 wariantów, 18 importów). Różne API, różne kolory.
-**Decyzja:** Alert jako primary. Notice deprecated z bridge period ≥1 minor version.
-**Uzasadnienie:** Alert ma więcej wariantów (5 vs 3), więcej importów (18 vs 7), i używa CVA (łatwe do rozszerzenia). Notice dodaje jedynie `compact` prop — łatwy do dodania w Alert. Ujednolicenie 4 różnych palet kolorów (sekcja 1.5) dla tego samego celu semantycznego wymaga jednego źródła prawdy.
-**Alternatywy rozważane:** Notice jako primary (fewer variants, less adoption), nowy komponent (unnecessary churn), utrzymanie obu (perpetuates inconsistency).
-**Konsekwencje:** Alert rozszerzony o `compact?`, `dismissible?`, `onDismiss?`. Notice ← `@deprecated` JSDoc + runtime console.warn. 7 importów Notice do zmigrowania.
+**Context:** Two inline feedback components — Notice (3 variants, 7 imports) and Alert (5 variants, 18 imports). Different APIs, different colors.
+**Decision:** Alert as primary. Notice deprecated with a bridge period of >=1 minor version.
+**Rationale:** Alert has more variants (5 vs 3), more imports (18 vs 7), and uses CVA (easy to extend). Notice only adds a `compact` prop — easy to add to Alert. Unifying 4 different color palettes (section 1.5) for the same semantic purpose requires a single source of truth.
+**Alternatives considered:** Notice as primary (fewer variants, less adoption), new component (unnecessary churn), keeping both (perpetuates inconsistency).
+**Consequences:** Alert extended with `compact?`, `dismissible?`, `onDismiss?`. Notice gets `@deprecated` JSDoc + runtime `console.warn` in dev mode. 7 Notice imports to migrate.
 
-#### DR-005: FormField jako oddzielny komponent od CrudForm
-**Data:** 2026-04-10
+#### DR-005: FormField as a separate component from CrudForm
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** CrudForm (1800 linii) ma wbudowany FieldControl z label + input + error. Portal i auth pages budują formularze ręcznie z niespójnym styling. Potrzebny reusable form field wrapper.
-**Decyzja:** Nowy `FormField` primitive w `packages/ui/src/primitives/form-field.tsx`, niezależny od CrudForm.
-**Uzasadnienie:** Refaktoryzacja CrudForm żeby wyeksponować FieldControl jako public API wymaga zmian w 1800-liniowym pliku używanym na ~20 stronach — ryzyko regresji jest zbyt duże na hackathon. Oddzielny FormField jest prosty, testowalny, i natychmiast użyteczny w portal/auth pages. CrudForm może go adoptować wewnętrznie w przyszłej iteracji.
-**Alternatywy rozważane:** Refactoring CrudForm (high risk, high reward but wrong timing), extract from CrudForm (tight coupling to CrudForm internals).
-**Konsekwencje:** FormField: `label?`, `required?`, `labelVariant?`, `description?`, `error?`, `children`. CrudForm nadal używa wewnętrznego FieldControl. Unifikacja w przyszłej iteracji.
+**Context:** CrudForm (1800 lines) has a built-in FieldControl with label + input + error. Portal and auth pages build forms manually with inconsistent styling. A reusable form field wrapper is needed.
+**Decision:** New `FormField` primitive in `packages/ui/src/primitives/form-field.tsx`, independent of CrudForm.
+**Rationale:** Refactoring CrudForm to expose FieldControl as a public API requires changes to an 1800-line file used on ~20 pages — the regression risk is too high for a hackathon. A separate FormField is simple, testable, and immediately useful in portal/auth pages. CrudForm can adopt it internally in a future iteration.
+**Alternatives considered:** Refactoring CrudForm (high risk, high reward but wrong timing), extract from CrudForm (tight coupling to CrudForm internals).
+**Consequences:** FormField: `label?`, `required?`, `labelVariant?`, `description?`, `error?`, `children`. CrudForm continues using its internal FieldControl. Unification in a future iteration.
 
 #### DR-006: OKLCH color space
-**Data:** 2026-04-10
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** Projekt już używa OKLCH w CSS custom properties (globals.css). Alternatywy: HSL (szerzej rozumiane), hex (tradycyjne).
-**Decyzja:** Zachowujemy OKLCH.
-**Uzasadnienie:** OKLCH jest perceptually uniform — zmiana lightness o tę samą wartość daje postrzeganą zmianę jasności. To kluczowe dla generowania spójnych palet statusowych (error, success, warning, info) z kontrolowanym kontrastem. HSL nie jest perceptually uniform — `hsl(0, 70%, 50%)` i `hsl(120, 70%, 50%)` mają różną perceived brightness. OKLCH jest zaimplementowane — zmiana to koszt bez korzyści.
-**Alternatywy rozważane:** HSL (wider support, not perceptually uniform), hex (no manipulation possible).
-**Konsekwencje:** Wszystkie nowe tokeny w OKLCH. Sprawdzanie kontrastu wymaga narzędzi OKLCH-aware (Chrome DevTools 120+).
+**Context:** The project already uses OKLCH in CSS custom properties (globals.css). Alternatives: HSL (more widely understood), hex (traditional).
+**Decision:** Keep OKLCH.
+**Rationale:** OKLCH is perceptually uniform — changing lightness by the same amount produces a perceived brightness change of equal magnitude. This is critical for generating consistent status palettes (error, success, warning, info) with controlled contrast. HSL is not perceptually uniform — `hsl(0, 70%, 50%)` and `hsl(120, 70%, 50%)` have different perceived brightness. OKLCH is already implemented — changing it is cost without benefit.
+**Alternatives considered:** HSL (wider support, not perceptually uniform), hex (no manipulation possible).
+**Consequences:** All new tokens in OKLCH. Checking contrast requires OKLCH-aware tools (Chrome DevTools 120+).
 
-#### DR-007: Tailwind scale + text-overline zamiast custom type scale
-**Data:** 2026-04-10
+#### DR-007: Tailwind scale + text-overline instead of a custom type scale
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** 61 arbitralnych rozmiarów tekstu (text-[11px], text-[13px], etc.). Opcje: pełna custom typography scale (heading-1 through caption) vs leverage Tailwind + single custom token.
-**Decyzja:** Tailwind scale jako primary + jeden custom token `text-overline` (11px, uppercase, tracking-wider) dla label pattern.
-**Uzasadnienie:** Pełna custom scale duplikuje to co Tailwind już oferuje (text-xs, text-sm, text-base, text-lg, text-xl, text-2xl). Jedyny brakujący rozmiar to 11px uppercase label (33 wystąpienia text-[11px]) — dostaje dedykowany token. Reszta arbitralnych rozmiarów (text-[13px], text-[10px]) mapuje na najbliższy Tailwind size.
-**Alternatywy rozważane:** Full custom scale (maintenance burden, duplicates Tailwind), no custom tokens (loses 11px pattern).
-**Konsekwencje:** `--font-size-overline: 0.6875rem`. Codemod mapuje: `text-[11px]` → `text-overline`, `text-[13px]` → `text-sm`, `text-[10px]` → `text-xs`.
+**Context:** 61 arbitrary text sizes (text-[11px], text-[13px], etc.). Options: a full custom typography scale (heading-1 through caption) vs leveraging Tailwind + a single custom token.
+**Decision:** Tailwind scale as primary + one custom token `text-overline` (11px, uppercase, tracking-wider) for the label pattern.
+**Rationale:** A full custom scale duplicates what Tailwind already offers (text-xs, text-sm, text-base, text-lg, text-xl, text-2xl). The only missing size is the 11px uppercase label (33 occurrences of text-[11px]) — it gets a dedicated token. The remaining arbitrary sizes (text-[13px], text-[10px]) map to the nearest Tailwind size.
+**Alternatives considered:** Full custom scale (maintenance burden, duplicates Tailwind), no custom tokens (loses 11px pattern).
+**Consequences:** `--font-size-overline: 0.6875rem`. Codemod maps: `text-[11px]` -> `text-overline`, `text-[13px]` -> `text-sm`, `text-[10px]` -> `text-xs`.
 
-#### DR-008: Per-module migration zamiast big-bang
-**Data:** 2026-04-10
+#### DR-008: Per-module migration instead of big-bang
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** 372 hardcoded kolorów w 34 modułach. Opcje: migracja wszystkiego naraz (big-bang) vs moduł po module.
-**Decyzja:** Per-module migration. Customers → Sales → Catalog → reszta organicznie.
-**Uzasadnienie:** Big-bang tworzy massive PR (100+ plików) który jest niemożliwy do review, łatwy do złamania, i blokuje wszystkie inne PR-y na czas merge. Per-module: każdy PR to 5-15 plików, reviewowalny w 30 minut, merge nie blokuje innych. Codemod script (sekcja J) automatyzuje 80% pracy. Pozwala też na validację — jeśli migracja customers ujawni problem z tokenami, naprawiamy ZANIM migrujemy 33 kolejne moduły.
-**Alternatywy rozważane:** Big-bang (fast but high risk, unreviewable), file-by-file (too granular, PR spam).
-**Konsekwencje:** ~34 PR-y migracyjne, 1-2h każdy. Lint rules `warn` na legacy, `error` na nowym kodzie. Dashboard (`ds-health-check.sh`) trackuje postęp.
+**Context:** 372 hardcoded colors across 34 modules. Options: migrate everything at once (big-bang) vs module by module.
+**Decision:** Per-module migration. Customers -> Sales -> Catalog -> the rest organically.
+**Rationale:** Big-bang creates a massive PR (100+ files) that is impossible to review, easy to break, and blocks all other PRs during merge. Per-module: each PR is 5-15 files, reviewable in 30 minutes, and merging doesn't block others. The codemod script (section J) automates 80% of the work. It also allows validation — if the customers migration reveals a problem with tokens, we fix it BEFORE migrating the remaining 33 modules.
+**Alternatives considered:** Big-bang (fast but high risk, unreviewable), file-by-file (too granular, PR spam).
+**Consequences:** ~34 migration PRs, 1-2h each. Lint rules `warn` on legacy, `error` on new code. Dashboard (`ds-health-check.sh`) tracks progress.
 
 #### DR-009: warn-then-error lint strategy
-**Data:** 2026-04-10
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** 6 nowych lint rules DS. Opcje: od razu error (blokuje CI), warn (informuje bez blokowania), warn→error po migracji.
-**Decyzja:** warn na legacy, error na nowych modułach. Po migracji modułu → error globalnie.
-**Uzasadnienie:** Natychmiastowy error na 372 violations = zablokowany CI dla całego projektu. Nikt nie zmerguje niczego dopóki ktoś nie naprawi legacy. To paraliżuje development. warn pozwala kontynuować pracę, jednocześnie edukując (contributor widzi warning, uczy się). error na nowych plikach zapobiega nowej legacy. Gradual ramp-up.
-**Alternatywy rozważane:** Immediate error (blocks CI), warn forever (no enforcement), eslint-disable (defeats purpose).
-**Konsekwencje:** ESLint config z dwoma blokami — strict dla nowych plików, lenient dla legacy. Po migracji modułu: przenosimy pliki do strict.
+**Context:** 6 new DS lint rules. Options: error immediately (blocks CI), warn (informs without blocking), warn -> error after migration.
+**Decision:** warn on legacy, error on new modules. After a module is migrated -> error globally.
+**Rationale:** Immediate error on 372 violations = blocked CI for the entire project. Nobody merges anything until someone fixes legacy. That paralyzes development. warn allows work to continue while educating (contributors see warnings, learn). error on new files prevents new legacy. Gradual ramp-up.
+**Alternatives considered:** Immediate error (blocks CI), warn forever (no enforcement), eslint-disable (defeats purpose).
+**Consequences:** ESLint config with two blocks — strict for new files, lenient for legacy. After a module is migrated: move files to strict.
 
 #### DR-010: StatusBadge + StatusMap pattern
-**Data:** 2026-04-10
+**Date:** 2026-04-10
 **Status:** Accepted
-**Kontekst:** Każdy moduł definiuje własne kolory statusów (hardcoded). Opcje: rozszerzenie Badge o status variants vs oddzielny StatusBadge.
-**Decyzja:** Oddzielny StatusBadge (semantic wrapper) który renderuje Badge wewnętrznie. Badge dostaje nowe CVA variants (success, warning, info).
-**Uzasadnienie:** StatusBadge i Badge mają różne API kontrakty. Badge to generic visual component (`variant: 'default'|'secondary'|'destructive'|...`). StatusBadge to semantic component (`variant: 'success'|'warning'|'error'|'info'|'neutral'`) — contributor myśli "jaki status?" nie "jaki styl?". Oddzielny komponent umożliwia dodanie `dot` indicator, animacji, i mapowania status→variant bez zaśmiecania Badge. Wewnętrznie: `StatusBadge variant="success"` → `Badge variant="success"`.
-**Alternatywy rozważane:** Extend Badge only (mixes semantic and visual concerns), StatusBadge without Badge (duplication).
-**Konsekwencje:** `StatusBadge` w `packages/ui/src/primitives/status-badge.tsx`. Badge w `badge.tsx` ← 3 nowe CVA variants. Zero breaking changes w istniejącym Badge API.
+**Context:** Each module defines its own status colors (hardcoded). Options: extend Badge with status variants vs a separate StatusBadge.
+**Decision:** Separate StatusBadge (semantic wrapper) that renders Badge internally. Badge gets new CVA variants (success, warning, info).
+**Rationale:** StatusBadge and Badge have different API contracts. Badge is a generic visual component (`variant: 'default'|'secondary'|'destructive'|...`). StatusBadge is a semantic component (`variant: 'success'|'warning'|'error'|'info'|'neutral'`) — the contributor thinks "what status?" not "what style?". A separate component enables adding a `dot` indicator, animations, and status-to-variant mapping without cluttering Badge. Internally: `StatusBadge variant="success"` -> `Badge variant="success"`.
+**Alternatives considered:** Extend Badge only (mixes semantic and visual concerns), StatusBadge without Badge (duplication).
+**Consequences:** `StatusBadge` in `packages/ui/src/primitives/status-badge.tsx`. Badge in `badge.tsx` gets 3 new CVA variants. Zero breaking changes to the existing Badge API.
 
 
 ---
 
 ## See also
 
-- [Foundations](./foundations.md) — implementacja decyzji DR-001–DR-005
-- [Components](./components.md) — implementacja decyzji DR-006–DR-010
-- [Principles](./principles.md) — zasady z których wynikają decyzje
+- [Foundations](./foundations.md) — implementation of decisions DR-001 through DR-005
+- [Components](./components.md) — implementation of decisions DR-006 through DR-010
+- [Principles](./principles.md) — principles from which these decisions derive

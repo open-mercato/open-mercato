@@ -1,142 +1,142 @@
-# B. Plan na Hackathon
+# B. Hackathon Plan
 
-> Szczegółowy plan hackathonu (PT 9:00 – SO 11:00) z blokami czasowymi i deliverables.
-
----
-
-**Czas trwania:** 11 kwietnia 2026 (piatek) 9:00 – 12 kwietnia 2026 (sobota) 11:00
-**Budzet czasu:** ~18h roboczych (26h kalendarzowych minus sen/przerwy)
-**Strategia:** Foundations first, potem komponenty, na koniec dokumentacja. Kazdy blok konczy sie commitem.
+> Detailed hackathon plan (FRI 9:00 -- SAT 11:00) with time blocks and deliverables.
 
 ---
 
-## BLOK 1 — Piątek 9:00–12:00 (3h): Foundations + Tokens
+**Duration:** April 11, 2026 (Friday) 9:00 -- April 12, 2026 (Saturday) 11:00
+**Time budget:** ~18h working (26h calendar minus sleep/breaks)
+**Strategy:** Foundations first, then components, finally documentation. Each block ends with a commit.
 
-**Cel: działające semantic color tokens w Tailwind + documentation foundations**
+---
 
-- [ ] Dodać 20 CSS custom properties do `globals.css` (light mode)
-- [ ] Dodać 20 CSS custom properties do `.dark` (dark mode)
-- [ ] Dodać `text-overline` token (11px)
-- [ ] Dodać `@theme inline` mappings dla Tailwind v4
-- [ ] Zweryfikować contrast w Chrome DevTools (light + dark) — wszystkie 5 statusów
-- [ ] Udokumentować typography scale (tabela)
-- [ ] Udokumentować spacing guidelines (usage rules)
-- [ ] `yarn lint && yarn typecheck` — upewnić się, że nic nie zepsute
+## BLOCK 1 — Friday 9:00-12:00 (3h): Foundations + Tokens
+
+**Goal: working semantic color tokens in Tailwind + foundation documentation**
+
+- [ ] Add 20 CSS custom properties to `globals.css` (light mode)
+- [ ] Add 20 CSS custom properties to `.dark` (dark mode)
+- [ ] Add `text-overline` token (11px)
+- [ ] Add `@theme inline` mappings for Tailwind v4
+- [ ] Verify contrast in Chrome DevTools (light + dark) — all 5 statuses
+- [ ] Document typography scale (table)
+- [ ] Document spacing guidelines (usage rules)
+- [ ] `yarn lint && yarn typecheck` — make sure nothing is broken
 → **Commit:** `feat(ds): add semantic status tokens, text-overline, and foundation docs`
 
-## BLOK 2 — Piątek 13:00–17:00 (4h): Migracja primitives
+## BLOCK 2 — Friday 13:00-17:00 (4h): Primitives migration
 
-**Cel: wszystkie primitives używają semantic tokenów**
+**Goal: all primitives use semantic tokens**
 
-- [ ] Zamienić Alert CVA variants na flat semantic tokens (`alert.tsx` — 4 linie)
-- [ ] Zamienić Notice colors na semantic tokens + deprecation warning (`Notice.tsx`)
-- [ ] Zamienić FlashMessages colors (`FlashMessages.tsx`)
-- [ ] Zamienić Notification severity colors
-- [ ] Dodać status warianty do Badge (`badge.tsx` — success, warning, info)
-- [ ] Zmigrować CrudForm FieldControl colors (`text-red-600` → `text-destructive`)
+- [ ] Replace Alert CVA variants with flat semantic tokens (`alert.tsx` — 4 lines)
+- [ ] Replace Notice colors with semantic tokens + deprecation warning (`Notice.tsx`)
+- [ ] Replace FlashMessages colors (`FlashMessages.tsx`)
+- [ ] Replace Notification severity colors
+- [ ] Add status variants to Badge (`badge.tsx` — success, warning, info)
+- [ ] Migrate CrudForm FieldControl colors (`text-red-600` → `text-destructive`)
 - [ ] `yarn lint && yarn typecheck && yarn test`
 → **Commit:** `refactor(ds): migrate all primitives to semantic status tokens`
 
-## BLOK 3 — Piątek 18:00–20:00 (2h): Nowe komponenty
+## BLOCK 3 — Friday 18:00-20:00 (2h): New components
 
-**Cel: FormField + StatusBadge gotowe (Section jako stretch goal)**
+**Goal: FormField + StatusBadge ready (Section as stretch goal)**
 
-- [ ] Stworzyć `FormField` wrapper (`packages/ui/src/primitives/form-field.tsx`)
-- [ ] Stworzyć `StatusBadge` (`packages/ui/src/primitives/status-badge.tsx`)
-- [ ] Jeśli czas pozwala: `Section` / `SectionHeader` (`packages/ui/src/backend/Section.tsx`)
+- [ ] Create `FormField` wrapper (`packages/ui/src/primitives/form-field.tsx`)
+- [ ] Create `StatusBadge` (`packages/ui/src/primitives/status-badge.tsx`)
+- [ ] If time permits: `Section` / `SectionHeader` (`packages/ui/src/backend/Section.tsx`)
 - [ ] `yarn lint && yarn typecheck`
 → **Commit:** `feat(ds): add FormField, StatusBadge components`
 
-## Piątek 20:00–21:00: PRZERWA / BUFOR
+## Friday 20:00-21:00: BREAK / BUFFER
 
-Odpoczynek. Jeśli Blok 3 się przeciągnął — dokończ go teraz. Nie zaczynaj nowej pracy.
+Rest. If Block 3 ran over — finish it now. Do not start new work.
 
-## BLOK 4 — Piątek 21:00–22:00 (1h): Dokumentacja (lekka praca)
+## BLOCK 4 — Friday 21:00-22:00 (1h): Documentation (light work)
 
-**Cel: principles i checklist gotowe (niskoryzykowa praca na koniec dnia)**
+**Goal: principles and checklist ready (low-risk work at end of day)**
 
-- [ ] Napisać Design Principles — skrócona wersja do README
-- [ ] Napisać PR Review Checklist (checkboxy DS compliance)
-- [ ] Zdefiniować z-index scale + border-radius usage guidelines
+- [ ] Write Design Principles — condensed version for README
+- [ ] Write PR Review Checklist (DS compliance checkboxes)
+- [ ] Define z-index scale + border-radius usage guidelines
 → **Commit:** `docs(ds): add principles, PR review checklist, foundation guidelines`
 
-## BLOK 5 — Sobota 8:00–10:00 (2h): Migracja customers module
+## BLOCK 5 — Saturday 8:00-10:00 (2h): Customers module migration
 
-**Cel: proof of concept — jeden moduł w pełni zmigrowany (świeża głowa)**
+**Goal: proof of concept — one module fully migrated (fresh mind)**
 
-- [ ] Uruchomić `ds-migrate-colors.sh` na `packages/core/src/modules/customers/`
-- [ ] Uruchomić `ds-migrate-typography.sh` na tym samym module
+- [ ] Run `ds-migrate-colors.sh` on `packages/core/src/modules/customers/`
+- [ ] Run `ds-migrate-typography.sh` on the same module
 - [ ] Manual review + fix edge cases
 - [ ] Screenshot before/after (light + dark)
 - [ ] `yarn lint && yarn typecheck && yarn test`
 → **Commit:** `refactor(ds): migrate customers module to DS tokens`
 
-## BLOK 6 — Sobota 10:00–11:00 (1h): Wrap-up
+## BLOCK 6 — Saturday 10:00-11:00 (1h): Wrap-up
 
-**Cel: system gotowy do adopcji**
+**Goal: system ready for adoption**
 
-- [ ] Zaktualizować AGENTS.md z DS rules
-- [ ] Zaktualizować PR template z DS compliance checkboxami
-- [ ] Uruchomić `ds-health-check.sh` — zapisać baseline
+- [ ] Update AGENTS.md with DS rules
+- [ ] Update PR template with DS compliance checkboxes
+- [ ] Run `ds-health-check.sh` — record baseline
 - [ ] Final `yarn lint && yarn typecheck` pass
 → **Commit:** `docs(ds): update AGENTS.md, PR template, baseline report`
 
 ---
 
-**Bufor:** Plan pokrywa ~13h. Zostaje ~5h buforu na:
-- Edge case'y w migracji customers
+**Buffer:** Plan covers ~13h. ~5h of buffer remains for:
+- Edge cases in customers migration
 - Debugging dark mode contrast
-- Section component (jeśli nie zmieścił się w Bloku 3)
-- Niespodzianki w CrudForm FieldControl
+- Section component (if it did not fit in Block 3)
+- Surprises in CrudForm FieldControl
 
 ---
 
-## B.1 Cut Lines — co jeśli nie zdążymy
+## B.1 Cut Lines — what if we run out of time
 
-### MUST HAVE — 8h minimum (Bloki 1 + 2)
+### MUST HAVE — 8h minimum (Blocks 1 + 2)
 
-**Definicja sukcesu:** Semantic color tokens istnieją i są używane przez istniejące komponenty. Nowe PR-y mogą korzystać z tokenów. Dark mode działa.
+**Definition of success:** Semantic color tokens exist and are used by existing components. New PRs can use the tokens. Dark mode works.
 
-Commity:
+Commits:
 1. `feat(ds): add semantic status tokens, text-overline, and foundation docs`
 2. `refactor(ds): migrate all primitives to semantic status tokens`
 
-**Co to daje:**
-- 20 semantic tokens w globals.css (light + dark)
-- Alert, Notice, Badge, FlashMessages, Notifications — wszystkie na tokenach
-- CrudForm FieldControl — error colors na tokenach
-- Typography scale i spacing guidelines udokumentowane
-- Foundation na której buduje się reszta
+**What this delivers:**
+- 20 semantic tokens in globals.css (light + dark)
+- Alert, Notice, Badge, FlashMessages, Notifications — all on tokens
+- CrudForm FieldControl — error colors on tokens
+- Typography scale and spacing guidelines documented
+- Foundation on which everything else is built
 
-**Jeśli nic więcej nie zdążymy** — hackathon jest sukcesem. Mamy system tokenów, który eliminuje 80% problemu kolorystycznego. Każdy nowy PR od teraz może używać `text-status-error-text` zamiast `text-red-600`.
+**If nothing else gets done** — the hackathon is a success. We have a token system that eliminates 80% of the color problem. Every new PR from now on can use `text-status-error-text` instead of `text-red-600`.
 
-### SHOULD HAVE — 14h (+ Bloki 3, 4)
+### SHOULD HAVE — 14h (+ Blocks 3, 4)
 
-**Commity dodatkowe:**
+**Additional commits:**
 3. `feat(ds): add FormField, StatusBadge components`
 4. `docs(ds): add principles, PR review checklist, foundation guidelines`
 
-**Co to dodaje:**
-- Nowe komponenty do użycia od zaraz
-- Principles i PR checklist — enforcement dla contributorów
-- Z-index scale i border-radius guidelines
+**What this adds:**
+- New components ready for immediate use
+- Principles and PR checklist — enforcement for contributors
+- Z-index scale and border-radius guidelines
 
-### NICE TO HAVE — 18h (+ Bloki 5, 6)
+### NICE TO HAVE — 18h (+ Blocks 5, 6)
 
-**Commity dodatkowe:**
+**Additional commits:**
 5. `refactor(ds): migrate customers module to DS tokens`
 6. `docs(ds): update AGENTS.md, PR template, baseline report`
 
-**Co to dodaje:**
-- Proof of concept: cały moduł zmigrowany
-- AGENTS.md rules — AI agents generują DS-compliant kod
-- Baseline health report do trackowania postępu
-- Section component (jeśli zmieścił się w buforze)
+**What this adds:**
+- Proof of concept: entire module migrated
+- AGENTS.md rules — AI agents generate DS-compliant code
+- Baseline health report for tracking progress
+- Section component (if it fit in the buffer)
 
 ---
 
 ## See also
 
-- [Executive Summary](./executive-summary.md) — podsumowanie strategiczne
-- [Deliverables](./deliverables.md) — lista oczekiwanych wyników
-- [Enforcement](./enforcement.md) — plan egzekucji po hackathonie
+- [Executive Summary](./executive-summary.md) — strategic summary
+- [Deliverables](./deliverables.md) — list of expected outputs
+- [Enforcement](./enforcement.md) — post-hackathon enforcement plan

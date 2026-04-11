@@ -1,71 +1,71 @@
-# Część 3 — Foundations
+# Part 3 — Foundations
 
-> Tokeny, skale i wytyczne fundacyjne: kolory, typografia, spacing, z-index, border-radius, breakpoints, ikony.
+> Tokens, scales, and foundational guidelines: colors, typography, spacing, z-index, border-radius, breakpoints, icons.
 
 ---
 
 ## 3.1 Color System
 
-### Co obejmuje
-Pelny system kolorow obejmujacy: palette, semantic tokens, status colors, surface colors, interactive colors, chart colors.
+### What it covers
+A full color system covering: palette, semantic tokens, status colors, surface colors, interactive colors, chart colors.
 
-### Po co jest potrzebny
-Eliminuje 372 hardcoded kolorow. Umozliwia dark mode. Centralizuje decyzje kolorystyczne.
+### Why it's needed
+Eliminates 372 hardcoded colors. Enables dark mode. Centralizes color decisions.
 
-### Decyzje do podjecia
-- Czy zachowac OKLCH? (TAK — juz wdrozone, nowoczesne, dobre)
-- Ile status colors? (4: error, success, warning, info)
-- Czy dodac "neutral" status? (np. draft, archived)
-- Jak mapowac na Tailwind utilities?
+### Decisions to make
+- Keep OKLCH? (YES — already implemented, modern, good)
+- How many status colors? (4: error, success, warning, info)
+- Add a "neutral" status? (e.g. draft, archived)
+- How to map to Tailwind utilities?
 
-### Decyzja architekturalna: Flat tokens, NIE opacity-based
+### Architectural decision: Flat tokens, NOT opacity-based
 
-**Uzywamy flat tokens** — oddzielny CSS custom property per rola (bg, text, border, icon) z pelna wartoscia koloru. Kazdy token ma oddzielna wartosc dla light i dark mode.
+**Use flat tokens** — a separate CSS custom property per role (bg, text, border, icon) with the full color value. Each token has a separate value for light and dark mode.
 
 ```
-TAK:  --status-error-bg: oklch(0.965 0.015 25);     /* pelna wartosc, kontrolowany kontrast */
+YES:  --status-error-bg: oklch(0.965 0.015 25);     /* full value, controlled contrast */
       .dark { --status-error-bg: oklch(0.220 0.025 25); }
 
-NIE:  --status-error: oklch(0.577 0.245 27);         /* jeden bazowy kolor */
-      bg-status-error/5                                /* opacity w Tailwind */
+NO:   --status-error: oklch(0.577 0.245 27);         /* one base color */
+      bg-status-error/5                                /* opacity in Tailwind */
 ```
 
-**Dlaczego:** Opacity-based tokens (`bg-status-error/5`) nie kontroluja kontrastu w dark mode. `oklch(0.577 0.245 27) / 5%` na bialym tle daje subtlny rozowy, ale na czarnym tle jest prawie niewidoczny. Flat tokens daja pelna kontrole nad kontrastem w obu trybach.
+**Why:** Opacity-based tokens (`bg-status-error/5`) do not control contrast in dark mode. `oklch(0.577 0.245 27) / 5%` on a white background gives a subtle pink, but on a black background is nearly invisible. Flat tokens give full control over contrast in both modes.
 
-**Konwencja naming:**
-- CSS variable: `--status-{status}-{role}` np. `--status-error-bg`
-- Tailwind class: `{property}-status-{status}-{role}` np. `bg-status-error-bg`, `text-status-error-text`
+**Naming convention:**
+- CSS variable: `--status-{status}-{role}` e.g. `--status-error-bg`
+- Tailwind class: `{property}-status-{status}-{role}` e.g. `bg-status-error-bg`, `text-status-error-text`
 - Tailwind mapping: `--color-status-{status}-{role}: var(--status-{status}-{role})`
 
-### Stan obecny
-Dobre: `--primary`, `--secondary`, `--destructive`, `--muted`, `--accent`, `--card`, `--popover`, `--border`, chart colors.
-Brak: semantic status tokens, surface hierarchy, interactive state tokens.
+### Current state
+Good: `--primary`, `--secondary`, `--destructive`, `--muted`, `--accent`, `--card`, `--popover`, `--border`, chart colors.
+Missing: semantic status tokens, surface hierarchy, interactive state tokens.
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
-// Primitive palette (juz istnieje w OKLCH)
+// Primitive palette (already exists in OKLCH)
 color.primary.DEFAULT / foreground
 color.secondary.DEFAULT / foreground
 color.destructive.DEFAULT / foreground
 color.muted.DEFAULT / foreground
 color.accent.DEFAULT / foreground
 
-// Semantic status (BRAKUJE — krytyczne)
+// Semantic status (MISSING — critical)
 color.status.error.bg / text / border / icon
 color.status.success.bg / text / border / icon
 color.status.warning.bg / text / border / icon
 color.status.info.bg / text / border / icon
 color.status.neutral.bg / text / border / icon
 
-// Surface hierarchy (czesciowo istnieje)
+// Surface hierarchy (partially exists)
 color.surface.page          // --background
 color.surface.card          // --card
 color.surface.popover       // --popover
 color.surface.sidebar       // --sidebar
 color.surface.overlay       // bg-black/50
 
-// Interactive (czesciowo w CVA)
+// Interactive (partially in CVA)
 color.interactive.focus      // --ring
 color.interactive.hover      // computed
 color.interactive.disabled   // opacity-50
@@ -76,38 +76,38 @@ color.border.input           // --input
 color.border.focus           // --ring
 ```
 
-### Bledy bez tej warstwy
-- 372 hardcoded kolorow — kazdy contributor "zgaduje" jaki kolor uzyc
-- Dark mode broken dla semantic colors
-- Zmiana palette wymaga grep+replace w calym codebase
+### Errors without this layer
+- 372 hardcoded colors — every contributor "guesses" which color to use
+- Dark mode broken for semantic colors
+- Changing the palette requires grep+replace across the entire codebase
 
-### MVP: **TAK** — semantic status tokens (eliminuje 80% problemu)
-### Pozniej: palette refinement, surface hierarchy documentation
+### MVP: **YES** — semantic status tokens (eliminates 80% of the problem)
+### Later: palette refinement, surface hierarchy documentation
 
 ---
 
 ## 3.2 Typography
 
-### Co obejmuje
+### What it covers
 Font family, size scale, weight scale, line height, letter spacing, text style tokens.
 
-### Po co jest potrzebny
-Eliminuje 61 arbitralnych rozmiarow tekstu. Daje jasna hierarchie wizualna.
+### Why it's needed
+Eliminates 61 arbitrary text sizes. Provides a clear visual hierarchy.
 
-### Decyzje do podjecia
-- Ile poziomow heading? (4-6)
-- Ile rozmiarow body? (2-3: default, small, large)
-- Jakie specjalne style? (caption, label, overline, code)
-- Czy zachowac Geist Sans/Mono? (TAK — juz wdrozone)
+### Decisions to make
+- How many heading levels? (4-6)
+- How many body sizes? (2-3: default, small, large)
+- What special styles? (caption, label, overline, code)
+- Keep Geist Sans/Mono? (YES — already implemented)
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
-// Font family (istnieje)
+// Font family (exists)
 font.sans           // Geist Sans
 font.mono           // Geist Mono
 
-// Size scale (mapowanie na Tailwind)
+// Size scale (mapping to Tailwind)
 text.display        // text-4xl (36px) — hero, landing
 text.heading.1      // text-2xl (24px) — page titles
 text.heading.2      // text-xl (20px) — section titles
@@ -137,33 +137,33 @@ tracking.normal     // 0 — body
 tracking.wide       // 0.05em — labels, overlines
 ```
 
-### Bledy bez tej warstwy
-- `text-[11px]` vs `text-xs` vs `text-[12px]` — 3 sposoby na "maly tekst"
-- 3 rozne warianty letter-spacing dla uppercase labels
-- Brak hierarchii = kazdy contributor wybiera rozmiar "na oko"
+### Errors without this layer
+- `text-[11px]` vs `text-xs` vs `text-[12px]` — 3 ways to express "small text"
+- 3 different letter-spacing variants for uppercase labels
+- No hierarchy = every contributor picks a size "by eye"
 
-### MVP: **TAK** — size scale + text style tokens
-### Pozniej: line height fine-tuning, responsive typography
+### MVP: **YES** — size scale + text style tokens
+### Later: line height fine-tuning, responsive typography
 
 ---
 
 ## 3.3 Spacing Scale
 
-### Co obejmuje
-Siatka spacing, gap/padding/margin scale, breakpoints.
+### What it covers
+Spacing grid, gap/padding/margin scale, breakpoints.
 
-### Po co jest potrzebny
-Standaryzuje odstepy. Eliminuje "dlaczego tu gap-3 a tam gap-4?".
+### Why it's needed
+Standardizes spacing. Eliminates "why gap-3 here but gap-4 there?".
 
-### Decyzje do podjecia
-- Jaka baza? (4px = wersja Tailwind default)
-- Ktore wartosci sa "oficjalne"?
-- Jak dokumentowac "ktory spacing kiedy"?
+### Decisions to make
+- What base? (4px = Tailwind default version)
+- Which values are "official"?
+- How to document "which spacing when"?
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
-// Spacing scale (Tailwind defaults, ale z naming)
+// Spacing scale (Tailwind defaults, but with naming)
 space.0      // 0px
 space.0.5    // 2px — micro spacing (icon-to-text)
 space.1      // 4px — tight spacing (between related elements)
@@ -195,26 +195,26 @@ space.page.section   // space.4
 ```
 
 ### Usage guidelines
-- `gap-2` (8px): default gap miedzy powiazanymi elementami (buttons, badges, inline items)
-- `gap-3` (12px): gap miedzy polami formularza
-- `gap-4` (16px): gap miedzy sekcjami na stronie
-- `gap-6` (24px): gap miedzy glownymi sekcjami strony
-- **NIE uzywac** `gap-5`, `gap-7` — te wartosci nie sa w oficjalnej skali
+- `gap-2` (8px): default gap between related elements (buttons, badges, inline items)
+- `gap-3` (12px): gap between form fields
+- `gap-4` (16px): gap between sections on a page
+- `gap-6` (24px): gap between major page sections
+- **Do NOT use** `gap-5`, `gap-7` — these values are not in the official scale
 
-### MVP: **TAK** — usage guidelines document + lint rules
-### Pozniej: Semantic spacing tokens jako CSS variables
+### MVP: **YES** — usage guidelines document + lint rules
+### Later: Semantic spacing tokens as CSS variables
 
 ---
 
 ## 3.4 Border Radius
 
-### Co obejmuje
-Radiusy zaokraglenia dla roznych kontekstow.
+### What it covers
+Border radii for different contexts.
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
-// Juz istnieja w globals.css:
+// Already exist in globals.css:
 radius.sm      // 0.25rem — small inputs, tags
 radius.md      // 0.375rem — buttons, inputs, badges
 radius.lg      // 0.625rem — cards, alerts, containers
@@ -224,24 +224,24 @@ radius.none    // 0 — tables, embedded elements
 ```
 
 ### Usage guidelines
-- `rounded-sm`: tagi, male tokeny
-- `rounded-md`: buttony, inputy, badge, drobiazgi
-- `rounded-lg`: karty, alerty, kontener
-- `rounded-xl`: modale, portal karty, duze kontenery
-- `rounded-full`: avatary, pille, status dots
-- `rounded-none`: tabele, elementy wtopione w kontener
+- `rounded-sm`: tags, small tokens
+- `rounded-md`: buttons, inputs, badges, small elements
+- `rounded-lg`: cards, alerts, containers
+- `rounded-xl`: modals, portal cards, large containers
+- `rounded-full`: avatars, pills, status dots
+- `rounded-none`: tables, elements embedded in a container
 
-### MVP: **TAK** — documentation only (tokeny juz istnieja)
-### Pozniej: enforcement via lint
+### MVP: **YES** — documentation only (tokens already exist)
+### Later: enforcement via lint
 
 ---
 
 ## 3.5 Borders
 
-### Co obejmuje
-Grubosc, styl, kolory obramowania.
+### What it covers
+Width, style, border colors.
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
 border.width.default    // 1px
@@ -255,20 +255,20 @@ border.style.default    // solid
 border.style.dashed     // dashed — empty states, drop zones
 ```
 
-### MVP: **TAK** — w ramach color tokens
-### Pozniej: oddzielne tokeny
+### MVP: **YES** — as part of color tokens
+### Later: separate tokens
 
 ---
 
 ## 3.6 Elevation / Shadows
 
-### Co obejmuje
-System cieni i warstw dla depth perception.
+### What it covers
+Shadow and layer system for depth perception.
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
-shadow.none         // brak — flat elements
+shadow.none         // none — flat elements
 shadow.sm           // subtle — cards at rest
 shadow.md           // moderate — dropdowns, popovers
 shadow.lg           // strong — modals, overlays
@@ -287,26 +287,26 @@ z.toast         // 50 — flash messages, toasts
 z.tooltip       // 60 — tooltips (always on top)
 ```
 
-### MVP: **TAK** — z-index scale (zapobiega konfliktom)
-### Pozniej: shadow tokens
+### MVP: **YES** — z-index scale (prevents conflicts)
+### Later: shadow tokens
 
 ---
 
 ## 3.7 Iconography
 
-### Co obejmuje
+### What it covers
 Icon library, sizing, stroke width, usage patterns.
 
-### Stan obecny
-- **Oficjalna biblioteka:** `lucide-react` (v0.556.0) w root package.json
-- **Problem:** Portal i niektorze moduly uzywaja custom inline SVG z roznymi stroke widths (1.5 vs 2) i sizing (size-4 vs size-5)
+### Current state
+- **Official library:** `lucide-react` (v0.556.0) in root package.json
+- **Problem:** Portal and some modules use custom inline SVG with different stroke widths (1.5 vs 2) and sizing (size-4 vs size-5)
 
-### Decyzje do podjecia
-- Standardize na lucide-react everywhere
-- Jeden stroke width (2px — lucide default)
-- Jeden sizing system
+### Decisions to make
+- Standardize on lucide-react everywhere
+- One stroke width (2px — lucide default)
+- One sizing system
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
 icon.size.xs      // size-3 (12px) — inline, badge icons
@@ -317,23 +317,23 @@ icon.size.xl      // size-8 (32px) — feature icons
 icon.stroke       // 2 (lucide default)
 ```
 
-### MVP: **TAK** — standardize na lucide-react, usunac inline SVG
-### Pozniej: custom icon set jesli potrzebny
+### MVP: **YES** — standardize on lucide-react, remove inline SVG
+### Later: custom icon set if needed
 
 ---
 
 ## 3.8 Motion / Animation
 
-### Co obejmuje
+### What it covers
 Timing, easing, transition patterns.
 
-### Stan obecny
-- AI-specific animations w globals.css (pulse, glow, sparkle)
+### Current state
+- AI-specific animations in globals.css (pulse, glow, sparkle)
 - Flash message: `slide-in` 300ms ease-out
 - Dialog: Radix animations (fade-in/out, slide-in/out)
-- Brak zdefiniowanej skali timing
+- No defined timing scale
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
 motion.duration.instant    // 0ms — immediate state change
@@ -347,17 +347,17 @@ motion.easing.spring       // cubic-bezier(0.34, 1.56, 0.64, 1) — bouncy
 motion.easing.smooth       // ease-in-out
 ```
 
-### MVP: **NIE** — obecne animacje sa wystarczajace
-### Pozniej: standardize duration/easing tokens
+### MVP: **NO** — current animations are sufficient
+### Later: standardize duration/easing tokens
 
 ---
 
 ## 3.9 Interaction States
 
-### Co obejmuje
+### What it covers
 Hover, focus, active, disabled, selected, loading states.
 
-### Tokeny do zdefiniowania
+### Tokens to define
 
 ```
 state.hover.opacity        // used for bg-opacity changes
@@ -369,23 +369,23 @@ state.selected.bg          // bg-accent
 state.loading.opacity      // 0.7
 ```
 
-### MVP: **NIE** — CVA juz obsluguje stany w buttonach
-### Pozniej: centralize w tokenach
+### MVP: **NO** — CVA already handles states in buttons
+### Later: centralize in tokens
 
 ---
 
 ## 3.10 Accessibility Foundations
 
-### Co obejmuje
+### What it covers
 Focus management, color contrast, screen reader support, reduced motion, touch targets.
 
-### Decyzje do podjecia
-- WCAG level: AA (minimum) czy AAA?
+### Decisions to make
+- WCAG level: AA (minimum) or AAA?
 - Minimum touch target: 44x44px
 - Focus visible strategy
 - Reduced motion support
 
-### Tokeny / reguły
+### Tokens / rules
 
 ```
 a11y.focus.visible          // focus-visible:ring-[3px] focus-visible:ring-ring/50
@@ -395,28 +395,28 @@ a11y.contrast.large.min     // 3:1 (AA for large text)
 a11y.motion.reduced         // prefers-reduced-motion: reduce
 ```
 
-### MVP: **TAK** — wymagany aria-label na IconButton (TypeScript), skip-to-content link
-### Pozniej: automated contrast checking, WCAG AAA
+### MVP: **YES** — required aria-label on IconButton (TypeScript), skip-to-content link
+### Later: automated contrast checking, WCAG AAA
 
 ---
 
 ## 3.11 Content Foundations
 
-### Co obejmuje
+### What it covers
 Tone of voice, microcopy patterns, error message guidelines.
 
-### Decyzje do podjecia
-- Formalny vs nieformalny ton?
-- Techniczny vs user-friendly error messages?
-- Max dlugosc button labels?
-- Wzorce empty state copy?
+### Decisions to make
+- Formal vs informal tone?
+- Technical vs user-friendly error messages?
+- Max length for button labels?
+- Empty state copy patterns?
 
 ### Guidelines
 
 ```
 // Error messages
-"Could not save changes. Please try again."      // DOBRZE
-"Error 500: Internal Server Error"                // ZLE
+"Could not save changes. Please try again."      // GOOD
+"Error 500: Internal Server Error"                // BAD
 
 // Empty states
 "No customers yet"                                // Title
@@ -424,10 +424,10 @@ Tone of voice, microcopy patterns, error message guidelines.
 "Add customer"                                    // Action
 
 // Button labels
-"Save"                                            // DOBRZE (krotki, jasny)
-"Click here to save your changes"                 // ZLE (za dlugi)
-"Submit"                                          // OK (generyczny)
-"Save customer"                                   // LEPIEJ (kontekstowy)
+"Save"                                            // GOOD (short, clear)
+"Click here to save your changes"                 // BAD (too long)
+"Submit"                                          // OK (generic)
+"Save customer"                                   // BETTER (contextual)
 
 // Confirmation dialogs
 "Delete this customer?"                           // Title
@@ -435,38 +435,38 @@ Tone of voice, microcopy patterns, error message guidelines.
 "Delete" / "Cancel"                               // Actions
 ```
 
-### MVP: **NIE** — to jest praca contentowa
-### Pozniej: content style guide
+### MVP: **NO** — this is content work
+### Later: content style guide
 
 ---
 
-## Foundations — kolejnosc wdrazania
+## Foundations — implementation order
 
 ```
-1. Color System (semantic status tokens)     <- eliminuje 372 hardcoded kolorow
+1. Color System (semantic status tokens)     <- eliminates 372 hardcoded colors
    |
-2. Typography Scale                          <- eliminuje 61 arbitralnych rozmiarow
+2. Typography Scale                          <- eliminates 61 arbitrary sizes
    |
-3. Spacing Scale (documentation)             <- standaryzuje 793+ spacing decisions
+3. Spacing Scale (documentation)             <- standardizes 793+ spacing decisions
    |
-4. Border Radius (documentation)             <- tokeny juz istnieja, trzeba udokumentowac
+4. Border Radius (documentation)             <- tokens already exist, need documentation
    |
-5. Iconography (lucide-react standard)       <- eliminuje custom inline SVG
+5. Iconography (lucide-react standard)       <- eliminates custom inline SVG
    |
-6. Z-index / Elevation                       <- zapobiega layering conflicts
+6. Z-index / Elevation                       <- prevents layering conflicts
    |
 7. Accessibility Foundations                 <- TypeScript enforcement
    |
-8. Motion                                    <- mozna odlozyc
+8. Motion                                    <- can be deferred
    |
-9. Content Foundations                       <- mozna odlozyc
+9. Content Foundations                       <- can be deferred
 ```
 
-**Zaleznosci:**
-- Typography zalezy od spacing (line height)
-- Border/Elevation zalezy od Color System
-- Iconography jest niezalezna
-- Accessibility jest cross-cutting — dotyczy wszystkich
+**Dependencies:**
+- Typography depends on spacing (line height)
+- Border/Elevation depends on Color System
+- Iconography is independent
+- Accessibility is cross-cutting — applies to everything
 
 **Hackathon MVP:**
 1. Semantic color tokens (CSS variables + Tailwind mapping)
@@ -479,7 +479,7 @@ Tone of voice, microcopy patterns, error message guidelines.
 
 ## See also
 
-- [Foundations Gaps — Motion, Type, Icons](./foundations-gaps.md) — uzupełnienie: animacje, hierarchia typografii, ikony
-- [Token Values](./token-values.md) — konkretne wartości OKLCH
-- [Audit](./audit.md) — dane audytu z których wynikają foundations
-- [Migration Tables](./migration-tables.md) — tabele migracji kolorów i typografii
+- [Foundations Gaps — Motion, Type, Icons](./foundations-gaps.md) — supplement: animations, typography hierarchy, icons
+- [Token Values](./token-values.md) — concrete OKLCH values
+- [Audit](./audit.md) — audit data from which foundations derive
+- [Migration Tables](./migration-tables.md) — color and typography migration tables

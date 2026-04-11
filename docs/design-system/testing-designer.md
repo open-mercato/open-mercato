@@ -8,26 +8,26 @@
 
 #### Tier 1 — Hackathon: Manual Screenshot Protocol [HACKATHON]
 
-Zero narzędzi. Systematyczny manual workflow.
+Zero tools. Systematic manual workflow.
 
-**Kiedy:** Każdy PR migrujący moduł do DS tokens (sekcja J codemod) MUSI zawierać before/after screenshoty.
+**When:** Every PR migrating a module to DS tokens (section J codemod) MUST include before/after screenshots.
 
-**Jakie ekrany screenshotować per module migration:**
+**Which screens to screenshot per module migration:**
 
-| # | Ekran | Viewport | Theme | Nazwa pliku |
-|---|-------|----------|-------|-------------|
-| 1 | Lista (page.tsx) | Desktop 1440px | Light | `{module}-list-light.png` |
-| 2 | Lista (page.tsx) | Desktop 1440px | Dark | `{module}-list-dark.png` |
+| # | Screen | Viewport | Theme | File name |
+|---|--------|----------|-------|-----------|
+| 1 | List (page.tsx) | Desktop 1440px | Light | `{module}-list-light.png` |
+| 2 | List (page.tsx) | Desktop 1440px | Dark | `{module}-list-dark.png` |
 | 3 | Detail ([id]/page.tsx) | Desktop 1440px | Light | `{module}-detail-light.png` |
 | 4 | Detail ([id]/page.tsx) | Desktop 1440px | Dark | `{module}-detail-dark.png` |
 | 5 | Create (create/page.tsx) | Desktop 1440px | Light | `{module}-create-light.png` |
 | 6 | Create (create/page.tsx) | Desktop 1440px | Dark | `{module}-create-dark.png` |
-| 7 | Lista — empty state | Desktop 1440px | Light | `{module}-empty-light.png` |
-| 8 | Lista — empty state | Desktop 1440px | Dark | `{module}-empty-dark.png` |
+| 7 | List — empty state | Desktop 1440px | Light | `{module}-empty-light.png` |
+| 8 | List — empty state | Desktop 1440px | Dark | `{module}-empty-dark.png` |
 
-**Gdzie:** W PR description jako inline images. Reviewer widzi je od razu — nie musi uruchamiać projektu.
+**Where:** In the PR description as inline images. Reviewer sees them immediately — no need to run the project.
 
-**Template PR description:**
+**PR description template:**
 
 ```markdown
 ## Visual Verification
@@ -51,9 +51,9 @@ Zero narzędzi. Systematyczny manual workflow.
 - [ ] Loading state present
 ```
 
-#### Tier 2 — Tydzień 2-4: Playwright Screenshot Tests [POST-HACKATHON]
+#### Tier 2 — Weeks 2-4: Playwright Screenshot Tests [POST-HACKATHON]
 
-Projekt już używa Playwright (`yarn test:integration`). Dodajemy screenshot comparison.
+The project already uses Playwright (`yarn test:integration`). Add screenshot comparison.
 
 **Setup:**
 
@@ -65,7 +65,7 @@ const DS_PAGES = [
   { path: '/backend/customers/companies', name: 'customers-list' },
   { path: '/backend/customers/companies/create', name: 'customers-create' },
   { path: '/backend/sales/orders', name: 'sales-orders-list' },
-  // ... top 10 stron po traffic/importance
+  // ... top 10 pages by traffic/importance
 ]
 
 for (const page of DS_PAGES) {
@@ -86,39 +86,39 @@ for (const page of DS_PAGES) {
 }
 ```
 
-**Top 10 ekranów do automatycznego testowania:**
+**Top 10 screens for automated testing:**
 
-| # | Ekran | Dlaczego |
-|---|-------|---------|
-| 1 | Customers list | Referencyjny moduł — jeśli tu się zepsuje, popsute jest wszędzie |
-| 2 | Customers detail | Najzłożniejszy detail page — taby, sekcje, statusy |
-| 3 | Customers create | Referencyjny formularz z CrudForm |
-| 4 | Sales orders list | Dużo statusów (draft/confirmed/shipped/paid) |
+| # | Screen | Why |
+|---|--------|-----|
+| 1 | Customers list | Reference module — if it breaks here, it is broken everywhere |
+| 2 | Customers detail | Most complex detail page — tabs, sections, statuses |
+| 3 | Customers create | Reference form with CrudForm |
+| 4 | Sales orders list | Many statuses (draft/confirmed/shipped/paid) |
 | 5 | Auth login | Portal entry — first impression |
-| 6 | Portal landing | Customer-facing — musi być perfekcyjne |
+| 6 | Portal landing | Customer-facing — must be flawless |
 | 7 | Dashboard | Widget grid — regression-prone |
-| 8 | Settings page | Card grid navigation — wiele kart |
-| 9 | Catalog products list | Duża tabela, filtry, status badges |
-| 10 | Empty state (any) | Weryfikacja EmptyState rendering |
+| 8 | Settings page | Card grid navigation — many cards |
+| 9 | Catalog products list | Large table, filters, status badges |
+| 10 | Empty state (any) | Verify EmptyState rendering |
 
-**Threshold:** `maxDiffPixelRatio: 0.01` (1%). Subpixel rendering differences między OS → 0.2 per-pixel threshold. Jeśli zbyt flaky — podnieś do 0.02.
+**Threshold:** `maxDiffPixelRatio: 0.01` (1%). Subpixel rendering differences between OS → 0.2 per-pixel threshold. If too flaky — raise to 0.02.
 
-**Baseline update:** `npx playwright test --update-snapshots` po świadomej zmianie wizualnej. Commit nowych baseline screenshots z PR.
+**Baseline update:** `npx playwright test --update-snapshots` after an intentional visual change. Commit new baseline screenshots with the PR.
 
-#### Tier 3 — Miesiąc 2+: Component Showcase [LATER]
+#### Tier 3 — Month 2+: Component Showcase [LATER]
 
-**Decyzja: NIE Storybook. Component showcase page w produkcie.**
+**Decision: NOT Storybook. Component showcase page in the product.**
 
-Uzasadnienie: Storybook wymaga osobnego build pipeline, config sync z Tailwind v4, duplicate imports, ongoing maintenance. Open Mercato jest monorepo z 1 apką — nie potrzebuje osobnego dev environment. Zamiast tego: `/dev/components` page (tylko w dev mode) renderująca wszystkie primitives z wariantami.
+Rationale: Storybook requires a separate build pipeline, config sync with Tailwind v4, duplicate imports, ongoing maintenance. Open Mercato is a monorepo with 1 app — it does not need a separate dev environment. Instead: `/dev/components` page (dev mode only) rendering all primitives with variants.
 
-**Scope showcase page:**
-- Renderuje każdy primitive z V.1 w wszystkich wariantach
+**Showcase page scope:**
+- Render every primitive from V.1 in all variants
 - Light + dark mode toggle
 - Responsive preview (mobile/tablet/desktop)
-- Copy-paste import path per komponent
-- Nie wymaga osobnego build — jest częścią app dev server
+- Copy-paste import path per component
+- Does not require a separate build — part of the app dev server
 
-**Implementacja:** Nowy moduł dev-only (nie rejestrowany w production builds):
+**Implementation:** New dev-only module (not registered in production builds):
 ```
 packages/core/src/modules/dev_tools/
   backend/components/page.tsx  → /backend/dev-tools/components
@@ -128,17 +128,17 @@ packages/core/src/modules/dev_tools/
 
 #### Per-component test requirements
 
-| Kategoria | Testy | Obowiązkowe? |
-|-----------|-------|-------------|
-| **Render** | Renderuje bez crash dla każdego wariantu | ✅ TAK |
-| **CSS classes** | Poprawne Tailwind classes per wariant (snapshot lub assertion) | ✅ TAK |
-| **States** | Default, hover, focus, disabled, error, loading (jeśli dotyczy) | ✅ TAK |
-| **Props** | Required props → error bez nich. Optional → sensowne defaults. | ✅ TAK |
-| **A11y** | `axe-core` scan przechodzi. Keyboard nav działa (Tab, Enter, ESC). | ✅ TAK |
-| **Dark mode** | Renderuje z `.dark` class — brak hardcoded colors | ⚠️ ZALECANE |
-| **Mobile** | Nie łamie layoutu w 375px viewport | ⚠️ ZALECANE |
+| Category | Tests | Mandatory? |
+|----------|-------|-----------|
+| **Render** | Renders without crash for every variant | YES |
+| **CSS classes** | Correct Tailwind classes per variant (snapshot or assertion) | YES |
+| **States** | Default, hover, focus, disabled, error, loading (if applicable) | YES |
+| **Props** | Required props → error without them. Optional → sensible defaults. | YES |
+| **A11y** | `axe-core` scan passes. Keyboard nav works (Tab, Enter, ESC). | YES |
+| **Dark mode** | Renders with `.dark` class — no hardcoded colors | RECOMMENDED |
+| **Mobile** | Does not break layout at 375px viewport | RECOMMENDED |
 
-#### Test Template — StatusBadge (referencja)
+#### Test Template — StatusBadge (reference)
 
 ```typescript
 // packages/ui/src/primitives/__tests__/status-badge.test.tsx
@@ -151,7 +151,7 @@ expect.extend(toHaveNoViolations)
 describe('StatusBadge', () => {
   const variants = ['success', 'warning', 'error', 'info', 'neutral'] as const
 
-  // Render: wszystkie warianty bez crash
+  // Render: all variants without crash
   it.each(variants)('renders variant "%s" without crash', (variant) => {
     const { container } = render(
       <StatusBadge variant={variant}>Active</StatusBadge>,
@@ -159,7 +159,7 @@ describe('StatusBadge', () => {
     expect(container.firstChild).toBeTruthy()
   })
 
-  // CSS: poprawne klasy per wariant
+  // CSS: correct classes per variant
   it('applies correct semantic token classes for success variant', () => {
     render(<StatusBadge variant="success">Active</StatusBadge>)
     const badge = screen.getByText('Active')
@@ -168,7 +168,7 @@ describe('StatusBadge', () => {
     expect(badge.className).toContain('border-status-success-border')
   })
 
-  // Props: children renderowane
+  // Props: children rendered
   it('renders children text', () => {
     render(<StatusBadge variant="info">Pending review</StatusBadge>)
     expect(screen.getByText('Pending review')).toBeInTheDocument()
@@ -179,7 +179,7 @@ describe('StatusBadge', () => {
     const { container } = render(
       <StatusBadge variant="success" dot>Active</StatusBadge>,
     )
-    // Dot jest span z rounded-full i bg odpowiadający wariantowi
+    // Dot is a span with rounded-full and bg matching the variant
     const dot = container.querySelector('[data-slot="status-dot"]')
     expect(dot).toBeTruthy()
   })
@@ -193,7 +193,7 @@ describe('StatusBadge', () => {
     expect(results).toHaveNoViolations()
   })
 
-  // Dark mode: brak hardcoded colors
+  // Dark mode: no hardcoded colors
   it('does not contain hardcoded color classes', () => {
     const { container } = render(
       <StatusBadge variant="error">Error</StatusBadge>,
@@ -204,52 +204,52 @@ describe('StatusBadge', () => {
 
   // Default variant fallback
   it('renders neutral variant as default when variant not recognized', () => {
-    // @ts-expect-error — testujemy runtime fallback
+    // @ts-expect-error — testing runtime fallback
     render(<StatusBadge variant="unknown">Test</StatusBadge>)
     expect(screen.getByText('Test')).toBeInTheDocument()
   })
 })
 ```
 
-**Zasada:** Każdy nowy komponent DS (FormField, StatusBadge, SectionHeader) MUSI mieć testy przed merge. Istniejące primitives (Button, Card, Dialog) — testy dodawane inkrementalnie przy okazji zmian.
+**Rule:** Every new DS component (FormField, StatusBadge, SectionHeader) MUST have tests before merge. Existing primitives (Button, Card, Dialog) — add tests incrementally when making changes.
 
 ### X.3 Designer Workflow — Design-in-Code [POST-HACKATHON]
 
-**Decyzja: Code-first. Bez Figma.**
+**Decision: Code-first. No Figma.**
 
-Uzasadnienie: Open Mercato jest OSS bez dedykowanego designera. Contributorzy to developerzy. Tworzenie Figma library dla designera, którego nie ma, to waste. Jeśli designer dołączy — code jest źródłem prawdy, nie Figma.
+Rationale: Open Mercato is OSS without a dedicated designer. Contributors are developers. Creating a Figma library for a designer who does not exist is waste. If a designer joins — code is the source of truth, not Figma.
 
 #### Design-in-Code Manifesto
 
-Design w Open Mercato odbywa się w kodzie:
+Design in Open Mercato happens in code:
 
-- **Tokeny** żyją w `globals.css` (OKLCH custom properties) — nie w Figma variables
-- **Komponenty** żyją w `packages/ui/src/primitives/` (TSX + CVA) — nie w Figma library
-- **Layout** definiowany przez page templates (sekcja K.1) — nie przez Figma frames
-- **Prototypowanie** = `yarn dev` + edycja komponentu — nie Figma prototype
+- **Tokens** live in `globals.css` (OKLCH custom properties) — not in Figma variables
+- **Components** live in `packages/ui/src/primitives/` (TSX + CVA) — not in a Figma library
+- **Layout** is defined by page templates (section K.1) — not by Figma frames
+- **Prototyping** = `yarn dev` + editing the component — not a Figma prototype
 
-**Nie potrzebujesz Figma żeby contributnąć do UI.** Wystarczy:
-1. Skopiować template z K.1
-2. Używać komponentów z V.1
-3. Uruchomić `yarn dev` i iterować w przeglądarce
+**You do not need Figma to contribute to the UI.** All you need is:
+1. Copy a template from K.1
+2. Use components from V.1
+3. Run `yarn dev` and iterate in the browser
 
-#### Jeśli ktoś CHCE użyć Figma
+#### If Someone WANTS to Use Figma
 
-Tabela tokenów do ręcznego przeniesienia (nie plugin — manual sync, raz na release):
+Table of tokens for manual transfer (no plugin — manual sync, once per release):
 
-**Kolory (light mode):**
+**Colors (light mode):**
 
-| Token | Wartość OKLCH | Hex (przybliżony) | Figma color name |
+| Token | OKLCH Value | Hex (approximate) | Figma color name |
 |-------|-------------|-------------------|-----------------|
 | `--background` | `oklch(1 0 0)` | `#FFFFFF` | `surface/background` |
 | `--foreground` | `oklch(0.145 0 0)` | `#1A1A1A` | `text/primary` |
-| `--primary` | wartość z globals.css | — | `interactive/primary` |
+| `--primary` | value from globals.css | — | `interactive/primary` |
 | `--destructive` | `oklch(0.577 0.245 27.325)` | `#DC2626~` | `status/error` |
 | `--status-success-bg` | `oklch(0.965 0.015 163)` | `#F0FDF4~` | `status/success/bg` |
 | `--status-success-text` | `oklch(0.365 0.120 163)` | `#166534~` | `status/success/text` |
-| ... | (pełna tabela w sekcji I) | ... | ... |
+| ... | (full table in section I) | ... | ... |
 
-**Typografia:**
+**Typography:**
 
 | Role | Font | Size | Weight | Figma text style |
 |------|------|------|--------|-----------------|
@@ -260,19 +260,19 @@ Tabela tokenów do ręcznego przeniesienia (nie plugin — manual sync, raz na r
 | Overline | Geist Sans | 11px | Semibold (600), UPPERCASE | `label/overline` |
 | Code | Geist Mono | 14px | Regular (400) | `code/default` |
 
-**Spacing:** Tailwind scale: 4px (1), 8px (2), 12px (3), 16px (4), 24px (6), 32px (8). W Figma: auto layout z tymi wartościami.
+**Spacing:** Tailwind scale: 4px (1), 8px (2), 12px (3), 16px (4), 24px (6), 32px (8). In Figma: auto layout with these values.
 
-**Sync schedule:** Po każdym release z tagiem `[DS]` w RELEASE_NOTES.md — ręczny update Figma variables. Odpowiedzialność: osoba która chce Figma, nie DS lead.
+**Sync schedule:** After every release tagged with `[DS]` in RELEASE_NOTES.md — manual update of Figma variables. Responsibility: the person who wants Figma, not the DS lead.
 
 ---
 
-*Koniec supplementu U-X. Sekcje A-X stanowią kompletny Design System Audit & Foundation Plan pokrywający: audit (1), principles (2), foundations (3, U), komponenty (4, V), wzorce (K, W), zasady użycia (W.1, W.2, U.2, U.3), dokumentację (O, M, R), implementację (I, J, L, X), governance (N, P, Q, S, T).*
+*End of supplement U-X. Sections A-X constitute the complete Design System Audit & Foundation Plan covering: audit (1), principles (2), foundations (3, U), components (4, V), patterns (K, W), usage rules (W.1, W.2, U.2, U.3), documentation (O, M, R), implementation (I, J, L, X), governance (N, P, Q, S, T).*
 
 ---
 
 ## See also
 
-- [Lint Rules](./lint-rules.md) — automatyczne testy w CI
-- [Metrics](./metrics.md) — metryki jakości wizualnej
-- [Contributor Experience](./contributor-experience.md) — workflow contributora
-- [Foundations Gaps](./foundations-gaps.md) — motion spec testowany wizualnie
+- [Lint Rules](./lint-rules.md) — automated tests in CI
+- [Metrics](./metrics.md) — visual quality metrics
+- [Contributor Experience](./contributor-experience.md) — contributor workflow
+- [Foundations Gaps](./foundations-gaps.md) — motion spec tested visually

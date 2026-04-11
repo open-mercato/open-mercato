@@ -1,105 +1,105 @@
 # M. Contributor Onboarding — "Your First Module" Guide
 
-> Krok po kroku: od sklonowania repo do merge. Zawiera FAQ i mental model DS.
+> Step by step: from cloning the repo to merge. Includes FAQ and DS mental model.
 
 ---
 
 ### M.1 Before-You-Start Checklist
 
-Zanim napiszesz pierwszą linijkę kodu nowego modułu, sprawdź:
+Before writing the first line of code for a new module, verify:
 
-- [ ] **Przeczytałem AGENTS.md** — Task Router wskazuje na właściwe guide'y
-- [ ] **Przeczytałem `packages/core/AGENTS.md`** — auto-discovery, module files, konwencje
-- [ ] **Przeczytałem `packages/core/src/modules/customers/AGENTS.md`** — referencyjny moduł CRUD
-- [ ] **Przeczytałem `packages/ui/AGENTS.md`** — komponenty UI, DataTable, CrudForm
-- [ ] **Sprawdziłem `.ai/specs/`** — czy istnieje spec dla mojego modułu
-- [ ] **Mam zainstalowane narzędzia**: `yarn`, Node ≥20, Docker (dla DB)
-- [ ] **Zbudowałem projekt**: `yarn initialize` przeszło bez błędów
-- [ ] **Uruchomiłem dev**: `yarn dev` działa, widzę dashboard w przeglądarce
+- [ ] **Read AGENTS.md** — the Task Router points to the appropriate guides
+- [ ] **Read `packages/core/AGENTS.md`** — auto-discovery, module files, conventions
+- [ ] **Read `packages/core/src/modules/customers/AGENTS.md`** — the reference CRUD module
+- [ ] **Read `packages/ui/AGENTS.md`** — UI components, DataTable, CrudForm
+- [ ] **Checked `.ai/specs/`** — whether a spec exists for my module
+- [ ] **Tools installed**: `yarn`, Node >=20, Docker (for DB)
+- [ ] **Project built**: `yarn initialize` completed without errors
+- [ ] **Dev server running**: `yarn dev` works, the dashboard is visible in the browser
 
-### M.2 Step-by-Step: Tworzenie modułu
+### M.2 Step-by-Step: Creating a Module
 
-**Krok 1 — Scaffold**
+**Step 1 — Scaffold**
 ```bash
-# Opcja A: scaffold script (z sekcji K.3)
+# Option A: scaffold script (from section K.3)
 ./ds-scaffold-module.sh invoices invoice
 
-# Opcja B: ręcznie — skopiuj strukturę z customers i wyczyść
+# Option B: manually — copy the structure from customers and clean up
 ```
 
-**Krok 2 — Zdefiniuj encję**
+**Step 2 — Define the entity**
 ```
-data/entities.ts → MikroORM entity z id, organization_id, timestamps
-data/validators.ts → Zod schema per endpoint
+data/entities.ts -> MikroORM entity with id, organization_id, timestamps
+data/validators.ts -> Zod schema per endpoint
 ```
-Wzór: `packages/core/src/modules/customers/data/entities.ts`
+Pattern: `packages/core/src/modules/customers/data/entities.ts`
 
-**Krok 3 — Dodaj CRUD API**
+**Step 3 — Add the CRUD API**
 ```
-api/<module>/route.ts → makeCrudRoute + openApi export
+api/<module>/route.ts -> makeCrudRoute + openApi export
 ```
-Wzór: `packages/core/src/modules/customers/api/companies/route.ts`
+Pattern: `packages/core/src/modules/customers/api/companies/route.ts`
 
-**Krok 4 — Stwórz strony backend**
+**Step 4 — Create backend pages**
 ```
-backend/<module>/page.tsx       → List (template K.1.1)
-backend/<module>/create/page.tsx → Create (template K.1.2)
-backend/<module>/[id]/page.tsx   → Detail (template K.1.3)
+backend/<module>/page.tsx       -> List (template K.1.1)
+backend/<module>/create/page.tsx -> Create (template K.1.2)
+backend/<module>/[id]/page.tsx   -> Detail (template K.1.3)
 ```
-**WAŻNE**: Każdy template wymaga — `Page`+`PageBody`, `useT()`, `EmptyState`, `LoadingMessage`/`isLoading`, `StatusBadge` dla statusów.
+**IMPORTANT**: Every template requires — `Page`+`PageBody`, `useT()`, `EmptyState`, `LoadingMessage`/`isLoading`, `StatusBadge` for statuses.
 
-**Krok 5 — ACL + Setup**
+**Step 5 — ACL + Setup**
 ```
-acl.ts   → features: view, create, update, delete
-setup.ts → defaultRoleFeatures (admin = all, user = view)
-```
-
-**Krok 6 — i18n**
-```
-i18n/en.json → wszystkie user-facing strings
-i18n/pl.json → tłumaczenia (jeśli dotyczy)
+acl.ts   -> features: view, create, update, delete
+setup.ts -> defaultRoleFeatures (admin = all, user = view)
 ```
 
-**Krok 7 — Rejestracja**
+**Step 6 — i18n**
 ```
-apps/mercato/src/modules.ts → dodaj moduł
+i18n/en.json -> all user-facing strings
+i18n/pl.json -> translations (if applicable)
+```
+
+**Step 7 — Registration**
+```
+apps/mercato/src/modules.ts -> add the module
 yarn generate && yarn db:generate && yarn db:migrate
 ```
 
-**Krok 8 — Weryfikacja**
+**Step 8 — Verification**
 ```bash
 yarn lint                 # 0 errors, 0 warnings
 yarn build:packages       # builds clean
 yarn test                 # existing tests pass
-yarn dev                  # nowy moduł widoczny w sidebar
+yarn dev                  # new module visible in sidebar
 ```
 
-### M.3 Self-Check: 10 pytań przed PR
+### M.3 Self-Check: 10 Questions Before Submitting a PR
 
-Odpowiedz TAK na każde pytanie zanim otworzysz Pull Request:
+Answer YES to each question before opening a Pull Request:
 
-| # | Pytanie | Dotyczy |
-|---|---------|---------|
-| 1 | Czy **każda** strona listy ma `<EmptyState>` z akcją tworzenia? | UX |
-| 2 | Czy strony detail/edit mają `<LoadingMessage>` i `<ErrorMessage>`? | UX |
-| 3 | Czy **wszystkie** user-facing strings używają `useT()` / `resolveTranslations()`? | i18n |
-| 4 | Czy statusy renderowane są przez `<StatusBadge>` (nie surowy tekst/span)? | Design System |
-| 5 | Czy kolory statusów używają semantic tokens (`text-destructive`, `bg-status-*-bg`)? | Design System |
-| 6 | Czy formularze używają `<CrudForm>` (nie ręczne `<form>`)? | Spójność |
-| 7 | Czy API routes mają `openApi` export? | Dokumentacja |
-| 8 | Czy strony mają `metadata` z `requireAuth` i `requireFeatures`? | Bezpieczeństwo |
-| 9 | Czy `setup.ts` deklaruje `defaultRoleFeatures` dla features z `acl.ts`? | RBAC |
-| 10 | Czy `yarn lint && yarn build:packages` przechodzi bez błędów? | CI |
+| # | Question | Area |
+|---|----------|------|
+| 1 | Does **every** list page have an `<EmptyState>` with a create action? | UX |
+| 2 | Do detail/edit pages have `<LoadingMessage>` and `<ErrorMessage>`? | UX |
+| 3 | Do **all** user-facing strings use `useT()` / `resolveTranslations()`? | i18n |
+| 4 | Are statuses rendered via `<StatusBadge>` (not raw text/span)? | Design System |
+| 5 | Do status colors use semantic tokens (`text-destructive`, `bg-status-*-bg`)? | Design System |
+| 6 | Do forms use `<CrudForm>` (not a manual `<form>`)? | Consistency |
+| 7 | Do API routes have an `openApi` export? | Documentation |
+| 8 | Do pages have `metadata` with `requireAuth` and `requireFeatures`? | Security |
+| 9 | Does `setup.ts` declare `defaultRoleFeatures` for features from `acl.ts`? | RBAC |
+| 10 | Does `yarn lint && yarn build:packages` pass without errors? | CI |
 
 ### M.4 Top 5 Anti-Patterns
 
-| # | Anti-pattern | Dlaczego źle | Co zamiast |
-|---|-------------|--------------|------------|
-| 1 | **Hardcoded strings** `<h1>My Module</h1>` | Łamie i18n, blokuje tłumaczenia | `<h1>{t('module.title', 'My Module')}</h1>` |
-| 2 | **Pusta tabela zamiast EmptyState** — DataTable z 0 rows bez żadnego CTA | Użytkownik nie wie co robić, bounce rate ↑ | Warunkowy `<EmptyState>` z akcją tworzenia gdy `rows.length === 0 && !search` |
-| 3 | **Raw `fetch()`** zamiast `apiCall()` | Brak obsługi auth, cache, error handling | `apiCall('/api/...')` z `@open-mercato/ui/backend/utils/apiCall` |
-| 4 | **Tailwind color classes** `text-red-600`, `bg-green-100` dla statusów | Niespójne z dark mode, brak central governance | Semantic tokens: `text-destructive`, `bg-status-success-bg` |
-| 5 | **Brak `metadata` z RBAC** — strona bez `requireAuth` / `requireFeatures` | Każdy zalogowany widzi stronę, nawet bez uprawnień | Dodaj `metadata.requireFeatures: ['module.view']` |
+| # | Anti-pattern | Why it is wrong | What to use instead |
+|---|-------------|-----------------|---------------------|
+| 1 | **Hardcoded strings** `<h1>My Module</h1>` | Breaks i18n, blocks translations | `<h1>{t('module.title', 'My Module')}</h1>` |
+| 2 | **Empty table instead of EmptyState** — DataTable with 0 rows and no CTA | User does not know what to do, bounce rate increases | Conditional `<EmptyState>` with a create action when `rows.length === 0 && !search` |
+| 3 | **Raw `fetch()`** instead of `apiCall()` | No auth, cache, or error handling | `apiCall('/api/...')` from `@open-mercato/ui/backend/utils/apiCall` |
+| 4 | **Tailwind color classes** `text-red-600`, `bg-green-100` for statuses | Inconsistent with dark mode, no central governance | Semantic tokens: `text-destructive`, `bg-status-success-bg` |
+| 5 | **Missing `metadata` with RBAC** — page without `requireAuth` / `requireFeatures` | Any logged-in user sees the page, even without permissions | Add `metadata.requireFeatures: ['module.view']` |
 
 ---
 
@@ -107,7 +107,7 @@ Odpowiedz TAK na każde pytanie zanim otworzysz Pull Request:
 
 ## See also
 
-- [Contributor Guardrails](./contributor-guardrails.md) — szablony stron i scaffold script
-- [Lint Rules](./lint-rules.md) — reguły które CI sprawdzi na PR
-- [Principles](./principles.md) — zasady projektowe do zapamiętania
-- [Contributor Experience](./contributor-experience.md) — szersze podejście do DX
+- [Contributor Guardrails](./contributor-guardrails.md) — page templates and scaffold script
+- [Lint Rules](./lint-rules.md) — rules that CI checks on PRs
+- [Principles](./principles.md) — design principles to remember
+- [Contributor Experience](./contributor-experience.md) — broader approach to DX

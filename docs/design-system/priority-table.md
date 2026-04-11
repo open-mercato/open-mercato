@@ -1,42 +1,42 @@
-# D. Tabela Priorytetów
+# D. Priority Table
 
-> Macierz priorytetów: spójność × UX × wysiłek × hackathon scope.
+> Priority matrix: consistency x UX x effort x hackathon scope.
 
 ---
 
-| Obszar | Opis | Priorytet | Wplyw spojnosc | Wplyw UX | Wysilek | Hackathon |
-|--------|------|-----------|---------------|----------|---------|-----------|
-| Semantic color tokens | CSS variables dla status colors | **Krytyczny** | 5/5 | 4/5 | Sredni | **TAK** |
-| Alert unification | Notice + Alert → 1 komponent | **Krytyczny** | 5/5 | 4/5 | Sredni | **TAK** |
-| Typography scale | Dokumentacja + Tailwind config | Wysoki | 4/5 | 3/5 | Niski | **TAK** |
-| FormField wrapper | Nowy komponent | Wysoki | 4/5 | 4/5 | Niski | **TAK** |
-| StatusBadge | Nowy komponent | Wysoki | 4/5 | 3/5 | Niski | **TAK** |
-| SectionHeader | Nowy komponent | Wysoki | 3/5 | 2/5 | Niski | **TAK** |
-| Badge status variants | Rozszerzenie Badge | Wysoki | 3/5 | 3/5 | Niski | **TAK** |
-| Flash semantic tokens | Migracja kolorow | Wysoki | 3/5 | 2/5 | Niski | **TAK** |
-| Spacing guidelines | Dokumentacja | Wysoki | 4/5 | 2/5 | Niski | **TAK** |
-| Z-index scale | CSS variables | Sredni | 2/5 | 1/5 | Niski | **TAK** |
-| Border-radius docs | Dokumentacja | Sredni | 2/5 | 1/5 | Niski | **TAK** |
-| Empty state enforcement | Guidelines + review | Wysoki | 3/5 | 4/5 | Niski | **TAK** (docs) |
-| Design Principles | Dokument | Wysoki | 5/5 | 3/5 | Niski | **TAK** |
-| PR Review Checklist | Checklist | Wysoki | 5/5 | 2/5 | Niski | **TAK** |
-| Icon standardization | Migracja na lucide | Sredni | 3/5 | 2/5 | Sredni | Nie |
-| Card unification | Card + PortalCard | Sredni | 2/5 | 2/5 | Sredni | Nie |
-| Accessibility audit | 370+ aria-labels | Wysoki | 2/5 | 4/5 | Wysoki | Nie |
-| Skeleton loader | Nowy komponent | Niski | 1/5 | 3/5 | Sredni | Nie |
-| Command palette | Nowy feature | Niski | 1/5 | 4/5 | Wysoki | Nie |
-| Content style guide | Dokumentacja | Niski | 2/5 | 3/5 | Sredni | Nie |
-| Motion tokens | CSS variables | Niski | 1/5 | 2/5 | Niski | Nie |
-| Responsive DataTable | Refactor | Niski | 1/5 | 3/5 | Wysoki | Nie |
+| Area | Description | Priority | Impact consistency | Impact UX | Effort | Hackathon |
+|------|-------------|----------|--------------------|-----------|--------|-----------|
+| Semantic color tokens | CSS variables for status colors | **Critical** | 5/5 | 4/5 | Medium | **YES** |
+| Alert unification | Notice + Alert → 1 component | **Critical** | 5/5 | 4/5 | Medium | **YES** |
+| Typography scale | Documentation + Tailwind config | High | 4/5 | 3/5 | Low | **YES** |
+| FormField wrapper | New component | High | 4/5 | 4/5 | Low | **YES** |
+| StatusBadge | New component | High | 4/5 | 3/5 | Low | **YES** |
+| SectionHeader | New component | High | 3/5 | 2/5 | Low | **YES** |
+| Badge status variants | Badge extension | High | 3/5 | 3/5 | Low | **YES** |
+| Flash semantic tokens | Color migration | High | 3/5 | 2/5 | Low | **YES** |
+| Spacing guidelines | Documentation | High | 4/5 | 2/5 | Low | **YES** |
+| Z-index scale | CSS variables | Medium | 2/5 | 1/5 | Low | **YES** |
+| Border-radius docs | Documentation | Medium | 2/5 | 1/5 | Low | **YES** |
+| Empty state enforcement | Guidelines + review | High | 3/5 | 4/5 | Low | **YES** (docs) |
+| Design Principles | Document | High | 5/5 | 3/5 | Low | **YES** |
+| PR Review Checklist | Checklist | High | 5/5 | 2/5 | Low | **YES** |
+| Icon standardization | Migration to lucide | Medium | 3/5 | 2/5 | Medium | No |
+| Card unification | Card + PortalCard | Medium | 2/5 | 2/5 | Medium | No |
+| Accessibility audit | 370+ aria-labels | High | 2/5 | 4/5 | High | No |
+| Skeleton loader | New component | Low | 1/5 | 3/5 | Medium | No |
+| Command palette | New feature | Low | 1/5 | 4/5 | High | No |
+| Content style guide | Documentation | Low | 2/5 | 3/5 | Medium | No |
+| Motion tokens | CSS variables | Low | 1/5 | 2/5 | Low | No |
+| Responsive DataTable | Refactor | Low | 1/5 | 3/5 | High | No |
 
-**Legenda wysilku:** Niski = <4h, Sredni = 4-8h, Wysoki = >8h
+**Legend for effort:** Low = <4h, Medium = 4-8h, High = >8h
 
-**Legenda wplywu:** 1 = minimalny, 5 = krytyczny
+**Legend for impact:** 1 = minimal, 5 = critical
 
 ---
 
 ## See also
 
-- [Executive Summary](./executive-summary.md) — podsumowanie strategiczne
-- [Audit](./audit.md) — dane audytu uzasadniające priorytety
-- [Enforcement](./enforcement.md) — plan wdrożenia priorytetów
+- [Executive Summary](./executive-summary.md) — strategic summary
+- [Audit](./audit.md) — audit data supporting the priorities
+- [Enforcement](./enforcement.md) — priority implementation plan

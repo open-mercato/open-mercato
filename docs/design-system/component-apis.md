@@ -1,6 +1,6 @@
 # G. Component API Proposals
 
-> Szczegółowe propozycje API (props, variants, examples) dla Alert, StatusBadge, SectionHeader, FormField, Card, DataTable, EmptyState, FlashMessages, Badge i Dialog.
+> Detailed API proposals (props, variants, examples) for Alert, StatusBadge, SectionHeader, FormField, Card, DataTable, EmptyState, FlashMessages, Badge, and Dialog.
 
 ---
 
@@ -35,13 +35,13 @@ export type FormFieldProps = {
 }
 ```
 
-### Decyzja: Label style
+### Decision: Label style
 
-**Domyslny styl:** `text-sm font-medium text-foreground` — spojny z istniejacym `<Label>` primitive i CrudForm FieldControl. To jest styl uzywany w 95% backendu.
+**Default style:** `text-sm font-medium text-foreground` — consistent with the existing `<Label>` primitive and CrudForm FieldControl. This is the style used in 95% of the backend.
 
-**Wariant `overline`:** `text-overline font-semibold uppercase tracking-wider text-muted-foreground` — uzywany w portal pages i kompaktowych kontekstach. Dostepny przez `labelVariant="overline"`, NIE jest domyslny.
+**`overline` variant:** `text-overline font-semibold uppercase tracking-wider text-muted-foreground` — used in portal pages and compact contexts. Available via `labelVariant="overline"`, NOT the default.
 
-**Implementacja label rendering:**
+**Label rendering implementation:**
 
 ```typescript
 const labelStyles = {
@@ -49,7 +49,7 @@ const labelStyles = {
   overline: 'text-overline font-semibold uppercase tracking-wider text-muted-foreground',
 }
 
-// W renderze:
+// In the render:
 {label && (
   <Label htmlFor={fieldId} className={labelStyles[labelVariant ?? 'default']}>
     {label}
@@ -58,15 +58,15 @@ const labelStyles = {
 )}
 ```
 
-**Error message style:** `text-xs text-destructive` z `role="alert"` — spojny z CrudForm.
+**Error message style:** `text-xs text-destructive` with `role="alert"` — consistent with CrudForm.
 
-**Description style:** `text-xs text-muted-foreground` — spojny z CrudForm (ale bez ikony Info — FormField jest prostszy).
+**Description style:** `text-xs text-muted-foreground` — consistent with CrudForm (but without the Info icon — FormField is simpler).
 
-**Portal forms:** Uzywaja `<FormField labelVariant="overline">`. Portal nie potrzebuje wlasnego komponentu — wystarczy wariant.
+**Portal forms:** Use `<FormField labelVariant="overline">`. The portal does not need its own component — the variant is sufficient.
 
-**Wspoldzielenie z CrudForm:** Docelowo (po hackathonie) CrudForm FieldControl powinien wyciagnac sub-komponenty `FieldLabel`, `FieldError`, `FieldDescription` do wspolnej lokalizacji (`packages/ui/src/primitives/form-field-parts.tsx`). FormField i CrudForm FieldControl oba je importuja. To zapewnia spojny styl bez duplikacji. **Nie robic tego na hackathonie** — za duze ryzyko regresji w CrudForm.
+**Sharing with CrudForm:** Eventually (after the hackathon), CrudForm FieldControl should extract sub-components `FieldLabel`, `FieldError`, `FieldDescription` to a shared location (`packages/ui/src/primitives/form-field-parts.tsx`). Both FormField and CrudForm FieldControl import them. This ensures consistent styling without duplication. **Do not do this during the hackathon** — too much regression risk in CrudForm.
 
-### Przyklady uzycia
+### Usage examples
 
 **Default (vertical):**
 ```tsx
@@ -104,7 +104,7 @@ const labelStyles = {
 </FormField>
 ```
 
-### Implementacja — auto-generated id
+### Implementation — auto-generated id
 
 ```typescript
 const generatedId = React.useId()
@@ -121,23 +121,23 @@ const child = React.cloneElement(children, {
 })
 ```
 
-### Relacja z CrudForm
+### Relationship with CrudForm
 
-- CrudForm **NIE uzywa** FormField — ma wlasny wbudowany `FieldControl` (linia 3367 CrudForm.tsx)
-- FormField jest przeznaczony do **standalone forms** (portal, auth, custom pages)
-- Dlugoterminowo: CrudForm moze byc refaktorowany zeby uzywac FormField wewnetrznie, ale to nie jest cel hackathonu
-- **Brak duplikacji logiki** — FormField jest prosty wrapper, CrudForm FieldControl obsluguje tez loadOptions, field types, validation triggers
+- CrudForm **does NOT use** FormField — it has its own built-in `FieldControl` (line 3367 of CrudForm.tsx)
+- FormField is intended for **standalone forms** (portal, auth, custom pages)
+- Long-term: CrudForm may be refactored to use FormField internally, but that is not a hackathon goal
+- **No logic duplication** — FormField is a simple wrapper, CrudForm FieldControl also handles loadOptions, field types, validation triggers
 
 ### Storybook stories
 
 1. `Default` — label + input + submit
-2. `Required` — z gwiazdka
+2. `Required` — with asterisk
 3. `WithError` — error message visible
 4. `WithDescription` — help text
 5. `Horizontal` — switch/checkbox layout
 6. `Disabled` — disabled state
-7. `WithoutLabel` — custom input z aria-label
-8. `Composed` — kilka FormField w formularzu
+7. `WithoutLabel` — custom input with aria-label
+8. `Composed` — multiple FormFields in a form
 
 ### Test cases
 
@@ -160,25 +160,25 @@ const child = React.cloneElement(children, {
 
 ## G.2 StatusBadge
 
-### Relacja Badge vs StatusBadge
+### Relationship between Badge and StatusBadge
 
 ```
-StatusBadge (semantic: "co ten status ZNACZY")
-  └── Badge (visual: "jak to WYGLĄDA")
-       └── semantic color tokens (foundation: "JAKIM kolorem")
+StatusBadge (semantic: "what this status MEANS")
+  └── Badge (visual: "how it LOOKS")
+       └── semantic color tokens (foundation: "WHAT color")
 ```
 
-**Badge** = niskopoziomowy komponent wizualny. Warianty: `default`, `secondary`, `destructive`, `outline`, `muted`, + nowe: `success`, `warning`, `info`. Nie ma logiki mapowania statusów. Używasz go kiedy znasz wariant:
+**Badge** = low-level visual component. Variants: `default`, `secondary`, `destructive`, `outline`, `muted`, + new: `success`, `warning`, `info`. Has no status mapping logic. Use it when you know the variant:
 ```tsx
 <Badge variant="success">Active</Badge>
 ```
 
-**StatusBadge** = semantyczny wrapper. Przyjmuje `variant: StatusBadgeVariant` i **wewnętrznie renderuje `<Badge>`** z odpowiednim wariantem + opcjonalny dot indicator. Moduły definiują `StatusMap` mapujący business status → variant:
+**StatusBadge** = semantic wrapper. Accepts `variant: StatusBadgeVariant` and **internally renders `<Badge>`** with the appropriate variant + an optional dot indicator. Modules define a `StatusMap` mapping business status → variant:
 ```tsx
 <StatusBadge variant={statusMap[person.status]} dot>{t(`status.${person.status}`)}</StatusBadge>
 ```
 
-**To NIE jest duplikacja.** Badge to "jak rysować kolorowy pill". StatusBadge to "jaki kolor dla 'active'?". StatusBadge bez Badge nie ma sensu. Badge bez StatusBadge jest OK dla non-status contexów (np. count badge, label badge).
+**This is NOT duplication.** Badge is "how to draw a colored pill". StatusBadge is "what color for 'active'?". StatusBadge without Badge makes no sense. Badge without StatusBadge is fine for non-status contexts (e.g., count badge, label badge).
 
 ### TypeScript Interface
 
@@ -205,18 +205,18 @@ export type StatusBadgeProps = {
 export type StatusMap<T extends string = string> = Record<T, StatusBadgeVariant>
 ```
 
-### Implementacja — StatusBadge renderuje Badge
+### Implementation — StatusBadge renders Badge
 
 ```typescript
 import { Badge } from './badge'
 
-// Mapowanie StatusBadge variant → Badge variant (nowe warianty w Badge)
+// Mapping StatusBadge variant → Badge variant (new variants in Badge)
 const variantToBadge: Record<StatusBadgeVariant, string> = {
   success: 'success',
   warning: 'warning',
-  error:   'destructive',  // Badge uzywa "destructive" nie "error"
+  error:   'destructive',  // Badge uses "destructive" not "error"
   info:    'info',
-  neutral: 'muted',        // Badge uzywa "muted" nie "neutral"
+  neutral: 'muted',        // Badge uses "muted" not "neutral"
 }
 
 export function StatusBadge({ variant, dot, children, className }: StatusBadgeProps) {
@@ -229,27 +229,27 @@ export function StatusBadge({ variant, dot, children, className }: StatusBadgePr
 }
 ```
 
-**Badge CVA — nowe warianty status (dodac do badge.tsx):**
+**Badge CVA — new status variants (add to badge.tsx):**
 
 ```typescript
-// Istniejace:
+// Existing:
 default: 'border-transparent bg-primary text-primary-foreground shadow',
 secondary: 'border-transparent bg-secondary text-secondary-foreground',
 destructive: 'border-transparent bg-destructive text-destructive-foreground shadow',
 outline: 'text-foreground',
 muted: 'border-transparent bg-muted text-muted-foreground',
 
-// Nowe:
+// New:
 success: 'border-status-success-border bg-status-success-bg text-status-success-text',
 warning: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
 info:    'border-status-info-border bg-status-info-bg text-status-info-text',
 ```
 
-> `destructive` Badge juz istnieje i uzywa `--destructive` token. Po migracji kolorow w sekcji I, destructive Badge automatycznie bedzie uzywal semantic error colors. Nie trzeba dodawac oddzielnego `error` wariantu do Badge.
+> The `destructive` Badge already exists and uses the `--destructive` token. After color migration in section I, the destructive Badge will automatically use semantic error colors. No need to add a separate `error` variant to Badge.
 
-### Jak moduly definiuja statusy
+### How modules define statuses
 
-Kazdy modul definiuje swoj `StatusMap`:
+Each module defines its own `StatusMap`:
 
 ```typescript
 // packages/core/src/modules/customers/lib/status.ts
@@ -261,7 +261,7 @@ export const personStatusMap: StatusMap<'active' | 'inactive' | 'archived'> = {
   archived: 'warning',
 }
 
-// Uzycie w komponencie:
+// Usage in a component:
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { personStatusMap } from '../lib/status'
 
@@ -270,7 +270,7 @@ import { personStatusMap } from '../lib/status'
 </StatusBadge>
 ```
 
-**Przyklady per-modul:**
+**Per-module examples:**
 
 ```typescript
 // Sales documents
@@ -299,10 +299,10 @@ const workflowStatusMap: StatusMap = {
 }
 ```
 
-### Unknown/custom statusy
+### Unknown/custom statuses
 
 ```typescript
-// Fallback dla nieznanych statusow:
+// Fallback for unknown statuses:
 <StatusBadge variant={statusMap[status] ?? 'neutral'}>
   {status}
 </StatusBadge>
@@ -312,8 +312,8 @@ const workflowStatusMap: StatusMap = {
 
 1. `AllVariants` — success, warning, error, info, neutral
 2. `WithDot` — dot indicator
-3. `WithStatusMap` — przyklad z personStatusMap
-4. `Unknown` — fallback do neutral
+3. `WithStatusMap` — example with personStatusMap
+4. `Unknown` — fallback to neutral
 
 ### Test cases
 
@@ -372,9 +372,9 @@ export type SectionProps = {
 }
 ```
 
-### Przyklady uzycia
+### Usage examples
 
-**Z akcja:**
+**With action:**
 ```tsx
 <Section
   header={{ title: 'Tags', count: tags.length, action: <Button variant="ghost" size="sm" onClick={addTag}>Add</Button> }}
@@ -384,7 +384,7 @@ export type SectionProps = {
 </Section>
 ```
 
-**Z collapse:**
+**With collapse:**
 ```tsx
 <Section
   header={{ title: 'Activities', count: 12, collapsible: true, defaultCollapsed: false }}
@@ -393,17 +393,17 @@ export type SectionProps = {
 </Section>
 ```
 
-**Bez akcji (prosty):**
+**Without action (simple):**
 ```tsx
 <Section header={{ title: 'Custom Data' }}>
   <CustomFieldsGrid fields={fields} />
 </Section>
 ```
 
-### Jak zastepuje 15+ istniejacych sekcji
+### How it replaces 15+ existing sections
 
-| Obecny komponent | Zmiana |
-|-----------------|--------|
+| Current component | Change |
+|-------------------|--------|
 | `TagsSection` | `<Section header={{ title, count, action }}>` + tag content |
 | `ActivitiesSection` | `<Section header={{ title, count, collapsible }}>` + activity list |
 | `AddressesSection` | `<Section header={{ title, count, action }}>` + address tiles |
@@ -415,7 +415,7 @@ export type SectionProps = {
 | Sales `PaymentsSection` | `<Section header={{ title, count }}>` + payments list |
 | Sales `ShipmentsSection` | `<Section header={{ title, count }}>` + shipments list |
 
-**Nie trzeba migrować od razu** — sekcje moga byc refaktorowane przy okazji (Boy Scout Rule). SectionHeader jest composition pattern: header jest nowy, content pozostaje wlasnoscia modulu.
+**No need to migrate immediately** — sections can be refactored opportunistically (Boy Scout Rule). SectionHeader is a composition pattern: the header is new, content remains module-owned.
 
 ### Storybook stories
 
@@ -446,7 +446,7 @@ export type SectionProps = {
 
 ## G.4 Alert (unified)
 
-### TypeScript Interface (nowa wersja)
+### TypeScript Interface (new version)
 
 ```typescript
 import type { ReactNode } from 'react'
@@ -474,36 +474,36 @@ export type AlertDescriptionProps = React.HTMLAttributes<HTMLParagraphElement>
 export type AlertActionProps = { children: ReactNode; className?: string }
 ```
 
-### Migration guide: stary API → nowy API
+### Migration guide: old API → new API
 
-| Stary (Notice) | Nowy (Alert) | Uwagi |
-|-----------------|-------------|-------|
-| `variant="error"` | `variant="destructive"` | Nazwa alignowana z Button |
-| `variant="info"` | `variant="info"` | Bez zmian |
-| `variant="warning"` | `variant="warning"` | Bez zmian |
+| Old (Notice) | New (Alert) | Notes |
+|--------------|-------------|-------|
+| `variant="error"` | `variant="destructive"` | Name aligned with Button |
+| `variant="info"` | `variant="info"` | No change |
+| `variant="warning"` | `variant="warning"` | No change |
 | `title="..."` | `<AlertTitle>...</AlertTitle>` | Composition pattern |
 | `message="..."` | `<AlertDescription>...</AlertDescription>` | Composition pattern |
 | `action={<Button>}` | `<AlertAction><Button></AlertAction>` | Explicit slot |
-| `compact` | `compact` | Zachowany prop |
-| `children` | `children` | Zachowany — renders inside AlertDescription |
+| `compact` | `compact` | Retained prop |
+| `children` | `children` | Retained — renders inside AlertDescription |
 
-| Stary (ErrorNotice) | Nowy (Alert) | Uwagi |
-|----------------------|-------------|-------|
-| `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>{defaultTitle}</AlertTitle><AlertDescription>{defaultMsg}</AlertDescription></Alert>` | Defaults trzeba explicit |
+| Old (ErrorNotice) | New (Alert) | Notes |
+|--------------------|-------------|-------|
+| `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>{defaultTitle}</AlertTitle><AlertDescription>{defaultMsg}</AlertDescription></Alert>` | Defaults must be explicit |
 | `title="X" message="Y"` | `<Alert variant="destructive"><AlertTitle>X</AlertTitle><AlertDescription>Y</AlertDescription></Alert>` | 1:1 mapping |
 | `action={btn}` | `<AlertAction>{btn}</AlertAction>` | Explicit slot |
 
 ### Backward compatibility
 
-**Podejscie: backward compatible z deprecation warnings.**
+**Approach: backward compatible with deprecation warnings.**
 
-Alert juz istnieje z 5 wariantami. Zmiany:
-1. **Dodac** `compact` prop (nowy, additive)
-2. **Dodac** `dismissible` + `onDismiss` props (nowy, additive)
-3. **Dodac** `AlertAction` sub-component (nowy, additive)
-4. **Zmiana kolorow** Alert na semantic tokens (visual change, nie API change)
+Alert already exists with 5 variants. Changes:
+1. **Add** `compact` prop (new, additive)
+2. **Add** `dismissible` + `onDismiss` props (new, additive)
+3. **Add** `AlertAction` sub-component (new, additive)
+4. **Change colors** of Alert to semantic tokens (visual change, not an API change)
 
-**NIE jest breaking change** — istniejace uzycia Alert dzialaja bez zmian. Tylko Notice jest deprecated.
+**NOT a breaking change** — existing Alert usages work without modification. Only Notice is deprecated.
 
 ### Dismissible behavior
 
@@ -530,7 +530,7 @@ return (
 )
 ```
 
-### Color tokens (semantic, zamiast hardcoded)
+### Color tokens (semantic, instead of hardcoded)
 
 ```typescript
 const alertVariants = cva('...base...', {
@@ -554,7 +554,7 @@ const alertVariants = cva('...base...', {
 4. `Warning` — warning state
 5. `Info` — informational
 6. `WithTitle` — title + description
-7. `WithAction` — z action button
+7. `WithAction` — with action button
 8. `Dismissible` — close button
 9. `Compact` — compact mode
 10. `MigrationFromNotice` — side-by-side old Notice vs new Alert
@@ -582,7 +582,7 @@ const alertVariants = cva('...base...', {
 
 ## See also
 
-- [Components](./components.md) — lista MVP z priorytetami
-- [Component Specs](./component-specs.md) — specyfikacje Button, Card, Dialog, Tooltip
-- [Token Values](./token-values.md) — tokeny używane w propozycjach API
-- [Foundations](./foundations.md) — kolory, typografia, spacing
+- [Components](./components.md) — MVP list with priorities
+- [Component Specs](./component-specs.md) — Button, Card, Dialog, Tooltip specifications
+- [Token Values](./token-values.md) — tokens used in API proposals
+- [Foundations](./foundations.md) — colors, typography, spacing

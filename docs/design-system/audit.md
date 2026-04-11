@@ -1,10 +1,10 @@
-# Część 1 — Audit istniejącego UI
+# Part 1 — Existing UI Audit
 
-> Kompleksowy audyt 160 stron backend, portalu i shared UI library. Scoring rubric na końcu.
+> Comprehensive audit of 160 backend pages, portal, and shared UI library. Scoring rubric at the end.
 
 ---
 
-## Zakres audytu
+## Audit scope
 
 - **160 backend pages** across **34 modules**
 - **Portal pages** (customer-facing: login, signup, dashboard, profile)
@@ -14,133 +14,133 @@
 
 ---
 
-## 1.1 Architektura ekranow i flow
+## 1.1 Screen architecture and flows
 
-### Co sprawdzic
-- Czy kazdy modul ma spojny flow: lista → tworzenie → edycja → szczegoly?
-- Czy wzorce stron sa powtarzalne miedzy modulami?
-- Czy sa ekrany "osierocone" (brak nawigacji do nich)?
+### What to check
+- Does every module have a consistent flow: list → create → edit → detail?
+- Are page patterns repeatable across modules?
+- Are there "orphaned" screens (no navigation leading to them)?
 
-### Pytania kontrolne
-- Czy uzytkownik zawsze wie, gdzie jest i jak wrocic?
-- Czy flow CRUD jest identyczny w kazdym module?
-- Czy stany posrednie (loading, error, empty) sa obsluzone na kazdym ekranie?
+### Control questions
+- Does the user always know where they are and how to go back?
+- Is the CRUD flow identical in every module?
+- Are intermediate states (loading, error, empty) handled on every screen?
 
-### Ustalenia z audytu
+### Audit findings
 
-**Spojne wzorce (dobrze):**
-- **List page pattern**: `<Page>` → `<DataTable>` z filtrami, wyszukiwarka, paginacja, row actions — uzywany w 46/160 stron
-- **Create page pattern**: `<Page>` → `<CrudForm>` z polami/grupami, custom fields, walidacja — uzywany w ~20 stron
-- **Detail page pattern**: `<Page>` → highlights → tabbed sections → editable fields — uzywany w ~10 zlozonych modulach (customers, sales, catalog)
+**Consistent patterns (good):**
+- **List page pattern**: `<Page>` → `<DataTable>` with filters, search, pagination, row actions — used in 46/160 pages
+- **Create page pattern**: `<Page>` → `<CrudForm>` with fields/groups, custom fields, validation — used in ~20 pages
+- **Detail page pattern**: `<Page>` → highlights → tabbed sections → editable fields — used in ~10 complex modules (customers, sales, catalog)
 
-**Problemy:**
-- **104/160 stron (70%) nie uzywa DataTable** — niektorze uzywaja wlasnych list, kart lub surowych tabel
-- **119/150 stron backend (79%) nie obsluguje empty state** — puste tabele bez zadnego komunikatu
-- **61/150 stron (41%) nie ma loading state** — brak wskaznika ladowania
-- Niektorze moduly maja pelen CRUD flow, inne maja tylko liste bez mozliwosci tworzenia
+**Issues:**
+- **104/160 pages (70%) do not use DataTable** — some use custom lists, cards, or raw tables
+- **119/150 backend pages (79%) do not handle empty state** — empty tables without any message
+- **61/150 pages (41%) have no loading state** — no loading indicator
+- Some modules have a full CRUD flow, others have only a list with no ability to create
 
-### Wplyw na UX
-Uzytkownik napotyka niespojne zachowanie: w jednym module pusta lista pokazuje przyjazny komunikat z CTA, w innym — pustke.
+### Impact on UX
+Users encounter inconsistent behavior: in one module an empty list shows a friendly message with a CTA, in another — nothing.
 
-### Wplyw na spojnosc systemu
-Brak wymuszonego wzorca stron prowadzi do tego, ze kazdy contributor buduje swoj ekran od zera.
+### Impact on consistency
+Lack of enforced page patterns leads to every contributor building their screen from scratch.
 
-### Wplyw na accessibility
-Brak loading/error states oznacza brak komunikatow dla screen readerow o stanie interfejsu.
+### Accessibility impact
+Missing loading/error states means no screen reader announcements about interface state.
 
-### Priorytet naprawy: **WYSOKI**
+### Fix priority: **HIGH**
 
-### Czy do pierwszego etapu DS: **TAK** — zdefiniowac obowiazkowe page patterns
+### Include in DS Phase 1: **YES** — define mandatory page patterns
 
 ---
 
-## 1.2 Nawigacja i Information Architecture
+## 1.2 Navigation and Information Architecture
 
-### Co sprawdzic
-- Struktura sidebar (main / settings / profile)
+### What to check
+- Sidebar structure (main / settings / profile)
 - Breadcrumbs
 - Mobile navigation
-- Command palette / szybkie wyszukiwanie
+- Command palette / quick search
 
-### Ustalenia z audytu
+### Audit findings
 
-**Sidebar (dobrze):**
-- Trzy tryby: main, settings, profile
-- Injection points dla modulow (`menu:sidebar:main`, `menu:sidebar:settings`)
-- Customizacja sidebara (reorder, rename, hide) z persystencja w localStorage
-- Responsive: collapse do 72px na desktop, drawer 260px na mobile
+**Sidebar (good):**
+- Three modes: main, settings, profile
+- Injection points for modules (`menu:sidebar:main`, `menu:sidebar:settings`)
+- Sidebar customization (reorder, rename, hide) with localStorage persistence
+- Responsive: collapse to 72px on desktop, drawer 260px on mobile
 
 **Breadcrumbs:**
-- Brak dedykowanego komponentu — renderowane inline w headerze AppShell
-- `ApplyBreadcrumb` component ustawia breadcrumb via context
-- Na mobile ukrywane posrednie elementy (`hidden md:inline`)
-- Zawsze zaczyna od "Dashboard"
+- No dedicated component — rendered inline in the AppShell header
+- `ApplyBreadcrumb` component sets breadcrumb via context
+- On mobile, intermediate elements are hidden (`hidden md:inline`)
+- Always starts from "Dashboard"
 
-**Problemy:**
-- Brak command palette / global search — cala nawigacja opiera sie na sidebar
-- Breadcrumbs zaimplementowane jako czesc AppShell (1650+ linii), nie jako reusable component
-- Detekcja sciezki settings oparta na string prefix matching — kruche rozwiazanie
-- `dangerouslySetInnerHTML` uzywany do renderowania ikon z markup string — potencjalne ryzyko XSS
+**Issues:**
+- No command palette / global search — all navigation relies on the sidebar
+- Breadcrumbs implemented as part of AppShell (1650+ lines), not as a reusable component
+- Settings path detection based on string prefix matching — fragile approach
+- `dangerouslySetInnerHTML` used to render icons from markup string — potential XSS risk
 
 ### Profile Dropdown
 - Change Password, Notifications, Theme Toggle, Language selector, Sign Out
 - Injection point: `menu:topbar:profile-dropdown`
 
-### Wplyw na UX
-Brak global search / command palette jest odczuwalny przy 34 modulach — nawigacja wymaga wielu klikniec.
+### Impact on UX
+No global search / command palette is noticeable with 34 modules — navigation requires many clicks.
 
-### Priorytet naprawy: **SREDNI** (sidebar dziala dobrze, brakuje command palette)
+### Fix priority: **MEDIUM** (sidebar works well, command palette is missing)
 
-### Czy do pierwszego etapu DS: **NIE** — sidebar jest funkcjonalny, command palette to feature, nie DS
-
----
-
-## 1.3 Hierarchia wizualna
-
-### Co sprawdzic
-- Czy naglowki stron maja spojny rozmiar i styl?
-- Czy jest jasna hierarchia: page title → section title → field label?
-- Czy akcje (CTA) sa wizualnie wyroznialne?
-
-### Ustalenia z audytu
-
-**FormHeader — dwa tryby:**
-- **Edit mode**: kompaktowy header z back link i tytulem
-- **Detail mode**: duzy header z entity type label, subtitle, status badge, Actions dropdown
-
-**Problemy:**
-- **61 razy uzyto arbitralnych rozmiarow tekstu** (`text-[11px]`, `text-[13px]`, `text-[10px]`) zamiast skali Tailwind
-- Brak zdefiniowanej hierarchii typograficznej — kazdy contributor wybiera rozmiar "na oko"
-- Portal pages uzywaja `text-4xl sm:text-5xl lg:text-6xl` dla hero, ale backend uzywa `text-2xl` dla tytulu strony — brak spojnosci miedzy frontend/backend
-
-### Wplyw na UX
-Niespojne rozmiary tekstu utrudniaja skanowanie strony wzrokiem.
-
-### Priorytet naprawy: **WYSOKI**
-
-### Czy do pierwszego etapu DS: **TAK** — typography scale to foundation
+### Include in DS Phase 1: **NO** — sidebar is functional, command palette is a feature, not DS
 
 ---
 
-## 1.4 Typografia
+## 1.3 Visual hierarchy
 
-### Co sprawdzic
-- Fonty (family, weights, sizes)
+### What to check
+- Do page headings have a consistent size and style?
+- Is there a clear hierarchy: page title → section title → field label?
+- Are actions (CTAs) visually distinguishable?
+
+### Audit findings
+
+**FormHeader — two modes:**
+- **Edit mode**: compact header with back link and title
+- **Detail mode**: large header with entity type label, subtitle, status badge, Actions dropdown
+
+**Issues:**
+- **61 instances of arbitrary text sizes** (`text-[11px]`, `text-[13px]`, `text-[10px]`) instead of the Tailwind scale
+- No defined typographic hierarchy — every contributor picks a size by eye
+- Portal pages use `text-4xl sm:text-5xl lg:text-6xl` for hero, but backend uses `text-2xl` for page title — no consistency between frontend/backend
+
+### Impact on UX
+Inconsistent text sizes make it harder to visually scan the page.
+
+### Fix priority: **HIGH**
+
+### Include in DS Phase 1: **YES** — typography scale is a foundation
+
+---
+
+## 1.4 Typography
+
+### What to check
+- Fonts (family, weights, sizes)
 - Line heights
 - Letter spacing
-- Uzytkownik arbitralnych wartosci
+- Use of arbitrary values
 
-### Ustalenia z audytu
+### Audit findings
 
-**Fonty:**
+**Fonts:**
 - **Geist Sans** — primary (sans-serif)
 - **Geist Mono** — code/monospace
-- Zdefiniowane jako CSS custom properties w globals.css
+- Defined as CSS custom properties in globals.css
 
-**Rozmiary tekstu — uzycie w codebase:**
+**Text sizes — usage in codebase:**
 
-| Wartosc | Wystapienia | Kontekst |
-|---------|-------------|----------|
+| Value | Occurrences | Context |
+|-------|-------------|---------|
 | `text-[9px]` | 1 | notification badge count |
 | `text-[10px]` | 15 | badge small, labels |
 | `text-[11px]` | 33 | uppercase labels, captions |
@@ -148,49 +148,49 @@ Niespojne rozmiary tekstu utrudniaja skanowanie strony wzrokiem.
 | `text-[13px]` | 7 | small buttons, links |
 | `text-[14px]` | 1 | button overrides |
 | `text-[15px]` | 2 | portal header subtitle |
-| `text-xs` (12px) | powszechne | general small text |
-| `text-sm` (14px) | dominujace | default body |
-| `text-base` (16px) | czeste | larger body |
-| `text-2xl` (24px) | czeste | page titles |
-| `text-3xl` (30px) | nieliczne | page subtitles |
+| `text-xs` (12px) | common | general small text |
+| `text-sm` (14px) | dominant | default body |
+| `text-base` (16px) | frequent | larger body |
+| `text-2xl` (24px) | frequent | page titles |
+| `text-3xl` (30px) | rare | page subtitles |
 | `text-4xl`–`text-6xl` | portal hero | responsive hero |
 
 **Letter spacing:**
 - `tracking-tight` — headings
-- `tracking-wider` / `tracking-widest` / `tracking-[0.15em]` — uppercase labels (niespojne miedzy soba)
+- `tracking-wider` / `tracking-widest` / `tracking-[0.15em]` — uppercase labels (inconsistent with each other)
 
-**Problemy:**
-- **61 arbitralnych rozmiarow tekstu** lamie skale Tailwind
-- **3 rozne warianty letter-spacing** dla uppercase labels
-- Brak zdefiniowanej skali typograficznej (heading 1-6, body, caption, label, overline)
+**Issues:**
+- **61 arbitrary text sizes** break the Tailwind scale
+- **3 different letter-spacing variants** for uppercase labels
+- No defined typographic scale (heading 1-6, body, caption, label, overline)
 
-### Priorytet naprawy: **WYSOKI**
+### Fix priority: **HIGH**
 
-### Czy do pierwszego etapu DS: **TAK** — typography scale
+### Include in DS Phase 1: **YES** — typography scale
 
 ---
 
-## 1.5 Kolorystyka i semantyka koloru
+## 1.5 Color system and semantic colors
 
-### Co sprawdzic
-- System tokenow kolorow
-- Uzycie semantycznych kolorow (error, success, warning, info)
-- Hardcoded wartosci vs tokeny
+### What to check
+- Color token system
+- Use of semantic colors (error, success, warning, info)
+- Hardcoded values vs tokens
 - Dark mode support
 
-### Ustalenia z audytu
+### Audit findings
 
-**System tokenow (dobrze):**
-- OKLCH color space — nowoczesny, perceptually uniform
+**Token system (good):**
+- OKLCH color space — modern, perceptually uniform
 - CSS custom properties: `--primary`, `--secondary`, `--accent`, `--destructive`, `--muted`, `--card`, `--popover`, `--border`, `--input`, `--ring`
 - Sidebar-specific tokens: `--sidebar`, `--sidebar-foreground`, etc.
 - Chart colors: 10 named (`--chart-blue`, `--chart-emerald`, etc.)
-- Dark mode: pelen zestaw tokenow, przelaczanie via `.dark` class
-- `ThemeProvider` z localStorage persistence i OS preference detection
+- Dark mode: full token set, switching via `.dark` class
+- `ThemeProvider` with localStorage persistence and OS preference detection
 
-**KRYTYCZNY PROBLEM — 372 hardcoded semantic colors:**
+**CRITICAL ISSUE — 372 hardcoded semantic colors:**
 
-| Pattern | Wystapienia | Przyklad |
+| Pattern | Occurrences | Example |
 |---------|-------------|---------|
 | `text-red-*` | 159 | `text-red-600` (107x), `text-red-800` (26x) |
 | `bg-red-*` | 39 | `bg-red-50` (24x), `bg-red-100` (14x) |
@@ -202,49 +202,49 @@ Niespojne rozmiary tekstu utrudniaja skanowanie strony wzrokiem.
 | `bg-emerald-*` | 12 | `bg-emerald-50` (5x) |
 | `border-red-*` | ~10 | `border-red-200`, `border-red-500` |
 
-**Gdzie to wystepuje:**
+**Where this occurs:**
 - Status badges (active/inactive/pending) — hardcoded per-module
-- Alert/error banners w auth login (`border-red-200 bg-red-50 text-red-700`)
+- Alert/error banners in auth login (`border-red-200 bg-red-50 text-red-700`)
 - Success banners (`border-emerald-200 bg-emerald-50 text-emerald-900`)
 - Customer address tiles, sales document statuses, currency statuses
 
 **Problem:**
-System ma zdefiniowane tokeny (`--destructive`, `--accent`), ale **372 miejsc w kodzie ignoruje je** i uzywa bezposrednich kolorow Tailwind. Te kolory:
-- Nie reaguja na dark mode
-- Nie sa centralizowane — zmiana semantyki "error" wymaga edycji 159 plikow
-- Rozne odcienie czerwonego (`red-500`, `red-600`, `red-700`, `red-800`, `red-900`) uzywane zamiennie
+The system has defined tokens (`--destructive`, `--accent`), but **372 places in the code ignore them** and use direct Tailwind colors. These colors:
+- Do not respond to dark mode
+- Are not centralized — changing the semantics of "error" requires editing 159 files
+- Different shades of red (`red-500`, `red-600`, `red-700`, `red-800`, `red-900`) used interchangeably
 
-### Porownanie Alert/Notice/Badge:
+### Alert/Notice/Badge comparison:
 
-| Komponent | Error | Success | Warning | Info |
+| Component | Error | Success | Warning | Info |
 |-----------|-------|---------|---------|------|
 | Alert | `destructive` variant | `border-emerald-600/30 bg-emerald-500/10 text-emerald-900` | `border-amber-500/30 bg-amber-400/10 text-amber-950` | `border-sky-600/30 bg-sky-500/10 text-sky-900` |
-| Notice | `border-red-200 bg-red-50 text-red-800` | brak | `border-amber-200 bg-amber-50 text-amber-800` | `border-blue-200 bg-blue-50 text-blue-900` |
+| Notice | `border-red-200 bg-red-50 text-red-800` | none | `border-amber-200 bg-amber-50 text-amber-800` | `border-blue-200 bg-blue-50 text-blue-900` |
 | FlashMessages | `emerald-600` | `red-600` | `amber-500` | `blue-600` |
 | Notifications | `text-destructive` | `text-green-500` | `text-amber-500` | `text-blue-500` |
 
-**4 rozne komponenty, 4 rozne palety dla tych samych stanow semantycznych.**
+**4 different components, 4 different palettes for the same semantic states.**
 
-### Priorytet naprawy: **KRYTYCZNY**
+### Fix priority: **CRITICAL**
 
-### Czy do pierwszego etapu DS: **TAK** — semantic color tokens to absolutne minimum
+### Include in DS Phase 1: **YES** — semantic color tokens are the absolute minimum
 
 ---
 
-## 1.6 Spacing i Layout
+## 1.6 Spacing and Layout
 
-### Co sprawdzic
+### What to check
 - Spacing scale
-- Spojnosc gap/padding/margin
+- Gap/padding/margin consistency
 - Grid system
 - Layout patterns
 
-### Ustalenia z audytu
+### Audit findings
 
-**Spacing — dystrybucja uzycia:**
+**Spacing — usage distribution:**
 
-| Wartosc | gap | space-y | padding (p-) |
-|---------|-----|---------|-------------|
+| Value | gap | space-y | padding (p-) |
+|-------|-----|---------|-------------|
 | 0.5 (2px) | 7 | 9 | — |
 | 1 (4px) | 101 | 168 | 166 |
 | 1.5 (6px) | 29 | 44 | — |
@@ -255,89 +255,89 @@ System ma zdefiniowane tokeny (`--destructive`, `--accent`), ale **372 miejsc w 
 | 6 (24px) | 13 | 66 | 69 |
 | 8 (32px) | 2 | 15 | — |
 
-**Obserwacje:**
-- `gap-2`, `space-y-2`, `p-2` dominuja (45%+ uzycia) — ale brak udokumentowanego uzasadnienia
-- Wartosci 5 (`gap-5`, `space-y-5`) sa prawie nieuzywane — sugeruje ze skala 2-3-4-6-8 jest "naturalna" dla projektu
-- Outlier: `py-20`, `p-20` — jednorazowe hacki
-- **27 roznych arbitralnych wysokosci** (`h-[50vh]`, `h-[60vh]`, `h-[90vh]`, etc.)
-- **20 roznych arbitralnych szerokosci** (`w-[120px]`, `w-[200px]`, `w-[480px]`, etc.)
+**Observations:**
+- `gap-2`, `space-y-2`, `p-2` dominate (45%+ usage) — but no documented rationale
+- Values of 5 (`gap-5`, `space-y-5`) are nearly unused — suggests the 2-3-4-6-8 scale is "natural" for the project
+- Outlier: `py-20`, `p-20` — one-off hacks
+- **27 different arbitrary heights** (`h-[50vh]`, `h-[60vh]`, `h-[90vh]`, etc.)
+- **20 different arbitrary widths** (`w-[120px]`, `w-[200px]`, `w-[480px]`, etc.)
 
 **Layout patterns:**
 - `<Page>` wrapper: `space-y-6`
 - `<PageBody>`: `space-y-4`
-- Grid: 1-2-3 kolumny responsywne (`grid-cols-1 md:grid-cols-2 xl:grid-cols-3`)
-- Sidebar: 72px/240px/320px (3 stany)
-- Dialog: bottom sheet na mobile, centered na desktop
+- Grid: 1-2-3 responsive columns (`grid-cols-1 md:grid-cols-2 xl:grid-cols-3`)
+- Sidebar: 72px/240px/320px (3 states)
+- Dialog: bottom sheet on mobile, centered on desktop
 
-### Priorytet naprawy: **WYSOKI**
+### Fix priority: **HIGH**
 
-### Czy do pierwszego etapu DS: **TAK** — spacing scale
+### Include in DS Phase 1: **YES** — spacing scale
 
 ---
 
-## 1.7 Formularze
+## 1.7 Forms
 
-### Co sprawdzic
-- Spojnosc pol formularza
-- Walidacja
+### What to check
+- Form field consistency
+- Validation
 - Error display
-- Layout formularza (single column, multi-column, grouped)
+- Form layout (single column, multi-column, grouped)
 
-### Ustalenia z audytu
+### Audit findings
 
-**CrudForm (dobrze):**
-- Centralny komponent formularza (1800+ linii)
-- Obsluguje: pola, grupy, custom fields, walidacje Zod, server error mapping
-- Auto-flash messaging na success/failure
+**CrudForm (good):**
+- Central form component (1800+ lines)
+- Handles: fields, groups, custom fields, Zod validation, server error mapping
+- Auto-flash messaging on success/failure
 - Keyboard shortcuts: `Cmd/Ctrl+Enter` submit, `Escape` cancel
 - Injection: `crud-form:<entityId>:fields`
 
 **Input components:**
 - `DatePicker`, `DateTimePicker`, `TimePicker`
-- `ComboboxInput` — searchable select z async loading
+- `ComboboxInput` — searchable select with async loading
 - `TagsInput` — multi-select tags
 - `LookupSelect` — lookup table
-- `PhoneNumberField` — phone z formatowaniem
-- `SwitchableMarkdownInput` — rich text z markdown toggle
+- `PhoneNumberField` — phone with formatting
+- `SwitchableMarkdownInput` — rich text with markdown toggle
 
-**Problemy:**
-- Brak komponentu **Form Field wrapper** (label + input + description + error) jako reusable primitive
-- Portal pages buduja formularze recznie (`gap-4` miedzy polami, `gap-1.5` wewnatrz pol) zamiast uzywac CrudForm
-- Auth login page uzywa wlasnego layoutu formularza z hardcoded stylami
-- **Brak spojnego Form Field** — label styling rozni sie miedzy modulami:
+**Issues:**
+- No **Form Field wrapper** component (label + input + description + error) as a reusable primitive
+- Portal pages build forms manually (`gap-4` between fields, `gap-1.5` within fields) instead of using CrudForm
+- Auth login page uses its own form layout with hardcoded styles
+- **No consistent Form Field** — label styling differs across modules:
   - Portal: `text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70`
-  - Backend CrudForm: wbudowane labele
-  - Auth: `<Label>` z primitives
+  - Backend CrudForm: built-in labels
+  - Auth: `<Label>` from primitives
 
-### Priorytet naprawy: **WYSOKI**
+### Fix priority: **HIGH**
 
-### Czy do pierwszego etapu DS: **TAK** — FormField wrapper
+### Include in DS Phase 1: **YES** — FormField wrapper
 
 ---
 
-## 1.8 Karty, listy, tabele — prezentacja danych
+## 1.8 Cards, lists, tables — data presentation
 
-### Co sprawdzic
+### What to check
 - DataTable patterns
 - Card patterns
 - List patterns
 - Detail page sections
 
-### Ustalenia z audytu
+### Audit findings
 
-**DataTable (dobrze):**
-- Bogaty komponent (1000+ linii): sorting, filtering, pagination, row selection, bulk actions, column chooser, export, perspectives, virtual rows
+**DataTable (good):**
+- Rich component (1000+ lines): sorting, filtering, pagination, row selection, bulk actions, column chooser, export, perspectives, virtual rows
 - Extension points: `data-table:<tableId>:columns|:row-actions|:bulk-actions|:filters`
-- Uzywany w 46/160 stron
+- Used in 46/160 pages
 
-**Card patterns — niespojne:**
-- `packages/ui/src/primitives/card.tsx` — generyczny Card z CardHeader, CardTitle, CardDescription, CardContent, CardFooter
+**Card patterns — inconsistent:**
+- `packages/ui/src/primitives/card.tsx` — generic Card with CardHeader, CardTitle, CardDescription, CardContent, CardFooter
 - `packages/ui/src/portal/components/PortalCard.tsx` — portal-specific `rounded-xl border bg-card p-5 sm:p-6`
-- `PortalFeatureCard` — 3-column grid cards z ikona
-- `PortalStatRow` — statystyki w cardzie
-- Settings pages uzywaja card-grid do nawigacji
+- `PortalFeatureCard` — 3-column grid cards with icon
+- `PortalStatRow` — statistics in a card
+- Settings pages use card-grid for navigation
 
-**Problem — 15+ Section components z powtarzalnym wzorcem:**
+**Issue — 15+ Section components with a repeating pattern:**
 
 Customers module:
 - `TagsSection`, `CustomDataSection`, `ActivitiesSection`, `DetailFieldsSection`, `AddressesSection`, `DealsSection`, `CompanyPeopleSection`, `TasksSection`
@@ -345,220 +345,220 @@ Customers module:
 Sales module:
 - `AdjustmentsSection`, `ShipmentsSection`, `PaymentsSection`, `AddressesSection`, `ItemsSection`, `ReturnsSection`
 
-Kazda sekcja implementuje niezaleznie: header + content + action + empty state + loading. Brak wspolnego base component.
+Each section independently implements: header + content + action + empty state + loading. No shared base component.
 
-### Priorytet naprawy: **SREDNI**
+### Fix priority: **MEDIUM**
 
-### Czy do pierwszego etapu DS: **TAK** — Section component, Card component
+### Include in DS Phase 1: **YES** — Section component, Card component
 
 ---
 
-## 1.9 Feedback systemowy
+## 1.9 System feedback
 
-### Co sprawdzic
+### What to check
 - Error states
 - Success feedback
 - Warning messages
 - Loading indicators
 - Empty states
 
-### Ustalenia z audytu
+### Audit findings
 
-**Mechanizmy feedbacku — 4 niezalezne systemy:**
+**Feedback mechanisms — 4 independent systems:**
 
-| System | Komponent | Czas zycia | Trigger |
-|--------|-----------|-----------|---------|
-| Flash messages | `FlashMessages` | 3s auto-dismiss | Programmatic `flash()` lub URL params |
-| Notices | `Notice` / `Alert` | Persistent inline | Renderowane w JSX |
+| System | Component | Lifetime | Trigger |
+|--------|-----------|----------|---------|
+| Flash messages | `FlashMessages` | 3s auto-dismiss | Programmatic `flash()` or URL params |
+| Notices | `Notice` / `Alert` | Persistent inline | Rendered in JSX |
 | Notifications | `NotificationBell` + panel | Persistent, SSE-based | Server events |
 | Confirm dialogs | `useConfirmDialog` | Until user action | Programmatic `confirm()` |
 
-**Flash messages (dobrze):**
-- 4 warianty: success (emerald-600), error (red-600), warning (amber-500), info (blue-600)
+**Flash messages (good):**
+- 4 variants: success (emerald-600), error (red-600), warning (amber-500), info (blue-600)
 - Fixed positioning: top-right desktop, bottom sheet mobile
-- 3s auto-dismiss z manual close
+- 3s auto-dismiss with manual close
 
-**Notice vs Alert — duplikacja:**
-- `Notice`: 3 warianty (error, info, warning) — uzywa hardcoded kolorow (`border-red-200`, `bg-red-50`)
-- `Alert`: 5 wariantow (default, destructive, success, warning, info) — uzywa bardziej abstrakcyjnych klas
-- **Oba komponenty sluza do tego samego celu** — inline komunikaty na stronie
+**Notice vs Alert — duplication:**
+- `Notice`: 3 variants (error, info, warning) — uses hardcoded colors (`border-red-200`, `bg-red-50`)
+- `Alert`: 5 variants (default, destructive, success, warning, info) — uses more abstract classes
+- **Both components serve the same purpose** — inline messages on a page
 
 **ErrorNotice:**
-- Wrapper wokol `Notice variant="error"`
-- Default i18n title i message
+- Wrapper around `Notice variant="error"`
+- Default i18n title and message
 
-**Empty states — slabe pokrycie:**
-- `EmptyState` komponent istnieje (centered layout, dashed border, muted bg, optional icon + CTA)
-- `TabEmptyState` wrapper dla sekcji w zakladkach
-- **Ale 79% stron backend nie uzywa zadnego z nich**
+**Empty states — weak coverage:**
+- `EmptyState` component exists (centered layout, dashed border, muted bg, optional icon + CTA)
+- `TabEmptyState` wrapper for tabbed sections
+- **But 79% of backend pages do not use any of them**
 
 **Loading states:**
-- `LoadingMessage` — spinner + tekst w bordered container
+- `LoadingMessage` — spinner + text in a bordered container
 - `Spinner` — standalone spinner
-- **41% stron nie ma loading state**
-- Pattern: recznie zarzadzany `isLoading` state, nie opakowany we wspolny komponent
+- **41% of pages have no loading state**
+- Pattern: manually managed `isLoading` state, not wrapped in a shared component
 
-### Priorytet naprawy: **WYSOKI**
+### Fix priority: **HIGH**
 
-### Czy do pierwszego etapu DS: **TAK** — ujednolicic Notice/Alert, wymusic empty/loading states
+### Include in DS Phase 1: **YES** — unify Notice/Alert, enforce empty/loading states
 
 ---
 
-## 1.10 Stany interakcji
+## 1.10 Interaction states
 
-### Co sprawdzic
+### What to check
 - Hover, focus, active, disabled states
 - Focus management
 - Keyboard navigation
 
-### Ustalenia z audytu
+### Audit findings
 
-**Button/IconButton (dobrze):**
-- CVA-based variants z hover/focus/disabled states
+**Button/IconButton (good):**
+- CVA-based variants with hover/focus/disabled states
 - Focus ring: `focus-visible:ring-ring/50 focus-visible:ring-[3px]`
 - Disabled: `disabled:pointer-events-none disabled:opacity-50`
-- 7 wariantow Button, 2 warianty IconButton, 4 rozmiary kazdego
+- 7 Button variants, 2 IconButton variants, 4 sizes each
 
-**CrudForm keyboard shortcuts (dobrze):**
+**CrudForm keyboard shortcuts (good):**
 - `Cmd/Ctrl+Enter` — submit
 - `Escape` — cancel
 - ConfirmDialog: `Enter` confirm, `Escape` cancel
 
-**Problemy:**
-- Tab navigation nie jest testowana systematycznie
-- Niektorze custom inline editors moga nie obslugiwac keyboard navigation
-- Focus trapping w modalach: Dialog uzywa Radix (dobrze), ale ConfirmDialog uzywa natywnego `<dialog>` (tez ok)
+**Issues:**
+- Tab navigation is not systematically tested
+- Some custom inline editors may not support keyboard navigation
+- Focus trapping in modals: Dialog uses Radix (good), but ConfirmDialog uses native `<dialog>` (also ok)
 
-### Priorytet naprawy: **SREDNI**
+### Fix priority: **MEDIUM**
 
-### Czy do pierwszego etapu DS: **NIE** — obecny stan jest akceptowalny, mozna poprawic iteracyjnie
+### Include in DS Phase 1: **NO** — current state is acceptable, can be improved iteratively
 
 ---
 
-## 1.11 Dostepnosc (Accessibility)
+## 1.11 Accessibility
 
-### Co sprawdzic
+### What to check
 - ARIA attributes
 - Semantic HTML
 - Color contrast
 - Screen reader support
 - Keyboard navigation
 
-### Ustalenia z audytu
+### Audit findings
 
-**Dobre praktyki:**
-- `aria-label` na IconButtons (`aria-label="Close"`, `aria-label="Open menu"`)
-- `role="alert"` i `aria-live="polite"` na error messages
+**Good practices:**
+- `aria-label` on IconButtons (`aria-label="Close"`, `aria-label="Open menu"`)
+- `role="alert"` and `aria-live="polite"` on error messages
 - Semantic HTML: `<nav>`, `<h1>`-`<h2>`, `<button>`, `<label>`
-- Formularze: `htmlFor` na labelach
+- Forms: `htmlFor` on labels
 
-**Problemy:**
-- **370+ interactive elements bez aria-label** — glownie icon buttons w roznych modulach
-- Niektorze inline SVG ikony nie maja `aria-hidden="true"`
-- Brak skip-to-content link
-- Brak focus indicator na niektorych custom komponentach
-- OKLCH kolory — brak zautomatyzowanego contrast checking
+**Issues:**
+- **370+ interactive elements without aria-label** — mostly icon buttons across various modules
+- Some inline SVG icons lack `aria-hidden="true"`
+- No skip-to-content link
+- Missing focus indicator on some custom components
+- OKLCH colors — no automated contrast checking
 
-### Priorytet naprawy: **WYSOKI**
+### Fix priority: **HIGH**
 
-### Czy do pierwszego etapu DS: **TAK** — accessibility foundations
+### Include in DS Phase 1: **YES** — accessibility foundations
 
 ---
 
-## 1.12 Responsywnosc
+## 1.12 Responsiveness
 
-### Co sprawdzic
+### What to check
 - Breakpoints
 - Mobile-first approach
 - Touch targets
 - Viewport scaling
 
-### Ustalenia z audytu
+### Audit findings
 
-**Breakpoints (spojne):**
+**Breakpoints (consistent):**
 - `sm:` (640px), `md:` (768px), `lg:` (1024px), `xl:` (1280px)
-- Mobile-first: base styles → modyfikacje na wieksze ekrany
+- Mobile-first: base styles → modifications for larger screens
 
 **Responsive patterns:**
 - Hero: `text-4xl sm:text-5xl lg:text-6xl`
 - Grid: `grid-cols-1 sm:grid-cols-3`, `md:grid-cols-2 xl:grid-cols-3`
 - Padding: `p-5 sm:p-6`, `px-4 lg:px-8`
-- Sidebar: `hidden lg:block` (drawer na mobile)
-- Dialog: bottom sheet na mobile, centered na desktop
+- Sidebar: `hidden lg:block` (drawer on mobile)
+- Dialog: bottom sheet on mobile, centered on desktop
 
-**Problemy:**
-- Breadcrumbs ukrywaja posrednie elementy na mobile — moze byc mylace
-- DataTable na mobile — brak specjalnego widoku (horizontal scroll)
-- Touch targets — nie sprawdzane systematycznie (minimum 44x44px)
+**Issues:**
+- Breadcrumbs hide intermediate elements on mobile — can be confusing
+- DataTable on mobile — no special view (horizontal scroll)
+- Touch targets — not systematically checked (minimum 44x44px)
 
-### Priorytet naprawy: **SREDNI**
+### Fix priority: **MEDIUM**
 
-### Czy do pierwszego etapu DS: **NIE** — obecne podejscie jest wystarczajace
+### Include in DS Phase 1: **NO** — current approach is sufficient
 
 ---
 
-## 1.13 Content design i microcopy
+## 1.13 Content design and microcopy
 
-### Co sprawdzic
+### What to check
 - i18n coverage
 - Hardcoded strings
 - Error messages
 - Empty state copy
 - Button labels
 
-### Ustalenia z audytu
+### Audit findings
 
-**i18n (dobrze):**
-- 10,848 uzyc translation keys (`useT()`, `t()`)
+**i18n (good):**
+- 10,848 uses of translation keys (`useT()`, `t()`)
 - `useT()` hook client-side, `resolveTranslations()` server-side
 - Fallback pattern: `t('key', 'Default fallback text')`
 
-**Problemy:**
-- **Portal frontend pages maja hardcoded English text** — signup, login, landing page
-- Niektorze opisy komponentow i error messages nie uzywaja i18n
-- Brak guidelines dla content tone (formalny vs nieformalny, techniczny vs user-friendly)
+**Issues:**
+- **Portal frontend pages have hardcoded English text** — signup, login, landing page
+- Some component descriptions and error messages do not use i18n
+- No guidelines for content tone (formal vs informal, technical vs user-friendly)
 
-### Priorytet naprawy: **NISKI** (core jest dobrze pokryty)
+### Fix priority: **LOW** (core is well covered)
 
-### Czy do pierwszego etapu DS: **NIE** — to jest praca contentowa, nie DS
+### Include in DS Phase 1: **NO** — this is content work, not DS
 
 ---
 
-## 1.14 Wzorce UX i duplikacja komponentow
+## 1.14 UX patterns and component duplication
 
-### Co sprawdzic
-- Czy sa wzorce ktore powtarzaja sie miedzy modulami ale sa implementowane niezaleznie?
-- Czy sa komponenty ktore robia to samo ale inaczej?
+### What to check
+- Are there patterns that repeat across modules but are implemented independently?
+- Are there components that do the same thing but differently?
 
-### Ustalenia z audytu
+### Audit findings
 
-**Duplikacje:**
+**Duplications:**
 
-1. **Notice vs Alert** — dwa komponenty do inline komunikatow, rozne API, rozne kolory
-2. **15+ Section components** — kazdy modul implementuje sekcje niezaleznie (header + content + empty + loading)
-3. **Icon system** — `lucide-react` (oficjalna biblioteka) vs custom inline SVG (portal, sales) — rozne stroke widths (`1.5` vs `2`), rozne sizing (`size-4` vs `size-5`)
-4. **Status badges** — kazdy modul definiuje wlasne kolory statusow (hardcoded)
-5. **Markdown rendering** — te same pseudo-selektory kopiowane miedzy plikami (`[&_ul]:ml-4 [&_ul]:list-disc ...`)
+1. **Notice vs Alert** — two components for inline messages, different APIs, different colors
+2. **15+ Section components** — each module implements sections independently (header + content + empty + loading)
+3. **Icon system** — `lucide-react` (official library) vs custom inline SVG (portal, sales) — different stroke widths (`1.5` vs `2`), different sizing (`size-4` vs `size-5`)
+4. **Status badges** — each module defines its own status colors (hardcoded)
+5. **Markdown rendering** — the same pseudo-selectors copied across files (`[&_ul]:ml-4 [&_ul]:list-disc ...`)
 
 **Raw fetch vs apiCall:**
-- 8 miejsc uzywa raw `fetch()` zamiast `apiCall` wrapper — auth login, auth reset, workflows demo, currency providers
+- 8 places use raw `fetch()` instead of the `apiCall` wrapper — auth login, auth reset, workflows demo, currency providers
 
-### Priorytet naprawy: **WYSOKI**
+### Fix priority: **HIGH**
 
-### Czy do pierwszego etapu DS: **TAK** — Notice/Alert unification, Section component, Icon system
+### Include in DS Phase 1: **YES** — Notice/Alert unification, Section component, Icon system
 
 ---
 
 ## 1.15 Border radius
 
-### Co sprawdzic
-- Spojnosc uzycia border radius
-- Semantyka (kiedy rounded-md vs rounded-lg vs rounded-xl)
+### What to check
+- Border radius usage consistency
+- Semantics (when rounded-md vs rounded-lg vs rounded-xl)
 
-### Ustalenia z audytu
+### Audit findings
 
-| Wartosc | Wystapienia | % |
-|---------|-------------|---|
+| Value | Occurrences | % |
+|-------|-------------|---|
 | `rounded-lg` | 279 | 47% |
 | `rounded-md` | 222 | 37% |
 | `rounded-full` | 104 | 18% |
@@ -566,83 +566,83 @@ Kazda sekcja implementuje niezaleznie: header + content + action + empty state +
 | `rounded-xl` | 18 | 3% |
 | `rounded-sm` | 1 | <1% |
 
-**Tokeny zdefiniowane w globals.css:**
+**Tokens defined in globals.css:**
 - `--radius: 0.625rem`
 - `--radius-sm: calc(var(--radius) - 4px)` = ~0.25rem
 - `--radius-md: calc(var(--radius) - 2px)` = ~0.375rem
 - `--radius-lg: var(--radius)` = 0.625rem
 - `--radius-xl: calc(var(--radius) + 4px)` = ~1.025rem
 
-**Problem:** Tokeny istnieja, ale brak guideline kiedy uzywac ktorego. `rounded-md` i `rounded-lg` uzywane zamiennie (84% uzycia) bez semantycznego rozroznienia. Portal uzywa `rounded-xl`, auth login `rounded-md`, prymitywy mieszaja.
+**Problem:** Tokens exist, but there are no guidelines for when to use which. `rounded-md` and `rounded-lg` are used interchangeably (84% of usage) without semantic distinction. Portal uses `rounded-xl`, auth login uses `rounded-md`, primitives mix them.
 
-### Priorytet naprawy: **NISKI**
+### Fix priority: **LOW**
 
-### Czy do pierwszego etapu DS: **TAK** — udokumentowac usage guidelines
+### Include in DS Phase 1: **YES** — document usage guidelines
 
 ---
 
 ## 1.16 Shadows / Elevation
 
-### Co sprawdzic
-- Uzycie cieni
+### What to check
+- Shadow usage
 - Layering / z-index management
 
-### Ustalenia z audytu
+### Audit findings
 
-**Z-index w AppShell:**
+**Z-index in AppShell:**
 - Sidebar: implicit (no explicit z-index, uses DOM order)
 - Mobile drawer overlay: `bg-black/40`
 - ProgressTopBar: `z-10`
 - Flash messages: fixed positioning
 
-**Problemy:**
-- Brak zdefiniowanej skali elevation
-- Brak tokenow `shadow.*` poza domyslnymi Tailwind
-- Z-index nie jest scentralizowany — potencjalne konflikty przy wiekszej ilosci overlayow
+**Issues:**
+- No defined elevation scale
+- No `shadow.*` tokens beyond Tailwind defaults
+- Z-index is not centralized — potential conflicts with more overlays
 
-### Priorytet naprawy: **NISKI**
+### Fix priority: **LOW**
 
-### Czy do pierwszego etapu DS: **TAK** — zdefiniowac 3-4 poziomy elevation
+### Include in DS Phase 1: **YES** — define 3-4 elevation levels
 
 ---
 
-## Podsumowanie audytu — Scoring Rubric
+## Audit summary — Scoring Rubric
 
-| # | Obszar | Ocena (1-5) | Priorytet | Do DS MVP |
-|---|--------|-------------|-----------|-----------|
-| 1 | Architektura ekranow | 3 | Wysoki | Tak |
-| 2 | Nawigacja i IA | 4 | Sredni | Nie |
-| 3 | Hierarchia wizualna | 2 | Wysoki | Tak |
-| 4 | Typografia | 2 | Wysoki | Tak |
-| 5 | Kolorystyka i semantyka | 2 | **Krytyczny** | Tak |
-| 6 | Spacing i layout | 3 | Wysoki | Tak |
-| 7 | Formularze | 3 | Wysoki | Tak |
-| 8 | Prezentacja danych | 3 | Sredni | Tak |
-| 9 | Feedback systemowy | 2 | Wysoki | Tak |
-| 10 | Stany interakcji | 4 | Sredni | Nie |
-| 11 | Dostepnosc | 2 | Wysoki | Tak |
-| 12 | Responsywnosc | 4 | Sredni | Nie |
-| 13 | Content design | 4 | Niski | Nie |
-| 14 | Duplikacja komponentow | 2 | Wysoki | Tak |
-| 15 | Border radius | 3 | Niski | Tak (docs) |
-| 16 | Shadows / elevation | 3 | Niski | Tak (tokens) |
+| # | Area | Score (1-5) | Priority | Include in DS MVP |
+|---|------|-------------|----------|-------------------|
+| 1 | Screen architecture | 3 | High | Yes |
+| 2 | Navigation and IA | 4 | Medium | No |
+| 3 | Visual hierarchy | 2 | High | Yes |
+| 4 | Typography | 2 | High | Yes |
+| 5 | Color system and semantics | 2 | **Critical** | Yes |
+| 6 | Spacing and layout | 3 | High | Yes |
+| 7 | Forms | 3 | High | Yes |
+| 8 | Data presentation | 3 | Medium | Yes |
+| 9 | System feedback | 2 | High | Yes |
+| 10 | Interaction states | 4 | Medium | No |
+| 11 | Accessibility | 2 | High | Yes |
+| 12 | Responsiveness | 4 | Medium | No |
+| 13 | Content design | 4 | Low | No |
+| 14 | Component duplication | 2 | High | Yes |
+| 15 | Border radius | 3 | Low | Yes (docs) |
+| 16 | Shadows / elevation | 3 | Low | Yes (tokens) |
 
-**Skala ocen:**
-- 5 = Spojne, udokumentowane, dobrze dzialajace
-- 4 = W wiekszosci spojne, drobne luki
-- 3 = Czesciowo spojne, wymaga standaryzacji
-- 2 = Niespojne, wymaga natychmiastowej pracy
-- 1 = Brak lub powaznie uszkodzone
+**Scoring scale:**
+- 5 = Consistent, documented, well-functioning
+- 4 = Mostly consistent, minor gaps
+- 3 = Partially consistent, requires standardization
+- 2 = Inconsistent, requires immediate work
+- 1 = Missing or severely broken
 
-**Kryteria priorytetu:**
-- **Krytyczny**: Aktywnie psuje UX i blokuje spojnosc (np. 372 hardcoded kolory)
-- **Wysoki**: Widoczny wplyw na UX, latwy do naprawy z DS
-- **Sredni**: Wplyw na UX, ale obecny stan jest funkcjonalny
-- **Niski**: Kosmetyczne lub do rozwiazania pozniej
+**Priority criteria:**
+- **Critical**: Actively hurts UX and blocks consistency (e.g., 372 hardcoded colors)
+- **High**: Visible UX impact, easy to fix with DS
+- **Medium**: UX impact, but current state is functional
+- **Low**: Cosmetic or to be addressed later
 
-**Rekomendowana kolejnosc dzialan po audycie:**
-1. Semantic color tokens (eliminuje 372 hardcoded kolorow)
-2. Typography scale (eliminuje 61 arbitralnych rozmiarow)
+**Recommended action sequence after audit:**
+1. Semantic color tokens (eliminates 372 hardcoded colors)
+2. Typography scale (eliminates 61 arbitrary sizes)
 3. Spacing scale documentation
 4. Notice/Alert unification
 5. FormField wrapper component
@@ -656,8 +656,8 @@ Kazda sekcja implementuje niezaleznie: header + content + action + empty state +
 
 ## See also
 
-- [Design Principles](./principles.md) — zasady projektowe wynikające z tego audytu
-- [Foundations](./foundations.md) — tokeny i skale adresujące znalezione problemy
-- [Components](./components.md) — MVP komponentów do standaryzacji
-- [Executive Summary](./executive-summary.md) — podsumowanie najważniejszych wniosków
-- [Priority Table](./priority-table.md) — priorytety naprawy
+- [Design Principles](./principles.md) — design principles derived from this audit
+- [Foundations](./foundations.md) — tokens and scales addressing the issues found
+- [Components](./components.md) — component MVP for standardization
+- [Executive Summary](./executive-summary.md) — summary of the most important findings
+- [Priority Table](./priority-table.md) — fix priorities

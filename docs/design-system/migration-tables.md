@@ -1,62 +1,62 @@
 # J. Migration Mapping Tables
 
-> Tabele mapowania typografii i kolorów + skrypty codemod (ds-migrate-typography.sh, ds-migrate-colors.sh).
+> Typography and color mapping tables + codemod scripts (ds-migrate-typography.sh, ds-migrate-colors.sh).
 
 ---
 
 ## J.1 Typography Mapping
 
-### Tabela zamiany
+### Replacement table
 
-| Obecne | Zastąp na | Kontekst | Plików | Typ zamiany |
-|--------|-----------|----------|--------|-------------|
-| `text-[9px]` | `text-[9px]` (ZACHOWAJ) | Notification badge count — 9px jest poniżej minimalnej skali. Jedyne użycie, wyjątek. | 1 | Brak |
-| `text-[10px]` | `text-xs` (12px) | Badge small, compact labels. 2px różnicy jest akceptowalna — zyskujemy spójność. | 15 | Regex: `s/text-\[10px\]/text-xs/g` |
-| `text-[11px]` | `text-overline` (nowy token, 11px) | Uppercase labels, section headers, captions. To jest de facto "overline" pattern używany w 33 miejscach — zasługuje na własny token. | 33 | 1. Dodaj token do CSS. 2. Regex: `s/text-\[11px\]/text-overline/g` |
-| `text-[12px]` | `text-xs` | Identyczne z text-xs (12px). Zamiana 1:1. | 2 | Regex: `s/text-\[12px\]/text-xs/g` |
-| `text-[13px]` | `text-sm` (14px) | Small buttons, links. 1px różnicy. Zyskujemy spójność kosztem mikro-zmiany wizualnej. | 7 | Regex: `s/text-\[13px\]/text-sm/g` |
-| `text-[14px]` | `text-sm` | Identyczne z text-sm (14px). Zamiana 1:1. | 1 | Regex: `s/text-\[14px\]/text-sm/g` |
-| `text-[15px]` | `text-base` (16px) LUB `text-sm` | Portal header subtitle. Kontekstowa decyzja — jeśli to subtitle pod dużym tytułem, `text-base` lepsze. | 2 | Manualna — sprawdzić kontekst |
+| Current | Replace with | Context | Files | Replacement type |
+|---------|-------------|---------|-------|-----------------|
+| `text-[9px]` | `text-[9px]` (KEEP) | Notification badge count — 9px is below the minimum scale. Only usage, exception. | 1 | None |
+| `text-[10px]` | `text-xs` (12px) | Badge small, compact labels. 2px difference is acceptable — consistency gain. | 15 | Regex: `s/text-\[10px\]/text-xs/g` |
+| `text-[11px]` | `text-overline` (new token, 11px) | Uppercase labels, section headers, captions. This is a de facto "overline" pattern used in 33 places — deserves its own token. | 33 | 1. Add token to CSS. 2. Regex: `s/text-\[11px\]/text-overline/g` |
+| `text-[12px]` | `text-xs` | Identical to text-xs (12px). 1:1 replacement. | 2 | Regex: `s/text-\[12px\]/text-xs/g` |
+| `text-[13px]` | `text-sm` (14px) | Small buttons, links. 1px difference. Consistency gain at the cost of a micro visual change. | 7 | Regex: `s/text-\[13px\]/text-sm/g` |
+| `text-[14px]` | `text-sm` | Identical to text-sm (14px). 1:1 replacement. | 1 | Regex: `s/text-\[14px\]/text-sm/g` |
+| `text-[15px]` | `text-base` (16px) OR `text-sm` | Portal header subtitle. Contextual decision — if it is a subtitle under a large title, `text-base` is better. | 2 | Manual — check context |
 
-### Token `text-overline` — definicja
+### Token `text-overline` — definition
 
 ```css
-/* globals.css — dodać w @theme inline */
+/* globals.css — add in @theme inline */
 @theme inline {
   --font-size-overline: 0.6875rem;      /* 11px */
   --font-size-overline--line-height: 1rem; /* 16px */
 }
 ```
 
-**Zastosowanie:**
+**Usage:**
 ```tsx
-// Przed:
+// Before:
 <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
 
-// Po:
+// After:
 <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
 ```
 
-### Letter spacing — standaryzacja
+### Letter spacing — standardization
 
-Trzy warianty (`tracking-wider`, `tracking-widest`, `tracking-[0.15em]`) używane zamiennie z `text-[11px] uppercase`.
+Three variants (`tracking-wider`, `tracking-widest`, `tracking-[0.15em]`) used interchangeably with `text-[11px] uppercase`.
 
-| Obecne | Zastąp na | Uzasadnienie |
-|--------|-----------|-------------|
-| `tracking-wider` | `tracking-wider` (zachowaj) | Tailwind standard: 0.05em |
-| `tracking-widest` | `tracking-wider` | Zbyt szeroki (0.1em). 0.05em wystarczy. |
-| `tracking-[0.15em]` | `tracking-wider` | Arbitralny. Standaryzujemy na jedną wartość. |
+| Current | Replace with | Rationale |
+|---------|-------------|-----------|
+| `tracking-wider` | `tracking-wider` (keep) | Tailwind standard: 0.05em |
+| `tracking-widest` | `tracking-wider` | Too wide (0.1em). 0.05em is sufficient. |
+| `tracking-[0.15em]` | `tracking-wider` | Arbitrary. Standardize to a single value. |
 
-### Codemod — pełny skrypt
+### Codemod — full script
 
 ```bash
 #!/bin/bash
 # ds-migrate-typography.sh
 # Portable: macOS + Linux (uses perl -i -pe instead of sed -i)
-# Uruchamiać per-moduł, potem review diff
+# Run per-module, then review the diff
 
 set -euo pipefail
-MODULE_PATH="$1"  # np. packages/core/src/modules/customers
+MODULE_PATH="$1"  # e.g. packages/core/src/modules/customers
 
 if [ -z "$MODULE_PATH" ]; then
   echo "Usage: bash ds-migrate-typography.sh <module-path>"
@@ -103,33 +103,33 @@ echo "=== Done. Review with: git diff $MODULE_PATH ==="
 
 ### Error colors
 
-| Obecne | Wystąpień | Zastąp na | Typ zamiany | Uwagi |
-|--------|-----------|-----------|-------------|-------|
-| `text-red-600` | 107 | `text-status-error-text` | Regex 1:1 | Głównie error messages, required indicators |
-| `text-red-700` | 19 | `text-status-error-text` | Regex 1:1 | Error text w ciemniejszym kontekście |
-| `text-red-800` | 26 | `text-status-error-text` | Regex 1:1 | Error text na jasnym tle (Notice) |
-| `text-red-500` | 6 | `text-status-error-icon` | Regex 1:1 | Ikony error |
+| Current | Occurrences | Replace with | Replacement type | Notes |
+|---------|-------------|-------------|-----------------|-------|
+| `text-red-600` | 107 | `text-status-error-text` | Regex 1:1 | Primarily error messages, required indicators |
+| `text-red-700` | 19 | `text-status-error-text` | Regex 1:1 | Error text in darker context |
+| `text-red-800` | 26 | `text-status-error-text` | Regex 1:1 | Error text on light background (Notice) |
+| `text-red-500` | 6 | `text-status-error-icon` | Regex 1:1 | Error icons |
 | `text-red-900` | 1 | `text-status-error-text` | Regex 1:1 | |
 | `bg-red-50` | 24 | `bg-status-error-bg` | Regex 1:1 | Error background |
-| `bg-red-100` | 14 | `bg-status-error-bg` | Regex 1:1 | Nieco intensywniejsze bg — ten sam token |
-| `bg-red-600` | 1 | `bg-destructive` | Manual | Solid error button bg — użyj istniejącego `destructive` |
+| `bg-red-100` | 14 | `bg-status-error-bg` | Regex 1:1 | Slightly more intense bg — same token |
+| `bg-red-600` | 1 | `bg-destructive` | Manual | Solid error button bg — use existing `destructive` |
 | `border-red-200` | ~5 | `border-status-error-border` | Regex 1:1 | Error border |
-| `border-red-500` | ~5 | `border-status-error-border` | Regex 1:1 | Intensywniejszy error border |
-| `text-destructive` | (zachowaj) | — | Nie zmieniaj | Już jest tokenem — prawidłowe użycie |
+| `border-red-500` | ~5 | `border-status-error-border` | Regex 1:1 | More intense error border |
+| `text-destructive` | (keep) | — | Do not change | Already a token — correct usage |
 
-**Uwaga:** `text-red-600` użyte jako required indicator w CrudForm FieldControl (linia 3418) to wewnętrzna zmiana w `packages/ui/src/backend/CrudForm.tsx`. Jeden PR, duży impact.
+**Note:** `text-red-600` used as a required indicator in CrudForm FieldControl (line 3418) is an internal change in `packages/ui/src/backend/CrudForm.tsx`. One PR, high impact.
 
 ### Success colors
 
-| Obecne | Wystąpień | Zastąp na | Typ zamiany |
-|--------|-----------|-----------|-------------|
+| Current | Occurrences | Replace with | Replacement type |
+|---------|-------------|-------------|-----------------|
 | `text-green-600` | 18 | `text-status-success-text` | Regex 1:1 |
 | `text-green-700` | 2 | `text-status-success-text` | Regex 1:1 |
 | `text-green-800` | 26 | `text-status-success-text` | Regex 1:1 |
 | `text-green-500` | 1 | `text-status-success-icon` | Regex 1:1 |
 | `bg-green-100` | 26 | `bg-status-success-bg` | Regex 1:1 |
 | `bg-green-50` | 4 | `bg-status-success-bg` | Regex 1:1 |
-| `bg-green-200` | 1 | `bg-status-success-bg` | Manual — sprawdzić intensywność |
+| `bg-green-200` | 1 | `bg-status-success-bg` | Manual — check intensity |
 | `border-green-*` | ~5 | `border-status-success-border` | Regex 1:1 |
 | `text-emerald-600` | 4 | `text-status-success-text` | Regex 1:1 |
 | `text-emerald-700` | 6 | `text-status-success-text` | Regex 1:1 |
@@ -138,14 +138,14 @@ echo "=== Done. Review with: git diff $MODULE_PATH ==="
 | `text-emerald-300` | 1 | `text-status-success-icon` | Manual — dark context? |
 | `bg-emerald-100` | 2 | `bg-status-success-bg` | Regex 1:1 |
 | `bg-emerald-50` | 5 | `bg-status-success-bg` | Regex 1:1 |
-| `bg-emerald-500` | 4 | `bg-status-success-icon` | Manual — solid bg? Może `bg-status-success-text` |
+| `bg-emerald-500` | 4 | `bg-status-success-icon` | Manual — solid bg? Perhaps `bg-status-success-text` |
 | `bg-emerald-600` | 1 | `bg-status-success-icon` | Manual |
 | `border-emerald-*` | ~5 | `border-status-success-border` | Regex 1:1 |
 
 ### Warning colors
 
-| Obecne | Wystąpień | Zastąp na | Typ zamiany |
-|--------|-----------|-----------|-------------|
+| Current | Occurrences | Replace with | Replacement type |
+|---------|-------------|-------------|-----------------|
 | `text-amber-500` | ~10 | `text-status-warning-icon` | Regex 1:1 |
 | `text-amber-800` | ~5 | `text-status-warning-text` | Regex 1:1 |
 | `text-amber-950` | ~2 | `text-status-warning-text` | Regex 1:1 |
@@ -156,8 +156,8 @@ echo "=== Done. Review with: git diff $MODULE_PATH ==="
 
 ### Info colors
 
-| Obecne | Wystąpień | Zastąp na | Typ zamiany |
-|--------|-----------|-----------|-------------|
+| Current | Occurrences | Replace with | Replacement type |
+|---------|-------------|-------------|-----------------|
 | `text-blue-600` | 27 | `text-status-info-text` | Regex 1:1 |
 | `text-blue-800` | 25 | `text-status-info-text` | Regex 1:1 |
 | `text-blue-700` | 8 | `text-status-info-text` | Regex 1:1 |
@@ -172,13 +172,13 @@ echo "=== Done. Review with: git diff $MODULE_PATH ==="
 | `bg-sky-500/10` | ~2 | `bg-status-info-bg` | Regex 1:1 |
 | `text-sky-900` | ~2 | `text-status-info-text` | Regex 1:1 |
 
-### Codemod — pełny skrypt
+### Codemod — full script
 
 ```bash
 #!/bin/bash
 # ds-migrate-colors.sh
 # Portable: macOS + Linux (uses perl -i -pe instead of sed -i)
-# Uruchamiać per-moduł, potem review diff
+# Run per-module, then review the diff
 
 set -euo pipefail
 MODULE_PATH="$1"
@@ -263,42 +263,42 @@ rg 'bg-red-600|bg-emerald-[56]00|bg-blue-600' "$MODULE_PATH" --type tsx || echo 
 echo "=== Done. Review with: git diff $MODULE_PATH ==="
 ```
 
-### Zamiana w Alert component (packages/ui/src/primitives/alert.tsx)
+### Replacement in Alert component (packages/ui/src/primitives/alert.tsx)
 
-**Obecne CVA variants → nowe:**
+**Current CVA variants → new:**
 
 ```typescript
-// PRZED:
+// BEFORE:
 destructive: 'border-destructive/60 bg-destructive/10 text-destructive [&_svg]:text-destructive',
 success:     'border-emerald-600/30 bg-emerald-500/10 text-emerald-900 [&_svg]:text-emerald-600',
 warning:     'border-amber-500/30 bg-amber-400/10 text-amber-950 [&_svg]:text-amber-600',
 info:        'border-sky-600/30 bg-sky-500/10 text-sky-900 [&_svg]:text-sky-600',
 
-// PO:
+// AFTER:
 destructive: 'border-status-error-border bg-status-error-bg text-status-error-text [&_svg]:text-status-error-icon',
 success:     'border-status-success-border bg-status-success-bg text-status-success-text [&_svg]:text-status-success-icon',
 warning:     'border-status-warning-border bg-status-warning-bg text-status-warning-text [&_svg]:text-status-warning-icon',
 info:        'border-status-info-border bg-status-info-bg text-status-info-text [&_svg]:text-status-info-icon',
 ```
 
-### Zamiana w Notice component (packages/ui/src/primitives/Notice.tsx)
+### Replacement in Notice component (packages/ui/src/primitives/Notice.tsx)
 
 ```typescript
-// PRZED:
+// BEFORE:
 error:   { border: 'border-red-200',   bg: 'bg-red-50',   text: 'text-red-800',   iconBorder: 'border-red-500' }
 warning: { border: 'border-amber-200', bg: 'bg-amber-50', text: 'text-amber-800', iconBorder: 'border-amber-500' }
 info:    { border: 'border-blue-200',  bg: 'bg-blue-50',  text: 'text-blue-900',  iconBorder: 'border-blue-500' }
 
-// PO (jeśli zachowujemy Notice z deprecation warning):
+// AFTER (if keeping Notice with deprecation warning):
 error:   { border: 'border-status-error-border',   bg: 'bg-status-error-bg',   text: 'text-status-error-text',   iconBorder: 'border-status-error-icon' }
 warning: { border: 'border-status-warning-border', bg: 'bg-status-warning-bg', text: 'text-status-warning-text', iconBorder: 'border-status-warning-icon' }
 info:    { border: 'border-status-info-border',    bg: 'bg-status-info-bg',    text: 'text-status-info-text',    iconBorder: 'border-status-info-icon' }
 ```
 
-### Zamiana w FlashMessages (packages/ui/src/backend/FlashMessages.tsx)
+### Replacement in FlashMessages (packages/ui/src/backend/FlashMessages.tsx)
 
 ```typescript
-// PRZED:
+// BEFORE:
 const kindColors: Record<FlashKind, string> = {
   success: 'emerald-600',
   error:   'red-600',
@@ -306,7 +306,7 @@ const kindColors: Record<FlashKind, string> = {
   info:    'blue-600',
 }
 
-// PO:
+// AFTER:
 const kindColors: Record<FlashKind, string> = {
   success: 'status-success-icon',
   error:   'status-error-icon',
@@ -315,10 +315,10 @@ const kindColors: Record<FlashKind, string> = {
 }
 ```
 
-### Zamiana w Notifications (packages/ui/src/backend/notifications/)
+### Replacement in Notifications (packages/ui/src/backend/notifications/)
 
 ```typescript
-// PRZED:
+// BEFORE:
 const severityColors = {
   info:    'text-blue-500',
   warning: 'text-amber-500',
@@ -326,7 +326,7 @@ const severityColors = {
   error:   'text-destructive',
 }
 
-// PO:
+// AFTER:
 const severityColors = {
   info:    'text-status-info-icon',
   warning: 'text-status-warning-icon',
@@ -341,109 +341,109 @@ const severityColors = {
 
 ### Prop-level mapping
 
-| Notice usage | Alert equivalent | Uwagi |
+| Notice usage | Alert equivalent | Notes |
 |-------------|-----------------|-------|
-| `<Notice variant="error">` | `<Alert variant="destructive">` | Nazwa zmieniona na "destructive" — spójna z Button |
-| `<Notice variant="info">` | `<Alert variant="info">` | Bez zmian |
-| `<Notice variant="warning">` | `<Alert variant="warning">` | Bez zmian |
-| `title="Tytuł"` | `<AlertTitle>Tytuł</AlertTitle>` | Composition pattern zamiast prop |
-| `message="Treść"` | `<AlertDescription>Treść</AlertDescription>` | Composition pattern zamiast prop |
+| `<Notice variant="error">` | `<Alert variant="destructive">` | Name changed to "destructive" — consistent with Button |
+| `<Notice variant="info">` | `<Alert variant="info">` | No change |
+| `<Notice variant="warning">` | `<Alert variant="warning">` | No change |
+| `title="Title"` | `<AlertTitle>Title</AlertTitle>` | Composition pattern instead of prop |
+| `message="Content"` | `<AlertDescription>Content</AlertDescription>` | Composition pattern instead of prop |
 | `action={<Button>Retry</Button>}` | `<AlertAction><Button>Retry</Button></AlertAction>` | Explicit slot |
-| `compact` | `compact` | Zachowany — mniej paddingu, brak ikony |
-| `children` | `children` (wewnątrz Alert) | Zachowane |
-| `className="..."` | `className="..."` | Zachowane |
+| `compact` | `compact` | Retained — less padding, no icon |
+| `children` | `children` (inside Alert) | Retained |
+| `className="..."` | `className="..."` | Retained |
 
 ### ErrorNotice mapping
 
 | ErrorNotice usage | Alert equivalent |
 |-------------------|-----------------|
-| `<ErrorNotice />` (bez props) | `<Alert variant="destructive"><AlertTitle>{t('ui.errors.defaultTitle')}</AlertTitle><AlertDescription>{t('ui.errors.defaultMessage')}</AlertDescription></Alert>` |
+| `<ErrorNotice />` (no props) | `<Alert variant="destructive"><AlertTitle>{t('ui.errors.defaultTitle')}</AlertTitle><AlertDescription>{t('ui.errors.defaultMessage')}</AlertDescription></Alert>` |
 | `<ErrorNotice title="X" />` | `<Alert variant="destructive"><AlertTitle>X</AlertTitle><AlertDescription>{t('ui.errors.defaultMessage')}</AlertDescription></Alert>` |
 | `<ErrorNotice title="X" message="Y" />` | `<Alert variant="destructive"><AlertTitle>X</AlertTitle><AlertDescription>Y</AlertDescription></Alert>` |
 | `<ErrorNotice action={btn} />` | `<Alert variant="destructive"><AlertTitle>...</AlertTitle><AlertDescription>...<AlertAction>{btn}</AlertAction></AlertDescription></Alert>` |
 
-### Plik-po-pliku migration plan
+### File-by-file migration plan
 
-| # | Plik | Obecne | Zamień na | Złożoność |
-|---|------|--------|-----------|-----------|
-| 1 | `portal/signup/page.tsx` | `<Notice variant="error" message={...} />` | `<Alert variant="destructive"><AlertDescription>{...}</AlertDescription></Alert>` | Niska |
-| 2 | `portal/page.tsx` | `<Notice variant="info" ...>` | `<Alert variant="info">...` | Niska |
-| 3 | `portal/login/page.tsx` | `<Notice variant="error" message={...} />` | `<Alert variant="destructive">...` | Niska |
-| 4 | `auth/frontend/login.tsx` | `<Notice variant="error" ...>` + custom error banners | `<Alert variant="destructive">...` + migracja hardcoded banners | **Średnia** — ma też ręcznie stylowane banery |
-| 5 | `audit_logs/AuditLogsActions.tsx` | `<Notice variant="info" ...>` | `<Alert variant="info">...` | Niska |
-| 6 | `data_sync/backend/.../page.tsx` | `<Notice variant="warning" ...>` | `<Alert variant="warning">...` | Niska |
-| 7 | `data_sync/.../IntegrationScheduleTab.tsx` | `<Notice variant="info" ...>` | `<Alert variant="info">...` | Niska |
-| 8 | `customers/deals/pipeline/page.tsx` | `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>...` | Niska |
-| 9 | `entities/user/[entityId]/page.tsx` | `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>...` | Niska |
+| # | File | Current | Replace with | Complexity |
+|---|------|---------|-------------|------------|
+| 1 | `portal/signup/page.tsx` | `<Notice variant="error" message={...} />` | `<Alert variant="destructive"><AlertDescription>{...}</AlertDescription></Alert>` | Low |
+| 2 | `portal/page.tsx` | `<Notice variant="info" ...>` | `<Alert variant="info">...` | Low |
+| 3 | `portal/login/page.tsx` | `<Notice variant="error" message={...} />` | `<Alert variant="destructive">...` | Low |
+| 4 | `auth/frontend/login.tsx` | `<Notice variant="error" ...>` + custom error banners | `<Alert variant="destructive">...` + migrate hardcoded banners | **Medium** — also has manually styled banners |
+| 5 | `audit_logs/AuditLogsActions.tsx` | `<Notice variant="info" ...>` | `<Alert variant="info">...` | Low |
+| 6 | `data_sync/backend/.../page.tsx` | `<Notice variant="warning" ...>` | `<Alert variant="warning">...` | Low |
+| 7 | `data_sync/.../IntegrationScheduleTab.tsx` | `<Notice variant="info" ...>` | `<Alert variant="info">...` | Low |
+| 8 | `customers/deals/pipeline/page.tsx` | `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>...` | Low |
+| 9 | `entities/user/[entityId]/page.tsx` | `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>...` | Low |
 
-**Estimated effort:** 6 plików → 15 min każdy = 1.5h. 2 pliki wymagają więcej uwagi (auth login, data_sync page) = +1h. **Razem: ~2.5h.**
+**Estimated effort:** 6 files → 15 min each = 1.5h. 2 files need more attention (auth login, data_sync page) = +1h. **Total: ~2.5h.**
 
 ---
 
-## J.4 Kolejność operacji na hackathonie
+## J.4 Hackathon operation order
 
-**Timing:** PT 11.04.2026 9:00 – SO 12.04.2026 11:00 (~13h pracy + ~5h bufor)
+**Timing:** FRI 04/11/2026 9:00 – SAT 04/12/2026 11:00 (~13h work + ~5h buffer)
 
-Zsynchronizowany z sekcja B. Szczegolowy step-by-step:
+Synchronized with section B. Detailed step-by-step:
 
 ```
-PIĄTEK 9:00–12:00 (BLOK 1 — Foundations):
-  1. Dodaj 20+20 CSS custom properties (flat tokens, light + dark) do globals.css
-  2. Dodaj @theme inline mappings (--color-status-*-* → var(--status-*-*))
-  3. Dodaj text-overline token (--font-size-overline: 0.6875rem)
-  4. Zweryfikuj contrast w Chrome DevTools (light + dark) — 5 statusów × 2 tryby
-  5. Udokumentuj typography scale + spacing guidelines
+FRIDAY 9:00–12:00 (BLOCK 1 — Foundations):
+  1. Add 20+20 CSS custom properties (flat tokens, light + dark) to globals.css
+  2. Add @theme inline mappings (--color-status-*-* → var(--status-*-*))
+  3. Add text-overline token (--font-size-overline: 0.6875rem)
+  4. Verify contrast in Chrome DevTools (light + dark) — 5 statuses × 2 modes
+  5. Document typography scale + spacing guidelines
   6. yarn lint && yarn typecheck
   → Commit: "feat(ds): add semantic status tokens and text-overline"
 
-PIĄTEK 13:00–17:00 (BLOK 2 — Migracja primitives):
-  7. Zamień Alert CVA variants na flat semantic tokens (alert.tsx — 4 linie)
-  8. Zamień Notice colors na flat tokens + dodaj deprecation (Notice.tsx)
-  9. Zamień FlashMessages colors (FlashMessages.tsx)
-  10. Zamień Notification severity colors
-  11. Dodaj Badge status variants: success, warning, info (badge.tsx)
-  12. Zmigruj CrudForm FieldControl colors (text-red-600 → text-destructive)
+FRIDAY 13:00–17:00 (BLOCK 2 — Primitives migration):
+  7. Replace Alert CVA variants with flat semantic tokens (alert.tsx — 4 lines)
+  8. Replace Notice colors with flat tokens + add deprecation (Notice.tsx)
+  9. Replace FlashMessages colors (FlashMessages.tsx)
+  10. Replace Notification severity colors
+  11. Add Badge status variants: success, warning, info (badge.tsx)
+  12. Migrate CrudForm FieldControl colors (text-red-600 → text-destructive)
   13. yarn lint && yarn typecheck && yarn test
   → Commit: "refactor(ds): migrate all primitives to semantic status tokens"
 
-PIĄTEK 18:00–20:00 (BLOK 3 — Nowe komponenty):
-  14. Stwórz FormField (packages/ui/src/primitives/form-field.tsx) z labelVariant
-  15. Stwórz StatusBadge (packages/ui/src/primitives/status-badge.tsx) — renderuje Badge
+FRIDAY 18:00–20:00 (BLOCK 3 — New components):
+  14. Create FormField (packages/ui/src/primitives/form-field.tsx) with labelVariant
+  15. Create StatusBadge (packages/ui/src/primitives/status-badge.tsx) — renders Badge
   16. Stretch: Section/SectionHeader (packages/ui/src/backend/Section.tsx)
   17. yarn lint && yarn typecheck
   → Commit: "feat(ds): add FormField, StatusBadge components"
 
-PIĄTEK 20:00–21:00: PRZERWA / BUFOR
+FRIDAY 20:00–21:00: BREAK / BUFFER
 
-PIĄTEK 21:00–22:00 (BLOK 4 — Dokumentacja):
-  18. Napisz Design Principles — skrócona wersja do README
-  19. Napisz PR Review Checklist
-  20. Zdefiniuj z-index scale + border-radius guidelines
+FRIDAY 21:00–22:00 (BLOCK 4 — Documentation):
+  18. Write Design Principles — abbreviated version for README
+  19. Write PR Review Checklist
+  20. Define z-index scale + border-radius guidelines
   → Commit: "docs(ds): add principles, PR review checklist, guidelines"
 
-SOBOTA 8:00–10:00 (BLOK 5 — Migracja customers):
-  21. Uruchom ds-migrate-colors.sh na packages/core/src/modules/customers/
-  22. Uruchom ds-migrate-typography.sh na tym samym module
+SATURDAY 8:00–10:00 (BLOCK 5 — Customers migration):
+  21. Run ds-migrate-colors.sh on packages/core/src/modules/customers/
+  22. Run ds-migrate-typography.sh on the same module
   23. Manual review + fix edge cases + screenshots before/after
   24. yarn lint && yarn typecheck && yarn test
   → Commit: "refactor(ds): migrate customers module to DS tokens"
 
-SOBOTA 10:00–11:00 (BLOK 6 — Wrap-up):
-  25. Zaktualizuj AGENTS.md z DS rules
-  26. Zaktualizuj PR template z DS compliance checkboxami
-  27. Uruchom ds-health-check.sh — zapisz baseline do .ai/reports/
+SATURDAY 10:00–11:00 (BLOCK 6 — Wrap-up):
+  25. Update AGENTS.md with DS rules
+  26. Update PR template with DS compliance checkboxes
+  27. Run ds-health-check.sh — save baseline to .ai/reports/
   28. Final yarn lint && yarn typecheck
   → Commit: "docs(ds): update AGENTS.md, PR template, baseline report"
 ```
 
-**Bufor:** ~5h na edge case'y, Section component (jeśli nie zmieścił się w B3), dark mode fine-tuning.
-**Cut lines:** Patrz sekcja B.1 — MUST HAVE to Bloki 1+2 (8h).
+**Buffer:** ~5h for edge cases, Section component (if it did not fit in B3), dark mode fine-tuning.
+**Cut lines:** See section B.1 — MUST HAVE is Blocks 1+2 (8h).
 
 ---
 
 ## See also
 
-- [Token Values](./token-values.md) — docelowe wartości tokenów
-- [Enforcement](./enforcement.md) — plan egzekucji migracji
-- [Foundations](./foundations.md) — skale typografii i kolorów
-- [Risk Analysis](./risk-analysis.md) — ryzyka związane z migracją
+- [Token Values](./token-values.md) — target token values
+- [Enforcement](./enforcement.md) — migration enforcement plan
+- [Foundations](./foundations.md) — typography and color scales
+- [Risk Analysis](./risk-analysis.md) — migration-related risks

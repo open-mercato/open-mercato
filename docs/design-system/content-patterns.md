@@ -1,37 +1,37 @@
 # W. Content Guidelines + Page Patterns
 
-> Voice & tone, wzorce treści (labels, errors, empty states), page patterns (dashboard, wizard, settings).
+> Voice & tone, content patterns (labels, errors, empty states), page patterns (dashboard, wizard, settings).
 
 ---
 
 ### W.1 Voice & Tone Guidelines [POST-HACKATHON]
 
-#### Voice — kim jesteśmy (stałe)
+#### Voice — who we are (constant)
 
-Open Mercato komunikuje się jako: **profesjonalny, jasny, pomocny, konkretny.**
+Open Mercato communicates as: **professional, clear, helpful, specific.**
 
-| Jesteśmy | NIE jesteśmy |
-|----------|-------------|
-| Profesjonalni — szanujemy czas użytkownika | Korporacyjni — bez żargonu, bez buzzwordów |
-| Jasni — jedno zdanie, jedno znaczenie | Akademiccy — bez "furthermore", "utilize", "leverage" |
-| Pomocni — mówimy co zrobić, nie tylko co poszło źle | Marketingowi — bez "amazing", "powerful", "game-changing" |
-| Konkretni — "3 customers deleted" nie "operation completed" | Casualowi — bez emoji w UI, bez "oops!", bez humoru w errorach |
+| We are | We are NOT |
+|--------|-----------|
+| Professional — we respect the user's time | Corporate — no jargon, no buzzwords |
+| Clear — one sentence, one meaning | Academic — no "furthermore", "utilize", "leverage" |
+| Helpful — we say what to do, not just what went wrong | Marketing — no "amazing", "powerful", "game-changing" |
+| Specific — "3 customers deleted" not "operation completed" | Casual — no emoji in UI, no "oops!", no humor in errors |
 
-#### Tone — jak się zmieniamy (kontekstowe)
+#### Tone — how we adapt (contextual)
 
-| Kontekst | Ton | Dobrze ✅ | Źle ❌ |
-|---------|-----|----------|--------|
-| Success message | Zwięzły, potwierdzający | "Customer saved" | "Your customer has been successfully saved!" |
-| Error (server) | Spokojny, actionable | "Could not save. Try again or check your connection." | "Error 500: Internal Server Error" |
-| Error (validation) | Precyzyjny, per-field | "Name is required" | "Please fill in all required fields" |
-| Empty state | Zachęcający, z CTA | "No invoices yet. Create your first invoice." | "No data found" / "Nothing here!" |
-| Destructive confirm | Konkretny, poważny | "Delete 3 customers? This cannot be undone." | "Are you sure?" |
-| Tooltip / helper | Zwięzły, informacyjny | "Used for tax calculations" | "This field is used to store the information about..." |
-| Loading | Neutralny, prosty | "Loading customers..." | "Please wait while we fetch your data..." |
+| Context | Tone | Good | Bad |
+|---------|------|------|-----|
+| Success message | Concise, confirming | "Customer saved" | "Your customer has been successfully saved!" |
+| Error (server) | Calm, actionable | "Could not save. Try again or check your connection." | "Error 500: Internal Server Error" |
+| Error (validation) | Precise, per-field | "Name is required" | "Please fill in all required fields" |
+| Empty state | Encouraging, with CTA | "No invoices yet. Create your first invoice." | "No data found" / "Nothing here!" |
+| Destructive confirm | Specific, serious | "Delete 3 customers? This cannot be undone." | "Are you sure?" |
+| Tooltip / helper | Concise, informative | "Used for tax calculations" | "This field is used to store the information about..." |
+| Loading | Neutral, simple | "Loading customers..." | "Please wait while we fetch your data..." |
 
 #### Content Formulas
 
-**Error message:** `[Co się stało]. [Co zrobić].`
+**Error message:** `[What happened]. [What to do].`
 ```
 ✅ "Could not save changes. Check required fields."
 ✅ "Connection lost. Changes will sync when you're back online."
@@ -40,29 +40,29 @@ Open Mercato komunikuje się jako: **profesjonalny, jasny, pomocny, konkretny.**
 ❌ "An unexpected error occurred. Please contact support."
 ```
 
-**Empty state:** `[Title: brak czego]. [Description: co zrobić]. [CTA: verb + object]`
+**Empty state:** `[Title: what is missing]. [Description: what to do]. [CTA: verb + object]`
 ```
 ✅ Title: "No customers yet"
    Description: "Create your first customer to get started."
    CTA: [Add customer]
 
-❌ Title: "No data found"        (zbyt generyczne)
-❌ Title: "Nothing here!"        (zbyt casual)
-❌ Title: "0 results"            (technickie, nie ludzkie)
+❌ Title: "No data found"        (too generic)
+❌ Title: "Nothing here!"        (too casual)
+❌ Title: "0 results"            (technical, not human)
 ```
 
-**Button label:** `[Verb]` lub `[Verb + object]`
+**Button label:** `[Verb]` or `[Verb + object]`
 ```
 ✅ "Save", "Create invoice", "Delete", "Export CSV"
 ❌ "Submit", "OK", "Yes", "Click here", "Go"
 
-Confirmation dialog: action = co się stanie, cancel = "Cancel"
+Confirmation dialog: action = what will happen, cancel = "Cancel"
 ✅ [Delete 3 customers] [Cancel]
 ❌ [Yes] [No]
 ❌ [OK] [Cancel]
 ```
 
-**Confirmation dialog:** `[Title: Co się stanie?] / [Description: konsekwencje] / [Action] [Cancel]`
+**Confirmation dialog:** `[Title: What will happen?] / [Description: consequences] / [Action] [Cancel]`
 ```
 ✅ Title: "Delete this customer?"
    Description: "This will permanently remove Anna Smith and all related deals, activities, and notes."
@@ -73,40 +73,40 @@ Confirmation dialog: action = co się stanie, cancel = "Cancel"
    Action: [OK]  Cancel: [Cancel]
 ```
 
-#### Reguły formatowania
+#### Formatting Rules
 
-| Reguła | Standard | Przykład |
-|--------|----------|---------|
-| Capitalization | Sentence case everywhere | "Create new invoice" nie "Create New Invoice" |
-| Wyjątek | ALL CAPS tylko dla overline labels | "CUSTOMER DETAILS" w overline |
-| Tytuły | Bez kropki na końcu | "No customers yet" |
-| Opisy | Z kropką na końcu | "Create your first customer to get started." |
-| Button labels | Bez kropki | "Save customer" |
-| Listy | Bez kropek na elementach | "• Edit customer" nie "• Edit customer." |
-| Liczby | Numerycznie, nie słownie | "3 customers" nie "three customers" |
-| Skróty | Pełne słowa w UI | "information" nie "info", "application" nie "app" |
-| i18n | OBOWIĄZKOWE | Każdy user-facing string via `t()` / `useT()` |
+| Rule | Standard | Example |
+|------|----------|---------|
+| Capitalization | Sentence case everywhere | "Create new invoice" not "Create New Invoice" |
+| Exception | ALL CAPS only for overline labels | "CUSTOMER DETAILS" in overline |
+| Titles | No period at the end | "No customers yet" |
+| Descriptions | With period at the end | "Create your first customer to get started." |
+| Button labels | No period | "Save customer" |
+| Lists | No periods on items | "• Edit customer" not "• Edit customer." |
+| Numbers | Numeric, not spelled out | "3 customers" not "three customers" |
+| Abbreviations | Full words in UI | "information" not "info", "application" not "app" |
+| i18n | MANDATORY | Every user-facing string via `t()` / `useT()` |
 
 ### W.2 Error Placement Guidelines [HACKATHON]
 
-Audit (1.9): 4 systemy feedbacku bez guidelines kiedy który.
+Audit (1.9): 4 feedback systems without guidelines for when to use which.
 
-| Scenariusz | Komponent | Placement | Czas życia | Trigger |
-|-----------|-----------|-----------|-----------|---------|
-| Zapis udany | `flash('...', 'success')` | Top-right (desktop) / bottom (mobile) | 3s auto-dismiss | Po `createCrud`/`updateCrud` |
-| Zapis nieudany (server) | `flash('...', 'error')` | Top-right / bottom | 5s auto-dismiss | Po failed `createCrud`/`updateCrud` |
-| Walidacja formularza (ogólna) | `Alert variant="destructive"` | Inline nad formularzem | Persistent do naprawy | Form submit z błędami |
-| Walidacja pola | `FormField error="..."` | Pod polem | Persistent do naprawy | Form submit / on blur |
-| Brak danych | `EmptyState` | Zamiast tabeli/contentu | Persistent | Gdy `rows.length === 0` |
-| Brak uprawnień | `Alert variant="warning"` | Zamiast contentu strony | Persistent | Server response 403 |
-| Rekord nie znaleziony | `ErrorMessage` | Zamiast contentu | Persistent | Server response 404 |
-| Destructive action | `useConfirmDialog()` | Modal overlay | Do decyzji usera | Przed delete/revoke |
+| Scenario | Component | Placement | Lifetime | Trigger |
+|----------|-----------|-----------|----------|---------|
+| Save successful | `flash('...', 'success')` | Top-right (desktop) / bottom (mobile) | 3s auto-dismiss | After `createCrud`/`updateCrud` |
+| Save failed (server) | `flash('...', 'error')` | Top-right / bottom | 5s auto-dismiss | After failed `createCrud`/`updateCrud` |
+| Form validation (general) | `Alert variant="destructive"` | Inline above form | Persistent until fixed | Form submit with errors |
+| Field validation | `FormField error="..."` | Below the field | Persistent until fixed | Form submit / on blur |
+| No data | `EmptyState` | In place of table/content | Persistent | When `rows.length === 0` |
+| No permissions | `Alert variant="warning"` | In place of page content | Persistent | Server response 403 |
+| Record not found | `ErrorMessage` | In place of content | Persistent | Server response 404 |
+| Destructive action | `useConfirmDialog()` | Modal overlay | Until user decides | Before delete/revoke |
 | Async event | `NotificationBell` + panel | Dropdown, persistent | SSE-driven | Server event |
-| Long operation progress | `ProgressTopBar` | Top bar strony | Trwa do zakończenia | Background job start |
+| Long operation progress | `ProgressTopBar` | Page top bar | Lasts until completion | Background job start |
 
-**Zasada:** Nigdy 2 systemy jednocześnie dla tego samego wydarzenia. Jeśli `flash()` informuje o błędzie zapisu, nie pokazuj jednocześnie `Alert` na stronie.
+**Rule:** Never use 2 systems simultaneously for the same event. If `flash()` reports a save error, do not also show an `Alert` on the page.
 
-**Priorytet feedbacku:** Field error > Form alert > Flash message > Notification. Najbliższy kontekstowi = najwyższy priorytet.
+**Feedback priority:** Field error > Form alert > Flash message > Notification. Closest to context = highest priority.
 
 ### W.3 Dashboard Layout Pattern [LATER]
 
@@ -134,13 +134,13 @@ Audit (1.9): 4 systemy feedbacku bez guidelines kiedy który.
 
 #### Widget Sizing
 
-| Rozmiar | Tailwind | Kiedy |
-|---------|---------|-------|
+| Size | Tailwind | When |
+|------|---------|------|
 | `1x1` | default (1 column) | KPI number, mini chart, todo list, notifications |
 | `2x1` | `sm:col-span-2` | Line chart, wider table, activity feed |
 | `full` | full row span | Summary table, timeline, calendar |
 
-#### Widget Anatomy (z patterns w customers/widgets/dashboard/)
+#### Widget Anatomy (from patterns in customers/widgets/dashboard/)
 
 ```
 ┌─ CardHeader ───────────────────────┐
@@ -162,18 +162,18 @@ Audit (1.9): 4 systemy feedbacku bez guidelines kiedy który.
 
 #### Empty Widget
 
-Gdy widget nie ma danych: `<p className="text-sm text-muted-foreground">No data for selected period.</p>` — centered w CardContent. NIE używaj EmptyState (za duży na widget). NIE chowaj widgeta (user pomyśli że zniknął).
+When a widget has no data: `<p className="text-sm text-muted-foreground">No data for selected period.</p>` — centered in CardContent. Do NOT use EmptyState (too large for a widget). Do NOT hide the widget (user will think it disappeared).
 
 ### W.4 Wizard / Stepper Pattern [LATER]
 
-#### Kiedy Wizard vs Inline Form
+#### When to Use Wizard vs Inline Form
 
-| Pytanie | Wizard | Inline form |
-|---------|--------|------------|
-| Ile kroków? | ≥3 | 1-2 |
-| Kroki wymagają oddzielnego kontekstu? | Tak (np. krok 1: dane firmy, krok 2: adres, krok 3: ustawienia) | Nie — wszystko powiązane |
-| User może wrócić do poprzedniego kroku? | Tak | N/A |
-| Dane z kroku N wpływają na opcje w kroku N+1? | Tak (np. wybrany kraj → formularz adresu) | Nie |
+| Question | Wizard | Inline form |
+|----------|--------|------------|
+| How many steps? | 3 or more | 1-2 |
+| Do steps require separate context? | Yes (e.g., step 1: company data, step 2: address, step 3: settings) | No — everything is related |
+| Can the user go back to a previous step? | Yes | N/A |
+| Do data from step N affect options in step N+1? | Yes (e.g., selected country → address form) | No |
 
 #### Anatomy
 
@@ -184,7 +184,7 @@ Gdy widget nie ma danych: `<p className="text-sm text-muted-foreground">No data 
 │ Done  Current Next  Next              │
 ├─ Step Content ────────────────────────┤
 │                                       │
-│  [Formularz bieżącego kroku]          │
+│  [Current step form]                  │
 │                                       │
 ├─ Navigation ──────────────────────────┤
 │  [← Back]              [Next step →]  │
@@ -192,24 +192,24 @@ Gdy widget nie ma danych: `<p className="text-sm text-muted-foreground">No data 
 └───────────────────────────────────────┘
 ```
 
-**Step indicator:** Numerowany (1/2/3), nie labeled — tekst label w step content title. Na mobile: numerki + progress bar (np. "Step 2 of 4").
+**Step indicator:** Numbered (1/2/3), not labeled — text label goes in the step content title. On mobile: numbers + progress bar (e.g., "Step 2 of 4").
 
 **Navigation rules:**
 
-| Kontrolka | Dostępność | Zachowanie |
-|-----------|-----------|-----------|
-| Back | Zawsze (oprócz kroku 1) | Wraca z zachowaniem danych. Nie resetuje formularza. |
-| Next | Po walidacji bieżącego kroku | Walidacja on-click, nie on-change. Error inline. |
-| Skip | Tylko jeśli krok opcjonalny — explicit label "Skip this step" | Nie domyślny. Nigdy ghost button — zawsze jawny tekst. |
-| Cancel | Zawsze | Jeśli user wpisał dane → `useConfirmDialog("Discard changes?")`. Jeśli nie → natychmiast. |
-| Complete (ostatni krok) | Po walidacji | Button `default` variant. Label = konkretna akcja ("Create organization", nie "Finish"). |
+| Control | Availability | Behavior |
+|---------|-------------|----------|
+| Back | Always (except step 1) | Goes back preserving data. Does not reset the form. |
+| Next | After current step validation | Validation on click, not on change. Error inline. |
+| Skip | Only if step is optional — explicit label "Skip this step" | Not the default. Never a ghost button — always explicit text. |
+| Cancel | Always | If user entered data → `useConfirmDialog("Discard changes?")`. If not → immediate. |
+| Complete (last step) | After validation | Button `default` variant. Label = specific action ("Create organization", not "Finish"). |
 
-**Nie buduj komponentu Stepper na hackathon.** To jest guideline na przyszłą implementację. Obecne onboarding w `packages/onboarding` może go adoptować iteracyjnie.
+**Do not build a Stepper component during the hackathon.** This is a guideline for future implementation. The current onboarding in `packages/onboarding` can adopt it iteratively.
 
 ---
 
 ## See also
 
-- [Principles](./principles.md) — zasady projektowe informujące content guidelines
-- [Contributor Guardrails](./contributor-guardrails.md) — szablony stron (List, Detail, Form)
-- [Onboarding Guide](./onboarding-guide.md) — content guidelines w kontekście onboardingu
+- [Principles](./principles.md) — design principles informing content guidelines
+- [Contributor Guardrails](./contributor-guardrails.md) — page templates (List, Detail, Form)
+- [Onboarding Guide](./onboarding-guide.md) — content guidelines in the onboarding context

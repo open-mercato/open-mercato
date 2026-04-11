@@ -1,21 +1,21 @@
 # E. Enforcement & Migration Plan
 
-> Plan egzekucji: ESLint rules, codemod scripts, migration playbook dla hardcoded colors, typografii, ikon, komponentów i a11y.
+> Enforcement plan: ESLint rules, codemod scripts, migration playbook for hardcoded colors, typography, icons, components, and a11y.
 
 ---
 
-## E.1 Hardcoded Colors (372 wystapienia)
+## E.1 Hardcoded Colors (372 occurrences)
 
 ### ESLint Rule
 
-Dodac custom rule do `eslint.config.mjs` blokujaca semantic color classes w nowych plikach:
+Add a custom rule to `eslint.config.mjs` blocking semantic color classes in new files:
 
 ```javascript
 // eslint-plugin-open-mercato/no-hardcoded-status-colors.js
-// Blokuje: text-red-*, bg-red-*, border-red-*, text-green-*, bg-green-*,
-//          text-emerald-*, bg-emerald-*, text-blue-* (status contexts),
-//          text-amber-*, bg-amber-*
-// Dozwolone: text-destructive, bg-destructive/*, text-status-*, bg-status-*
+// Blocks: text-red-*, bg-red-*, border-red-*, text-green-*, bg-green-*,
+//         text-emerald-*, bg-emerald-*, text-blue-* (status contexts),
+//         text-amber-*, bg-amber-*
+// Allowed: text-destructive, bg-destructive/*, text-status-*, bg-status-*
 
 const BLOCKED_PATTERNS = [
   /\btext-red-\d+/,
@@ -30,28 +30,28 @@ const BLOCKED_PATTERNS = [
   /\btext-amber-\d+/,
   /\bbg-amber-\d+/,
   /\bborder-amber-\d+/,
-  /\btext-blue-\d+/,   // tylko w statusowych kontekstach
+  /\btext-blue-\d+/,   // only in status contexts
   /\bbg-blue-\d+/,
   /\bborder-blue-\d+/,
 ]
 ```
 
-**Strategia:** Wlaczyc jako `warn` od dnia 1 (nie blokuje build). Po 2 sprintach przelaczac na `error` dla nowych plikow. Po 4 sprintach — `error` globalnie.
+**Strategy:** Enable as `warn` from day 1 (does not block build). After 2 sprints, switch to `error` for new files. After 4 sprints — `error` globally.
 
 ### Codemod / regex strategy
 
-**Faza 1 — Error states (`text-red-600` → semantic token):**
+**Phase 1 — Error states (`text-red-600` → semantic token):**
 
 ```bash
-# Znajdz wszystkie wystapienia
+# Find all occurrences
 rg 'text-red-600' --type tsx -l
-# 107 wystapien — wiekszosc to error messages i required indicators
+# 107 occurrences — most are error messages and required indicators
 
-# Zamiana w CrudForm FieldControl (wewnetrzna):
+# Replace in CrudForm FieldControl (internal):
 # text-red-600 → text-destructive
-# Dotyczy: required indicator, error message
+# Applies to: required indicator, error message
 
-# Mapowanie:
+# Mapping:
 # text-red-600  → text-destructive
 # text-red-700  → text-destructive
 # text-red-800  → text-destructive (darker context)
@@ -61,22 +61,22 @@ rg 'text-red-600' --type tsx -l
 # border-red-500 → border-destructive/60
 ```
 
-**Faza 2 — Success states:**
+**Phase 2 — Success states:**
 
 ```bash
-# Mapowanie:
+# Mapping:
 # text-green-600  → text-status-success
 # text-green-800  → text-status-success
 # bg-green-100    → bg-status-success-bg
 # bg-green-50     → bg-status-success/5
-# text-emerald-*  → text-status-success (zamiennie)
+# text-emerald-*  → text-status-success (interchangeable)
 # bg-emerald-*    → bg-status-success/*
 ```
 
-**Faza 3 — Warning/Info states:**
+**Phase 3 — Warning/Info states:**
 
 ```bash
-# Mapowanie:
+# Mapping:
 # text-amber-500  → text-status-warning
 # text-amber-800  → text-status-warning
 # bg-amber-50     → bg-status-warning/5
@@ -86,56 +86,56 @@ rg 'text-red-600' --type tsx -l
 # bg-blue-100     → bg-status-info/10
 ```
 
-### Strategia migracji: per-modul, nie atomowy PR
+### Migration strategy: per-module, not an atomic PR
 
-**Kolejnosc modulow:**
+**Module order:**
 
-| # | Modul | Powod | Wysilekek | Pliki |
-|---|-------|-------|----------|-------|
-| 1 | `packages/ui/src/primitives/` | Fundament — Notice, Alert, Badge | Niski | 4 pliki |
-| 2 | `packages/ui/src/backend/` | CrudForm FieldControl, FlashMessages, EmptyState | Sredni | ~10 plikow |
-| 3 | `packages/core/src/modules/customers/` | Najbardziej zlozony, referencyjny modul | Sredni | ~15 plikow |
-| 4 | `packages/core/src/modules/auth/` | Frontend login z hardcoded alert colors | Niski | 3 pliki |
-| 5 | `packages/core/src/modules/sales/` | Status badges na dokumentach | Sredni | ~10 plikow |
-| 6 | `packages/core/src/modules/portal/` | Frontend pages z hardcoded colors | Niski | 4 pliki |
-| 7 | Pozostale moduly | Katalogowa migracja | Sredni | ~40 plikow |
+| # | Module | Reason | Effort | Files |
+|---|--------|--------|--------|-------|
+| 1 | `packages/ui/src/primitives/` | Foundation — Notice, Alert, Badge | Low | 4 files |
+| 2 | `packages/ui/src/backend/` | CrudForm FieldControl, FlashMessages, EmptyState | Medium | ~10 files |
+| 3 | `packages/core/src/modules/customers/` | Most complex, reference module | Medium | ~15 files |
+| 4 | `packages/core/src/modules/auth/` | Frontend login with hardcoded alert colors | Low | 3 files |
+| 5 | `packages/core/src/modules/sales/` | Status badges on documents | Medium | ~10 files |
+| 6 | `packages/core/src/modules/portal/` | Frontend pages with hardcoded colors | Low | 4 files |
+| 7 | Remaining modules | Catalog-style migration | Medium | ~40 files |
 
-**Jeden PR per modul.** Kazdy PR:
-- Zamienia hardcoded colors na semantic tokens
-- Dodaje `// DS-MIGRATED` komentarz w ostatniej linii pliku (do trackingu)
-- Testowany wizualnie (screenshot before/after)
+**One PR per module.** Each PR:
+- Replaces hardcoded colors with semantic tokens
+- Adds a `// DS-MIGRATED` comment on the last line of the file (for tracking)
+- Visually tested (screenshot before/after)
 
 ---
 
-## E.2 Arbitrary Text Sizes (61 wystapien)
+## E.2 Arbitrary Text Sizes (61 occurrences)
 
-### Tabela mapowania
+### Mapping table
 
-| Stary | Nowy | Uzasadnienie |
-|-------|------|-------------|
-| `text-[9px]` | `text-[9px]` (wyjątek) | Notification badge count — zbyt maly na standardową skalę, zachowac |
-| `text-[10px]` | `text-xs` (12px) | Zaokraglenie w gore, czytelniejsze |
-| `text-[11px]` | `text-xs` (12px) lub nowy `text-overline` | 33 wystapienia — to jest de facto "overline" pattern |
-| `text-[12px]` | `text-xs` | Identyczne z text-xs |
-| `text-[13px]` | `text-sm` (14px) | Zaokraglenie w gore o 1px |
-| `text-[14px]` | `text-sm` | Identyczne z text-sm |
-| `text-[15px]` | `text-base` (16px) lub `text-sm` | Zalezy od kontekstu |
+| Old | New | Rationale |
+|-----|-----|-----------|
+| `text-[9px]` | `text-[9px]` (exception) | Notification badge count — too small for the standard scale, keep as-is |
+| `text-[10px]` | `text-xs` (12px) | Round up, more readable |
+| `text-[11px]` | `text-xs` (12px) or new `text-overline` | 33 occurrences — this is a de facto "overline" pattern |
+| `text-[12px]` | `text-xs` | Identical to text-xs |
+| `text-[13px]` | `text-sm` (14px) | Round up by 1px |
+| `text-[14px]` | `text-sm` | Identical to text-sm |
+| `text-[15px]` | `text-base` (16px) or `text-sm` | Depends on context |
 
-**Opcja: dodac `text-overline` do Tailwind config:**
+**Option: add `text-overline` to the Tailwind config:**
 
 ```css
-/* globals.css - w sekcji @theme */
+/* globals.css - in the @theme section */
 --font-size-overline: 0.6875rem; /* 11px */
 --font-size-overline--line-height: 1rem;
 ```
 
-To pozwoli zachowac `text-[11px]` jako `text-overline` bez arbitralnej wartosci.
+This allows replacing `text-[11px]` with `text-overline` without an arbitrary value.
 
 ### Lint rule
 
 ```javascript
-// Blokuje text-[Npx] w nowych plikach
-// Wyjatki: text-[9px] (badge count)
+// Blocks text-[Npx] in new files
+// Exceptions: text-[9px] (badge count)
 const BLOCKED = /\btext-\[\d+px\]/
 const ALLOWED = ['text-[9px]']
 ```
@@ -144,16 +144,16 @@ const ALLOWED = ['text-[9px]']
 
 ## E.3 Notice → Alert Migration
 
-### Zakres
+### Scope
 
-- **Notice**: 7 plikow
-- **Alert**: 18 plikow
-- **ErrorNotice**: 2 pliki
-- **Razem do migracji**: 9 plikow (Notice + ErrorNotice)
+- **Notice**: 7 files
+- **Alert**: 18 files
+- **ErrorNotice**: 2 files
+- **Total to migrate**: 9 files (Notice + ErrorNotice)
 
-### Strategia: Adapter → Hard Replace
+### Strategy: Adapter → Hard Replace
 
-**Krok 1 (hackathon):** Deprecation notice w Notice.tsx
+**Step 1 (hackathon):** Deprecation notice in Notice.tsx
 
 ```typescript
 // packages/ui/src/primitives/Notice.tsx
@@ -172,10 +172,10 @@ export function Notice(props: NoticeProps) {
 }
 ```
 
-**Krok 2 (tydzien po hackathonie):** Migracja 7 plikow Notice → Alert
+**Step 2 (week after hackathon):** Migrate 7 files from Notice → Alert
 
-| Stary (Notice) | Nowy (Alert) |
-|-----------------|-------------|
+| Old (Notice) | New (Alert) |
+|--------------|-------------|
 | `<Notice variant="error" title="..." message="..." />` | `<Alert variant="destructive"><AlertTitle>...</AlertTitle><AlertDescription>...</AlertDescription></Alert>` |
 | `<Notice variant="warning" title="..." />` | `<Alert variant="warning"><AlertTitle>...</AlertTitle></Alert>` |
 | `<Notice variant="info" message="..." />` | `<Alert variant="info"><AlertDescription>...</AlertDescription></Alert>` |
@@ -183,11 +183,11 @@ export function Notice(props: NoticeProps) {
 | `<Notice action={<Button>...</Button>} />` | `<Alert variant="info"><AlertDescription>...<AlertAction>...</AlertAction></AlertDescription></Alert>` |
 | `<ErrorNotice title="..." message="..." />` | `<Alert variant="destructive"><AlertTitle>...</AlertTitle><AlertDescription>...</AlertDescription></Alert>` |
 
-**Krok 3 (v0.6.0):** Usuniecie Notice.tsx i ErrorNotice.tsx
+**Step 3 (v0.6.0):** Remove Notice.tsx and ErrorNotice.tsx
 
-### Pliki do migracji (konkretne)
+### Files to migrate (specific)
 
-**Notice (7 plikow):**
+**Notice (7 files):**
 1. `packages/core/src/modules/portal/frontend/[orgSlug]/portal/signup/page.tsx`
 2. `packages/core/src/modules/portal/frontend/[orgSlug]/portal/page.tsx`
 3. `packages/core/src/modules/portal/frontend/[orgSlug]/portal/login/page.tsx`
@@ -196,7 +196,7 @@ export function Notice(props: NoticeProps) {
 6. `packages/core/src/modules/data_sync/backend/data-sync/page.tsx`
 7. `packages/core/src/modules/data_sync/components/IntegrationScheduleTab.tsx`
 
-**ErrorNotice (2 pliki):**
+**ErrorNotice (2 files):**
 8. `packages/core/src/modules/customers/backend/customers/deals/pipeline/page.tsx`
 9. `packages/core/src/modules/entities/backend/entities/user/[entityId]/page.tsx`
 
@@ -204,16 +204,16 @@ export function Notice(props: NoticeProps) {
 
 ## E.4 Icon System (inline SVG → lucide-react)
 
-### Zakres: 14 plikow z inline `<svg>`
+### Scope: 14 files with inline `<svg>`
 
-**Mapowanie custom SVG → lucide equivalent:**
+**Custom SVG → lucide equivalent mapping:**
 
-| Plik | Custom SVG | Lucide equivalent |
+| File | Custom SVG | Lucide equivalent |
 |------|-----------|-------------------|
 | Portal `signup/page.tsx` | CheckIcon, XIcon | `Check`, `X` |
 | Portal `dashboard/page.tsx` | BellIcon, WidgetIcon | `Bell`, `LayoutGrid` |
 | Portal `page.tsx` | ShoppingBagIcon, UserIcon, ShieldIcon | `ShoppingBag`, `User`, `Shield` |
-| `auth/lib/profile-sections.tsx` | Custom icons | Sprawdzic per-icon |
+| `auth/lib/profile-sections.tsx` | Custom icons | Check per-icon |
 | `workflows/checkout-demo/page.tsx` | CheckIcon, decorative SVG | `Check`, `CircleCheck` |
 | `workflows/definitions/[id]/page.tsx` | Flow icons | `Workflow`, `GitBranch` |
 | `workflows/EdgeEditDialog.tsx` | Edge icons | `ArrowRight`, `Cable` |
@@ -223,23 +223,23 @@ export function Notice(props: NoticeProps) {
 | `staff/team-members/page.tsx` | Team icon | `Users`, `UserPlus` |
 | `staff/team-roles/page.tsx` | Role icon | `Shield`, `Key` |
 
-**2 pliki testowe** (`__tests__/`) — SVG w mockach, nie wymagaja migracji.
+**2 test files** (`__tests__/`) — SVGs in mocks, no migration required.
 
-### Strategia
+### Strategy
 
 ```bash
-# Znajdz wszystkie inline SVG (pomijajac testy)
+# Find all inline SVGs (excluding tests)
 rg '<svg' --type tsx -l --glob '!**/__tests__/**' packages/core/src/modules/
-# 12 plikow do migracji (2 testowe pominiete)
+# 12 files to migrate (2 test files skipped)
 ```
 
-Migracja per-plik. Kazdy PR zamienia inline SVG na lucide import.
+Migrate per-file. Each PR replaces inline SVGs with lucide imports.
 
 ---
 
 ## E.5 PR Template Update
 
-Dodac do `.github/PULL_REQUEST_TEMPLATE.md`:
+Add to `.github/PULL_REQUEST_TEMPLATE.md`:
 
 ```markdown
 ### Design System Compliance
@@ -255,7 +255,7 @@ Dodac do `.github/PULL_REQUEST_TEMPLATE.md`:
 
 ## E.6 AGENTS.md Update
 
-Dodac do root `AGENTS.md` w sekcji `## Conventions` lub jako nowa sekcja `## Design System Rules`:
+Add to the root `AGENTS.md` in the `## Conventions` section or as a new `## Design System Rules` section:
 
 ```markdown
 ## Design System Rules
@@ -293,11 +293,11 @@ Dodac do root `AGENTS.md` w sekcji `## Conventions` lub jako nowa sekcja `## Des
 
 ## E.7 Boy Scout Rule
 
-**Policy:** Kazdy PR ktory dotyka pliku z hardcoded status colors MUSI zmigrować przynajmniej dotknięte linie.
+**Policy:** Every PR that touches a file with hardcoded status colors MUST migrate at least the affected lines.
 
-**Implementacja:**
-- Dodac do PR review checklist
-- Dodac komentarz w AGENTS.md:
+**Implementation:**
+- Add to the PR review checklist
+- Add a comment in AGENTS.md:
 
 ```markdown
 ### Boy Scout Rule (Design System)
@@ -306,7 +306,7 @@ you MUST migrate at minimum the lines you touched to semantic tokens.
 Optionally migrate the entire file if scope allows.
 ```
 
-- CI check (opcjonalny): skrypt porownujacy `git diff --name-only` z lista plikow zawierajacych hardcoded colors. Jesli PR dotyka pliku z listy ale nie zmniejsza count — warning.
+- CI check (optional): a script comparing `git diff --name-only` with the list of files containing hardcoded colors. If a PR touches a file from the list but does not reduce the count — warning.
 
 ---
 
@@ -314,7 +314,7 @@ Optionally migrate the entire file if scope allows.
 
 ## See also
 
-- [Metrics](./metrics.md) — KPI i skrypt ds-health-check.sh
-- [Migration Tables](./migration-tables.md) — tabele mapowania kolorów i typografii
-- [Lint Rules](./lint-rules.md) — reguły ESLint v9 flat config
-- [Token Values](./token-values.md) — wartości tokenów OKLCH
+- [Metrics](./metrics.md) — KPIs and ds-health-check.sh script
+- [Migration Tables](./migration-tables.md) — color and typography mapping tables
+- [Lint Rules](./lint-rules.md) — ESLint v9 flat config rules
+- [Token Values](./token-values.md) — OKLCH token values

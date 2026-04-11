@@ -1,69 +1,69 @@
 # Q. Guerrilla Research Plan
 
-> Lekkie metody badawcze: PR archaeology, 5-minute tests, unmoderated tasks, intercept surveys.
+> Lightweight research methods: PR archaeology, 5-minute tests, unmoderated tasks, intercept surveys.
 
 ---
 
 
 ### Q.1 "5 Questions, 3 People, 15 Minutes"
 
-**Kogo pytać:**
-1. Aktywny maintainer modułu (≥10 PR-ów, zna codebase)
-2. Okazjonalny contributor (2-5 PR-ów, zna fragmenty)
-3. Potencjalny contributor (śledzi repo, może otworzył 1 issue, jeszcze nie commitował)
+**Who to ask:**
+1. An active module maintainer (>=10 PRs, knows the codebase)
+2. An occasional contributor (2-5 PRs, knows fragments)
+3. A potential contributor (follows the repo, may have opened 1 issue, hasn't committed yet)
 
-**Jak przeprowadzić: Async survey via GitHub Discussion.**
+**How to conduct: Async survey via GitHub Discussion.**
 
-Uzasadnienie: Synchroniczny call wymaga koordynacji timezone i zniechęca introwertycznych contributorów. Discussion post z pytaniami pozwala odpowiedzieć gdy ktoś ma 10 minut. Dodatkowo: odpowiedzi są publiczne, co buduje precedens otwartej komunikacji o DS.
+Rationale: A synchronous call requires timezone coordination and discourages introverted contributors. A Discussion post with questions lets people respond when they have 10 minutes. Additionally: responses are public, which sets a precedent for open communication about the DS.
 
-**5 pytań:**
+**5 questions:**
 
-1. **"Gdy ostatnio budowałeś nowy ekran (lub modyfikowałeś istniejący) — skąd wiedziałeś jakich komponentów użyć? Co otworzyłeś najpierw?"**
-   Cel: Odkryć discovery path. Czy grepują? Kopiują z innego modułu? Pytają kogoś?
+1. **"When you last built a new screen (or modified an existing one) — how did you know which components to use? What did you open first?"**
+   Goal: Discover the discovery path. Do they grep? Copy from another module? Ask someone?
 
-2. **"Czy zdarzyło ci się, że reviewer poprosił o zmianę koloru, spacingu lub komponentu w twoim PR? Jeśli tak — czy wiedziałeś dlaczego ta zmiana była potrzebna?"**
-   Cel: Zmierzyć review friction i zrozumieć czy contributor rozumie reguły czy wykonuje polecenia.
+2. **"Has it ever happened that a reviewer asked you to change a color, spacing, or component in your PR? If so — did you understand why the change was needed?"**
+   Goal: Measure review friction and understand whether contributors understand the rules or just follow orders.
 
-3. **"Gdybyś jutro miał zbudować stronę listy z tabelą, statusami i pustym stanem — od czego byś zaczął? Który moduł otworzyłbyś jako wzorzec?"**
-   Cel: Odkryć który moduł jest de facto referencyjny (może nie customers!) i jakie jest mentalne model contributora.
+3. **"If tomorrow you had to build a list page with a table, statuses, and an empty state — where would you start? Which module would you open as a reference?"**
+   Goal: Discover which module is the de facto reference (it might not be customers!) and what the contributor's mental model looks like.
 
-4. **"Co jest najbardziej irytujące w budowaniu UI w Open Mercato? Jedna konkretna rzecz."**
-   Cel: Odkryć friction point którego nie widać w code audit. Może to jest brak hot reload, może wolny build, może niejasna nawigacja w kodzie.
+4. **"What is the most annoying thing about building UI in Open Mercato? One specific thing."**
+   Goal: Uncover a friction point invisible in the code audit. Maybe it's lack of hot reload, maybe a slow build, maybe unclear code navigation.
 
-5. **"Gdybyś mógł zmienić jedną rzecz w tym jak wygląda lub działa Open Mercato UI — co by to było?"**
-   Cel: Walidacja priorytetów. Jeśli 3/3 osób mówi "dark mode jest popsute" — wiemy że semantic tokens to prawidłowy priorytet. Jeśli mówią "brak mobile view" — wiemy że nasze priorytety mogą wymagać korekty.
+5. **"If you could change one thing about how the Open Mercato UI looks or works — what would it be?"**
+   Goal: Validate priorities. If 3/3 people say "dark mode is broken" — we know semantic tokens are the right priority. If they say "no mobile view" — we know our priorities may need adjustment.
 
-**Template na summary wyników (1 strona):**
+**Template for results summary (1 page):**
 
 ```markdown
-## DS Research Summary — [data]
+## DS Research Summary — [date]
 
 ### Participants
-- [persona 1]: [moduł/rola], [ile PR-ów]
+- [persona 1]: [module/role], [number of PRs]
 - [persona 2]: ...
 - [persona 3]: ...
 
 ### Key Findings
-1. **Discovery path:** [jak szukają komponentów — np. "2/3 kopiuje z customers"]
-2. **Review friction:** [ile rund, czy rozumieją reguły — np. "nikt nie wiedział o semantic tokens"]
-3. **Reference module:** [który moduł uważają za wzorcowy]
-4. **Top friction point:** [co ich najbardziej irytuje]
-5. **Top wish:** [co by zmienili]
+1. **Discovery path:** [how they find components — e.g. "2/3 copy from customers"]
+2. **Review friction:** [how many rounds, do they understand rules — e.g. "nobody knew about semantic tokens"]
+3. **Reference module:** [which module they consider exemplary]
+4. **Top friction point:** [what annoys them most]
+5. **Top wish:** [what they would change]
 
 ### Impact on DS Plan
-- [Co potwierdzamy — np. "semantic tokens to prawidłowy priorytet #1"]
-- [Co zmieniamy — np. "dodajemy hot reload do hackathon scope bo 2/3 osób narzeka"]
-- [Co dodajemy — np. "trzeba udokumentować dlaczego customers a nie sales jest referencyjny"]
+- [What we confirm — e.g. "semantic tokens are the right priority #1"]
+- [What we change — e.g. "add hot reload to hackathon scope because 2/3 people complained"]
+- [What we add — e.g. "need to document why customers, not sales, is the reference"]
 ```
 
-### Q.2 Hallway Testing — komponentów API
+### Q.2 Hallway Testing — component API
 
-**Task dla contributora (dosłowny tekst):**
+**Task for the contributor (literal text):**
 
-> Mam TypeScript interface nowego komponentu FormField. Bez patrzenia na dokumentację — napisz mi JSX który wyświetla formularz z 3 polami: Name (text, required), Email (text, z opisem "We'll never share your email"), Status (select, z errorem "Status is required"). Możesz użyć dowolnych komponentów wewnątrz FormField. Masz 3 minuty.
+> I have a TypeScript interface for a new FormField component. Without looking at the documentation — write JSX that renders a form with 3 fields: Name (text, required), Email (text, with description "We'll never share your email"), Status (select, with error "Status is required"). You can use any components inside FormField. You have 3 minutes.
 
 ```typescript
-// To dajesz contributorowi:
+// Give this to the contributor:
 interface FormFieldProps {
   label?: string
   id?: string
@@ -77,49 +77,49 @@ interface FormFieldProps {
 }
 ```
 
-**Co obserwujesz (rubric):**
+**What to observe (rubric):**
 
-| Aspekt | Sukces (5 pkt) | Problemy (3 pkt) | Porażka (1 pkt) |
+| Aspect | Success (5 pts) | Issues (3 pts) | Failure (1 pt) |
 |--------|----------------|-------------------|-----------------|
-| **Zrozumienie children pattern** | Od razu wstawia `<Input>` jako children | Pyta "czy to slot?" ale rozumie po chwili | Próbuje przekazać input jako prop |
-| **Required indicator** | Używa `required={true}` i oczekuje że label się zmieni | Dodaje ręczny asterisk w label | Nie wie jak oznaczyć pole jako required |
-| **Error handling** | Przekazuje `error="..."` i nie dodaje ręcznego error display | Pyta "czy error wyświetla się automatycznie?" | Dodaje ręczny `<span className="text-red-600">` pod polem |
-| **Naming intuition** | Nie pyta o żaden prop name | Pyta o 1 prop name | Pyta o ≥3 prop names |
-| **Czas** | <2 min | 2-3 min | >3 min lub nie kończy |
+| **Understanding children pattern** | Immediately places `<Input>` as children | Asks "is this a slot?" but understands after a moment | Tries to pass input as a prop |
+| **Required indicator** | Uses `required={true}` and expects the label to change | Manually adds an asterisk to the label | Doesn't know how to mark a field as required |
+| **Error handling** | Passes `error="..."` and does not add manual error display | Asks "does the error display automatically?" | Adds a manual `<span className="text-red-600">` below the field |
+| **Naming intuition** | Doesn't ask about any prop name | Asks about 1 prop name | Asks about >=3 prop names |
+| **Time** | <2 min | 2-3 min | >3 min or doesn't finish |
 
-**Jeśli contributor ≤3 na "children pattern":** Rozważamy zmianę API na `input` prop zamiast `children`. Jeśli ≥4 na wszystkich: API jest intuicyjne.
+**If contributor scores <=3 on "children pattern":** Consider changing the API to an `input` prop instead of `children`. If >=4 on all: the API is intuitive.
 
 ### Q.3 Observation Protocol — "Watch One, Do One"
 
-**Kiedy: PO hackathonie** (tydzień 2). Uzasadnienie: Chcemy walidować czy DS artefakty (templates, tokens, lint rules) działają w praktyce, nie w teorii.
+**When: AFTER the hackathon** (week 2). Rationale: We want to validate whether DS artifacts (templates, tokens, lint rules) work in practice, not in theory.
 
 **Setup:**
 
-> "Wyobraź sobie, że Sales module potrzebuje nowej strony: lista warranties (gwarancji) z tabelą, statusami (active/expired/pending), pustym stanem i możliwością tworzenia nowej gwarancji. Zbuduj stronę listy. Masz 30 minut. Możesz używać dowolnych plików w repo. Powiedz mi na głos co robisz — np. 'otwieram customers żeby zobaczyć wzorzec'. Nie pytaj mnie o pomoc — rób jak byś robił sam."
+> "Imagine that the Sales module needs a new page: a list of warranties with a table, statuses (active/expired/pending), an empty state, and the ability to create a new warranty. Build the list page. You have 30 minutes. You can use any files in the repo. Tell me out loud what you're doing — e.g. 'I'm opening customers to see the reference'. Don't ask me for help — do it as you would on your own."
 
-**Obserwacja — co notujesz:**
+**Observation — what to note:**
 
-| Czas | Notujesz |
+| Time | Note |
 |------|----------|
-| 0:00-2:00 | **Gdzie szuka:** Otwiera DS.md? Customers module? Grepuje? Googluje? |
-| 2:00-5:00 | **Co kopiuje:** Który template/moduł? Czy używa K.1? |
-| 5:00-15:00 | **Gdzie utyka:** Import paths? Token names? StatusBadge API? EmptyState props? |
-| 15:00-25:00 | **Co omija:** Czy dodaje EmptyState? Loading state? useT()? metadata? |
-| 25:00-30:00 | **Czy lint pomógł:** Czy uruchamia lint? Czy lint wyłapał problemy? |
+| 0:00-2:00 | **Where they search:** Open DS.md? Customers module? Grep? Google? |
+| 2:00-5:00 | **What they copy:** Which template/module? Do they use K.1? |
+| 5:00-15:00 | **Where they get stuck:** Import paths? Token names? StatusBadge API? EmptyState props? |
+| 15:00-25:00 | **What they skip:** Do they add EmptyState? Loading state? useT()? metadata? |
+| 25:00-30:00 | **Did lint help:** Do they run lint? Did lint catch problems? |
 
-**Zasada obserwacji:** Nie pomagasz, nie komentujesz, nie kiwasz głową aprobująco. Notujesz. Jedyny wyjątek: jeśli contributor jest zablokowany >3 min na tym samym miejscu, możesz powiedzieć "kontynuuj dalej, wrócimy do tego".
+**Observation rule:** Do not help, do not comment, do not nod approvingly. Take notes. The only exception: if the contributor is blocked for >3 min on the same thing, you may say "move on, we'll come back to that".
 
-**Debrief (3 pytania):**
+**Debrief (3 questions):**
 
-1. "Co było najłatwiejsze w budowaniu tej strony?"
-2. "Gdzie się zatrzymałeś najdłużej — i dlaczego?"
-3. "Gdybyś mógł zmienić jedno narzędzie/plik/komponent żeby to było szybsze — co by to było?"
+1. "What was the easiest part of building this page?"
+2. "Where did you get stuck the longest — and why?"
+3. "If you could change one tool/file/component to make this faster — what would it be?"
 
 
 ---
 
 ## See also
 
-- [Success Metrics Beyond Code](./success-metrics-cx.md) — metryki informowane przez research
-- [Iteration](./iteration.md) — cykl feedback oparty o wyniki badań
-- [Champions](./champions.md) — champions jako źródło insightów
+- [Success Metrics Beyond Code](./success-metrics-cx.md) — metrics informed by research
+- [Iteration](./iteration.md) — feedback cycle based on research findings
+- [Champions](./champions.md) — champions as a source of insights

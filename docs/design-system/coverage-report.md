@@ -1,69 +1,69 @@
 # Coverage Report — 7-Layer Design System Framework
 
-> Analiza pokrycia dokumentu audytu względem 7-warstwowego frameworka design systemu.
+> Coverage analysis of the audit document against the 7-layer design system framework.
 
 ---
 
-## Metodologia
+## Methodology
 
-Dokument został zweryfikowany względem 7 warstw kompletnego design systemu:
+The document was verified against 7 layers of a complete design system:
 
-1. **Fundamentals** — tokeny, skale, prymitywy wizualne
-2. **Components** — biblioteka komponentów z API i wariantami
-3. **Patterns** — wzorce stron, layouty, flows
-4. **Usage Rules** — wytyczne "kiedy użyć czego"
+1. **Fundamentals** — tokens, scales, visual primitives
+2. **Components** — component library with APIs and variants
+3. **Patterns** — page patterns, layouts, flows
+4. **Usage Rules** — guidelines for "when to use what"
 5. **Documentation** — onboarding, contributor guides, decision log
 6. **Code Implementation** — lint rules, codemods, CI enforcement
-7. **Governance** — metryki, iteracja, stakeholder buy-in
+7. **Governance** — metrics, iteration, stakeholder buy-in
 
 ---
 
-## Scoring po uzupełnieniu (sekcje A-X)
+## Scoring After Completion (sections A-X)
 
-| Warstwa | Pokrycie | Sekcje dokumentu | Uwagi |
-|---------|----------|-------------------|-------|
-| 1. Fundamentals | **90%** | [Foundations](./foundations.md), [Token Values](./token-values.md), [Foundations Gaps](./foundations-gaps.md) | Motion spec, type hierarchy, icon guidelines dodane w sekcji U |
-| 2. Components | **85%** | [Components](./components.md), [Component APIs](./component-apis.md), [Component Specs](./component-specs.md) | Quick reference 21 komponentów + deep specs Button/Card/Dialog/Tooltip |
+| Layer | Coverage | Document sections | Notes |
+|-------|----------|-------------------|-------|
+| 1. Fundamentals | **90%** | [Foundations](./foundations.md), [Token Values](./token-values.md), [Foundations Gaps](./foundations-gaps.md) | Motion spec, type hierarchy, icon guidelines added in section U |
+| 2. Components | **85%** | [Components](./components.md), [Component APIs](./component-apis.md), [Component Specs](./component-specs.md) | Quick reference for 21 components + deep specs for Button/Card/Dialog/Tooltip |
 | 3. Patterns | **85%** | [Contributor Guardrails](./contributor-guardrails.md), [Content Patterns](./content-patterns.md) | Page templates (List/Detail/Form) + dashboard/wizard/settings patterns |
 | 4. Usage Rules | **80%** | [Content Patterns](./content-patterns.md), [Foundations Gaps](./foundations-gaps.md) | Voice & tone, error placement, "Use This Not That" table |
-| 5. Documentation | **90%** | [Onboarding Guide](./onboarding-guide.md), [Contributor Experience](./contributor-experience.md), [Decision Log](./decision-log.md), [Champions](./champions.md) | Pełny onboarding flow + cheat sheet + FAQ + decision records |
+| 5. Documentation | **90%** | [Onboarding Guide](./onboarding-guide.md), [Contributor Experience](./contributor-experience.md), [Decision Log](./decision-log.md), [Champions](./champions.md) | Full onboarding flow + cheat sheet + FAQ + decision records |
 | 6. Code Implementation | **90%** | [Lint Rules](./lint-rules.md), [Enforcement](./enforcement.md), [Migration Tables](./migration-tables.md), [Testing & Designer](./testing-designer.md) | ESLint plugin, codemod scripts, visual testing strategy |
-| 7. Governance | **90%** | [Stakeholder Buy-in](./stakeholder-buyin.md), [Metrics](./metrics.md), [Success Metrics CX](./success-metrics-cx.md), [Iteration](./iteration.md), [Research Plan](./research-plan.md) | Pełny governance model z feedback loops |
+| 7. Governance | **90%** | [Stakeholder Buy-in](./stakeholder-buyin.md), [Metrics](./metrics.md), [Success Metrics CX](./success-metrics-cx.md), [Iteration](./iteration.md), [Research Plan](./research-plan.md) | Full governance model with feedback loops |
 
-**Średnia: ~87%** (vs ~72% przed sekcjami U-X)
-
----
-
-## Luki zamknięte w sekcjach U-X
-
-| # | Luka | Zamknięta w | Status |
-|---|------|-------------|--------|
-| 1 | Motion/animation spec | [U.1](./foundations-gaps.md#u1-motion--animation-spec) | ✅ Pełna specyfikacja |
-| 2 | Type hierarchy | [U.2](./foundations-gaps.md#u2-type-hierarchy) | ✅ 10 ról semantycznych |
-| 3 | Icon guidelines | [U.3](./foundations-gaps.md#u3-icon-guidelines) | ✅ Konwencja lucide-react |
-| 4 | Component specs dla istniejących prymitywów | [V](./component-specs.md) | ✅ 21 quick ref + 4 deep specs |
-| 5 | Content / voice guidelines | [W.1-W.2](./content-patterns.md) | ✅ Voice & tone + error patterns |
-| 6 | Page patterns (dashboard, wizard) | [W.3-W.4](./content-patterns.md) | ✅ Dashboard + wizard layout |
-| 7 | Visual testing strategy | [X.1](./testing-designer.md) | ✅ 3-tier strategy |
-| 8 | Designer workflow | [X.2](./testing-designer.md) | ✅ Code-first, no Figma |
+**Average: ~87%** (vs ~72% before sections U-X)
 
 ---
 
-## Pozostałe możliwości rozwoju (poza MVP)
+## Gaps Closed in Sections U-X
 
-Te elementy celowo NIE zostały uwzględnione — są "nice to have" na przyszłość:
+| # | Gap | Closed in | Status |
+|---|-----|-----------|--------|
+| 1 | Motion/animation spec | [U.1](./foundations-gaps.md#u1-motion--animation-spec) | Full specification |
+| 2 | Type hierarchy | [U.2](./foundations-gaps.md#u2-type-hierarchy) | 10 semantic roles |
+| 3 | Icon guidelines | [U.3](./foundations-gaps.md#u3-icon-guidelines) | lucide-react convention |
+| 4 | Component specs for existing primitives | [V](./component-specs.md) | 21 quick ref + 4 deep specs |
+| 5 | Content / voice guidelines | [W.1-W.2](./content-patterns.md) | Voice & tone + error patterns |
+| 6 | Page patterns (dashboard, wizard) | [W.3-W.4](./content-patterns.md) | Dashboard + wizard layout |
+| 7 | Visual testing strategy | [X.1](./testing-designer.md) | 3-tier strategy |
+| 8 | Designer workflow | [X.2](./testing-designer.md) | Code-first, no Figma |
 
-1. **Storybook / component showcase** — zaplanowany w Tier 3 visual testing, nie priorytet MVP
-2. **Figma library** — świadoma decyzja: code-first approach (DR w sekcji X)
-3. **Automated visual regression (Chromatic/Percy)** — Tier 3, wymaga budżetu
-4. **Design token pipeline (Style Dictionary)** — rozważyć gdy DS dojrzeje do v1.0
-5. **Multi-brand / theming** — poza zakresem audytu, potencjalnie enterprise feature
+---
+
+## Remaining Growth Opportunities (beyond MVP)
+
+These items were intentionally NOT included — they are "nice to have" for the future:
+
+1. **Storybook / component showcase** — planned in Tier 3 visual testing, not an MVP priority
+2. **Figma library** — deliberate decision: code-first approach (DR in section X)
+3. **Automated visual regression (Chromatic/Percy)** — Tier 3, requires budget
+4. **Design token pipeline (Style Dictionary)** — consider when the DS matures to v1.0
+5. **Multi-brand / theming** — out of audit scope, potentially an enterprise feature
 
 ---
 
 ## See also
 
-- [Executive Summary](./executive-summary.md) — najważniejsze wnioski z audytu
-- [Audit](./audit.md) — pełny raport audytu UI
-- [Decision Log](./decision-log.md) — rejestr decyzji architektonicznych
-- [Iteration](./iteration.md) — plan iteracji i rozwoju DS
+- [Executive Summary](./executive-summary.md) — key findings from the audit
+- [Audit](./audit.md) — full UI audit report
+- [Decision Log](./decision-log.md) — architectural decision records
+- [Iteration](./iteration.md) — DS iteration and development plan

@@ -1,16 +1,16 @@
-# Część 4 — MVP Komponentów
+# Part 4 — Component MVP
 
-> Lista komponentów do standaryzacji z priorytetami i statusami. Metodologia + analiza 22 komponentów.
+> List of components to standardize with priorities and statuses. Methodology + analysis of 22 components.
 
 ---
 
-## Metodologia
+## Methodology
 
-Komponenty oceniane pod katem:
-- **Priorytet**: jak wazny dla spojnosci systemu
-- **Reuse**: jak czesto uzywany w codebase
-- **Complexity risk**: ryzyko ze komponent stanie sie zbyt zlozony
-- **Hackathon MVP**: czy da sie zrobic w 2-3 dni
+Components evaluated on the following criteria:
+- **Priority**: how important for system consistency
+- **Reuse**: how frequently used in the codebase
+- **Complexity risk**: risk of the component becoming overly complex
+- **Hackathon MVP**: whether it can be done in 2-3 days
 
 ---
 
@@ -18,20 +18,20 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Actions |
-| **Priorytet** | P0 — krytyczny |
-| **Uzasadnienie** | Najczesciej uzywany interactive element. Juz istnieje i dziala dobrze. |
-| **Kiedy uzywac** | Kazda akcja uzytkownika: submit, cancel, delete, create, navigate |
-| **Kiedy NIE uzywac** | Nawigacja do innej strony (uzyj Link). Display-only text. |
+| **Category** | Actions |
+| **Priority** | P0 — critical |
+| **Rationale** | Most frequently used interactive element. Already exists and works well. |
+| **When to use** | Any user action: submit, cancel, delete, create, navigate |
+| **When NOT to use** | Navigation to another page (use Link). Display-only text. |
 | **Anatomy** | `[icon?] [label] [icon?]` |
-| **Warianty** | default, destructive, outline, secondary, ghost, muted, link |
-| **Rozmiary** | sm (h-8), default (h-9), lg (h-10), icon (size-9) |
-| **Stany** | default, hover, focus, active, disabled, loading |
-| **Accessibility** | `aria-label` required jesli icon-only. `disabled` prevents interaction. Focus ring visible. |
-| **Zaleznosci** | color tokens, typography, spacing, border-radius, focus ring |
-| **Complexity risk** | Niskie — juz dobrze zaimplementowany z CVA |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/button.tsx` |
-| **Hackathon** | NIE — juz gotowy, ewentualnie dokumentacja |
+| **Variants** | default, destructive, outline, secondary, ghost, muted, link |
+| **Sizes** | sm (h-8), default (h-9), lg (h-10), icon (size-9) |
+| **States** | default, hover, focus, active, disabled, loading |
+| **Accessibility** | `aria-label` required if icon-only. `disabled` prevents interaction. Focus ring visible. |
+| **Dependencies** | color tokens, typography, spacing, border-radius, focus ring |
+| **Complexity risk** | Low — already well-implemented with CVA |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/button.tsx` |
+| **Hackathon** | NO — already done, documentation only if needed |
 
 ---
 
@@ -39,20 +39,20 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Actions |
-| **Priorytet** | P0 |
-| **Uzasadnienie** | Uzywany w row actions, close buttons, toolbars. |
-| **Kiedy uzywac** | Akcja reprezentowana ikona (close, delete, edit, more) |
-| **Kiedy NIE uzywac** | Jesli akcja wymaga label (uzyj Button). Jesli jest dekoracyjna. |
+| **Category** | Actions |
+| **Priority** | P0 |
+| **Rationale** | Used in row actions, close buttons, toolbars. |
+| **When to use** | Action represented by an icon (close, delete, edit, more) |
+| **When NOT to use** | If the action requires a label (use Button). If it is decorative. |
 | **Anatomy** | `[icon]` |
-| **Warianty** | outline, ghost |
-| **Rozmiary** | xs (size-6), sm (size-7), default (size-8), lg (size-9) |
-| **Stany** | default, hover, focus, active, disabled |
-| **Accessibility** | `aria-label` **WYMAGANY** (TypeScript enforcement) |
-| **Zaleznosci** | icon system, color tokens, border-radius |
-| **Complexity risk** | Niskie |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/icon-button.tsx` |
-| **Hackathon** | NIE — juz gotowy, potrzebna TypeScript enforcement na aria-label |
+| **Variants** | outline, ghost |
+| **Sizes** | xs (size-6), sm (size-7), default (size-8), lg (size-9) |
+| **States** | default, hover, focus, active, disabled |
+| **Accessibility** | `aria-label` **REQUIRED** (TypeScript enforcement) |
+| **Dependencies** | icon system, color tokens, border-radius |
+| **Complexity risk** | Low |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/icon-button.tsx` |
+| **Hackathon** | NO — already done, needs TypeScript enforcement on aria-label |
 
 ---
 
@@ -60,19 +60,19 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Navigation |
-| **Priorytet** | P1 |
-| **Uzasadnienie** | Nawigacja miedzy stronami. Next.js Link jest uzywany bezposrednio. |
-| **Kiedy uzywac** | Nawigacja do innej strony, zewnetrzny link |
-| **Kiedy NIE uzywac** | Akcja in-place (uzyj Button) |
+| **Category** | Navigation |
+| **Priority** | P1 |
+| **Rationale** | Navigation between pages. Next.js Link is used directly. |
+| **When to use** | Navigation to another page, external link |
+| **When NOT to use** | In-place action (use Button) |
 | **Anatomy** | `[icon?] [text] [external-icon?]` |
-| **Warianty** | default (underline), subtle (no underline), nav (sidebar item) |
-| **Stany** | default, hover, focus, active, visited |
+| **Variants** | default (underline), subtle (no underline), nav (sidebar item) |
+| **States** | default, hover, focus, active, visited |
 | **Accessibility** | External links: `target="_blank" rel="noopener"` + visual indicator |
-| **Zaleznosci** | typography, color tokens |
-| **Complexity risk** | Niskie |
-| **Status** | Czesciowo istnieje (Button variant="link"), brak dedykowanego komponentu |
-| **Hackathon** | NIE — niski priorytet, Button variant="link" wystarczy |
+| **Dependencies** | typography, color tokens |
+| **Complexity risk** | Low |
+| **Status** | Partially exists (Button variant="link"), no dedicated component |
+| **Hackathon** | NO — low priority, Button variant="link" is sufficient |
 
 ---
 
@@ -80,19 +80,19 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Forms |
-| **Priorytet** | P0 |
-| **Uzasadnienie** | Podstawowy element formularzy |
-| **Kiedy uzywac** | Jednoliniowy tekst: name, email, url, number, password |
-| **Kiedy NIE uzywac** | Wieloliniowy tekst (Textarea), wybor z listy (Select) |
+| **Category** | Forms |
+| **Priority** | P0 |
+| **Rationale** | Fundamental form element |
+| **When to use** | Single-line text: name, email, url, number, password |
+| **When NOT to use** | Multi-line text (Textarea), selection from a list (Select) |
 | **Anatomy** | `[prefix?] [input] [suffix?]` |
-| **Warianty** | default, error |
-| **Stany** | default, focus, disabled, readonly, error |
-| **Accessibility** | Powiazany `<label>` via htmlFor. `aria-invalid` przy error. `aria-describedby` dla description/error. |
-| **Zaleznosci** | color tokens (border, focus ring), typography, spacing, border-radius |
-| **Complexity risk** | Niskie |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/input.tsx` |
-| **Hackathon** | NIE — juz gotowy |
+| **Variants** | default, error |
+| **States** | default, focus, disabled, readonly, error |
+| **Accessibility** | Associated `<label>` via htmlFor. `aria-invalid` on error. `aria-describedby` for description/error. |
+| **Dependencies** | color tokens (border, focus ring), typography, spacing, border-radius |
+| **Complexity risk** | Low |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/input.tsx` |
+| **Hackathon** | NO — already done |
 
 ---
 
@@ -100,10 +100,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Forms |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/textarea.tsx` |
-| **Hackathon** | NIE |
+| **Category** | Forms |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/textarea.tsx` |
+| **Hackathon** | NO |
 
 ---
 
@@ -111,10 +111,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Forms |
-| **Priorytet** | P0 |
-| **Status** | **ISTNIEJE** — `ComboboxInput` w `packages/ui/src/backend/inputs/` |
-| **Hackathon** | NIE |
+| **Category** | Forms |
+| **Priority** | P0 |
+| **Status** | **EXISTS** — `ComboboxInput` in `packages/ui/src/backend/inputs/` |
+| **Hackathon** | NO |
 
 ---
 
@@ -122,10 +122,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Forms |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/checkbox.tsx` |
-| **Hackathon** | NIE |
+| **Category** | Forms |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/checkbox.tsx` |
+| **Hackathon** | NO |
 
 ---
 
@@ -133,10 +133,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Forms |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/switch.tsx` |
-| **Hackathon** | NIE |
+| **Category** | Forms |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/switch.tsx` |
+| **Hackathon** | NO |
 
 ---
 
@@ -144,19 +144,19 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Forms |
-| **Priorytet** | **P0 — KRYTYCZNY, NIE ISTNIEJE** |
-| **Uzasadnienie** | Brak spojnego wrappera label + input + description + error. Kazdy modul implementuje to recznie. |
-| **Kiedy uzywac** | Kazde pole formularza poza CrudForm |
-| **Kiedy NIE uzywac** | Wewnatrz CrudForm (ma wbudowany) |
+| **Category** | Forms |
+| **Priority** | **P0 — CRITICAL, DOES NOT EXIST** |
+| **Rationale** | No consistent wrapper for label + input + description + error. Each module implements this manually. |
+| **When to use** | Any form field outside of CrudForm |
+| **When NOT to use** | Inside CrudForm (has built-in wrapper) |
 | **Anatomy** | `[label] [required-indicator?] → [input (slot)] → [description?] → [error-message?]` |
-| **Warianty** | default, horizontal (label obok input) |
-| **Stany** | default, error, disabled |
-| **Accessibility** | Auto-generowane `id` i `htmlFor`. `aria-describedby` linking description/error. `aria-invalid` przy error. `aria-required` przy required. |
-| **Zaleznosci** | typography (label style), color tokens (error), spacing |
-| **Complexity risk** | Niskie — to jest wrapper, nie logika |
-| **Status** | **NIE ISTNIEJE** — `<Label>` istnieje ale brak wrapper composing label+input+error |
-| **Hackathon** | **TAK** — priorytetowy komponent do stworzenia |
+| **Variants** | default, horizontal (label beside input) |
+| **States** | default, error, disabled |
+| **Accessibility** | Auto-generated `id` and `htmlFor`. `aria-describedby` linking description/error. `aria-invalid` on error. `aria-required` on required. |
+| **Dependencies** | typography (label style), color tokens (error), spacing |
+| **Complexity risk** | Low — this is a wrapper, not logic |
+| **Status** | **DOES NOT EXIST** — `<Label>` exists but no wrapper composing label+input+error |
+| **Hackathon** | **YES** — priority component to create |
 
 ---
 
@@ -164,11 +164,11 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Layout |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/card.tsx` (Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter) |
-| **Problem** | Portal ma oddzielny `PortalCard` z innym padding/radius. Nalezy ujednolicic. |
-| **Hackathon** | NIE — istnieje, wymaga unifikacji z PortalCard |
+| **Category** | Layout |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/card.tsx` (Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter) |
+| **Problem** | Portal has a separate `PortalCard` with different padding/radius. Needs unification. |
+| **Hackathon** | NO — exists, requires unification with PortalCard |
 
 ---
 
@@ -176,31 +176,31 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Data Display |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/badge.tsx` |
-| **Problem** | Warianty (default, secondary, destructive, outline, muted) nie pokrywaja status colors. Moduly uzywaja hardcoded kolorow na badge zamiast wariantow. |
-| **Hackathon** | TAK — dodac warianty status (success, warning, info) oparte na semantic tokens |
+| **Category** | Data Display |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/badge.tsx` |
+| **Problem** | Variants (default, secondary, destructive, outline, muted) do not cover status colors. Modules use hardcoded colors on badges instead of variants. |
+| **Hackathon** | YES — add status variants (success, warning, info) based on semantic tokens |
 
 ---
 
-## 4.12 Alert / Notice (UNIFIKACJA)
+## 4.12 Alert / Notice (UNIFICATION)
 
 | | |
 |---|---|
-| **Kategoria** | Feedback |
-| **Priorytet** | **P0 — KRYTYCZNY** |
-| **Uzasadnienie** | Dwa komponenty (Alert + Notice) robiace to samo. 4 rozne palety kolorow. |
-| **Kiedy uzywac** | Inline komunikaty na stronie: error, success, warning, info |
-| **Kiedy NIE uzywac** | Tymczasowy feedback (uzyj Flash/Toast). Potwierdzenie akcji (uzyj ConfirmDialog). |
+| **Category** | Feedback |
+| **Priority** | **P0 — CRITICAL** |
+| **Rationale** | Two components (Alert + Notice) doing the same thing. 4 different color palettes. |
+| **When to use** | Inline page messages: error, success, warning, info |
+| **When NOT to use** | Temporary feedback (use Flash/Toast). Action confirmation (use ConfirmDialog). |
 | **Anatomy** | `[icon] [title?] [description] [action?] [close?]` |
-| **Warianty** | error, success, warning, info, default |
-| **Stany** | default, dismissible |
-| **Accessibility** | `role="alert"` dla error/warning. `aria-live="polite"` dla info/success. |
-| **Zaleznosci** | semantic color tokens (KRYTYCZNE), typography, spacing, border-radius, icon system |
-| **Complexity risk** | Srednie — trzeba zmigrować uzytkownikow Notice na zunifikowany komponent |
-| **Status** | Alert istnieje z 5 wariantami, Notice istnieje z 3 wariantami, ErrorNotice to wrapper |
-| **Hackathon** | **TAK** — zunifikowac do jednego komponentu opartego na semantic tokens |
+| **Variants** | error, success, warning, info, default |
+| **States** | default, dismissible |
+| **Accessibility** | `role="alert"` for error/warning. `aria-live="polite"` for info/success. |
+| **Dependencies** | semantic color tokens (CRITICAL), typography, spacing, border-radius, icon system |
+| **Complexity risk** | Medium — need to migrate Notice users to the unified component |
+| **Status** | Alert exists with 5 variants, Notice exists with 3 variants, ErrorNotice is a wrapper |
+| **Hackathon** | **YES** — unify into a single component based on semantic tokens |
 
 ---
 
@@ -208,11 +208,11 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Feedback |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `FlashMessages` z `flash()` API |
-| **Problem** | Kolory hardcoded (emerald-600, red-600). Powinny uzywac semantic tokens. |
-| **Hackathon** | TAK — zmigrować na semantic color tokens |
+| **Category** | Feedback |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `FlashMessages` with `flash()` API |
+| **Problem** | Colors are hardcoded (emerald-600, red-600). Should use semantic tokens. |
+| **Hackathon** | YES — migrate to semantic color tokens |
 
 ---
 
@@ -220,10 +220,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Overlay |
-| **Priorytet** | P0 |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/dialog.tsx` (Radix-based) + `useConfirmDialog` |
-| **Hackathon** | NIE — dziala dobrze |
+| **Category** | Overlay |
+| **Priority** | P0 |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/dialog.tsx` (Radix-based) + `useConfirmDialog` |
+| **Hackathon** | NO — works well |
 
 ---
 
@@ -231,10 +231,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Navigation / Actions |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `RowActions` uzywa dropdown, `ProfileDropdown` ma custom dropdown |
-| **Hackathon** | NIE |
+| **Category** | Navigation / Actions |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `RowActions` uses dropdown, `ProfileDropdown` has custom dropdown |
+| **Hackathon** | NO |
 
 ---
 
@@ -242,10 +242,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Navigation |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `packages/ui/src/primitives/tabs.tsx` |
-| **Hackathon** | NIE |
+| **Category** | Navigation |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `packages/ui/src/primitives/tabs.tsx` |
+| **Hackathon** | NO |
 
 ---
 
@@ -253,10 +253,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Data Display |
-| **Priorytet** | P0 |
-| **Status** | **ISTNIEJE** — `DataTable` (1000+ linii, feature-rich) + primitives `table.tsx` |
-| **Hackathon** | NIE — juz bardzo rozbudowany |
+| **Category** | Data Display |
+| **Priority** | P0 |
+| **Status** | **EXISTS** — `DataTable` (1000+ lines, feature-rich) + primitives `table.tsx` |
+| **Hackathon** | NO — already very feature-rich |
 
 ---
 
@@ -264,10 +264,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Feedback |
-| **Priorytet** | **P0 — KRYTYCZNY** |
-| **Status** | **ISTNIEJE** ale 79% stron go nie uzywa |
-| **Hackathon** | **TAK** — documentation + enforcement guidelines, nie nowy komponent |
+| **Category** | Feedback |
+| **Priority** | **P0 — CRITICAL** |
+| **Status** | **EXISTS** but 79% of pages do not use it |
+| **Hackathon** | **YES** — documentation + enforcement guidelines, not a new component |
 
 ---
 
@@ -275,10 +275,10 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Feedback |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `Spinner`, `LoadingMessage`. Brak Skeleton. |
-| **Hackathon** | NIE — Spinner wystarczy na teraz |
+| **Category** | Feedback |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `Spinner`, `LoadingMessage`. No Skeleton. |
+| **Hackathon** | NO — Spinner is sufficient for now |
 
 ---
 
@@ -286,11 +286,11 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Layout |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — `PageHeader` w `Page.tsx`, `FormHeader` w `forms/` |
-| **Problem** | Brak wspolnego `SectionHeader` — 15+ sekcji implementuje wlasny header |
-| **Hackathon** | **TAK** — `SectionHeader` component (title + action + collapse) |
+| **Category** | Layout |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — `PageHeader` in `Page.tsx`, `FormHeader` in `forms/` |
+| **Problem** | No shared `SectionHeader` — 15+ sections implement their own header |
+| **Hackathon** | **YES** — `SectionHeader` component (title + action + collapse) |
 
 ---
 
@@ -298,56 +298,56 @@ Komponenty oceniane pod katem:
 
 | | |
 |---|---|
-| **Kategoria** | Navigation |
-| **Priorytet** | P1 |
-| **Status** | **ISTNIEJE** — wbudowana w DataTable |
-| **Hackathon** | NIE |
+| **Category** | Navigation |
+| **Priority** | P1 |
+| **Status** | **EXISTS** — built into DataTable |
+| **Hackathon** | NO |
 
 ---
 
-## 4.22 Status Badge (NOWY)
+## 4.22 Status Badge (NEW)
 
 | | |
 |---|---|
-| **Kategoria** | Data Display |
-| **Priorytet** | **P0 — KRYTYCZNY, NIE ISTNIEJE JAKO ODRERBNY** |
-| **Uzasadnienie** | Kazdy modul hardcoduje kolory statusow. Potrzebny komponent mapujacy status → kolor z semantic tokens. |
-| **Kiedy uzywac** | Wyswietlanie statusu: active/inactive, draft/published, paid/unpaid, open/closed |
+| **Category** | Data Display |
+| **Priority** | **P0 — CRITICAL, DOES NOT EXIST AS SEPARATE COMPONENT** |
+| **Rationale** | Every module hardcodes status colors. Need a component mapping status to color via semantic tokens. |
+| **When to use** | Displaying status: active/inactive, draft/published, paid/unpaid, open/closed |
 | **Anatomy** | `[dot?] [label]` |
-| **Warianty** | success, warning, error, info, neutral, custom (color prop) |
-| **Hackathon** | **TAK** — oparty na Badge + semantic color tokens |
+| **Variants** | success, warning, error, info, neutral, custom (color prop) |
+| **Hackathon** | **YES** — based on Badge + semantic color tokens |
 
 ---
 
-## Priorytety wdrazania komponentow
+## Implementation priorities
 
-### Must Have — Hackathon (dni 1-3)
+### Must Have — Hackathon (days 1-3)
 
-| # | Komponent | Typ | Uzasadnienie |
-|---|-----------|-----|-------------|
-| 1 | Semantic Color Tokens | Foundation | Eliminuje 372 hardcoded kolorow |
-| 2 | Alert (unified) | Refactor | Zastepuje Notice + Alert + ErrorNotice |
-| 3 | FormField Wrapper | Nowy | Brakujacy wrapper label+input+error |
-| 4 | Status Badge | Nowy | Eliminuje hardcoded status colors |
-| 5 | Badge (status variants) | Refactor | Dodanie success/warning/info wariantow |
-| 6 | Flash Messages | Refactor | Migracja na semantic tokens |
-| 7 | SectionHeader | Nowy | Eliminuje 15+ duplikatow |
-| 8 | Empty State guidelines | Docs | Enforcement w 79% stron |
+| # | Component | Type | Rationale |
+|---|-----------|------|-----------|
+| 1 | Semantic Color Tokens | Foundation | Eliminates 372 hardcoded colors |
+| 2 | Alert (unified) | Refactor | Replaces Notice + Alert + ErrorNotice |
+| 3 | FormField Wrapper | New | Missing wrapper for label+input+error |
+| 4 | Status Badge | New | Eliminates hardcoded status colors |
+| 5 | Badge (status variants) | Refactor | Add success/warning/info variants |
+| 6 | Flash Messages | Refactor | Migrate to semantic tokens |
+| 7 | SectionHeader | New | Eliminates 15+ duplicates |
+| 8 | Empty State guidelines | Docs | Enforcement across 79% of pages |
 
-### Should Have — po hackathonie (tydzien 1-2)
+### Should Have — post-hackathon (week 1-2)
 
-| # | Komponent | Uzasadnienie |
-|---|-----------|-------------|
+| # | Component | Rationale |
+|---|-----------|-----------|
 | 9 | Typography scale | Tailwind config + documentation |
 | 10 | Icon system standardization | lucide-react everywhere |
 | 11 | Card unification | Card + PortalCard merge |
 | 12 | Skeleton loader | Progressive loading |
 | 13 | Accessibility audit pass | 370+ missing aria-labels |
 
-### Nice to Have — pozniej
+### Nice to Have — later
 
-| # | Komponent | Uzasadnienie |
-|---|-----------|-------------|
+| # | Component | Rationale |
+|---|-----------|-----------|
 | 14 | Command palette | Navigation improvement |
 | 15 | Breadcrumb component | Extraction from AppShell |
 | 16 | Content style guide | Tone, microcopy |
@@ -360,7 +360,7 @@ Komponenty oceniane pod katem:
 
 ## See also
 
-- [Component API Proposals](./component-apis.md) — szczegółowe API (props, variants, examples)
-- [Component Specs](./component-specs.md) — specyfikacje Button, Card, Dialog, Tooltip + quick reference
-- [Audit](./audit.md) — dane audytu z których wynika priorytetyzacja
-- [Foundations](./foundations.md) — tokeny używane przez komponenty
+- [Component API Proposals](./component-apis.md) — detailed APIs (props, variants, examples)
+- [Component Specs](./component-specs.md) — specs for Button, Card, Dialog, Tooltip + quick reference
+- [Audit](./audit.md) — audit data driving the prioritization
+- [Foundations](./foundations.md) — tokens used by components

@@ -1,17 +1,17 @@
 # K. Module Scaffold & Contributor Guardrails
 
-> Szablony stron (List, Detail, Form), anti-patterns, scaffold script, scaffolding checklist.
+> Page templates (List, Detail, Form), anti-patterns, scaffold script, scaffolding checklist.
 
 ---
 
 ### K.1 Page Templates
 
-Trzy szablony pokrywają ~95% stron w systemie. Każdy używa wyłącznie komponentów z design systemu.
+Three templates cover ~95% of pages in the system. Each uses exclusively design system components.
 
 #### K.1.1 List Page Template
 
 ```tsx
-// backend/<module>/page.tsx — szablon strony listy
+// backend/<module>/page.tsx — list page template
 'use client'
 
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -63,7 +63,7 @@ export default function ListPage() {
     },
   ]
 
-  // ✅ WYMAGANE: EmptyState gdy brak danych (nie polegaj na pustej tabeli)
+  // REQUIRED: EmptyState when there is no data (do not rely on an empty table)
   if (!isLoading && rows.length === 0 && !search) {
     return (
       <Page>
@@ -101,7 +101,7 @@ export default function ListPage() {
   )
 }
 
-// Metadata — wymagane dla RBAC i breadcrumbs
+// Metadata — required for RBAC and breadcrumbs
 export const metadata = {
   title: 'module.list.title',
   requireAuth: true,
@@ -113,7 +113,7 @@ export const metadata = {
 #### K.1.2 Create Page Template
 
 ```tsx
-// backend/<module>/create/page.tsx — szablon strony tworzenia
+// backend/<module>/create/page.tsx — create page template
 'use client'
 
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -154,7 +154,7 @@ export default function CreatePage() {
         <CrudForm
           title={t('module.create.title', 'Create item')}
           fields={fields}
-          entityIds={['your_entity']}  {/* ← custom fields */}
+          entityIds={['your_entity']}  {/* <- custom fields */}
           onSubmit={handleSubmit}
           backHref="/backend/your-module"
           cancelHref="/backend/your-module"
@@ -179,7 +179,7 @@ export const metadata = {
 #### K.1.3 Detail Page Template
 
 ```tsx
-// backend/<module>/[id]/page.tsx — szablon strony szczegółów
+// backend/<module>/[id]/page.tsx — detail page template
 'use client'
 
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -215,9 +215,9 @@ export default function DetailPage({ params }: { params: { id: string } }) {
     return () => { cancelled = true }
   }, [params.id])
 
-  // ✅ WYMAGANE: LoadingMessage zamiast surowego Spinner
+  // REQUIRED: Use LoadingMessage instead of a raw Spinner
   if (isLoading) return <LoadingMessage />
-  // ✅ WYMAGANE: ErrorMessage zamiast surowego tekstu
+  // REQUIRED: Use ErrorMessage instead of raw text
   if (error || !data) return <ErrorMessage message={error ?? t('module.detail.notFound', 'Not found')} />
 
   const handleDelete = async () => {
@@ -255,7 +255,7 @@ export default function DetailPage({ params }: { params: { id: string } }) {
             </Button>
           </div>
         </div>
-        {/* Sekcje szczegółów — tab layout jeśli >3 sekcji */}
+        {/* Detail sections — use tab layout if >3 sections */}
       </PageBody>
     </Page>
   )
@@ -270,35 +270,35 @@ export const metadata = {
 
 ### K.2 Reference Module Documentation
 
-Moduł **customers** (`packages/core/src/modules/customers/`) to referencyjny wzorzec z ~300 plików. Poniżej kluczowe pliki do studiowania przy tworzeniu nowego modułu:
+The **customers** module (`packages/core/src/modules/customers/`) is the reference pattern with ~300 files. Below are the key files to study when creating a new module:
 
-| Wzorzec | Plik referencyjny | Co studiować |
-|---------|-------------------|--------------|
-| Lista z DataTable | `backend/customers/companies/page.tsx` | Kolumny, paginacja, filtry, RowActions, bulk actions |
-| Tworzenie z CrudForm | `backend/customers/companies/create/page.tsx` | Pola formularza, walidacja, custom fields, flash |
-| Szczegóły z tabami | `backend/customers/companies/[id]/page.tsx` | Ładowanie, taby, sekcje, guarded mutations |
+| Pattern | Reference file | What to study |
+|---------|----------------|---------------|
+| List with DataTable | `backend/customers/companies/page.tsx` | Columns, pagination, filters, RowActions, bulk actions |
+| Create with CrudForm | `backend/customers/companies/create/page.tsx` | Form fields, validation, custom fields, flash |
+| Detail with tabs | `backend/customers/companies/[id]/page.tsx` | Loading, tabs, sections, guarded mutations |
 | CRUD API route | `api/companies/route.ts` | makeCrudRoute, openApi, query engine |
-| Komendy (Command pattern) | `commands/companies.ts` | create/update/delete z undo, before/after snapshots |
-| Walidatory Zod | `data/validators.ts` | Schema per entity, reużywalność |
-| Encje ORM | `data/entities.ts` | PK, FK, organization_id, timestamps |
-| ACL features | `acl.ts` | Konwencja `module.action`, granulacja |
-| Setup tenanta | `setup.ts` | defaultRoleFeatures, seedDefaults |
-| Eventy | `events.ts` | createModuleEvents, CRUD events |
+| Commands (Command pattern) | `commands/companies.ts` | create/update/delete with undo, before/after snapshots |
+| Zod validators | `data/validators.ts` | Schema per entity, reusability |
+| ORM entities | `data/entities.ts` | PK, FK, organization_id, timestamps |
+| ACL features | `acl.ts` | `module.action` convention, granularity |
+| Tenant setup | `setup.ts` | defaultRoleFeatures, seedDefaults |
+| Events | `events.ts` | createModuleEvents, CRUD events |
 | Search config | `search.ts` | Fulltext fields, facets, entity mapping |
-| Custom entities | `ce.ts` | Deklaracje pól per encja |
-| Tłumaczenia | `i18n/en.json` | Klucze, struktura, fallbacki |
+| Custom entities | `ce.ts` | Field declarations per entity |
+| Translations | `i18n/en.json` | Keys, structure, fallbacks |
 
-**Zasada**: zanim napiszesz nowy moduł, przeczytaj **cały** `packages/core/src/modules/customers/AGENTS.md`.
+**Rule**: before writing a new module, read the **entire** `packages/core/src/modules/customers/AGENTS.md`.
 
 ### K.3 Scaffold Script
 
-Skrypt generujący szkielet nowego modułu z page templates wbudowanymi:
+Script that generates a new module skeleton with built-in page templates:
 
 ```bash
 #!/usr/bin/env bash
-# ds-scaffold-module.sh — scaffold nowego modułu z DS-compliant templates
-# Użycie: ./ds-scaffold-module.sh <module_name> <entity_name>
-# Przykład: ./ds-scaffold-module.sh invoices invoice
+# ds-scaffold-module.sh — scaffold a new module with DS-compliant templates
+# Usage: ./ds-scaffold-module.sh <module_name> <entity_name>
+# Example: ./ds-scaffold-module.sh invoices invoice
 
 set -euo pipefail
 
@@ -312,7 +312,7 @@ if [[ -z "$MODULE" || -z "$ENTITY" ]]; then
   exit 1
 fi
 
-# Walidacja konwencji nazewniczej
+# Validate naming convention
 if [[ "$MODULE" =~ [A-Z] ]]; then
   echo "ERROR: module_name must be snake_case (got: $MODULE)"
   exit 1
@@ -331,7 +331,7 @@ MODULE_CAMEL=$(echo "$MODULE" | perl -pe 's/_(\w)/uc($1)/ge')
 
 echo "Scaffolding module: $MODULE (entity: $ENTITY)"
 
-# Tworzenie struktury katalogów
+# Create directory structure
 mkdir -p "$MODULE_DIR"/{api/"$MODULE",backend/"$MODULE"/{create,"[id]"},commands,components,data,i18n,lib,widgets}
 
 # index.ts
@@ -370,7 +370,7 @@ export type __ENTITY_PASCAL__Input = z.infer<typeof __ENTITY_CAMEL__Schema>
 TMPL
 perl -i -pe "s/__ENTITY_CAMEL__/$ENTITY_CAMEL/g; s/__ENTITY_PASCAL__/$ENTITY_PASCAL/g" "$MODULE_DIR/data/validators.ts"
 
-# i18n/en.json — klucze tłumaczeń
+# i18n/en.json — translation keys
 cat > "$MODULE_DIR/i18n/en.json" << TMPL
 {
   "$MODULE": {
@@ -390,7 +390,7 @@ cat > "$MODULE_DIR/i18n/en.json" << TMPL
 TMPL
 
 echo ""
-echo "✓ Module scaffolded at: $MODULE_DIR"
+echo "Module scaffolded at: $MODULE_DIR"
 echo ""
 echo "Next steps:"
 echo "  1. Add entities in data/entities.ts (copy pattern from customers)"
@@ -403,11 +403,11 @@ echo ""
 echo "Reference: packages/core/src/modules/customers/"
 ```
 
-**Kluczowe cechy scaffoldu:**
-- Wymusza snake_case dla nazw modułów
-- Generuje i18n klucze od razu (brak hardcoded strings)
-- Tworzy strukturę katalogów zgodną z auto-discovery
-- Nie generuje stron — contributor kopiuje z K.1 templates i dostosowuje
+**Key scaffold features:**
+- Enforces snake_case for module names
+- Generates i18n keys from the start (no hardcoded strings)
+- Creates a directory structure compliant with auto-discovery
+- Does not generate pages — the contributor copies from K.1 templates and adapts
 
 ---
 
@@ -415,7 +415,7 @@ echo "Reference: packages/core/src/modules/customers/"
 
 ## See also
 
-- [Lint Rules](./lint-rules.md) — automatyczna egzekucja reguł w CI
-- [Onboarding Guide](./onboarding-guide.md) — przewodnik "Your First Module"
-- [Components](./components.md) — komponenty używane w szablonach
-- [Principles](./principles.md) — zasady projektowe
+- [Lint Rules](./lint-rules.md) — automated rule enforcement in CI
+- [Onboarding Guide](./onboarding-guide.md) — "Your First Module" guide
+- [Components](./components.md) — components used in the templates
+- [Principles](./principles.md) — design principles

@@ -1,70 +1,70 @@
 # O. Contributor Experience (CX) Design
 
-> Mapy podróży contributora, pain points, cheat sheet, error messages, feedback loops.
+> Contributor journey maps, pain points, cheat sheet, error messages, feedback loops.
 
 ---
 
 
 ### O.1 Contributor Journey Map
 
-#### Krok 1: Discovery — "Jakie komponenty istnieją?"
+#### Step 1: Discovery — "What components exist?"
 
-| | Obecny stan (bez DS) | Docelowy stan (z DS) |
+| | Current state (without DS) | Target state (with DS) |
 |---|---|---|
-| **Co robi** | Przegląda `packages/ui/src/primitives/`, grepuje "import.*from.*ui", otwiera customers module i czyta code | Otwiera `packages/ui/DS.md`, skanuje spis komponentów |
-| **Czego szuka** | "Czy jest komponent do statusu?" "Co to jest Notice vs Alert?" | Spis komponentów z jednolinijkowym opisem i linkiem |
-| **Co może pójść źle** | Znajduje Notice I Alert, nie wie którego użyć. Buduje własny. | Widzi jasno: "Alert (unified) — użyj tego. Notice jest deprecated." |
-| **Jak DS pomaga** | — | Single entry point z listą komponentów, searchable, z "when to use" |
+| **What they do** | Browse `packages/ui/src/primitives/`, grep "import.*from.*ui", open the customers module and read code | Open `packages/ui/DS.md`, scan the component list |
+| **What they look for** | "Is there a component for status?" "What is Notice vs Alert?" | Component list with a one-line description and link |
+| **What can go wrong** | Find Notice AND Alert, don't know which to use. Build their own. | See clearly: "Alert (unified) — use this. Notice is deprecated." |
+| **How DS helps** | — | Single entry point with a component list, searchable, with "when to use" |
 
-#### Krok 2: Decision — "Którego komponentu użyć?"
+#### Step 2: Decision — "Which component should I use?"
 
-| | Obecny stan | Docelowy stan |
+| | Current state | Target state |
 |---|---|---|
-| **Co robi** | Porównuje 3-4 moduły, patrzy jak inni rozwiązali problem. Kopiuje z tego który wygląda najnowiej. | Patrzy na decision tree w DS docs: "Wyświetlasz status? → StatusBadge. Listę danych? → DataTable. Formularz? → CrudForm." |
-| **Co może pójść źle** | Kopiuje z modułu który ma legacy patterns (hardcoded colors). Teraz legacy rozpropagatowało się do nowego modułu. | Decision tree wskazuje prawidłowy komponent. Template z K.1 daje gotowy kod. |
-| **Jak DS pomaga** | — | Decision tree + "Use This Not That" tabela (Notice❌ → Alert✅, raw table❌ → DataTable✅) |
+| **What they do** | Compare 3-4 modules, look at how others solved the problem. Copy from the one that looks most recent. | Check the decision tree in DS docs: "Displaying a status? -> StatusBadge. A data list? -> DataTable. A form? -> CrudForm." |
+| **What can go wrong** | Copy from a module that has legacy patterns (hardcoded colors). Now legacy has propagated to a new module. | Decision tree points to the correct component. Template from K.1 provides ready-to-use code. |
+| **How DS helps** | — | Decision tree + "Use This Not That" table (Notice -> Alert, raw table -> DataTable) |
 
-#### Krok 3: Implementation — "Jak tego użyć?"
+#### Step 3: Implementation — "How do I use this?"
 
-| | Obecny stan | Docelowy stan |
+| | Current state | Target state |
 |---|---|---|
-| **Co robi** | Otwiera customers module, kopiuje page.tsx, modyfikuje. Nie wie o EmptyState, nie wie o StatusBadge. | Kopiuje template z K.1, zamienia nazwy. TypeScript podpowiada props. |
-| **Co może pójść źle** | Zapomina o empty state (79% stron). Używa hardcoded kolorów (bo skopiował ze starego modułu). | Template zawiera EmptyState. Lint rule łapie hardcoded colors. |
-| **Jak DS pomaga** | — | Templates z wbudowanymi best practices + lint rules jako safety net |
+| **What they do** | Open the customers module, copy page.tsx, modify. Unaware of EmptyState, unaware of StatusBadge. | Copy the template from K.1, rename entities. TypeScript auto-suggests props. |
+| **What can go wrong** | Forget the empty state (79% of pages). Use hardcoded colors (copied from an old module). | Template includes EmptyState. Lint rule catches hardcoded colors. |
+| **How DS helps** | — | Templates with built-in best practices + lint rules as a safety net |
 
-#### Krok 4: Self-check — "Czy zrobiłem dobrze?"
+#### Step 4: Self-check — "Did I do it right?"
 
-| | Obecny stan | Docelowy stan |
+| | Current state | Target state |
 |---|---|---|
-| **Co robi** | `yarn lint` (łapie tylko TypeScript/ESLint basic). Wizualnie sprawdza w przeglądarce. | `yarn lint` łapie DS violations. 10-pytaniowy self-check z M.3. |
-| **Co może pójść źle** | Lint nie łapie brakującego EmptyState. Contributor nie wie, że powinien sprawdzić dark mode. | 6 DS lint rules dają konkretny feedback. Self-check przypomina o dark mode. |
-| **Jak DS pomaga** | — | Lint rules + self-check checklist + ds-health-check.sh na swoim module |
+| **What they do** | `yarn lint` (catches only TypeScript/ESLint basics). Visually inspect in the browser. | `yarn lint` catches DS violations. 10-question self-check from M.3. |
+| **What can go wrong** | Lint does not catch a missing EmptyState. Contributor doesn't know they should check dark mode. | 6 DS lint rules give concrete feedback. Self-check reminds about dark mode. |
+| **How DS helps** | — | Lint rules + self-check checklist + ds-health-check.sh on their module |
 
-#### Krok 5: PR review — "Co reviewer sprawdza?"
+#### Step 5: PR review — "What does the reviewer check?"
 
-| | Obecny stan | Docelowy stan |
+| | Current state | Target state |
 |---|---|---|
-| **Co robi** | Czeka na review 1-3 dni. Reviewer komentuje: "zmień kolor", "dodaj empty state", "użyj apiCall". 2-3 rundy. | Lint wyłapał 80% issues przed PR. Reviewer sprawdza logikę i UX, nie kolory. 1 runda. |
-| **Co może pójść źle** | Reviewer nie zna DS guidelines — przepuszcza hardcoded colors. Albo: reviewer jest zbyt surowy — contributor się zniechęca. | PR template z DS checklistą (z sekcji E). Reviewer ma jasne kryteria — nie "moja opinia" ale "DS standard". |
-| **Jak DS pomaga** | — | PR template + reviewer checklist + lint pre-screening |
+| **What they do** | Wait 1-3 days for review. Reviewer comments: "change the color", "add empty state", "use apiCall". 2-3 rounds. | Lint caught 80% of issues before the PR. Reviewer checks logic and UX, not colors. 1 round. |
+| **What can go wrong** | Reviewer doesn't know DS guidelines — lets hardcoded colors through. Or: reviewer is too strict — contributor gets discouraged. | PR template with DS checklist (from section E). Reviewer has clear criteria — not "my opinion" but "DS standard". |
+| **How DS helps** | — | PR template + reviewer checklist + lint pre-screening |
 
-#### Krok 6: Post-merge — "Jak się uczę na przyszłość?"
+#### Step 6: Post-merge — "How do I learn for next time?"
 
-| | Obecny stan | Docelowy stan |
+| | Current state | Target state |
 |---|---|---|
-| **Co robi** | Nic. Review feedback ginie w zamkniętym PR. Następnym razem powtarza te same błędy. | DS entry point ma "Common Mistakes" sekcję (M.4). Monthly digest podkreśla recurring issues. |
-| **Co może pójść źle** | Tribal knowledge — contributor #2 nie widzi feedbacku z PR contributora #1. | Feedback z review jest uogólniony w DS docs. Anti-patterns (M.4) to żywy dokument. |
-| **Jak DS pomaga** | — | Anti-patterns doc + monthly digest + feedback channel |
+| **What they do** | Nothing. Review feedback is lost in a closed PR. Next time they repeat the same mistakes. | DS entry point has a "Common Mistakes" section (M.4). Monthly digest highlights recurring issues. |
+| **What can go wrong** | Tribal knowledge — contributor #2 never sees feedback from contributor #1's PR. | Feedback from reviews is generalized in DS docs. Anti-patterns (M.4) is a living document. |
+| **How DS helps** | — | Anti-patterns doc + monthly digest + feedback channel |
 
 ### O.2 Single Entry Point
 
-**Decyzja: `packages/ui/DS.md`** — w root pakietu UI.
+**Decision: `packages/ui/DS.md`** — in the root of the UI package.
 
-Uzasadnienie:
-- **Nie AGENTS.md** — bo ten jest dla AI agentów, nie dla ludzi. Contributor nie będzie szukał DS guidelines w AGENTS.md.
-- **Nie docs/** — bo docs/ to osobna apka dokumentacyjna. DS guidelines muszą być blisko kodu, nie w osobnym deploy.
-- **Nie Storybook** — bo nie mamy Storybook i setup to osobny projekt na 2+ dni. Pragmatyzm > idealizm.
-- **Dlaczego packages/ui/** — bo contributor budujący UI i tak otwiera ten pakiet. Minimalna odległość między "szukam" a "znalazłem".
+Rationale:
+- **Not AGENTS.md** — that is for AI agents, not humans. A contributor won't look for DS guidelines in AGENTS.md.
+- **Not docs/** — because docs/ is a separate documentation app. DS guidelines must be close to code, not in a separate deploy.
+- **Not Storybook** — because we don't have Storybook and setting it up is a separate 2+ day project. Pragmatism > idealism.
+- **Why packages/ui/** — because a contributor building UI opens this package anyway. Minimal distance between "searching" and "found".
 
 **Content outline:**
 
@@ -82,7 +82,7 @@ One-line description + import path for each DS component.
 |-----------|-------------|--------|
 
 ## Decision Tree
-"What component do I need?" — flowchart from task → component.
+"What component do I need?" — flowchart from task -> component.
 
 ## Tokens
 Status colors, typography scale, spacing — link to globals.css with commentary.
@@ -106,7 +106,7 @@ Link to M.4 — top 5 mistakes.
 GitHub Discussion category "Design System Feedback".
 ```
 
-**Constraint: 60 sekund do znalezienia odpowiedzi.** Dlatego tabele, nie paragrafy. Linki, nie powtórzony content. Component Reference to max 15 wierszy — tyle mamy DS komponentów.
+**Constraint: 60 seconds to find an answer.** Hence tables, not paragraphs. Links, not duplicated content. Component Reference is max 15 rows — that's how many DS components we have.
 
 ### O.3 Lint Error UX
 
@@ -177,6 +177,6 @@ GitHub Discussion category "Design System Feedback".
 ## See also
 
 - [Onboarding Guide](./onboarding-guide.md) — "Your First Module" step-by-step
-- [Contributor Guardrails](./contributor-guardrails.md) — szablony i scaffold
-- [Champions](./champions.md) — sieć wsparcia dla contributorów
-- [Iteration](./iteration.md) — jak zbieramy feedback od contributorów
+- [Contributor Guardrails](./contributor-guardrails.md) — templates and scaffolding
+- [Champions](./champions.md) — contributor support network
+- [Iteration](./iteration.md) — how we collect contributor feedback

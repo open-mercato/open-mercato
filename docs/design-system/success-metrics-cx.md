@@ -1,6 +1,6 @@
 # S. Success Metrics Beyond Code
 
-> Metryki ludzkie: adopcja, czas onboardingu, satysfakcja, PR review, community health.
+> Human metrics: adoption, onboarding time, satisfaction, PR review, community health.
 
 ---
 
@@ -11,62 +11,62 @@
 
 | | |
 |---|---|
-| **Jak mierzyć** | Timestamp pierwszego UI-related commita → timestamp merge. Filter: PR-y od nowych contributorów (≤3 prior PRs) modyfikujące pliki `backend/**/*.tsx`. |
-| **Baseline** | Unknown — zmierzyć retrospektywnie z git log (5 ostatnich nowych contributor PRs). Estymata: 3-5 dni (w tym review rounds). |
-| **Target** | ≤2 dni (w tym review). |
+| **How to measure** | Timestamp of the first UI-related commit -> timestamp of merge. Filter: PRs from new contributors (<=3 prior PRs) modifying `backend/**/*.tsx` files. |
+| **Baseline** | Unknown — measure retrospectively from git log (last 5 new contributor PRs). Estimate: 3-5 days (including review rounds). |
+| **Target** | <=2 days (including review). |
 | **Cadence** | Per PR (automatic via git log), summarized monthly. |
-| **Komenda** | `git log --format="%H %aI" --diff-filter=A -- "packages/core/src/modules/*/backend/**/*.tsx" \| head -20` |
+| **Command** | `git log --format="%H %aI" --diff-filter=A -- "packages/core/src/modules/*/backend/**/*.tsx" \| head -20` |
 
 #### 2. Review Rounds per UI PR
 
 | | |
 |---|---|
-| **Jak mierzyć** | Count "changes requested" reviews na PR-ach modyfikujących `backend/**/*.tsx`. Użyj GitHub API: `gh pr list --search "review:changes-requested" --json number,reviews`. |
-| **Baseline** | Estymata: 2-3 rounds (na podstawie audit findings — 372 hardcoded colors = dużo review comments). |
-| **Target** | ≤1 round (lint rules łapią mechanical issues, reviewer sprawdza logikę). |
+| **How to measure** | Count "changes requested" reviews on PRs modifying `backend/**/*.tsx`. Use GitHub API: `gh pr list --search "review:changes-requested" --json number,reviews`. |
+| **Baseline** | Estimate: 2-3 rounds (based on audit findings — 372 hardcoded colors = many review comments). |
+| **Target** | <=1 round (lint rules catch mechanical issues, reviewer checks logic). |
 | **Cadence** | Monthly aggregate. |
 
 #### 3. DS Component Adoption Rate
 
 | | |
 |---|---|
-| **Jak mierzyć** | % nowych plików `page.tsx` (dodanych w ostatnich 30 dni) importujących ≥3 DS components z listy: Page, PageBody, DataTable, CrudForm, EmptyState, StatusBadge, LoadingMessage, FormField. |
-| **Baseline** | ~20% (estymata z audytu — większość stron nie używa EmptyState, StatusBadge). |
-| **Target** | 80% po 3 miesiącach, 95% po 6 miesiącach. |
+| **How to measure** | % of new `page.tsx` files (added in the last 30 days) importing >=3 DS components from the list: Page, PageBody, DataTable, CrudForm, EmptyState, StatusBadge, LoadingMessage, FormField. |
+| **Baseline** | ~20% (estimate from audit — most pages don't use EmptyState, StatusBadge). |
+| **Target** | 80% after 3 months, 95% after 6 months. |
 | **Cadence** | Monthly. |
-| **Komenda** | `git log --since="30 days ago" --diff-filter=A --name-only -- "**/backend/**/page.tsx" \| xargs grep -l "EmptyState\|StatusBadge\|LoadingMessage" \| wc -l` |
+| **Command** | `git log --since="30 days ago" --diff-filter=A --name-only -- "**/backend/**/page.tsx" \| xargs grep -l "EmptyState\|StatusBadge\|LoadingMessage" \| wc -l` |
 
 #### 4. DS Bypass Rate
 
 | | |
 |---|---|
-| **Jak mierzyć** | Count lint warnings `om-ds/*` na nowych plikach w CI. Nowe pliki = dodane w tym PR (nie legacy). |
-| **Baseline** | N/A (lint rules jeszcze nie istnieją). Pierwszy pomiar po hackathonie. |
-| **Target** | <5% nowych plików z DS warnings po 1 miesiącu. 0% po 3 miesiącach. |
+| **How to measure** | Count lint warnings `om-ds/*` on new files in CI. New files = added in this PR (not legacy). |
+| **Baseline** | N/A (lint rules don't exist yet). First measurement after hackathon. |
+| **Target** | <5% of new files with DS warnings after 1 month. 0% after 3 months. |
 | **Cadence** | Per CI run (automated), summarized weekly. |
 
 #### 5. Contributor Satisfaction (qualitative)
 
 | | |
 |---|---|
-| **Jak mierzyć** | Quarterly GitHub Discussion survey (3 pytania — sekcja S.2). |
+| **How to measure** | Quarterly GitHub Discussion survey (3 questions — section S.2). |
 | **Baseline** | First survey = baseline. |
-| **Target** | Score ≥7/10 na pytaniu ilościowym. |
+| **Target** | Score >=7/10 on the quantitative question. |
 | **Cadence** | Quarterly. |
 
 ### S.2 Quarterly Contributor Survey
 
-**Format:** GitHub Discussion, category "Design System Feedback", pinned na 2 tygodnie.
+**Format:** GitHub Discussion, category "Design System Feedback", pinned for 2 weeks.
 
-**3 pytania:**
+**3 questions:**
 
-1. **(Quantitative)** "Na skali 1-10, jak łatwo jest zbudować nowy ekran UI w Open Mercato przy użyciu obecnych komponentów i dokumentacji?"
+1. **(Quantitative)** "On a scale of 1-10, how easy is it to build a new UI screen in Open Mercato using the current components and documentation?"
 
-2. **(Qualitative)** "Opisz w 1-2 zdaniach ostatnią sytuację gdy budując UI nie wiedziałeś jakiego komponentu lub tokena użyć."
+2. **(Qualitative)** "In 1-2 sentences, describe the last time you were building UI and didn't know which component or token to use."
 
-3. **(Actionable)** "Gdybyśmy mogli zmienić jedną rzecz w design system — co by ci najbardziej pomogło?"
+3. **(Actionable)** "If we could change one thing about the design system — what would help you most?"
 
-**Template na summary:**
+**Template for summary:**
 
 ```markdown
 ## DS Survey Q[N] 2026 — Summary
@@ -92,24 +92,24 @@
 
 ### S.3 Leading vs Lagging Indicators
 
-| Metryka | Typ | Dlaczego | Jak reagować |
+| Metric | Type | Why | How to respond |
 |---------|-----|----------|--------------|
-| **DS Bypass Rate** (S.1.4) | Leading | Wzrost = contributorzy aktywnie omijają system. Problem TERAZ, zanim pojawią się hardcoded colors w codebase. | Natychmiast: zbadaj dlaczego omijają (brak komponentu? złe API? nie znają?). |
-| **Review Rounds** (S.1.2) | Leading | Wzrost = DS nie eliminuje mechanical issues. Reviewerzy nadal łapią kolory/spacing ręcznie. | W ciągu tygodnia: sprawdź lint rules coverage, dodaj brakujące reguły. |
-| **Hardcoded colors count** (F) | Lagging | To jest pomiar stanu — spada tylko gdy ktoś aktywnie migruje. Nie sygnalizuje nowych problemów, potwierdza stare. | Trend miesięczny. Jeśli nie spada — brak migration activity. |
-| **Arbitrary text sizes** (F) | Lagging | Jak wyżej. | Trend miesięczny. |
-| **Empty state coverage** (F) | Lagging | Miara pokrycia — rośnie powoli z nowymi stronami i migracjami. | Trend miesięczny. |
-| **DS Adoption Rate** (S.1.3) | Leading | Niski = nowe strony budowane bez DS. Problem rośnie z każdym nowym modułem. | Natychmiast: czy templates są łatwe do znalezienia? Czy lint rules działają? |
-| **Time to First PR** (S.1.1) | Leading | Wzrost = DS nie przyspiesza onboardingu. | W ciągu 2 tygodni: obserwuj nowego contributora (Q.3), zidentyfikuj friction. |
-| **Contributor Satisfaction** (S.1.5) | Lagging | Kwartalna retrospekcja stanu. Nie sygnalizuje problemów w real-time. | Trend kwartalny. Jeśli spada — deep dive w qualitative answers. |
+| **DS Bypass Rate** (S.1.4) | Leading | Increase = contributors are actively bypassing the system. Problem NOW, before hardcoded colors appear in the codebase. | Immediately: investigate why they bypass (missing component? bad API? unaware?). |
+| **Review Rounds** (S.1.2) | Leading | Increase = DS is not eliminating mechanical issues. Reviewers still catch colors/spacing manually. | Within a week: check lint rule coverage, add missing rules. |
+| **Hardcoded colors count** (F) | Lagging | This is a state measurement — it drops only when someone actively migrates. Doesn't signal new problems, confirms old ones. | Monthly trend. If not dropping — no migration activity. |
+| **Arbitrary text sizes** (F) | Lagging | Same as above. | Monthly trend. |
+| **Empty state coverage** (F) | Lagging | Coverage metric — grows slowly with new pages and migrations. | Monthly trend. |
+| **DS Adoption Rate** (S.1.3) | Leading | Low = new pages built without DS. Problem grows with every new module. | Immediately: are templates easy to find? Are lint rules working? |
+| **Time to First PR** (S.1.1) | Leading | Increase = DS is not speeding up onboarding. | Within 2 weeks: observe a new contributor (Q.3), identify friction. |
+| **Contributor Satisfaction** (S.1.5) | Lagging | Quarterly retrospective of the current state. Doesn't signal problems in real-time. | Quarterly trend. If declining — deep dive into qualitative answers. |
 
-**Zasada:** Na leading indicators reaguj w ciągu tygodnia. Na lagging indicators patrz w trendzie miesięcznym/kwartalnym.
+**Principle:** React to leading indicators within a week. Review lagging indicators on a monthly/quarterly trend basis.
 
 
 ---
 
 ## See also
 
-- [Metrics](./metrics.md) — metryki techniczne (health check)
-- [Research Plan](./research-plan.md) — metody zbierania danych
-- [Iteration](./iteration.md) — jak metryki wpływają na roadmapę
+- [Metrics](./metrics.md) — technical metrics (health check)
+- [Research Plan](./research-plan.md) — data collection methods
+- [Iteration](./iteration.md) — how metrics inform the roadmap

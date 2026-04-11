@@ -1,112 +1,112 @@
 # P. Champions Strategy
 
-> Program ambasadorów DS: identyfikacja, rekrutacja, aktywacja, retencja, metryki.
+> DS ambassador program: identification, recruitment, activation, retention, metrics.
 
 ---
 
 
 ### P.1 Champion Profile
 
-**Idealny champion DS w kontekście OSS:**
+**Ideal DS champion in the OSS context:**
 
-**Cechy techniczne:**
-- Aktywny w module z dużym UI surface (Sales, Catalog, Customers — nie CLI/Queue)
-- Ma co najmniej 5 merged PR-ów z komponentami backend pages
-- Rozumie Tailwind i React na poziomie pozwalającym na refaktoring kolorów bez pomocy
+**Technical traits:**
+- Active in a module with a large UI surface (Sales, Catalog, Customers — not CLI/Queue)
+- Has at least 5 merged PRs with backend page components
+- Understands Tailwind and React at a level sufficient to refactor colors without assistance
 
-**Cechy miękkie:**
-- Odpowiada na issues / code review komentarze (nie ghost contributor)
-- Wyrażał frustrację niespójnością UI lub dark mode bugami (to jest motywacja naturalna)
-- Ma "ownership feeling" wobec swojego modułu — chce żeby wyglądał dobrze
+**Soft traits:**
+- Responds to issues / code review comments (not a ghost contributor)
+- Has expressed frustration with UI inconsistency or dark mode bugs (this is natural motivation)
+- Has an "ownership feeling" toward their module — wants it to look good
 
-**Jak go znaleźć w Open Mercato:**
+**How to find them in Open Mercato:**
 
 ```bash
-# Top 10 contributorów w plikach backend pages (ostatnie 6 miesięcy)
+# Top 10 contributors in backend page files (last 6 months)
 git log --since="2025-10-01" --format="%aN" \
   -- "packages/core/src/modules/*/backend/**/*.tsx" \
   | sort | uniq -c | sort -rn | head -10
 
-# Contributorzy którzy naprawiali kolory/dark mode (sygnał motywacji)
+# Contributors who fixed colors/dark mode (motivation signal)
 git log --since="2025-10-01" --all --oneline --grep="dark\|color\|theme" \
   -- "packages/core/src/modules/*/backend/**" | head -20
 
-# Moduły z największym DS debt (cele migracji)
+# Modules with the largest DS debt (migration targets)
 for module in packages/core/src/modules/*/; do
   count=$(grep -r "text-red-\|bg-green-\|bg-blue-\|text-green-\|bg-red-" "$module" 2>/dev/null | wc -l)
   echo "$count $(basename $module)"
 done | sort -rn | head -10
 ```
 
-**Co go motywuje:**
-- **Recognition:** Bycie wymienianym jako DS champion w changelog i README
-- **Clean code ownership:** Jego moduł jest wzorcowy, nie legacy
-- **Influence:** Kształtuje API komponentów zamiast je konsumować
-- **Learning:** Zdobywa doświadczenie z design systems w prawdziwym projekcie
+**What motivates them:**
+- **Recognition:** Being listed as a DS champion in the changelog and README
+- **Clean code ownership:** Their module is exemplary, not legacy
+- **Influence:** Shaping component APIs instead of just consuming them
+- **Learning:** Gaining design system experience in a real project
 
-### P.2 Champion Program — konkretny plan
+### P.2 Champion Program — concrete plan
 
-#### 1. Identyfikacja (przed hackathon)
+#### 1. Identification (before hackathon)
 
-**Kryteria:** ≥5 PR z UI changes + aktywność w ostatnich 3 miesiącach + moduł z >10 hardcoded status colors.
+**Criteria:** >=5 PRs with UI changes + activity in the last 3 months + module with >10 hardcoded status colors.
 
-Uruchom komendy z P.1. Wybierz 3-5 osób: idealnie po jednej z modułów Sales, Catalog, HR/Workflows, Integrations.
+Run the commands from P.1. Select 3-5 people: ideally one from each of Sales, Catalog, HR/Workflows, Integrations.
 
-#### 2. Rekrutacja (dzień hackathonu)
+#### 2. Recruitment (hackathon day)
 
-**Wiadomość (GitHub Discussion mention lub DM):**
+**Message (GitHub Discussion mention or DM):**
 
-> Hej @{username}, widzę że maintainujesz moduł {module} — masz tam świetnie zrobione {konkretna rzecz, np. "detail page z tabami"}. Pracujemy nad design system foundations dla Open Mercato i szukamy 3-5 osób, które zmigrują swój moduł jako pierwsze (po customers). Co to daje: twój moduł staje się referencyjnym wzorcem, masz wpływ na API nowych komponentów (StatusBadge, FormField), i dostajesz early access do tokenów + codemod scriptów które robią 80% pracy automatycznie. Zainteresowany? Cały effort to ~2h z codemod + 1h manual review. Hmu jeśli chcesz pogadać na callu albo async.
+> Hey @{username}, I see you maintain the {module} module — you've got a great {specific thing, e.g. "detail page with tabs"} there. We're working on design system foundations for Open Mercato and looking for 3-5 people to migrate their module first (after customers). What you get: your module becomes the reference example, you influence the API of new components (StatusBadge, FormField), and you get early access to tokens + codemod scripts that do 80% of the work automatically. Interested? The total effort is ~2h with codemod + 1h manual review. Hit me up if you want to discuss on a call or async.
 
-#### 3. Onboarding championów (tydzień 1)
+#### 3. Champion onboarding (week 1)
 
-Co dostają:
-- **Early access:** Branch `docs/design-system-audit-2026-04-10` z tokenami i komponentami, zanim trafi na main
-- **15-min async walkthrough:** Nagranie Loom (nie synchroniczny call — uszanuj timezone) pokazujące: (a) before/after demo z N.2, (b) jak użyć codemod scriptu, (c) jak zweryfikować wynik
-- **Ich moduł jako target:** Codemod script przygotowany do uruchomienia na ich module — champion uruchamia, reviewuje, commituje
+What they receive:
+- **Early access:** Branch `docs/design-system-audit-2026-04-10` with tokens and components, before it lands on main
+- **15-min async walkthrough:** Loom recording (not a synchronous call — respect timezones) showing: (a) before/after demo from N.2, (b) how to use the codemod script, (c) how to verify the result
+- **Their module as target:** Codemod script prepared to run on their module — the champion runs it, reviews, and commits
 
-#### 4. Activation (tydzień 2-3)
+#### 4. Activation (week 2-3)
 
-Co robią:
-- **Migrują swój moduł** — uruchamiają codemod, przeglądają diff, naprawiają edge case'y, tworzą PR
-- **Review DS PR-ów:** Dodani jako reviewerzy na PR-ach innych modułów z labelem `design-system` — sprawdzają token usage i component patterns
-- **Feedback loop:** Raportują problemy z API komponentów, niejasne token names, brakujące warianty. Format: GitHub Discussion post "DS Feedback: {temat}" z konkretnym przykładem
+What they do:
+- **Migrate their module** — run the codemod, review the diff, fix edge cases, create a PR
+- **Review DS PRs:** Added as reviewers on PRs from other modules labeled `design-system` — they check token usage and component patterns
+- **Feedback loop:** Report issues with component APIs, unclear token names, missing variants. Format: GitHub Discussion post "DS Feedback: {topic}" with a concrete example
 
 #### 5. Recognition (ongoing)
 
-- **Changelog mention:** "Module {name} migrated to DS tokens by @{champion}" w RELEASE_NOTES.md
-- **CONTRIBUTORS.md:** Sekcja "Design System Champions" z listą osób i modułów
-- **GitHub label:** `ds-champion` na ich profilu contributora (jeśli projekt ma takie mechanizmy) — w praktyce wystarczy mention w Discussion i changelog
+- **Changelog mention:** "Module {name} migrated to DS tokens by @{champion}" in RELEASE_NOTES.md
+- **CONTRIBUTORS.md:** "Design System Champions" section with a list of people and modules
+- **GitHub label:** `ds-champion` on their contributor profile (if the project has such mechanisms) — in practice a mention in Discussion and changelog is sufficient
 
 ### P.3 First Follower Strategy
 
-**Kogo przekonujesz PIERWSZEGO: maintainera modułu Sales.**
+**Who to convince FIRST: the Sales module maintainer.**
 
-Dlaczego Sales:
-- **Największy UI surface po customers** — orders, quotes, invoices, shipments, payments. Dużo status badges (draft → confirmed → shipped → paid → cancelled).
-- **Najwięcej hardcoded status colors** — każdy dokument ma inną paletę kolorów (quote = blue, order = green, invoice = amber). To jest najbardziej widoczny DS debt.
-- **Sukces w Sales jest spektakularny** — zmiana kolorów statusów w 5 typach dokumentów jednocześnie daje wow effect. Before/after demo z Sales module jest 3x bardziej przekonujące niż z prostego modułu.
-- **Sales maintainer jest zmotywowany** — dark mode w Sales jest szczególnie popsute (hardcoded colors na ciemnym tle w tabelach dokumentów).
+Why Sales:
+- **Largest UI surface after customers** — orders, quotes, invoices, shipments, payments. Many status badges (draft -> confirmed -> shipped -> paid -> cancelled).
+- **Most hardcoded status colors** — each document type has a different color palette (quote = blue, order = green, invoice = amber). This is the most visible DS debt.
+- **Success in Sales is spectacular** — changing status colors across 5 document types simultaneously delivers a wow effect. A before/after demo from the Sales module is 3x more convincing than one from a simple module.
+- **The Sales maintainer is motivated** — dark mode in Sales is particularly broken (hardcoded colors on dark backgrounds in document tables).
 
-**Jaki moduł migruje PIERWSZY po customers: Sales.**
+**Which module migrates FIRST after customers: Sales.**
 
-Z tego samego powodu. Customers to proof of concept (maintainerzy DS robią to sami). Sales to proof of adoption (ktoś inny robi to z DS tools). To jest przejście od "my to zrobiliśmy" do "inni to potrafią".
+For the same reasons. Customers is the proof of concept (DS maintainers do it themselves). Sales is the proof of adoption (someone else does it with DS tools). This is the transition from "we did it" to "others can do it".
 
-**Jak sukces pierwszego followera przekonuje kolejnych:**
+**How the first follower's success convinces others:**
 
-1. Sales champion tworzy PR migracyjny — widoczny w activity feed
-2. PR ma before/after screenshoty (dark mode fix = impressive)
-3. Discussion post: "Migrated Sales to DS tokens — 47 hardcoded colors → 0. Took 2 hours with codemod."
-4. Kolejni maintainerzy (Catalog, Workflows, Integrations) widzą: to nie jest teoria, to jest 2 godziny pracy z konkretnym rezultatem
-5. FOMO effect: "Mój moduł wygląda gorzej niż Sales w dark mode. Powinienem zmigrować."
+1. The Sales champion creates a migration PR — visible in the activity feed
+2. The PR includes before/after screenshots (dark mode fix = impressive)
+3. Discussion post: "Migrated Sales to DS tokens — 47 hardcoded colors -> 0. Took 2 hours with codemod."
+4. Other maintainers (Catalog, Workflows, Integrations) see: this is not theory, it's 2 hours of work with a concrete result
+5. FOMO effect: "My module looks worse than Sales in dark mode. I should migrate."
 
-Kolejność migracji po Sales: **Catalog** (produkty, warianty, ceny — dużo statusów), potem **Workflows** (wizualny edytor, status badges na stepach), potem pozostałe moduły organicznie.
+Migration order after Sales: **Catalog** (products, variants, prices — many statuses), then **Workflows** (visual editor, status badges on steps), then the remaining modules organically.
 
 
 ---
 
 ## See also
 
-- [Stakeholder Buy-in](./stakeholder-buyin.md) — strategia na poziomie organizacji
-- [Contributor Experience](./contributor-experience.md) — CX który champions promują
-- [Research Plan](./research-plan.md) — badania prowadzone z pomocą champions
+- [Stakeholder Buy-in](./stakeholder-buyin.md) — organization-level strategy
+- [Contributor Experience](./contributor-experience.md) — CX that champions promote
+- [Research Plan](./research-plan.md) — research conducted with champion support

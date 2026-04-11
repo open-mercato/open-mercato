@@ -1,16 +1,16 @@
 # L. Structural Lint Rules
 
-> ESLint v9 flat config plugin `eslint-plugin-open-mercato-ds` — 6 reguł, konfiguracja, CI integration.
+> ESLint v9 flat config plugin `eslint-plugin-open-mercato-ds` — 6 rules, configuration, CI integration.
 
 ---
 
-Sześć reguł ESLint do egzekwowania design systemu. Projekt używa ESLint v9 flat config (`eslint.config.mjs`). Reguły zaimplementowane jako custom plugin `eslint-plugin-open-mercato-ds`.
+Six ESLint rules for enforcing the design system. The project uses ESLint v9 flat config (`eslint.config.mjs`). Rules are implemented as a custom plugin `eslint-plugin-open-mercato-ds`.
 
-### L.0 Strategia wdrożenia
+### L.0 Deployment Strategy
 
 ```
 eslint-plugin-open-mercato-ds/
-├── index.ts                    — plugin entry, exportuje rules + recommended config
+├── index.ts                    — plugin entry, exports rules + recommended config
 ├── rules/
 │   ├── require-empty-state.ts
 │   ├── require-page-wrapper.ts
@@ -19,10 +19,10 @@ eslint-plugin-open-mercato-ds/
 │   ├── require-status-badge.ts
 │   └── no-hardcoded-status-colors.ts
 └── utils/
-    └── ast-helpers.ts          — wspólne selektory AST
+    └── ast-helpers.ts          — shared AST selectors
 ```
 
-Dodanie do `eslint.config.mjs`:
+Add to `eslint.config.mjs`:
 
 ```js
 import omDs from './eslint-plugin-open-mercato-ds/index.js'
@@ -33,7 +33,7 @@ export default [
     plugins: { 'om-ds': omDs },
     files: ['packages/core/src/modules/**/backend/**/*.tsx'],
     rules: {
-      'om-ds/require-empty-state': 'warn',      // warn → error po migracji
+      'om-ds/require-empty-state': 'warn',      // warn -> error after migration
       'om-ds/require-page-wrapper': 'error',
       'om-ds/no-raw-table': 'error',
       'om-ds/require-loading-state': 'warn',
@@ -44,14 +44,14 @@ export default [
 ]
 ```
 
-**Rollout plan**: Wszystkie reguły startują jako `warn` na istniejącym kodzie. Nowe moduły (tworzone po hackathonie) mają `error`. Po migracji modułu → przełączamy na `error` globalnie.
+**Rollout plan**: All rules start as `warn` on existing code. New modules (created after the hackathon) use `error`. After migrating a module, switch to `error` globally.
 
 ### L.1 `om-ds/require-empty-state`
 
-**Cel**: Każda strona z DataTable musi mieć EmptyState.
+**Goal**: Every page with a DataTable must include an EmptyState.
 
 ```ts
-// rules/require-empty-state.ts — pseudo-implementacja
+// rules/require-empty-state.ts — pseudo-implementation
 import type { Rule } from 'eslint'
 
 export const requireEmptyState: Rule.RuleModule = {
@@ -72,7 +72,7 @@ export const requireEmptyState: Rule.RuleModule = {
     let hasEmptyState = false
 
     return {
-      // Szukamy importu DataTable
+      // Look for a DataTable import
       ImportDeclaration(node) {
         const source = node.source.value
         if (typeof source === 'string' && source.includes('DataTable')) {
@@ -86,7 +86,7 @@ export const requireEmptyState: Rule.RuleModule = {
           hasEmptyState = true
         }
       },
-      // Szukamy użycia <EmptyState w JSX
+      // Look for <EmptyState usage in JSX
       JSXIdentifier(node: any) {
         if (node.name === 'EmptyState') {
           hasEmptyState = true
@@ -104,10 +104,10 @@ export const requireEmptyState: Rule.RuleModule = {
 
 ### L.2 `om-ds/require-page-wrapper`
 
-**Cel**: Backend pages muszą używać `<Page>` + `<PageBody>` jako wrapper.
+**Goal**: Backend pages must use `<Page>` + `<PageBody>` as a wrapper.
 
 ```ts
-// rules/require-page-wrapper.ts — pseudo-implementacja
+// rules/require-page-wrapper.ts — pseudo-implementation
 export const requirePageWrapper: Rule.RuleModule = {
   meta: {
     type: 'problem',
@@ -144,7 +144,7 @@ export const requirePageWrapper: Rule.RuleModule = {
         if (node.name === 'PageBody') hasPageBodyJSX = true
       },
       'Program:exit'(node) {
-        // Tylko pliki w backend/ z default export (page components)
+        // Only files in backend/ with a default export (page components)
         const filename = context.filename ?? context.getFilename()
         if (!filename.includes('/backend/')) return
 
@@ -167,10 +167,10 @@ export const requirePageWrapper: Rule.RuleModule = {
 
 ### L.3 `om-ds/no-raw-table`
 
-**Cel**: Zakaz użycia `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<td>`, `<th>` bezpośrednio w backend pages. Wymuszenie DataTable lub primitives/table.
+**Goal**: Prohibit direct use of `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<td>`, `<th>` in backend pages. Enforce DataTable or primitives/table.
 
 ```ts
-// rules/no-raw-table.ts — pseudo-implementacja
+// rules/no-raw-table.ts — pseudo-implementation
 const RAW_TABLE_ELEMENTS = ['table', 'thead', 'tbody', 'tr', 'td', 'th']
 
 export const noRawTable: Rule.RuleModule = {
@@ -208,10 +208,10 @@ export const noRawTable: Rule.RuleModule = {
 
 ### L.4 `om-ds/require-loading-state`
 
-**Cel**: Strony z asynchronicznym pobieraniem danych muszą mieć LoadingMessage lub przekazywać `isLoading` do DataTable.
+**Goal**: Pages with asynchronous data fetching must include LoadingMessage or pass `isLoading` to DataTable.
 
 ```ts
-// rules/require-loading-state.ts — pseudo-implementacja
+// rules/require-loading-state.ts — pseudo-implementation
 export const requireLoadingState: Rule.RuleModule = {
   meta: {
     type: 'suggestion',
@@ -257,12 +257,12 @@ export const requireLoadingState: Rule.RuleModule = {
 
 ### L.5 `om-ds/require-status-badge`
 
-**Cel**: Statusy (active/inactive, draft/published, itp.) muszą używać StatusBadge, nie surowego tekstu ani custom `<span>`.
+**Goal**: Statuses (active/inactive, draft/published, etc.) must use StatusBadge, not raw text or a custom `<span>`.
 
 ```ts
-// rules/require-status-badge.ts — pseudo-implementacja
-// Heurystyka: szukamy kolumn DataTable z accessorKey zawierającym 'status'
-// które nie renderują StatusBadge w cell renderer
+// rules/require-status-badge.ts — pseudo-implementation
+// Heuristic: look for DataTable columns with an accessorKey containing 'status'
+// that do not render StatusBadge in the cell renderer
 
 export const requireStatusBadge: Rule.RuleModule = {
   meta: {
@@ -278,8 +278,8 @@ export const requireStatusBadge: Rule.RuleModule = {
     schema: [],
   },
   create(context) {
-    // Heurystyka: Zbieramy definicje kolumn z accessorKey zawierającym 'status'
-    // i sprawdzamy czy cell renderer zawiera JSX z StatusBadge lub Badge
+    // Heuristic: collect column definitions with an accessorKey containing 'status'
+    // and check whether the cell renderer contains JSX with StatusBadge or Badge
 
     let hasStatusBadgeImport = false
     let hasBadgeImport = false
@@ -294,7 +294,7 @@ export const requireStatusBadge: Rule.RuleModule = {
           }
         }
       },
-      // Szukamy obiektów z accessorKey: '...status...' i brak StatusBadge w cell
+      // Look for objects with accessorKey: '...status...' and no StatusBadge in cell
       Property(node: any) {
         if (
           node.key?.name === 'accessorKey' &&
@@ -302,7 +302,7 @@ export const requireStatusBadge: Rule.RuleModule = {
           typeof node.value.value === 'string' &&
           node.value.value.toLowerCase().includes('status')
         ) {
-          // Jeśli moduł nie importuje StatusBadge ani Badge — raportuj
+          // If the module does not import StatusBadge or Badge — report
           if (!hasStatusBadgeImport && !hasBadgeImport) {
             context.report({ node, messageId: 'useStatusBadge' })
           }
@@ -315,18 +315,18 @@ export const requireStatusBadge: Rule.RuleModule = {
 
 ### L.6 `om-ds/no-hardcoded-status-colors`
 
-**Cel**: Zakaz hardcoded kolorów statusów. Wymuszenie semantic tokens.
+**Goal**: Prohibit hardcoded status colors. Enforce semantic tokens.
 
 ```ts
-// rules/no-hardcoded-status-colors.ts — pseudo-implementacja
-// Rozszerzenie istniejącej logiki z sekcji E
+// rules/no-hardcoded-status-colors.ts — pseudo-implementation
+// Extension of existing logic from section E
 
 const FORBIDDEN_PATTERNS = [
   // Tailwind hardcoded status colors
   /\b(?:text|bg|border)-(?:red|green|yellow|orange|blue|emerald|amber|rose|lime)-\d{2,3}\b/,
   // Inline style colors for statuses
   /color:\s*(?:#(?:ef4444|f59e0b|10b981|3b82f6|dc2626|eab308))/i,
-  // oklch hardcoded (powinny być tokeny)
+  // oklch hardcoded (should be tokens)
   /oklch\(\s*0\.(?:577|704)\s+0\.(?:245|191)\s+(?:27|22)\b/,
 ]
 
@@ -365,7 +365,7 @@ export const noHardcodedStatusColors: Rule.RuleModule = {
   },
   create(context) {
     return {
-      // Sprawdzamy atrybuty className w JSX
+      // Check className attributes in JSX
       JSXAttribute(node: any) {
         if (node.name?.name !== 'className') return
 
@@ -403,18 +403,18 @@ export const noHardcodedStatusColors: Rule.RuleModule = {
 }
 ```
 
-### L.7 Podsumowanie reguł
+### L.7 Rules Summary
 
-| Reguła | Severity (nowy kod) | Severity (legacy) | Auto-fix |
-|--------|---------------------|--------------------|----------|
-| `om-ds/require-empty-state` | error | warn | ✗ |
-| `om-ds/require-page-wrapper` | error | error | ✗ |
-| `om-ds/no-raw-table` | error | error | ✗ |
-| `om-ds/require-loading-state` | error | warn | ✗ |
-| `om-ds/require-status-badge` | error | warn | ✗ |
-| `om-ds/no-hardcoded-status-colors` | error | error | ✓ (sugestia) |
+| Rule | Severity (new code) | Severity (legacy) | Auto-fix |
+|------|---------------------|--------------------|----------|
+| `om-ds/require-empty-state` | error | warn | No |
+| `om-ds/require-page-wrapper` | error | error | No |
+| `om-ds/no-raw-table` | error | error | No |
+| `om-ds/require-loading-state` | error | warn | No |
+| `om-ds/require-status-badge` | error | warn | No |
+| `om-ds/no-hardcoded-status-colors` | error | error | Yes (suggestion) |
 
-**Metryka sukcesu**: 0 warnings na nowych modułach, legacy warnings ↓30% per sprint.
+**Success metric**: 0 warnings on new modules, legacy warnings down 30% per sprint.
 
 ---
 
@@ -422,6 +422,6 @@ export const noHardcodedStatusColors: Rule.RuleModule = {
 
 ## See also
 
-- [Enforcement](./enforcement.md) — szerszy plan egzekucji
-- [Contributor Guardrails](./contributor-guardrails.md) — szablony i anti-patterns
-- [Onboarding Guide](./onboarding-guide.md) — jak contributor konfiguruje lint
+- [Enforcement](./enforcement.md) — broader enforcement plan
+- [Contributor Guardrails](./contributor-guardrails.md) — templates and anti-patterns
+- [Onboarding Guide](./onboarding-guide.md) — how a contributor configures lint

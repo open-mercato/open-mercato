@@ -1,54 +1,54 @@
 # I. Concrete Token Values (Draft)
 
-> Wartości OKLCH tokenów semantycznych — light mode, dark mode, status kolory. Checklist kontrastowa.
+> OKLCH semantic token values — light mode, dark mode, status colors. Contrast checklist.
 
 ---
 
-## Kontekst istniejącej palety
+## Existing palette context
 
-Projekt używa OKLCH color space. Kluczowe istniejące wartości referencyjne:
+The project uses OKLCH color space. Key existing reference values:
 
 ```
-Light:  --background: oklch(1 0 0)          /* biały */
-        --foreground: oklch(0.145 0 0)       /* prawie czarny */
-        --card:       oklch(1 0 0)           /* biały */
-        --destructive: oklch(0.577 0.245 27.325) /* czerwony */
-        --muted:      oklch(0.97 0 0)        /* jasnoszary */
-        --border:     oklch(0.922 0 0)       /* szary border */
+Light:  --background: oklch(1 0 0)          /* white */
+        --foreground: oklch(0.145 0 0)       /* near black */
+        --card:       oklch(1 0 0)           /* white */
+        --destructive: oklch(0.577 0.245 27.325) /* red */
+        --muted:      oklch(0.97 0 0)        /* light gray */
+        --border:     oklch(0.922 0 0)       /* gray border */
 
-Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
-        --foreground: oklch(0.985 0 0)       /* prawie biały */
-        --card:       oklch(0.205 0 0)       /* ciemnoszary */
-        --destructive: oklch(0.704 0.191 22.216)  /* jasniejszy czerwony */
-        --muted:      oklch(0.269 0 0)       /* ciemnoszary */
-        --border:     oklch(1 0 0 / 10%)     /* biały 10% */
+Dark:   --background: oklch(0.145 0 0)       /* near black */
+        --foreground: oklch(0.985 0 0)       /* near white */
+        --card:       oklch(0.205 0 0)       /* dark gray */
+        --destructive: oklch(0.704 0.191 22.216)  /* lighter red */
+        --muted:      oklch(0.269 0 0)       /* dark gray */
+        --border:     oklch(1 0 0 / 10%)     /* white 10% */
 ```
 
-## Zasady projektowania tokenów
+## Token design principles
 
-1. **Hue angles** zaczerpnięte z istniejących chart colors (spójność palety):
-   - Error: ~25° (hue z `--destructive` = 27.325°, `--chart-rose` = 16.439°)
-   - Success: ~160° (hue z `--chart-emerald` = 163.225°)
-   - Warning: ~80° (hue z `--chart-amber` = 70.08°, `--chart-4` = 84.429°)
-   - Info: ~260° (hue z `--chart-blue` = 262.881°)
+1. **Hue angles** taken from existing chart colors (palette consistency):
+   - Error: ~25° (hue from `--destructive` = 27.325°, `--chart-rose` = 16.439°)
+   - Success: ~160° (hue from `--chart-emerald` = 163.225°)
+   - Warning: ~80° (hue from `--chart-amber` = 70.08°, `--chart-4` = 84.429°)
+   - Info: ~260° (hue from `--chart-blue` = 262.881°)
 
 2. **Lightness ranges:**
-   - Light mode bg: L=0.95-0.97 (subtle, prawie biały z odcieniem)
-   - Light mode text: L=0.30-0.40 (ciemny, kontrastowy)
-   - Light mode border: L=0.80-0.85 (pośredni)
-   - Light mode icon: L=0.55-0.65 (nasycony, widoczny)
-   - Dark mode bg: L=0.20-0.25 (subtle, ciemny z odcieniem)
-   - Dark mode text: L=0.80-0.90 (jasny, kontrastowy)
-   - Dark mode border: L=0.35-0.45 (pośredni)
-   - Dark mode icon: L=0.65-0.75 (nasycony, widoczny)
+   - Light mode bg: L=0.95-0.97 (subtle, near white with a tint)
+   - Light mode text: L=0.30-0.40 (dark, high contrast)
+   - Light mode border: L=0.80-0.85 (intermediate)
+   - Light mode icon: L=0.55-0.65 (saturated, visible)
+   - Dark mode bg: L=0.20-0.25 (subtle, dark with a tint)
+   - Dark mode text: L=0.80-0.90 (light, high contrast)
+   - Dark mode border: L=0.35-0.45 (intermediate)
+   - Dark mode icon: L=0.65-0.75 (saturated, visible)
 
 3. **Chroma (saturation):**
-   - bg: niska (0.01-0.03) — subtlny odcień, nie krzyczy
-   - text: średnia (0.06-0.12) — wyraźny kolor, czytelny
-   - border: niska-średnia (0.04-0.08)
-   - icon: wysoka (0.12-0.20) — wyrazisty, przyciąga wzrok
+   - bg: low (0.01-0.03) — subtle tint, not loud
+   - text: medium (0.06-0.12) — distinct color, readable
+   - border: low-medium (0.04-0.08)
+   - icon: high (0.12-0.20) — vivid, eye-catching
 
-## Proponowane wartości — Light Mode
+## Proposed values — Light Mode
 
 ```css
 :root {
@@ -56,7 +56,7 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
   --status-error-bg:     oklch(0.965 0.015 25);
   --status-error-text:   oklch(0.365 0.120 25);
   --status-error-border: oklch(0.830 0.060 25);
-  --status-error-icon:   oklch(0.577 0.245 27.325); /* = istniejące --destructive */
+  --status-error-icon:   oklch(0.577 0.245 27.325); /* = existing --destructive */
 
   /* ═══ SUCCESS (hue ~160°) ═══ */
   --status-success-bg:     oklch(0.965 0.015 160);
@@ -66,7 +66,7 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
 
   /* ═══ WARNING (hue ~80°) ═══ */
   --status-warning-bg:     oklch(0.970 0.020 80);
-  --status-warning-text:   oklch(0.370 0.090 60);  /* hue shift do 60° — cieplejszy, czytelniejszy */
+  --status-warning-text:   oklch(0.370 0.090 60);  /* hue shift to 60° — warmer, more readable */
   --status-warning-border: oklch(0.830 0.070 80);
   --status-warning-icon:   oklch(0.700 0.160 70);
 
@@ -84,7 +84,7 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
 }
 ```
 
-## Proponowane wartości — Dark Mode
+## Proposed values — Dark Mode
 
 ```css
 .dark {
@@ -92,7 +92,7 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
   --status-error-bg:     oklch(0.220 0.025 25);
   --status-error-text:   oklch(0.850 0.090 25);
   --status-error-border: oklch(0.400 0.060 25);
-  --status-error-icon:   oklch(0.704 0.191 22.216); /* = istniejące dark --destructive */
+  --status-error-icon:   oklch(0.704 0.191 22.216); /* = existing dark --destructive */
 
   /* ═══ SUCCESS (hue ~160°) ═══ */
   --status-success-bg:     oklch(0.220 0.025 160);
@@ -122,7 +122,7 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
 
 ## Contrast Ratio — Light Mode
 
-| Para | Text L | Bg L | Estimated CR | WCAG AA (4.5:1) | WCAG AAA (7:1) |
+| Pair | Text L | Bg L | Estimated CR | WCAG AA (4.5:1) | WCAG AAA (7:1) |
 |------|--------|------|-------------|-----------------|----------------|
 | error text / error bg | 0.365 / 0.965 | ~7.0:1 | PASS | PASS |
 | error text / white bg | 0.365 / 1.000 | ~7.5:1 | PASS | PASS |
@@ -138,7 +138,7 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
 
 ## Contrast Ratio — Dark Mode
 
-| Para | Text L | Bg L | Estimated CR | WCAG AA (4.5:1) | WCAG AAA (7:1) |
+| Pair | Text L | Bg L | Estimated CR | WCAG AA (4.5:1) | WCAG AAA (7:1) |
 |------|--------|------|-------------|-----------------|----------------|
 | error text / error bg | 0.850 / 0.220 | ~6.5:1 | PASS | BORDERLINE |
 | error text / card bg | 0.850 / 0.205 | ~7.0:1 | PASS | PASS |
@@ -151,12 +151,12 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
 | neutral text / neutral bg | 0.750 / 0.230 | ~5.0:1 | PASS | FAIL |
 | neutral text / card bg | 0.750 / 0.205 | ~5.5:1 | PASS | FAIL |
 
-> **Uwaga:** Contrast ratio w OKLCH jest szacunkowy (L nie jest liniowe jak w sRGB). Finalne wartości MUSZĄ być zweryfikowane w Chrome DevTools po implementacji. Wszystkie pary text/bg zdają WCAG AA. Dla AAA na kolorowym tle — borderline. Na neutralnym tle (card, background) — wszystkie zdają AAA oprócz neutral.
+> **Note:** Contrast ratio in OKLCH is estimated (L is not linear like in sRGB). Final values MUST be verified in Chrome DevTools after implementation. All text/bg pairs pass WCAG AA. For AAA on colored backgrounds — borderline. On neutral backgrounds (card, background) — all pass AAA except neutral.
 
-## Integracja z Tailwind v4
+## Tailwind v4 integration
 
 ```css
-/* globals.css — w sekcji @theme inline */
+/* globals.css — in the @theme inline section */
 @theme inline {
   --color-status-error-bg: var(--status-error-bg);
   --color-status-error-text: var(--status-error-text);
@@ -185,25 +185,25 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
 }
 ```
 
-**Użycie w komponentach:**
+**Usage in components:**
 
 ```tsx
-// Zamiast: className="border-red-200 bg-red-50 text-red-800"
-// Teraz:   className="border-status-error-border bg-status-error-bg text-status-error-text"
+// Instead of: className="border-red-200 bg-red-50 text-red-800"
+// Now:        className="border-status-error-border bg-status-error-bg text-status-error-text"
 
-// Zamiast: className="border-emerald-200 bg-emerald-50 text-emerald-900"
-// Teraz:   className="border-status-success-border bg-status-success-bg text-status-success-text"
+// Instead of: className="border-emerald-200 bg-emerald-50 text-emerald-900"
+// Now:        className="border-status-success-border bg-status-success-bg text-status-success-text"
 ```
 
-## Weryfikacja przed merge — obowiązkowa checklist
+## Pre-merge verification checklist
 
-- [ ] Wszystkie pary text/bg sprawdzone w Chrome DevTools → Contrast ratio
+- [ ] All text/bg pairs verified in Chrome DevTools → Contrast ratio
 - [ ] Light mode: screenshot AlertError, AlertSuccess, AlertWarning, AlertInfo, AlertNeutral
 - [ ] Dark mode: screenshot AlertError, AlertSuccess, AlertWarning, AlertInfo, AlertNeutral
-- [ ] Badge w light mode: StatusBadge all variants
-- [ ] Badge w dark mode: StatusBadge all variants
-- [ ] Flash message w obu trybach
-- [ ] Text on `--background` (page) + `--card` (card) + status bg — 3 konteksty
+- [ ] Badge in light mode: StatusBadge all variants
+- [ ] Badge in dark mode: StatusBadge all variants
+- [ ] Flash message in both modes
+- [ ] Text on `--background` (page) + `--card` (card) + status bg — 3 contexts
 
 ---
 
@@ -211,6 +211,6 @@ Dark:   --background: oklch(0.145 0 0)       /* prawie czarny */
 
 ## See also
 
-- [Foundations](./foundations.md) — definicje skal i wytyczne
-- [Migration Tables](./migration-tables.md) — mapowanie starych wartości na nowe tokeny
-- [Enforcement](./enforcement.md) — ESLint rules wymuszające użycie tokenów
+- [Foundations](./foundations.md) — scale definitions and guidelines
+- [Migration Tables](./migration-tables.md) — mapping old values to new tokens
+- [Enforcement](./enforcement.md) — ESLint rules enforcing token usage

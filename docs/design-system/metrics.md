@@ -1,31 +1,31 @@
 # F. Success Metrics & Tracking
 
-> KPI dashboard, progi alertowe i skrypt ds-health-check.sh do pomiaru postępu migracji.
+> KPI dashboard, alert thresholds, and ds-health-check.sh script for measuring migration progress.
 
 ---
 
 ## KPI Dashboard
 
-| # | Metryka | Obecna wartosc | Target | Target date | Jak mierzyc |
-|---|---------|---------------|--------|-------------|-------------|
-| 1 | Hardcoded semantic colors | 372 | 0 | v0.6.0 (8 tyg.) | `rg 'text-red-\|bg-red-\|text-green-\|bg-green-\|text-emerald-\|bg-emerald-\|text-amber-\|bg-amber-\|text-blue-[0-9]\|bg-blue-[0-9]' --type tsx -c \| awk -F: '{s+=$2} END{print s}'` |
-| 2 | Arbitrary text sizes | 61 | 1 (wyjątek: `text-[9px]`) | v0.6.0 | `rg 'text-\[\d+px\]' --type tsx -c \| awk -F: '{s+=$2} END{print s}'` |
-| 3 | Empty state coverage | 21% (31/150) | 80% | v0.7.0 (12 tyg.) | Manual audit + grep for EmptyState/TabEmptyState imports |
+| # | Metric | Current value | Target | Target date | How to measure |
+|---|--------|--------------|--------|-------------|----------------|
+| 1 | Hardcoded semantic colors | 372 | 0 | v0.6.0 (8 wk.) | `rg 'text-red-\|bg-red-\|text-green-\|bg-green-\|text-emerald-\|bg-emerald-\|text-amber-\|bg-amber-\|text-blue-[0-9]\|bg-blue-[0-9]' --type tsx -c \| awk -F: '{s+=$2} END{print s}'` |
+| 2 | Arbitrary text sizes | 61 | 1 (exception: `text-[9px]`) | v0.6.0 | `rg 'text-\[\d+px\]' --type tsx -c \| awk -F: '{s+=$2} END{print s}'` |
+| 3 | Empty state coverage | 21% (31/150) | 80% | v0.7.0 (12 wk.) | Manual audit + grep for EmptyState/TabEmptyState imports |
 | 4 | Loading state coverage | 59% (89/150) | 90% | v0.7.0 | Grep for LoadingMessage/Spinner/isLoading patterns |
-| 5 | aria-label coverage | ~50% | 95% | v0.7.0 | Automated a11y scan (axe-core w Playwright) |
-| 6 | Notice component usage | 7 plikow | 0 | v0.6.0 | `rg "from.*Notice" --type tsx -l \| wc -l` |
-| 7 | ErrorNotice usage | 2 pliki | 0 | v0.6.0 | `rg "ErrorNotice" --type tsx -l \| wc -l` |
-| 8 | Inline SVG count | 12 plikow | 0 | v0.7.0 | `rg '<svg' --type tsx -l --glob '!**/__tests__/**' \| wc -l` |
+| 5 | aria-label coverage | ~50% | 95% | v0.7.0 | Automated a11y scan (axe-core in Playwright) |
+| 6 | Notice component usage | 7 files | 0 | v0.6.0 | `rg "from.*Notice" --type tsx -l \| wc -l` |
+| 7 | ErrorNotice usage | 2 files | 0 | v0.6.0 | `rg "ErrorNotice" --type tsx -l \| wc -l` |
+| 8 | Inline SVG count | 12 files | 0 | v0.7.0 | `rg '<svg' --type tsx -l --glob '!**/__tests__/**' \| wc -l` |
 | 9 | Raw fetch() count | 8 | 0 | v0.7.0 | `rg 'fetch\(' --type tsx --glob '**/backend/**' -l \| wc -l` |
 | 10 | StatusBadge adoption | 0 | 100% status displays | v0.7.0 | Manual audit |
 
-## Skrypt raportujacy
+## Reporting script
 
 ```bash
 #!/bin/bash
-# ds-health-check.sh — uruchamiac co sprint
-# Uzycie: bash .ai/scripts/ds-health-check.sh
-# Portable: dziala na macOS i Linux
+# ds-health-check.sh — run every sprint
+# Usage: bash .ai/scripts/ds-health-check.sh
+# Portable: works on macOS and Linux
 
 set -euo pipefail
 
@@ -35,12 +35,12 @@ mkdir -p "$REPORT_DIR"
 DATE=$(date +%Y-%m-%d)
 REPORT_FILE="$REPORT_DIR/ds-health-$DATE.txt"
 
-# Funkcja zapisu do stdout i pliku jednoczesnie
+# Function to write to stdout and file simultaneously
 report() {
   echo "$1" | tee -a "$REPORT_FILE"
 }
 
-# Wyczysc plik raportu (nowy raport)
+# Clear the report file (new report)
 > "$REPORT_FILE"
 
 report "=== DESIGN SYSTEM HEALTH CHECK ==="
@@ -92,7 +92,7 @@ report "  Pages with loading state: $LS / $PAGES ($LPCT%)"
 report ""
 report "=== END REPORT ==="
 
-# Porownanie z poprzednim raportem
+# Compare with previous report
 PREV=$(ls -1 "$REPORT_DIR"/ds-health-*.txt 2>/dev/null | grep -v "$DATE" | sort | tail -1)
 if [ -n "${PREV:-}" ] && [ -f "$PREV" ]; then
   echo ""
@@ -107,7 +107,7 @@ echo ""
 echo "Report saved to: $REPORT_FILE"
 ```
 
-**Tracking cadence:** Uruchamiac na poczatku kazdego sprintu. Raport zapisuje sie do `.ai/reports/ds-health-YYYY-MM-DD.txt`. Porownanie z poprzednim raportem automatyczne.
+**Tracking cadence:** Run at the beginning of every sprint. The report is saved to `.ai/reports/ds-health-YYYY-MM-DD.txt`. Comparison with the previous report is automatic.
 
 ---
 
@@ -115,6 +115,6 @@ echo "Report saved to: $REPORT_FILE"
 
 ## See also
 
-- [Enforcement](./enforcement.md) — plan migracji mierzony tymi metrykami
-- [Success Metrics Beyond Code](./success-metrics-cx.md) — metryki ludzkie (CX, adopcja)
-- [Iteration](./iteration.md) — cykl feedback oparty o te metryki
+- [Enforcement](./enforcement.md) — migration plan measured by these metrics
+- [Success Metrics Beyond Code](./success-metrics-cx.md) — human metrics (CX, adoption)
+- [Iteration](./iteration.md) — feedback cycle based on these metrics
