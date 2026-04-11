@@ -16,6 +16,7 @@ describe('data sync engine stale jobs', () => {
       syncRunService,
       integrationCredentialsService: {} as CredentialsService,
       integrationLogService: {} as IntegrationLogService,
+      integrationStateService: { upsert: jest.fn(async () => undefined) } as any,
       progressService: {} as ProgressService,
     })
 
@@ -46,6 +47,7 @@ describe('data sync engine stale jobs', () => {
       syncRunService,
       integrationCredentialsService: {} as CredentialsService,
       integrationLogService: {} as IntegrationLogService,
+      integrationStateService: { upsert: jest.fn(async () => undefined) } as any,
       progressService: {} as ProgressService,
     })
 
@@ -83,6 +85,7 @@ describe('data sync engine stale jobs', () => {
       syncRunService,
       integrationCredentialsService: {} as CredentialsService,
       integrationLogService: {} as IntegrationLogService,
+      integrationStateService: { upsert: jest.fn(async () => undefined) } as any,
       progressService,
     })
 

@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
+import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { ProgressService } from '../../progress/lib/progressService'
 import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
@@ -20,6 +21,7 @@ type EngineDeps = {
   syncRunService: SyncRunService
   integrationCredentialsService: CredentialsService
   integrationLogService: IntegrationLogService
+  integrationStateService: IntegrationStateService
   progressService: ProgressService
 }
 
@@ -71,7 +73,7 @@ function applyExportCounters(batch: ExportBatch): SyncCounterDelta {
 }
 
 export function createSyncEngine(deps: EngineDeps) {
-  const { syncRunService, integrationCredentialsService, integrationLogService, progressService } = deps
+  const { syncRunService, integrationCredentialsService, integrationLogService, integrationStateService, progressService } = deps
 
   async function resolveMapping(adapter: DataSyncAdapter, entityType: string, scope: SyncScope): Promise<DataMapping> {
     return adapter.getMapping({
@@ -128,7 +130,7 @@ export function createSyncEngine(deps: EngineDeps) {
         ? item.data.sourceIdentifier.trim()
         : null
       const message = [
-        `Failed to import Akeneo product ${item.externalId}`,
+        `Failed to import item ${item.externalId}`,
         sourceProductUuid ? `(uuid: ${sourceProductUuid})` : null,
         sourceIdentifier ? `(identifier: ${sourceIdentifier})` : null,
         `: ${errorMessage}`,
@@ -147,9 +149,52 @@ export function createSyncEngine(deps: EngineDeps) {
     }
   }
 
+  async function writeOperationalLog(params: {
+    integrationId: string
+    runId: string
+    level: 'info' | 'warn' | 'error'
+    message: string
+    scope: SyncScope
+    payload?: Record<string, unknown>
+  }): Promise<void> {
+    await integrationLogService.write(
+      {
+        integrationId: params.integrationId,
+        runId: params.runId,
+        level: params.level,
+        message: params.message,
+        payload: params.payload,
+      },
+      params.scope,
+    )
+  }
+
+  async function updateOperationalState(params: {
+    integrationId: string
+    status: 'healthy' | 'degraded' | 'unhealthy'
+    scope: SyncScope
+  }): Promise<void> {
+    await integrationStateService.upsert(
+      params.integrationId,
+      {
+        lastHealthStatus: params.status,
+        lastHealthCheckedAt: new Date(),
+      },
+      params.scope,
+    )
+  }
+
   async function finalizeRun(runId: string, status: 'completed' | 'failed' | 'cancelled', scope: SyncScope, error?: string): Promise<void> {
+    const existingRun = await syncRunService.getRun(runId, scope)
+    const alreadyFinalizedWithSameStatus = existingRun?.status === status
+      && (status === 'completed' || status === 'failed' || status === 'cancelled')
+
     const run = await syncRunService.markStatus(runId, status, scope, error)
     if (!run) return
+
+    if (alreadyFinalizedWithSameStatus) {
+      return
+    }
 
     if (run.progressJobId) {
       if (status === 'completed') {
@@ -192,6 +237,64 @@ export function createSyncEngine(deps: EngineDeps) {
           },
         )
       }
+    }
+
+    if (status === 'completed') {
+      await updateOperationalState({
+        integrationId: run.integrationId,
+        status: 'healthy',
+        scope,
+      })
+      await writeOperationalLog({
+        integrationId: run.integrationId,
+        runId: run.id,
+        level: 'info',
+        message: 'Sync run completed',
+        scope,
+        payload: {
+          operationalStatus: 'completed',
+          summary: `Sync completed with ${run.createdCount} created, ${run.updatedCount} updated, ${run.failedCount} failed.`,
+          createdCount: run.createdCount,
+          updatedCount: run.updatedCount,
+          skippedCount: run.skippedCount,
+          failedCount: run.failedCount,
+          batchesCompleted: run.batchesCompleted,
+        },
+      })
+    } else if (status === 'cancelled') {
+      await updateOperationalState({
+        integrationId: run.integrationId,
+        status: 'degraded',
+        scope,
+      })
+      await writeOperationalLog({
+        integrationId: run.integrationId,
+        runId: run.id,
+        level: 'warn',
+        message: 'Sync run cancelled',
+        scope,
+        payload: {
+          operationalStatus: 'cancelled',
+          summary: 'The sync run was cancelled before completion.',
+        },
+      })
+    } else {
+      await updateOperationalState({
+        integrationId: run.integrationId,
+        status: 'unhealthy',
+        scope,
+      })
+      await writeOperationalLog({
+        integrationId: run.integrationId,
+        runId: run.id,
+        level: 'error',
+        message: error ?? 'Sync run failed',
+        scope,
+        payload: {
+          operationalStatus: 'failed',
+          summary: error ?? 'The sync run failed.',
+        },
+      })
     }
 
     if (status === 'completed') {
@@ -277,6 +380,24 @@ export function createSyncEngine(deps: EngineDeps) {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       })
+      await updateOperationalState({
+        integrationId: run.integrationId,
+        status: 'degraded',
+        scope,
+      })
+      await writeOperationalLog({
+        integrationId: run.integrationId,
+        runId: run.id,
+        level: 'info',
+        message: 'Sync run started',
+        scope,
+        payload: {
+          operationalStatus: 'running',
+          summary: `Import run started for ${run.entityType}.`,
+          entityType: run.entityType,
+          direction: run.direction,
+        },
+      })
 
       if (run.progressJobId) {
         await progressService.startJob(run.progressJobId, {
@@ -298,6 +419,7 @@ export function createSyncEngine(deps: EngineDeps) {
           credentials,
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+          runId: run.id,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
             await finalizeRun(run.id, 'cancelled', scope)
@@ -323,23 +445,23 @@ export function createSyncEngine(deps: EngineDeps) {
           await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
           await logImportItemFailures(run.id, run.integrationId, batch.items, scope)
 
-          await integrationLogService.write(
-            {
-              integrationId: run.integrationId,
-              runId: run.id,
-              level: 'info',
-              message: batch.message?.trim().length
-                ? batch.message.trim()
-                : `Processed import batch ${batch.batchIndex}`,
-              payload: {
-                processedCount,
-                batchSize: batch.items.length,
-                processedBatchCount,
-                cursor: batch.cursor,
-              },
-            },
+          await writeOperationalLog({
+            integrationId: run.integrationId,
+            runId: run.id,
+            level: 'info',
+            message: batch.message?.trim().length
+              ? batch.message.trim()
+              : `Processed import batch ${batch.batchIndex}`,
             scope,
-          )
+            payload: {
+              operationalStatus: 'running',
+              summary: `Processed ${processedCount}${totalCount ? ` of ${totalCount}` : ''} rows so far.`,
+              processedCount,
+              batchSize: batch.items.length,
+              processedBatchCount,
+              cursor: batch.cursor,
+            },
+          })
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Sync import failed'
@@ -406,6 +528,24 @@ export function createSyncEngine(deps: EngineDeps) {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       })
+      await updateOperationalState({
+        integrationId: run.integrationId,
+        status: 'degraded',
+        scope,
+      })
+      await writeOperationalLog({
+        integrationId: run.integrationId,
+        runId: run.id,
+        level: 'info',
+        message: 'Sync run started',
+        scope,
+        payload: {
+          operationalStatus: 'running',
+          summary: `Export run started for ${run.entityType}.`,
+          entityType: run.entityType,
+          direction: run.direction,
+        },
+      })
 
       if (run.progressJobId) {
         await progressService.startJob(run.progressJobId, {
@@ -426,6 +566,7 @@ export function createSyncEngine(deps: EngineDeps) {
           credentials,
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
+          runId: run.id,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
             await finalizeRun(run.id, 'cancelled', scope)
@@ -450,20 +591,20 @@ export function createSyncEngine(deps: EngineDeps) {
           await syncRunService.updateCursor(run.id, batch.cursor, scope)
           await updateProgress(run.progressJobId, processedCount, null, scope)
 
-          await integrationLogService.write(
-            {
-              integrationId: run.integrationId,
-              runId: run.id,
-              level: 'info',
-              message: `Processed export batch ${batch.batchIndex}`,
-              payload: {
-                processedCount,
-                batchSize: batch.results.length,
-                cursor: batch.cursor,
-              },
-            },
+          await writeOperationalLog({
+            integrationId: run.integrationId,
+            runId: run.id,
+            level: 'info',
+            message: `Processed export batch ${batch.batchIndex}`,
             scope,
-          )
+            payload: {
+              operationalStatus: 'running',
+              summary: `Processed ${processedCount} export items so far.`,
+              processedCount,
+              batchSize: batch.results.length,
+              cursor: batch.cursor,
+            },
+          })
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Sync export failed'
