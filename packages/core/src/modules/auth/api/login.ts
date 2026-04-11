@@ -142,24 +142,28 @@ export async function POST(req: Request) {
   } catch {
     // optional warmup
   }
+  const rememberMeDays = Number(process.env.REMEMBER_ME_DAYS || '30')
+  const jwtTtlSeconds = 60 * 60 * 8
+  const sessionExpiresAt = remember
+    ? new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() + jwtTtlSeconds * 1000)
+  const staffSession = await auth.createSession(user, sessionExpiresAt)
   const token = signJwt({
     sub: String(user.id),
+    sid: String(staffSession.id),
     tenantId: resolvedTenantId,
     orgId: user.organizationId ? String(user.organizationId) : null,
     email: user.email,
     roles: userRoleNames
   })
   void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
-  const rememberMeDays = Number(process.env.REMEMBER_ME_DAYS || '30')
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
     redirect: '/backend',
   }
   if (remember) {
-    const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
-    const sess = await auth.createSession(user, expiresAt)
-    responseData.refreshToken = sess.token
+    responseData.refreshToken = staffSession.token
   }
   const em = container.resolve('em')
   const interceptedResponse = await runCustomRouteAfterInterceptors({

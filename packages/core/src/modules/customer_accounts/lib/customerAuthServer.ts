@@ -6,10 +6,26 @@
  */
 
 import { cookies } from 'next/headers'
-import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { verifyAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import type { CustomerAuthContext } from './customerAuth'
 
 export type { CustomerAuthContext }
+
+async function assertSessionStillActive(sessionId: string): Promise<boolean> {
+  try {
+    const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
+      import('@open-mercato/shared/lib/di/container'),
+      import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
+    ])
+    const container = await createRequestContainer()
+    const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+    const session = await service.findActiveSessionById(sessionId)
+    return session !== null
+  } catch {
+    return false
+  }
+}
 
 /**
  * Read and verify customer auth from cookies in server components.
@@ -32,12 +48,17 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
   if (!token) return null
 
   try {
-    const payload = verifyJwt(token) as Record<string, unknown> | null
+    const payload = verifyAudienceJwt(CUSTOMER_JWT_AUDIENCE, token) as Record<string, unknown> | null
     if (!payload) return null
     if (payload.type !== 'customer') return null
+    const sid = typeof payload.sid === 'string' ? payload.sid : ''
+    if (!sid) return null
+    const stillActive = await assertSessionStillActive(sid)
+    if (!stillActive) return null
 
     return {
       sub: String(payload.sub),
+      sid,
       type: 'customer',
       tenantId: String(payload.tenantId),
       orgId: String(payload.orgId),

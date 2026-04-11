@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, Session, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const INVALID_SCOPE = Symbol('invalid-scope')
@@ -43,6 +43,17 @@ export async function resolveCanonicalStaffAuthContext(
   ) {
     return null
   }
+
+  // Session binding: when the JWT carries an `sid` claim, require the referenced session to
+  // still exist (not soft-deleted, not expired). This is what makes logout / password-reset
+  // actually invalidate an already-issued JWT. Legacy tokens without `sid` are rejected so
+  // callers must re-authenticate after the fix rolls out.
+  const sessionId = normalizeScopeId(typeof auth.sid === 'string' ? auth.sid : null)
+  if (sessionId === INVALID_SCOPE) return null
+  if (sessionId === null) return null
+  const session = await em.findOne(Session, { id: sessionId, deletedAt: null })
+  if (!session) return null
+  if (session.expiresAt.getTime() < Date.now()) return null
 
   const user = await findOneWithDecryption(
     em,

@@ -9,6 +9,7 @@ const SUPERADMIN_ROLE = 'superadmin'
 
 export type AuthContext = {
   sub: string
+  sid?: string | null
   tenantId: string | null
   orgId: string | null
   email?: string
