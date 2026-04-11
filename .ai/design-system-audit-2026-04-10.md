@@ -947,6 +947,25 @@ Eliminuje 372 hardcoded kolorow. Umozliwia dark mode. Centralizuje decyzje kolor
 - Czy dodac "neutral" status? (np. draft, archived)
 - Jak mapowac na Tailwind utilities?
 
+### Decyzja architekturalna: Flat tokens, NIE opacity-based
+
+**Uzywamy flat tokens** — oddzielny CSS custom property per rola (bg, text, border, icon) z pelna wartoscia koloru. Kazdy token ma oddzielna wartosc dla light i dark mode.
+
+```
+TAK:  --status-error-bg: oklch(0.965 0.015 25);     /* pelna wartosc, kontrolowany kontrast */
+      .dark { --status-error-bg: oklch(0.220 0.025 25); }
+
+NIE:  --status-error: oklch(0.577 0.245 27);         /* jeden bazowy kolor */
+      bg-status-error/5                                /* opacity w Tailwind */
+```
+
+**Dlaczego:** Opacity-based tokens (`bg-status-error/5`) nie kontroluja kontrastu w dark mode. `oklch(0.577 0.245 27) / 5%` na bialym tle daje subtlny rozowy, ale na czarnym tle jest prawie niewidoczny. Flat tokens daja pelna kontrole nad kontrastem w obu trybach.
+
+**Konwencja naming:**
+- CSS variable: `--status-{status}-{role}` np. `--status-error-bg`
+- Tailwind class: `{property}-status-{status}-{role}` np. `bg-status-error-bg`, `text-status-error-text`
+- Tailwind mapping: `--color-status-{status}-{role}: var(--status-{status}-{role})`
+
 ### Stan obecny
 Dobre: `--primary`, `--secondary`, `--destructive`, `--muted`, `--accent`, `--card`, `--popover`, `--border`, chart colors.
 Brak: semantic status tokens, surface hierarchy, interactive state tokens.
@@ -1804,68 +1823,126 @@ Tydzien 4+:
 
 ## BLOK 1 — Piątek 9:00–12:00 (3h): Foundations + Tokens
 
-**Cel: miec dzialajace semantic color tokens w Tailwind**
+**Cel: działające semantic color tokens w Tailwind + documentation foundations**
 
-- [ ] Dodac 20 CSS custom properties do `globals.css` (light mode)
-- [ ] Dodac 20 CSS custom properties do `.dark` (dark mode)
-- [ ] Dodac `text-overline` token (11px)
-- [ ] Dodac `@theme inline` mappings dla Tailwind v4
-- [ ] Zweryfikowac contrast w Chrome DevTools (light + dark) — wszystkie 5 statusow
-- [ ] Udokumentowac typography scale (tabela)
-- [ ] Udokumentowac spacing guidelines (usage rules)
+- [ ] Dodać 20 CSS custom properties do `globals.css` (light mode)
+- [ ] Dodać 20 CSS custom properties do `.dark` (dark mode)
+- [ ] Dodać `text-overline` token (11px)
+- [ ] Dodać `@theme inline` mappings dla Tailwind v4
+- [ ] Zweryfikować contrast w Chrome DevTools (light + dark) — wszystkie 5 statusów
+- [ ] Udokumentować typography scale (tabela)
+- [ ] Udokumentować spacing guidelines (usage rules)
+- [ ] `yarn lint && yarn typecheck` — upewnić się, że nic nie zepsute
 → **Commit:** `feat(ds): add semantic status tokens, text-overline, and foundation docs`
 
 ## BLOK 2 — Piątek 13:00–17:00 (4h): Migracja primitives
 
-**Cel: wszystkie primitives uzywaja semantic tokenow**
+**Cel: wszystkie primitives używają semantic tokenów**
 
-- [ ] Zamienic Alert CVA variants na semantic tokens (`alert.tsx` — 4 linie)
-- [ ] Zamienic Notice colors na semantic tokens + deprecation warning (`Notice.tsx`)
-- [ ] Zamienic FlashMessages colors (`FlashMessages.tsx`)
-- [ ] Zamienic Notification severity colors
-- [ ] Dodac status warianty do Badge (`badge.tsx` — success, warning, info)
+- [ ] Zamienić Alert CVA variants na flat semantic tokens (`alert.tsx` — 4 linie)
+- [ ] Zamienić Notice colors na semantic tokens + deprecation warning (`Notice.tsx`)
+- [ ] Zamienić FlashMessages colors (`FlashMessages.tsx`)
+- [ ] Zamienić Notification severity colors
+- [ ] Dodać status warianty do Badge (`badge.tsx` — success, warning, info)
 - [ ] Zmigrować CrudForm FieldControl colors (`text-red-600` → `text-destructive`)
+- [ ] `yarn lint && yarn typecheck && yarn test`
 → **Commit:** `refactor(ds): migrate all primitives to semantic status tokens`
 
-## BLOK 3 — Piątek 18:00–21:00 (3h): Nowe komponenty
+## BLOK 3 — Piątek 18:00–20:00 (2h): Nowe komponenty
 
-**Cel: 3 nowe komponenty gotowe do uzycia**
+**Cel: FormField + StatusBadge gotowe (Section jako stretch goal)**
 
-- [ ] Stworzyc `FormField` wrapper (`packages/ui/src/primitives/form-field.tsx`)
-- [ ] Stworzyc `StatusBadge` (`packages/ui/src/primitives/status-badge.tsx`)
-- [ ] Stworzyc `Section` / `SectionHeader` (`packages/ui/src/backend/Section.tsx`)
-→ **Commit:** `feat(ds): add FormField, StatusBadge, Section components`
+- [ ] Stworzyć `FormField` wrapper (`packages/ui/src/primitives/form-field.tsx`)
+- [ ] Stworzyć `StatusBadge` (`packages/ui/src/primitives/status-badge.tsx`)
+- [ ] Jeśli czas pozwala: `Section` / `SectionHeader` (`packages/ui/src/backend/Section.tsx`)
+- [ ] `yarn lint && yarn typecheck`
+→ **Commit:** `feat(ds): add FormField, StatusBadge components`
 
-## BLOK 4 — Piątek 21:00–23:00 (2h): Migracja referencyjnego modulu
+## Piątek 20:00–21:00: PRZERWA / BUFOR
 
-**Cel: customers module w pelni zmigrowany — proof of concept**
+Odpoczynek. Jeśli Blok 3 się przeciągnął — dokończ go teraz. Nie zaczynaj nowej pracy.
 
-- [ ] Uruchomic `ds-migrate-colors.sh` na `packages/core/src/modules/customers/`
-- [ ] Uruchomic `ds-migrate-typography.sh` na tym samym module
+## BLOK 4 — Piątek 21:00–22:00 (1h): Dokumentacja (lekka praca)
+
+**Cel: principles i checklist gotowe (niskoryzykowa praca na koniec dnia)**
+
+- [ ] Napisać Design Principles — skrócona wersja do README
+- [ ] Napisać PR Review Checklist (checkboxy DS compliance)
+- [ ] Zdefiniować z-index scale + border-radius usage guidelines
+→ **Commit:** `docs(ds): add principles, PR review checklist, foundation guidelines`
+
+## BLOK 5 — Sobota 8:00–10:00 (2h): Migracja customers module
+
+**Cel: proof of concept — jeden moduł w pełni zmigrowany (świeża głowa)**
+
+- [ ] Uruchomić `ds-migrate-colors.sh` na `packages/core/src/modules/customers/`
+- [ ] Uruchomić `ds-migrate-typography.sh` na tym samym module
 - [ ] Manual review + fix edge cases
 - [ ] Screenshot before/after (light + dark)
+- [ ] `yarn lint && yarn typecheck && yarn test`
 → **Commit:** `refactor(ds): migrate customers module to DS tokens`
 
-## BLOK 5 — Sobota 8:00–11:00 (3h): Dokumentacja + Wrap-up
+## BLOK 6 — Sobota 10:00–11:00 (1h): Wrap-up
 
-**Cel: wszystko udokumentowane, gotowe do uzycia przez contributorow**
+**Cel: system gotowy do adopcji**
 
-- [ ] Napisac Design Principles document (skrocona wersja do README)
-- [ ] Napisac PR Review Checklist
-- [ ] Zaktualizowac AGENTS.md z DS rules
-- [ ] Zaktualizowac PR template z DS compliance checkboxami
-- [ ] Zdefiniowac z-index scale w globals.css
-- [ ] Udokumentowac border-radius usage guidelines
-- [ ] Uruchomic `ds-health-check.sh` — zapisac baseline
-→ **Commit:** `docs(ds): add principles, update AGENTS.md and PR template`
+- [ ] Zaktualizować AGENTS.md z DS rules
+- [ ] Zaktualizować PR template z DS compliance checkboxami
+- [ ] Uruchomić `ds-health-check.sh` — zapisać baseline
+- [ ] Final `yarn lint && yarn typecheck` pass
+→ **Commit:** `docs(ds): update AGENTS.md, PR template, baseline report`
 
 ---
 
-**Bufor bezpieczenstwa:** Plan pokrywa ~15h. Zostaja ~3h buforu na:
+**Bufor:** Plan pokrywa ~13h. Zostaje ~5h buforu na:
 - Edge case'y w migracji customers
 - Debugging dark mode contrast
+- Section component (jeśli nie zmieścił się w Bloku 3)
 - Niespodzianki w CrudForm FieldControl
-- Odswiezenie przed prezentacja
+
+---
+
+## B.1 Cut Lines — co jeśli nie zdążymy
+
+### MUST HAVE — 8h minimum (Bloki 1 + 2)
+
+**Definicja sukcesu:** Semantic color tokens istnieją i są używane przez istniejące komponenty. Nowe PR-y mogą korzystać z tokenów. Dark mode działa.
+
+Commity:
+1. `feat(ds): add semantic status tokens, text-overline, and foundation docs`
+2. `refactor(ds): migrate all primitives to semantic status tokens`
+
+**Co to daje:**
+- 20 semantic tokens w globals.css (light + dark)
+- Alert, Notice, Badge, FlashMessages, Notifications — wszystkie na tokenach
+- CrudForm FieldControl — error colors na tokenach
+- Typography scale i spacing guidelines udokumentowane
+- Foundation na której buduje się reszta
+
+**Jeśli nic więcej nie zdążymy** — hackathon jest sukcesem. Mamy system tokenów, który eliminuje 80% problemu kolorystycznego. Każdy nowy PR od teraz może używać `text-status-error-text` zamiast `text-red-600`.
+
+### SHOULD HAVE — 14h (+ Bloki 3, 4)
+
+**Commity dodatkowe:**
+3. `feat(ds): add FormField, StatusBadge components`
+4. `docs(ds): add principles, PR review checklist, foundation guidelines`
+
+**Co to dodaje:**
+- Nowe komponenty do użycia od zaraz
+- Principles i PR checklist — enforcement dla contributorów
+- Z-index scale i border-radius guidelines
+
+### NICE TO HAVE — 18h (+ Bloki 5, 6)
+
+**Commity dodatkowe:**
+5. `refactor(ds): migrate customers module to DS tokens`
+6. `docs(ds): update AGENTS.md, PR template, baseline report`
+
+**Co to dodaje:**
+- Proof of concept: cały moduł zmigrowany
+- AGENTS.md rules — AI agents generują DS-compliant kod
+- Baseline health report do trackowania postępu
+- Section component (jeśli zmieścił się w buforze)
 
 ---
 
@@ -2002,7 +2079,7 @@ rg 'text-red-600' --type tsx -l
 # Mapowanie:
 # text-green-600  → text-status-success
 # text-green-800  → text-status-success
-# bg-green-100    → bg-status-success/10
+# bg-green-100    → bg-status-success-bg
 # bg-green-50     → bg-status-success/5
 # text-emerald-*  → text-status-success (zamiennie)
 # bg-emerald-*    → bg-status-success/*
@@ -2197,7 +2274,7 @@ Dodac do root `AGENTS.md` w sekcji `## Conventions` lub jako nowa sekcja `## Des
 
 ### Colors
 - NEVER use hardcoded Tailwind colors for status semantics (`text-red-*`, `bg-green-*`, etc.)
-- USE semantic tokens: `text-destructive`, `bg-status-success/10`, `border-status-warning/20`
+- USE semantic tokens: `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`
 - Status colors: `destructive` (error), `status-success`, `status-warning`, `status-info`, `status-neutral`
 
 ### Typography
@@ -2268,56 +2345,89 @@ Optionally migrate the entire file if scope allows.
 #!/bin/bash
 # ds-health-check.sh — uruchamiac co sprint
 # Uzycie: bash .ai/scripts/ds-health-check.sh
+# Portable: dziala na macOS i Linux
 
-echo "=== DESIGN SYSTEM HEALTH CHECK ==="
-echo "Date: $(date +%Y-%m-%d)"
-echo ""
+set -euo pipefail
 
-echo "--- Hardcoded Status Colors ---"
+REPORT_DIR=".ai/reports"
+mkdir -p "$REPORT_DIR"
+
+DATE=$(date +%Y-%m-%d)
+REPORT_FILE="$REPORT_DIR/ds-health-$DATE.txt"
+
+# Funkcja zapisu do stdout i pliku jednoczesnie
+report() {
+  echo "$1" | tee -a "$REPORT_FILE"
+}
+
+# Wyczysc plik raportu (nowy raport)
+> "$REPORT_FILE"
+
+report "=== DESIGN SYSTEM HEALTH CHECK ==="
+report "Date: $DATE"
+report ""
+
+report "--- Hardcoded Status Colors ---"
 HC=$(rg 'text-red-[0-9]|bg-red-[0-9]|border-red-[0-9]|text-green-[0-9]|bg-green-[0-9]|border-green-[0-9]|text-emerald-[0-9]|bg-emerald-[0-9]|border-emerald-[0-9]|text-amber-[0-9]|bg-amber-[0-9]|border-amber-[0-9]|text-blue-[0-9]|bg-blue-[0-9]|border-blue-[0-9]' \
   --type tsx --glob '!**/__tests__/**' --glob '!**/node_modules/**' -c 2>/dev/null | \
   awk -F: '{s+=$2} END{print s+0}')
-echo "  Count: $HC (target: 0)"
+report "  Count: $HC (target: 0)"
 
-echo ""
-echo "--- Arbitrary Text Sizes ---"
+report ""
+report "--- Arbitrary Text Sizes ---"
 AT=$(rg 'text-\[\d+px\]' --type tsx --glob '!**/__tests__/**' -c 2>/dev/null | \
   awk -F: '{s+=$2} END{print s+0}')
-echo "  Count: $AT (target: 1)"
+report "  Count: $AT (target: 1)"
 
-echo ""
-echo "--- Deprecated Notice Usage ---"
+report ""
+report "--- Deprecated Notice Usage ---"
 NC=$(rg "from.*primitives/Notice" --type tsx -l 2>/dev/null | wc -l | tr -d ' ')
-echo "  Notice imports: $NC (target: 0)"
+report "  Notice imports: $NC (target: 0)"
 EN=$(rg "ErrorNotice" --type tsx -l 2>/dev/null | wc -l | tr -d ' ')
-echo "  ErrorNotice imports: $EN (target: 0)"
+report "  ErrorNotice imports: $EN (target: 0)"
 
-echo ""
-echo "--- Inline SVG ---"
+report ""
+report "--- Inline SVG ---"
 SVG=$(rg '<svg' --type tsx --glob '!**/__tests__/**' --glob '!**/node_modules/**' -l 2>/dev/null | wc -l | tr -d ' ')
-echo "  Files with inline SVG: $SVG (target: 0)"
+report "  Files with inline SVG: $SVG (target: 0)"
 
-echo ""
-echo "--- Raw fetch() in Backend ---"
+report ""
+report "--- Raw fetch() in Backend ---"
 RF=$(rg 'fetch\(' --type tsx --glob '**/backend/**' --glob '!**/node_modules/**' -l 2>/dev/null | wc -l | tr -d ' ')
-echo "  Raw fetch files: $RF (target: 0)"
+report "  Raw fetch files: $RF (target: 0)"
 
-echo ""
-echo "--- Empty State Coverage ---"
+report ""
+report "--- Empty State Coverage ---"
 PAGES=$(find packages/core/src/modules/*/backend -name "page.tsx" 2>/dev/null | wc -l | tr -d ' ')
 ES=$(rg 'EmptyState|TabEmptyState' --type tsx --glob '**/backend/**/page.tsx' -l 2>/dev/null | wc -l | tr -d ' ')
-echo "  Pages with empty state: $ES / $PAGES ($(( ES * 100 / PAGES ))%)"
+PCT=$(( ES * 100 / PAGES ))
+report "  Pages with empty state: $ES / $PAGES ($PCT%)"
 
-echo ""
-echo "--- Loading State Coverage ---"
+report ""
+report "--- Loading State Coverage ---"
 LS=$(rg 'LoadingMessage|isLoading|Spinner' --type tsx --glob '**/backend/**/page.tsx' -l 2>/dev/null | wc -l | tr -d ' ')
-echo "  Pages with loading state: $LS / $PAGES ($(( LS * 100 / PAGES ))%)"
+LPCT=$(( LS * 100 / PAGES ))
+report "  Pages with loading state: $LS / $PAGES ($LPCT%)"
+
+report ""
+report "=== END REPORT ==="
+
+# Porownanie z poprzednim raportem
+PREV=$(ls -1 "$REPORT_DIR"/ds-health-*.txt 2>/dev/null | grep -v "$DATE" | sort | tail -1)
+if [ -n "${PREV:-}" ] && [ -f "$PREV" ]; then
+  echo ""
+  echo "=== DELTA vs $(basename "$PREV") ==="
+  diff --unified=0 "$PREV" "$REPORT_FILE" | grep '^[+-]  ' | head -20 || echo "  (no changes)"
+else
+  echo ""
+  echo "=== First report — no previous data to compare ==="
+fi
 
 echo ""
-echo "=== END REPORT ==="
+echo "Report saved to: $REPORT_FILE"
 ```
 
-**Tracking cadence:** Uruchamiac na poczatku kazdego sprintu. Wyniki wklejac do sprint review.
+**Tracking cadence:** Uruchamiac na poczatku kazdego sprintu. Raport zapisuje sie do `.ai/reports/ds-health-YYYY-MM-DD.txt`. Porownanie z poprzednim raportem automatyczne.
 
 ---
 
@@ -2337,6 +2447,8 @@ export type FormFieldProps = {
   id?: string
   /** Show required indicator (*) next to label */
   required?: boolean
+  /** Label variant. 'default' = text-sm font-medium (backend forms). 'overline' = text-overline font-semibold uppercase tracking-wider (portal/compact contexts). */
+  labelVariant?: 'default' | 'overline'
   /** Help text below input */
   description?: ReactNode
   /** Error message below input (replaces description when present) */
@@ -2351,6 +2463,37 @@ export type FormFieldProps = {
   children: ReactNode
 }
 ```
+
+### Decyzja: Label style
+
+**Domyslny styl:** `text-sm font-medium text-foreground` — spojny z istniejacym `<Label>` primitive i CrudForm FieldControl. To jest styl uzywany w 95% backendu.
+
+**Wariant `overline`:** `text-overline font-semibold uppercase tracking-wider text-muted-foreground` — uzywany w portal pages i kompaktowych kontekstach. Dostepny przez `labelVariant="overline"`, NIE jest domyslny.
+
+**Implementacja label rendering:**
+
+```typescript
+const labelStyles = {
+  default: 'text-sm font-medium text-foreground',
+  overline: 'text-overline font-semibold uppercase tracking-wider text-muted-foreground',
+}
+
+// W renderze:
+{label && (
+  <Label htmlFor={fieldId} className={labelStyles[labelVariant ?? 'default']}>
+    {label}
+    {required && <span className="text-destructive ml-0.5">*</span>}
+  </Label>
+)}
+```
+
+**Error message style:** `text-xs text-destructive` z `role="alert"` — spojny z CrudForm.
+
+**Description style:** `text-xs text-muted-foreground` — spojny z CrudForm (ale bez ikony Info — FormField jest prostszy).
+
+**Portal forms:** Uzywaja `<FormField labelVariant="overline">`. Portal nie potrzebuje wlasnego komponentu — wystarczy wariant.
+
+**Wspoldzielenie z CrudForm:** Docelowo (po hackathonie) CrudForm FieldControl powinien wyciagnac sub-komponenty `FieldLabel`, `FieldError`, `FieldDescription` do wspolnej lokalizacji (`packages/ui/src/primitives/form-field-parts.tsx`). FormField i CrudForm FieldControl oba je importuja. To zapewnia spojny styl bez duplikacji. **Nie robic tego na hackathonie** — za duze ryzyko regresji w CrudForm.
 
 ### Przyklady uzycia
 
@@ -2446,6 +2589,26 @@ const child = React.cloneElement(children, {
 
 ## G.2 StatusBadge
 
+### Relacja Badge vs StatusBadge
+
+```
+StatusBadge (semantic: "co ten status ZNACZY")
+  └── Badge (visual: "jak to WYGLĄDA")
+       └── semantic color tokens (foundation: "JAKIM kolorem")
+```
+
+**Badge** = niskopoziomowy komponent wizualny. Warianty: `default`, `secondary`, `destructive`, `outline`, `muted`, + nowe: `success`, `warning`, `info`. Nie ma logiki mapowania statusów. Używasz go kiedy znasz wariant:
+```tsx
+<Badge variant="success">Active</Badge>
+```
+
+**StatusBadge** = semantyczny wrapper. Przyjmuje `variant: StatusBadgeVariant` i **wewnętrznie renderuje `<Badge>`** z odpowiednim wariantem + opcjonalny dot indicator. Moduły definiują `StatusMap` mapujący business status → variant:
+```tsx
+<StatusBadge variant={statusMap[person.status]} dot>{t(`status.${person.status}`)}</StatusBadge>
+```
+
+**To NIE jest duplikacja.** Badge to "jak rysować kolorowy pill". StatusBadge to "jaki kolor dla 'active'?". StatusBadge bez Badge nie ma sensu. Badge bez StatusBadge jest OK dla non-status contexów (np. count badge, label badge).
+
 ### TypeScript Interface
 
 ```typescript
@@ -2471,17 +2634,47 @@ export type StatusBadgeProps = {
 export type StatusMap<T extends string = string> = Record<T, StatusBadgeVariant>
 ```
 
-### Mapowanie status → variant → color token
+### Implementacja — StatusBadge renderuje Badge
 
 ```typescript
-const variantStyles: Record<StatusBadgeVariant, string> = {
-  success: 'border-status-success/30 bg-status-success/10 text-status-success',
-  warning: 'border-status-warning/30 bg-status-warning/10 text-status-warning',
-  error:   'border-status-error/30 bg-status-error/10 text-status-error',
-  info:    'border-status-info/30 bg-status-info/10 text-status-info',
-  neutral: 'border-border bg-muted text-muted-foreground',
+import { Badge } from './badge'
+
+// Mapowanie StatusBadge variant → Badge variant (nowe warianty w Badge)
+const variantToBadge: Record<StatusBadgeVariant, string> = {
+  success: 'success',
+  warning: 'warning',
+  error:   'destructive',  // Badge uzywa "destructive" nie "error"
+  info:    'info',
+  neutral: 'muted',        // Badge uzywa "muted" nie "neutral"
+}
+
+export function StatusBadge({ variant, dot, children, className }: StatusBadgeProps) {
+  return (
+    <Badge variant={variantToBadge[variant]} className={className}>
+      {dot && <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />}
+      {children}
+    </Badge>
+  )
 }
 ```
+
+**Badge CVA — nowe warianty status (dodac do badge.tsx):**
+
+```typescript
+// Istniejace:
+default: 'border-transparent bg-primary text-primary-foreground shadow',
+secondary: 'border-transparent bg-secondary text-secondary-foreground',
+destructive: 'border-transparent bg-destructive text-destructive-foreground shadow',
+outline: 'text-foreground',
+muted: 'border-transparent bg-muted text-muted-foreground',
+
+// Nowe:
+success: 'border-status-success-border bg-status-success-bg text-status-success-text',
+warning: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
+info:    'border-status-info-border bg-status-info-bg text-status-info-text',
+```
+
+> `destructive` Badge juz istnieje i uzywa `--destructive` token. Po migracji kolorow w sekcji I, destructive Badge automatycznie bedzie uzywal semantic error colors. Nie trzeba dodawac oddzielnego `error` wariantu do Badge.
 
 ### Jak moduly definiuja statusy
 
@@ -2773,10 +2966,10 @@ const alertVariants = cva('...base...', {
   variants: {
     variant: {
       default:     'border-border bg-card text-card-foreground',
-      destructive: 'border-status-error/30 bg-status-error/5 text-status-error [&_svg]:text-status-error',
-      success:     'border-status-success/30 bg-status-success/5 text-status-success [&_svg]:text-status-success',
-      warning:     'border-status-warning/30 bg-status-warning/5 text-status-warning [&_svg]:text-status-warning',
-      info:        'border-status-info/30 bg-status-info/5 text-status-info [&_svg]:text-status-info',
+      destructive: 'border-status-error-border bg-status-error-bg text-status-error-text [&_svg]:text-status-error-icon',
+      success:     'border-status-success-border bg-status-success-bg text-status-success-text [&_svg]:text-status-success-icon',
+      warning:     'border-status-warning-border bg-status-warning-bg text-status-warning-text [&_svg]:text-status-warning-icon',
+      info:        'border-status-info-border bg-status-info-bg text-status-info-text [&_svg]:text-status-info-icon',
     },
   },
 })
@@ -2831,26 +3024,12 @@ const alertVariants = cva('...base...', {
 | | |
 |---|---|
 | **Opis** | OKLCH kolory sa trudne do manualnego sprawdzenia pod katem kontrastu. Nowe semantic tokens moga miec niewystarczajacy kontrast w dark mode. |
-| **Prawdopodobienstwo** | Srednie — OKLCH jest perceptually uniform, ale opacity-based tokens (`bg-status-error/5`) moga nie dzialac na ciemnym tle |
+| **Prawdopodobienstwo** | Niskie (po decyzji o flat tokens) — kazdy status ma dedykowane wartosci light/dark. Ryzyko dotyczy glownie dobrania poprawnych OKLCH lightness values. |
 | **Impact** | Wysoki — nieczytelne alerty/badges w dark mode |
-| **Mitigation** | 1. Testowac KAZDY token w light + dark mode przed merge. 2. Uzyc narzedzia: Chrome DevTools Color Contrast checker, axe-core automated scan. 3. Dla opacity-based tokens: zdefiniowac oddzielne wartosci dla dark mode zamiast polegac na opacity. 4. Screenshot comparison light vs dark dla kazdego komponentu. |
+| **Mitigation** | 1. Flat tokens eliminuja glowne ryzyko (kazdy mode ma dedykowane wartosci). 2. Testowac KAZDY token w Chrome DevTools Color Contrast checker. 3. axe-core automated scan na Playwright. 4. Screenshot comparison light vs dark dla kazdego komponentu przed merge. |
 | **Rollback** | Zmiana CSS custom properties — natychmiastowa, zero kodu do revertowania. |
 
-**Konkretne ryzyko z opacity:**
-
-```css
-/* Problem: bg-status-error/5 na ciemnym tle jest prawie niewidoczne */
-/* Light: rgba(239,68,68,0.05) na bialym → subtlny rozowy */
-/* Dark: rgba(239,68,68,0.05) na czarnym → prawie niewidoczny */
-
-/* Rozwiazanie: dedykowane dark mode wartosci */
-.dark {
-  --color-status-error-bg: oklch(0.3 0.08 25);    /* ciemny czerwony */
-  --color-status-success-bg: oklch(0.3 0.08 145);  /* ciemny zielony */
-  --color-status-warning-bg: oklch(0.3 0.08 80);   /* ciemny zolty */
-  --color-status-info-bg: oklch(0.3 0.08 240);     /* ciemny niebieski */
-}
-```
+**Rozwiazanie zastosowane:** Flat tokens z dedykowanymi wartosciami per mode (sekcja I). Opacity-based approach odrzucony na etapie projektowania — patrz sekcja 3.1 "Decyzja architekturalna".
 
 ## Risk 3: 372 color migrations — regresja wizualna
 
@@ -2920,13 +3099,13 @@ CrudForm FieldControl (logic wrapper)
 | Risk | Prawdop. | Impact | Overall | Priorytet mitigation |
 |------|----------|--------|---------|---------------------|
 | R1: Alert/Notice breaking | Niskie | Niski | **Niski** | Deprecation path |
-| R2: Dark mode contrast | Srednie | Wysoki | **Wysoki** | Test every token |
+| R2: Dark mode contrast | Niskie (flat tokens) | Wysoki | **Sredni** | Test every token |
 | R3: Visual regression | Srednie | Sredni | **Sredni** | Per-module PR + screenshots |
 | R4: Contributor confusion | Srednie | Sredni | **Sredni** | Communication plan |
 | R5: CrudForm coupling | Niskie | Sredni | **Niski** | Shared sub-components |
 | R6: Performance | Niskie | Niski | **Niski** | CSS-only changes |
 
-**Top risk requiring immediate action:** R2 (dark mode contrast) — musi byc testowany na hackathonie ZANIM merge tokenow.
+**Top risk requiring immediate action:** R3 (visual regression przy migracji 372 kolorow) — per-module PRy ze screenshots before/after. R2 zmitigowany przez flat tokens, ale weryfikacja kontrastu w Chrome DevTools nadal obowiazkowa.
 
 ---
 
@@ -3187,8 +3366,10 @@ Trzy warianty (`tracking-wider`, `tracking-widest`, `tracking-[0.15em]`) używan
 ```bash
 #!/bin/bash
 # ds-migrate-typography.sh
+# Portable: macOS + Linux (uses perl -i -pe instead of sed -i)
 # Uruchamiać per-moduł, potem review diff
 
+set -euo pipefail
 MODULE_PATH="$1"  # np. packages/core/src/modules/customers
 
 if [ -z "$MODULE_PATH" ]; then
@@ -3198,32 +3379,30 @@ fi
 
 echo "=== Typography migration: $MODULE_PATH ==="
 
-# text-[10px] → text-xs
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-\[10px\]/text-xs/g' {} +
+# Portable in-place replace using perl (works identically on macOS and Linux)
+replace() {
+  find "$MODULE_PATH" -name "*.tsx" -exec perl -i -pe "$1" {} +
+}
+
+replace 's/text-\[10px\]/text-xs/g'
 echo "  text-[10px] → text-xs: done"
 
-# text-[11px] → text-overline
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-\[11px\]/text-overline/g' {} +
+replace 's/text-\[11px\]/text-overline/g'
 echo "  text-[11px] → text-overline: done"
 
-# text-[12px] → text-xs
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-\[12px\]/text-xs/g' {} +
+replace 's/text-\[12px\]/text-xs/g'
 echo "  text-[12px] → text-xs: done"
 
-# text-[13px] → text-sm
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-\[13px\]/text-sm/g' {} +
+replace 's/text-\[13px\]/text-sm/g'
 echo "  text-[13px] → text-sm: done"
 
-# text-[14px] → text-sm
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-\[14px\]/text-sm/g' {} +
+replace 's/text-\[14px\]/text-sm/g'
 echo "  text-[14px] → text-sm: done"
 
-# tracking-widest → tracking-wider (standaryzacja)
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/tracking-widest/tracking-wider/g' {} +
+replace 's/tracking-widest/tracking-wider/g'
 echo "  tracking-widest → tracking-wider: done"
 
-# tracking-[0.15em] → tracking-wider
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/tracking-\[0\.15em\]/tracking-wider/g' {} +
+replace 's/tracking-\[0\.15em\]/tracking-wider/g'
 echo "  tracking-[0.15em] → tracking-wider: done"
 
 echo "=== MANUAL CHECK NEEDED: text-[15px] (2 instances, contextual decision) ==="
@@ -3312,8 +3491,10 @@ echo "=== Done. Review with: git diff $MODULE_PATH ==="
 ```bash
 #!/bin/bash
 # ds-migrate-colors.sh
+# Portable: macOS + Linux (uses perl -i -pe instead of sed -i)
 # Uruchamiać per-moduł, potem review diff
 
+set -euo pipefail
 MODULE_PATH="$1"
 
 if [ -z "$MODULE_PATH" ]; then
@@ -3323,67 +3504,70 @@ fi
 
 echo "=== Color migration: $MODULE_PATH ==="
 
+# Portable in-place replace using perl
+replace() {
+  find "$MODULE_PATH" -name "*.tsx" -exec perl -i -pe "$1" {} +
+}
+
 # ═══ ERROR ═══
 for shade in 600 700 800 900; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/text-red-$shade/text-status-error-text/g" {} +
+  replace "s/text-red-$shade/text-status-error-text/g"
 done
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-red-500/text-status-error-icon/g' {} +
+replace 's/text-red-500/text-status-error-icon/g'
 for shade in 50 100; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/bg-red-$shade/bg-status-error-bg/g" {} +
+  replace "s/bg-red-$shade/bg-status-error-bg/g"
 done
 for shade in 200 300 500; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/border-red-$shade/border-status-error-border/g" {} +
+  replace "s/border-red-$shade/border-status-error-border/g"
 done
 
 # ═══ SUCCESS (green) ═══
 for shade in 500 600 700 800; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/text-green-$shade/text-status-success-text/g" {} +
+  replace "s/text-green-$shade/text-status-success-text/g"
 done
 for shade in 50 100 200; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/bg-green-$shade/bg-status-success-bg/g" {} +
+  replace "s/bg-green-$shade/bg-status-success-bg/g"
 done
 for shade in 200 300 500; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/border-green-$shade/border-status-success-border/g" {} +
+  replace "s/border-green-$shade/border-status-success-border/g"
 done
 
 # ═══ SUCCESS (emerald) ═══
 for shade in 300 600 700 800 900; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/text-emerald-$shade/text-status-success-text/g" {} +
+  replace "s/text-emerald-$shade/text-status-success-text/g"
 done
 for shade in 50 100; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/bg-emerald-$shade/bg-status-success-bg/g" {} +
+  replace "s/bg-emerald-$shade/bg-status-success-bg/g"
 done
 for shade in 200 300; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/border-emerald-$shade/border-status-success-border/g" {} +
+  replace "s/border-emerald-$shade/border-status-success-border/g"
 done
 
 # ═══ WARNING (amber) ═══
 for shade in 500 800 950; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/text-amber-$shade/text-status-warning-text/g" {} +
+  replace "s/text-amber-$shade/text-status-warning-text/g"
 done
-for shade in 50; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/bg-amber-$shade/bg-status-warning-bg/g" {} +
-done
+replace "s/bg-amber-50/bg-status-warning-bg/g"
 for shade in 200 500; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/border-amber-$shade/border-status-warning-border/g" {} +
+  replace "s/border-amber-$shade/border-status-warning-border/g"
 done
 
 # ═══ INFO (blue) ═══
 for shade in 600 700 800 900; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/text-blue-$shade/text-status-info-text/g" {} +
+  replace "s/text-blue-$shade/text-status-info-text/g"
 done
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-blue-500/text-status-info-icon/g' {} +
+replace 's/text-blue-500/text-status-info-icon/g'
 for shade in 50 100; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/bg-blue-$shade/bg-status-info-bg/g" {} +
+  replace "s/bg-blue-$shade/bg-status-info-bg/g"
 done
 for shade in 200 500; do
-  find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' "s/border-blue-$shade/border-status-info-border/g" {} +
+  replace "s/border-blue-$shade/border-status-info-border/g"
 done
 
 # ═══ INFO (sky — used in Alert component) ═══
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/text-sky-900/text-status-info-text/g' {} +
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/border-sky-600\/30/border-status-info-border/g' {} +
-find "$MODULE_PATH" -name "*.tsx" -exec sed -i '' 's/bg-sky-500\/10/bg-status-info-bg/g' {} +
+replace 's/text-sky-900/text-status-info-text/g'
+replace 's/border-sky-600\/30/border-status-info-border/g'
+replace 's/bg-sky-500\/10/bg-status-info-bg/g'
 
 echo "=== MANUAL REVIEW NEEDED ==="
 echo "  Check: bg-red-600, bg-emerald-500, bg-emerald-600, bg-blue-600"
@@ -3512,48 +3696,62 @@ const severityColors = {
 
 ## J.4 Kolejność operacji na hackathonie
 
-**Timing:** PT 11.04.2026 9:00 – SO 12.04.2026 11:00 (~18h roboczych)
+**Timing:** PT 11.04.2026 9:00 – SO 12.04.2026 11:00 (~13h pracy + ~5h bufor)
+
+Zsynchronizowany z sekcja B. Szczegolowy step-by-step:
 
 ```
 PIĄTEK 9:00–12:00 (BLOK 1 — Foundations):
-  1. Dodaj CSS custom properties (sekcja I — token values) do globals.css
-  2. Dodaj @theme inline mappings
-  3. Dodaj text-overline token
-  4. Zweryfikuj contrast w Chrome DevTools (light + dark)
+  1. Dodaj 20+20 CSS custom properties (flat tokens, light + dark) do globals.css
+  2. Dodaj @theme inline mappings (--color-status-*-* → var(--status-*-*))
+  3. Dodaj text-overline token (--font-size-overline: 0.6875rem)
+  4. Zweryfikuj contrast w Chrome DevTools (light + dark) — 5 statusów × 2 tryby
   5. Udokumentuj typography scale + spacing guidelines
+  6. yarn lint && yarn typecheck
   → Commit: "feat(ds): add semantic status tokens and text-overline"
 
 PIĄTEK 13:00–17:00 (BLOK 2 — Migracja primitives):
-  6. Zamień Alert CVA variants na semantic tokens (alert.tsx — 4 linie)
-  7. Zamień Notice colors na semantic tokens + dodaj deprecation (Notice.tsx)
-  8. Zamień FlashMessages colors (FlashMessages.tsx)
-  9. Zamień Notification severity colors
-  10. Dodaj Badge status variants (badge.tsx)
-  11. Zmigruj CrudForm FieldControl colors (text-red-600 → text-destructive)
+  7. Zamień Alert CVA variants na flat semantic tokens (alert.tsx — 4 linie)
+  8. Zamień Notice colors na flat tokens + dodaj deprecation (Notice.tsx)
+  9. Zamień FlashMessages colors (FlashMessages.tsx)
+  10. Zamień Notification severity colors
+  11. Dodaj Badge status variants: success, warning, info (badge.tsx)
+  12. Zmigruj CrudForm FieldControl colors (text-red-600 → text-destructive)
+  13. yarn lint && yarn typecheck && yarn test
   → Commit: "refactor(ds): migrate all primitives to semantic status tokens"
 
-PIĄTEK 18:00–21:00 (BLOK 3 — Nowe komponenty):
-  12. Stwórz FormField component (packages/ui/src/primitives/form-field.tsx)
-  13. Stwórz StatusBadge component (packages/ui/src/primitives/status-badge.tsx)
-  14. Stwórz SectionHeader/Section (packages/ui/src/backend/Section.tsx)
-  → Commit: "feat(ds): add FormField, StatusBadge, Section components"
+PIĄTEK 18:00–20:00 (BLOK 3 — Nowe komponenty):
+  14. Stwórz FormField (packages/ui/src/primitives/form-field.tsx) z labelVariant
+  15. Stwórz StatusBadge (packages/ui/src/primitives/status-badge.tsx) — renderuje Badge
+  16. Stretch: Section/SectionHeader (packages/ui/src/backend/Section.tsx)
+  17. yarn lint && yarn typecheck
+  → Commit: "feat(ds): add FormField, StatusBadge components"
 
-PIĄTEK 21:00–23:00 (BLOK 4 — Migracja customers):
-  15. Uruchom ds-migrate-colors.sh na packages/core/src/modules/customers/
-  16. Uruchom ds-migrate-typography.sh na tym samym module
-  17. Manual review + fix edge cases + screenshots
+PIĄTEK 20:00–21:00: PRZERWA / BUFOR
+
+PIĄTEK 21:00–22:00 (BLOK 4 — Dokumentacja):
+  18. Napisz Design Principles — skrócona wersja do README
+  19. Napisz PR Review Checklist
+  20. Zdefiniuj z-index scale + border-radius guidelines
+  → Commit: "docs(ds): add principles, PR review checklist, guidelines"
+
+SOBOTA 8:00–10:00 (BLOK 5 — Migracja customers):
+  21. Uruchom ds-migrate-colors.sh na packages/core/src/modules/customers/
+  22. Uruchom ds-migrate-typography.sh na tym samym module
+  23. Manual review + fix edge cases + screenshots before/after
+  24. yarn lint && yarn typecheck && yarn test
   → Commit: "refactor(ds): migrate customers module to DS tokens"
 
-SOBOTA 8:00–11:00 (BLOK 5 — Dokumentacja + Wrap-up):
-  18. Napisz Design Principles doc + PR Review Checklist
-  19. Zaktualizuj AGENTS.md z DS rules
-  20. Zaktualizuj PR template z DS compliance checkboxami
-  21. Zdefiniuj z-index scale + border-radius guidelines
-  22. Uruchom ds-health-check.sh — zapisz baseline
-  → Commit: "docs(ds): add principles, update AGENTS.md and PR template"
+SOBOTA 10:00–11:00 (BLOK 6 — Wrap-up):
+  25. Zaktualizuj AGENTS.md z DS rules
+  26. Zaktualizuj PR template z DS compliance checkboxami
+  27. Uruchom ds-health-check.sh — zapisz baseline do .ai/reports/
+  28. Final yarn lint && yarn typecheck
+  → Commit: "docs(ds): update AGENTS.md, PR template, baseline report"
 ```
 
-**Bufor:** ~3h na edge case'y, dark mode debugging, niespodzianki.
+**Bufor:** ~5h na edge case'y, Section component (jeśli nie zmieścił się w B3), dark mode fine-tuning.
+**Cut lines:** Patrz sekcja B.1 — MUST HAVE to Bloki 1+2 (8h).
 
 ---
 
