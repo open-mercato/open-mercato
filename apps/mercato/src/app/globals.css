@@ -48,6 +48,8 @@ TODO: Fix that latter to have reference by the package names
   --color-secondary: var(--secondary);
   --color-primary-foreground: var(--primary-foreground);
   --color-primary: var(--primary);
+  --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-foreground: var(--brand-violet-foreground);
   --color-popover-foreground: var(--popover-foreground);
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
@@ -69,6 +71,8 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
+  --brand-violet: oklch(0.55 0.2 293);
+  --brand-violet-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -115,6 +119,8 @@ TODO: Fix that latter to have reference by the package names
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
+  --brand-violet: oklch(0.65 0.2 293);
+  --brand-violet-foreground: oklch(0.985 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -329,4 +335,9 @@ TODO: Fix that latter to have reference by the package names
 /* Conic gradient for AI dot */
 .bg-gradient-conic {
   background: conic-gradient(from 0deg, var(--tw-gradient-stops));
+}
+
+/* Hide floating demo feedback button while the column chooser panel is open */
+body[data-column-chooser-open="true"] .om-demo-feedback-floating {
+  display: none !important;
 }
