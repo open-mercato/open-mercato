@@ -81,15 +81,14 @@ type ResolvedValueDisplay = {
 
 type RelationOptionsMetadata = {
   entityId: string
-  labelField?: string
 }
 
-type EntityRecordsResponse = {
-  items?: Array<Record<string, unknown>>
-  total?: number
-  page?: number
-  pageSize?: number
-  totalPages?: number
+type RelationOptionsResponse = {
+  items?: Array<{
+    value?: unknown
+    label?: unknown
+    routeContext?: Record<string, unknown>
+  }>
 }
 
 function normalizeTextValue(input: unknown): string | null {
@@ -164,43 +163,6 @@ function readRecordValue(record: Record<string, unknown>, field: string): string
   return normalizeTextValue(record[camel])
 }
 
-function buildRelationLabel(record: Record<string, unknown>, labelField?: string): string | null {
-  if (labelField) {
-    const explicit = readRecordValue(record, labelField)
-    if (explicit) return explicit
-  }
-
-  const labelCandidates = [
-    'label',
-    'title',
-    'name',
-    'display_name',
-    'displayName',
-    'subject',
-    'sku',
-    'handle',
-    'order_number',
-    'quote_number',
-    'invoice_number',
-    'email',
-    'company_name',
-    'legal_name',
-    'brand_name',
-  ]
-
-  for (const candidate of labelCandidates) {
-    const value = readRecordValue(record, candidate)
-    if (value) return value
-  }
-
-  const fullName = [readRecordValue(record, 'first_name'), readRecordValue(record, 'last_name')]
-    .filter((part): part is string => typeof part === 'string' && part.length > 0)
-    .join(' ')
-    .trim()
-
-  return fullName.length ? fullName : null
-}
-
 function parseRelationOptionsMetadata(optionsUrl?: string): RelationOptionsMetadata | null {
   if (!optionsUrl) return null
   try {
@@ -209,11 +171,34 @@ function parseRelationOptionsMetadata(optionsUrl?: string): RelationOptionsMetad
     if (!url.pathname.endsWith('/api/entities/relations/options')) return null
     const entityId = url.searchParams.get('entityId')?.trim()
     if (!entityId) return null
-    const labelField = url.searchParams.get('labelField')?.trim() || undefined
-    return { entityId, labelField }
+    return { entityId }
   } catch {
     return null
   }
+}
+
+function getRelationHrefContextFields(entityId: string): string[] {
+  const trimmedEntityId = entityId.trim()
+  if (!trimmedEntityId) return []
+
+  const knownEntityIds = getEntityIds(false)
+  const customers = knownEntityIds.customers ?? {}
+  const catalog = knownEntityIds.catalog ?? {}
+
+  if (trimmedEntityId === customers.customer_entity) {
+    return ['kind']
+  }
+  if (
+    trimmedEntityId === customers.customer_person_profile
+    || trimmedEntityId === customers.customer_company_profile
+  ) {
+    return ['entity_id']
+  }
+  if (trimmedEntityId === catalog.catalog_product_variant) {
+    return ['product_id']
+  }
+
+  return []
 }
 
 function buildRelationHref(entityId: string, recordId: string, record?: Record<string, unknown>): string | undefined {
@@ -295,12 +280,40 @@ function buildRelationHref(entityId: string, recordId: string, record?: Record<s
   return undefined
 }
 
+function buildRelationLookupUrl(
+  optionsUrl: string,
+  recordIds: string[],
+  routeContextFields: string[] = [],
+): string | null {
+  if (!recordIds.length) return null
+  try {
+    const isAbsolute = /^([a-z][a-z\d+\-.]*:)?\/\//i.test(optionsUrl)
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+    const url = isAbsolute ? new URL(optionsUrl) : new URL(optionsUrl, origin)
+    url.searchParams.set('ids', recordIds.join(','))
+    if (routeContextFields.length > 0) {
+      url.searchParams.set('routeContextFields', routeContextFields.join(','))
+    }
+    if (isAbsolute) return url.toString()
+    return `${url.pathname}${url.search}`
+  } catch {
+    const sep = optionsUrl.includes('?') ? '&' : '?'
+    const params = [`ids=${encodeURIComponent(recordIds.join(','))}`]
+    if (routeContextFields.length > 0) {
+      params.push(`routeContextFields=${encodeURIComponent(routeContextFields.join(','))}`)
+    }
+    return `${optionsUrl}${sep}${params.join('&')}`
+  }
+}
+
 async function fetchRelationRecordDisplays(
+  optionsUrl: string,
   relation: RelationOptionsMetadata,
   recordIds: string[],
 ): Promise<Record<string, ResolvedValueDisplay>> {
   const displays: Record<string, ResolvedValueDisplay> = {}
   if (!recordIds.length) return displays
+  const routeContextFields = getRelationHrefContextFields(relation.entityId)
 
   const uniqueIds = Array.from(new Set(recordIds.map((entry) => entry.trim()).filter((entry) => entry.length > 0)))
   const chunks: string[][] = []
@@ -309,16 +322,19 @@ async function fetchRelationRecordDisplays(
   }
 
   for (const chunk of chunks) {
-    const params = new URLSearchParams({
-      entityId: relation.entityId,
-      id: chunk.join(','),
-      page: '1',
-      pageSize: String(chunk.length),
-      sortField: 'id',
-      sortDir: 'asc',
-    })
-    const response = await readApiResultOrThrow<EntityRecordsResponse>(
-      `/api/entities/records?${params.toString()}`,
+    const url = buildRelationLookupUrl(optionsUrl, chunk, routeContextFields)
+    if (!url) {
+      chunk.forEach((recordId) => {
+        displays[recordId] = {
+          label: recordId,
+          href: buildRelationHref(relation.entityId, recordId),
+        }
+      })
+      continue
+    }
+
+    const response = await readApiResultOrThrow<RelationOptionsResponse>(
+      url,
       undefined,
       {
         errorMessage: 'Failed to resolve relation values',
@@ -326,13 +342,28 @@ async function fetchRelationRecordDisplays(
       },
     )
     const items = Array.isArray(response?.items) ? response.items : []
-    items.forEach((record) => {
-      const recordId = readRecordValue(record, 'id')
+    const resolvedIds = new Set<string>()
+
+    items.forEach((item) => {
+      const recordId = normalizeTextValue(item?.value)
       if (!recordId) return
-      const label = buildRelationLabel(record, relation.labelField) ?? recordId
+      resolvedIds.add(recordId)
+      const label = normalizeTextValue(item?.label) ?? recordId
+      const routeContext =
+        item?.routeContext && typeof item.routeContext === 'object' && !Array.isArray(item.routeContext)
+          ? item.routeContext
+          : undefined
       displays[recordId] = {
         label,
-        href: buildRelationHref(relation.entityId, recordId, record),
+        href: buildRelationHref(relation.entityId, recordId, routeContext),
+      }
+    })
+
+    chunk.forEach((recordId) => {
+      if (resolvedIds.has(recordId) || displays[recordId]) return
+      displays[recordId] = {
+        label: recordId,
+        href: buildRelationHref(relation.entityId, recordId),
       }
     })
   }
@@ -780,11 +811,16 @@ function CustomDataSectionImpl({
               }
             }
 
-            const unresolvedIds = relationIds.filter((relationId) => !displays[relationId])
             const relation = parseRelationOptionsMetadata(definition.optionsUrl)
+            const needsRouteContext = relation ? getRelationHrefContextFields(relation.entityId).length > 0 : false
+            const unresolvedIds = relationIds.filter((relationId) => {
+              const display = displays[relationId]
+              if (!display) return true
+              return needsRouteContext && !display.href
+            })
             if (relation && unresolvedIds.length) {
               try {
-                const fetchedDisplays = await fetchRelationRecordDisplays(relation, unresolvedIds)
+                const fetchedDisplays = await fetchRelationRecordDisplays(definition.optionsUrl!, relation, unresolvedIds)
                 Object.assign(displays, fetchedDisplays)
               } catch {
                 unresolvedIds.forEach((relationId) => {
