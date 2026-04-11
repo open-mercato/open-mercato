@@ -1,15 +1,17 @@
 import { expect, test } from '@playwright/test'
 import {
+  configureVirtualWebAuthn,
   createAdminApiToken,
   createUserFixture,
   deleteUserFixture,
-  enrollPasskey,
-  fetchJson,
-  loginViaApi,
-  setAuthCookie,
-  verifyPasskeyChallenge,
+  loginWithCredentials,
+  logout,
 } from './helpers/securityFixtures'
 
+/**
+ * TC-SEC-004: Passkey enrollment and MFA login
+ * Source: .ai/qa/scenarios/TC-SEC-004-passkey-enrollment-and-login.md
+ */
 test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
   let adminToken: string
   let userId: string | null = null
@@ -27,45 +29,51 @@ test.describe('TC-SEC-004: Passkey enrollment and MFA login', () => {
     await deleteUserFixture(request, adminToken ?? null, userId)
   })
 
-  test('shows the passkey provider UI and completes the simplified passkey contract', async ({ request, page, browserName }) => {
-    test.skip(browserName !== 'chromium', 'Passkey coverage is only exercised on Chromium in this suite.')
+  test('enrolls a passkey from the security profile and completes a later MFA login with the same credential', async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'Passkey coverage requires Chromium so the test can provision a virtual authenticator.')
 
-    const firstLogin = await loginViaApi(request, userEmail, userPassword)
-    const userToken = firstLogin.token
+    const firstLoginState = await loginWithCredentials(page, userEmail, userPassword)
+    expect(firstLoginState).toBe('backend')
 
-    await setAuthCookie(page, userToken)
     await page.goto('/backend/profile/security/mfa')
-    await expect(page.getByRole('button', { name: /Security keys/ })).toBeVisible()
+    const securityKeysButton = page.getByRole('button', { name: /Security keys/i })
+    await expect(securityKeysButton).toBeVisible()
+    await securityKeysButton.click()
 
-    await page.goto('/backend/profile/security/mfa/passkey')
-    const browserHasWebAuthn = await page.evaluate(() => typeof window.PublicKeyCredential !== 'undefined')
-    test.skip(!browserHasWebAuthn, 'WebAuthn is unavailable in the current runtime.')
+    await expect(page).toHaveURL(/\/backend\/profile\/security\/mfa\/passkey$/)
+    await expect(page.getByPlaceholder(/Enter a nickname for this security key/i)).toBeVisible()
 
-    await expect(page.getByRole('button', { name: 'Add' })).toBeVisible()
+    const webauthn = await configureVirtualWebAuthn(page)
+    test.skip(!webauthn.supported, webauthn.reason ?? 'WebAuthn is unavailable in the current runtime.')
 
-    const enrollment = await enrollPasskey(request, userToken)
-    expect(enrollment.credentialId).toContain('qa-passkey')
+    try {
+      const passkeyLabel = `QA passkey ${Date.now()}`
+      await page.getByPlaceholder(/Enter a nickname for this security key/i).fill(passkeyLabel)
+      await page.getByRole('button', { name: /^Add$/i }).click()
 
-    const methodsResponse = await fetchJson<{ methods: Array<{ type: string }> }>(
-      request,
-      'GET',
-      '/api/security/mfa/methods',
-      { token: userToken },
-    )
-    expect(methodsResponse.status).toBe(200)
-    expect(methodsResponse.body.methods.map((method) => method.type)).toContain('passkey')
+      await expect(page.getByText('Passkey enabled.')).toBeVisible()
+      await expect(page.getByText(passkeyLabel)).toBeVisible()
 
-    const pendingLogin = await loginViaApi(request, userEmail, userPassword)
-    expect(pendingLogin.available_methods?.map((method) => method.type)).toContain('passkey')
+      await page.goto('/backend/profile/security/mfa')
+      await expect(securityKeysButton).toBeVisible()
+      await expect(securityKeysButton).toContainText('1 key')
 
-    const verifyResponse = await verifyPasskeyChallenge(
-      request,
-      pendingLogin.token,
-      pendingLogin.challenge_id as string,
-      enrollment.credentialId,
-    )
-    expect(verifyResponse.status).toBe(200)
-    expect(verifyResponse.body.ok).toBe(true)
-    expect(verifyResponse.body.redirect).toBe('/backend')
+      await logout(page)
+
+      const secondLoginState = await loginWithCredentials(page, userEmail, userPassword)
+      expect(secondLoginState).toBe('mfa')
+
+      const challengePanel = page.getByTestId('security-mfa-challenge-panel')
+      await expect(challengePanel).toBeVisible()
+
+      const verifyWithPasskeyButton = page.getByRole('button', { name: /Verify with passkey|Use passkey/i })
+      await expect(verifyWithPasskeyButton).toBeVisible()
+      await verifyWithPasskeyButton.click()
+
+      await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout: 10_000 })
+      await expect(page).toHaveURL(/\/backend(?:\/.*)?$/)
+    } finally {
+      await webauthn.cleanup()
+    }
   })
 })
