@@ -86,12 +86,9 @@ npx create-mercato-app my-store --skip-agentic-setup
    ```
    If you need to reset and initialize from scratch instead:
    ```bash
-   yarn setup --reinstall
-   ```
-   Alias:
-   ```bash
    yarn setup:reinstall
    ```
+   Do not use `yarn setup --reinstall`; the template exposes the reinstall flow as the `setup:reinstall` script. You can also run `yarn reinstall` when you only need the underlying `mercato init --reinstall` command.
 
 3. Manual alternative if you want to edit the environment first:
    ```bash
@@ -140,6 +137,28 @@ npx create-mercato-app my-store --skip-agentic-setup
    docker compose -f docker-compose.fullapp.yml up --build
    ```
    Run `cp .env.example .env` and `yarn install` before either Docker command. Skipping those preparation steps can cause the stack to fail during startup.
+
+## Existing Standalone App Checkout
+
+Use this path when you cloned or copied an existing standalone app repository instead of creating a new app with `npx create-mercato-app`:
+
+```bash
+cd path/to/existing-standalone-app
+cp .env.example .env
+# Edit .env - set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
+docker compose up -d
+yarn install
+yarn setup:reinstall
+yarn dev
+```
+
+If the app already has a valid database and tenant and you only need to apply new migrations:
+
+```bash
+yarn db:migrate
+yarn generate
+yarn dev
+```
 
 ## After Importing A Ready App
 

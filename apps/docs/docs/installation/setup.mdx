@@ -12,7 +12,7 @@ If you want to build a production app without cloning the monorepo, use [`create
 :::
 
 :::tip Windows users
-If you are on **Windows**, skip the native setup and jump straight to the [Docker development setup](#docker-development-setup) below. It runs the entire stack — app, database, Redis, and search — inside containers, so you don't need Node.js, Yarn, or native build tools installed on your machine. This is also a great option for any platform where you prefer a fully containerized workflow.
+If you are on **Windows**, the recommended day-to-day path is [Windows native local development](#windows-native-local-development): use Docker Desktop for PostgreSQL, Redis, and Meilisearch, then run the app with native Yarn commands. The full Docker development setup remains available when you want a fully containerized workflow, but it can be slower on Windows/WSL for a large Node.js monorepo with many watched files.
 :::
 
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
@@ -49,7 +49,7 @@ Continue with the develop setup steps below.
 
 ### Docker-based setup (all platforms)
 
-Use this track if you want to run the **entire stack inside Docker** with hot reload — no local Node.js or Yarn required. This is the **recommended path for Windows** and works on macOS/Linux too.
+Use this track if you want to run the **entire stack inside Docker** with hot reload - no local Node.js or Yarn required. This is useful for fully containerized or CI-like workflows and works on Windows, macOS, and Linux. For day-to-day Windows development, prefer [Windows native local development](#windows-native-local-development).
 
 See the [full Docker Development Setup](#docker-development-setup) section below for step-by-step instructions.
 
@@ -66,7 +66,7 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    docker compose up -d
    ```
-   This starts PostgreSQL 15 with pgvector and Redis 7. The pgvector extension is automatically installed, enabling vector search features.
+   This starts the local service stack, including PostgreSQL with pgvector, Redis, and Meilisearch. The pgvector extension is automatically installed, enabling vector search features.
 
 3. **Install workspace dependencies**
    ```bash
@@ -98,6 +98,80 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    yarn dev
    ```
    `yarn dev` starts the compact development runtime. On native local runs it serves a startup splash screen with live progress on `http://localhost:4000` by default, auto-opens that page when possible, and prints the backend URL in the terminal. Once the runtime is ready, continue to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+## Windows native local development
+
+This is the preferred Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but it can be slower on Windows/WSL because a large Node.js monorepo with bind-mounted source files does many watched file reads across the Windows/Linux filesystem boundary.
+
+### Prerequisites
+
+- **Node.js 24+** - required by the monorepo runtime.
+- **Yarn via Corepack**:
+  ```powershell
+  corepack enable
+  corepack prepare yarn@stable --activate
+  ```
+- **Git** - required by the optional optimizer for global Git settings.
+- **Docker Desktop with WSL 2 backend** - for PostgreSQL, Redis, and Meilisearch.
+
+### Monorepo flow
+
+Start only infrastructure services from the repository root:
+
+```powershell
+docker compose up -d
+```
+
+The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+
+Optionally run the Windows optimizer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-optimize.ps1
+```
+
+The optimizer shows a plan, asks whether to relaunch itself as Administrator, then opens a new elevated PowerShell window if you accept. Continue in the elevated window: it shows the plan again and asks for confirmation before applying changes. Close the original non-elevated window and restart your development terminal after the optimizer completes so user-level `NODE_OPTIONS` changes take effect.
+
+The optimizer does not disable Microsoft Defender globally. It adds only the listed path exclusions (project root, Node/Yarn/pnpm/turbo user directories, and `C:\Program Files\nodejs`) and process exclusions (`node.exe`, `yarn.js`, `turbo.exe`). It also enables Windows long paths, sets global Git config values (`core.longpaths`, `core.autocrlf`, `core.eol`, `core.fscache`, `core.preloadindex`), appends `--max-old-space-size=4096` to user-level `NODE_OPTIONS` when no max-old-space-size flag is present, and creates `.mercato\windows-optimize-state.json` once for rollback.
+
+Continue with the normal monorepo setup:
+
+```powershell
+yarn install
+yarn build:packages
+yarn generate
+yarn initialize
+yarn dev
+```
+
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps.
+
+For an existing database where you only need to apply new migrations:
+
+```powershell
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+### Roll back the optional optimizer
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-rollback.ps1
+```
+
+Rollback reads `.mercato\windows-optimize-state.json`, preserves Defender exclusions that existed before optimization, removes only newly added exclusions, restores the captured `LongPathsEnabled`, global Git config, and user-level `NODE_OPTIONS` values, and deletes the state file after a completed rollback. If the state file is absent, rollback exits with an error instead of guessing. Restart your terminal after rollback so environment variable changes take effect.
+
+### Optional Windows cleanup scripts
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-generated-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-packages-windows.ps1
+```
+
+Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
+
+Use `clean-packages-windows.ps1` for a deeper dependency/build reset. It stops repo-scoped `esbuild`/`turbo` processes, removes `node_modules`, `dist`, `*.tsbuildinfo`, `.yarn\cache`, and `.yarn\install-state.gz`, then you should run `yarn install` again.
 
 ### Native dev runtime splash screen
 
@@ -175,7 +249,7 @@ docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname
 
 ## Docker Development Setup
 
-Run the entire Open Mercato stack inside Docker **with hot reload**. Source code is mounted from the host so every file change is picked up automatically — no local Node.js, Yarn, or native build tools required. This is the **recommended setup for Windows** and a convenient option on any OS.
+Run the entire Open Mercato stack inside Docker **with hot reload**. Source code is mounted from the host so every file change is picked up automatically - no local Node.js, Yarn, or native build tools required. This is convenient when you want a fully containerized environment. On Windows, [native local development](#windows-native-local-development) is usually faster for day-to-day work because it avoids bind-mounted monorepo file I/O.
 
 ### Prerequisites
 
@@ -186,9 +260,9 @@ Run the entire Open Mercato stack inside Docker **with hot reload**. Source code
 
 :::info Windows-specific notes
 - Use **Git Bash**, **PowerShell**, or **Windows Terminal** for running commands.
-- When cloning the repo, make sure Git preserves line endings for shell scripts:
+- When cloning the repo, keep Git from rewriting line endings:
   ```bash
-  git config --global core.autocrlf input
+  git config --global core.autocrlf false
   ```
 - In Docker Desktop, ensure **WSL 2 backend** is enabled (Settings → General → "Use the WSL 2 based engine"). This is required for volume mounts and file watching to work correctly.
 :::
