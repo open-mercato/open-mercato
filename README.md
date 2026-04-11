@@ -249,6 +249,90 @@ yarn db:migrate
 
 Note: `yarn initialize` seeds demo data and may abort if users already exist. For upgrades on an existing database, use `yarn db:migrate` instead.
 
+### Windows local development
+
+On Windows, the fastest reliable workflow is usually **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains useful when you want an isolated, fully containerized environment, but it can be slower for day-to-day work because this repository is a large Node.js monorepo and bind-mounted file watching across the Windows/WSL filesystem boundary has high file I/O overhead.
+
+Prerequisites:
+
+- **Node.js 24+**
+- **Yarn via Corepack**
+- **Git**
+- **Docker Desktop with WSL 2 backend enabled**
+- **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
+
+One-time setup:
+
+```powershell
+corepack enable
+corepack prepare yarn@stable --activate
+git config --global core.autocrlf false
+```
+
+On a fresh Windows machine, install the Visual C++ toolchain before `yarn install`. Some dependencies include native modules and will fail during install without it:
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+```
+
+After the install finishes, open a new terminal and continue with the monorepo setup.
+
+From the monorepo root, start only infrastructure services:
+
+```powershell
+docker compose up -d
+```
+
+The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+
+You may then run the optional Windows optimizer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-optimize.ps1
+```
+
+The optimizer shows a plan first, then asks whether to relaunch itself as Administrator. If you accept, a new elevated PowerShell window opens, shows the same plan again, and asks for execution confirmation before applying changes. Close the original non-elevated window after the optimizer completes.
+
+The optimizer does not disable Microsoft Defender globally. It only adds a Defender exclusion for the current project root and saves rollback state once to `.mercato\windows-optimize-state.json`.
+
+Then continue with the monorepo setup:
+
+```powershell
+yarn install
+yarn build:packages
+yarn generate
+yarn initialize
+yarn dev
+```
+
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps created by `create-mercato-app`.
+
+For an existing database where you only need to apply new migrations:
+
+```powershell
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+To roll back the optional Windows optimizer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-rollback.ps1
+```
+
+Rollback reads `.mercato\windows-optimize-state.json`, preserves Defender exclusions that existed before optimization, removes only exclusions the optimizer added, restores the captured Git, long-paths, and user-level `NODE_OPTIONS` values, and deletes the state file after a completed rollback. If the state file is absent, rollback exits with an error instead of guessing. Restart your terminal after rollback so environment variable changes take effect.
+
+Optional Windows cleanup scripts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-generated-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-packages-windows.ps1
+```
+
+Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato/generated`, `.mercato/next`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
+
+Use `clean-packages-windows.ps1` for a deeper dependency/build reset. It stops repo-scoped `esbuild`/`turbo` processes, removes `node_modules`, `dist`, `*.tsbuildinfo`, `.yarn\cache`, and `.yarn\install-state.gz`, then you should run `yarn install` again.
 For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
 
 ```bash
