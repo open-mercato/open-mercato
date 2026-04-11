@@ -1,5 +1,5 @@
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createProgressService } from './lib/progressServiceImpl'
 
 export function register(container: AppContainer) {
