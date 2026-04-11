@@ -9,6 +9,7 @@
 import { test, expect } from '@playwright/test'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import {
   detectConflicts,
@@ -23,6 +24,8 @@ type CliFixture = {
   binPath: string
 }
 
+const requireModule = createRequire(import.meta.url)
+
 function findProjectRoot(): string {
   let dir = process.cwd()
   for (let i = 0; i < 10; i++) {
@@ -34,6 +37,11 @@ function findProjectRoot(): string {
 
 const ROOT = findProjectRoot()
 
+function resolvePackageRoot(packageName: string): string {
+  const entryPath = requireModule.resolve(packageName)
+  return path.dirname(path.dirname(entryPath))
+}
+
 function createStandaloneCliFixture(): CliFixture {
   const fixtureRoot = path.join(ROOT, '.tmp', `umes-cli-fixture-${process.pid}-${Date.now()}`)
   const packageRoot = path.join(fixtureRoot, 'node_modules', '@open-mercato')
@@ -44,10 +52,11 @@ function createStandaloneCliFixture(): CliFixture {
   fs.mkdirSync(path.join(exampleRoot, 'widgets'), { recursive: true })
 
   for (const pkg of ['cli', 'core', 'shared']) {
+    const sourceRoot = resolvePackageRoot(`@open-mercato/${pkg}`)
     const targetRoot = path.join(packageRoot, pkg)
     fs.mkdirSync(targetRoot, { recursive: true })
-    fs.cpSync(path.join(ROOT, 'packages', pkg, 'dist'), path.join(targetRoot, 'dist'), { recursive: true })
-    fs.copyFileSync(path.join(ROOT, 'packages', pkg, 'package.json'), path.join(targetRoot, 'package.json'))
+    fs.cpSync(path.join(sourceRoot, 'dist'), path.join(targetRoot, 'dist'), { recursive: true })
+    fs.copyFileSync(path.join(sourceRoot, 'package.json'), path.join(targetRoot, 'package.json'))
   }
 
   fs.writeFileSync(
