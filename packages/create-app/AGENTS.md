@@ -14,6 +14,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 8. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`) and MUST NOT rewrite package versions, source files, or inject agentic setup files
 9. **MUST skip the interactive agentic wizard for imported ready apps** — imported snapshots stay repo-owned; any agentic tooling must be added later via a deliberate manual command inside the generated app
 10. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
+11. **MUST preserve template `__integration__` directories when scaffolding** — standalone app QA coverage depends on copying module-local Playwright tests into `src/modules/`
 
 ## Standalone App vs Monorepo
 
