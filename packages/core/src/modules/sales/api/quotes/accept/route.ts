@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -24,11 +25,16 @@ export const metadata = {
 export async function POST(req: Request) {
   try {
     const { token } = quoteAcceptSchema.parse(await req.json().catch(() => ({})))
+    const auth = await getAuthFromRequest(req)
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
 
-    const quote = await em.findOne(SalesQuote, { acceptanceToken: token, deletedAt: null })
+    const quote = await em.findOne(SalesQuote, {
+      acceptanceToken: token,
+      ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
+      deletedAt: null,
+    } as any)
     if (!quote) {
       throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
     }
