@@ -3,6 +3,14 @@ import { PROGRESS_EVENTS } from '../lib/events'
 import { calculateEta, calculateProgressPercent } from '../lib/progressService'
 import type { ProgressJob } from '../data/entities'
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
+}))
+
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+
 const baseCtx = {
   tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e',
   organizationId: null,
@@ -24,6 +32,7 @@ const buildEm = () => {
 describe('progress service', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockFindOneWithDecryption.mockReset()
   })
 
   it('createJob — creates entity, persists, emits JOB_CREATED', async () => {
@@ -361,13 +370,14 @@ describe('progress service', () => {
       tenantId: baseCtx.tenantId,
       cancelRequestedAt: new Date(),
     } as unknown as ProgressJob
-    em.findOne.mockResolvedValue(job)
+    mockFindOneWithDecryption.mockResolvedValue(job)
 
     const service = createProgressService(em as never, eventBus)
     const result = await service.isCancellationRequested('job-1', baseCtx.tenantId)
 
     expect(result).toBe(true)
-    expect(em.findOne).toHaveBeenCalledWith(
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      em,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId })
     )
@@ -377,13 +387,14 @@ describe('progress service', () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
 
-    em.findOne.mockResolvedValue(null)
+    mockFindOneWithDecryption.mockResolvedValue(null)
 
     const service = createProgressService(em as never, eventBus)
     const result = await service.isCancellationRequested('job-1', 'other-tenant-id')
 
     expect(result).toBe(false)
-    expect(em.findOne).toHaveBeenCalledWith(
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      em,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: 'other-tenant-id' })
     )
@@ -398,7 +409,7 @@ describe('progress service', () => {
       tenantId: baseCtx.tenantId,
       cancelRequestedAt: null,
     } as unknown as ProgressJob
-    em.findOne.mockResolvedValue(job)
+    mockFindOneWithDecryption.mockResolvedValue(job)
 
     const service = createProgressService(em as never, eventBus)
     const result = await service.isCancellationRequested('job-1', baseCtx.tenantId)
