@@ -4,7 +4,7 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { Message, MessageAccessToken, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 
-const MAX_TOKEN_USE_COUNT = 25
+export const MAX_TOKEN_USE_COUNT = 25
 
 const consumeTokenSchema = z.object({
   token: z.string().min(1),

@@ -1,18 +1,105 @@
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
+import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Message, MessageObject } from '../../../data/entities'
+import { Message, MessageAccessToken, MessageObject, MessageRecipient } from '../../../data/entities'
+import { MAX_TOKEN_USE_COUNT } from '../../../commands/tokens'
 import { messageTokenResponseSchema } from '../../openapi'
 
 export const metadata = {
   GET: { requireAuth: false },
 }
 
-export async function GET(_req: Request, { params }: { params: { token: string } }) {
+type TokenAccess = {
+  message: Message
+  recipientUserId: string
+}
+
+function responseForTokenError(error: unknown): Response | null {
+  if (!(error instanceof Error)) return null
+  if (error.message === 'Invalid or expired link') {
+    return Response.json({ error: 'Invalid or expired link' }, { status: 404 })
+  }
+  if (error.message === 'This link has expired') {
+    return Response.json({ error: 'This link has expired' }, { status: 410 })
+  }
+  if (error.message === 'This link can no longer be used') {
+    return Response.json({ error: 'This link can no longer be used' }, { status: 409 })
+  }
+  if (error.message === 'Message not found') {
+    return Response.json({ error: 'Message not found' }, { status: 404 })
+  }
+  return null
+}
+
+async function resolveTokenAccess(em: EntityManager, token: string): Promise<TokenAccess> {
+  const accessToken = await em.findOne(MessageAccessToken, { token })
+  if (!accessToken) {
+    throw new Error('Invalid or expired link')
+  }
+  if (accessToken.expiresAt < new Date()) {
+    throw new Error('This link has expired')
+  }
+  if (accessToken.useCount >= MAX_TOKEN_USE_COUNT) {
+    throw new Error('This link can no longer be used')
+  }
+
+  const message = await em.findOne(Message, {
+    id: accessToken.messageId,
+    deletedAt: null,
+  })
+  if (!message) {
+    throw new Error('Message not found')
+  }
+
+  const recipient = await em.findOne(MessageRecipient, {
+    messageId: accessToken.messageId,
+    recipientUserId: accessToken.recipientUserId,
+    deletedAt: null,
+  })
+  if (!recipient) {
+    throw new Error('Invalid or expired link')
+  }
+
+  return {
+    message,
+    recipientUserId: accessToken.recipientUserId,
+  }
+}
+
+function resolveAuthenticatedUserId(auth: AuthContext): string | null {
+  if (!auth) return null
+  if (auth.isApiKey && typeof auth.userId === 'string') return auth.userId
+  return auth.sub
+}
+
+export async function GET(req: Request, { params }: { params: { token: string } }) {
   const container = await createRequestContainer()
   const commandBus = container.resolve('commandBus') as CommandBus
   const em = container.resolve('em') as EntityManager
+
+  let access: TokenAccess
+  try {
+    access = await resolveTokenAccess(em, params.token)
+  } catch (error) {
+    const errorResponse = responseForTokenError(error)
+    if (errorResponse) return errorResponse
+    throw error
+  }
+
+  const objects = await em.find(MessageObject, { messageId: access.message.id })
+  const requiresAuth = objects.some((item) => item.actionRequired)
+  let auth: AuthContext = null
+  if (requiresAuth) {
+    auth = await getAuthFromRequest(req)
+    if (!auth) {
+      return Response.json({ requiresAuth: true })
+    }
+    if (resolveAuthenticatedUserId(auth) !== access.recipientUserId) {
+      return Response.json({ error: 'Forbidden', requiresAuth: true }, { status: 403 })
+    }
+  }
 
   let commandResult: { messageId: string; recipientUserId: string }
   try {
@@ -20,28 +107,17 @@ export async function GET(_req: Request, { params }: { params: { token: string }
       input: { token: params.token },
       ctx: {
         container,
-        auth: null,
+        auth,
         organizationScope: null,
         selectedOrganizationId: null,
         organizationIds: null,
+        request: req,
       },
     })
     commandResult = executed.result
   } catch (error) {
-    if (error instanceof Error) {
-      if (error.message === 'Invalid or expired link') {
-        return Response.json({ error: 'Invalid or expired link' }, { status: 404 })
-      }
-      if (error.message === 'This link has expired') {
-        return Response.json({ error: 'This link has expired' }, { status: 410 })
-      }
-      if (error.message === 'This link can no longer be used') {
-        return Response.json({ error: 'This link can no longer be used' }, { status: 409 })
-      }
-      if (error.message === 'Message not found') {
-        return Response.json({ error: 'Message not found' }, { status: 404 })
-      }
-    }
+    const errorResponse = responseForTokenError(error)
+    if (errorResponse) return errorResponse
     throw error
   }
 
@@ -52,8 +128,6 @@ export async function GET(_req: Request, { params }: { params: { token: string }
   if (!message) {
     return Response.json({ error: 'Message not found' }, { status: 404 })
   }
-
-  const objects = await em.find(MessageObject, { messageId: message.id })
 
   return Response.json({
     id: message.id,
