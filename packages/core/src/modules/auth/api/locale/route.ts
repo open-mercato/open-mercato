@@ -4,6 +4,13 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const supportedLocales = new Set<Locale>(locales)
 
+export function sanitizeLocaleRedirect(redirect: string | null): string {
+  if (!redirect || !redirect.startsWith('/') || redirect.startsWith('//') || redirect.startsWith('/\\')) {
+    return '/'
+  }
+  return redirect
+}
+
 export const metadata = {
   GET: { requireAuth: false },
   POST: { requireAuth: false },
@@ -31,7 +38,8 @@ export async function GET(req: Request) {
   if (!locale || !supportedLocales.has(locale as Locale)) {
     return NextResponse.json({ error: t('api.errors.invalidLocale', 'Invalid locale') }, { status: 400 })
   }
-  const res = NextResponse.redirect(url.searchParams.get('redirect') || '/')
+  const redirect = sanitizeLocaleRedirect(url.searchParams.get('redirect'))
+  const res = NextResponse.redirect(new URL(redirect, url.origin))
   res.cookies.set('locale', locale as Locale, { path: '/', maxAge: 60 * 60 * 24 * 365 })
   return res
 }
