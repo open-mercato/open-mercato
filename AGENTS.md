@@ -311,6 +311,92 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 - Boolean parsing: use `parseBooleanToken`/`parseBooleanWithDefault` from `@open-mercato/shared/lib/boolean`
 - Confirm project still builds after changes
 
+## Design System Rules
+
+### Colors
+- NEVER use hardcoded Tailwind colors for status semantics (`text-red-*`, `bg-green-*`, `text-emerald-*`, `bg-blue-*`, `text-amber-*`, etc.)
+- USE semantic tokens: `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`, `text-status-info-icon`
+- Status token structure: `{property}-status-{status}-{role}` where status = error|success|warning|info|neutral and role = bg|text|border|icon
+- For destructive actions (buttons, not status display): use existing `destructive` token (`text-destructive`, `bg-destructive`)
+- All status tokens have dedicated dark mode values — NO `dark:` overrides needed
+
+### Typography
+- NEVER use arbitrary text sizes (`text-[11px]`, `text-[13px]`, `text-[15px]`)
+- USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
+- For 11px uppercase labels: use `text-overline` (custom token)
+- Exception: `text-[9px]` for notification badge count (single use case)
+
+### Typography Hierarchy
+| Role | HTML | Tailwind | When to use |
+|------|------|----------|-------------|
+| Page title | `<h1>` | `text-2xl font-bold tracking-tight` | Page header (one per page) |
+| Section title | `<h2>` | `text-xl font-semibold` | Major sections |
+| Subsection | `<h3>` | `text-sm font-semibold` | Detail page sections, card titles |
+| Body | `<p>` | `text-sm` | Default body text |
+| Body large | `<p>` | `text-base` | Emphasized body |
+| Caption | `<span>` | `text-xs text-muted-foreground` | Secondary info, timestamps |
+| Label | `<label>` | `text-sm font-medium` | Form labels (via Label component) |
+| Overline | `<span>` | `text-overline font-semibold uppercase tracking-wider` | Section labels, category tags |
+| Code | `<code>` | `text-sm font-mono` | Code snippets |
+
+### Feedback
+- USE `Alert` for inline messages — NOT `Notice` (deprecated)
+- USE `flash()` for transient toast messages
+- USE `useConfirmDialog()` for destructive action confirmation
+- Every list/data page MUST handle empty state via `<EmptyState>` or `emptyState` prop on DataTable
+- Every async page MUST show loading state via `<LoadingMessage>`, `<Spinner>`, or `<DataLoader>`
+- Alert variants: `default`, `destructive` (error), `success`, `warning`, `info`
+
+### Status Display
+- USE `StatusBadge` for entity status display — NEVER hardcode colors on Badge
+- Define a `StatusMap` per entity type in your module:
+```typescript
+import type { StatusMap } from '@open-mercato/ui/primitives/status-badge'
+
+const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
+  open: 'info',
+  won: 'success',
+  lost: 'error',
+}
+```
+
+### Forms
+- USE `FormField` wrapper for standalone forms (portal, auth, custom pages)
+- CrudForm handles field layout internally — do NOT wrap CrudForm fields in FormField
+- Every input MUST have a visible label (never placeholder-only)
+- Error messages use `text-status-error-text` (FormField handles this automatically)
+
+### Icons
+- USE `lucide-react` for ALL icons — NEVER inline `<svg>` elements
+- Icon sizes: `size-3` (12px), `size-4` (16px, default), `size-5` (20px), `size-6` (24px)
+- Stroke width: 2 (lucide default) — do NOT override per-instance
+- Icon-only buttons MUST have `aria-label`
+
+### Sections
+- USE `SectionHeader` for detail page section headers (title + count + action)
+- USE `CollapsibleSection` when section content should be collapsible
+
+### Components — quick reference
+| I need to... | Use this |
+|---|---|
+| Show an error/success/warning message inline | `<Alert variant="destructive\|success\|warning\|info">` |
+| Show a toast notification | `flash('message', 'success\|error\|warning\|info')` |
+| Confirm a destructive action | `useConfirmDialog()` |
+| Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` |
+| Wrap a form field with label + error | `<FormField label="..." error={...}>` |
+| Build a section header with count + action | `<SectionHeader title="..." count={n} action={...}>` |
+| Build a collapsible section | `<CollapsibleSection title="...">content</CollapsibleSection>` |
+
+### Reference Implementation
+When building a new module UI, use the **customers module** as reference:
+- List page: `packages/core/src/modules/customers/backend/customers/people/page.tsx`
+- Detail page: `packages/core/src/modules/customers/backend/customers/people/[id]/page.tsx`
+- Create page: `packages/core/src/modules/customers/backend/customers/people/create/page.tsx`
+- Status mapping: `packages/core/src/modules/customers/components/formConfig.tsx`
+
+### Boy Scout Rule
+When modifying a file that contains hardcoded status colors (`text-red-*`, `bg-green-*`, etc.) or arbitrary text sizes (`text-[11px]`), you MUST migrate at minimum the lines you touched to semantic tokens.
+
 ## Key Commands
 
 ```bash
