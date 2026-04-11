@@ -13,16 +13,18 @@ const partitions = [
   { id: 'p-products', code: 'productsMedia', title: 'Products', isPublic: true, storageDriver: 'local', requiresOcr: false },
 ]
 
+const defaultFindOneImpl = async (entity: any, where: any) => {
+  if (entity?.name === 'AttachmentPartition') {
+    return partitions.find((p) => p.code === where?.code) ?? null
+  }
+  if (entity?.name === 'CustomFieldDef') {
+    return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf', 'docx'] } }
+  }
+  return null
+}
+
 const mockEm = {
-  findOne: jest.fn(async (entity: any, where: any) => {
-    if (entity?.name === 'AttachmentPartition') {
-      return partitions.find((p) => p.code === where?.code) ?? null
-    }
-    if (entity?.name === 'CustomFieldDef') {
-      return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf', 'docx'] } }
-    }
-    return null
-  }),
+  findOne: jest.fn(defaultFindOneImpl),
   create: jest.fn((_cls: any, data: any) => ({ ...data })),
   persistAndFlush: jest.fn(async () => {}),
   getRepository: jest.fn(() => ({
@@ -82,6 +84,8 @@ function fdWith(file: File, extra: Record<string, string> = {}) {
 describe('attachments API', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockEm.findOne.mockReset()
+    mockEm.findOne.mockImplementation(defaultFindOneImpl)
     mockEm.find.mockReset()
     mockEm.find.mockResolvedValue([])
     mockExtractAttachmentContent.mockReset()
