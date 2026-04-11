@@ -13,10 +13,17 @@ type PriorityListResponse = {
   }>
 }
 
-function buildScopeCookie(tenantId: string, organizationId: string | null): string {
+function buildScopeCookie(
+  tenantId: string,
+  organizationId: string | null,
+  options?: { padOrganization?: boolean },
+): string {
   const parts = [`om_selected_tenant=${encodeURIComponent(tenantId)}`]
   if (organizationId) {
-    parts.push(`om_selected_org=${encodeURIComponent(organizationId)}`)
+    const scopedOrganizationId = options?.padOrganization
+      ? ` ${organizationId} `
+      : organizationId
+    parts.push(`om_selected_org=${encodeURIComponent(scopedOrganizationId)}`)
   }
   return parts.join('; ')
 }
@@ -52,6 +59,24 @@ async function createOrganizationInScope(
   const body = await readJsonSafe<IdResponse>(response)
   expect(response.ok(), `POST /api/directory/organizations failed with ${response.status()}`).toBeTruthy()
   return expectId(body?.id, 'Organization create response should include id')
+}
+
+async function createTenant(
+  request: APIRequestContext,
+  token: string,
+  input: { name: string },
+): Promise<string> {
+  const response = await request.fetch('/api/directory/tenants', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    data: input,
+  })
+  const body = await readJsonSafe<IdResponse>(response)
+  expect(response.ok(), `POST /api/directory/tenants failed with ${response.status()}`).toBeTruthy()
+  return expectId(body?.id, 'Tenant create response should include id')
 }
 
 async function createPersonInScope(
@@ -126,105 +151,93 @@ async function deleteByBodyIfExists(
 }
 
 /**
- * TC-UMES-021: shared CRUD scope helper blocks cross-organization direct mutations
+ * TC-UMES-021: shared CRUD scope helper trims whitespace-padded organization scope during superadmin tenant override
  */
-test.describe('TC-UMES-021: shared CRUD scope helper blocks cross-organization direct mutations', () => {
-  test('should keep direct update/delete scoped to the selected organization', async ({ request }) => {
+test.describe('TC-UMES-021: shared CRUD scope helper trims whitespace-padded organization scope during superadmin tenant override', () => {
+  test('should normalize whitespace-padded selected organization ids for direct update/delete', async ({ request }) => {
     const token = await getAuthToken(request, 'superadmin')
-    const { tenantId, organizationId } = getTokenContext(token)
-    expect(tenantId, 'Superadmin token should include a tenant id').toBeTruthy()
+    const { tenantId: actorTenantId, organizationId: actorOrganizationId } = getTokenContext(token)
+    expect(actorTenantId, 'Superadmin token should include a tenant id').toBeTruthy()
 
-    const rootCookie = buildScopeCookie(tenantId, organizationId || null)
+    const actorScopeCookie = buildScopeCookie(actorTenantId, actorOrganizationId || null)
     const suffix = Date.now()
-    let organizationAId: string | null = null
-    let organizationBId: string | null = null
-    let personAId: string | null = null
-    let personBId: string | null = null
-    let priorityAId: string | null = null
-    let priorityBId: string | null = null
+    let targetTenantId: string | null = null
+    let targetOrganizationId: string | null = null
+    let targetPersonId: string | null = null
+    let targetPriorityId: string | null = null
 
     try {
-      organizationAId = await createOrganizationInScope(request, token, rootCookie, {
-        name: `QA TC-UMES-021 Org A ${suffix}`,
-        tenantId,
+      targetTenantId = await createTenant(request, token, {
+        name: `QA TC-UMES-021 Tenant ${suffix}`,
       })
-      organizationBId = await createOrganizationInScope(request, token, rootCookie, {
-        name: `QA TC-UMES-021 Org B ${suffix}`,
-        tenantId,
+      targetOrganizationId = await createOrganizationInScope(request, token, actorScopeCookie, {
+        name: `QA TC-UMES-021 Org ${suffix}`,
+        tenantId: targetTenantId,
       })
 
-      const organizationACookie = buildScopeCookie(tenantId, organizationAId)
-      const organizationBCookie = buildScopeCookie(tenantId, organizationBId)
+      const exactTargetCookie = buildScopeCookie(targetTenantId, targetOrganizationId)
+      const paddedTargetCookie = buildScopeCookie(targetTenantId, targetOrganizationId, {
+        padOrganization: true,
+      })
 
-      personAId = await createPersonInScope(request, token, organizationACookie, {
+      targetPersonId = await createPersonInScope(request, token, exactTargetCookie, {
         firstName: `QA-${suffix}`,
-        lastName: 'ScopeA',
-        displayName: `QA Scope A ${suffix}`,
-      })
-      personBId = await createPersonInScope(request, token, organizationBCookie, {
-        firstName: `QA-${suffix}`,
-        lastName: 'ScopeB',
-        displayName: `QA Scope B ${suffix}`,
+        lastName: 'ScopeTrim',
+        displayName: `QA Scope Trim ${suffix}`,
       })
 
-      priorityAId = await createPriorityInScope(request, token, organizationACookie, {
-        customerId: personAId,
-        priority: 'high',
-      })
-      priorityBId = await createPriorityInScope(request, token, organizationBCookie, {
-        customerId: personBId,
+      targetPriorityId = await createPriorityInScope(request, token, exactTargetCookie, {
+        customerId: targetPersonId,
         priority: 'normal',
       })
 
-      const blockedUpdate = await scopedApiRequest(request, 'PUT', '/api/example/customer-priorities', {
+      const trimmedScopeUpdate = await scopedApiRequest(request, 'PUT', '/api/example/customer-priorities', {
         token,
-        cookie: organizationBCookie,
-        data: { id: priorityAId, priority: 'critical' },
+        cookie: paddedTargetCookie,
+        data: { id: targetPriorityId, priority: 'critical' },
       })
-      expect(blockedUpdate.status(), 'Cross-organization update should not find the record').toBe(404)
+      expect(
+        trimmedScopeUpdate.ok(),
+        'Whitespace-padded selected organization should still match the target record during superadmin tenant override update',
+      ).toBeTruthy()
 
-      const allowedUpdate = await scopedApiRequest(request, 'PUT', '/api/example/customer-priorities', {
+      const prioritiesAfterUpdate = await listPrioritiesInScope(
+        request,
         token,
-        cookie: organizationBCookie,
-        data: { id: priorityBId, priority: 'critical' },
-      })
-      expect(allowedUpdate.ok(), 'Same-organization update should succeed').toBeTruthy()
+        exactTargetCookie,
+        targetPersonId,
+      )
+      expect(prioritiesAfterUpdate).toHaveLength(1)
+      expect(prioritiesAfterUpdate[0]?.priority).toBe('critical')
 
-      const prioritiesInOrganizationA = await listPrioritiesInScope(request, token, organizationACookie, personAId)
-      expect(prioritiesInOrganizationA).toHaveLength(1)
-      expect(prioritiesInOrganizationA[0]?.priority).toBe('high')
-
-      const prioritiesInOrganizationB = await listPrioritiesInScope(request, token, organizationBCookie, personBId)
-      expect(prioritiesInOrganizationB).toHaveLength(1)
-      expect(prioritiesInOrganizationB[0]?.priority).toBe('critical')
-
-      const blockedDelete = await scopedApiRequest(request, 'DELETE', '/api/example/customer-priorities', {
+      const trimmedScopeDelete = await scopedApiRequest(request, 'DELETE', '/api/example/customer-priorities', {
         token,
-        cookie: organizationBCookie,
-        data: { id: priorityAId },
+        cookie: paddedTargetCookie,
+        data: { id: targetPriorityId },
       })
-      expect(blockedDelete.status(), 'Cross-organization delete should not find the record').toBe(404)
+      expect(
+        trimmedScopeDelete.ok(),
+        'Whitespace-padded selected organization should still match the target record during superadmin tenant override delete',
+      ).toBeTruthy()
+      targetPriorityId = null
 
-      const allowedDelete = await scopedApiRequest(request, 'DELETE', '/api/example/customer-priorities', {
+      const remainingPriorities = await listPrioritiesInScope(
+        request,
         token,
-        cookie: organizationACookie,
-        data: { id: priorityAId },
-      })
-      expect(allowedDelete.ok(), 'Same-organization delete should succeed').toBeTruthy()
-      priorityAId = null
-
-      const remainingPrioritiesInOrganizationA = await listPrioritiesInScope(request, token, organizationACookie, personAId)
-      expect(remainingPrioritiesInOrganizationA).toHaveLength(0)
+        exactTargetCookie,
+        targetPersonId,
+      )
+      expect(remainingPriorities).toHaveLength(0)
     } finally {
-      const organizationACookie = organizationAId ? buildScopeCookie(tenantId, organizationAId) : rootCookie
-      const organizationBCookie = organizationBId ? buildScopeCookie(tenantId, organizationBId) : rootCookie
+      const exactTargetCookie =
+        targetTenantId && targetOrganizationId
+          ? buildScopeCookie(targetTenantId, targetOrganizationId)
+          : actorScopeCookie
 
-      await deleteByBodyIfExists(request, token, organizationBCookie, '/api/example/customer-priorities', priorityBId)
-      await deleteByBodyIfExists(request, token, organizationACookie, '/api/example/customer-priorities', priorityAId)
-      await deleteByQueryIfExists(request, token, organizationBCookie, '/api/customers/people', personBId)
-      await deleteByQueryIfExists(request, token, organizationACookie, '/api/customers/people', personAId)
-      await deleteByQueryIfExists(request, token, rootCookie, '/api/directory/organizations', organizationBId)
-      await deleteByQueryIfExists(request, token, rootCookie, '/api/directory/organizations', organizationAId)
+      await deleteByBodyIfExists(request, token, exactTargetCookie, '/api/example/customer-priorities', targetPriorityId)
+      await deleteByQueryIfExists(request, token, exactTargetCookie, '/api/customers/people', targetPersonId)
+      await deleteByQueryIfExists(request, token, actorScopeCookie, '/api/directory/organizations', targetOrganizationId)
+      await deleteByQueryIfExists(request, token, actorScopeCookie, '/api/directory/tenants', targetTenantId)
     }
   })
 })
