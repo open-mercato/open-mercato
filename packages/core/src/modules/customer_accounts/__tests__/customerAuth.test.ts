@@ -1,6 +1,6 @@
 const verifyJwt = jest.fn()
 const createRequestContainer = jest.fn()
-const findOneMock = jest.fn()
+const findOneWithDecryptionMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({
   verifyJwt: (...args: unknown[]) => verifyJwt(...args),
@@ -18,11 +18,15 @@ jest.mock('@open-mercato/shared/lib/auth/featureMatch', () => ({
   hasAllFeatures: jest.fn(() => true),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
+}))
+
 jest.mock('next/server', () => ({
   NextResponse: { json: jest.fn((body: unknown, init?: unknown) => ({ body, init })) },
 }))
 
-const em = { findOne: findOneMock }
+const em = {}
 
 function makeRequest(token: string, via: 'cookie' | 'bearer' = 'cookie'): Request {
   const headers: Record<string, string> = via === 'cookie'
@@ -49,19 +53,14 @@ describe('getCustomerAuthFromRequest — sessions_revoked_at check', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     jest.resetModules()
-    createRequestContainer.mockResolvedValue({
-      resolve: (name: string) => {
-        if (name === 'em') return em
-        return null
-      },
-    })
+    createRequestContainer.mockResolvedValue({ resolve: () => em })
   })
 
   it('returns auth context when sessionsRevokedAt is null', async () => {
     const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
 
     verifyJwt.mockReturnValue(validPayload)
-    findOneMock.mockResolvedValue({ sessionsRevokedAt: null })
+    findOneWithDecryptionMock.mockResolvedValue({ sessionsRevokedAt: null })
 
     const auth = await getCustomerAuthFromRequest(makeRequest('jwt-token'))
     expect(auth).not.toBeNull()
@@ -72,7 +71,7 @@ describe('getCustomerAuthFromRequest — sessions_revoked_at check', () => {
     const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
 
     verifyJwt.mockReturnValue({ ...validPayload, iat: 1000 })
-    findOneMock.mockResolvedValue({
+    findOneWithDecryptionMock.mockResolvedValue({
       sessionsRevokedAt: new Date(2000 * 1000), // epoch 2000
     })
 
@@ -84,7 +83,7 @@ describe('getCustomerAuthFromRequest — sessions_revoked_at check', () => {
     const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
 
     verifyJwt.mockReturnValue({ ...validPayload, iat: 3000 })
-    findOneMock.mockResolvedValue({
+    findOneWithDecryptionMock.mockResolvedValue({
       sessionsRevokedAt: new Date(2000 * 1000), // epoch 2000
     })
 
@@ -97,7 +96,7 @@ describe('getCustomerAuthFromRequest — sessions_revoked_at check', () => {
     const { getCustomerAuthFromRequest } = await import('../lib/customerAuth')
 
     verifyJwt.mockReturnValue(validPayload)
-    findOneMock.mockResolvedValue(null)
+    findOneWithDecryptionMock.mockResolvedValue(null)
 
     const auth = await getCustomerAuthFromRequest(makeRequest('jwt-token'))
     expect(auth).toBeNull()

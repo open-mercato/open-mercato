@@ -2,19 +2,18 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration/api'
 
 /**
- * TC-AUTH-023: Admin password reset revokes customer session tokens
+ * TC-AUTH-024: Customer JWT is rejected after sessions_revoked_at is set
  *
- * Regression test for: admin-initiated password reset did not invalidate
- * active portal sessions, allowing a stolen session token to remain usable
- * for up to 30 days after the password was changed.
+ * Verifies that a JWT issued before admin password reset is blocked by the
+ * sessionsRevokedAt check in getCustomerAuthFromRequest, even without a
+ * session refresh — the JWT itself becomes invalid at the portal boundary.
  *
- * After revokeAllUserSessions, sessions-refresh must return 401.
- * JWT invalidation via sessionsRevokedAt is covered by TC-AUTH-024.
+ * Complements TC-AUTH-023 which covers session token revocation.
  */
-test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens', () => {
-  test('sessions-refresh should be blocked after admin resets the password', async ({ request }) => {
+test.describe('TC-AUTH-024: Customer JWT rejected after sessions_revoked_at is set', () => {
+  test('portal endpoint returns 401 for JWT issued before admin password reset', async ({ request }) => {
     const stamp = Date.now()
-    const customerEmail = `qa-auth-023-${stamp}@test.local`
+    const customerEmail = `qa-auth-024-${stamp}@test.local`
     const initialPassword = `InitialPass${stamp}!`
     const newPassword = `NewPass${stamp}!`
 
@@ -22,16 +21,15 @@ test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens
     let customerId: string | null = null
 
     try {
-      // 1. Authenticate as admin (staff)
       adminToken = await getAuthToken(request, 'admin')
 
-      // 2. Create a customer user via admin API
+      // 1. Create a customer user
       const createRes = await apiRequest(request, 'POST', '/api/customer_accounts/admin/users', {
         token: adminToken,
         data: {
           email: customerEmail,
           password: initialPassword,
-          displayName: `QA Auth 023 ${stamp}`,
+          displayName: `QA Auth 024 ${stamp}`,
         },
       })
       expect(createRes.status(), 'Customer user should be created').toBe(201)
@@ -39,7 +37,7 @@ test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens
       customerId = createBody.user?.id ?? null
       expect(customerId, 'Created user id should be returned').toBeTruthy()
 
-      // 3. Decode admin JWT to get tenantId for portal login
+      // 2. Decode tenantId from admin JWT
       const adminJwtParts = adminToken.split('.')
       const adminClaims = JSON.parse(
         Buffer.from(
@@ -53,7 +51,7 @@ test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens
       const tenantId = adminClaims.tenantId
       expect(tenantId, 'tenantId must be decodable from admin JWT').toBeTruthy()
 
-      // 4. Login as the customer user → capture session cookies
+      // 3. Login as customer — capture JWT cookie only (isolates JWT path from session path)
       const portalLoginRes = await request.post('/api/customer_accounts/login', {
         data: { email: customerEmail, password: initialPassword, tenantId },
         headers: { 'Content-Type': 'application/json' },
@@ -62,19 +60,18 @@ test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens
 
       const setCookieHeader = portalLoginRes.headers()['set-cookie'] ?? ''
       const jwtCookieMatch = setCookieHeader.match(/customer_auth_token=([^;]+)/)
-      const sessionCookieMatch = setCookieHeader.match(/customer_session_token=([^;]+)/)
       expect(jwtCookieMatch, 'customer_auth_token cookie must be set').toBeTruthy()
-      expect(sessionCookieMatch, 'customer_session_token cookie must be set').toBeTruthy()
 
-      const authCookie = `customer_auth_token=${jwtCookieMatch![1]}; customer_session_token=${sessionCookieMatch![1]}`
+      const jwtOnlyCookie = `customer_auth_token=${jwtCookieMatch![1]}`
 
-      // 5. Verify sessions-refresh works before reset
-      const refreshBeforeRes = await request.post('/api/customer_accounts/portal/sessions-refresh', {
-        headers: { Cookie: authCookie },
+      // 4. Confirm JWT is accepted before reset
+      const beforeRes = await request.post('/api/customer_accounts/portal/feature-check', {
+        data: { features: ['portal.view'] },
+        headers: { Cookie: jwtOnlyCookie, 'Content-Type': 'application/json' },
       })
-      expect(refreshBeforeRes.status(), 'sessions-refresh should succeed with active session').toBe(200)
+      expect(beforeRes.status(), 'feature-check should succeed with valid JWT before reset').toBe(200)
 
-      // 6. Admin resets the customer user's password (also revokes all sessions)
+      // 5. Admin resets the customer password — sets sessionsRevokedAt on CustomerUser
       const resetRes = await apiRequest(
         request,
         'POST',
@@ -83,24 +80,20 @@ test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens
       )
       expect(resetRes.ok(), 'Admin password reset should succeed').toBeTruthy()
 
-      // 7. sessions-refresh must now be rejected — this is the regression assertion.
-      // The session token is revoked in DB. JWT invalidation is tested in TC-AUTH-024.
-      const refreshAfterRes = await request.post('/api/customer_accounts/portal/sessions-refresh', {
-        headers: { Cookie: authCookie },
+      // 6. Same JWT (issued before sessionsRevokedAt) must now be rejected
+      const afterRes = await request.post('/api/customer_accounts/portal/feature-check', {
+        data: { features: ['portal.view'] },
+        headers: { Cookie: jwtOnlyCookie, 'Content-Type': 'application/json' },
       })
       expect(
-        refreshAfterRes.status(),
-        'sessions-refresh must be blocked after admin password reset',
+        afterRes.status(),
+        'portal endpoint must return 401 for JWT issued before sessionsRevokedAt',
       ).toBe(401)
     } finally {
-      // Cleanup: delete the customer user
       if (adminToken && customerId) {
-        await apiRequest(
-          request,
-          'DELETE',
-          `/api/customer_accounts/admin/users/${customerId}`,
-          { token: adminToken },
-        ).catch(() => {})
+        await apiRequest(request, 'DELETE', `/api/customer_accounts/admin/users/${customerId}`, {
+          token: adminToken,
+        }).catch(() => {})
       }
     }
   })

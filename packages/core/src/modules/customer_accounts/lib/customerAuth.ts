@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export interface CustomerAuthContext {
   sub: string
@@ -24,6 +25,19 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
     }
   }
   return undefined
+}
+
+async function isSessionRevoked(sub: string, iat: unknown): Promise<boolean> {
+  const [{ createRequestContainer }, { CustomerUser }] = await Promise.all([
+    import('@open-mercato/shared/lib/di/container'),
+    import('@open-mercato/core/modules/customer_accounts/data/entities'),
+  ])
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const user = await findOneWithDecryption(em, CustomerUser, { id: sub }, { fields: ['sessionsRevokedAt'] })
+  if (!user) return true
+  if (!user.sessionsRevokedAt || typeof iat !== 'number') return false
+  return iat < Math.floor(user.sessionsRevokedAt.getTime() / 1000)
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
@@ -53,21 +67,7 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     if (payload.type !== 'customer') return null
 
     try {
-      const [{ createRequestContainer }, { CustomerUser }] = await Promise.all([
-        import('@open-mercato/shared/lib/di/container'),
-        import('@open-mercato/core/modules/customer_accounts/data/entities'),
-      ])
-      const container = await createRequestContainer()
-      const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
-      const user = await em.findOne(CustomerUser, { id: payload.sub }, { fields: ['sessionsRevokedAt'] })
-      if (!user) return null
-      if (
-        user.sessionsRevokedAt &&
-        typeof payload.iat === 'number' &&
-        payload.iat < Math.floor(user.sessionsRevokedAt.getTime() / 1000)
-      ) {
-        return null
-      }
+      if (await isSessionRevoked(String(payload.sub), payload.iat)) return null
     } catch {
       return null
     }
