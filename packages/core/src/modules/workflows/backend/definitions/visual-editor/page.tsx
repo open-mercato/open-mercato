@@ -228,8 +228,8 @@ export default function VisualEditorPage() {
   // Delete edge
   const handleDeleteEdge = useCallback(async (edgeId: string) => {
     const confirmed = await confirm({
-      title: t('workflows.confirm.deleteTransitionTitle', 'Delete Transition'),
-      text: t('workflows.confirm.deleteTransitionText', 'Are you sure you want to delete this transition?'),
+      title: t('workflows.confirm.deleteTransitionTitle'),
+      text: t('workflows.confirm.deleteTransitionText'),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -241,18 +241,21 @@ export default function VisualEditorPage() {
 
   // Delete node
   const handleDeleteNode = useCallback(async (nodeId: string) => {
+    const node = nodes.find((n) => n.id === nodeId)
+    const nodeData = node?.data as { stepName?: string; label?: string } | undefined
+    const stepName = nodeData?.stepName || nodeData?.label || nodeId
     const confirmed = await confirm({
-      title: t('workflows.confirm.deleteStepTitle', 'Delete Step'),
-      text: t('workflows.confirm.deleteStepText', 'Are you sure you want to delete this step?'),
+      title: t('workflows.confirm.deleteStepTitle'),
+      text: t('workflows.confirm.deleteStep', { name: stepName }),
       variant: 'destructive',
     })
     if (!confirmed) return
     setShowNodeDialog(false)
     setSelectedNode(null)
-    setNodes((nds) => nds.filter((node) => node.id !== nodeId))
+    setNodes((nds) => nds.filter((n) => n.id !== nodeId))
     setEdges((eds) => eds.filter((edge) => edge.source !== nodeId && edge.target !== nodeId))
     flash('Step deleted successfully', 'success')
-  }, [confirm, t])
+  }, [confirm, nodes, t])
 
   // Handle new connections
   const handleConnect = useCallback((connection: Connection) => {
