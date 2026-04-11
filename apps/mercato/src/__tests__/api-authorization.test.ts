@@ -88,11 +88,11 @@ function getMockedApiRoutes(): ApiRouteManifestEntry[] {
 // Mock manifest-based API routing
 jest.mock('@/.mercato/generated/api-routes.generated', () => ({
   apiRoutes: getMockedApiRoutes(),
-}))
+}), { virtual: true })
 
 jest.mock('@/.mercato/generated/backend-routes.generated', () => ({
   backendRoutes: [],
-}))
+}), { virtual: true })
 
 jest.mock('@open-mercato/shared/modules/registry', () => {
   const actual = jest.requireActual('@open-mercato/shared/modules/registry')
@@ -215,6 +215,35 @@ describe('API Route Authorization', () => {
   })
 
   describe('POST /example/test', () => {
+    it('should reject cross-site unsafe requests before authentication', async () => {
+      const request = new NextRequest('http://localhost:3001/api/example/test', {
+        method: 'POST',
+        headers: {
+          origin: 'https://evil.example',
+        },
+      })
+      const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(403)
+      await expect(response.json()).resolves.toEqual({ error: 'Invalid request origin' })
+      expect(mockResolveAuthFromRequestDetailed).not.toHaveBeenCalled()
+    })
+
+    it('should allow same-origin unsafe requests', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
+
+      const request = new NextRequest('http://localhost:3001/api/example/test', {
+        method: 'POST',
+        headers: {
+          origin: 'http://localhost:3001',
+        },
+      })
+      const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('POST success')
+    })
+
     it('should allow access with admin role', async () => {
       mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
 

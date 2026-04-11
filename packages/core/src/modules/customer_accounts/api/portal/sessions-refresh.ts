@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   res.cookies.set('customer_auth_token', result.jwt, {
     httpOnly: true,
     path: '/',
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 60 * 60 * 8,
   })

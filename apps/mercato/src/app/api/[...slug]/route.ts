@@ -21,6 +21,7 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { validateSameOriginMutationRequest } from '@open-mercato/shared/lib/security/originGuard'
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -292,6 +293,17 @@ async function handleRequest(
     await emitLifecycleEvent(applicationLifecycleEvents.requestNotFound, {
       ...receivedPayload,
       status: response.status,
+      durationMs: Date.now() - startedAt,
+    })
+    return response
+  }
+  const originViolation = validateSameOriginMutationRequest(req)
+  if (originViolation) {
+    const response = NextResponse.json({ error: t('api.errors.invalidOrigin', 'Invalid request origin') }, { status: 403 })
+    await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+      ...receivedPayload,
+      status: response.status,
+      originViolation: originViolation.reason,
       durationMs: Date.now() - startedAt,
     })
     return response

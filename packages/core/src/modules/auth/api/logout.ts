@@ -16,13 +16,13 @@ export async function POST(req: Request) {
     try { const c = await createRequestContainer(); const auth = c.resolve<AuthService>('authService'); await auth.deleteSessionByToken(sessToken) } catch {}
   }
   const res = NextResponse.redirect(buildRequestOriginUrl(req, '/login'))
-  res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
-  res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
+  res.cookies.set('auth_token', '', { httpOnly: true, path: '/', sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: 0 })
+  res.cookies.set('session_token', '', { httpOnly: true, path: '/', sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: 0 })
   return res
 }
 
-export async function GET(req: Request) {
-  return POST(req)
+export async function GET() {
+  return NextResponse.json({ error: 'Method Not Allowed' }, { status: 405, headers: { Allow: 'POST' } })
 }
 
 export const metadata = {
@@ -42,10 +42,10 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
     GET: {
-      summary: 'Log out (legacy GET)',
-      description: 'For convenience, the GET variant performs the same logout logic as POST and issues a redirect.',
+      summary: 'Log out (legacy GET disabled)',
+      description: 'GET logout is disabled because logout changes server-side session state. Use POST instead.',
       responses: [
-        { status: 302, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
+        { status: 405, description: 'GET logout is not allowed', mediaType: 'application/json' },
       ],
     },
   },

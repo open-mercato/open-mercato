@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { POST } from '@open-mercato/core/modules/auth/api/logout'
+import { GET, POST } from '@open-mercato/core/modules/auth/api/logout'
 
 const deleteSessionByToken = jest.fn()
 const originalAppUrl = process.env.APP_URL
@@ -38,5 +38,15 @@ describe('/api/auth/logout', () => {
     expect(setCookie).toContain('auth_token=;')
     expect(setCookie).toContain('session_token=;')
     expect(deleteSessionByToken).not.toHaveBeenCalled()
+  })
+
+  it('does not mutate session state through GET', async () => {
+    const response = await GET()
+
+    expect(response.status).toBe(405)
+    expect(response.headers.get('allow')).toBe('POST')
+    await expect(response.json()).resolves.toEqual({ error: 'Method Not Allowed' })
+    expect(deleteSessionByToken).not.toHaveBeenCalled()
+    expect(response.headers.get('set-cookie')).toBeNull()
   })
 })

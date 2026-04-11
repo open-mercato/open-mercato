@@ -40,14 +40,14 @@ function clearStaffAuthCookies(response: NextResponse) {
   response.cookies.set('auth_token', '', {
     httpOnly: true,
     path: '/',
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 0,
   })
   response.cookies.set('session_token', '', {
     httpOnly: true,
     path: '/',
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 0,
   })
@@ -75,7 +75,7 @@ export async function GET(req: Request) {
   const { user, roles } = ctx
   const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
   const res = NextResponse.redirect(buildRequestOriginUrl(req, redirectTo))
-  res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
 }
 
@@ -141,7 +141,7 @@ export async function POST(req: Request) {
   res.cookies.set('auth_token', jwt, {
     httpOnly: true,
     path: '/',
-    sameSite: 'lax',
+    sameSite: 'strict',
     secure: process.env.NODE_ENV === 'production',
     maxAge: 60 * 60 * 8,
   })

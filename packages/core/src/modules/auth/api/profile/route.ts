@@ -183,7 +183,7 @@ export async function PUT(req: Request) {
     res.cookies.set('auth_token', jwt, {
       httpOnly: true,
       path: '/',
-      sameSite: 'lax',
+      sameSite: 'strict',
       secure: process.env.NODE_ENV === 'production',
       maxAge: 60 * 60 * 8,
     })
