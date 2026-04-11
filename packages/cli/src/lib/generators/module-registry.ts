@@ -395,18 +395,23 @@ function isGeneratedImportAvailable(resolver: PackageResolver, moduleSpecifier: 
     return true
   }
 
-  const workspacePackageMatch = moduleSpecifier.match(/^@open-mercato\/([^/]+)(?:\/.*)?$/)
-  if (workspacePackageMatch) {
-    return fs.existsSync(resolver.getPackageRoot(`@open-mercato/${workspacePackageMatch[1]}`))
+  const packageJsonPath = path.join(resolver.getRootDir(), 'package.json')
+  if (fs.existsSync(packageJsonPath)) {
+    try {
+      const requireFromRoot = createRequire(packageJsonPath)
+      requireFromRoot.resolve(moduleSpecifier)
+      return true
+    } catch {}
   }
 
-  try {
-    const requireFromRoot = createRequire(path.join(resolver.getRootDir(), 'package.json'))
-    requireFromRoot.resolve(moduleSpecifier)
-    return true
-  } catch {
-    return false
+  if (resolver.isMonorepo()) {
+    const workspacePackageMatch = moduleSpecifier.match(/^@open-mercato\/([^/]+)(?:\/.*)?$/)
+    if (workspacePackageMatch) {
+      return fs.existsSync(resolver.getPackageRoot(`@open-mercato/${workspacePackageMatch[1]}`))
+    }
   }
+
+  return false
 }
 
 function serializeGeneratedImport(
