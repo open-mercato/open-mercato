@@ -639,8 +639,8 @@ const deleteOrganizationCommand: CommandHandler<{ body: any; query: Record<strin
     const existing = await em.findOne(Organization, { id, deletedAt: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Not found' })
 
-    const authTenantId = ctx.auth?.tenantId ?? null
-    const tenantId = requireTenantScope(authTenantId, resolveTenantIdFromEntity(existing))
+    const tenantId = await enforceTenantSelection(ctx, resolveTenantIdFromEntity(existing))
+    if (!tenantId) throw new CrudHttpError(400, { error: 'Tenant scope required' })
 
     const parentId = existing.parentId ?? null
     const childSnapshotsBefore = await loadChildParentSnapshots(
