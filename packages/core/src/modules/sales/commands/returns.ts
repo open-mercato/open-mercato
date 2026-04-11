@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -266,142 +267,146 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const order = await findOneWithDecryption(
-      em,
-      SalesOrder,
-      { id: input.orderId, deletedAt: null },
-      {},
-      { tenantId: input.tenantId, organizationId: input.organizationId },
-    )
-    if (!order) {
-      throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
-    }
-    ensureSameScope(order, input.organizationId, input.tenantId)
-
     const requested = normalizeLinesInput(input.lines)
     if (!requested.length) {
       throw new CrudHttpError(400, { error: translate('sales.returns.linesRequired', 'Select at least one line to return.') })
     }
 
-    const orderLines = await findWithDecryption(
-      em,
-      SalesOrderLine,
-      { order: order.id, deletedAt: null },
-      {},
-      { tenantId: input.tenantId, organizationId: input.organizationId },
-    )
-    const lineMap = new Map(orderLines.map((line) => [line.id, line]))
-
-    requested.forEach(({ orderLineId, quantity }) => {
-      const line = lineMap.get(orderLineId)
-      if (!line) {
-        throw new CrudHttpError(404, { error: translate('sales.returns.lineMissing', 'Order line not found.') })
-      }
-      const available = toNumeric(line.quantity) - toNumeric(line.returnedQuantity)
-      if (quantity - 1e-6 > available) {
-        throw new CrudHttpError(400, { error: translate('sales.returns.quantityExceeded', 'Cannot return more than the remaining quantity.') })
-      }
-    })
-
-    const existingAdjustments = await findWithDecryption(
-      em,
-      SalesOrderAdjustment,
-      { order: order.id, deletedAt: null },
-      { orderBy: { position: 'asc' } },
-      { tenantId: input.tenantId, organizationId: input.organizationId },
-    )
-    const positionStart = existingAdjustments.reduce((acc, adj) => Math.max(acc, adj.position ?? 0), 0) + 1
-
-    const numberGenerator = new SalesDocumentNumberGenerator(em)
-    const generated = await numberGenerator.generate({
-      kind: 'return',
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
-    const returnId = randomUUID()
-    const header = em.create(SalesReturn, {
-      id: returnId,
-      order,
-      organizationId: input.organizationId,
-      tenantId: input.tenantId,
-      returnNumber: generated.number,
-      reason: input.reason ?? null,
-      notes: input.notes ?? null,
-      returnedAt: input.returnedAt ?? new Date(),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(header)
-
-    const createdAdjustments: SalesOrderAdjustment[] = []
-    const createdLines: SalesReturnLine[] = []
-    requested.forEach((lineInput, index) => {
-      const line = lineMap.get(lineInput.orderLineId)
-      if (!line) return
-      const quantity = lineInput.quantity
-      const lineQuantity = Math.max(toNumeric(line.quantity), 0)
-      const unitNet = lineQuantity > 0 ? toNumeric(line.totalNetAmount) / lineQuantity : toNumeric(line.unitPriceNet)
-      const unitGross = lineQuantity > 0 ? toNumeric(line.totalGrossAmount) / lineQuantity : toNumeric(line.unitPriceGross)
-      const totalNet = -round(Math.max(unitNet, 0) * quantity)
-      const totalGross = -round(Math.max(unitGross, 0) * quantity)
-
-      const returnLineId = randomUUID()
-      const returnLine = em.create(SalesReturnLine, {
-        id: returnLineId,
-        salesReturn: header,
-        orderLine: em.getReference(SalesOrderLine, line.id),
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-        quantityReturned: quantity.toString(),
-        unitPriceNet: round(unitNet).toString(),
-        unitPriceGross: round(unitGross).toString(),
-        totalNetAmount: totalNet.toString(),
-        totalGrossAmount: totalGross.toString(),
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      createdLines.push(returnLine)
-      em.persist(returnLine)
-
-      const adjustment = em.create(SalesOrderAdjustment, {
-        id: randomUUID(),
-        order,
-        orderLine: em.getReference(SalesOrderLine, line.id),
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-        scope: 'line',
-        kind: 'return',
-        rate: '0',
-        amountNet: totalNet.toString(),
-        amountGross: totalGross.toString(),
-        currencyCode: order.currencyCode,
-        metadata: { returnId, returnLineId },
-        position: positionStart + index,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      createdAdjustments.push(adjustment)
-      em.persist(adjustment)
-
-      line.returnedQuantity = (toNumeric(line.returnedQuantity) + quantity).toString()
-      line.updatedAt = new Date()
-      em.persist(line)
-    })
-
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
-    const lineSnapshots: SalesLineSnapshot[] = orderLines.map(mapOrderLineEntityToSnapshot)
-    const adjustmentDrafts: SalesAdjustmentDraft[] = [...existingAdjustments, ...createdAdjustments].map(mapOrderAdjustmentToDraft)
-    const calculation = await salesCalculationService.calculateDocumentTotals({
-      documentKind: 'order',
-      lines: lineSnapshots,
-      adjustments: adjustmentDrafts,
-      context: buildCalculationContext(order),
-    })
-    applyOrderTotals(order, calculation.totals, calculation.lines.length)
-    order.updatedAt = new Date()
-    em.persist(order)
+    const { header, createdLines } = await em.transactional(async (tx) => {
+      const order = await findOneWithDecryption(
+        tx,
+        SalesOrder,
+        { id: input.orderId, deletedAt: null },
+        {},
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      if (!order) {
+        throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
+      }
+      ensureSameScope(order, input.organizationId, input.tenantId)
 
-    await em.flush()
+      const orderLines = await findWithDecryption(
+        tx,
+        SalesOrderLine,
+        { order: order.id, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      const lineMap = new Map(orderLines.map((line) => [line.id, line]))
+
+      requested.forEach(({ orderLineId, quantity }) => {
+        const line = lineMap.get(orderLineId)
+        if (!line) {
+          throw new CrudHttpError(404, { error: translate('sales.returns.lineMissing', 'Order line not found.') })
+        }
+        const available = toNumeric(line.quantity) - toNumeric(line.returnedQuantity)
+        if (quantity - 1e-6 > available) {
+          throw new CrudHttpError(400, { error: translate('sales.returns.quantityExceeded', 'Cannot return more than the remaining quantity.') })
+        }
+      })
+
+      const existingAdjustments = await findWithDecryption(
+        tx,
+        SalesOrderAdjustment,
+        { order: order.id, deletedAt: null },
+        { orderBy: { position: 'asc' } },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
+      )
+      const positionStart = existingAdjustments.reduce((acc, adj) => Math.max(acc, adj.position ?? 0), 0) + 1
+
+      const numberGenerator = new SalesDocumentNumberGenerator(tx)
+      const generated = await numberGenerator.generate({
+        kind: 'return',
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+      const returnId = randomUUID()
+      const entity = tx.create(SalesReturn, {
+        id: returnId,
+        order,
+        organizationId: input.organizationId,
+        tenantId: input.tenantId,
+        returnNumber: generated.number,
+        reason: input.reason ?? null,
+        notes: input.notes ?? null,
+        returnedAt: input.returnedAt ?? new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      tx.persist(entity)
+
+      const createdAdjustments: SalesOrderAdjustment[] = []
+      const createdReturnLines: SalesReturnLine[] = []
+      requested.forEach((lineInput, index) => {
+        const line = lineMap.get(lineInput.orderLineId)
+        if (!line) return
+        const quantity = lineInput.quantity
+        const lineQuantity = Math.max(toNumeric(line.quantity), 0)
+        const unitNet = lineQuantity > 0 ? toNumeric(line.totalNetAmount) / lineQuantity : toNumeric(line.unitPriceNet)
+        const unitGross = lineQuantity > 0 ? toNumeric(line.totalGrossAmount) / lineQuantity : toNumeric(line.unitPriceGross)
+        const totalNet = -round(Math.max(unitNet, 0) * quantity)
+        const totalGross = -round(Math.max(unitGross, 0) * quantity)
+
+        const returnLineId = randomUUID()
+        const returnLine = tx.create(SalesReturnLine, {
+          id: returnLineId,
+          salesReturn: entity,
+          orderLine: tx.getReference(SalesOrderLine, line.id),
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          quantityReturned: quantity.toString(),
+          unitPriceNet: round(unitNet).toString(),
+          unitPriceGross: round(unitGross).toString(),
+          totalNetAmount: totalNet.toString(),
+          totalGrossAmount: totalGross.toString(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        createdReturnLines.push(returnLine)
+        tx.persist(returnLine)
+
+        const adjustment = tx.create(SalesOrderAdjustment, {
+          id: randomUUID(),
+          order,
+          orderLine: tx.getReference(SalesOrderLine, line.id),
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          scope: 'line',
+          kind: 'return',
+          rate: '0',
+          amountNet: totalNet.toString(),
+          amountGross: totalGross.toString(),
+          currencyCode: order.currencyCode,
+          metadata: { returnId, returnLineId },
+          position: positionStart + index,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        })
+        createdAdjustments.push(adjustment)
+        tx.persist(adjustment)
+
+        line.returnedQuantity = (toNumeric(line.returnedQuantity) + quantity).toString()
+        line.updatedAt = new Date()
+        tx.persist(line)
+      })
+
+      const lineSnapshots: SalesLineSnapshot[] = orderLines.map(mapOrderLineEntityToSnapshot)
+      const adjustmentDrafts: SalesAdjustmentDraft[] = [...existingAdjustments, ...createdAdjustments].map(mapOrderAdjustmentToDraft)
+      const calculation = await salesCalculationService.calculateDocumentTotals({
+        documentKind: 'order',
+        lines: lineSnapshots,
+        adjustments: adjustmentDrafts,
+        context: buildCalculationContext(order),
+      })
+      applyOrderTotals(order, calculation.totals, calculation.lines.length)
+      order.updatedAt = new Date()
+      tx.persist(order)
+
+      await tx.flush()
+
+      return { header: entity, createdLines: createdReturnLines }
+    })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -537,4 +542,3 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
 registerCommand(createReturnCommand)
 
 export const returnCommands = [createReturnCommand]
-
