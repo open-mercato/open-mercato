@@ -9,7 +9,7 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import { groupBackendRoutesByModule, resolveBackendChromePayload } from '../../lib/backendChrome'
 
 export const metadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['auth.view'] },
 }
 
 const sidebarNavItemSchema: z.ZodType<{
@@ -123,6 +123,8 @@ export async function GET(req: Request) {
   } catch {
     cacheScopeOrganizationId = auth.orgId ?? null
     cacheScopeTenantId = auth.tenantId ?? null
+    selectedOrganizationId = auth.orgId ?? null
+    selectedTenantId = auth.tenantId ?? null
   }
 
   const cacheKey = `nav:sidebar:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`

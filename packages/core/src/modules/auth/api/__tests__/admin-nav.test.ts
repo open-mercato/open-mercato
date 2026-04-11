@@ -1,5 +1,6 @@
 /** @jest-environment node */
-import { GET } from '@open-mercato/core/modules/auth/api/admin/nav'
+import { GET, metadata } from '@open-mercato/core/modules/auth/api/admin/nav'
+import * as backendChrome from '@open-mercato/core/modules/auth/lib/backendChrome'
 
 type AuthContext = {
   sub: string
@@ -364,5 +365,83 @@ describe('GET /api/auth/admin/nav', () => {
 
     expect(customerPortalGroup?.items.map((item) => item.href)).toContain('/backend/customer_accounts/users')
     expect(mockUserHasAllFeatures).toHaveBeenCalled()
+  })
+
+  it('returns 401 when not authenticated', async () => {
+    mockGetAuthFromRequest.mockResolvedValue(null)
+    const response = await GET(makeRequest())
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' })
+  })
+
+  it('requires auth.view feature in GET metadata (Finding 2 — CWE-284)', () => {
+    expect(metadata.GET.requireAuth).toBe(true)
+    expect(metadata.GET.requireFeatures).toContain('auth.view')
+  })
+
+  describe('security: scope fallback when resolveFeatureCheckContext throws', () => {
+    const minimalChromePayload = {
+      groups: [],
+      settingsSections: [],
+      settingsPathPrefixes: [],
+      profileSections: [],
+      profilePathPrefixes: [],
+      grantedFeatures: [],
+      roles: [],
+    }
+
+    let resolveBackendChromePayloadSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      mockGetBackendRouteManifests.mockReturnValue([])
+      resolveBackendChromePayloadSpy = jest
+        .spyOn(backendChrome, 'resolveBackendChromePayload')
+        .mockResolvedValue(minimalChromePayload)
+    })
+
+    afterEach(() => {
+      resolveBackendChromePayloadSpy.mockRestore()
+    })
+
+    it('resets attacker-supplied orgId and tenantId to auth values when scope resolution throws', async () => {
+      mockResolveFeatureCheckContext.mockRejectedValueOnce(new Error('scope resolution failed'))
+
+      const req = new Request(
+        'http://localhost/api/auth/admin/nav?orgId=attacker-org&tenantId=attacker-tenant',
+        { method: 'GET' },
+      )
+      const response = await GET(req)
+
+      expect(response.status).toBe(200)
+      expect(resolveBackendChromePayloadSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          selectedOrganizationId: 'org-1',
+          selectedTenantId: 'tenant-1',
+        }),
+      )
+    })
+
+    it('never forwards attacker-controlled tenantId to chrome payload when scope resolution fails', async () => {
+      mockResolveFeatureCheckContext.mockRejectedValueOnce(new Error('db timeout'))
+
+      const req = new Request(
+        'http://localhost/api/auth/admin/nav?orgId=any-org&tenantId=victim-tenant',
+        { method: 'GET' },
+      )
+      await GET(req)
+
+      expect(resolveBackendChromePayloadSpy).not.toHaveBeenCalledWith(
+        expect.objectContaining({ selectedTenantId: 'victim-tenant' }),
+      )
+    })
+
+    it('still returns a successful response after scope resolution failure', async () => {
+      mockResolveFeatureCheckContext.mockRejectedValueOnce(new Error('network error'))
+
+      const response = await GET(makeRequest())
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toMatchObject(minimalChromePayload)
+    })
   })
 })
