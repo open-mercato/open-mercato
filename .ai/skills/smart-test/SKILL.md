@@ -40,7 +40,9 @@ git merge-base --is-ancestor "${cache.commitHash}" HEAD 2>/dev/null && echo "rea
 
 Condition 3 guards against stale cache entries after a rebase, amend, or force-push. The old hash may still exist as a dangling object in the git store (`git cat-file -e` would return true), but it is no longer part of the branch history — `git merge-base --is-ancestor` correctly rejects it.
 
-**If cache is valid**: skip Steps 1–5, print `[cache hit: <hash>]`, and proceed directly to running tests using `cache.jestSourceFiles` and `cache.integrationSpecFiles`.
+**If cache is valid**: skip Steps 1–5, print `[cache hit: <hash>]`, and run tests from the cached plan:
+- **Jest**: `yarn jest --findRelatedTests <cache.jestSourceFiles> --passWithNoTests`
+- **Playwright**: if `cache.integrationWide` is `true` → `yarn test:integration`; else if `cache.integrationSpecFiles` is non-empty → `yarn playwright test <cache.integrationSpecFiles> --config=.ai/qa/tests/playwright.config.ts`; else skip.
 
 **If cache is invalid or missing**: continue to Step 1. After completing Steps 1–2, write the cache (see "Save Cache" below) before running tests.
 
@@ -148,10 +150,11 @@ CHANGED_FILES=$({
 Read the changed file list and classify scope:
 
 - **Wide scope** (run everything): changes in `packages/shared/`, `packages/events/`, `packages/queue/`, `packages/cache/`, root `jest.config.cjs`, `jest.setup.ts`, `tsconfig*.json`
-- **UI-wide**: changes in `packages/ui/src/` (not inside a module subfolder)
+- **UI-wide** (`packages/ui/src/backend/`): shared React components rendered on every backend page — Jest: `--findRelatedTests`; Playwright: full suite (the Python script outputs `--all` for these paths). For `packages/ui/src/primitives/` or `packages/ui/src/styles/` only, classify as `ui` layer instead (no Playwright).
 - **Module-scoped**: `packages/*/src/modules/<module>/` or `apps/mercato/src/modules/<module>/` → extract `<module>`
 - **Package-scoped** (no module): `packages/<pkg>/src/lib/` or `packages/<pkg>/src/` root — treat as wide scope for that package
-- **Test-only changes**: `.test.ts` or `.spec.ts` files changed → run those specific files directly
+- **Jest-test-only**: only `.test.ts`/`.test.tsx` files changed → run those files directly via Jest; skip Playwright
+- **Playwright-test-only**: only `.spec.ts` files inside `__integration__/` changed → run those files directly via `yarn playwright test <files> --config=.ai/qa/tests/playwright.config.ts`; skip Jest
 
 See `references/test-architecture.md` for module extraction patterns and known cross-module integration dependencies.
 
@@ -168,10 +171,17 @@ After determining scope, classify the **layer** of each changed source file. Int
 | `api-logic` | `/api/` · `/commands/` · `/lib/` · `/services/` · `/subscribers/` · `/workers/` · `events.ts` · `notifications.ts` · `ai-tools.ts` | **Yes** |
 | `data` | `/data/entities` · `/data/migrations` · `/data/validators` · `/data/extensions` · `/data/enrichers` | **Yes** |
 
-**Layer decision rule:**
-- All changed files → `ui` only (CSS / design tokens / primitives) → **skip Playwright**
-- Any file → `ui-component` / `api-logic` / `data` → **run Playwright**
+**Layer decision rule — set `$LAYER` as a shell variable:**
+- All changed files → `ui` only (CSS / design tokens / primitives) → `LAYER=ui`, **skip Playwright**
+- Any file → `data` patterns → `LAYER=data`, **run Playwright**
+- Any file → `api-logic` patterns (and none match `data`) → `LAYER=api-logic`, **run Playwright**
+- Any file → `ui-component` patterns (and none match `api-logic` or `data`) → `LAYER=ui-component`, **run Playwright**
+- Files span multiple non-`ui` layers → `LAYER=mixed`, **run Playwright**
 - Wide scope always → **run everything**
+
+```bash
+LAYER="<ui|ui-component|api-logic|data|mixed>"  # required: used in Step 5 and cache
+```
 
 **Why `ui-component` needs Playwright**: integration tests render full pages. A React component that throws during render, a conditional that hides a button, or a changed DOM structure can all break Playwright selectors — even without touching any API.
 
@@ -233,10 +243,20 @@ APP_PID=$!
 
 # Wait up to 2 minutes for server to become ready
 echo "Waiting for server on port 3000..."
+SERVER_READY=0
 for i in $(seq 1 60); do
-  curl -sf http://localhost:3000 > /dev/null 2>&1 && echo "Server ready." && break
+  if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+    echo "Server ready."
+    SERVER_READY=1
+    break
+  fi
   sleep 2
 done
+
+if [ "$SERVER_READY" -eq 0 ]; then
+  echo "ERROR: Server did not become ready within 2 minutes. Aborting integration tests."
+  exit 1
+fi
 ```
 
 After tests finish, leave the server running — do not kill it.
@@ -310,25 +330,31 @@ Totals come from `references/test-architecture.md`. Round to one decimal place.
 
 ```
 Step 0: .test-cache.json valid (hash + no uncommitted + reachable)?
-  └─ YES → use cached plan, skip to running tests
+  └─ YES → run from cache; check integrationWide flag:
+           integrationWide=true  → Jest: cached files + Playwright: yarn test:integration
+           integrationWide=false → Jest: cached files + Playwright: cached spec files (or skip)
   └─ NO  → analyze:
 
        Step 2a — Scope:
-         └─ Only test files?         → Run those files directly (skip integration check)
+         └─ Only .test.ts/.test.tsx?        → Jest: run those files directly; Playwright: skip
+         └─ Only .spec.ts (__integration__/)? → Jest: skip; Playwright: run those files directly
          └─ shared/events/queue/cache/root config?
-                                     → Full suite (yarn test + yarn test:integration)
-         └─ Module-scoped?           → extract module name(s)
-         └─ Package lib (no module)? → --findRelatedTests for that package
+                                            → Full suite (yarn test + yarn test:integration)
+         └─ packages/ui/src/backend/?       → Jest: --findRelatedTests; Playwright: full suite
+         └─ Module-scoped?                  → extract module name(s)
+         └─ Package lib (no module)?        → --findRelatedTests for that package
 
        Step 2b — Layer (for non-wide, non-test-only scopes):
-         └─ ALL files are pure CSS / design tokens / primitives (layer = ui)?
+         └─ ALL files are pure CSS / design tokens / primitives?
+              → LAYER=ui
               → Jest: --findRelatedTests <changed-src-files>
               → Integration: SKIP (no DOM structure change possible)
          └─ ANY file is ui-component / api-logic / data?
+              → LAYER=<ui-component|api-logic|data|mixed>
               → Jest: --findRelatedTests <changed-src-files>
               → Integration: check server → script maps modules → spec files
 
-       → Save cache (with layer field) → run tests
+       → Set $LAYER → Save cache (with layer field) → run tests
 ```
 
 ---

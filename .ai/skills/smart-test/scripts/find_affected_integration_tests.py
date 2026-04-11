@@ -40,6 +40,9 @@ WIDE_SCOPE_PREFIXES = (
     "packages/events/",
     "packages/queue/",
     "packages/cache/",
+    # Shared backend UI components (DataTable, CrudForm, etc.) are rendered on every
+    # backend page — a broken render can fail any Playwright test, so run the full suite.
+    "packages/ui/src/backend/",
     "jest.config.",
     "jest.setup.",
     "tsconfig",
