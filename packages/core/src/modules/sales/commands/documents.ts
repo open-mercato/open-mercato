@@ -1176,7 +1176,7 @@ async function loadQuoteSnapshot(
     lineCustomFields,
     adjustmentCustomFields,
   ] = await Promise.all([
-    em.find(SalesDocumentAddress, { documentId: id, documentKind: "quote" }),
+    em.find(SalesDocumentAddress, { documentId: id, documentKind: "quote", organizationId: quote.organizationId, tenantId: quote.tenantId }),
     em.find(SalesNote, { contextType: "quote", contextId: id }),
     findWithDecryption(
       em,
@@ -1432,7 +1432,7 @@ async function loadOrderSnapshot(
     lineCustomFields,
     adjustmentCustomFields,
   ] = await Promise.all([
-    em.find(SalesDocumentAddress, { documentId: id, documentKind: "order" }),
+    em.find(SalesDocumentAddress, { documentId: id, documentKind: "order", organizationId: order.organizationId, tenantId: order.tenantId }),
     em.find(SalesNote, { contextType: "order", contextId: id }),
     findWithDecryption(
       em,
@@ -4497,6 +4497,8 @@ const deleteQuoteCommand: CommandHandler<
       em.find(SalesDocumentAddress, {
         documentId: quote.id,
         documentKind: "quote",
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
       }),
       em.find(SalesNote, { contextType: "quote", contextId: quote.id }),
       em.find(SalesDocumentTagAssignment, {
@@ -5422,6 +5424,8 @@ const deleteOrderCommand: CommandHandler<
       em.find(SalesDocumentAddress, {
         documentId: order.id,
         documentKind: "order",
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
       }),
       em.find(SalesNote, { contextType: "order", contextId: order.id }),
       em.find(SalesDocumentTagAssignment, {
@@ -5797,6 +5801,8 @@ const convertQuoteToOrderCommand: CommandHandler<
       em.find(SalesDocumentAddress, {
         documentId: snapshot.quote.id,
         documentKind: "quote",
+        organizationId: snapshot.quote.organizationId,
+        tenantId: snapshot.quote.tenantId,
       }),
       em.find(SalesNote, {
         contextType: "quote",
