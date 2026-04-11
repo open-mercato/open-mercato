@@ -32,6 +32,9 @@ Addressed CodeQL-identified security issues across the codebase. *(@pkarw)*
 
 ## Bug Fixes
 
+### Security: Hash Reset and Message Link Tokens
+Password reset, invite setup, and public message access tokens are now persisted as SHA-256 hashes. The legacy `token` columns remain for compatibility but are deprecated for verification; use `token_hash` / entity `tokenHash` instead. See `.ai/specs/implemented/2026-04-11-token-hash-hardening.md` for migration details.
+
 ### Security: Prevent Open Redirect in Session Refresh (#429)
 Fixed an open redirect vulnerability in the authentication session refresh flow. *(@bartek-filipiuk)*
 

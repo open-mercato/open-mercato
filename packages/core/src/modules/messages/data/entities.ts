@@ -217,6 +217,7 @@ export class MessageObject {
 
 @Entity({ tableName: 'message_access_tokens' })
 @Index({ name: 'message_access_tokens_token_idx', properties: ['token'] })
+@Index({ name: 'message_access_tokens_token_hash_idx', properties: ['tokenHash'] })
 @Index({ name: 'message_access_tokens_message_idx', properties: ['messageId'] })
 export class MessageAccessToken {
   [OptionalProps]?: 'createdAt'
@@ -230,8 +231,15 @@ export class MessageAccessToken {
   @Property({ name: 'recipient_user_id', type: 'uuid' })
   recipientUserId!: string
 
+  /**
+   * @deprecated Legacy lookup column. New rows store the token hash here for backward DB compatibility.
+   * Use tokenHash for token verification.
+   */
   @Property({ name: 'token', type: 'text', unique: true })
   token!: string
+
+  @Property({ name: 'token_hash', type: 'text', nullable: true, unique: true })
+  tokenHash?: string | null
 
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date

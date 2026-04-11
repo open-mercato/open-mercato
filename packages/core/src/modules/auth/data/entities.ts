@@ -158,6 +158,7 @@ export class Session {
 }
 
 @Entity({ tableName: 'password_resets' })
+@Index({ name: 'password_resets_token_hash_idx', properties: ['tokenHash'] })
 export class PasswordReset {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -165,8 +166,15 @@ export class PasswordReset {
   @ManyToOne(() => User)
   user!: User
 
+  /**
+   * @deprecated Legacy lookup column. New rows store the token hash here for backward DB compatibility.
+   * Use tokenHash for token verification.
+   */
   @Property({ type: 'text', unique: true })
   token!: string
+
+  @Property({ name: 'token_hash', type: 'text', nullable: true, unique: true })
+  tokenHash?: string | null
 
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
