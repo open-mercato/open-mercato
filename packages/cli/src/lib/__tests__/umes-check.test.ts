@@ -174,6 +174,47 @@ describe('runUmesCheck', () => {
     expect(process.exitCode).toBeUndefined()
   })
 
+  it('falls back to interceptor targets and empty methods when extension details are missing', async () => {
+    const modulesData: UmesModuleData[] = [
+      {
+        moduleId: 'catalog',
+        declaredFeatures: ['catalog.view'],
+        extensions: [
+          {
+            moduleId: 'catalog',
+            type: 'interceptor',
+            id: 'catalog.api.export',
+            target: 'catalog/export',
+            priority: 75,
+            features: [],
+          },
+        ],
+      },
+    ]
+
+    mockCollectUmesData.mockReturnValue(modulesData)
+    mockDetectConflicts.mockReturnValue({ warnings: [], errors: [] })
+
+    await runUmesCheck()
+
+    expect(mockDetectConflicts).toHaveBeenCalledWith({
+      componentOverrides: [],
+      interceptors: [
+        {
+          moduleId: 'catalog',
+          id: 'catalog.api.export',
+          targetRoute: 'catalog/export',
+          methods: [],
+          priority: 75,
+        },
+      ],
+      gatedExtensions: [],
+      declaredFeatures: new Set(['catalog.view']),
+    })
+    expect(console.log).toHaveBeenNthCalledWith(2, '\x1b[32mNo conflicts found.\x1b[0m')
+    expect(process.exitCode).toBeUndefined()
+  })
+
   it('prints errors, includes the summary, and sets process.exitCode when conflicts are fatal', async () => {
     mockCollectUmesData.mockReturnValue([])
     mockDetectConflicts.mockReturnValue({
