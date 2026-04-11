@@ -5457,4 +5457,839 @@ Ta sama policy co Notice → Alert (sekcja 1.14 audytu): deprecation announced �
 
 ---
 
-*Koniec supplementu N-T. Sekcje E-T stanowią kompletny plan design systemu: techniczny (E-M) i ludzki (N-T).*
+---
+
+## U. Uzupełnienie Foundations — Motion, Type Hierarchy, Icons
+
+### U.1 Motion & Animation Spec
+
+#### Stan obecny (z audytu codebase)
+
+Projekt JUŻ używa animacji, ale bez standaryzacji:
+
+| Animacja | Duration | Easing | Kontekst |
+|----------|----------|--------|----------|
+| `slide-in` (flash messages) | 300ms | ease-out | Flash notification entry |
+| `ai-pulse` / `ai-pulse-active` | 3s / 1.5s | ease-in-out | AI dot idle/active |
+| `ai-glow` / `ai-glow-active` | 3s / 1.5s | ease-in-out | AI dot glow |
+| `ai-spin` | 8s | linear | AI dot gradient rotation |
+| Switch toggle | 200ms | default | `transition-transform` thumb slide |
+| Progress bar | 300ms | ease-in-out | `transition-all` width change |
+| Button/IconButton hover | default (~150ms) | default | `transition-all` |
+| Dialog/Popover/Tooltip enter | tw-animate-css | — | `animate-in fade-in-0 zoom-in-95` |
+
+**Problemy:** Mix 150ms/200ms/300ms bez uzasadnienia. Zero `prefers-reduced-motion` support (krytyczna luka a11y).
+
+#### Duration Scale [POST-HACKATHON]
+
+| Token | CSS Variable | Wartość | Kiedy używać |
+|-------|-------------|---------|-------------|
+| `instant` | `--motion-duration-instant` | `75ms` | Hover color change, focus ring, checkbox/radio toggle |
+| `fast` | `--motion-duration-fast` | `150ms` | Button hover/active, icon rotation, tooltip fade |
+| `normal` | `--motion-duration-normal` | `250ms` | Switch thumb slide, popover/dropdown open, tab switch |
+| `slow` | `--motion-duration-slow` | `350ms` | Dialog open/close, flash message slide-in, accordion expand |
+| `decorative` | `--motion-duration-decorative` | `1000ms+` | AI pulse, progress shimmer — nie dotyczy UI core |
+
+**Zasada:** Interakcja bezpośrednia (user kliknął) = `fast`/`normal`. System feedback (coś się pojawiło) = `normal`/`slow`. Dekoracja = `decorative`.
+
+#### Easing Curves [POST-HACKATHON]
+
+| Token | CSS Variable | Wartość | Kiedy |
+|-------|-------------|---------|-------|
+| `default` | `--motion-ease-default` | `cubic-bezier(0.25, 0.1, 0.25, 1.0)` | Ogólne przejścia (≈ ease) |
+| `enter` | `--motion-ease-enter` | `cubic-bezier(0.0, 0.0, 0.2, 1.0)` | Elementy wchodzące: dialog, popover, tooltip, flash |
+| `exit` | `--motion-ease-exit` | `cubic-bezier(0.4, 0.0, 1.0, 1.0)` | Elementy wychodzące: dialog close, flash dismiss |
+| `spring` | `--motion-ease-spring` | `cubic-bezier(0.34, 1.56, 0.64, 1.0)` | Drobne efekty sprężyste: switch thumb, bounce badge |
+
+#### Reguły Motion
+
+**Co animować (GPU-accelerated):**
+- `transform` (translate, scale, rotate)
+- `opacity`
+- `filter` (blur, brightness)
+- `clip-path`
+
+**Czego NIE animować (layout reflow):**
+- `width`, `height`, `top`, `left`, `margin`, `padding`
+- Wyjątek: `Progress` bar animuje width — akceptowalne bo to jednorazowe, nie repetitive
+
+**`prefers-reduced-motion` — OBOWIĄZKOWE:** [HACKATHON — 15 min]
+
+```css
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+```
+
+Dodać do `globals.css`. Nie wyłączamy animacji całkowicie (`0.01ms` zamiast `0ms`) żeby `animationend`/`transitionend` events nadal się odpalały.
+
+#### Skeleton Loaders [POST-HACKATHON]
+
+**Decyzja: Skeleton vs Spinner:**
+
+| Sytuacja | Użyj | Dlaczego |
+|----------|------|---------|
+| Znany layout (lista, detail, form) | Skeleton | User widzi kształt nadchodzącego contentu — mniejszy perceived wait time |
+| Nieznany layout (first load, search results) | Spinner (`LoadingMessage`) | Nie wiadomo co narysować |
+| Akcja użytkownika (save, delete) | Spinner w button | Feedback na klik, nie na layout |
+| Sekcja wewnątrz strony | `InlineLoader` z DataLoader | Nie blokuj reszty strony |
+
+**Skeleton spec (gdy zaimplementowany):**
+
+```css
+/* Shimmer animation */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--muted) 25%,
+    oklch(from var(--muted) calc(l + 0.05) c h) 50%,
+    var(--muted) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s var(--motion-ease-default) infinite;
+  border-radius: var(--radius-sm);
+}
+```
+
+- Kolor bazowy: `--muted` (spójny z loading states)
+- Highlight: muted +5% lightness (w OKLCH — perceptualnie poprawne)
+- Duration: 1.5s (dłużej = mniej agresywne, lepsze dla a11y)
+- Border-radius: `--radius-sm` (zaokrąglone jak content który zastępują)
+- Sizing: dopasowane do contentu (text skeleton = h-4, avatar = h-10 w-10 rounded-full)
+
+**Priorytet:** Skeleton component to [LATER]. `prefers-reduced-motion` to [HACKATHON].
+
+---
+
+### U.2 Prescriptive Type Hierarchy
+
+Dane z audytu (sekcje 1.3, 1.4): 61 arbitralnych rozmiarów, h1 stylowany jako `text-2xl font-semibold` (14 wystąpień) lub `text-2xl font-bold tracking-tight` (3 wystąpienia). h2 ma 5 różnych stylów. h3 ma 5 różnych stylów.
+
+#### Type Scale [HACKATHON]
+
+| Semantic role | HTML | Tailwind classes | Size | Waga | Line-height | Letter-spacing | Kiedy używać |
+|--------------|------|-----------------|------|------|-------------|---------------|-------------|
+| Page title | `<h1>` | `text-2xl font-semibold tracking-tight` | 24px | 600 | `leading-tight` (1.25) | -0.025em | Tytuł strony w PageHeader. Max 1 per page. |
+| Section title | `<h2>` | `text-lg font-semibold` | 18px | 600 | `leading-7` (1.75rem) | — | Tytuł sekcji w SectionHeader, card header. |
+| Subsection title | `<h3>` | `text-base font-semibold` | 16px | 600 | `leading-6` (1.5rem) | — | Podtytuł wewnątrz sekcji, tab panel header. |
+| Group title | `<h4>` | `text-sm font-semibold` | 14px | 600 | `leading-5` (1.25rem) | — | Nagłówek grupy pól w formularzu, settings section. |
+| Body (default) | `<p>` | `text-sm` | 14px | 400 | `leading-5` (1.25rem) | — | Domyślny tekst w backend. Wszystkie opisy, paragrafy, cell content. |
+| Body (large) | `<p>` | `text-base` | 16px | 400 | `leading-6` (1.5rem) | — | Portal body text, hero descriptions, feature cards. |
+| Caption | `<span>` | `text-xs text-muted-foreground` | 12px | 400 | `leading-4` (1rem) | — | Pomocniczy tekst: timestamps, metadata, helper text pod polami. |
+| Label | `<label>` | `text-sm font-medium` | 14px | 500 | `leading-5` (1.25rem) | — | Form labels w backend (CrudForm FieldControl). Via `<Label>` primitive. |
+| Overline | `<span>` | `text-overline` | 11px | 600 | `leading-4` (1rem) | `tracking-wider` (0.05em) | Uppercase labels: entity type w FormHeader, portal field labels, category tags. |
+| Code | `<code>` | `font-mono text-sm` | 14px | 400 | `leading-5` (1.25rem) | — | Kod, API paths, technical values. Geist Mono. |
+
+**Token CSS do dodania:**
+
+```css
+/* W globals.css — jedyny custom token typograficzny */
+--font-size-overline: 0.6875rem;    /* 11px */
+--font-weight-overline: 600;
+--letter-spacing-overline: 0.05em;
+--text-transform-overline: uppercase;
+
+/* W @theme inline */
+--font-size-overline: var(--font-size-overline);
+```
+
+**Tailwind utility (w globals.css):**
+
+```css
+.text-overline {
+  font-size: var(--font-size-overline);
+  font-weight: var(--font-weight-overline);
+  letter-spacing: var(--letter-spacing-overline);
+  text-transform: var(--text-transform-overline);
+  line-height: 1rem;
+}
+```
+
+#### Type Hierarchy Don'ts
+
+| Don't | Dlaczego | Co zamiast |
+|-------|----------|------------|
+| Przeskakiwać heading levels (`h1` → `h3` bez `h2`) | Łamie a11y — screen reader traci strukturę | Zawsze zachowuj sekwencję. Jeśli nie potrzebujesz h2 — zmniejsz h1. |
+| Używać heading class na non-heading (`<div className="text-2xl font-semibold">`) | Wizualna hierarchia ≠ semantyczna. Screen reader nie widzi headingu. | Użyj `<h2>` z właściwą klasą. |
+| Mieszać rozmiarów w jednym kontekście (`text-lg` obok `text-xl` jako peer headings) | Sugeruje różną ważność tam gdzie jej nie ma. | Ten sam level = ten sam rozmiar. |
+| Używać `font-bold` (700) w body text | Za ciężki dla body, koliduje z headings. | `font-medium` (500) dla akcentów w body. `font-semibold` (600) dla headings. |
+| Używać arbitralnych rozmiarów (`text-[13px]`, `text-[15px]`) | Łamie skalę, utrudnia maintenance. | Mapuj na najbliższy Tailwind size (por. sekcja J mapping table). |
+
+**Priorytet:** [HACKATHON] — 1 tabela, 15 minut, eliminuje 90% pytań o rozmiary.
+
+---
+
+### U.3 Icon Usage Guidelines
+
+Decyzja DR-003: lucide-react jako jedyna biblioteka ikon. Audit: 14 plików z inline SVG do migracji.
+
+#### Sizing Convention [HACKATHON]
+
+| Token | Tailwind | Pixel | Kiedy używać | Przykład |
+|-------|---------|-------|-------------|---------|
+| `icon.xs` | `size-3` | 12px | Badge count, notification dot, inline indicator | Badge number overlay |
+| `icon.sm` | `size-3.5` | 14px | W małych buttonach (`size="sm"`), compact row actions, breadcrumb separator | `<ChevronRight className="size-3.5" />` w breadcrumbs |
+| `icon.default` | `size-4` | 16px | **Standard — 80% użyć.** Button icon, nav item icon, table cell icon, form field icon | `<Plus className="size-4" />` w `<Button>` |
+| `icon.md` | `size-5` | 20px | Standalone icon buttons (`IconButton size="default"`), section header icon, alert icon | `<AlertCircle className="size-5" />` w `<Alert>` |
+| `icon.lg` | `size-6` | 24px | Empty state icon, feature card icon, page header accent | `<Package className="size-6" />` w `<EmptyState>` |
+| `icon.xl` | `size-8` | 32px | Hero illustrations, onboarding steps, large empty states | Portal feature cards, wizard step icons |
+
+Dane z codebase: `size-4` (16px) dominuje z 602 użyciami `w-4` i 591 `h-4`. `size-3`/`size-3.5` to 154/72 użyć. `size-5` to 85 użyć.
+
+#### Stroke Width [HACKATHON]
+
+**Decyzja: `strokeWidth={2}` (lucide default) — wszędzie.** Bez wyjątków.
+
+Uzasadnienie: Audit znalazł 19 wystąpień `strokeWidth="2"` (explicit default) i 11 wystąpień `strokeWidth="1.5"` (portal/frontend). `1.5` to legacy — cieńsze linie są mniej czytelne w małych rozmiarach (size-3, size-4) i niespójne z resztą systemu. Migracja: 11 zmian w ramach module migration.
+
+**Nie przekazuj `strokeWidth` w JSX** — lucide domyślnie renderuje 2. Jeśli widzisz explicit `strokeWidth={2}` — usuń, to redundant.
+
+#### Icon + Text vs Icon-Only [HACKATHON]
+
+| Kontekst | Dozwolone icon-only? | Wymagania |
+|----------|---------------------|-----------|
+| Primary CTA (Create, Save) | ❌ NIE | Zawsze icon + text. User musi wiedzieć co robi przycisk. |
+| Sidebar nav items | ❌ NIE (collapsed: icon-only z tooltip) | Pełna nawigacja: icon + text. Collapsed sidebar: icon + tooltip. |
+| Toolbar / row actions (Edit, Delete, More) | ✅ TAK | `aria-label` OBOWIĄZKOWY. Tooltip ZALECANY. |
+| Close button (X w dialog/alert) | ✅ TAK | `aria-label="Close"` OBOWIĄZKOWY. |
+| Pagination (prev/next) | ✅ TAK | `aria-label="Previous page"` / `aria-label="Next page"`. |
+| Status indicator (dot, check) | ✅ TAK (dekoracyjny) | `aria-hidden="true"` — status przekazywany przez tekst/badge, nie ikonę. |
+
+**Zasada nadrzędna (por. Principle 3):** Jeśli ikona jest jedynym sposobem na zrozumienie akcji → `aria-label` jest WYMAGANY, nie zalecany. TypeScript powinien to wymuszać (prop `aria-label` required na `IconButton`).
+
+#### Top 20 ikon w Open Mercato (z grep codebase)
+
+| # | Ikona | Importy | Kontekst |
+|---|-------|---------|----------|
+| 1 | `Plus` | 60 | Create actions, add to list, EmptyState CTA |
+| 2 | `Trash2` | 54 | Delete actions (row, bulk, form) |
+| 3 | `Loader2` | 48 | Spinner (animate-spin), loading states |
+| 4 | `X` | 40 | Close (dialog, flash, panel, tag remove) |
+| 5 | `ChevronDown` | 29 | Dropdown trigger, collapse, select |
+| 6 | `Pencil` | 27 | Edit actions (inline, row, form) |
+| 7 | `AlertTriangle` | 14 | Warning states (Alert, Notice) |
+| 8 | `Check` | 13 | Success indicator, checkbox, confirm |
+| 9 | `ChevronRight` | 13 | Breadcrumb separator, nav expand |
+| 10 | `RefreshCw` | 12 | Reload data, sync, retry |
+| 11 | `Settings` | 12 | Settings navigation, config |
+| 12 | `ChevronUp` | 11 | Collapse, sort ascending |
+| 13 | `Save` | 10 | Save form, persist changes |
+| 14 | `AlertCircle` | 10 | Error states (ErrorMessage, Alert) |
+| 15 | `Mail` | 9 | Email fields, contact, send |
+| 16 | `Info` | 9 | Info tooltips, helper text |
+| 17 | `CheckCircle2` | 9 | Success flash, confirmed status |
+| 18 | `Calendar` | 9 | Date picker, scheduling |
+| 19 | `Zap` | 8 | Automation, workflows, AI |
+| 20 | `ExternalLink` | 8 | Open in new tab, external URL |
+
+**Jak znaleźć ikonę:** Otwórz [lucide.dev/icons](https://lucide.dev/icons), wyszukaj po nazwie akcji (np. "delete" → Trash2, "add" → Plus). Preferuj ikony z top 20 — contributorzy je znają.
+
+#### Icon Don'ts
+
+| Don't | Dlaczego | Co zamiast |
+|-------|----------|------------|
+| Import z innej biblioteki (Heroicons, Phosphor) | Niespójny stroke, sizing, style (por. DR-003) | Zawsze `from 'lucide-react'` |
+| Inline SVG (`<svg viewBox="...">`) | Nie jest tree-shakeable, niespójny stroke | Znajdź odpowiednik w lucide lub zgłoś request |
+| `strokeWidth={1.5}` lub inne custom | Cieńsze linie = mniej czytelne w size-4 | Usuń prop — lucide default (2) jest standardem |
+| Ikona poza skalą (`size-7`, `size-10`, `size-[18px]`) | Łamie skalę, niespójne z resztą UI | Użyj najbliższego rozmiaru ze skali: 3, 3.5, 4, 5, 6, 8 |
+
+---
+
+## V. Component Specs
+
+### V.1 Component Quick Reference Table
+
+Pokrywa wszystkie primitives z `packages/ui/src/primitives/` i kluczowe backend components. Dane z audytu codebase.
+
+| # | Komponent | Import | Kiedy używać | Kiedy NIE używać | Warianty | Default size | A11y | Mobile |
+|---|-----------|--------|-------------|-----------------|----------|-------------|------|--------|
+| 1 | **Button** | `@open-mercato/ui/primitives/button` | Akcja użytkownika: save, create, cancel, delete | Nawigacja (→ `Link`), toggle stanu (→ `Switch`) | `default`, `destructive`, `outline`, `secondary`, `ghost`, `muted`, `link` | h-9, text-sm | Focus ring auto. Disabled = `opacity-50 pointer-events-none`. | Bez zmian — touch target h-9 (36px) OK |
+| 2 | **IconButton** | `@open-mercato/ui/primitives/icon-button` | Kompaktowa akcja icon-only: edit, delete, close, collapse | Gdy akcja jest niejasna bez tekstu (→ `Button` z icon+text) | `outline`, `ghost` | size-8 (32px) | `aria-label` WYMAGANY | Touch target size-8 = 32px — na mobile rozważ size `lg` (36px) |
+| 3 | **Input** | `@open-mercato/ui/primitives/input` | Jednoliniowe pole tekstowe: name, email, search | Wieloliniowy tekst (→ `Textarea`), wybór z listy (→ `ComboboxInput`) | Brak CVA | h-9 | Via `<Label htmlFor>` + `aria-invalid` | Bez zmian |
+| 4 | **Textarea** | `@open-mercato/ui/primitives/textarea` | Wieloliniowy tekst: description, notes, comments | Jednoliniowy (→ `Input`), rich text (→ `SwitchableMarkdownInput`) | Brak CVA | min-h-[80px] | Via `<Label htmlFor>` | Bez zmian |
+| 5 | **Checkbox** | `@open-mercato/ui/primitives/checkbox` | Wybór wielokrotny, boolean z opóźnionym zapisem (formularz) | Natychmiastowy toggle (→ `Switch`), single choice (→ radio) | Brak CVA | size-4 (16px) | Radix — wbudowane role/state | Touch: size-4 mały — opakowaj w clickable area |
+| 6 | **Switch** | `@open-mercato/ui/primitives/switch` | Toggle natychmiastowy: enable/disable, on/off | Boolean w formularzu z submit (→ `Checkbox`) | Brak CVA | h-6 w-11 | `role="switch"`, keyboard Space/Enter | h-6 (24px) — akceptowalne |
+| 7 | **Label** | `@open-mercato/ui/primitives/label` | Label dla pola formularza | Standalone tekst (→ `<span>`) | Brak CVA | text-sm font-medium | Radix — auto `htmlFor` linkage | Bez zmian |
+| 8 | **Card** | `@open-mercato/ui/primitives/card` | Grupowanie powiązanego contentu: settings, stats, feature | Wrapping całej strony (→ `Page`), sekcja w detail (→ `Section`) | `CardHeader`, `CardContent`, `CardFooter`, `CardAction` | bg-card, gap-6 | Semantyczny `<div>` z border | Bez zmian — padding responsive via sub-components |
+| 9 | **Badge** | `@open-mercato/ui/primitives/badge` | Metadane: count, category, tag | Status entity (→ `StatusBadge`), akcja (→ `Button size="sm"`) | `default`, `secondary`, `destructive`, `outline`, `muted` + (nowe) `success`, `warning`, `info` | text-xs h-5 | Dekoracyjny — brak interakcji | Bez zmian |
+| 10 | **Alert** | `@open-mercato/ui/primitives/alert` | Inline komunikat: error, success, warning, info na stronie | Transient feedback (→ `flash()`), system notification (→ `NotificationBell`) | `default`, `destructive`, `success`, `warning`, `info` | p-4 text-sm | `role="alert"` auto na destructive | Bez zmian |
+| 11 | **Dialog** | `@open-mercato/ui/primitives/dialog` | Formularz/content wymagający focus: create, edit, confirm | >10 pól (→ oddzielna strona), read-only content (→ `Popover`) | `DialogContent` z sub-components | Mobile: bottom sheet. Desktop: max-w-lg centered | Radix: focus trap, ESC close, aria-* | Bottom sheet z rounded-t-2xl, min-h-[50vh] |
+| 12 | **Tooltip** | `@open-mercato/ui/primitives/tooltip` | Krótki tekst pomocniczy na hover/focus: icon explanation, truncated text | Interaktywny content (→ `Popover`), ważna info (→ pokaż inline) | Brak CVA | text-xs, max-w-[280px] | Delay 300ms, ESC dismiss | Touch: brak hover — rozważ inline text |
+| 13 | **Popover** | `@open-mercato/ui/primitives/popover` | Interaktywny panel na klik: filter, color picker, mini-form | Pełny formularz (→ `Dialog`), read-only hint (→ `Tooltip`) | Brak CVA | min-w-[280px] | Radix: focus trap, ESC close | Bez zmian — pozycjonowanie auto |
+| 14 | **Tabs** | `@open-mercato/ui/primitives/tabs` | Przełączanie widoków w jednym kontekście: detail sections, settings | Nawigacja między stronami (→ sidebar/routing), 2 opcje (→ `Switch`) | `TabsList`, `TabsTrigger`, `TabsContent` | h-9 trigger | `role="tablist"`, `aria-selected` | Horizontal scroll na TabsList jeśli >4 tabs |
+| 15 | **Table** | `@open-mercato/ui/primitives/table` | Prosta tabela semantyczna: key-value, comparison, static data | Lista z sort/filter/pagination (→ `DataTable`) | `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell` | text-sm, px-4 py-2 | Semantic HTML `<table>` | Horizontal scroll w overflow container |
+| 16 | **Separator** | `@open-mercato/ui/primitives/separator` | Wizualny podział sekcji | Spacing (→ `space-y-*` / `gap-*`), grupowanie (→ `Card` / `Section`) | `horizontal` (default), `vertical` | 1px, bg-border | `role="separator"` | Bez zmian |
+| 17 | **Progress** | `@open-mercato/ui/primitives/progress` | Postęp operacji: upload, sync, wizard step | Nieokreślony czas (→ `Spinner`) | Brak CVA | h-2 | `role="progressbar"`, `aria-valuenow` | Bez zmian |
+| 18 | **Spinner** | `@open-mercato/ui/primitives/spinner` | Loading indicator: data fetch, form submit, async operation | Znany layout (→ Skeleton — przyszłość) | Brak CVA | Odziedziczony z parent | `aria-label` lub otaczający `LoadingMessage` | Bez zmian |
+| 19 | **EmptyState** | `@open-mercato/ui/backend/EmptyState` | Zero danych w liście/sekcji — z CTA do tworzenia | Błąd (→ `ErrorMessage`), loading (→ `LoadingMessage`) | — | Centered, dashed border | Semantic: `title` + `description` czytelne dla SR | Bez zmian — centered layout responsywny |
+| 20 | **LoadingMessage** | `@open-mercato/ui/backend/detail` | Loading state w sekcjach, tab content, detail pages | Full-page loading (→ `PageLoader`), inline w tabeli (→ `DataTable isLoading`) | — | Spinner h-4 + text | `aria-busy` via kontekst | Bez zmian |
+| 21 | **ErrorMessage** | `@open-mercato/ui/backend/detail` | Błąd ładowania danych, not found, server error | Walidacja formularza (→ `Alert` inline + field errors) | — | `role="alert"`, `text-destructive` | Auto `role="alert"` | Bez zmian |
+
+### V.2 Deep Specs — komponenty z problemami
+
+#### V.2.1 Button — Decision Framework [HACKATHON]
+
+Audit (1.10): 7 wariantów. Brak guidelines kiedy który.
+
+| Scenariusz | Wariant | Rozmiar | Uzasadnienie |
+|-----------|---------|---------|-------------|
+| **Główna akcja** na stronie (Save, Create, Submit) | `default` | `default` (h-9) | Primary CTA — niebieskie tło, białe text. Max 1 per sekcja strony. |
+| **Akcja wspierająca** (Cancel, Back, Export) | `outline` | `default` | Widoczna ale nie konkuruje z primary. Border bez fill. |
+| **Akcja destrukcyjna** (Delete, Remove, Revoke) | `destructive` | `default` | Czerwona. ZAWSZE z `useConfirmDialog()` — nigdy immediate. |
+| **Akcja niskopriorytowa** (Reset filters, Clear, Collapse) | `ghost` | `sm` (h-8) | Minimalna wizualna waga. Tylko na hover widoczna. |
+| **Akcja wewnątrz tekstu** (inline link-style) | `link` | `sm` | Wygląda jak link. Dla akcji, nie nawigacji (nawigacja = `<Link>`). |
+| **Akcja w wyciszonym kontekście** (toolbar, compact list) | `muted` | `sm` | Muted bg, low contrast. Nie przyciąga uwagi. |
+| **Akcja w grupie peer** (2 równoważne opcje) | `secondary` + `secondary` | `default` | Obie szare. Żadna nie dominuje. Dodaj ikonę dla rozróżnienia. |
+
+**Zasada 1-1-N:** Max 1 `default` (primary), max 1 `destructive`, dowolna ilość `outline`/`ghost`/`muted` per widoczna sekcja.
+
+**Konflikty (2 równoważne akcje):** Użyj `secondary` dla obu + rozróżnij ikoną. Nie twórz drugiego `default`.
+
+#### V.2.2 Card — Unification Plan [POST-HACKATHON]
+
+Audit (1.8): Card (primitive), PortalCard, PortalFeatureCard, PortalStatRow, card-grid w settings.
+
+**Taksonomia — 3 warianty:**
+
+| Wariant | Komponent | Użycie | Padding | Radius |
+|---------|-----------|--------|---------|--------|
+| `default` | `Card` (primitive) | Backend: settings, grouped content, data sections | px-6 py-6 (via sub-components) | `rounded-xl` (border) |
+| `interactive` | `Card` + `onClick`/`asChild` | Settings navigation tiles, clickable cards | px-6 py-6 + hover state | `rounded-xl` + `hover:bg-accent/50` |
+| `stat` | `Card` + custom content | Dashboard widgets, KPI tiles, metric cards | p-5 sm:p-6 | `rounded-xl` |
+
+**PortalCard: merge z Card.** PortalCard to `Card` z `p-5 sm:p-6 rounded-xl border bg-card` — identyczne z primitive. Zastąpić importem Card. PortalFeatureCard to composition: `Card` + icon grid — nie potrzebuje oddzielnego komponentu.
+
+**Kiedy Card vs Section vs inny container:**
+
+| Content | Użyj | Dlaczego |
+|---------|------|---------|
+| Zamknięty blok danych (address, payment info, stats) | `Card` | Ma wyraźne granice — border + bg-card |
+| Sekcja w detail page (Activities, Notes, Tasks) | `Section` / `SectionHeader` | Nie ma obramowania — jest częścią flow strony |
+| Cała strona | `Page` + `PageBody` | Wrapper, nie container |
+| Formularz | `CrudForm` (sam zarządza layoutem) | CrudForm ma swój padding i spacing |
+
+#### V.2.3 Dialog — Decision Matrix [HACKATHON]
+
+Audit (1.10): Dialog (Radix), ConfirmDialog (natywny `<dialog>`). Brak sizing guidelines.
+
+| Scenariusz | Użyj | Sizing | Dlaczego |
+|-----------|------|--------|---------|
+| Potwierdzenie destrukcyjnej akcji | `useConfirmDialog()` | auto (sm) | 2 opcje: confirm/cancel. Minimalne UI. |
+| Quick create (2-5 pól: tag, note, quick task) | `Dialog` | `max-w-md` (448px) | Nie opuszcza kontekstu. Fast turnaround. |
+| Standard form (5-7 pól: create entity) | `Dialog` | `max-w-lg` (512px) — default | Skupia uwagę. Cmd+Enter submit. |
+| Complex form (8-12 pól z grupami) | `Dialog` | `max-w-xl` (576px) | Na granicy — rozważ oddzielną stronę. |
+| >12 pól lub multi-step | Oddzielna strona (`create/page.tsx`) | full page | Dialog za mały. User traci kontekst scrollując modal. |
+| Read-only detail preview | `Dialog` lub `Popover` | zależy od ilości contentu | Popover: 1-2 sekcje. Dialog: więcej. |
+| Bulk action confirmation | `useConfirmDialog()` z custom description | auto (sm) | "Delete 5 customers?" + konsekwencje. |
+
+**Mobile behavior:** Wszystkie Dialog → bottom sheet (min-h-[50vh], max-h-[70vh], rounded-t-2xl). Swipe-down to dismiss nie jest zaimplementowany — ESC/tap outside.
+
+**Sizing reference (z dialog.tsx):**
+
+| Token | Tailwind | Pixel | Desktop | Mobile |
+|-------|---------|-------|---------|--------|
+| sm | `max-w-sm` | 384px | Confirmation, simple choice | Bottom sheet |
+| md | `max-w-md` | 448px | Quick create, 2-5 pól | Bottom sheet |
+| lg (default) | `max-w-lg` | 512px | Standard form, 5-7 pól | Bottom sheet |
+| xl | `max-w-xl` | 576px | Complex form, 8-12 pól | Bottom sheet |
+
+**Zasada:** Jeśli formularz wymaga scrollowania w Dialog — przenieś na oddzielną stronę.
+
+#### V.2.4 Tooltip vs Popover [HACKATHON]
+
+| | Tooltip | Popover |
+|---|---------|---------|
+| **Trigger** | Hover + focus (300ms delay) | Click |
+| **Content** | Tekst only. Max 1-2 zdania. | Dowolne — buttons, links, forms, images |
+| **Interactywność** | ❌ Brak. User nie może kliknąć w tooltip content. | ✅ Pełna. Focus trap, keyboard nav. |
+| **Dismiss** | Auto (mouse leave / blur) + ESC | Click outside / ESC / explicit close |
+| **Mobile** | ⚠️ Brak hover — tooltip nie działa. Użyj inline text. | ✅ Działa — tap to open, tap outside to close. |
+| **Sizing** | Auto (max-w-[280px]) | min-w-[280px], no max |
+| **Użyj gdy** | Icon explanation, truncated text, field hint | Filter panel, color picker, mini-form, user card |
+| **NIE używaj gdy** | Info jest krytyczna (user MUSI ją zobaczyć) | Pełny formularz >3 pól (→ Dialog) |
+
+**Zasada:** Jeśli informacja jest ważna na tyle, że user musi ją zobaczyć — nie chowaj w tooltip. Pokaż inline (caption text, description w FormField, helper text).
+
+---
+
+## W. Content Guidelines + Page Patterns
+
+### W.1 Voice & Tone Guidelines [POST-HACKATHON]
+
+#### Voice — kim jesteśmy (stałe)
+
+Open Mercato komunikuje się jako: **profesjonalny, jasny, pomocny, konkretny.**
+
+| Jesteśmy | NIE jesteśmy |
+|----------|-------------|
+| Profesjonalni — szanujemy czas użytkownika | Korporacyjni — bez żargonu, bez buzzwordów |
+| Jasni — jedno zdanie, jedno znaczenie | Akademiccy — bez "furthermore", "utilize", "leverage" |
+| Pomocni — mówimy co zrobić, nie tylko co poszło źle | Marketingowi — bez "amazing", "powerful", "game-changing" |
+| Konkretni — "3 customers deleted" nie "operation completed" | Casualowi — bez emoji w UI, bez "oops!", bez humoru w errorach |
+
+#### Tone — jak się zmieniamy (kontekstowe)
+
+| Kontekst | Ton | Dobrze ✅ | Źle ❌ |
+|---------|-----|----------|--------|
+| Success message | Zwięzły, potwierdzający | "Customer saved" | "Your customer has been successfully saved!" |
+| Error (server) | Spokojny, actionable | "Could not save. Try again or check your connection." | "Error 500: Internal Server Error" |
+| Error (validation) | Precyzyjny, per-field | "Name is required" | "Please fill in all required fields" |
+| Empty state | Zachęcający, z CTA | "No invoices yet. Create your first invoice." | "No data found" / "Nothing here!" |
+| Destructive confirm | Konkretny, poważny | "Delete 3 customers? This cannot be undone." | "Are you sure?" |
+| Tooltip / helper | Zwięzły, informacyjny | "Used for tax calculations" | "This field is used to store the information about..." |
+| Loading | Neutralny, prosty | "Loading customers..." | "Please wait while we fetch your data..." |
+
+#### Content Formulas
+
+**Error message:** `[Co się stało]. [Co zrobić].`
+```
+✅ "Could not save changes. Check required fields."
+✅ "Connection lost. Changes will sync when you're back online."
+❌ "Error 422: Unprocessable Entity"
+❌ "Oops! Something went wrong :("
+❌ "An unexpected error occurred. Please contact support."
+```
+
+**Empty state:** `[Title: brak czego]. [Description: co zrobić]. [CTA: verb + object]`
+```
+✅ Title: "No customers yet"
+   Description: "Create your first customer to get started."
+   CTA: [Add customer]
+
+❌ Title: "No data found"        (zbyt generyczne)
+❌ Title: "Nothing here!"        (zbyt casual)
+❌ Title: "0 results"            (technickie, nie ludzkie)
+```
+
+**Button label:** `[Verb]` lub `[Verb + object]`
+```
+✅ "Save", "Create invoice", "Delete", "Export CSV"
+❌ "Submit", "OK", "Yes", "Click here", "Go"
+
+Confirmation dialog: action = co się stanie, cancel = "Cancel"
+✅ [Delete 3 customers] [Cancel]
+❌ [Yes] [No]
+❌ [OK] [Cancel]
+```
+
+**Confirmation dialog:** `[Title: Co się stanie?] / [Description: konsekwencje] / [Action] [Cancel]`
+```
+✅ Title: "Delete this customer?"
+   Description: "This will permanently remove Anna Smith and all related deals, activities, and notes."
+   Action: [Delete customer]  Cancel: [Cancel]
+
+❌ Title: "Are you sure?"
+   Description: ""
+   Action: [OK]  Cancel: [Cancel]
+```
+
+#### Reguły formatowania
+
+| Reguła | Standard | Przykład |
+|--------|----------|---------|
+| Capitalization | Sentence case everywhere | "Create new invoice" nie "Create New Invoice" |
+| Wyjątek | ALL CAPS tylko dla overline labels | "CUSTOMER DETAILS" w overline |
+| Tytuły | Bez kropki na końcu | "No customers yet" |
+| Opisy | Z kropką na końcu | "Create your first customer to get started." |
+| Button labels | Bez kropki | "Save customer" |
+| Listy | Bez kropek na elementach | "• Edit customer" nie "• Edit customer." |
+| Liczby | Numerycznie, nie słownie | "3 customers" nie "three customers" |
+| Skróty | Pełne słowa w UI | "information" nie "info", "application" nie "app" |
+| i18n | OBOWIĄZKOWE | Każdy user-facing string via `t()` / `useT()` |
+
+### W.2 Error Placement Guidelines [HACKATHON]
+
+Audit (1.9): 4 systemy feedbacku bez guidelines kiedy który.
+
+| Scenariusz | Komponent | Placement | Czas życia | Trigger |
+|-----------|-----------|-----------|-----------|---------|
+| Zapis udany | `flash('...', 'success')` | Top-right (desktop) / bottom (mobile) | 3s auto-dismiss | Po `createCrud`/`updateCrud` |
+| Zapis nieudany (server) | `flash('...', 'error')` | Top-right / bottom | 5s auto-dismiss | Po failed `createCrud`/`updateCrud` |
+| Walidacja formularza (ogólna) | `Alert variant="destructive"` | Inline nad formularzem | Persistent do naprawy | Form submit z błędami |
+| Walidacja pola | `FormField error="..."` | Pod polem | Persistent do naprawy | Form submit / on blur |
+| Brak danych | `EmptyState` | Zamiast tabeli/contentu | Persistent | Gdy `rows.length === 0` |
+| Brak uprawnień | `Alert variant="warning"` | Zamiast contentu strony | Persistent | Server response 403 |
+| Rekord nie znaleziony | `ErrorMessage` | Zamiast contentu | Persistent | Server response 404 |
+| Destructive action | `useConfirmDialog()` | Modal overlay | Do decyzji usera | Przed delete/revoke |
+| Async event | `NotificationBell` + panel | Dropdown, persistent | SSE-driven | Server event |
+| Long operation progress | `ProgressTopBar` | Top bar strony | Trwa do zakończenia | Background job start |
+
+**Zasada:** Nigdy 2 systemy jednocześnie dla tego samego wydarzenia. Jeśli `flash()` informuje o błędzie zapisu, nie pokazuj jednocześnie `Alert` na stronie.
+
+**Priorytet feedbacku:** Field error > Form alert > Flash message > Notification. Najbliższy kontekstowi = najwyższy priorytet.
+
+### W.3 Dashboard Layout Pattern [LATER]
+
+#### Grid Layout
+
+```tsx
+// Dashboard widget grid pattern
+<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+  {widgets.map((widget) => (
+    <Card key={widget.id} className={cn(
+      widget.size === '2x1' && 'sm:col-span-2',
+      widget.size === 'full' && 'sm:col-span-2 xl:col-span-3 2xl:col-span-4',
+    )}>
+      <CardHeader>
+        <CardTitle className="text-sm font-medium">{widget.title}</CardTitle>
+        {widget.action && <CardAction>{widget.action}</CardAction>}
+      </CardHeader>
+      <CardContent>
+        {widget.content}
+      </CardContent>
+    </Card>
+  ))}
+</div>
+```
+
+#### Widget Sizing
+
+| Rozmiar | Tailwind | Kiedy |
+|---------|---------|-------|
+| `1x1` | default (1 column) | KPI number, mini chart, todo list, notifications |
+| `2x1` | `sm:col-span-2` | Line chart, wider table, activity feed |
+| `full` | full row span | Summary table, timeline, calendar |
+
+#### Widget Anatomy (z patterns w customers/widgets/dashboard/)
+
+```
+┌─ CardHeader ───────────────────────┐
+│ [Title: text-sm font-medium]  [⟳] │
+├─ CardContent ──────────────────────┤
+│                                    │
+│  Widget content:                   │
+│  - KPI: value (text-2xl) + trend   │
+│  - List: ul.space-y-3 > li.p-3    │
+│  - Chart: recharts component       │
+│                                    │
+├─ States ───────────────────────────┤
+│  Loading: Spinner h-6 centered     │
+│  Error: text-sm text-destructive   │
+│  Empty: text-sm text-muted-fg      │
+│  Settings: form inputs             │
+└────────────────────────────────────┘
+```
+
+#### Empty Widget
+
+Gdy widget nie ma danych: `<p className="text-sm text-muted-foreground">No data for selected period.</p>` — centered w CardContent. NIE używaj EmptyState (za duży na widget). NIE chowaj widgeta (user pomyśli że zniknął).
+
+### W.4 Wizard / Stepper Pattern [LATER]
+
+#### Kiedy Wizard vs Inline Form
+
+| Pytanie | Wizard | Inline form |
+|---------|--------|------------|
+| Ile kroków? | ≥3 | 1-2 |
+| Kroki wymagają oddzielnego kontekstu? | Tak (np. krok 1: dane firmy, krok 2: adres, krok 3: ustawienia) | Nie — wszystko powiązane |
+| User może wrócić do poprzedniego kroku? | Tak | N/A |
+| Dane z kroku N wpływają na opcje w kroku N+1? | Tak (np. wybrany kraj → formularz adresu) | Nie |
+
+#### Anatomy
+
+```
+┌─ Step Indicator ──────────────────────┐
+│  (1)───(2)───(3)───(4)               │
+│   ●     ●     ○     ○                │
+│ Done  Current Next  Next              │
+├─ Step Content ────────────────────────┤
+│                                       │
+│  [Formularz bieżącego kroku]          │
+│                                       │
+├─ Navigation ──────────────────────────┤
+│  [← Back]              [Next step →]  │
+│                    or  [Complete ✓]    │
+└───────────────────────────────────────┘
+```
+
+**Step indicator:** Numerowany (1/2/3), nie labeled — tekst label w step content title. Na mobile: numerki + progress bar (np. "Step 2 of 4").
+
+**Navigation rules:**
+
+| Kontrolka | Dostępność | Zachowanie |
+|-----------|-----------|-----------|
+| Back | Zawsze (oprócz kroku 1) | Wraca z zachowaniem danych. Nie resetuje formularza. |
+| Next | Po walidacji bieżącego kroku | Walidacja on-click, nie on-change. Error inline. |
+| Skip | Tylko jeśli krok opcjonalny — explicit label "Skip this step" | Nie domyślny. Nigdy ghost button — zawsze jawny tekst. |
+| Cancel | Zawsze | Jeśli user wpisał dane → `useConfirmDialog("Discard changes?")`. Jeśli nie → natychmiast. |
+| Complete (ostatni krok) | Po walidacji | Button `default` variant. Label = konkretna akcja ("Create organization", nie "Finish"). |
+
+**Nie buduj komponentu Stepper na hackathon.** To jest guideline na przyszłą implementację. Obecne onboarding w `packages/onboarding` może go adoptować iteracyjnie.
+
+---
+
+## X. Visual Testing + Designer Workflow
+
+### X.1 Visual Regression Testing Strategy
+
+#### Tier 1 — Hackathon: Manual Screenshot Protocol [HACKATHON]
+
+Zero narzędzi. Systematyczny manual workflow.
+
+**Kiedy:** Każdy PR migrujący moduł do DS tokens (sekcja J codemod) MUSI zawierać before/after screenshoty.
+
+**Jakie ekrany screenshotować per module migration:**
+
+| # | Ekran | Viewport | Theme | Nazwa pliku |
+|---|-------|----------|-------|-------------|
+| 1 | Lista (page.tsx) | Desktop 1440px | Light | `{module}-list-light.png` |
+| 2 | Lista (page.tsx) | Desktop 1440px | Dark | `{module}-list-dark.png` |
+| 3 | Detail ([id]/page.tsx) | Desktop 1440px | Light | `{module}-detail-light.png` |
+| 4 | Detail ([id]/page.tsx) | Desktop 1440px | Dark | `{module}-detail-dark.png` |
+| 5 | Create (create/page.tsx) | Desktop 1440px | Light | `{module}-create-light.png` |
+| 6 | Create (create/page.tsx) | Desktop 1440px | Dark | `{module}-create-dark.png` |
+| 7 | Lista — empty state | Desktop 1440px | Light | `{module}-empty-light.png` |
+| 8 | Lista — empty state | Desktop 1440px | Dark | `{module}-empty-dark.png` |
+
+**Gdzie:** W PR description jako inline images. Reviewer widzi je od razu — nie musi uruchamiać projektu.
+
+**Template PR description:**
+
+```markdown
+## Visual Verification
+
+### Before (develop branch)
+| Light | Dark |
+|-------|------|
+| ![list-light-before] | ![list-dark-before] |
+| ![detail-light-before] | ![detail-dark-before] |
+
+### After (this PR)
+| Light | Dark |
+|-------|------|
+| ![list-light-after] | ![list-dark-after] |
+| ![detail-light-after] | ![detail-dark-after] |
+
+### Checklist
+- [ ] All status badges use StatusBadge/semantic tokens
+- [ ] Dark mode: no invisible text, no white patches
+- [ ] Empty state present and styled
+- [ ] Loading state present
+```
+
+#### Tier 2 — Tydzień 2-4: Playwright Screenshot Tests [POST-HACKATHON]
+
+Projekt już używa Playwright (`yarn test:integration`). Dodajemy screenshot comparison.
+
+**Setup:**
+
+```typescript
+// tests/visual/ds-regression.spec.ts
+import { test, expect } from '@playwright/test'
+
+const DS_PAGES = [
+  { path: '/backend/customers/companies', name: 'customers-list' },
+  { path: '/backend/customers/companies/create', name: 'customers-create' },
+  { path: '/backend/sales/orders', name: 'sales-orders-list' },
+  // ... top 10 stron po traffic/importance
+]
+
+for (const page of DS_PAGES) {
+  for (const theme of ['light', 'dark'] as const) {
+    test(`visual: ${page.name} (${theme})`, async ({ page: pw }) => {
+      // Set theme
+      await pw.emulateMedia({ colorScheme: theme === 'dark' ? 'dark' : 'light' })
+      await pw.goto(page.path)
+      await pw.waitForLoadState('networkidle')
+
+      // Screenshot comparison
+      await expect(pw).toHaveScreenshot(`${page.name}-${theme}.png`, {
+        maxDiffPixelRatio: 0.01, // 1% pixel diff = failure
+        threshold: 0.2,          // per-pixel color threshold
+      })
+    })
+  }
+}
+```
+
+**Top 10 ekranów do automatycznego testowania:**
+
+| # | Ekran | Dlaczego |
+|---|-------|---------|
+| 1 | Customers list | Referencyjny moduł — jeśli tu się zepsuje, popsute jest wszędzie |
+| 2 | Customers detail | Najzłożniejszy detail page — taby, sekcje, statusy |
+| 3 | Customers create | Referencyjny formularz z CrudForm |
+| 4 | Sales orders list | Dużo statusów (draft/confirmed/shipped/paid) |
+| 5 | Auth login | Portal entry — first impression |
+| 6 | Portal landing | Customer-facing — musi być perfekcyjne |
+| 7 | Dashboard | Widget grid — regression-prone |
+| 8 | Settings page | Card grid navigation — wiele kart |
+| 9 | Catalog products list | Duża tabela, filtry, status badges |
+| 10 | Empty state (any) | Weryfikacja EmptyState rendering |
+
+**Threshold:** `maxDiffPixelRatio: 0.01` (1%). Subpixel rendering differences między OS → 0.2 per-pixel threshold. Jeśli zbyt flaky — podnieś do 0.02.
+
+**Baseline update:** `npx playwright test --update-snapshots` po świadomej zmianie wizualnej. Commit nowych baseline screenshots z PR.
+
+#### Tier 3 — Miesiąc 2+: Component Showcase [LATER]
+
+**Decyzja: NIE Storybook. Component showcase page w produkcie.**
+
+Uzasadnienie: Storybook wymaga osobnego build pipeline, config sync z Tailwind v4, duplicate imports, ongoing maintenance. Open Mercato jest monorepo z 1 apką — nie potrzebuje osobnego dev environment. Zamiast tego: `/dev/components` page (tylko w dev mode) renderująca wszystkie primitives z wariantami.
+
+**Scope showcase page:**
+- Renderuje każdy primitive z V.1 w wszystkich wariantach
+- Light + dark mode toggle
+- Responsive preview (mobile/tablet/desktop)
+- Copy-paste import path per komponent
+- Nie wymaga osobnego build — jest częścią app dev server
+
+**Implementacja:** Nowy moduł dev-only (nie rejestrowany w production builds):
+```
+packages/core/src/modules/dev_tools/
+  backend/components/page.tsx  → /backend/dev-tools/components
+```
+
+### X.2 Component Testing Checklist [POST-HACKATHON]
+
+#### Per-component test requirements
+
+| Kategoria | Testy | Obowiązkowe? |
+|-----------|-------|-------------|
+| **Render** | Renderuje bez crash dla każdego wariantu | ✅ TAK |
+| **CSS classes** | Poprawne Tailwind classes per wariant (snapshot lub assertion) | ✅ TAK |
+| **States** | Default, hover, focus, disabled, error, loading (jeśli dotyczy) | ✅ TAK |
+| **Props** | Required props → error bez nich. Optional → sensowne defaults. | ✅ TAK |
+| **A11y** | `axe-core` scan przechodzi. Keyboard nav działa (Tab, Enter, ESC). | ✅ TAK |
+| **Dark mode** | Renderuje z `.dark` class — brak hardcoded colors | ⚠️ ZALECANE |
+| **Mobile** | Nie łamie layoutu w 375px viewport | ⚠️ ZALECANE |
+
+#### Test Template — StatusBadge (referencja)
+
+```typescript
+// packages/ui/src/primitives/__tests__/status-badge.test.tsx
+import { render, screen } from '@testing-library/react'
+import { axe, toHaveNoViolations } from 'jest-axe'
+import { StatusBadge } from '../status-badge'
+
+expect.extend(toHaveNoViolations)
+
+describe('StatusBadge', () => {
+  const variants = ['success', 'warning', 'error', 'info', 'neutral'] as const
+
+  // Render: wszystkie warianty bez crash
+  it.each(variants)('renders variant "%s" without crash', (variant) => {
+    const { container } = render(
+      <StatusBadge variant={variant}>Active</StatusBadge>,
+    )
+    expect(container.firstChild).toBeTruthy()
+  })
+
+  // CSS: poprawne klasy per wariant
+  it('applies correct semantic token classes for success variant', () => {
+    render(<StatusBadge variant="success">Active</StatusBadge>)
+    const badge = screen.getByText('Active')
+    expect(badge.className).toContain('bg-status-success-bg')
+    expect(badge.className).toContain('text-status-success-text')
+    expect(badge.className).toContain('border-status-success-border')
+  })
+
+  // Props: children renderowane
+  it('renders children text', () => {
+    render(<StatusBadge variant="info">Pending review</StatusBadge>)
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
+  })
+
+  // Props: dot indicator
+  it('renders dot indicator when dot prop is true', () => {
+    const { container } = render(
+      <StatusBadge variant="success" dot>Active</StatusBadge>,
+    )
+    // Dot jest span z rounded-full i bg odpowiadający wariantowi
+    const dot = container.querySelector('[data-slot="status-dot"]')
+    expect(dot).toBeTruthy()
+  })
+
+  // A11y: axe scan
+  it('has no accessibility violations', async () => {
+    const { container } = render(
+      <StatusBadge variant="error">Failed</StatusBadge>,
+    )
+    const results = await axe(container)
+    expect(results).toHaveNoViolations()
+  })
+
+  // Dark mode: brak hardcoded colors
+  it('does not contain hardcoded color classes', () => {
+    const { container } = render(
+      <StatusBadge variant="error">Error</StatusBadge>,
+    )
+    const html = container.innerHTML
+    expect(html).not.toMatch(/text-red-|bg-red-|text-green-|bg-green-|text-blue-|bg-blue-/)
+  })
+
+  // Default variant fallback
+  it('renders neutral variant as default when variant not recognized', () => {
+    // @ts-expect-error — testujemy runtime fallback
+    render(<StatusBadge variant="unknown">Test</StatusBadge>)
+    expect(screen.getByText('Test')).toBeInTheDocument()
+  })
+})
+```
+
+**Zasada:** Każdy nowy komponent DS (FormField, StatusBadge, SectionHeader) MUSI mieć testy przed merge. Istniejące primitives (Button, Card, Dialog) — testy dodawane inkrementalnie przy okazji zmian.
+
+### X.3 Designer Workflow — Design-in-Code [POST-HACKATHON]
+
+**Decyzja: Code-first. Bez Figma.**
+
+Uzasadnienie: Open Mercato jest OSS bez dedykowanego designera. Contributorzy to developerzy. Tworzenie Figma library dla designera, którego nie ma, to waste. Jeśli designer dołączy — code jest źródłem prawdy, nie Figma.
+
+#### Design-in-Code Manifesto
+
+Design w Open Mercato odbywa się w kodzie:
+
+- **Tokeny** żyją w `globals.css` (OKLCH custom properties) — nie w Figma variables
+- **Komponenty** żyją w `packages/ui/src/primitives/` (TSX + CVA) — nie w Figma library
+- **Layout** definiowany przez page templates (sekcja K.1) — nie przez Figma frames
+- **Prototypowanie** = `yarn dev` + edycja komponentu — nie Figma prototype
+
+**Nie potrzebujesz Figma żeby contributnąć do UI.** Wystarczy:
+1. Skopiować template z K.1
+2. Używać komponentów z V.1
+3. Uruchomić `yarn dev` i iterować w przeglądarce
+
+#### Jeśli ktoś CHCE użyć Figma
+
+Tabela tokenów do ręcznego przeniesienia (nie plugin — manual sync, raz na release):
+
+**Kolory (light mode):**
+
+| Token | Wartość OKLCH | Hex (przybliżony) | Figma color name |
+|-------|-------------|-------------------|-----------------|
+| `--background` | `oklch(1 0 0)` | `#FFFFFF` | `surface/background` |
+| `--foreground` | `oklch(0.145 0 0)` | `#1A1A1A` | `text/primary` |
+| `--primary` | wartość z globals.css | — | `interactive/primary` |
+| `--destructive` | `oklch(0.577 0.245 27.325)` | `#DC2626~` | `status/error` |
+| `--status-success-bg` | `oklch(0.965 0.015 163)` | `#F0FDF4~` | `status/success/bg` |
+| `--status-success-text` | `oklch(0.365 0.120 163)` | `#166534~` | `status/success/text` |
+| ... | (pełna tabela w sekcji I) | ... | ... |
+
+**Typografia:**
+
+| Role | Font | Size | Weight | Figma text style |
+|------|------|------|--------|-----------------|
+| Page title | Geist Sans | 24px | Semibold (600) | `heading/h1` |
+| Section title | Geist Sans | 18px | Semibold (600) | `heading/h2` |
+| Body | Geist Sans | 14px | Regular (400) | `body/default` |
+| Caption | Geist Sans | 12px | Regular (400) | `body/caption` |
+| Overline | Geist Sans | 11px | Semibold (600), UPPERCASE | `label/overline` |
+| Code | Geist Mono | 14px | Regular (400) | `code/default` |
+
+**Spacing:** Tailwind scale: 4px (1), 8px (2), 12px (3), 16px (4), 24px (6), 32px (8). W Figma: auto layout z tymi wartościami.
+
+**Sync schedule:** Po każdym release z tagiem `[DS]` w RELEASE_NOTES.md — ręczny update Figma variables. Odpowiedzialność: osoba która chce Figma, nie DS lead.
+
+---
+
+*Koniec supplementu U-X. Sekcje A-X stanowią kompletny Design System Audit & Foundation Plan pokrywający: audit (1), principles (2), foundations (3, U), komponenty (4, V), wzorce (K, W), zasady użycia (W.1, W.2, U.2, U.3), dokumentację (O, M, R), implementację (I, J, L, X), governance (N, P, Q, S, T).*
