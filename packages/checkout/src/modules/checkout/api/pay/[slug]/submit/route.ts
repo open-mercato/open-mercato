@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
@@ -41,6 +42,11 @@ type CheckoutLegalDocumentRequirement = {
 type CheckoutCustomerFieldRequirement = {
   key: string
   required?: boolean
+}
+
+type PaymentSessionStartResult = {
+  transaction: CheckoutTransaction
+  sessionStarted: boolean
 }
 
 function normalizePort(url: URL): string {
@@ -277,6 +283,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!link.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be used' })
     }
+    const gatewayProviderKey = link.gatewayProviderKey
     const legalDocuments = link.legalDocuments && typeof link.legalDocuments === 'object'
       ? link.legalDocuments as Partial<Record<'terms' | 'privacyPolicy', CheckoutLegalDocumentRequirement>>
       : {}
@@ -307,16 +314,18 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       }
     }
     const resolvedAmount = resolveSubmittedAmount(link, body)
-    validateDescriptorCurrencies(link.gatewayProviderKey, [resolvedAmount.currencyCode])
     const existingTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
       linkId: link.id,
       idempotencyKey,
       organizationId: link.organizationId,
       tenantId: link.tenantId,
     }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
+    validateDescriptorCurrencies(gatewayProviderKey, [
+      existingTransaction?.currencyCode ?? resolvedAmount.currencyCode,
+    ])
     if (existingTransaction?.gatewayTransactionId) {
       return NextResponse.json(
-        await buildSubmitResponse(req, em, link, existingTransaction, link.gatewayProviderKey),
+        await buildSubmitResponse(req, em, link, existingTransaction, gatewayProviderKey),
       )
     }
 
@@ -383,108 +392,113 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!transaction) {
       throw new CrudHttpError(404, { error: 'Transaction not found' })
     }
+    const sessionAmount = Number(transaction.amount)
+    if (!Number.isFinite(sessionAmount)) {
+      throw new CrudHttpError(500, { error: 'Invalid checkout transaction amount' })
+    }
+    const sessionCurrencyCode = transaction.currencyCode
     if (!transaction.gatewayTransactionId) {
-      const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
-        ? link.gatewaySettings.paymentTypes.filter(
-            (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
-          )
-        : []
-      const rendererKey = typeof link.gatewaySettings?.rendererKey === 'string' && link.gatewaySettings.rendererKey.trim().length > 0
-        ? link.gatewaySettings.rendererKey.trim()
-        : undefined
-      const rendererSettings = link.gatewaySettings?.rendererSettings
-        && typeof link.gatewaySettings.rendererSettings === 'object'
-        && !Array.isArray(link.gatewaySettings.rendererSettings)
-        ? link.gatewaySettings.rendererSettings as Record<string, unknown>
-        : undefined
-      const presentationMode = link.gatewaySettings?.presentationMode === 'embedded'
-        || link.gatewaySettings?.presentationMode === 'redirect'
-        || link.gatewaySettings?.presentationMode === 'auto'
-        ? link.gatewaySettings.presentationMode
-        : undefined
-      try {
-        const sessionResult = await paymentGatewayService.createPaymentSession({
-          providerKey: link.gatewayProviderKey,
-          paymentId: transactionId,
-          amount: resolvedAmount.amount,
-          currencyCode: resolvedAmount.currencyCode,
-          paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
-          description: link.title ?? link.name,
-          successUrl,
-          cancelUrl,
-          metadata: {
-            checkoutLinkId: link.id,
-            checkoutSlug: link.slug,
-          },
-          presentation: rendererKey || rendererSettings || presentationMode
-            ? {
-                ...(presentationMode ? { mode: presentationMode } : {}),
-                ...(rendererKey ? { rendererKey } : {}),
-                ...(rendererSettings ? { rendererSettings } : {}),
-              }
-            : undefined,
+      let paymentSessionError: unknown = null
+      const sessionStart = await em.transactional(async (tx: EntityManager): Promise<PaymentSessionStartResult> => {
+        const lockedTransaction = await findOneWithDecryption(tx, CheckoutTransaction, {
+          id: transaction.id,
           organizationId: link.organizationId,
           tenantId: link.tenantId,
-        })
-        await commandBus.execute('checkout.transaction.updateStatus', {
-          input: {
-            id: transaction.id,
-            status: mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus),
-            paymentStatus: sessionResult.transaction.unifiedStatus,
-            gatewayTransactionId: sessionResult.transaction.id,
+        }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { organizationId: link.organizationId, tenantId: link.tenantId })
+        if (!lockedTransaction) {
+          throw new CrudHttpError(404, { error: 'Transaction not found' })
+        }
+        if (lockedTransaction.gatewayTransactionId) {
+          return { transaction: lockedTransaction, sessionStarted: false }
+        }
+        const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
+          ? link.gatewaySettings.paymentTypes.filter(
+              (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
+            )
+          : []
+        const rendererKey = typeof link.gatewaySettings?.rendererKey === 'string' && link.gatewaySettings.rendererKey.trim().length > 0
+          ? link.gatewaySettings.rendererKey.trim()
+          : undefined
+        const rendererSettings = link.gatewaySettings?.rendererSettings
+          && typeof link.gatewaySettings.rendererSettings === 'object'
+          && !Array.isArray(link.gatewaySettings.rendererSettings)
+          ? link.gatewaySettings.rendererSettings as Record<string, unknown>
+          : undefined
+        const presentationMode = link.gatewaySettings?.presentationMode === 'embedded'
+          || link.gatewaySettings?.presentationMode === 'redirect'
+          || link.gatewaySettings?.presentationMode === 'auto'
+          ? link.gatewaySettings.presentationMode
+          : undefined
+        try {
+          const sessionResult = await paymentGatewayService.createPaymentSession({
+            providerKey: gatewayProviderKey,
+            paymentId: lockedTransaction.id,
+            amount: sessionAmount,
+            currencyCode: sessionCurrencyCode,
+            paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
+            description: link.title ?? link.name,
+            successUrl,
+            cancelUrl,
+            metadata: {
+              checkoutLinkId: link.id,
+              checkoutSlug: link.slug,
+            },
+            presentation: rendererKey || rendererSettings || presentationMode
+              ? {
+                  ...(presentationMode ? { mode: presentationMode } : {}),
+                  ...(rendererKey ? { rendererKey } : {}),
+                  ...(rendererSettings ? { rendererSettings } : {}),
+                }
+              : undefined,
             organizationId: link.organizationId,
             tenantId: link.tenantId,
-          },
-          ctx,
-        })
-      } catch (error) {
-        await commandBus.execute('checkout.transaction.updateStatus', {
-          input: {
-            id: transaction.id,
-            status: 'failed',
-            paymentStatus: transaction.paymentStatus ?? 'failed',
-            organizationId: link.organizationId,
-            tenantId: link.tenantId,
-          },
-          ctx,
-        }).catch(() => undefined)
+          })
+          lockedTransaction.status = mapGatewayStatusToCheckoutStatus(sessionResult.transaction.unifiedStatus)
+          lockedTransaction.paymentStatus = sessionResult.transaction.unifiedStatus
+          lockedTransaction.gatewayTransactionId = sessionResult.transaction.id
+          await tx.flush()
+          return { transaction: lockedTransaction, sessionStarted: true }
+        } catch (error) {
+          paymentSessionError = error
+          lockedTransaction.status = 'failed'
+          lockedTransaction.paymentStatus = lockedTransaction.paymentStatus ?? 'failed'
+          await tx.flush()
+          return { transaction: lockedTransaction, sessionStarted: false }
+        }
+      })
+      if (paymentSessionError) {
         console.error('[checkout] Failed to create payment session', {
           linkId: link.id,
           transactionId: transaction.id,
-          providerKey: link.gatewayProviderKey,
-          error: error instanceof Error ? error.message : String(error),
+          providerKey: gatewayProviderKey,
+          error: paymentSessionError instanceof Error ? paymentSessionError.message : String(paymentSessionError),
         })
         throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
       }
-      const refreshedTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
-        id: transaction.id,
-        organizationId: link.organizationId,
-        tenantId: link.tenantId,
-      }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
-      if (!refreshedTransaction) {
-        throw new CrudHttpError(404, { error: 'Transaction not found' })
+      const refreshedTransaction = sessionStart.transaction
+      if (sessionStart.sessionStarted) {
+        await emitCheckoutEvent('checkout.transaction.sessionStarted', {
+          transactionId: refreshedTransaction.id,
+          linkId: refreshedTransaction.linkId,
+          templateId: link.templateId ?? null,
+          slug: link.slug,
+          status: refreshedTransaction.status,
+          paymentStatus: refreshedTransaction.paymentStatus ?? null,
+          amount: Number(refreshedTransaction.amount),
+          currency: refreshedTransaction.currencyCode,
+          gatewayProvider: gatewayProviderKey,
+          gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
+          occurredAt: new Date().toISOString(),
+          tenantId: link.tenantId,
+          organizationId: link.organizationId,
+        }).catch(() => undefined)
       }
-      await emitCheckoutEvent('checkout.transaction.sessionStarted', {
-        transactionId: refreshedTransaction.id,
-        linkId: refreshedTransaction.linkId,
-        templateId: link.templateId ?? null,
-        slug: link.slug,
-        status: refreshedTransaction.status,
-        paymentStatus: refreshedTransaction.paymentStatus ?? null,
-        amount: Number(refreshedTransaction.amount),
-        currency: refreshedTransaction.currencyCode,
-        gatewayProvider: link.gatewayProviderKey,
-        gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
-        occurredAt: new Date().toISOString(),
-        tenantId: link.tenantId,
-        organizationId: link.organizationId,
-      }).catch(() => undefined)
       return NextResponse.json(
-        await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),
-        { status: 201 },
+        await buildSubmitResponse(req, em, link, refreshedTransaction, gatewayProviderKey),
+        { status: sessionStart.sessionStarted ? 201 : 200 },
       )
     }
-    return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
+    return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, gatewayProviderKey), { status: 201 })
   } catch (error) {
     return handleCheckoutRouteError(error)
   }

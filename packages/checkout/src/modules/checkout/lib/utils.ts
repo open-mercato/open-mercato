@@ -110,6 +110,12 @@ export function toMoneyString(value: string | number | null | undefined): string
   return numeric == null ? null : numeric.toFixed(2)
 }
 
+function hasSupportedCurrencyPrecision(value: number): boolean {
+  if (!Number.isFinite(value)) return false
+  const cents = value * 100
+  return Math.abs(Math.round(cents) - cents) < 1e-8
+}
+
 export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl } from './client-utils'
 
 export function deriveConfiguredCurrencies(input: TemplateOrLinkInput): string[] {
@@ -357,7 +363,7 @@ export function resolveSubmittedAmount(link: CheckoutLink, input: PublicSubmitIn
     const min = toMoneyNumber(link.customAmountMin) ?? 0
     const max = toMoneyNumber(link.customAmountMax)
     const amount = Number(input.amount)
-    if (amount < min || (max != null && amount > max)) {
+    if (!hasSupportedCurrencyPrecision(amount) || amount < min || (max != null && amount > max)) {
       throw new CrudHttpError(422, {
         error: 'checkout.payPage.validation.fixErrors',
         fieldErrors: { amount: 'checkout.payPage.errors.submit' },

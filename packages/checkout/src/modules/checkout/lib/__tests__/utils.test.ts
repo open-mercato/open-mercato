@@ -117,6 +117,44 @@ describe('checkout utils', () => {
     })).toThrow(CrudHttpError)
   })
 
+  it('resolves custom amount pricing with cent precision', () => {
+    const link = createLink({
+      pricingMode: 'custom_amount',
+      fixedPriceAmount: null,
+      fixedPriceCurrencyCode: null,
+      customAmountMin: '0.10',
+      customAmountMax: '20.00',
+      customAmountCurrencyCode: 'USD',
+    })
+
+    expect(resolveSubmittedAmount(link, {
+      customerData: {},
+      acceptedLegalConsents: {},
+      amount: 0.29,
+    })).toEqual({
+      amount: 0.29,
+      currencyCode: 'USD',
+      selectedPriceItemId: null,
+    })
+  })
+
+  it('rejects custom amount pricing with more than two decimal places', () => {
+    const link = createLink({
+      pricingMode: 'custom_amount',
+      fixedPriceAmount: null,
+      fixedPriceCurrencyCode: null,
+      customAmountMin: '10.00',
+      customAmountMax: '20.00',
+      customAmountCurrencyCode: 'USD',
+    })
+
+    expect(() => resolveSubmittedAmount(link, {
+      customerData: {},
+      acceptedLegalConsents: {},
+      amount: 10.999,
+    })).toThrow(CrudHttpError)
+  })
+
   it('resolves price-list pricing from the selected server-side item', () => {
     const link = createLink({
       pricingMode: 'price_list',
