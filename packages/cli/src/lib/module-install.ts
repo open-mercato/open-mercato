@@ -27,6 +27,14 @@ function resolveYarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
 }
 
+function resolveWindowsCommandShim(binary: string, args: string[]): { command: string; args: string[] } {
+  if (process.platform !== 'win32' || !binary.toLowerCase().endsWith('.cmd')) {
+    return { command: binary, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', binary, ...args] }
+}
+
 function readAppPackageName(appDir: string): string {
   const packageJsonPath = path.join(appDir, 'package.json')
   if (!fs.existsSync(packageJsonPath)) {
@@ -61,7 +69,8 @@ function runCommand(
   cwd: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const commandSpec = resolveWindowsCommandShim(command, args)
+    const child = spawn(commandSpec.command, commandSpec.args, {
       cwd,
       env: process.env,
       stdio: 'inherit',

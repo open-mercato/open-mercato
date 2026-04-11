@@ -333,6 +333,14 @@ function resolveYarnBinary(): string {
   return process.platform === 'win32' ? 'yarn.cmd' : 'yarn'
 }
 
+function resolveWindowsCommandShim(command: string, args: string[]): { command: string; args: string[] } {
+  if (process.platform !== 'win32' || !command.toLowerCase().endsWith('.cmd')) {
+    return { command, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', command, ...args] }
+}
+
 function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -429,7 +437,8 @@ async function runCommandWithOutputMonitoring(
   opts: CommandMonitoringOptions = {},
 ): Promise<CommandOutputMonitoringResult> {
   return new Promise((resolve, reject) => {
-    const commandHandle = spawn(command, commandArgs, {
+    const commandSpec = resolveWindowsCommandShim(command, commandArgs)
+    const commandHandle = spawn(commandSpec.command, commandSpec.args, {
       cwd: projectRootDirectory,
       env: environment,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -607,7 +616,8 @@ function runYarnRawCommand(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
-    const command: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
+    const commandSpec = resolveWindowsCommandShim(resolveYarnBinary(), commandArgs)
+    const command: ChildProcess = spawn(commandSpec.command, commandSpec.args, {
       cwd,
       env: environment,
       stdio: outputMode,
@@ -638,7 +648,8 @@ function runYarnRawCommand(
 function runNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<void> {
   const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   return new Promise((resolve, reject) => {
-    const command = spawn(binary, args, {
+    const commandSpec = resolveWindowsCommandShim(binary, args)
+    const command = spawn(commandSpec.command, commandSpec.args, {
       cwd: projectRootDirectory,
       env: environment,
       stdio: 'inherit',
@@ -661,7 +672,8 @@ function startYarnRawCommand(
   cwd: string = projectRootDirectory,
 ): ChildProcess {
   const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
-  const processHandle: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
+  const commandSpec = resolveWindowsCommandShim(resolveYarnBinary(), commandArgs)
+  const processHandle: ChildProcess = spawn(commandSpec.command, commandSpec.args, {
     cwd,
     env: environment,
     stdio: outputMode,

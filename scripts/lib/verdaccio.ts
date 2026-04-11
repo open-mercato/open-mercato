@@ -20,13 +20,27 @@ type RunOptions = {
   silent?: boolean
 }
 
+function resolveWindowsCommandShim(command: string, args: string[]): { command: string; args: string[] } {
+  if (process.platform !== 'win32') {
+    return { command, args }
+  }
+
+  const binary = command.toLowerCase() === 'yarn' ? 'yarn.cmd' : command
+  if (!binary.toLowerCase().endsWith('.cmd')) {
+    return { command: binary, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', binary, ...args] }
+}
+
 export function runCommand(command: string, args: string[], options: RunOptions): string {
   const label = [command, ...args].join(' ')
   if (!options.silent) {
     console.log(`\n$ ${label}`)
   }
 
-  const result = spawnSync(command, args, {
+  const commandSpec = resolveWindowsCommandShim(command, args)
+  const result = spawnSync(commandSpec.command, commandSpec.args, {
     cwd: options.cwd,
     env: { ...process.env, ...options.env },
     input: options.input,
