@@ -684,7 +684,9 @@ async function runTargetedRouteWarmup() {
           throw createWarmupTransientError('login warmup required tenant selection')
         }
       }
-      throw new Error(`login warmup failed: ${failure}`)
+      const loginError = new Error(`login warmup failed: ${failure}`)
+      loginError.warmupLoginStatus = loginResponse.status
+      throw loginError
     }
 
     const cookieHeader = buildCookieHeader(loginResponse)
@@ -793,21 +795,45 @@ async function runTargetedRouteWarmup() {
       return
     }
 
-    const warmupWarning = `⚠️ Warmup incomplete: ${error instanceof Error ? error.message : 'unknown error'}`
+    const errorMessage = error instanceof Error ? error.message : 'unknown error'
+    const loginStatus = error && typeof error === 'object' ? error.warmupLoginStatus : undefined
+    const isCredentialsFailure = loginStatus === 401
+    const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
+    const loginUrl = runtimeWarmupState.baseUrl
+      ? `${runtimeWarmupState.baseUrl}/login`
+      : null
+    const failureLines = isCredentialsFailure
+      ? [
+          'Warmup login failed with HTTP 401 — the app is running but warmup credentials are invalid.',
+          'Set OM_INIT_SUPERADMIN_EMAIL and OM_INIT_SUPERADMIN_PASSWORD in .env,',
+          'or run: yarn initialize  (to seed demo data with default credentials).',
+        ]
+      : []
+    runtimeWarmupState.completed = true
+    runtimeWarmupState.failed = false
     updateSplashState({
       phase: 'App is ready',
       detail: warmupWarning,
       failed: false,
-      failureLines: [],
+      failureLines,
       failureCommand: null,
       ready: true,
+      loginUrl,
       progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
       progressPercent: resolveProgressPercent(runtimeReadyProgressCurrent, startupProgress.total),
       progressLabel: 'App is ready',
       activity: warmupWarning,
     })
-    console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    if (isCredentialsFailure) {
+      console.log(formatStatusOutput(
+        '⚠️ Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
+        runtimeReadyProgressCurrent,
+        'App is ready',
+      ))
+    } else {
+      console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    }
   }
 }
 
