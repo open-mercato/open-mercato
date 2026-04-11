@@ -1,21 +1,129 @@
 {
-  "callId": "demo-call-acme-steel-001",
-  "phoneNumber": "+48 22 555 01 23",
-  "direction": "inbound",
-  "customerId": "cust-acme-steel",
-  "customerName": "Marek Nowakowski",
-  "companyName": "ACME Steel Sp. z o.o.",
+  "callId": "demo-call-001",
+  "phoneNumber": "+48 512 345 678",
+  "direction": "outbound",
+  "customerId": "ACME_CUSTOMER_ID",
+  "customerName": "Jan Kowalski",
+  "companyName": "Acme Manufacturing Sp. z o.o.",
   "language": "pl-PL",
   "segments": [
-    { "segmentId": 1, "speaker": "rep", "text": "Dzień dobry, Open Mercato — Anna Kowalska, w czym mogę pomóc?", "delayMs": 1200 },
-    { "segmentId": 2, "speaker": "customer", "text": "Dzień dobry, Marek Nowakowski z ACME Steel. Dzwonię w sprawie pilnego zamówienia.", "delayMs": 2800 },
-    { "segmentId": 3, "speaker": "rep", "text": "Oczywiście Panie Marku, już patrzę na Państwa konto. Słucham.", "delayMs": 2400 },
-    { "segmentId": 4, "speaker": "customer", "text": "Potrzebujemy pilnie 200 sztuk profili stalowych 80x80, mamy budowę która stoi.", "delayMs": 3600, "expectedIntent": "product_need" },
-    { "segmentId": 5, "speaker": "rep", "text": "Rozumiem, sprawdzam dostępność w magazynie.", "delayMs": 2600 },
-    { "segmentId": 6, "speaker": "customer", "text": "Tylko szczerze mówiąc, ostatnio dostaliśmy lepszą ofertę od konkurencji — musicie zejść z ceną.", "delayMs": 4200, "expectedIntent": "price_objection" },
-    { "segmentId": 7, "speaker": "rep", "text": "Proszę chwilę, sprawdzę co mogę dla Państwa zrobić.", "delayMs": 2400 },
-    { "segmentId": 8, "speaker": "customer", "text": "A przy okazji — jak wygląda nasza ostatnia reklamacja? Miała być odpowiedź do wczoraj.", "delayMs": 4000, "expectedIntent": "complaint" },
-    { "segmentId": 9, "speaker": "rep", "text": "Już sprawdzam status reklamacji w systemie.", "delayMs": 2200 },
-    { "segmentId": 10, "speaker": "customer", "text": "Dobra, jeśli damy radę z ceną i dostawą na jutro — bierzemy od razu 200 sztuk i dołożymy zamówienie na blachy.", "delayMs": 4600, "expectedIntent": "order_intent" }
+    {
+      "segmentId": 1,
+      "speaker": "rep",
+      "text": "Dzień dobry, Panie Janie. Tu Ewa z Open Mercato. Dzwonię w sprawie Państwa zamówień na ten kwartał.",
+      "delayMs": 2000,
+      "_narrativeBeat": "SETUP. Ewa: 'Ewa jest w firmie 3 miesiące. To jej pierwsza duża rozmowa z kluczowym klientem. Wcześniej musiałaby przygotowywać się godzinę — dziś ma Copilota.' → CustomerContextCard auto-appears with Acme's LTV, order history, top categories."
+    },
+    {
+      "segmentId": 2,
+      "speaker": "customer",
+      "text": "Dzień dobry, Pani Ewo. Dobrze że Pani dzwoni, bo właśnie planowaliśmy kolejne zamówienie.",
+      "delayMs": 3500,
+      "_narrativeBeat": "Ewa points at CustomerContextCard: '142 tysiące złotych lifetime value. 20 zamówień w ciągu roku. Top kategorie: rury, zawory, kształtki. Ewa wie z kim rozmawia — bez otwierania CRM-a.'"
+    },
+    {
+      "segmentId": 3,
+      "speaker": "rep",
+      "text": "Świetnie się składa. Jak mogę pomóc? Czego Państwo potrzebują?",
+      "delayMs": 2500,
+      "_narrativeBeat": "Transition — rep is confident, he already sees the context."
+    },
+    {
+      "segmentId": 4,
+      "speaker": "customer",
+      "text": "Potrzebujemy rur stalowych DN50, około pięćset sztuk. I jeszcze chyba z dwieście zaworów kulowych DN25.",
+      "delayMs": 4000,
+      "expectedIntent": "product_need",
+      "_narrativeBeat": "★ FIRST WOW MOMENT. Watch the left panel — the phrase 'rur stalowych DN50' glows yellow. Intent toast flashes: 'Wykryto: zapotrzebowanie na produkt'. Then → ProductCard slides in with DN50 at 22.40 PLN (tier B pricing!), 1200 in stock, 92% confidence. Ewa: 'AI zrozumiało konkretny produkt, ilość, i od razu wyciągnęło cenę dla tego klienta — nie cennikową, tylko jego cenę.'"
+    },
+    {
+      "segmentId": 5,
+      "speaker": "rep",
+      "text": "Rozumiem. Sprawdzam teraz dostępność i najlepszą cenę dla Państwa...",
+      "delayMs": 3000,
+      "_narrativeBeat": "Ewa: 'Ewa mówi że sprawdza — ale tak naprawdę wszystko już widzi na ekranie. Copilot był szybszy.'"
+    },
+    {
+      "segmentId": 6,
+      "speaker": "customer",
+      "text": "Proszę sprawdzić, bo ostatnio ceny trochę poszły w górę i zastanawiamy się czy to nadal się opłaca.",
+      "delayMs": 4000,
+      "expectedIntent": "price_objection",
+      "_narrativeBeat": "★ TENSION. Toast: 'Wykryto: obiekcja cenowa'. → PricingAlertCard appears: customer price 22.40, floor price 20.60, max discount 12%, active promo Q1 -5%. Ewa: 'Klient sygnalizuje obawy cenowe. Copilot natychmiast pokazuje handlowcowi: ile możesz zejść, jaka jest cena minimalna, i że jest aktywna promocja którą może wykorzystać.'"
+    },
+    {
+      "segmentId": 7,
+      "speaker": "rep",
+      "text": "Rozumiem obawy. Mamy dla Państwa specjalną cenę jako stałego klienta, a na ten kwartał jest jeszcze dodatkowa promocja na rury.",
+      "delayMs": 4000,
+      "_narrativeBeat": "Ewa: 'Zauważcie — Ewa nie mówi \"muszę sprawdzić z kierownikiem\". Ma pełny obraz na ekranie. Odpowiada pewnie.'"
+    },
+    {
+      "segmentId": 8,
+      "speaker": "customer",
+      "text": "Jaka promocja? Bo muszę powiedzieć że dostaliśmy też ofertę od konkurencji — Stalmet daje nam dziesięć procent taniej na rury.",
+      "delayMs": 5000,
+      "expectedIntent": "competitor_mention",
+      "_narrativeBeat": "★ CONFLICT PEAK. Toast: 'Wykryto: wzmianka o konkurencji'. PricingCard updates or new card. Ewa: 'Klient zagrał kartą konkurencji. W starym świecie — panika, prośba o odroczenie. Z Copilotem Ewa widzi: może dać 12% rabatu, a z promocją Q1 schodzi do 20.21 PLN. Stalmet daje 10% taniej od cennika, czyli ~22.41 — Ewa jest poniżej.'"
+    },
+    {
+      "segmentId": 9,
+      "speaker": "rep",
+      "text": "Stalmet? Rozumiem. Proszę pamiętać że u nas mają Państwo gwarantowany czas dostawy 48 godzin i pełną certyfikację PN-EN. Sprawdzam co mogę zaproponować cenowo...",
+      "delayMs": 5000,
+      "_narrativeBeat": "Rep counters with value arguments he can see in the system. Ewa pauses — let the audience absorb."
+    },
+    {
+      "segmentId": 10,
+      "speaker": "customer",
+      "text": "To prawda, czas dostawy jest dla nas ważny. Ale cena też musi być konkurencyjna. Ile możecie zejść?",
+      "delayMs": 4000,
+      "expectedIntent": "price_objection",
+      "_narrativeBeat": "Ewa: 'Klient się nie poddaje — ale Ewa już zna odpowiedź. Patrzy na PricingCard: floor 20.60, max rabat 12%.'"
+    },
+    {
+      "segmentId": 11,
+      "speaker": "rep",
+      "text": "Dla Państwa, przy tej ilości, mogę zaproponować dwanaście procent rabatu na rury i osiem procent na zawory. Co Pan na to?",
+      "delayMs": 4000,
+      "_narrativeBeat": "Ewa: 'Ewa podaje dokładnie tyle, ile może — bez dzwonienia do szefa, bez przerywania rozmowy. Pewność siebie buduje zaufanie klienta.'"
+    },
+    {
+      "segmentId": 12,
+      "speaker": "customer",
+      "text": "To brzmi dobrze. A jaki jest czas realizacji? Potrzebujemy to na budowę w Gdańsku, która startuje za dwa tygodnie.",
+      "delayMs": 4500,
+      "expectedIntent": "feature_question",
+      "_narrativeBeat": "DealStatusCard appears showing 'Dostawa rur do projektu Gdańsk' — 45,000 PLN deal in Negotiation stage, 8 days. Ewa: 'Copilot wie o otwartym dealu na ten projekt. Handlowiec nie musi szukać w pipeline — deal context jest na ekranie.'"
+    },
+    {
+      "segmentId": 13,
+      "speaker": "rep",
+      "text": "Rury mamy na stanie, wysyłka w 48 godzin. Zawory DN25 — sprawdzę, ale powinno być podobnie.",
+      "delayMs": 3500,
+      "_narrativeBeat": "Rep uses the stock data from ProductCard (1200 in stock). Confident."
+    },
+    {
+      "segmentId": 14,
+      "speaker": "customer",
+      "text": "Dobra, w takim razie zamawiam. Pięćset rur DN50 i dwieście zaworów kulowych DN25. Proszę przygotować ofertę i wyślij do akceptacji.",
+      "delayMs": 5000,
+      "expectedIntent": "order_intent",
+      "_narrativeBeat": "★ CLIMAX. Toast: 'Wykryto: intencja zamówienia'. → QuickActionCard slides in: [Utwórz ofertę] [Zaplanuj follow-up] [Dodaj notatkę]. Ewa: 'Jedno kliknięcie. Oferta pre-filled z ilością, ceną klienta i adresem dostawy. W starym procesie — 20 minut w Excelu. Tutaj — 2 sekundy.' Radek clicks 'Utwórz ofertę' → button changes to '✓ Dodano do oferty'."
+    },
+    {
+      "segmentId": 15,
+      "speaker": "rep",
+      "text": "Doskonale! Przygotowuję ofertę teraz i wyślę ją do Pana na maila w ciągu godziny. Dziękuję za zamówienie, Panie Janie!",
+      "delayMs": 4000,
+      "_narrativeBeat": "RESOLUTION. Ewa: 'Rozmowa trwała 4 minuty i 30 sekund. Deal na 20 tysięcy złotych zamknięty. Nowy handlowiec, stary wynik.'"
+    },
+    {
+      "segmentId": 16,
+      "speaker": "customer",
+      "text": "Dziękuję, Pani Ewo. Do usłyszenia!",
+      "delayMs": 2500,
+      "_narrativeBeat": "CLOSING. Ewa: 'To jest Call Copilot. AI nie zastępuje handlowca — daje mu supermoc. Każda informacja z CRM-a, katalogu i systemu zamówień — na jednym ekranie, w czasie rzeczywistym. Dziękujemy.' [APPLAUSE]"
+    }
   ]
 }
