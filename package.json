@@ -154,6 +154,7 @@
   },
   "resolutions": {
     "@hono/node-server": "1.19.10",
+    "hono": "4.12.12",
     "pg": "8.20.0",
     "zod": "4.1.13",
     "lodash": "4.18.1",

@@ -15,6 +15,9 @@ module.exports = {
       },
     ],
   },
+  moduleNameMapper: {
+    '^@open-mercato/voice-channels/(.*)$': '<rootDir>/src/$1',
+  },
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,
 }
