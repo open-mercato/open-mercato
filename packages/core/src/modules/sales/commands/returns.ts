@@ -432,7 +432,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       )
     }
 
-    return { returnId }
+    return { returnId: header.id }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
