@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { assignRolesSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata: { path?: string } = {}
 
@@ -42,19 +43,19 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
 
   // Verify target user belongs to same company
-  const targetUser = await em.findOne(CustomerUser, {
+  const targetUser = await findOneWithDecryption(em, CustomerUser, {
     id: params.id,
     customerEntityId: auth.customerEntityId,
     tenantId: auth.tenantId,
     deletedAt: null,
-  })
+  }, { tenantId: auth.tenantId, organizationId: auth.orgId })
   if (!targetUser) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
   // Validate all roles are customer_assignable
   for (const roleId of parsed.data.roleIds) {
-    const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
+    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null }, { tenantId: auth.tenantId, organizationId: auth.orgId })
     if (!role || !role.customerAssignable) {
       return NextResponse.json({ ok: false, error: 'Role not found or not assignable' }, { status: 400 })
     }
@@ -65,7 +66,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 
   // Assign new roles
   for (const roleId of parsed.data.roleIds) {
-    const role = await em.findOne(CustomerRole, { id: roleId })
+    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null }, { tenantId: auth.tenantId, organizationId: auth.orgId })
     if (role) {
       const userRole = em.create(CustomerUserRole, {
         user: targetUser,
