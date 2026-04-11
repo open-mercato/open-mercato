@@ -1,9 +1,11 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['sales.invoices.manage'],
+  requireFeatures: ['sales.invoices.view'],
   pageTitle: 'Invoice Detail',
   pageTitleKey: 'sales.invoices.detail.title',
-  hidden: true,
+  pageGroup: 'Sales',
+  pageGroupKey: 'customers~sales.nav.group',
+  navHidden: true,
   breadcrumb: [
     { label: 'Invoices', labelKey: 'sales.invoices.title', href: '/backend/sales/invoices' },
     { label: 'Detail' },
