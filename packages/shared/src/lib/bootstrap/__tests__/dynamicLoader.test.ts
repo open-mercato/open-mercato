@@ -20,7 +20,6 @@ const tsxBin = path.join(repoRoot, 'node_modules', '.bin', 'tsx')
 const dynamicLoaderUrl = pathToFileURL(path.join(packageRoot, 'src/lib/bootstrap/dynamicLoader.ts')).href
 
 const createdDirs: string[] = []
-const createdFiles: string[] = []
 
 function createAppFixture(): AppFixture {
   const baseDir = fs.mkdtempSync(path.join(packageRoot, '.tmp-dynamic-loader-'))
@@ -42,12 +41,6 @@ function createTempDir(name: string): string {
 function writeFile(filePath: string, contents: string): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
   fs.writeFileSync(filePath, contents, 'utf8')
-}
-
-function writeTempFile(filePath: string, contents: string): string {
-  writeFile(filePath, contents)
-  createdFiles.push(filePath)
-  return filePath
 }
 
 function writeGeneratedTs(fixture: AppFixture, fileName: string, contents: string): string {
@@ -86,10 +79,6 @@ function runTsxScript(code: string, args: string[] = [], cwd = repoRoot): Script
 
 describe('dynamicLoader', () => {
   afterEach(() => {
-    for (const filePath of createdFiles.splice(0)) {
-      fs.rmSync(filePath, { force: true })
-    }
-
     for (const dir of createdDirs.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true })
     }
@@ -295,30 +284,6 @@ describe('dynamicLoader', () => {
   it('bootstraps loaded data through the shared factory', () => {
     const fixture = createAppFixture()
 
-    writeTempFile(
-      path.join(packageRoot, 'src/lib/bootstrap/factory.js'),
-      `
-        globalThis.__dynamicLoaderTestState = { calls: [] }
-
-        export function createBootstrap(data) {
-          globalThis.__dynamicLoaderTestState.calls.push('createBootstrap')
-          globalThis.__dynamicLoaderTestState.data = {
-            modules: data.modules,
-            entities: data.entities,
-            entityIds: data.entityIds,
-            searchModuleConfigs: data.searchModuleConfigs,
-          }
-          return function bootstrap() {
-            globalThis.__dynamicLoaderTestState.calls.push('bootstrap')
-          }
-        }
-
-        export async function waitForAsyncRegistration() {
-          globalThis.__dynamicLoaderTestState.calls.push('waitForAsyncRegistration')
-        }
-      `,
-    )
-
     writeGeneratedTs(
       fixture,
       'entities.ids.generated.ts',
@@ -342,7 +307,15 @@ describe('dynamicLoader', () => {
 
     const result = runTsxScript(
       `
+        import path from 'node:path'
+        import { pathToFileURL } from 'node:url'
+
         const { bootstrapFromAppRoot } = await import(${JSON.stringify(dynamicLoaderUrl)})
+        const factory = await import(pathToFileURL(path.join(${JSON.stringify(packageRoot)}, 'src/lib/bootstrap/factory.ts')).href)
+        const modulesRegistry = await import(pathToFileURL(path.join(${JSON.stringify(packageRoot)}, 'src/lib/modules/registry.ts')).href)
+        const mikro = await import(pathToFileURL(path.join(${JSON.stringify(packageRoot)}, 'src/lib/db/mikro.ts')).href)
+        const di = await import(pathToFileURL(path.join(${JSON.stringify(packageRoot)}, 'src/lib/di/container.ts')).href)
+        const entityIds = await import(pathToFileURL(path.join(${JSON.stringify(packageRoot)}, 'src/lib/encryption/entityIds.ts')).href)
         const data = await bootstrapFromAppRoot(process.argv[2])
 
         console.log(JSON.stringify({
@@ -352,7 +325,13 @@ describe('dynamicLoader', () => {
             entityIds: data.entityIds,
             searchModuleConfigs: data.searchModuleConfigs,
           },
-          state: globalThis.__dynamicLoaderTestState,
+          state: {
+            bootstrapped: factory.isBootstrapped(),
+            modules: modulesRegistry.getModules(),
+            ormEntities: mikro.getOrmEntities(),
+            diRegistrarsCount: di.getDiRegistrars().length,
+            entityIds: entityIds.getEntityIds(),
+          },
         }))
       `,
       [fixture.appRoot],
@@ -373,13 +352,11 @@ describe('dynamicLoader', () => {
       searchModuleConfigs: [],
     })
     expect(output.state).toEqual({
-      calls: ['createBootstrap', 'bootstrap', 'waitForAsyncRegistration'],
-      data: {
-        modules: [{ id: 'cli-module' }],
-        entities: [{ name: 'CliEntity' }],
-        entityIds: { customers: { person: 'customers:person' } },
-        searchModuleConfigs: [],
-      },
+      bootstrapped: true,
+      modules: [{ id: 'cli-module' }],
+      ormEntities: [{ name: 'CliEntity' }],
+      diRegistrarsCount: 1,
+      entityIds: { customers: { person: 'customers:person' } },
     })
   })
 })

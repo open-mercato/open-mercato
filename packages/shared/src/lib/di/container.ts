@@ -1,10 +1,5 @@
-import { createContainer, asValue, AwilixContainer, InjectionMode } from 'awilix'
-import { RequestContext } from '@mikro-orm/core'
-import { getOrm } from '@open-mercato/shared/lib/db/mikro'
-import { EntityManager } from '@mikro-orm/postgresql'
-import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
-import { DefaultDataEngine } from '@open-mercato/shared/lib/data/engine'
-import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
+import { createContainer, asValue, type AwilixContainer, InjectionMode } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 export type AppContainer = AwilixContainer
 export type DiRegistrar = (container: AwilixContainer) => void
@@ -40,6 +35,24 @@ export function getDiRegistrars(): DiRegistrar[] {
 
 export async function createRequestContainer(): Promise<AppContainer> {
   const diRegistrars = getDiRegistrars()
+  const [
+    mikroOrmCore,
+    mikro,
+    queryEngine,
+    dataEngine,
+    commands,
+  ] = await Promise.all([
+    import('@mikro-orm/core'),
+    import('../db/mikro'),
+    import('../query/engine'),
+    import('../data/engine'),
+    import('../commands'),
+  ])
+  const { RequestContext } = mikroOrmCore
+  const { getOrm } = mikro
+  const { BasicQueryEngine } = queryEngine
+  const { DefaultDataEngine } = dataEngine
+  const { commandRegistry, CommandBus } = commands
   const orm = await getOrm()
   // Use a fresh event manager so request-level subscribers (e.g., encryption) don't pile up globally
   const baseEm = (RequestContext.getEntityManager() as any) ?? orm.em
