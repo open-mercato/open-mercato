@@ -191,7 +191,7 @@ export function AclEditor({
       }
       if (kind === 'user' && userRoles && userRoles.length > 0) {
         try {
-          const roleQuery = new URLSearchParams({ pageSize: '1000' })
+          const roleQuery = new URLSearchParams({ pageSize: '100' })
           if (tenantId) roleQuery.set('tenantId', tenantId)
           const roleQueryString = roleQuery.toString()
           const rolesJson = await readJsonOr<RoleListResponse>(
