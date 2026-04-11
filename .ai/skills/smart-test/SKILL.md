@@ -26,12 +26,12 @@ Before doing any git analysis, check whether a valid cached plan already exists 
 
 ```bash
 CURRENT_HASH=$(git rev-parse HEAD)
-UNCOMMITTED=$(git diff --name-only HEAD)
+UNCOMMITTED=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
 ```
 
 Read `.test-cache.json` (if it exists). The cache is **valid** when:
 1. `cache.commitHash` equals `CURRENT_HASH`, **and**
-2. `UNCOMMITTED` is empty (no staged/unstaged changes), **and**
+2. `UNCOMMITTED` is empty (no staged/unstaged/untracked changes), **and**
 3. The commit is reachable from HEAD: `git merge-base --is-ancestor <cache.commitHash> HEAD 2>/dev/null` exits 0
 
 ```bash
@@ -51,7 +51,7 @@ Condition 3 guards against stale cache entries after a rebase, amend, or force-p
   "commitHash": "<git rev-parse HEAD>",
   "savedAt": "<ISO timestamp>",
   "scope": "module | wide | test-only | package",
-  "layer": "ui | api-logic | data | mixed",
+  "layer": "ui | ui-component | api-logic | data | mixed",
   "affectedModules": ["auth", "sales"],
   "jestSourceFiles": [
     "packages/core/src/modules/auth/commands/users.ts"
@@ -65,7 +65,7 @@ Condition 3 guards against stale cache entries after a rebase, amend, or force-p
 
 `integrationWide: true` means the Python script returned `--all`; in that case `integrationSpecFiles` is empty and the full integration suite runs.
 
-`layer` values: `ui` = skip Playwright; `api-logic` or `data` or `mixed` = run Playwright.
+`layer` values: `ui` = skip Playwright; `ui-component`, `api-logic`, `data`, or `mixed` = run Playwright.
 
 ### Save Cache
 
@@ -78,7 +78,7 @@ const plan = {
   commitHash: '$(git rev-parse HEAD)',
   savedAt: new Date().toISOString(),
   scope: '<scope>',
-  layer: '<ui|api-logic|data|mixed>',
+  layer: '<ui|ui-component|api-logic|data|mixed>',
   affectedModules: <json-array-of-modules>,
   jestSourceFiles: <json-array>,
   integrationSpecFiles: <json-array>,
@@ -92,17 +92,24 @@ fs.writeFileSync('.test-cache.json', JSON.stringify(plan, null, 2));
 
 ## Step 1 — Determine Changed Files
 
-Default to comparing against the upstream tracking branch:
+Build one changed-file list and reuse it for cache invalidation, classification, Jest, and
+Playwright mapping. Include PR diff, local staged/unstaged changes, and untracked files:
 
 ```bash
-# Changed files vs develop (most common — PR context)
-git diff --name-only origin/develop...HEAD
+CHANGED_FILES=$({
+  git diff --name-only origin/develop...HEAD
+  git diff --name-only HEAD
+  git ls-files --others --exclude-standard
+} | awk '!seen[$0]++')
+```
 
-# Or: staged + unstaged local changes
-git diff --name-only HEAD
+If there is no upstream PR context, use only local changes and untracked files:
 
-# Or: last commit only
-git diff --name-only HEAD~1 HEAD
+```bash
+CHANGED_FILES=$({
+  git diff --name-only HEAD
+  git ls-files --others --exclude-standard
+} | awk '!seen[$0]++')
 ```
 
 ---
@@ -157,7 +164,7 @@ Use Jest's built-in `--findRelatedTests`. It traverses the import graph from cha
 
 ```bash
 # Build the list of changed source files (exclude test files themselves)
-CHANGED=$(git diff --name-only origin/develop...HEAD \
+CHANGED=$(printf '%s\n' "$CHANGED_FILES" \
   | grep -E '\.(ts|tsx)$' \
   | grep -v '\.test\.' \
   | grep -v '\.spec\.' \
@@ -213,11 +220,14 @@ After tests finish, leave the server running — do not kill it.
 
 **Layer gate**: if `layer = ui` (all changed files are UI-only), skip this step entirely — Playwright tests are not affected by pure UI changes.
 
-Otherwise, use the Python script to map changed modules → affected spec files:
+Otherwise, use the Python script to map changed modules → affected spec files.
+Pass `--layer` so the script can apply the correct triggering rules:
 
 ```bash
-SPEC_FILES=$(git diff --name-only origin/develop...HEAD \
-  | python3 .ai/skills/smart-test/scripts/find_affected_integration_tests.py --project-root .)
+SPEC_FILES=$(printf '%s\n' "$CHANGED_FILES" \
+  | python3 .ai/skills/smart-test/scripts/find_affected_integration_tests.py \
+    --project-root . \
+    --layer "$LAYER")
 
 if [ "$SPEC_FILES" = "--all" ]; then
   yarn test:integration
@@ -228,9 +238,23 @@ else
 fi
 ```
 
+`$LAYER` is the value determined in Step 2b (`ui-component`, `api-logic`, `data`, or `mixed`).
+
+**Layer-aware dep filtering**: when `LAYER=ui-component`, the script only runs tests whose
+own module changed — it ignores cross-module `dependsOnModules` declarations. Rationale: a
+changed `page.tsx` or React component cannot break another module's API calls; only tests
+that actually visit those pages need to run.
+
+**Workspace scoping**: the script compares module identity by both module name and runtime
+root. For example, `apps/mercato/src/modules/example` and
+`packages/create-app/template/src/modules/example` are separate `example` modules, so an
+app-specific page change does not trigger template integration specs.
+
 **Wide scope**: if the script outputs `--all` (triggered when shared deps changed), run the full integration suite.
 
-**Data layer**: if `layer = data` (entities/migrations changed), consider that integration tests with database setup may be particularly important. Run normally via the script — the mapping will include all tests for the affected module.
+**Data layer**: if `layer = data` (entities/migrations changed), integration tests are
+particularly important. Run normally via the script — the mapping will include all tests for
+the affected module including any that declare it as a dependency.
 
 ---
 
