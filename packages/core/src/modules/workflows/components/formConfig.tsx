@@ -224,16 +224,6 @@ export function createFormGroups(
   ]
 }
 
-function toDateInputValue(value: string | Date | null | undefined): string | null {
-  if (value == null) return null
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return null
-  const year = date.getUTCFullYear()
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(date.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 /**
  * Parse workflow definition to form values
  */
@@ -244,8 +234,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     description: workflow.description || null,
     version: workflow.version || 1,
     enabled: workflow.enabled ?? true,
-    effectiveFrom: toDateInputValue(workflow.effectiveFrom),
-    effectiveTo: toDateInputValue(workflow.effectiveTo),
+    effectiveFrom: workflow.effectiveFrom ?? null,
+    effectiveTo: workflow.effectiveTo ?? null,
     metadata: workflow.metadata || { tags: [], category: '', icon: '' },
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
