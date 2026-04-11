@@ -880,6 +880,7 @@ export async function seedCatalogExamples(
       taxRate: defaultTaxRateValue,
       isConfigurable: true,
       isActive: true,
+      omnibusExempt: false,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -960,6 +961,7 @@ export async function seedCatalogExamples(
         metadata: null,
         taxRateId: defaultTaxRateId,
         taxRate: defaultTaxRateValue,
+        omnibusExempt: false,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),

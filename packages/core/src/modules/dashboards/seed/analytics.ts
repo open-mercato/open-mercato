@@ -182,6 +182,7 @@ export async function seedAnalyticsData(
       productType: 'simple',
       isConfigurable: false,
       isActive: true,
+      omnibusExempt: false,
       createdAt: productCreatedAt,
       updatedAt: productCreatedAt,
     })
@@ -196,6 +197,7 @@ export async function seedAnalyticsData(
       name: 'Default',
       sku: `${product.sku}-DEFAULT`,
       isDefault: true,
+      omnibusExempt: false,
       isActive: true,
       createdAt: productCreatedAt,
       updatedAt: productCreatedAt,

@@ -25,6 +25,7 @@ export async function resolveUnitDictionary(
       isActive: true,
     },
     { orderBy: { createdAt: "asc" } },
+    { tenantId, organizationId },
   );
 }
 
@@ -48,15 +49,39 @@ export async function resolveCanonicalUnitCode(
   if (!unitCode) {
     throw new CrudHttpError(400, { error: "uom.unit_not_found" });
   }
-  const entry = await findOneWithDecryption(em, DictionaryEntry, {
-    dictionary,
-    organizationId: dictionary.organizationId,
-    tenantId: dictionary.tenantId,
-    $or: [{ normalizedValue: unitCode }, { value: unitCode }],
-  });
+  const entry = await findOneWithDecryption(
+    em,
+    DictionaryEntry,
+    {
+      dictionary,
+      organizationId: dictionary.organizationId,
+      tenantId: dictionary.tenantId,
+      $or: [{ normalizedValue: unitCode }, { value: unitCode }],
+    },
+    undefined,
+    { tenantId: dictionary.tenantId, organizationId: dictionary.organizationId },
+  );
   if (!entry) {
     throw new CrudHttpError(400, { error: "uom.unit_not_found" });
   }
   const canonical = typeof entry.value === "string" ? entry.value.trim() : "";
   return canonical.length ? canonical : unitCode;
+}
+
+export async function resolveProductUnitDefaults(
+  em: EntityManager,
+  params: {
+    organizationId: string;
+    tenantId: string;
+    defaultUnit?: string | null;
+    defaultSalesUnit?: string | null;
+  },
+): Promise<{ defaultUnit: string | null; defaultSalesUnit: string | null }> {
+  const resolveUnit = async (unitCode: string | null | undefined): Promise<string | null> => {
+    if (!unitCode) return null;
+    return resolveCanonicalUnitCode(em, { organizationId: params.organizationId, tenantId: params.tenantId, unitCode });
+  };
+  const defaultUnit = await resolveUnit(params.defaultUnit);
+  const defaultSalesUnit = await resolveUnit(params.defaultSalesUnit);
+  return { defaultUnit, defaultSalesUnit };
 }

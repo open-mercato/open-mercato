@@ -50,7 +50,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
     if (vars) return base.replace(/\{\{(\w+)\}\}/g, (_, token) => String(vars[token] ?? ''))
     return base
   }
-  return { useT: () => translate }
+  return { useT: () => translate, useLocale: () => 'en' }
 })
 
 jest.mock('../ProductMediaManager', () => ({

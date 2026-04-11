@@ -1,29 +1,41 @@
-import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
-import { seedCatalogUnits, seedCatalogPriceKinds, seedCatalogExamplesForScope } from './lib/seeds'
+import type { ModuleSetupConfig } from "@open-mercato/shared/modules/setup";
+import {
+  seedCatalogUnits,
+  seedCatalogPriceKinds,
+  seedCatalogExamplesForScope,
+} from "./lib/seeds";
 
 export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
-    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-    await seedCatalogUnits(ctx.em, scope)
-    await seedCatalogPriceKinds(ctx.em, scope)
+    const scope = {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    };
+    await seedCatalogUnits(ctx.em, scope);
+    await seedCatalogPriceKinds(ctx.em, scope);
   },
 
   seedExamples: async (ctx) => {
-    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
-    await seedCatalogExamplesForScope(ctx.em, ctx.container, scope)
+    const scope = {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    };
+    await seedCatalogExamplesForScope(ctx.em, ctx.container, scope);
   },
 
   defaultRoleFeatures: {
-    admin: ['catalog.*', 'catalog.variants.manage', 'catalog.pricing.manage'],
+    admin: ["catalog.*", "catalog.variants.manage", "catalog.pricing.manage"],
     employee: [
-      'catalog.products.view',
-      'catalog.products.manage',
-      'catalog.categories.view',
-      'catalog.categories.manage',
-      'catalog.variants.manage',
-      'catalog.pricing.manage',
+      "catalog.products.view",
+      "catalog.products.manage",
+      "catalog.categories.view",
+      "catalog.categories.manage",
+      "catalog.variants.manage",
+      "catalog.pricing.manage",
+      "catalog.settings.view",
+      "catalog.price_history.view",
     ],
   },
-}
+};
 
-export default setup
+export default setup;

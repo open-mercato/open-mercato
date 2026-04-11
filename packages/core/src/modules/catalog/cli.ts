@@ -8,6 +8,9 @@ import {
   seedCatalogUnits,
   type CatalogSeedScope,
 } from './lib/seeds'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import type { OmnibusConfig } from './data/validators'
+import type { CatalogOmnibusService } from './services/catalogOmnibusService'
 
 function parseArgs(rest: string[]) {
   const args: Record<string, string> = {}
@@ -147,4 +150,64 @@ const installExamplesBundle: ModuleCli = {
   },
 }
 
-export default [seedUnitsCommand, seedPriceKindsCommand, seedExamplesCommand, installExamplesBundle]
+
+const omnibusBackfillCommand: ModuleCli = {
+  command: 'omnibus:backfill',
+  async run(rest) {
+    const args = parseArgs(rest)
+    const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
+    const tenantId = String(args.tenantId ?? args.tenant ?? '')
+    const channelId = args.channelId ?? args.channel ?? null
+    const batchSize = parseInt(args.batchSize ?? args['batch-size'] ?? '500', 10) || 500
+
+    if (!organizationId || !tenantId) {
+      console.error('Usage: mercato catalog omnibus:backfill --org <organizationId> --tenant <tenantId> [--channel-id <channelId>] [--batch-size 500]')
+      return
+    }
+
+    const container = await createRequestContainer()
+    try {
+      const em = container.resolve<EntityManager>('em')
+      const moduleConfigService = container.resolve<ModuleConfigService>('moduleConfigService')
+      const omnibusService = container.resolve<CatalogOmnibusService>('catalogOmnibusService')
+      const config = (await moduleConfigService.getValue<OmnibusConfig>('catalog', 'catalog.omnibus', { defaultValue: {} })) ?? {}
+
+      if (channelId) {
+        const lookbackDays = config.channels?.[channelId]?.lookbackDays ?? config.lookbackDays ?? 30
+        console.log(`Running omnibus backfill for channel ${channelId}`)
+        const { inserted, skipped } = await omnibusService.backfillChannel(em, { organizationId, tenantId, channelId, lookbackDays, batchSize })
+        const backfillCoverage = { ...(config.backfillCoverage ?? {}), [channelId]: { completedAt: new Date().toISOString(), lookbackDays } }
+        await moduleConfigService.setValue('catalog', 'catalog.omnibus', { ...config, backfillCoverage })
+        console.log(`Omnibus backfill complete: ${inserted} entries inserted, ${skipped} skipped`)
+      } else if (config.channels && Object.keys(config.channels).length > 0) {
+        const configuredChannels = Object.entries(config.channels)
+        console.log(`Running omnibus backfill for ${configuredChannels.length} configured channel(s)`)
+        let totalInserted = 0
+        let totalSkipped = 0
+        let backfillCoverage = { ...(config.backfillCoverage ?? {}) }
+        for (const [chId, chConfig] of configuredChannels) {
+          const lookbackDays = chConfig.lookbackDays ?? config.lookbackDays ?? 30
+          console.log(`Channel ${chId} (lookback: ${lookbackDays} days)`)
+          const { inserted, skipped } = await omnibusService.backfillChannel(em, { organizationId, tenantId, channelId: chId, lookbackDays, batchSize })
+          backfillCoverage = { ...backfillCoverage, [chId]: { completedAt: new Date().toISOString(), lookbackDays } }
+          totalInserted += inserted
+          totalSkipped += skipped
+        }
+        await moduleConfigService.setValue('catalog', 'catalog.omnibus', { ...config, backfillCoverage })
+        console.log(`Omnibus backfill complete: ${totalInserted} entries inserted, ${totalSkipped} skipped`)
+      } else {
+        const lookbackDays = config.lookbackDays ?? 30
+        console.log('Running omnibus backfill (no channel scope)')
+        const { inserted, skipped } = await omnibusService.backfillChannel(em, { organizationId, tenantId, channelId: null, lookbackDays, batchSize })
+        console.log(`Omnibus backfill complete: ${inserted} entries inserted, ${skipped} skipped`)
+      }
+    } finally {
+      const disposable = container as unknown as { dispose?: () => Promise<void> }
+      if (typeof disposable.dispose === 'function') {
+        await disposable.dispose()
+      }
+    }
+  },
+}
+
+export default [seedUnitsCommand, seedPriceKindsCommand, seedExamplesCommand, installExamplesBundle, omnibusBackfillCommand]

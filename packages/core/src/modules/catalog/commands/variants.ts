@@ -63,6 +63,7 @@ type VariantSnapshot = {
   weightUnit: string | null
   taxRateId: string | null
   taxRate: string | null
+  omnibusExempt: boolean
   dimensions: Record<string, unknown> | null
   metadata: Record<string, unknown> | null
   optionValues: Record<string, string> | null
@@ -126,6 +127,7 @@ async function loadVariantSnapshot(
     weightUnit: record.weightUnit ?? null,
     taxRateId: record.taxRateId ?? null,
     taxRate: record.taxRate ?? null,
+    omnibusExempt: record.omnibusExempt ?? false,
     dimensions: record.dimensions ? cloneJson(record.dimensions) : null,
     metadata: record.metadata ? cloneJson(record.metadata) : null,
     optionValues: record.optionValues ? cloneJson(record.optionValues) : null,
@@ -150,6 +152,7 @@ function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSn
   record.weightUnit = snapshot.weightUnit ?? null
   record.taxRateId = snapshot.taxRateId ?? null
   record.taxRate = snapshot.taxRate ?? null
+  record.omnibusExempt = snapshot.omnibusExempt ?? false
   record.dimensions = snapshot.dimensions ? cloneJson(snapshot.dimensions) : null
   record.metadata = snapshot.metadata ? cloneJson(snapshot.metadata) : null
   record.optionValues = snapshot.optionValues ? cloneJson(snapshot.optionValues) : null
@@ -570,6 +573,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       weightUnit: parsed.weightUnit ?? null,
       taxRateId,
       taxRate,
+      omnibusExempt: parsed.omnibusExempt ?? false,
       dimensions: parsed.dimensions ? cloneJson(parsed.dimensions) : null,
       metadata: metadataSplit.metadata,
       optionValues: resolvedOptionValues ? cloneJson(resolvedOptionValues) : null,
@@ -738,6 +742,9 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (parsed.customFieldsetCode !== undefined) {
       record.customFieldsetCode = parsed.customFieldsetCode ?? null
     }
+    if (parsed.omnibusExempt !== undefined) {
+      record.omnibusExempt = parsed.omnibusExempt ?? false
+    }
 
     let previousDefaultVariantId: string | null = null
     if (parsed.isDefault === true) {
@@ -835,6 +842,7 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
         isActive: before.isActive,
         weightValue: before.weightValue ?? null,
         weightUnit: before.weightUnit ?? null,
+        omnibusExempt: before.omnibusExempt ?? false,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
         optionValues: before.optionValues ? cloneJson(before.optionValues) : null,
@@ -999,6 +1007,7 @@ const deleteVariantCommand: CommandHandler<
         isActive: before.isActive,
         weightValue: before.weightValue ?? null,
         weightUnit: before.weightUnit ?? null,
+        omnibusExempt: before.omnibusExempt ?? false,
         dimensions: before.dimensions ? cloneJson(before.dimensions) : null,
         metadata: before.metadata ? cloneJson(before.metadata) : null,
         customFieldsetCode: before.customFieldsetCode ?? null,

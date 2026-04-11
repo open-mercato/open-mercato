@@ -143,6 +143,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   }
   return {
     useT: () => translate,
+    useLocale: () => 'en',
   }
 })
 

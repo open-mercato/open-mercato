@@ -1,4 +1,4 @@
-import { describe, it, expect } from '@jest/globals'
+import { describe, it, expect, jest } from '@jest/globals'
 import { calculateNextRun, recalculateNextRun } from '../nextRunCalculator'
 
 describe('nextRunCalculator', () => {
@@ -271,22 +271,23 @@ describe('nextRunCalculator', () => {
       })
 
       it('should not accumulate drift over multiple runs', () => {
-        const expectedInterval = 30 * 60 * 1000 // 30 minutes in ms
-        
-        const run1 = recalculateNextRun('interval', '30m')!
-        const run2 = recalculateNextRun('interval', '30m')!
-        const run3 = recalculateNextRun('interval', '30m')!
-        
-        // All should be approximately the same distance from now
-        // (accounting for small timing differences in the loop)
-        const now = Date.now()
-        const diff1 = run1.getTime() - now
-        const diff2 = run2.getTime() - now
-        const diff3 = run3.getTime() - now
-        
-        expect(Math.abs(diff1 - expectedInterval)).toBeLessThan(10)
-        expect(Math.abs(diff2 - expectedInterval)).toBeLessThan(10)
-        expect(Math.abs(diff3 - expectedInterval)).toBeLessThan(10)
+        const frozenNow = new Date('2025-01-27T12:00:00.000Z')
+        jest.useFakeTimers()
+        jest.setSystemTime(frozenNow)
+
+        try {
+          const expectedTime = frozenNow.getTime() + 30 * 60 * 1000
+
+          const run1 = recalculateNextRun('interval', '30m')!
+          const run2 = recalculateNextRun('interval', '30m')!
+          const run3 = recalculateNextRun('interval', '30m')!
+
+          expect(run1.getTime()).toBe(expectedTime)
+          expect(run2.getTime()).toBe(expectedTime)
+          expect(run3.getTime()).toBe(expectedTime)
+        } finally {
+          jest.useRealTimers()
+        }
       })
     })
 
