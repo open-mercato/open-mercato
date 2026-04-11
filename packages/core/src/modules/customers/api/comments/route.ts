@@ -176,7 +176,58 @@ const crud = makeCrudRoute({
 const { POST, PUT, DELETE } = crud
 
 export { POST, PUT, DELETE }
-export const GET = crud.GET
+
+/**
+ * Wraps the CRUD GET handler to enforce entityId / dealId filtering at the
+ * response level as a defense-in-depth measure.  The factory's buildFilters
+ * callback supplies the correct WHERE clause for both the query-engine and ORM
+ * fallback paths, but if the underlying engine silently drops the filter (e.g.
+ * column-name mismatch in the ORM fallback), this wrapper guarantees that
+ * unrelated comments are never leaked.  See #1100.
+ */
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url)
+  const entityId = url.searchParams.get('entityId')
+  const dealId = url.searchParams.get('dealId')
+
+  const response = await crud.GET(request)
+
+  // Only post-filter JSON list responses
+  if (!entityId && !dealId) return response
+
+  const contentType = response.headers.get('content-type') ?? ''
+  if (!contentType.includes('application/json')) return response
+
+  try {
+    const body = await response.json()
+    if (!body || typeof body !== 'object' || !Array.isArray(body.items)) {
+      return new Response(JSON.stringify(body), {
+        status: response.status,
+        headers: response.headers,
+      })
+    }
+
+    const filtered = body.items.filter((item: Record<string, unknown>) => {
+      if (entityId) {
+        const itemEntityId = item.entity_id ?? item.entityId
+        if (itemEntityId !== entityId) return false
+      }
+      if (dealId) {
+        const itemDealId = item.deal_id ?? item.dealId
+        if (itemDealId !== dealId) return false
+      }
+      return true
+    })
+
+    const result = { ...body, items: filtered, total: filtered.length }
+    return new Response(JSON.stringify(result), {
+      status: response.status,
+      headers: response.headers,
+    })
+  } catch {
+    return response
+  }
+}
 
 const commentListItemSchema = z
   .object({
