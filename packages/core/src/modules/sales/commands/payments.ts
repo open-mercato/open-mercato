@@ -113,12 +113,13 @@ async function invalidateOrderCache(container: any, order: SalesOrder | null | u
   )
 }
 
-export async function loadPaymentSnapshot(em: EntityManager, id: string): Promise<PaymentSnapshot | null> {
+export async function loadPaymentSnapshot(em: EntityManager, id: string, scope?: { tenantId?: string | null; organizationId?: string | null }): Promise<PaymentSnapshot | null> {
   const payment = await findOneWithDecryption(
     em,
     SalesPayment,
     { id },
     { populate: ['order', 'allocations', 'allocations.order', 'allocations.invoice'] },
+    scope,
   )
   if (!payment) return null
   const allocations: PaymentAllocationSnapshot[] = Array.from(payment.allocations ?? []).map((allocation) => ({
@@ -326,7 +327,7 @@ const createPaymentCommand: CommandHandler<
       throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
     }
     const order = assertFound(
-      await em.findOne(SalesOrder, { id: input.orderId }),
+      await em.findOne(SalesOrder, { id: input.orderId, tenantId: input.tenantId, organizationId: input.organizationId }),
       'sales.payments.order_not_found'
     )
     ensureSameScope(order, input.organizationId, input.tenantId)
@@ -345,7 +346,7 @@ const createPaymentCommand: CommandHandler<
     let paymentMethod = null
     if (input.paymentMethodId) {
       const method = assertFound(
-        await em.findOne(SalesPaymentMethod, { id: input.paymentMethodId }),
+        await em.findOne(SalesPaymentMethod, { id: input.paymentMethodId, tenantId: input.tenantId, organizationId: input.organizationId }),
         'sales.payments.method_not_found'
       )
       ensureSameScope(method, input.organizationId, input.tenantId)
@@ -496,7 +497,8 @@ const createPaymentCommand: CommandHandler<
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId) : null
+    const scope = ctx.auth?.tenantId ? { tenantId: ctx.auth.tenantId, organizationId: ctx.auth?.orgId ?? null } : undefined
+    return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId, scope) : null
   },
   buildLog: async ({ result, snapshots }) => {
     const after = snapshots.after as PaymentSnapshot | undefined
@@ -547,7 +549,7 @@ const createPaymentCommand: CommandHandler<
         )
       )
       for (const id of orderIds) {
-        const order = await em.findOne(SalesOrder, { id })
+        const order = await em.findOne(SalesOrder, { id, tenantId: after.tenantId, organizationId: after.organizationId })
         if (!order) continue
         if (id === after.orderId && 'orderPaymentMethodIdBefore' in (payload ?? {})) {
           order.paymentMethodId = payload.orderPaymentMethodIdBefore ?? null
@@ -607,7 +609,7 @@ const updatePaymentCommand: CommandHandler<
         payment.order = null
       } else {
         const order = assertFound(
-          await em.findOne(SalesOrder, { id: input.orderId }),
+          await em.findOne(SalesOrder, { id: input.orderId, tenantId: resolvedTenantId, organizationId: resolvedOrganizationId }),
           'sales.payments.order_not_found'
         )
         ensureSameScope(order, resolvedOrganizationId, resolvedTenantId)
@@ -699,6 +701,9 @@ const updatePaymentCommand: CommandHandler<
         values: normalizeCustomFieldsInput(input.customFields),
       })
     }
+    payment.updatedAt = new Date()
+    await em.flush()
+
     if (input.allocations !== undefined) {
       const existingAllocations = await em.find(SalesPaymentAllocation, { payment })
       existingAllocations.forEach((allocation) => em.remove(allocation))
@@ -725,9 +730,8 @@ const updatePaymentCommand: CommandHandler<
         })
         em.persist(entity)
       })
+      await em.flush()
     }
-    payment.updatedAt = new Date()
-    await em.flush()
 
     const nextOrder =
       (payment.order as SalesOrder | null) ??
@@ -764,7 +768,8 @@ const updatePaymentCommand: CommandHandler<
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId) : null
+    const scope = ctx.auth?.tenantId ? { tenantId: ctx.auth.tenantId, organizationId: ctx.auth?.orgId ?? null } : undefined
+    return result?.paymentId ? loadPaymentSnapshot(em, result.paymentId, scope) : null
   },
   buildLog: async ({ snapshots, result }) => {
     const { translate } = await resolveTranslations()
@@ -791,7 +796,7 @@ const updatePaymentCommand: CommandHandler<
     await restorePaymentSnapshot(em, before)
     await em.flush()
     if (before.orderId) {
-      const order = await em.findOne(SalesOrder, { id: before.orderId })
+      const order = await em.findOne(SalesOrder, { id: before.orderId, tenantId: before.tenantId, organizationId: before.organizationId })
       if (order) {
         await recomputeOrderPaymentTotals(em, order)
         await em.flush()
@@ -920,7 +925,7 @@ const deletePaymentCommand: CommandHandler<
     await restorePaymentSnapshot(em, before)
     await em.flush()
     if (before.orderId) {
-      const order = await em.findOne(SalesOrder, { id: before.orderId })
+      const order = await em.findOne(SalesOrder, { id: before.orderId, tenantId: before.tenantId, organizationId: before.organizationId })
       if (order) {
         await recomputeOrderPaymentTotals(em, order)
         await em.flush()
