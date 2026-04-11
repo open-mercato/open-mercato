@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
           node-version: 24
 
@@ -32,6 +32,9 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --immutable
+
+      - name: Audit dependencies for known CVEs
+        run: yarn npm audit --all --recursive --severity high
 
       - name: Build packages
         run: yarn build:packages
@@ -63,6 +66,7 @@ jobs:
 
   ephemeral-integration:
     runs-on: ubuntu-latest
+    needs: test
     env:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
@@ -163,11 +167,14 @@ jobs:
 
   docker-build:
     runs-on: ubuntu-latest
-    # Only run on non-fork PRs (forks don't have access to GHA cache)
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    needs: test
+    # Only run on non-fork PRs and direct pushes (forks don't have access to GHA cache)
+    if: |
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

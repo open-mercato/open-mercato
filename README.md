@@ -191,7 +191,7 @@ This is the quickest way to get Open Mercato up and running on your localhost / 
   </tr>
   <tr>
     <td align="center" colspan="2">
-      <strong>Building Standalone App using 100% Docker (recommended for Windows)</strong><br/><br/>
+      <strong>Building Standalone App using 100% Docker (fully containerized workflow)</strong><br/><br/>
 <a href="https://youtu.be/5mErdkgeZ0s"><img src="https://img.youtube.com/vi/5mErdkgeZ0s/hqdefault.jpg" alt="Building Standalone App on Linux/Mac" width="400"/></a>
     </td>
   </tr>
@@ -211,7 +211,7 @@ This is the quickest way to get Open Mercato up and running on your localhost / 
   nvm use 24
   ```
   
-**Windows:** Use [Docker Setup](#docker-setup) for native setup.
+**Windows:** For day-to-day development, use Docker Desktop for PostgreSQL, Redis, and Meilisearch, then run the app with native Yarn commands. See [Windows local development](#windows-local-development) before choosing the full Docker stack.
 
 ### Quickstart: (Monorepo, core development / contributing)
 
@@ -232,11 +232,15 @@ yarn install
 cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your specific files
 #At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
 
+docker compose up -d
 yarn build:packages
 yarn generate
+yarn build:packages
 yarn initialize # or yarn reinstall
 yarn dev
 ```
+
+Important: on a fresh local setup, run `yarn build:packages`, then `yarn generate`, then `yarn build:packages` again before `yarn initialize`. The second package build makes sure generated scripts are available, otherwise `yarn initialize` may not detect them, fail to execute correctly, and block the local bootstrap flow.
 
 After upgrading to a newer version, apply any new module migrations:
 
@@ -245,6 +249,82 @@ yarn db:migrate
 ```
 
 Note: `yarn initialize` seeds demo data and may abort if users already exist. For upgrades on an existing database, use `yarn db:migrate` instead.
+
+### Windows local development
+
+On Windows, the fastest reliable workflow is usually **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains useful when you want an isolated, fully containerized environment, but it can be slower for day-to-day work because this repository is a large Node.js monorepo and bind-mounted file watching across the Windows/WSL filesystem boundary has high file I/O overhead.
+
+Prerequisites:
+
+- **Node.js 24+**
+- **Yarn via Corepack**
+- **Git**
+- **Docker Desktop with WSL 2 backend enabled**
+
+One-time setup:
+
+```powershell
+corepack enable
+corepack prepare yarn@stable --activate
+git config --global core.autocrlf false
+```
+
+From the monorepo root, start only infrastructure services:
+
+```powershell
+docker compose up -d
+```
+
+The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+
+You may then run the optional Windows optimizer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-optimize.ps1
+```
+
+The optimizer shows a plan first, then asks whether to relaunch itself as Administrator. If you accept, a new elevated PowerShell window opens, shows the same plan again, and asks for execution confirmation before applying changes. Close the original non-elevated window and restart your development terminal after the optimizer completes so user-level `NODE_OPTIONS` changes take effect.
+
+The optimizer does not disable Microsoft Defender globally. It only adds Defender exclusions for the project root, Node/Yarn/pnpm/turbo user directories, `C:\Program Files\nodejs`, and the `node.exe`, `yarn.js`, and `turbo.exe` processes. It also enables Windows long paths, sets global Git values (`core.longpaths`, `core.autocrlf`, `core.eol`, `core.fscache`, `core.preloadindex`), appends `--max-old-space-size=4096` to user-level `NODE_OPTIONS` if no max-old-space-size flag is already present, and saves rollback state once to `.mercato\windows-optimize-state.json`.
+
+Then continue with the monorepo setup:
+
+```powershell
+yarn install
+yarn build:packages
+yarn generate
+yarn initialize
+yarn dev
+```
+
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps created by `create-mercato-app`.
+
+For an existing database where you only need to apply new migrations:
+
+```powershell
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+To roll back the optional Windows optimizer:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-rollback.ps1
+```
+
+Rollback reads `.mercato\windows-optimize-state.json`, preserves Defender exclusions that existed before optimization, removes only exclusions the optimizer added, restores the captured Git, long-paths, and user-level `NODE_OPTIONS` values, and deletes the state file after a completed rollback. If the state file is absent, rollback exits with an error instead of guessing. Restart your terminal after rollback so environment variable changes take effect.
+
+Optional Windows cleanup scripts:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-generated-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\clean-packages-windows.ps1
+```
+
+Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato/generated`, `.mercato/next`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
+
+Use `clean-packages-windows.ps1` for a deeper dependency/build reset. It stops repo-scoped `esbuild`/`turbo` processes, removes `node_modules`, `dist`, `*.tsbuildinfo`, `.yarn\cache`, and `.yarn\install-state.gz`, then you should run `yarn install` again.
 
 For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
 
@@ -298,10 +378,35 @@ The **recommended way to build on Open Mercato** without modifying the core is t
 ```bash
 npx create-mercato-app my-store
 cd my-store
+cp .env.example .env
+# Edit .env - set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
+docker compose up -d
 yarn setup
 ```
 
 If you want the standalone bootstrap in raw passthrough mode with no splash screen, run `yarn setup:classic`.
+
+For an existing standalone app repository checked out locally:
+
+```bash
+cd path/to/existing-standalone-app
+cp .env.example .env
+# Edit .env - set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
+docker compose up -d
+yarn install
+yarn setup:reinstall
+yarn dev
+```
+
+If the app already has a valid database and tenant and you only need to apply new migrations:
+
+```bash
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+Use `yarn setup:reinstall` for a reset/reinstall flow. `yarn setup --reinstall` is not a standalone app script.
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
@@ -342,11 +447,11 @@ npx create-mercato-app@develop my-app
 
 ## Docker Setup
 
-Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
+Open Mercato offers Docker Compose configurations for services-only local development, full-stack development, and production-style deployments. For Windows day-to-day development, prefer `docker compose up -d` for services only plus native Yarn commands. The full dev stack is simpler to isolate and valid for fully containerized workflows, but can be slower on Windows/WSL for this large source tree.
 
 ### Dev mode (hot reload)
 
-Run the entire stack with source code mounted from the host. File changes trigger automatic rebuilds — no local Node.js or Yarn required.
+Run the entire stack with source code mounted from the host. File changes trigger automatic rebuilds - no local Node.js or Yarn required. On Windows/WSL, this can be slower than services-only Docker plus native Yarn because bind-mounted Node.js monorepo workloads pay a high file I/O cost.
 
 ```bash
 git clone https://github.com/open-mercato/open-mercato.git
@@ -355,7 +460,7 @@ git checkout develop
 docker compose -f docker-compose.fullapp.dev.yml up --build
 ```
 
-**Windows users:** Ensure WSL 2 backend is enabled in Docker Desktop and clone with `git config --global core.autocrlf input` to avoid line-ending issues.
+**Windows users:** Ensure WSL 2 backend is enabled in Docker Desktop. Use this full dev stack when you specifically want the app containerized too; for the fastest day-to-day workflow, use the [Windows local development](#windows-local-development) path instead.
 
 Once the dev stack is running, you can use the Docker wrapper scripts from the repo root instead of typing `docker compose exec` manually:
 

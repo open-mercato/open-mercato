@@ -65,7 +65,8 @@ function spawnResult(command, args, options = {}) {
     const stdio = options.interactive
       ? 'inherit'
       : ['ignore', 'pipe', 'pipe']
-    const child = spawn(command, args, {
+    const commandSpec = resolveWindowsCommandShim(command, args, options.platform)
+    const child = spawn(commandSpec.command, commandSpec.args, {
       cwd: options.cwd ?? process.cwd(),
       env: options.env ?? process.env,
       stdio,
@@ -90,6 +91,14 @@ function spawnResult(command, args, options = {}) {
       resolve({ code, signal, stdout, stderr })
     })
   })
+}
+
+function resolveWindowsCommandShim(command, args, platform = process.platform) {
+  if (platform !== 'win32' || !command.toLowerCase().endsWith('.cmd')) {
+    return { command, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', command, ...args] }
 }
 
 function defaultRunCommand(command, args, options = {}) {

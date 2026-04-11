@@ -52,6 +52,20 @@ function isEnabledEnvFlag(value: string | undefined): boolean {
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
 }
 
+/** @internal */
+export function resolveWindowsCommandShim(command: string, args: string[], platform = process.platform): { command: string; args: string[] } {
+  if (platform !== 'win32') {
+    return { command, args }
+  }
+
+  const binary = command.toLowerCase() === 'yarn' ? 'yarn.cmd' : command
+  if (!binary.toLowerCase().endsWith('.cmd')) {
+    return { command: binary, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', binary, ...args] }
+}
+
 function parsePortNumber(value: string | number | undefined | null): number | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null
   const parsed = Number.parseInt(String(value).trim(), 10)
@@ -472,7 +486,8 @@ async function ensureEnvFile(): Promise<void> {
 
 function runCommand(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const commandSpec = resolveWindowsCommandShim(command, args)
+    const child = spawn(commandSpec.command, commandSpec.args, {
       cwd: projectRootDirectory,
       stdio: 'inherit',
       env: process.env,
@@ -493,7 +508,8 @@ function runCommand(command: string, args: string[], options: { env?: NodeJS.Pro
 
 function runCommandBuffered(command: string, args: string[], options: { env?: NodeJS.ProcessEnv } = {}): Promise<{ code: number; lines: string[] }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const commandSpec = resolveWindowsCommandShim(command, args)
+    const child = spawn(commandSpec.command, commandSpec.args, {
       cwd: projectRootDirectory,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
@@ -968,7 +984,8 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   const devArgs = classic
     ? ['workspace', '@open-mercato/app', 'dev:classic']
     : (verbose ? ['workspace', '@open-mercato/app', 'dev:verbose'] : ['workspace', '@open-mercato/app', 'dev'])
-  const devCommand = spawn('yarn', devArgs, {
+  const devCommandSpec = resolveWindowsCommandShim('yarn', devArgs)
+  const devCommand = spawn(devCommandSpec.command, devCommandSpec.args, {
     cwd: projectRootDirectory,
     stdio: 'inherit',
     env: devEnvironment,

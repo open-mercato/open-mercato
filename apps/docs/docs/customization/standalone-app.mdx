@@ -53,7 +53,7 @@ This creates a `my-store/` directory with the full application template, includi
 
 **App name rules:** lowercase alphanumeric characters and hyphens only. Cannot start or end with a hyphen.
 
-## Set up and run
+## Set up and run a new app
 
 ```bash
 cd my-store
@@ -65,21 +65,47 @@ cp .env.example .env
 # 2. Start infrastructure
 docker compose up -d
 
+# 3. Bootstrap the app (installs dependencies, generates modules, runs migrations, seeds data, starts dev)
+yarn setup
+```
+
+:::info
+`yarn setup` runs the standalone setup flow from `scripts/setup.mjs`. It handles dependency installation, code generation, migrations, initial seed, and startup. If you prefer raw passthrough logs with no splash screen during bootstrap, use `yarn setup:classic`.
+:::
+
+## Set up an existing standalone app
+
+Use this path when you cloned or copied an existing standalone app repository instead of running `npx create-mercato-app`.
+
+```bash
+cd path/to/existing-standalone-app
+
+# 1. Copy environment template and configure
+cp .env.example .env
+# Edit .env - set DATABASE_URL, JWT_SECRET, REDIS_URL at minimum
+
+# 2. Start infrastructure
+docker compose up -d
+
 # 3. Install dependencies
 yarn install
 
-# 4. Bootstrap the app (generates modules, runs migrations, seeds data)
-yarn initialize
+# 4. Reset and bootstrap the local app
+yarn setup:reinstall
 
 # 5. Start the dev server
 yarn dev
 ```
 
-:::info
-`yarn initialize` handles code generation (`yarn generate`) and database migrations (`yarn db:migrate`) internally — you do not need to run them separately. It also seeds default data and will abort if existing users are found. For upgrades on an existing database, run `yarn db:migrate` instead of `yarn initialize`.
-:::
+If the app already has a valid database and tenant and you only need to apply new migrations:
 
-If you prefer the old raw terminal output with no splash screen during standalone bootstrap, use `yarn setup:classic` instead of the compact `setup` flow.
+```bash
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+Use `yarn setup:reinstall` for the reinstall flow. `yarn setup --reinstall` is not a valid standalone app command. `yarn reinstall` is also available if you only want the underlying `mercato init --reinstall` command.
 
 `yarn dev` starts the compact development runtime with a splash screen that shows live startup progress. On native local runs the splash is served on `http://localhost:4000` by default and auto-opens when supported; the terminal also prints the backend URL at `http://localhost:3000/backend`. Once the app is ready, the splash can also expose:
 
@@ -95,7 +121,7 @@ Useful standalone splash env vars:
 - `OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev` to hide the GitHub publish panel
 - `OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev` to hide the coding-tools menu
 
-Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+Navigate to `http://localhost:3000/backend` and sign in with the credentials printed during setup or initialization.
 
 ## Test create-mercato-app locally from the monorepo
 
@@ -164,7 +190,7 @@ my-store/
 ├── Dockerfile                    # Multi-stage production build
 ├── docker-compose.yml            # Services only (PostgreSQL, Redis, Meilisearch)
 ├── docker-compose.fullapp.yml    # Full stack for production-style deploy
-├── docker-compose.fullapp.dev.yml # Full stack with hot reload (Windows-friendly)
+├── docker-compose.fullapp.dev.yml # Full stack with hot reload
 ├── docker/
 │   └── scripts/
 │       └── dev-entrypoint.sh     # Dev container entrypoint
@@ -217,8 +243,10 @@ The scaffolded app includes three Compose files for different scenarios:
 | File | When to use |
 | --- | --- |
 | `docker-compose.yml` | **Local development** — starts only infrastructure services (PostgreSQL, Redis, Meilisearch). You run the app with `yarn dev` on the host. |
-| `docker-compose.fullapp.dev.yml` | **Containerized development** — runs the full stack including the app with hot reload. The app container exposes the dev splash progress page and backend URL on stable host ports. Recommended for Windows or fully containerized workflows. |
+| `docker-compose.fullapp.dev.yml` | **Containerized development** — runs the full stack including the app with hot reload. The app container exposes the dev splash progress page and backend URL on stable host ports. Use it for fully containerized or CI-like workflows. |
 | `docker-compose.fullapp.yml` | **Production-style deploy** — builds and runs the app in production mode inside Docker. Suitable for demos, staging, or deployment. |
+
+For Windows day-to-day development, prefer `docker compose up -d` with `docker-compose.yml` for services only, then run the app with native Yarn commands. The full dev stack can be slower on Windows/WSL because bind-mounted Node.js monorepo workloads pay a high file I/O cost across the Windows/Linux filesystem boundary.
 
 ### AI tooling
 
@@ -232,7 +260,9 @@ The project includes a starter integration test at `src/modules/auth/__integrati
 
 | Command | Description |
 | --- | --- |
+| `yarn setup` | Run standalone setup and startup in the compact splash-based flow. |
 | `yarn setup:classic` | Run standalone setup and startup in the legacy raw passthrough mode with no splash screen. |
+| `yarn setup:reinstall` | Run standalone setup in reset/reinstall mode. |
 | `yarn dev` | Start the compact development runtime with hot reload and a splash progress page. |
 | `yarn dev:classic` | Start the legacy raw passthrough runtime with no splash screen. |
 | `yarn build` | Build the Next.js application for production. |

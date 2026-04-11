@@ -121,6 +121,14 @@ const runtimeWarmupState = {
   tenantLookupAttempted: false,
 }
 
+function resolveWindowsCommandShim(binary, args) {
+  if (process.platform !== 'win32' || !binary.toLowerCase().endsWith('.cmd')) {
+    return { command: binary, args }
+  }
+
+  return { command: 'cmd.exe', args: ['/d', '/s', '/c', binary, ...args] }
+}
+
 function printCompactSummary(icon, title, lines) {
   if (!Array.isArray(lines) || lines.length === 0) return
   console.log(`${icon} ${title}`)
@@ -363,7 +371,8 @@ function looksLikeFailure(line) {
 }
 
 function spawnMercato(args) {
-  const child = spawn(command, args, {
+  const commandSpec = resolveWindowsCommandShim(command, args)
+  const child = spawn(commandSpec.command, commandSpec.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
       ...process.env,
