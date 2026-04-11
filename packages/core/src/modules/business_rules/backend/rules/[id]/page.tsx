@@ -51,10 +51,7 @@ export default function EditBusinessRulePage() {
 
   const initialValues = React.useMemo(() => {
     if (rule) {
-      const parsed = parseRuleToFormValues(rule)
-      console.log('Rule data:', rule)
-      console.log('Parsed initial values:', parsed)
-      return parsed
+      return parseRuleToFormValues(rule)
     }
     return null
   }, [rule])
