@@ -55,6 +55,70 @@ These path prefixes indicate cross-cutting changes that affect all tests:
 - `package.json` (root) — deps/scripts
 - `turbo.json` — monorepo build config
 
+## Layer Classification (→ controls whether Playwright runs)
+
+For any non-wide change, classify each modified source file into a layer to decide if integration tests are needed.
+
+### UI layer — Jest only, **skip Playwright**
+
+Only pure CSS / design tokens / Tailwind primitives qualify. These files cannot affect DOM structure or component interactivity.
+
+| Pattern | Examples |
+|---------|---------|
+| `**/*.css` | Global stylesheets |
+| `packages/ui/src/primitives/**` | Button.tsx, Badge.tsx — Radix/Tailwind primitives |
+| `packages/ui/src/styles/**` | CSS variables, Tailwind config |
+
+### UI-Component layer — Jest + **run Playwright**
+
+React components (`.tsx`) that render into pages visited by Playwright. A broken render, a missing element, or a changed conditional can break Playwright selectors even without touching any API.
+
+| Pattern | Examples |
+|---------|---------|
+| `packages/ui/src/backend/**/*.tsx` | `TruncatedCell.tsx`, `DataTable.tsx`, `FlashMessages.tsx` |
+| `**/frontend/**` | Next.js frontend pages |
+| `**/backend/**/*.tsx` | Next.js backoffice pages |
+| `**/components/**` | React component files |
+| `**/widgets/**` | Widget injection files |
+
+> **Important**: `backend/page.tsx` is a Next.js page (ui-component). `api/GET/route.ts` is an API route (api-logic). Don't confuse them.
+
+### API-Logic layer — Jest + Playwright
+
+| Pattern | Examples |
+|---------|---------|
+| `**/api/**` | `api/GET/route.ts`, `api/POST/route.ts` |
+| `**/commands/**` | `commands/createCustomer.ts` |
+| `**/lib/**` | `lib/pricing.ts`, `lib/utils.ts` |
+| `**/services/**` | `services/emailService.ts` |
+| `**/subscribers/**` | `subscribers/onOrderCreated.ts` |
+| `**/workers/**` | `workers/syncWorker.ts` |
+| `**/events.ts` | Module event declarations |
+| `**/notifications.ts` | Module notification declarations |
+| `**/ai-tools.ts` | MCP tool definitions |
+
+### Data layer — Jest + Playwright (schema-sensitive)
+
+| Pattern | Examples |
+|---------|---------|
+| `**/data/entities*` | `data/entities.ts`, `data/entities/` |
+| `**/data/migrations*` | `data/migrations/Migration001.ts` |
+| `**/data/validators*` | `data/validators.ts` |
+| `**/data/extensions*` | `data/extensions.ts` |
+| `**/data/enrichers*` | `data/enrichers.ts` |
+
+### Decision rule
+
+```
+layer = ui      → only if ALL changed files match UI patterns
+layer = data    → if ANY changed file matches data patterns
+layer = api-logic → if ANY changed file matches api-logic patterns (and none match data)
+layer = mixed   → if changes span multiple layers
+```
+
+When `layer = ui`: skip Step 4 and Step 5 entirely — no Playwright.
+When `layer = data` or `api-logic` or `mixed`: proceed with Playwright as normal.
+
 ## Integration Test Meta Format
 
 Integration tests declare their module dependencies in `meta.ts` (or `index.ts`):
