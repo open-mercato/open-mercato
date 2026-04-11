@@ -23,13 +23,13 @@ const querySchema = z.object({
 
 const roleCreateSchema = z.object({
   name: z.string().min(2).max(100),
-  tenantId: z.string().uuid().nullable().optional(),
+  tenantId: z.string().uuid().optional(),
 })
 
 const roleUpdateSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(2).max(100).optional(),
-  tenantId: z.string().uuid().nullable().optional(),
+  tenantId: z.string().uuid().optional(),
 })
 
 const roleListItemSchema = z.object({
@@ -147,13 +147,13 @@ export async function GET(req: Request) {
   if (id) filters.push({ id })
   if (search) filters.push({ name: { $ilike: `%${escapeLikePattern(search)}%` } })
   if (!isSuperAdmin && actorTenantId) {
-    filters.push({ $or: [{ tenantId: actorTenantId }, { tenantId: null }] })
+    filters.push({ tenantId: actorTenantId })
     filters.push({ name: { $ne: 'superadmin' } })
     if (superAdminRoleIds && superAdminRoleIds.size) {
       filters.push({ id: { $nin: Array.from(superAdminRoleIds) } })
     }
   } else if (tenantFilter) {
-    filters.push({ $or: [{ tenantId: tenantFilter }, { tenantId: null }] })
+    filters.push({ tenantId: tenantFilter })
   }
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(Role, where, { limit: pageSize, offset: (page - 1) * pageSize })

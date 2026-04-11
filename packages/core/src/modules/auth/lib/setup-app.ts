@@ -26,19 +26,11 @@ export type EnsureRolesOptions = {
 async function ensureRolesInContext(
   em: EntityManager,
   roleNames: string[],
-  tenantId: string | null,
+  tenantId: string,
 ) {
   for (const name of roleNames) {
     const existing = await em.findOne(Role, { name, tenantId })
     if (existing) continue
-    if (tenantId !== null) {
-      const globalRole = await em.findOne(Role, { name, tenantId: null })
-      if (globalRole) {
-        globalRole.tenantId = tenantId
-        em.persist(globalRole)
-        continue
-      }
-    }
     em.persist(em.create(Role, { name, tenantId, createdAt: new Date() }))
   }
 }
@@ -46,6 +38,9 @@ async function ensureRolesInContext(
 export async function ensureRoles(em: EntityManager, options: EnsureRolesOptions = {}) {
   const roleNames = options.roleNames ?? [...DEFAULT_ROLE_NAMES]
   const tenantId = normalizeTenantId(options.tenantId ?? null) ?? null
+  if (tenantId === null) {
+    throw new Error('ensureRoles requires a tenantId — global roles are not supported')
+  }
   await em.transactional(async (tem) => {
     await ensureRolesInContext(tem, roleNames, tenantId)
     await tem.flush()
@@ -58,11 +53,7 @@ async function findRoleByName(
   tenantId: string | null,
 ): Promise<Role | null> {
   const normalizedTenant = normalizeTenantId(tenantId ?? null) ?? null
-  let role = await em.findOne(Role, { name, tenantId: normalizedTenant })
-  if (!role && normalizedTenant !== null) {
-    role = await em.findOne(Role, { name, tenantId: null })
-  }
-  return role
+  return em.findOne(Role, { name, tenantId: normalizedTenant })
 }
 
 async function findRoleByNameOrFail(
@@ -150,6 +141,9 @@ export async function setupInitialTenant(
     tenantId = existingUser.tenantId ? String(existingUser.tenantId) : undefined
     organizationId = existingUser.organizationId ? String(existingUser.organizationId) : undefined
     const roleTenantId = normalizeTenantId(existingUser.tenantId ?? null) ?? null
+    if (!roleTenantId) {
+      throw new Error('Cannot reuse a user without a tenantId — global roles are not supported')
+    }
 
     await ensureRolesInContext(tem, roleNames, roleTenantId)
     await tem.flush()
