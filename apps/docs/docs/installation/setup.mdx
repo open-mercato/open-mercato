@@ -87,7 +87,9 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn build:packages
    yarn generate
+   yarn build:packages
    ```
+   Run `yarn build:packages` again after `yarn generate` on a fresh local setup. This second build makes sure newly generated scripts are compiled before `yarn initialize` runs; otherwise `yarn initialize` may not detect them and can fail during bootstrap.
 6. **Bootstrap data**
    ```bash
    yarn initialize
@@ -140,11 +142,12 @@ Continue with the normal monorepo setup:
 yarn install
 yarn build:packages
 yarn generate
+yarn build:packages
 yarn initialize
 yarn dev
 ```
 
-`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps.
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps. On a fresh local setup, run it both before and after `yarn generate` so `yarn initialize` can see the generated scripts.
 
 For an existing database where you only need to apply new migrations:
 

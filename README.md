@@ -235,9 +235,12 @@ cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your s
 docker compose up -d
 yarn build:packages
 yarn generate
+yarn build:packages
 yarn initialize # or yarn reinstall
 yarn dev
 ```
+
+Important: on a fresh local setup, run `yarn build:packages`, then `yarn generate`, then `yarn build:packages` again before `yarn initialize`. The second package build makes sure generated scripts are available, otherwise `yarn initialize` may not detect them, fail to execute correctly, and block the local bootstrap flow.
 
 After upgrading to a newer version, apply any new module migrations:
 
