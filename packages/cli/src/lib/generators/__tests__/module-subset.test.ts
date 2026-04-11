@@ -252,6 +252,63 @@ describe('generateModuleRegistry with module subsets', () => {
     expect(output).toContain('pattern: "/backend/dashboard"')
   })
 
+  it('discovers pages that export the default component through an export list', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'reports', 'frontend', 'analytics.tsx'),
+      [
+        'function AnalyticsPage() {',
+        '  return null',
+        '}',
+        '',
+        'export { AnalyticsPage as default }',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'reports', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const routesOutput = readGenerated(tmpDir, 'frontend-routes.generated.ts')!
+    expect(routesOutput).toContain('@open-mercato/core/modules/reports/frontend/analytics')
+    expect(routesOutput).toContain('pattern: "/analytics"')
+  })
+
+  it('keeps backend route metadata runtime-backed when source-only visibility is non-serializable', async () => {
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic_visibility', 'backend', 'dashboard', 'page.tsx'),
+      'export default function Page() { return null }\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic_visibility', 'backend', 'dashboard', 'access.ts'),
+      'export const canSeeDashboard = () => true\n',
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'iconic_visibility', 'backend', 'dashboard', 'page.meta.ts'),
+      [
+        "import { canSeeDashboard } from './access'",
+        '',
+        "const metadata = ({ requireAuth: true, pageTitle: 'Dashboard', visible: canSeeDashboard } as const)",
+        '',
+        'export { metadata }',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'iconic_visibility', from: '@open-mercato/core' },
+    ])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const output = readGenerated(tmpDir, 'backend-routes.generated.ts')!
+    expect(output).toMatch(/import \* as .* from "@open-mercato\/core\/modules\/iconic_visibility\/backend\/dashboard\/page\.meta"/)
+    expect(output).not.toContain('"pageTitle":"Dashboard"')
+    expect(output).toContain('pattern: "/backend/dashboard"')
+  })
+
   it('handles module with only widgets — no pages or subscribers', async () => {
     scaffoldModule(tmpDir, 'widgets_only', 'pkg', [
       'widgets/dashboard/stats/widget.tsx',
