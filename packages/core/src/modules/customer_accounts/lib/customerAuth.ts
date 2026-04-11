@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 
 export interface CustomerAuthContext {
   sub: string
@@ -77,9 +77,18 @@ export async function requireCustomerAuth(req: Request): Promise<CustomerAuthCon
   return auth
 }
 
-export function requireCustomerFeature(auth: CustomerAuthContext, features: string[]): void {
+export async function requireCustomerFeature(
+  auth: CustomerAuthContext,
+  features: string[],
+  rbac: CustomerRbacService,
+): Promise<void> {
   if (!features.length) return
-  if (!hasAllFeatures(features, auth.resolvedFeatures)) {
+  const ok = await rbac.userHasAllFeatures(
+    auth.sub,
+    features,
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
+  if (!ok) {
     throw NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
 }
