@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
+import { sanitizeCustomFieldHtmlRichTextValuesServer } from '@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer'
 import type { EventBus } from '@open-mercato/events/types'
 import type {
   CrudEventAction,
@@ -122,7 +123,13 @@ export class DefaultDataEngine implements DataEngine {
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
-    await this.validateCustomFieldValues(entityId, organizationId, tenantId, values as Record<string, unknown>)
+    const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
+      entityId,
+      organizationId,
+      tenantId,
+      values,
+    })
+    await this.validateCustomFieldValues(entityId, organizationId, tenantId, sanitizedValues as Record<string, unknown>)
     let encryptionService: any = null
     try {
       encryptionService = this.container.resolve('tenantEncryptionService') as any
@@ -134,7 +141,7 @@ export class DefaultDataEngine implements DataEngine {
       recordId,
       organizationId,
       tenantId,
-      values,
+      values: sanitizedValues,
       encryptionService,
     })
     if (opts.notify !== false) {
@@ -222,7 +229,13 @@ export class DefaultDataEngine implements DataEngine {
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
     const knex = this.em.getConnection().getKnex()
     await this.ensureStorageTableExists()
-    await this.validateCustomFieldValues(opts.entityId, opts.organizationId ?? null, opts.tenantId ?? null, opts.values)
+    const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
+      entityId: opts.entityId,
+      organizationId: opts.organizationId ?? null,
+      tenantId: opts.tenantId ?? null,
+      values: opts.values || {},
+    })
+    await this.validateCustomFieldValues(opts.entityId, opts.organizationId ?? null, opts.tenantId ?? null, sanitizedValues)
     const rawId = String(opts.recordId ?? '').trim()
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawId)
     const sentinel = rawId.toLowerCase()
@@ -239,7 +252,7 @@ export class DefaultDataEngine implements DataEngine {
     })() : rawId
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
-    const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(opts.values || {}) }
+    const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(sanitizedValues || {}) }
 
     const payload = {
       entity_type: opts.entityId,
@@ -274,13 +287,13 @@ export class DefaultDataEngine implements DataEngine {
     }
 
     // Optional EAV backward compatibility (disabled by default)
-    if (this.backcompatEavEnabled() && opts.values && Object.keys(opts.values).length > 0) {
+    if (this.backcompatEavEnabled() && sanitizedValues && Object.keys(sanitizedValues).length > 0) {
       await this.setCustomFields({
         entityId: opts.entityId,
         recordId: id,
         organizationId: orgId,
         tenantId: tenantId,
-        values: normalizeCustomFieldValues(opts.values),
+        values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
       })
     }
@@ -290,7 +303,13 @@ export class DefaultDataEngine implements DataEngine {
 
   async updateCustomEntityRecord(opts: Parameters<DataEngine['updateCustomEntityRecord']>[0]): Promise<void> {
     const knex = this.em.getConnection().getKnex()
-    await this.validateCustomFieldValues(opts.entityId, opts.organizationId ?? null, opts.tenantId ?? null, opts.values)
+    const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
+      entityId: opts.entityId,
+      organizationId: opts.organizationId ?? null,
+      tenantId: opts.tenantId ?? null,
+      values: opts.values || {},
+    })
+    await this.validateCustomFieldValues(opts.entityId, opts.organizationId ?? null, opts.tenantId ?? null, sanitizedValues)
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const tenantId = opts.tenantId ?? null
@@ -301,7 +320,7 @@ export class DefaultDataEngine implements DataEngine {
       .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
       .first()
     const prevDoc: Record<string, unknown> = row?.doc || { id }
-    const nextDoc: Record<string, unknown> = { ...prevDoc, ...this.normalizeDocValues(opts.values || {}), id }
+    const nextDoc: Record<string, unknown> = { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id }
     try {
       const updated = await knex('custom_entities_storage')
         .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
@@ -323,13 +342,13 @@ export class DefaultDataEngine implements DataEngine {
     }
 
     // Optional EAV backward compatibility (disabled by default)
-    if (this.backcompatEavEnabled() && opts.values && Object.keys(opts.values).length > 0) {
+    if (this.backcompatEavEnabled() && sanitizedValues && Object.keys(sanitizedValues).length > 0) {
       await this.setCustomFields({
         entityId: opts.entityId,
         recordId: id,
         organizationId: orgId,
         tenantId: tenantId,
-        values: normalizeCustomFieldValues(opts.values),
+        values: normalizeCustomFieldValues(sanitizedValues),
         notify: opts.notify, // defaults to true
       })
     }
