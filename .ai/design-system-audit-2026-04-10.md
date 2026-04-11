@@ -1899,4 +1899,1005 @@ Po hackathonie powinny byc gotowe:
 
 ---
 
-*Koniec dokumentu. Wersja robocza do review przez zespol produktowy i projektowy.*
+---
+
+# SUPPLEMENT: ENFORCEMENT, METRICS, APIs, RISK ANALYSIS
+
+> Sekcje ponizej uzupelniaja glowny dokument o warstwe egzekucji, mierzalnosci, konkretnych API komponentow i strategii migracji.
+
+---
+
+# E. ENFORCEMENT & MIGRATION PLAN
+
+## E.1 Hardcoded Colors (372 wystapienia)
+
+### ESLint Rule
+
+Dodac custom rule do `eslint.config.mjs` blokujaca semantic color classes w nowych plikach:
+
+```javascript
+// eslint-plugin-open-mercato/no-hardcoded-status-colors.js
+// Blokuje: text-red-*, bg-red-*, border-red-*, text-green-*, bg-green-*,
+//          text-emerald-*, bg-emerald-*, text-blue-* (status contexts),
+//          text-amber-*, bg-amber-*
+// Dozwolone: text-destructive, bg-destructive/*, text-status-*, bg-status-*
+
+const BLOCKED_PATTERNS = [
+  /\btext-red-\d+/,
+  /\bbg-red-\d+/,
+  /\bborder-red-\d+/,
+  /\btext-green-\d+/,
+  /\bbg-green-\d+/,
+  /\bborder-green-\d+/,
+  /\btext-emerald-\d+/,
+  /\bbg-emerald-\d+/,
+  /\bborder-emerald-\d+/,
+  /\btext-amber-\d+/,
+  /\bbg-amber-\d+/,
+  /\bborder-amber-\d+/,
+  /\btext-blue-\d+/,   // tylko w statusowych kontekstach
+  /\bbg-blue-\d+/,
+  /\bborder-blue-\d+/,
+]
+```
+
+**Strategia:** Wlaczyc jako `warn` od dnia 1 (nie blokuje build). Po 2 sprintach przelaczac na `error` dla nowych plikow. Po 4 sprintach — `error` globalnie.
+
+### Codemod / regex strategy
+
+**Faza 1 — Error states (`text-red-600` → semantic token):**
+
+```bash
+# Znajdz wszystkie wystapienia
+rg 'text-red-600' --type tsx -l
+# 107 wystapien — wiekszosc to error messages i required indicators
+
+# Zamiana w CrudForm FieldControl (wewnetrzna):
+# text-red-600 → text-destructive
+# Dotyczy: required indicator, error message
+
+# Mapowanie:
+# text-red-600  → text-destructive
+# text-red-700  → text-destructive
+# text-red-800  → text-destructive (darker context)
+# bg-red-50     → bg-destructive/5
+# bg-red-100    → bg-destructive/10
+# border-red-200 → border-destructive/20
+# border-red-500 → border-destructive/60
+```
+
+**Faza 2 — Success states:**
+
+```bash
+# Mapowanie:
+# text-green-600  → text-status-success
+# text-green-800  → text-status-success
+# bg-green-100    → bg-status-success/10
+# bg-green-50     → bg-status-success/5
+# text-emerald-*  → text-status-success (zamiennie)
+# bg-emerald-*    → bg-status-success/*
+```
+
+**Faza 3 — Warning/Info states:**
+
+```bash
+# Mapowanie:
+# text-amber-500  → text-status-warning
+# text-amber-800  → text-status-warning
+# bg-amber-50     → bg-status-warning/5
+# text-blue-600   → text-status-info
+# text-blue-800   → text-status-info
+# bg-blue-50      → bg-status-info/5
+# bg-blue-100     → bg-status-info/10
+```
+
+### Strategia migracji: per-modul, nie atomowy PR
+
+**Kolejnosc modulow:**
+
+| # | Modul | Powod | Wysilekek | Pliki |
+|---|-------|-------|----------|-------|
+| 1 | `packages/ui/src/primitives/` | Fundament — Notice, Alert, Badge | Niski | 4 pliki |
+| 2 | `packages/ui/src/backend/` | CrudForm FieldControl, FlashMessages, EmptyState | Sredni | ~10 plikow |
+| 3 | `packages/core/src/modules/customers/` | Najbardziej zlozony, referencyjny modul | Sredni | ~15 plikow |
+| 4 | `packages/core/src/modules/auth/` | Frontend login z hardcoded alert colors | Niski | 3 pliki |
+| 5 | `packages/core/src/modules/sales/` | Status badges na dokumentach | Sredni | ~10 plikow |
+| 6 | `packages/core/src/modules/portal/` | Frontend pages z hardcoded colors | Niski | 4 pliki |
+| 7 | Pozostale moduly | Katalogowa migracja | Sredni | ~40 plikow |
+
+**Jeden PR per modul.** Kazdy PR:
+- Zamienia hardcoded colors na semantic tokens
+- Dodaje `// DS-MIGRATED` komentarz w ostatniej linii pliku (do trackingu)
+- Testowany wizualnie (screenshot before/after)
+
+---
+
+## E.2 Arbitrary Text Sizes (61 wystapien)
+
+### Tabela mapowania
+
+| Stary | Nowy | Uzasadnienie |
+|-------|------|-------------|
+| `text-[9px]` | `text-[9px]` (wyjątek) | Notification badge count — zbyt maly na standardową skalę, zachowac |
+| `text-[10px]` | `text-xs` (12px) | Zaokraglenie w gore, czytelniejsze |
+| `text-[11px]` | `text-xs` (12px) lub nowy `text-overline` | 33 wystapienia — to jest de facto "overline" pattern |
+| `text-[12px]` | `text-xs` | Identyczne z text-xs |
+| `text-[13px]` | `text-sm` (14px) | Zaokraglenie w gore o 1px |
+| `text-[14px]` | `text-sm` | Identyczne z text-sm |
+| `text-[15px]` | `text-base` (16px) lub `text-sm` | Zalezy od kontekstu |
+
+**Opcja: dodac `text-overline` do Tailwind config:**
+
+```css
+/* globals.css - w sekcji @theme */
+--font-size-overline: 0.6875rem; /* 11px */
+--font-size-overline--line-height: 1rem;
+```
+
+To pozwoli zachowac `text-[11px]` jako `text-overline` bez arbitralnej wartosci.
+
+### Lint rule
+
+```javascript
+// Blokuje text-[Npx] w nowych plikach
+// Wyjatki: text-[9px] (badge count)
+const BLOCKED = /\btext-\[\d+px\]/
+const ALLOWED = ['text-[9px]']
+```
+
+---
+
+## E.3 Notice → Alert Migration
+
+### Zakres
+
+- **Notice**: 7 plikow
+- **Alert**: 18 plikow
+- **ErrorNotice**: 2 pliki
+- **Razem do migracji**: 9 plikow (Notice + ErrorNotice)
+
+### Strategia: Adapter → Hard Replace
+
+**Krok 1 (hackathon):** Deprecation notice w Notice.tsx
+
+```typescript
+// packages/ui/src/primitives/Notice.tsx
+/**
+ * @deprecated Use <Alert variant="error|warning|info"> instead.
+ * Will be removed in v0.6.0.
+ * Migration: Notice variant="error" → Alert variant="destructive"
+ *            Notice variant="warning" → Alert variant="warning"
+ *            Notice variant="info" → Alert variant="info"
+ */
+export function Notice(props: NoticeProps) {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn('[DS] Notice is deprecated. Use Alert instead. See migration guide.')
+  }
+  // ... existing implementation
+}
+```
+
+**Krok 2 (tydzien po hackathonie):** Migracja 7 plikow Notice → Alert
+
+| Stary (Notice) | Nowy (Alert) |
+|-----------------|-------------|
+| `<Notice variant="error" title="..." message="..." />` | `<Alert variant="destructive"><AlertTitle>...</AlertTitle><AlertDescription>...</AlertDescription></Alert>` |
+| `<Notice variant="warning" title="..." />` | `<Alert variant="warning"><AlertTitle>...</AlertTitle></Alert>` |
+| `<Notice variant="info" message="..." />` | `<Alert variant="info"><AlertDescription>...</AlertDescription></Alert>` |
+| `<Notice compact message="..." />` | `<Alert variant="info" compact><AlertDescription>...</AlertDescription></Alert>` |
+| `<Notice action={<Button>...</Button>} />` | `<Alert variant="info"><AlertDescription>...<AlertAction>...</AlertAction></AlertDescription></Alert>` |
+| `<ErrorNotice title="..." message="..." />` | `<Alert variant="destructive"><AlertTitle>...</AlertTitle><AlertDescription>...</AlertDescription></Alert>` |
+
+**Krok 3 (v0.6.0):** Usuniecie Notice.tsx i ErrorNotice.tsx
+
+### Pliki do migracji (konkretne)
+
+**Notice (7 plikow):**
+1. `packages/core/src/modules/portal/frontend/[orgSlug]/portal/signup/page.tsx`
+2. `packages/core/src/modules/portal/frontend/[orgSlug]/portal/page.tsx`
+3. `packages/core/src/modules/portal/frontend/[orgSlug]/portal/login/page.tsx`
+4. `packages/core/src/modules/auth/frontend/login.tsx`
+5. `packages/core/src/modules/audit_logs/components/AuditLogsActions.tsx`
+6. `packages/core/src/modules/data_sync/backend/data-sync/page.tsx`
+7. `packages/core/src/modules/data_sync/components/IntegrationScheduleTab.tsx`
+
+**ErrorNotice (2 pliki):**
+8. `packages/core/src/modules/customers/backend/customers/deals/pipeline/page.tsx`
+9. `packages/core/src/modules/entities/backend/entities/user/[entityId]/page.tsx`
+
+---
+
+## E.4 Icon System (inline SVG → lucide-react)
+
+### Zakres: 14 plikow z inline `<svg>`
+
+**Mapowanie custom SVG → lucide equivalent:**
+
+| Plik | Custom SVG | Lucide equivalent |
+|------|-----------|-------------------|
+| Portal `signup/page.tsx` | CheckIcon, XIcon | `Check`, `X` |
+| Portal `dashboard/page.tsx` | BellIcon, WidgetIcon | `Bell`, `LayoutGrid` |
+| Portal `page.tsx` | ShoppingBagIcon, UserIcon, ShieldIcon | `ShoppingBag`, `User`, `Shield` |
+| `auth/lib/profile-sections.tsx` | Custom icons | Sprawdzic per-icon |
+| `workflows/checkout-demo/page.tsx` | CheckIcon, decorative SVG | `Check`, `CircleCheck` |
+| `workflows/definitions/[id]/page.tsx` | Flow icons | `Workflow`, `GitBranch` |
+| `workflows/EdgeEditDialog.tsx` | Edge icons | `ArrowRight`, `Cable` |
+| `workflows/NodeEditDialog.tsx` | Node icons | `Square`, `Circle` |
+| `workflows/BusinessRulesSelector.tsx` | Rule icon | `Scale`, `Gavel` |
+| `integrations/.../widget.client.tsx` | External ID icon | `ExternalLink`, `Link2` |
+| `staff/team-members/page.tsx` | Team icon | `Users`, `UserPlus` |
+| `staff/team-roles/page.tsx` | Role icon | `Shield`, `Key` |
+
+**2 pliki testowe** (`__tests__/`) — SVG w mockach, nie wymagaja migracji.
+
+### Strategia
+
+```bash
+# Znajdz wszystkie inline SVG (pomijajac testy)
+rg '<svg' --type tsx -l --glob '!**/__tests__/**' packages/core/src/modules/
+# 12 plikow do migracji (2 testowe pominiete)
+```
+
+Migracja per-plik. Kazdy PR zamienia inline SVG na lucide import.
+
+---
+
+## E.5 PR Template Update
+
+Dodac do `.github/PULL_REQUEST_TEMPLATE.md`:
+
+```markdown
+### Design System Compliance
+- [ ] No hardcoded status colors (`text-red-*`, `bg-green-*`, etc.) — use semantic tokens
+- [ ] No arbitrary text sizes (`text-[Npx]`) — use typography scale
+- [ ] Empty state handled for list/data pages
+- [ ] Loading state handled for async pages
+- [ ] `aria-label` on all icon-only buttons
+- [ ] Uses existing DS components (Button, Alert, Badge) — no custom replacements
+```
+
+---
+
+## E.6 AGENTS.md Update
+
+Dodac do root `AGENTS.md` w sekcji `## Conventions` lub jako nowa sekcja `## Design System Rules`:
+
+```markdown
+## Design System Rules
+
+### Colors
+- NEVER use hardcoded Tailwind colors for status semantics (`text-red-*`, `bg-green-*`, etc.)
+- USE semantic tokens: `text-destructive`, `bg-status-success/10`, `border-status-warning/20`
+- Status colors: `destructive` (error), `status-success`, `status-warning`, `status-info`, `status-neutral`
+
+### Typography
+- NEVER use arbitrary text sizes (`text-[11px]`, `text-[13px]`)
+- USE Tailwind scale: `text-xs`, `text-sm`, `text-base`, `text-lg`, `text-xl`, `text-2xl`
+- For 11px overline pattern: use `text-overline` (custom utility)
+
+### Feedback
+- USE `Alert` for inline messages (NOT `Notice` — deprecated)
+- USE `flash()` for transient toast messages
+- USE `useConfirmDialog()` for destructive action confirmation
+- Every list page MUST handle empty state via `<EmptyState>`
+- Every async page MUST show loading via `<LoadingMessage>` or `<Spinner>`
+
+### Icons
+- USE `lucide-react` for all icons — NEVER inline `<svg>` elements
+- Icon sizes: `size-3` (xs), `size-4` (sm/default), `size-5` (md), `size-6` (lg)
+
+### Components
+- USE `Button`/`IconButton` — NEVER raw `<button>`
+- USE `apiCall()`/`apiCallOrThrow()` — NEVER raw `fetch()` in backend pages
+- USE `StatusBadge` for entity status display — NEVER hardcoded color Badge
+- USE `FormField` wrapper for standalone forms — CrudForm handles internally
+- USE `SectionHeader` for collapsible detail sections
+```
+
+---
+
+## E.7 Boy Scout Rule
+
+**Policy:** Kazdy PR ktory dotyka pliku z hardcoded status colors MUSI zmigrować przynajmniej dotknięte linie.
+
+**Implementacja:**
+- Dodac do PR review checklist
+- Dodac komentarz w AGENTS.md:
+
+```markdown
+### Boy Scout Rule (Design System)
+When modifying a file that contains hardcoded status colors (text-red-*, bg-green-*, etc.),
+you MUST migrate at minimum the lines you touched to semantic tokens.
+Optionally migrate the entire file if scope allows.
+```
+
+- CI check (opcjonalny): skrypt porownujacy `git diff --name-only` z lista plikow zawierajacych hardcoded colors. Jesli PR dotyka pliku z listy ale nie zmniejsza count — warning.
+
+---
+
+# F. SUCCESS METRICS & TRACKING
+
+## KPI Dashboard
+
+| # | Metryka | Obecna wartosc | Target | Target date | Jak mierzyc |
+|---|---------|---------------|--------|-------------|-------------|
+| 1 | Hardcoded semantic colors | 372 | 0 | v0.6.0 (8 tyg.) | `rg 'text-red-\|bg-red-\|text-green-\|bg-green-\|text-emerald-\|bg-emerald-\|text-amber-\|bg-amber-\|text-blue-[0-9]\|bg-blue-[0-9]' --type tsx -c \| awk -F: '{s+=$2} END{print s}'` |
+| 2 | Arbitrary text sizes | 61 | 1 (wyjątek: `text-[9px]`) | v0.6.0 | `rg 'text-\[\d+px\]' --type tsx -c \| awk -F: '{s+=$2} END{print s}'` |
+| 3 | Empty state coverage | 21% (31/150) | 80% | v0.7.0 (12 tyg.) | Manual audit + grep for EmptyState/TabEmptyState imports |
+| 4 | Loading state coverage | 59% (89/150) | 90% | v0.7.0 | Grep for LoadingMessage/Spinner/isLoading patterns |
+| 5 | aria-label coverage | ~50% | 95% | v0.7.0 | Automated a11y scan (axe-core w Playwright) |
+| 6 | Notice component usage | 7 plikow | 0 | v0.6.0 | `rg "from.*Notice" --type tsx -l \| wc -l` |
+| 7 | ErrorNotice usage | 2 pliki | 0 | v0.6.0 | `rg "ErrorNotice" --type tsx -l \| wc -l` |
+| 8 | Inline SVG count | 12 plikow | 0 | v0.7.0 | `rg '<svg' --type tsx -l --glob '!**/__tests__/**' \| wc -l` |
+| 9 | Raw fetch() count | 8 | 0 | v0.7.0 | `rg 'fetch\(' --type tsx --glob '**/backend/**' -l \| wc -l` |
+| 10 | StatusBadge adoption | 0 | 100% status displays | v0.7.0 | Manual audit |
+
+## Skrypt raportujacy
+
+```bash
+#!/bin/bash
+# ds-health-check.sh — uruchamiac co sprint
+# Uzycie: bash .ai/scripts/ds-health-check.sh
+
+echo "=== DESIGN SYSTEM HEALTH CHECK ==="
+echo "Date: $(date +%Y-%m-%d)"
+echo ""
+
+echo "--- Hardcoded Status Colors ---"
+HC=$(rg 'text-red-[0-9]|bg-red-[0-9]|border-red-[0-9]|text-green-[0-9]|bg-green-[0-9]|border-green-[0-9]|text-emerald-[0-9]|bg-emerald-[0-9]|border-emerald-[0-9]|text-amber-[0-9]|bg-amber-[0-9]|border-amber-[0-9]|text-blue-[0-9]|bg-blue-[0-9]|border-blue-[0-9]' \
+  --type tsx --glob '!**/__tests__/**' --glob '!**/node_modules/**' -c 2>/dev/null | \
+  awk -F: '{s+=$2} END{print s+0}')
+echo "  Count: $HC (target: 0)"
+
+echo ""
+echo "--- Arbitrary Text Sizes ---"
+AT=$(rg 'text-\[\d+px\]' --type tsx --glob '!**/__tests__/**' -c 2>/dev/null | \
+  awk -F: '{s+=$2} END{print s+0}')
+echo "  Count: $AT (target: 1)"
+
+echo ""
+echo "--- Deprecated Notice Usage ---"
+NC=$(rg "from.*primitives/Notice" --type tsx -l 2>/dev/null | wc -l | tr -d ' ')
+echo "  Notice imports: $NC (target: 0)"
+EN=$(rg "ErrorNotice" --type tsx -l 2>/dev/null | wc -l | tr -d ' ')
+echo "  ErrorNotice imports: $EN (target: 0)"
+
+echo ""
+echo "--- Inline SVG ---"
+SVG=$(rg '<svg' --type tsx --glob '!**/__tests__/**' --glob '!**/node_modules/**' -l 2>/dev/null | wc -l | tr -d ' ')
+echo "  Files with inline SVG: $SVG (target: 0)"
+
+echo ""
+echo "--- Raw fetch() in Backend ---"
+RF=$(rg 'fetch\(' --type tsx --glob '**/backend/**' --glob '!**/node_modules/**' -l 2>/dev/null | wc -l | tr -d ' ')
+echo "  Raw fetch files: $RF (target: 0)"
+
+echo ""
+echo "--- Empty State Coverage ---"
+PAGES=$(find packages/core/src/modules/*/backend -name "page.tsx" 2>/dev/null | wc -l | tr -d ' ')
+ES=$(rg 'EmptyState|TabEmptyState' --type tsx --glob '**/backend/**/page.tsx' -l 2>/dev/null | wc -l | tr -d ' ')
+echo "  Pages with empty state: $ES / $PAGES ($(( ES * 100 / PAGES ))%)"
+
+echo ""
+echo "--- Loading State Coverage ---"
+LS=$(rg 'LoadingMessage|isLoading|Spinner' --type tsx --glob '**/backend/**/page.tsx' -l 2>/dev/null | wc -l | tr -d ' ')
+echo "  Pages with loading state: $LS / $PAGES ($(( LS * 100 / PAGES ))%)"
+
+echo ""
+echo "=== END REPORT ==="
+```
+
+**Tracking cadence:** Uruchamiac na poczatku kazdego sprintu. Wyniki wklejac do sprint review.
+
+---
+
+# G. COMPONENT API PROPOSALS
+
+## G.1 FormField
+
+### TypeScript Interface
+
+```typescript
+import type { ReactNode } from 'react'
+
+export type FormFieldProps = {
+  /** Visible label text. If omitted, field is label-less (aria-label should be on input). */
+  label?: string
+  /** Auto-generated if not provided. Links label → input via htmlFor/id. */
+  id?: string
+  /** Show required indicator (*) next to label */
+  required?: boolean
+  /** Help text below input */
+  description?: ReactNode
+  /** Error message below input (replaces description when present) */
+  error?: string
+  /** Layout direction */
+  orientation?: 'vertical' | 'horizontal'
+  /** Disabled state — propagates to label styling */
+  disabled?: boolean
+  /** Additional className on root wrapper */
+  className?: string
+  /** The input element (slot) */
+  children: ReactNode
+}
+```
+
+### Przyklady uzycia
+
+**Default (vertical):**
+```tsx
+<FormField label="Email" required error={errors.email}>
+  <Input
+    type="email"
+    value={email}
+    onChange={(e) => setEmail(e.target.value)}
+  />
+</FormField>
+```
+
+**Horizontal layout:**
+```tsx
+<FormField label="Active" orientation="horizontal">
+  <Switch checked={isActive} onCheckedChange={setIsActive} />
+</FormField>
+```
+
+**With description:**
+```tsx
+<FormField
+  label="API Key"
+  description="Your API key is used for authentication. Keep it secret."
+  error={errors.apiKey}
+>
+  <Input type="password" value={apiKey} onChange={...} />
+</FormField>
+```
+
+**Without label (custom input):**
+```tsx
+<FormField error={errors.color}>
+  <ColorPicker value={color} onChange={setColor} aria-label="Pick a color" />
+</FormField>
+```
+
+### Implementacja — auto-generated id
+
+```typescript
+const generatedId = React.useId()
+const fieldId = props.id ?? generatedId
+const descriptionId = props.description ? `${fieldId}-desc` : undefined
+const errorId = props.error ? `${fieldId}-error` : undefined
+
+// Clones child to inject id, aria-describedby, aria-invalid
+const child = React.cloneElement(children, {
+  id: fieldId,
+  'aria-describedby': [descriptionId, errorId].filter(Boolean).join(' ') || undefined,
+  'aria-invalid': !!props.error,
+  'aria-required': props.required,
+})
+```
+
+### Relacja z CrudForm
+
+- CrudForm **NIE uzywa** FormField — ma wlasny wbudowany `FieldControl` (linia 3367 CrudForm.tsx)
+- FormField jest przeznaczony do **standalone forms** (portal, auth, custom pages)
+- Dlugoterminowo: CrudForm moze byc refaktorowany zeby uzywac FormField wewnetrznie, ale to nie jest cel hackathonu
+- **Brak duplikacji logiki** — FormField jest prosty wrapper, CrudForm FieldControl obsluguje tez loadOptions, field types, validation triggers
+
+### Storybook stories
+
+1. `Default` — label + input + submit
+2. `Required` — z gwiazdka
+3. `WithError` — error message visible
+4. `WithDescription` — help text
+5. `Horizontal` — switch/checkbox layout
+6. `Disabled` — disabled state
+7. `WithoutLabel` — custom input z aria-label
+8. `Composed` — kilka FormField w formularzu
+
+### Test cases
+
+- Unit: renders label, links htmlFor→id, shows error, shows description, hides description when error present
+- Unit: auto-generates id when not provided
+- Unit: injects aria-describedby, aria-invalid on child
+- Unit: horizontal orientation renders flex-row
+- a11y: axe-core passes on all variants
+
+### Accessibility checklist
+
+- [ ] Label linked to input via htmlFor/id
+- [ ] `aria-describedby` links input to description/error
+- [ ] `aria-invalid="true"` when error present
+- [ ] `aria-required="true"` when required
+- [ ] Error message has `role="alert"`
+- [ ] Required indicator is visible AND communicated to screen readers
+
+---
+
+## G.2 StatusBadge
+
+### TypeScript Interface
+
+```typescript
+import type { ReactNode } from 'react'
+
+export type StatusBadgeVariant = 'success' | 'warning' | 'error' | 'info' | 'neutral'
+
+export type StatusBadgeProps = {
+  /** Visual variant — maps to semantic color tokens */
+  variant: StatusBadgeVariant
+  /** Badge text */
+  children: ReactNode
+  /** Show colored dot before text */
+  dot?: boolean
+  /** Additional className */
+  className?: string
+}
+
+/**
+ * Helper: map arbitrary status string to variant.
+ * Modules define their own mapping.
+ */
+export type StatusMap<T extends string = string> = Record<T, StatusBadgeVariant>
+```
+
+### Mapowanie status → variant → color token
+
+```typescript
+const variantStyles: Record<StatusBadgeVariant, string> = {
+  success: 'border-status-success/30 bg-status-success/10 text-status-success',
+  warning: 'border-status-warning/30 bg-status-warning/10 text-status-warning',
+  error:   'border-status-error/30 bg-status-error/10 text-status-error',
+  info:    'border-status-info/30 bg-status-info/10 text-status-info',
+  neutral: 'border-border bg-muted text-muted-foreground',
+}
+```
+
+### Jak moduly definiuja statusy
+
+Kazdy modul definiuje swoj `StatusMap`:
+
+```typescript
+// packages/core/src/modules/customers/lib/status.ts
+import type { StatusMap } from '@open-mercato/ui/primitives/status-badge'
+
+export const personStatusMap: StatusMap<'active' | 'inactive' | 'archived'> = {
+  active: 'success',
+  inactive: 'neutral',
+  archived: 'warning',
+}
+
+// Uzycie w komponencie:
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { personStatusMap } from '../lib/status'
+
+<StatusBadge variant={personStatusMap[person.status]} dot>
+  {t(`customers.status.${person.status}`)}
+</StatusBadge>
+```
+
+**Przyklady per-modul:**
+
+```typescript
+// Sales documents
+const documentStatusMap: StatusMap = {
+  draft: 'neutral',
+  sent: 'info',
+  accepted: 'success',
+  rejected: 'error',
+  expired: 'warning',
+}
+
+// Currencies
+const currencyStatusMap: StatusMap = {
+  active: 'success',
+  inactive: 'neutral',
+  base: 'info',
+}
+
+// Workflows
+const workflowStatusMap: StatusMap = {
+  running: 'info',
+  completed: 'success',
+  failed: 'error',
+  cancelled: 'warning',
+  pending: 'neutral',
+}
+```
+
+### Unknown/custom statusy
+
+```typescript
+// Fallback dla nieznanych statusow:
+<StatusBadge variant={statusMap[status] ?? 'neutral'}>
+  {status}
+</StatusBadge>
+```
+
+### Storybook stories
+
+1. `AllVariants` — success, warning, error, info, neutral
+2. `WithDot` — dot indicator
+3. `WithStatusMap` — przyklad z personStatusMap
+4. `Unknown` — fallback do neutral
+
+### Test cases
+
+- Unit: renders correct variant classes
+- Unit: renders dot when `dot={true}`
+- Unit: renders children text
+- a11y: sufficient contrast for all variants in light + dark mode
+
+### Accessibility checklist
+
+- [ ] Text has sufficient contrast (AA minimum) on colored background
+- [ ] Dark mode colors maintain contrast
+- [ ] Dot is decorative (`aria-hidden="true"`)
+
+---
+
+## G.3 SectionHeader
+
+### TypeScript Interface
+
+```typescript
+import type { ReactNode } from 'react'
+
+export type SectionHeaderProps = {
+  /** Section title */
+  title: string
+  /** Optional item count badge */
+  count?: number
+  /** Action button(s) on the right */
+  action?: ReactNode
+  /** Enable collapse/expand */
+  collapsible?: boolean
+  /** Controlled collapsed state */
+  collapsed?: boolean
+  /** Callback when collapse state changes */
+  onCollapsedChange?: (collapsed: boolean) => void
+  /** Default collapsed state (uncontrolled) */
+  defaultCollapsed?: boolean
+  /** Additional className */
+  className?: string
+}
+
+export type SectionProps = {
+  /** Section header props (or custom header via children) */
+  header: SectionHeaderProps
+  /** Empty state — rendered when children is null/empty */
+  emptyState?: {
+    title: string
+    description?: string
+    action?: { label: string; onClick: () => void }
+  }
+  /** Section content */
+  children?: ReactNode
+  /** Additional className on content wrapper */
+  contentClassName?: string
+}
+```
+
+### Przyklady uzycia
+
+**Z akcja:**
+```tsx
+<Section
+  header={{ title: 'Tags', count: tags.length, action: <Button variant="ghost" size="sm" onClick={addTag}>Add</Button> }}
+  emptyState={{ title: 'No tags', description: 'Add tags to organize this record' }}
+>
+  {tags.map(tag => <TagChip key={tag.id} tag={tag} />)}
+</Section>
+```
+
+**Z collapse:**
+```tsx
+<Section
+  header={{ title: 'Activities', count: 12, collapsible: true, defaultCollapsed: false }}
+>
+  <ActivitiesList items={activities} />
+</Section>
+```
+
+**Bez akcji (prosty):**
+```tsx
+<Section header={{ title: 'Custom Data' }}>
+  <CustomFieldsGrid fields={fields} />
+</Section>
+```
+
+### Jak zastepuje 15+ istniejacych sekcji
+
+| Obecny komponent | Zmiana |
+|-----------------|--------|
+| `TagsSection` | `<Section header={{ title, count, action }}>` + tag content |
+| `ActivitiesSection` | `<Section header={{ title, count, collapsible }}>` + activity list |
+| `AddressesSection` | `<Section header={{ title, count, action }}>` + address tiles |
+| `DealsSection` | `<Section header={{ title, count }}>` + deal cards |
+| `CustomDataSection` | `<Section header={{ title }}>` + custom fields |
+| `TasksSection` | `<Section header={{ title, count, action }}>` + task list |
+| `CompanyPeopleSection` | `<Section header={{ title, count }}>` + people list |
+| Sales `ItemsSection` | `<Section header={{ title, count, action }}>` + line items table |
+| Sales `PaymentsSection` | `<Section header={{ title, count }}>` + payments list |
+| Sales `ShipmentsSection` | `<Section header={{ title, count }}>` + shipments list |
+
+**Nie trzeba migrować od razu** — sekcje moga byc refaktorowane przy okazji (Boy Scout Rule). SectionHeader jest composition pattern: header jest nowy, content pozostaje wlasnoscia modulu.
+
+### Storybook stories
+
+1. `Default` — title only
+2. `WithCount` — title + count badge
+3. `WithAction` — title + action button
+4. `Collapsible` — expand/collapse
+5. `CollapsedByDefault` — starts collapsed
+6. `WithEmptyState` — no children, empty state visible
+7. `FullExample` — all features combined
+
+### Test cases
+
+- Unit: renders title, count badge, action
+- Unit: collapse toggle works (click → hide content)
+- Unit: empty state renders when no children
+- Unit: controlled collapsed state
+- a11y: collapsible uses `aria-expanded`
+
+### Accessibility checklist
+
+- [ ] Title is semantic heading (`<h3>` or `role="heading"`)
+- [ ] Collapse button has `aria-expanded`
+- [ ] Collapse button has descriptive `aria-label` ("Collapse Tags section")
+- [ ] Count is communicated to screen readers
+
+---
+
+## G.4 Alert (unified)
+
+### TypeScript Interface (nowa wersja)
+
+```typescript
+import type { ReactNode } from 'react'
+
+export type AlertVariant = 'default' | 'destructive' | 'success' | 'warning' | 'info'
+
+export type AlertProps = {
+  variant?: AlertVariant
+  /** Compact mode — less padding, no icon */
+  compact?: boolean
+  /** Dismissible — shows close button */
+  dismissible?: boolean
+  /** Callback when dismissed */
+  onDismiss?: () => void
+  /** Additional className */
+  className?: string
+  /** Role override — default: "alert" for destructive/warning, "status" for others */
+  role?: 'alert' | 'status'
+  children: ReactNode
+}
+
+// Sub-components (composition pattern):
+export type AlertTitleProps = React.HTMLAttributes<HTMLHeadingElement>
+export type AlertDescriptionProps = React.HTMLAttributes<HTMLParagraphElement>
+export type AlertActionProps = { children: ReactNode; className?: string }
+```
+
+### Migration guide: stary API → nowy API
+
+| Stary (Notice) | Nowy (Alert) | Uwagi |
+|-----------------|-------------|-------|
+| `variant="error"` | `variant="destructive"` | Nazwa alignowana z Button |
+| `variant="info"` | `variant="info"` | Bez zmian |
+| `variant="warning"` | `variant="warning"` | Bez zmian |
+| `title="..."` | `<AlertTitle>...</AlertTitle>` | Composition pattern |
+| `message="..."` | `<AlertDescription>...</AlertDescription>` | Composition pattern |
+| `action={<Button>}` | `<AlertAction><Button></AlertAction>` | Explicit slot |
+| `compact` | `compact` | Zachowany prop |
+| `children` | `children` | Zachowany — renders inside AlertDescription |
+
+| Stary (ErrorNotice) | Nowy (Alert) | Uwagi |
+|----------------------|-------------|-------|
+| `<ErrorNotice />` | `<Alert variant="destructive"><AlertTitle>{defaultTitle}</AlertTitle><AlertDescription>{defaultMsg}</AlertDescription></Alert>` | Defaults trzeba explicit |
+| `title="X" message="Y"` | `<Alert variant="destructive"><AlertTitle>X</AlertTitle><AlertDescription>Y</AlertDescription></Alert>` | 1:1 mapping |
+| `action={btn}` | `<AlertAction>{btn}</AlertAction>` | Explicit slot |
+
+### Backward compatibility
+
+**Podejscie: backward compatible z deprecation warnings.**
+
+Alert juz istnieje z 5 wariantami. Zmiany:
+1. **Dodac** `compact` prop (nowy, additive)
+2. **Dodac** `dismissible` + `onDismiss` props (nowy, additive)
+3. **Dodac** `AlertAction` sub-component (nowy, additive)
+4. **Zmiana kolorow** Alert na semantic tokens (visual change, nie API change)
+
+**NIE jest breaking change** — istniejace uzycia Alert dzialaja bez zmian. Tylko Notice jest deprecated.
+
+### Dismissible behavior
+
+```typescript
+const [visible, setVisible] = React.useState(true)
+
+if (!visible) return null
+
+return (
+  <div role={role} className={cn(alertVariants({ variant }), className)}>
+    {/* ... content ... */}
+    {dismissible && (
+      <IconButton
+        variant="ghost"
+        size="xs"
+        aria-label="Dismiss"
+        onClick={() => { setVisible(false); onDismiss?.() }}
+        className="absolute top-2 right-2"
+      >
+        <X className="size-3" />
+      </IconButton>
+    )}
+  </div>
+)
+```
+
+### Color tokens (semantic, zamiast hardcoded)
+
+```typescript
+const alertVariants = cva('...base...', {
+  variants: {
+    variant: {
+      default:     'border-border bg-card text-card-foreground',
+      destructive: 'border-status-error/30 bg-status-error/5 text-status-error [&_svg]:text-status-error',
+      success:     'border-status-success/30 bg-status-success/5 text-status-success [&_svg]:text-status-success',
+      warning:     'border-status-warning/30 bg-status-warning/5 text-status-warning [&_svg]:text-status-warning',
+      info:        'border-status-info/30 bg-status-info/5 text-status-info [&_svg]:text-status-info',
+    },
+  },
+})
+```
+
+### Storybook stories
+
+1. `Default` — neutral alert
+2. `Destructive` — error state
+3. `Success` — success state
+4. `Warning` — warning state
+5. `Info` — informational
+6. `WithTitle` — title + description
+7. `WithAction` — z action button
+8. `Dismissible` — close button
+9. `Compact` — compact mode
+10. `MigrationFromNotice` — side-by-side old Notice vs new Alert
+
+### Test cases
+
+- Unit: renders all 5 variants
+- Unit: renders title, description, action
+- Unit: dismissible — click close → hidden
+- Unit: compact mode — smaller padding
+- Unit: correct role attribute per variant
+- a11y: `role="alert"` for destructive/warning, `role="status"` for info/success
+
+### Accessibility checklist
+
+- [ ] `role="alert"` for destructive and warning (announced immediately)
+- [ ] `role="status"` for info and success (polite announcement)
+- [ ] Dismiss button has `aria-label="Dismiss"`
+- [ ] Icon is `aria-hidden="true"` (decorative)
+- [ ] Contrast ratio meets AA for all variants in light + dark mode
+
+---
+
+# H. MIGRATION RISK ANALYSIS
+
+## Risk 1: Breaking changes w Alert/Notice unification
+
+| | |
+|---|---|
+| **Opis** | 7 plikow importuje Notice, 2 importuja ErrorNotice. Zmiana API wymaga edycji tych plikow. Contributorzy moga miec otwarte PR-y uzywajace Notice. |
+| **Prawdopodobienstwo** | Niskie — Notice jest uzywane w 9 plikach, malo popularne |
+| **Impact** | Niski — migration jest mechaniczna, 1:1 prop mapping |
+| **Mitigation** | 1. Deprecation warning w Notice (nie usuwamy od razu). 2. Notice wrapper wewnetrznie deleguje do Alert (backward compatible). 3. Migration guide w PR description. 4. 2 minorowe wersje z deprecation zanim usunac. |
+| **Rollback** | Przywrocic Notice.tsx — git revert. Zero data loss, zero runtime risk. |
+
+## Risk 2: Semantic tokens z zlym kontrastem w dark mode
+
+| | |
+|---|---|
+| **Opis** | OKLCH kolory sa trudne do manualnego sprawdzenia pod katem kontrastu. Nowe semantic tokens moga miec niewystarczajacy kontrast w dark mode. |
+| **Prawdopodobienstwo** | Srednie — OKLCH jest perceptually uniform, ale opacity-based tokens (`bg-status-error/5`) moga nie dzialac na ciemnym tle |
+| **Impact** | Wysoki — nieczytelne alerty/badges w dark mode |
+| **Mitigation** | 1. Testowac KAZDY token w light + dark mode przed merge. 2. Uzyc narzedzia: Chrome DevTools Color Contrast checker, axe-core automated scan. 3. Dla opacity-based tokens: zdefiniowac oddzielne wartosci dla dark mode zamiast polegac na opacity. 4. Screenshot comparison light vs dark dla kazdego komponentu. |
+| **Rollback** | Zmiana CSS custom properties — natychmiastowa, zero kodu do revertowania. |
+
+**Konkretne ryzyko z opacity:**
+
+```css
+/* Problem: bg-status-error/5 na ciemnym tle jest prawie niewidoczne */
+/* Light: rgba(239,68,68,0.05) na bialym → subtlny rozowy */
+/* Dark: rgba(239,68,68,0.05) na czarnym → prawie niewidoczny */
+
+/* Rozwiazanie: dedykowane dark mode wartosci */
+.dark {
+  --color-status-error-bg: oklch(0.3 0.08 25);    /* ciemny czerwony */
+  --color-status-success-bg: oklch(0.3 0.08 145);  /* ciemny zielony */
+  --color-status-warning-bg: oklch(0.3 0.08 80);   /* ciemny zolty */
+  --color-status-info-bg: oklch(0.3 0.08 240);     /* ciemny niebieski */
+}
+```
+
+## Risk 3: 372 color migrations — regresja wizualna
+
+| | |
+|---|---|
+| **Opis** | Zamiana 372 hardcoded kolorow na semantic tokens moze spowodowac nieoczekiwane zmiany wizualne. Rozne odcienie (red-500 vs red-600 vs red-700) sa zamieniane na jeden token. |
+| **Prawdopodobienstwo** | Srednie — wiekszosc zamian jest 1:1, ale niuanse (np. red-800 uzywane swiadomie jako ciemniejszy wariant) moga zniknac |
+| **Impact** | Sredni — zmiany wizualne, nie funkcjonalne |
+| **Mitigation** | 1. Migracja per-modul (nie atomowy PR) — latwiejszy review. 2. Screenshot before/after dla kazdego PR. 3. Reviewer musi potwierdzic ze wizualnie wyglada dobrze. 4. Dla niuansow (swiadome uzycie red-800): dodac komentarz `/* intentional: darker shade for X */` i uzyc token z modyfikatorem (np. `text-status-error dark:text-status-error-emphasis`). |
+| **Rollback** | Git revert per-modul PR. |
+
+**Narzedzia do visual regression:**
+- Playwright screenshot comparison (juz jest w stacku)
+- Manual review w PR (screenshot before/after jako attachment)
+- Opcjonalnie: Chromatic / Percy dla automatycznego visual diff (koszt)
+
+## Risk 4: External contributor confusion
+
+| | |
+|---|---|
+| **Opis** | Contributorzy z otwartymi PR-ami moga uzywac starego API (Notice, hardcoded colors). Po merge DS changes ich PR-y beda mialy conflicty lub lint errors. |
+| **Prawdopodobienstwo** | Srednie — zalezy od ilosci aktywnych PR-ow |
+| **Impact** | Sredni — frustracja contributorow, dluszy czas merge |
+| **Mitigation** | 1. **Changelog entry** w PR z DS changes — jasny opis co sie zmienilo. 2. **Migration guide** w `MIGRATION.md` lub sekcja w AGENTS.md. 3. **Deprecation warnings** (nie hard breaks) przez 2 minorowe wersje. 4. **GitHub Discussion / Issue** announcing DS changes before hackathon. 5. Lint rules jako `warn` (nie `error`) przez pierwszy sprint. |
+| **Rollback** | N/A — to jest communication risk, nie technical. |
+
+## Risk 5: CrudForm coupling
+
+| | |
+|---|---|
+| **Opis** | FormField wrapper i CrudForm FieldControl robia podobne rzeczy (label + input + error). Ryzyko ze logika zacznie sie rozjezdzac. |
+| **Prawdopodobienstwo** | Niskie — FormField jest prosty wrapper (zero logiki walidacji), CrudForm FieldControl jest complex (loadOptions, field types, validation triggers) |
+| **Impact** | Sredni — niespojny styl formularzy miedzy CrudForm a standalone forms |
+| **Mitigation** | 1. FormField **NIE duplikuje** logiki CrudForm — jest pure layout wrapper. 2. CrudForm zachowuje wlasny FieldControl. 3. Wspolne elementy (label style, error style) wyciagniete do **shared CSS classes** lub **shared sub-components** (np. `FieldLabel`, `FieldError`). 4. Dlugoterminowo (v1.0): CrudForm moze byc refaktorowany zeby uzywac FormField wewnetrznie. |
+| **Rollback** | N/A — FormField jest additive, nie zmienia CrudForm. |
+
+**Architektura docelowa:**
+
+```
+FormField (layout wrapper)
+  ├── FieldLabel (shared)
+  ├── {children} (input slot)
+  ├── FieldDescription (shared)
+  └── FieldError (shared)
+
+CrudForm FieldControl (logic wrapper)
+  ├── FieldLabel (shared)       ← te same sub-components
+  ├── {field type renderer}
+  ├── FieldDescription (shared) ← te same sub-components
+  └── FieldError (shared)       ← te same sub-components
+```
+
+## Risk 6: Performance — duze komponenty
+
+| | |
+|---|---|
+| **Opis** | AppShell (1650 linii), CrudForm (1800 linii), DataTable (1000+ linii). Refaktory DS (np. zmiana kolorow, dodanie tokenow) w tych plikach moga wplynac na render performance. |
+| **Prawdopodobienstwo** | Niskie — zmiany sa CSS-only (klasy Tailwind), nie logika render |
+| **Impact** | Niski — Tailwind classes sa resolved at build time, nie runtime |
+| **Mitigation** | 1. DS hackathon **NIE refaktoruje** AppShell/CrudForm/DataTable — zmienia tylko CSS klasy. 2. Wieksze refaktory (np. extraction SectionHeader z CrudForm) dopiero w fazie 2 z performance benchmarkiem. 3. React DevTools Profiler przed i po zmianach. 4. `React.memo` juz uzywane na FieldControl — zachowac. |
+| **Rollback** | CSS class changes sa trivial do revert. |
+
+---
+
+## Risk Matrix — Podsumowanie
+
+| Risk | Prawdop. | Impact | Overall | Priorytet mitigation |
+|------|----------|--------|---------|---------------------|
+| R1: Alert/Notice breaking | Niskie | Niski | **Niski** | Deprecation path |
+| R2: Dark mode contrast | Srednie | Wysoki | **Wysoki** | Test every token |
+| R3: Visual regression | Srednie | Sredni | **Sredni** | Per-module PR + screenshots |
+| R4: Contributor confusion | Srednie | Sredni | **Sredni** | Communication plan |
+| R5: CrudForm coupling | Niskie | Sredni | **Niski** | Shared sub-components |
+| R6: Performance | Niskie | Niski | **Niski** | CSS-only changes |
+
+**Top risk requiring immediate action:** R2 (dark mode contrast) — musi byc testowany na hackathonie ZANIM merge tokenow.
+
+---
+
+*Koniec supplementu. Sekcje E-H uzupelniaja glowny dokument o warstwe egzekucji i operacyjna.*
