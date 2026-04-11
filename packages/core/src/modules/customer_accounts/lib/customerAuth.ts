@@ -52,6 +52,26 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     if (!payload) return null
     if (payload.type !== 'customer') return null
 
+    try {
+      const [{ createRequestContainer }, { CustomerUser }] = await Promise.all([
+        import('@open-mercato/shared/lib/di/container'),
+        import('@open-mercato/core/modules/customer_accounts/data/entities'),
+      ])
+      const container = await createRequestContainer()
+      const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+      const user = await em.findOne(CustomerUser, { id: payload.sub }, { fields: ['sessionsRevokedAt'] })
+      if (!user) return null
+      if (
+        user.sessionsRevokedAt &&
+        typeof payload.iat === 'number' &&
+        payload.iat < Math.floor(user.sessionsRevokedAt.getTime() / 1000)
+      ) {
+        return null
+      }
+    } catch {
+      return null
+    }
+
     return {
       sub: String(payload.sub),
       type: 'customer',
