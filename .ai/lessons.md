@@ -218,6 +218,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Any AI tool that requires the LLM to construct structured payloads (API calls, database queries, form submissions).
 
+## HackOn tasks that call for Playwright coverage need a real `__integration__` diff
+
+**Context**: A module-registry testing task added only Jest coverage under `packages/cli/src/lib/generators/__tests__`, while the task contract and reviewer notes explicitly required Playwright integration coverage.
+
+**Problem**: The low-level tests passed, but review still blocked because the change never exercised the behavior through the real app runtime and did not update any module-local `__integration__/TC-*.spec.ts` coverage.
+
+**Rule**: When a task explicitly says to create or repair Playwright integration coverage, pair unit or low-level generator tests with at least one `__integration__/TC-*.spec.ts` change that validates the live runtime path. For CLI and generator work, use standalone `create-app` parity when the risk is specific to compiled package discovery.
+
+**Applies to**: HackOn tasks, CLI generator changes, standalone parity work, and any task that references `.ai/qa/AGENTS.md` or the `integration-tests` skill.
+
 ## Format Zod validation errors for LLM consumption
 
 **Context**: When the API returns 400 errors with raw Zod validation output (nested `issues[]` arrays, `fieldErrors` maps, or raw arrays), the LLM struggles to interpret the error structure and extract actionable fix instructions.

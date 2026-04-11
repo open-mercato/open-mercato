@@ -1,8 +1,8 @@
 /**
- * TC-UMES-011: CLI Commands + Conflict Detection (SPEC-041k)
+ * TC-UMES-011: CLI Commands + Generated Registry Parity + Conflict Detection (SPEC-041k)
  *
  * Validates the UMES CLI commands (umes:list, umes:inspect, umes:check)
- * and build-time conflict detection during `yarn generate`.
+ * together with generated module-registry outputs and build-time conflict detection.
  *
  * Spec reference: SPEC-041k — DevTools + Conflict Detection (TC-UMES-DT02)
  */
@@ -10,6 +10,8 @@ import { test, expect } from '@playwright/test'
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   detectConflicts,
   detectComponentOverrideConflicts,
@@ -46,6 +48,22 @@ function resolveMercatoBin(): string {
 
 const MERCATO_BIN = resolveMercatoBin()
 
+function resolveGeneratedDir(): string {
+  const candidates = [
+    path.join(ROOT, '.mercato', 'generated'),
+    path.join(ROOT, 'apps', 'mercato', '.mercato', 'generated'),
+  ]
+
+  const match = candidates.find((candidate) => fs.existsSync(candidate))
+  if (!match) {
+    throw new Error(`Could not find generated output directory. Checked: ${candidates.join(', ')}`)
+  }
+
+  return match
+}
+
+const GENERATED_DIR = resolveGeneratedDir()
+
 function runMercato(args: string[]): { stdout: string; stderr: string; exitCode: number } {
   const result = spawnSync(MERCATO_BIN, args, {
     cwd: ROOT,
@@ -59,6 +77,10 @@ function runMercato(args: string[]): { stdout: string; stderr: string; exitCode:
     stderr: result.stderr ?? '',
     exitCode: result.status ?? 1,
   }
+}
+
+function readGeneratedOutput(filename: string): string {
+  return fs.readFileSync(path.join(GENERATED_DIR, filename), 'utf8')
 }
 
 test.describe('TC-UMES-011: CLI commands', () => {
@@ -98,6 +120,42 @@ test.describe('TC-UMES-011: CLI commands', () => {
 
     // Should indicate no errors found
     expect(stdout.toLowerCase()).toMatch(/no (conflict|error)|0 error/i)
+  })
+
+  test('generated module-registry outputs include app and package module routes', () => {
+    const modulesOutput = readGeneratedOutput('modules.generated.ts')
+    const frontendRoutesOutput = readGeneratedOutput('frontend-routes.generated.ts')
+    const backendRoutesOutput = readGeneratedOutput('backend-routes.generated.ts')
+    const apiRoutesOutput = readGeneratedOutput('api-routes.generated.ts')
+
+    expect(modulesOutput).toContain('id: "example"')
+    expect(modulesOutput).toContain('id: "customers"')
+    expect(frontendRoutesOutput).toContain('pattern: "/login"')
+    expect(backendRoutesOutput).toContain('pattern: "/backend/example"')
+    expect(backendRoutesOutput).toContain('pattern: "/backend/customers/people"')
+    expect(apiRoutesOutput).toContain('path: "/example/todos"')
+    expect(apiRoutesOutput).toContain('path: "/customers/people"')
+  })
+
+  test('generated module-registry routes resolve through the live app runtime', async ({ page, request }) => {
+    await page.goto('/login', { waitUntil: 'domcontentloaded' })
+    await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible' })
+
+    await login(page, 'admin')
+    await page.goto('/backend/example', { waitUntil: 'domcontentloaded' })
+    await expect(page.getByRole('heading', { name: 'Example Admin' })).toBeVisible()
+
+    const token = await getAuthToken(request, 'admin')
+
+    const appApiResponse = await apiRequest(request, 'GET', '/api/example/todos?page=1&pageSize=1', { token })
+    expect(appApiResponse.ok()).toBeTruthy()
+    const appApiBody = await appApiResponse.json()
+    expect(Array.isArray(appApiBody.data)).toBe(true)
+
+    const packageApiResponse = await apiRequest(request, 'GET', '/api/customers/people?page=1&pageSize=1', { token })
+    expect(packageApiResponse.ok()).toBeTruthy()
+    const packageApiBody = await packageApiResponse.json()
+    expect(Array.isArray(packageApiBody.data)).toBe(true)
   })
 })
 
