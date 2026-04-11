@@ -62,6 +62,7 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 let refreshScheduled = false
 
@@ -223,6 +224,7 @@ export type DataTableProps<T> = {
   injectionContext?: Record<string, unknown>
   replacementHandle?: string
   stickyFirstColumn?: boolean
+  stickyActionsColumn?: boolean
   virtualized?: boolean
   virtualizedMaxHeight?: number | string
   virtualizedOverscan?: number
@@ -755,6 +757,7 @@ export function DataTable<T>({
   injectionContext,
   replacementHandle,
   stickyFirstColumn = false,
+  stickyActionsColumn = false,
   virtualized = false,
   virtualizedMaxHeight,
   virtualizedOverscan = 10,
@@ -2318,7 +2321,12 @@ export function DataTable<T>({
                   )
                 })}
                 {rowActions || injectedRowActions.length > 0 ? (
-                  <TableHead className="w-0 text-right">
+                  <TableHead
+                    className={cn(
+                      'w-0 text-right',
+                      stickyActionsColumn && 'sticky right-0 z-20 bg-background',
+                    )}
+                  >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
                   </TableHead>
                 ) : null}
@@ -2421,9 +2429,15 @@ export function DataTable<T>({
                       // Check for custom tooltip content function in column meta for complex cells
                       const cellValue = cell.getValue()
                       const metaTooltipContent = columnMeta?.tooltipContent as ((row: unknown) => string | undefined) | undefined
-                      const tooltipText = metaTooltipContent
-                        ? metaTooltipContent(row.original)
-                        : (cellValue != null ? String(cellValue) : undefined)
+                      let tooltipText: string | undefined
+                      if (metaTooltipContent) {
+                        tooltipText = metaTooltipContent(row.original)
+                      } else if (isDateCol && cellValue != null) {
+                        const parsedDate = tryParseDate(cellValue)
+                        tooltipText = parsedDate ? simpleFormat(parsedDate, DATE_FORMAT) : String(cellValue)
+                      } else {
+                        tooltipText = cellValue != null ? String(cellValue) : undefined
+                      }
 
                       const wrappedContent = shouldTruncate ? (
                         <TruncatedCell maxWidth={maxWidth} tooltipContent={tooltipText}>
@@ -2438,7 +2452,13 @@ export function DataTable<T>({
                       )
                     })}
                     {rowActions || injectedRowActions.length > 0 ? (
-                      <TableCell className="text-right whitespace-nowrap" data-actions-cell>
+                      <TableCell
+                        className={cn(
+                          'text-right whitespace-nowrap',
+                          stickyActionsColumn && 'sticky right-0 z-10 bg-background',
+                        )}
+                        data-actions-cell
+                      >
                         {rowActionsElement}
                       </TableCell>
                     ) : null}
