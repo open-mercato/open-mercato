@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 /**
- * Tests that all em.find(SalesDocumentAddress, ...) calls include
+ * Tests that all findWithDecryption(SalesDocumentAddress, ...) calls include
  * organizationId and tenantId filters, preventing cross-tenant data leaks.
  *
  * Fixed in: packages/core/src/modules/sales/commands/documents.ts
@@ -9,10 +9,12 @@
  *   - loadOrderSnapshot (line ~1435)
  *   - deleteQuoteCommand.execute (line ~4497)
  *   - deleteOrderCommand.execute (line ~5424)
+ *   - convertQuoteToOrderCommand (line ~5801)
  */
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesQuote,
   SalesQuoteLine,
@@ -216,10 +218,14 @@ function makeCtx(em: unknown, organizationId: string, tenantId: string) {
   }
 }
 
-/** Find all calls to em.find where the first argument is SalesDocumentAddress */
-function addressFindCalls(findMock: jest.Mock) {
-  return findMock.mock.calls.filter(
-    ([entityClass]) => entityClass === SalesDocumentAddress,
+/**
+ * Filter findWithDecryption mock calls where the entity class is SalesDocumentAddress.
+ * findWithDecryption signature: (em, entityName, where, options?, scope?)
+ * so entityName is args[1] and where is args[2].
+ */
+function addressDecryptionCalls() {
+  return (findWithDecryption as jest.Mock).mock.calls.filter(
+    ([, entityClass]) => entityClass === SalesDocumentAddress,
   )
 }
 
@@ -229,10 +235,14 @@ describe('SalesDocumentAddress query scoping', () => {
     await import('../documents')
   })
 
+  beforeEach(() => {
+    (findWithDecryption as jest.Mock).mockClear()
+  })
+
   describe('deleteQuoteCommand.execute — scopes SalesDocumentAddress by quote tenant', () => {
-    it('passes organizationId from quote to em.find(SalesDocumentAddress)', async () => {
+    it('passes organizationId from quote to findWithDecryption(SalesDocumentAddress)', async () => {
       const quote = makeQuote()
-      const { em, findMock } = makeEmForQuote(quote)
+      const { em } = makeEmForQuote(quote)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
       const handler = commandRegistry.get('sales.quotes.delete')
@@ -240,9 +250,9 @@ describe('SalesDocumentAddress query scoping', () => {
 
       await handler!.execute({ id: QUOTE_ID }, ctx as any)
 
-      const calls = addressFindCalls(findMock)
+      const calls = addressDecryptionCalls()
       expect(calls).toHaveLength(1)
-      expect(calls[0][1]).toMatchObject({
+      expect(calls[0][2]).toMatchObject({
         documentId: QUOTE_ID,
         documentKind: 'quote',
         organizationId: ORG_ID,
@@ -254,14 +264,14 @@ describe('SalesDocumentAddress query scoping', () => {
       const differentOrg = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
       const differentTenant = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
       const quote = makeQuote({ organizationId: differentOrg, tenantId: differentTenant })
-      const { em, findMock } = makeEmForQuote(quote)
+      const { em } = makeEmForQuote(quote)
       const ctx = makeCtx(em, differentOrg, differentTenant)
 
       const handler = commandRegistry.get('sales.quotes.delete')
       await handler!.execute({ id: QUOTE_ID }, ctx as any)
 
-      const calls = addressFindCalls(findMock)
-      expect(calls[0][1]).toMatchObject({
+      const calls = addressDecryptionCalls()
+      expect(calls[0][2]).toMatchObject({
         organizationId: differentOrg,
         tenantId: differentTenant,
       })
@@ -269,9 +279,9 @@ describe('SalesDocumentAddress query scoping', () => {
   })
 
   describe('deleteOrderCommand.execute — scopes SalesDocumentAddress by order tenant', () => {
-    it('passes organizationId from order to em.find(SalesDocumentAddress)', async () => {
+    it('passes organizationId from order to findWithDecryption(SalesDocumentAddress)', async () => {
       const order = makeOrder()
-      const { em, findMock } = makeEmForOrder(order)
+      const { em } = makeEmForOrder(order)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
       const handler = commandRegistry.get('sales.orders.delete')
@@ -279,9 +289,9 @@ describe('SalesDocumentAddress query scoping', () => {
 
       await handler!.execute({ id: ORDER_ID }, ctx as any)
 
-      const calls = addressFindCalls(findMock)
+      const calls = addressDecryptionCalls()
       expect(calls).toHaveLength(1)
-      expect(calls[0][1]).toMatchObject({
+      expect(calls[0][2]).toMatchObject({
         documentId: ORDER_ID,
         documentKind: 'order',
         organizationId: ORG_ID,
@@ -293,14 +303,14 @@ describe('SalesDocumentAddress query scoping', () => {
       const differentOrg = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
       const differentTenant = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
       const order = makeOrder({ organizationId: differentOrg, tenantId: differentTenant })
-      const { em, findMock } = makeEmForOrder(order)
+      const { em } = makeEmForOrder(order)
       const ctx = makeCtx(em, differentOrg, differentTenant)
 
       const handler = commandRegistry.get('sales.orders.delete')
       await handler!.execute({ id: ORDER_ID }, ctx as any)
 
-      const calls = addressFindCalls(findMock)
-      expect(calls[0][1]).toMatchObject({
+      const calls = addressDecryptionCalls()
+      expect(calls[0][2]).toMatchObject({
         organizationId: differentOrg,
         tenantId: differentTenant,
       })
@@ -308,9 +318,9 @@ describe('SalesDocumentAddress query scoping', () => {
   })
 
   describe('loadQuoteSnapshot (via deleteQuoteCommand.prepare) — scopes SalesDocumentAddress', () => {
-    it('em.find(SalesDocumentAddress) includes organizationId and tenantId from quote', async () => {
+    it('findWithDecryption(SalesDocumentAddress) includes organizationId and tenantId from quote', async () => {
       const quote = makeQuote()
-      const { em, findMock } = makeEmForQuote(quote)
+      const { em } = makeEmForQuote(quote)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
       const handler = commandRegistry.get('sales.quotes.delete')
@@ -318,9 +328,9 @@ describe('SalesDocumentAddress query scoping', () => {
 
       await handler!.prepare({ id: QUOTE_ID }, ctx as any)
 
-      const calls = addressFindCalls(findMock)
+      const calls = addressDecryptionCalls()
       expect(calls).toHaveLength(1)
-      expect(calls[0][1]).toMatchObject({
+      expect(calls[0][2]).toMatchObject({
         documentId: QUOTE_ID,
         documentKind: 'quote',
         organizationId: ORG_ID,
@@ -330,9 +340,9 @@ describe('SalesDocumentAddress query scoping', () => {
   })
 
   describe('loadOrderSnapshot (via deleteOrderCommand.prepare) — scopes SalesDocumentAddress', () => {
-    it('em.find(SalesDocumentAddress) includes organizationId and tenantId from order', async () => {
+    it('findWithDecryption(SalesDocumentAddress) includes organizationId and tenantId from order', async () => {
       const order = makeOrder()
-      const { em, findMock } = makeEmForOrder(order)
+      const { em } = makeEmForOrder(order)
       const ctx = makeCtx(em, ORG_ID, TENANT_ID)
 
       const handler = commandRegistry.get('sales.orders.delete')
@@ -340,9 +350,9 @@ describe('SalesDocumentAddress query scoping', () => {
 
       await handler!.prepare({ id: ORDER_ID }, ctx as any)
 
-      const calls = addressFindCalls(findMock)
+      const calls = addressDecryptionCalls()
       expect(calls).toHaveLength(1)
-      expect(calls[0][1]).toMatchObject({
+      expect(calls[0][2]).toMatchObject({
         documentId: ORDER_ID,
         documentKind: 'order',
         organizationId: ORG_ID,
