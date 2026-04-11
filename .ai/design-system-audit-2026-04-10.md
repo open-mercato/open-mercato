@@ -4683,4 +4683,778 @@ Odpowiedz TAK na każde pytanie zanim otworzysz Pull Request:
 
 ---
 
-*Koniec supplementu K-M. Sekcje E-M stanowią kompletny egzekucyjny plan design systemu z guardrails dla contributorów.*
+---
+
+## N. Stakeholder Buy-in Strategy
+
+### N.1 Elevator Pitch (30 sekund)
+
+#### Wariant 1 — Dla maintainera modułu
+
+> Open Mercato ma 372 hardcoded kolory i 4 różne komponenty feedbacku robiące to samo — to znaczy, że każdy PR z UI zmianami wymaga 2-3 rund review żeby wyłapać niespójności, a dark mode psuje się za każdym razem gdy ktoś doda `text-red-600`. Design system daje ci 20 semantic tokenów i 5 komponentów, które eliminują tę klasę bugów kompletnie. Migracja twojego modułu to 1-2h z codemod scriptem. W zamian: mniej review friction, zero dark mode regresji, nowy contributor do twojego modułu jest produktywny w godzinę zamiast w dwa dni.
+
+#### Wariant 2 — Dla nowego contributora
+
+> Chcesz dodać nowy ekran do Open Mercato? Bez design systemu musisz przejrzeć 5 różnych modułów żeby zgadnąć jakich kolorów, spacingów i komponentów użyć — i i tak reviewer odeśle twój PR bo użyłeś `text-green-600` zamiast semantic tokena. Z DS dostajesz 3 gotowe page templates (list, create, detail), 5 komponentów które pokrywają 95% przypadków, i lint rules które mówią ci co poprawić ZANIM wyślesz PR. Pierwszy ekran w 30 minut, nie w 3 godziny.
+
+#### Wariant 3 — Dla project leada / osoby nietechnicznej
+
+> Open Mercato ma 34 moduły i każdy wygląda trochę inaczej — 79% stron nie obsługuje pustego stanu, kolory statusów różnią się między modułami, dark mode jest popsute w wielu miejscach. Dla użytkownika to wygląda jak 34 różnych aplikacji sklejonych razem. Design system to zestaw wspólnych reguł i komponentów, który sprawia że cały produkt wygląda i działa spójnie. Inwestycja: 1 hackathon (26h) na fundament + 2h na moduł do migracji. Zwrot: spójny produkt, szybszy onboarding contributorów, accessibility compliance bez dodatkowej pracy.
+
+### N.2 Before/After Demo Strategy
+
+**Kiedy pokazać: PO hackathonie** (piątkowy wieczór lub sobotni poranek).
+
+Uzasadnienie: demo PRZED hackathon buduje oczekiwania, ale nie ma czego pokazać — to jest pitch, nie demo. Demo PO daje konkretny artefakt: ten sam ekran w dwóch wersjach. Ludzie wierzą oczom, nie slide'om.
+
+**Co pokazać — 4 screenshoty:**
+
+1. **Before (light mode):** Customers list page z hardcoded `text-red-600` / `bg-green-100` status badges, brak empty state, różne odcienie czerwonego w różnych sekcjach. Wyraźnie widać: ten sam status "active" w jednym module jest zielony `bg-green-100`, w innym `bg-emerald-50`.
+
+2. **After (light mode):** Ten sam ekran z `StatusBadge variant="success"`, `EmptyState` na pustej liście, spójne kolory z semantic tokenów. Wizualnie: wszystko "oddycha" tak samo, kolory pasują do siebie.
+
+3. **Before (dark mode) — KILLER DEMO:** Customers page w dark mode. Hardcoded `text-red-600` na ciemnym tle — tekst ledwo widoczny. `bg-green-100` tworzy jaskrawą plamę. `border-red-200` jest prawie niewidoczny. Notice z `bg-red-50` wygląda jak biały prostokąt.
+
+4. **After (dark mode):** Ten sam ekran z flat semantic tokens. `--status-error-bg: oklch(0.220 0.025 25)` daje kontrolowany ciemny czerwony. `--status-success-text: oklch(0.750 0.150 163)` jest czytelny. Kontrast sprawdzony, nie zgadywany.
+
+**Gdzie pokazać:** GitHub Discussion z kategorią "Show & Tell". Post z 4 screenshotami side-by-side. Link do tego posta w README projektu na 2 tygodnie ("See what's changing"). Discussion pozwala na async komentarze — nie wymaga synchronicznego call'a, co jest realistyczne w OSS.
+
+**Dark mode killer demo scenario script:**
+
+> "Pokażę wam coś. To jest strona listy w customers — dark mode. Widzicie ten badge 'Active'? `bg-green-100` na czarnym tle. Wygląda jak bug. Bo to jest bug — 372 razy w kodzie. Teraz ta sama strona po migracji. Ten sam badge, ale kolor pochodzi z tokena, który ma oddzielną wartość dla dark mode. Zero zmian w logice, zero zmian w layoucie — jedyna różnica to skąd pochodzi kolor. A teraz pomnóżcie to razy 34 moduły. To jest design system — nie nowe komponenty, nie redesign. To naprawienie 372 kolorów żeby dark mode po prostu działał."
+
+### N.3 "What's In It For You" — per persona
+
+#### 1. Maintainer modułu (np. Sales)
+
+- **Mniej review rounds:** Zamiast 2-3 rund komentarzy "zmień text-red-600 na text-destructive", lint rule łapie to przed PR. Oszczędzasz 20-30 min per review.
+- **Dark mode działa od razu:** Semantic tokens automatycznie przełączają się w dark mode. Zero manual testowania, zero bugów typu "biały tekst na białym tle".
+- **Nowy contributor do twojego modułu jest produktywny szybciej:** Zamiast tłumaczyć "jak budujemy strony w Sales", wskazujesz na template list page z sekcji K.1 i mówisz "skopiuj, dostosuj". Onboarding z 2 dni do 2 godzin.
+
+#### 2. Nowy contributor (pierwszy PR)
+
+- **Zero zgadywania:** 3 page templates pokrywają 95% przypadków. Kopiujesz, zamieniasz nazwę encji, dodajesz pola. Gotowe.
+- **Lint mówi ci co źle ZANIM reviewer:** `om-ds/require-empty-state` podkreśla problem w edytorze. Nie dowiadujesz się o nim w review po 2 dniach czekania.
+- **Mniej decyzji:** Nie musisz wybierać między `text-red-500`, `text-red-600`, `text-red-700`, `text-destructive`. Jest jedna odpowiedź: semantic token. Zawsze.
+
+#### 3. Power contributor (10+ PR-ów, ma "swoje" sposoby)
+
+- **Twoje patterns stają się oficjalne:** Jeśli twój moduł ma dobrze zrobione status badges — pokaż jak. DS formalizuje najlepsze patterns z codebase, nie wymyśla nowe.
+- **Mniejszy diff w PR-ach:** Spójne base components oznaczają mniejsze pliki page — mniej kodu do napisania, mniej do review, mniejsze difffy.
+- **Wpływ na API komponentów:** Champions program (sekcja P) daje ci głos w kształtowaniu API. Lepiej wpływać na standard niż potem do niego migrować.
+
+#### 4. End user (klient Open Mercato)
+
+- **Produkt wygląda profesjonalnie:** Spójne kolory, typografia i zachowania między modułami = zaufanie do produktu.
+- **Dark mode naprawdę działa:** 372 poprawione kolory oznaczają, że dark mode jest użyteczny, nie dekoracyjny.
+- **Puste stany nie są ślepymi zaułkami:** 79% stron bez empty state → 0%. Zawsze wiesz co robić gdy nie ma danych.
+
+#### 5. Project lead
+
+- **Mierzalny postęp:** `ds-health-check.sh` daje baseline i trend. Wiesz ile pracy zostało, ile zrobiono.
+- **Accessibility bez dedykowanego audytu:** Semantic tokens + enforced aria-labels + contrast-checked paleta = compliance z WCAG 2.1 AA "za darmo".
+- **Redukcja maintenance cost:** 4 komponenty feedbacku → 1. 372 hardcoded kolorów → 20 tokenów. Mniej kodu = mniej bugów = mniej pracy.
+
+---
+
+## O. Contributor Experience (CX) Design
+
+### O.1 Contributor Journey Map
+
+#### Krok 1: Discovery — "Jakie komponenty istnieją?"
+
+| | Obecny stan (bez DS) | Docelowy stan (z DS) |
+|---|---|---|
+| **Co robi** | Przegląda `packages/ui/src/primitives/`, grepuje "import.*from.*ui", otwiera customers module i czyta code | Otwiera `packages/ui/DS.md`, skanuje spis komponentów |
+| **Czego szuka** | "Czy jest komponent do statusu?" "Co to jest Notice vs Alert?" | Spis komponentów z jednolinijkowym opisem i linkiem |
+| **Co może pójść źle** | Znajduje Notice I Alert, nie wie którego użyć. Buduje własny. | Widzi jasno: "Alert (unified) — użyj tego. Notice jest deprecated." |
+| **Jak DS pomaga** | — | Single entry point z listą komponentów, searchable, z "when to use" |
+
+#### Krok 2: Decision — "Którego komponentu użyć?"
+
+| | Obecny stan | Docelowy stan |
+|---|---|---|
+| **Co robi** | Porównuje 3-4 moduły, patrzy jak inni rozwiązali problem. Kopiuje z tego który wygląda najnowiej. | Patrzy na decision tree w DS docs: "Wyświetlasz status? → StatusBadge. Listę danych? → DataTable. Formularz? → CrudForm." |
+| **Co może pójść źle** | Kopiuje z modułu który ma legacy patterns (hardcoded colors). Teraz legacy rozpropagatowało się do nowego modułu. | Decision tree wskazuje prawidłowy komponent. Template z K.1 daje gotowy kod. |
+| **Jak DS pomaga** | — | Decision tree + "Use This Not That" tabela (Notice❌ → Alert✅, raw table❌ → DataTable✅) |
+
+#### Krok 3: Implementation — "Jak tego użyć?"
+
+| | Obecny stan | Docelowy stan |
+|---|---|---|
+| **Co robi** | Otwiera customers module, kopiuje page.tsx, modyfikuje. Nie wie o EmptyState, nie wie o StatusBadge. | Kopiuje template z K.1, zamienia nazwy. TypeScript podpowiada props. |
+| **Co może pójść źle** | Zapomina o empty state (79% stron). Używa hardcoded kolorów (bo skopiował ze starego modułu). | Template zawiera EmptyState. Lint rule łapie hardcoded colors. |
+| **Jak DS pomaga** | — | Templates z wbudowanymi best practices + lint rules jako safety net |
+
+#### Krok 4: Self-check — "Czy zrobiłem dobrze?"
+
+| | Obecny stan | Docelowy stan |
+|---|---|---|
+| **Co robi** | `yarn lint` (łapie tylko TypeScript/ESLint basic). Wizualnie sprawdza w przeglądarce. | `yarn lint` łapie DS violations. 10-pytaniowy self-check z M.3. |
+| **Co może pójść źle** | Lint nie łapie brakującego EmptyState. Contributor nie wie, że powinien sprawdzić dark mode. | 6 DS lint rules dają konkretny feedback. Self-check przypomina o dark mode. |
+| **Jak DS pomaga** | — | Lint rules + self-check checklist + ds-health-check.sh na swoim module |
+
+#### Krok 5: PR review — "Co reviewer sprawdza?"
+
+| | Obecny stan | Docelowy stan |
+|---|---|---|
+| **Co robi** | Czeka na review 1-3 dni. Reviewer komentuje: "zmień kolor", "dodaj empty state", "użyj apiCall". 2-3 rundy. | Lint wyłapał 80% issues przed PR. Reviewer sprawdza logikę i UX, nie kolory. 1 runda. |
+| **Co może pójść źle** | Reviewer nie zna DS guidelines — przepuszcza hardcoded colors. Albo: reviewer jest zbyt surowy — contributor się zniechęca. | PR template z DS checklistą (z sekcji E). Reviewer ma jasne kryteria — nie "moja opinia" ale "DS standard". |
+| **Jak DS pomaga** | — | PR template + reviewer checklist + lint pre-screening |
+
+#### Krok 6: Post-merge — "Jak się uczę na przyszłość?"
+
+| | Obecny stan | Docelowy stan |
+|---|---|---|
+| **Co robi** | Nic. Review feedback ginie w zamkniętym PR. Następnym razem powtarza te same błędy. | DS entry point ma "Common Mistakes" sekcję (M.4). Monthly digest podkreśla recurring issues. |
+| **Co może pójść źle** | Tribal knowledge — contributor #2 nie widzi feedbacku z PR contributora #1. | Feedback z review jest uogólniony w DS docs. Anti-patterns (M.4) to żywy dokument. |
+| **Jak DS pomaga** | — | Anti-patterns doc + monthly digest + feedback channel |
+
+### O.2 Single Entry Point
+
+**Decyzja: `packages/ui/DS.md`** — w root pakietu UI.
+
+Uzasadnienie:
+- **Nie AGENTS.md** — bo ten jest dla AI agentów, nie dla ludzi. Contributor nie będzie szukał DS guidelines w AGENTS.md.
+- **Nie docs/** — bo docs/ to osobna apka dokumentacyjna. DS guidelines muszą być blisko kodu, nie w osobnym deploy.
+- **Nie Storybook** — bo nie mamy Storybook i setup to osobny projekt na 2+ dni. Pragmatyzm > idealizm.
+- **Dlaczego packages/ui/** — bo contributor budujący UI i tak otwiera ten pakiet. Minimalna odległość między "szukam" a "znalazłem".
+
+**Content outline:**
+
+```markdown
+# Open Mercato Design System
+
+> Consistency > Perfection. See Section T.4 for our philosophy.
+
+## Quick Start (30 seconds)
+Building a new page? Copy a template from `templates/` and customize.
+
+## Component Reference
+One-line description + import path for each DS component.
+| Component | When to Use | Import |
+|-----------|-------------|--------|
+
+## Decision Tree
+"What component do I need?" — flowchart from task → component.
+
+## Tokens
+Status colors, typography scale, spacing — link to globals.css with commentary.
+
+## Use This, Not That
+| Instead of... | Use... | Why |
+Notice | Alert | Notice is deprecated, Alert has all variants
+text-red-600 | text-destructive | Semantic token, works in dark mode
+raw <table> | DataTable | Sorting, filtering, pagination built-in
+
+## Templates
+Links to K.1 templates: list page, create page, detail page.
+
+## Self-Check Before PR
+Link to M.3 — 10 questions.
+
+## Anti-Patterns
+Link to M.4 — top 5 mistakes.
+
+## Feedback & Questions
+GitHub Discussion category "Design System Feedback".
+```
+
+**Constraint: 60 sekund do znalezienia odpowiedzi.** Dlatego tabele, nie paragrafy. Linki, nie powtórzony content. Component Reference to max 15 wierszy — tyle mamy DS komponentów.
+
+### O.3 Lint Error UX
+
+#### 1. `om-ds/no-hardcoded-status-colors`
+
+```
+[om-ds/no-hardcoded-status-colors]
+❌ Hardcoded color "text-red-600" in className. Status colors must use semantic tokens.
+✅ Replace with: "text-destructive" (for text) or "text-status-error-text" (for status context)
+📖 See: packages/ui/DS.md#tokens → Status Colors
+```
+
+#### 2. `om-ds/no-arbitrary-text-sizes`
+
+```
+[om-ds/no-arbitrary-text-sizes]
+❌ Arbitrary text size "text-[11px]" detected. Use Tailwind scale or DS tokens.
+✅ Replace with: "text-overline" (for 11px uppercase labels) or "text-xs" (for 12px small text)
+📖 See: packages/ui/DS.md#tokens → Typography Scale
+```
+
+#### 3. `om-ds/require-empty-state`
+
+```
+[om-ds/require-empty-state]
+❌ Page uses <DataTable> but has no <EmptyState> component.
+   79% of existing pages miss this — don't add to the count.
+✅ Add conditional EmptyState before DataTable:
+   if (!isLoading && rows.length === 0 && !search) return <EmptyState title="..." action={{...}} />
+📖 See: packages/ui/DS.md#templates → List Page Template
+```
+
+#### 4. `om-ds/require-page-wrapper`
+
+```
+[om-ds/require-page-wrapper]
+❌ Backend page missing <Page> and <PageBody> wrappers.
+   These provide consistent spacing (space-y-6, space-y-4) and page structure.
+✅ Wrap your page content:
+   <Page><PageBody>{/* your content */}</PageBody></Page>
+📖 See: packages/ui/DS.md#templates → any template
+```
+
+#### 5. `om-ds/no-raw-table`
+
+```
+[om-ds/no-raw-table]
+❌ Raw HTML <table> element in backend page. Use DS table components.
+✅ For data lists: <DataTable> (sorting, filtering, pagination built-in)
+   For simple key-value: <Table> from @open-mercato/ui/primitives/table
+📖 See: packages/ui/DS.md#decision-tree → "Displaying data?"
+```
+
+#### 6. `om-ds/require-loading-state`
+
+```
+[om-ds/require-loading-state]
+❌ Page uses apiCall() but has no loading state handler.
+   41% of existing pages miss this — users see blank screens during data fetch.
+✅ For detail pages: if (isLoading) return <LoadingMessage />
+   For list pages: pass isLoading={isLoading} to <DataTable>
+📖 See: packages/ui/DS.md#templates → Detail Page Template
+```
+
+---
+
+## P. Champions Strategy
+
+### P.1 Champion Profile
+
+**Idealny champion DS w kontekście OSS:**
+
+**Cechy techniczne:**
+- Aktywny w module z dużym UI surface (Sales, Catalog, Customers — nie CLI/Queue)
+- Ma co najmniej 5 merged PR-ów z komponentami backend pages
+- Rozumie Tailwind i React na poziomie pozwalającym na refaktoring kolorów bez pomocy
+
+**Cechy miękkie:**
+- Odpowiada na issues / code review komentarze (nie ghost contributor)
+- Wyrażał frustrację niespójnością UI lub dark mode bugami (to jest motywacja naturalna)
+- Ma "ownership feeling" wobec swojego modułu — chce żeby wyglądał dobrze
+
+**Jak go znaleźć w Open Mercato:**
+
+```bash
+# Top 10 contributorów w plikach backend pages (ostatnie 6 miesięcy)
+git log --since="2025-10-01" --format="%aN" \
+  -- "packages/core/src/modules/*/backend/**/*.tsx" \
+  | sort | uniq -c | sort -rn | head -10
+
+# Contributorzy którzy naprawiali kolory/dark mode (sygnał motywacji)
+git log --since="2025-10-01" --all --oneline --grep="dark\|color\|theme" \
+  -- "packages/core/src/modules/*/backend/**" | head -20
+
+# Moduły z największym DS debt (cele migracji)
+for module in packages/core/src/modules/*/; do
+  count=$(grep -r "text-red-\|bg-green-\|bg-blue-\|text-green-\|bg-red-" "$module" 2>/dev/null | wc -l)
+  echo "$count $(basename $module)"
+done | sort -rn | head -10
+```
+
+**Co go motywuje:**
+- **Recognition:** Bycie wymienianym jako DS champion w changelog i README
+- **Clean code ownership:** Jego moduł jest wzorcowy, nie legacy
+- **Influence:** Kształtuje API komponentów zamiast je konsumować
+- **Learning:** Zdobywa doświadczenie z design systems w prawdziwym projekcie
+
+### P.2 Champion Program — konkretny plan
+
+#### 1. Identyfikacja (przed hackathon)
+
+**Kryteria:** ≥5 PR z UI changes + aktywność w ostatnich 3 miesiącach + moduł z >10 hardcoded status colors.
+
+Uruchom komendy z P.1. Wybierz 3-5 osób: idealnie po jednej z modułów Sales, Catalog, HR/Workflows, Integrations.
+
+#### 2. Rekrutacja (dzień hackathonu)
+
+**Wiadomość (GitHub Discussion mention lub DM):**
+
+> Hej @{username}, widzę że maintainujesz moduł {module} — masz tam świetnie zrobione {konkretna rzecz, np. "detail page z tabami"}. Pracujemy nad design system foundations dla Open Mercato i szukamy 3-5 osób, które zmigrują swój moduł jako pierwsze (po customers). Co to daje: twój moduł staje się referencyjnym wzorcem, masz wpływ na API nowych komponentów (StatusBadge, FormField), i dostajesz early access do tokenów + codemod scriptów które robią 80% pracy automatycznie. Zainteresowany? Cały effort to ~2h z codemod + 1h manual review. Hmu jeśli chcesz pogadać na callu albo async.
+
+#### 3. Onboarding championów (tydzień 1)
+
+Co dostają:
+- **Early access:** Branch `docs/design-system-audit-2026-04-10` z tokenami i komponentami, zanim trafi na main
+- **15-min async walkthrough:** Nagranie Loom (nie synchroniczny call — uszanuj timezone) pokazujące: (a) before/after demo z N.2, (b) jak użyć codemod scriptu, (c) jak zweryfikować wynik
+- **Ich moduł jako target:** Codemod script przygotowany do uruchomienia na ich module — champion uruchamia, reviewuje, commituje
+
+#### 4. Activation (tydzień 2-3)
+
+Co robią:
+- **Migrują swój moduł** — uruchamiają codemod, przeglądają diff, naprawiają edge case'y, tworzą PR
+- **Review DS PR-ów:** Dodani jako reviewerzy na PR-ach innych modułów z labelem `design-system` — sprawdzają token usage i component patterns
+- **Feedback loop:** Raportują problemy z API komponentów, niejasne token names, brakujące warianty. Format: GitHub Discussion post "DS Feedback: {temat}" z konkretnym przykładem
+
+#### 5. Recognition (ongoing)
+
+- **Changelog mention:** "Module {name} migrated to DS tokens by @{champion}" w RELEASE_NOTES.md
+- **CONTRIBUTORS.md:** Sekcja "Design System Champions" z listą osób i modułów
+- **GitHub label:** `ds-champion` na ich profilu contributora (jeśli projekt ma takie mechanizmy) — w praktyce wystarczy mention w Discussion i changelog
+
+### P.3 First Follower Strategy
+
+**Kogo przekonujesz PIERWSZEGO: maintainera modułu Sales.**
+
+Dlaczego Sales:
+- **Największy UI surface po customers** — orders, quotes, invoices, shipments, payments. Dużo status badges (draft → confirmed → shipped → paid → cancelled).
+- **Najwięcej hardcoded status colors** — każdy dokument ma inną paletę kolorów (quote = blue, order = green, invoice = amber). To jest najbardziej widoczny DS debt.
+- **Sukces w Sales jest spektakularny** — zmiana kolorów statusów w 5 typach dokumentów jednocześnie daje wow effect. Before/after demo z Sales module jest 3x bardziej przekonujące niż z prostego modułu.
+- **Sales maintainer jest zmotywowany** — dark mode w Sales jest szczególnie popsute (hardcoded colors na ciemnym tle w tabelach dokumentów).
+
+**Jaki moduł migruje PIERWSZY po customers: Sales.**
+
+Z tego samego powodu. Customers to proof of concept (maintainerzy DS robią to sami). Sales to proof of adoption (ktoś inny robi to z DS tools). To jest przejście od "my to zrobiliśmy" do "inni to potrafią".
+
+**Jak sukces pierwszego followera przekonuje kolejnych:**
+
+1. Sales champion tworzy PR migracyjny — widoczny w activity feed
+2. PR ma before/after screenshoty (dark mode fix = impressive)
+3. Discussion post: "Migrated Sales to DS tokens — 47 hardcoded colors → 0. Took 2 hours with codemod."
+4. Kolejni maintainerzy (Catalog, Workflows, Integrations) widzą: to nie jest teoria, to jest 2 godziny pracy z konkretnym rezultatem
+5. FOMO effect: "Mój moduł wygląda gorzej niż Sales w dark mode. Powinienem zmigrować."
+
+Kolejność migracji po Sales: **Catalog** (produkty, warianty, ceny — dużo statusów), potem **Workflows** (wizualny edytor, status badges na stepach), potem pozostałe moduły organicznie.
+
+---
+
+## Q. Guerrilla Research Plan
+
+### Q.1 "5 Questions, 3 People, 15 Minutes"
+
+**Kogo pytać:**
+1. Aktywny maintainer modułu (≥10 PR-ów, zna codebase)
+2. Okazjonalny contributor (2-5 PR-ów, zna fragmenty)
+3. Potencjalny contributor (śledzi repo, może otworzył 1 issue, jeszcze nie commitował)
+
+**Jak przeprowadzić: Async survey via GitHub Discussion.**
+
+Uzasadnienie: Synchroniczny call wymaga koordynacji timezone i zniechęca introwertycznych contributorów. Discussion post z pytaniami pozwala odpowiedzieć gdy ktoś ma 10 minut. Dodatkowo: odpowiedzi są publiczne, co buduje precedens otwartej komunikacji o DS.
+
+**5 pytań:**
+
+1. **"Gdy ostatnio budowałeś nowy ekran (lub modyfikowałeś istniejący) — skąd wiedziałeś jakich komponentów użyć? Co otworzyłeś najpierw?"**
+   Cel: Odkryć discovery path. Czy grepują? Kopiują z innego modułu? Pytają kogoś?
+
+2. **"Czy zdarzyło ci się, że reviewer poprosił o zmianę koloru, spacingu lub komponentu w twoim PR? Jeśli tak — czy wiedziałeś dlaczego ta zmiana była potrzebna?"**
+   Cel: Zmierzyć review friction i zrozumieć czy contributor rozumie reguły czy wykonuje polecenia.
+
+3. **"Gdybyś jutro miał zbudować stronę listy z tabelą, statusami i pustym stanem — od czego byś zaczął? Który moduł otworzyłbyś jako wzorzec?"**
+   Cel: Odkryć który moduł jest de facto referencyjny (może nie customers!) i jakie jest mentalne model contributora.
+
+4. **"Co jest najbardziej irytujące w budowaniu UI w Open Mercato? Jedna konkretna rzecz."**
+   Cel: Odkryć friction point którego nie widać w code audit. Może to jest brak hot reload, może wolny build, może niejasna nawigacja w kodzie.
+
+5. **"Gdybyś mógł zmienić jedną rzecz w tym jak wygląda lub działa Open Mercato UI — co by to było?"**
+   Cel: Walidacja priorytetów. Jeśli 3/3 osób mówi "dark mode jest popsute" — wiemy że semantic tokens to prawidłowy priorytet. Jeśli mówią "brak mobile view" — wiemy że nasze priorytety mogą wymagać korekty.
+
+**Template na summary wyników (1 strona):**
+
+```markdown
+## DS Research Summary — [data]
+
+### Participants
+- [persona 1]: [moduł/rola], [ile PR-ów]
+- [persona 2]: ...
+- [persona 3]: ...
+
+### Key Findings
+1. **Discovery path:** [jak szukają komponentów — np. "2/3 kopiuje z customers"]
+2. **Review friction:** [ile rund, czy rozumieją reguły — np. "nikt nie wiedział o semantic tokens"]
+3. **Reference module:** [który moduł uważają za wzorcowy]
+4. **Top friction point:** [co ich najbardziej irytuje]
+5. **Top wish:** [co by zmienili]
+
+### Impact on DS Plan
+- [Co potwierdzamy — np. "semantic tokens to prawidłowy priorytet #1"]
+- [Co zmieniamy — np. "dodajemy hot reload do hackathon scope bo 2/3 osób narzeka"]
+- [Co dodajemy — np. "trzeba udokumentować dlaczego customers a nie sales jest referencyjny"]
+```
+
+### Q.2 Hallway Testing — komponentów API
+
+**Task dla contributora (dosłowny tekst):**
+
+> Mam TypeScript interface nowego komponentu FormField. Bez patrzenia na dokumentację — napisz mi JSX który wyświetla formularz z 3 polami: Name (text, required), Email (text, z opisem "We'll never share your email"), Status (select, z errorem "Status is required"). Możesz użyć dowolnych komponentów wewnątrz FormField. Masz 3 minuty.
+
+```typescript
+// To dajesz contributorowi:
+interface FormFieldProps {
+  label?: string
+  id?: string
+  required?: boolean
+  labelVariant?: 'default' | 'overline'
+  description?: string
+  error?: string
+  orientation?: 'vertical' | 'horizontal'
+  disabled?: boolean
+  children: React.ReactNode
+}
+```
+
+**Co obserwujesz (rubric):**
+
+| Aspekt | Sukces (5 pkt) | Problemy (3 pkt) | Porażka (1 pkt) |
+|--------|----------------|-------------------|-----------------|
+| **Zrozumienie children pattern** | Od razu wstawia `<Input>` jako children | Pyta "czy to slot?" ale rozumie po chwili | Próbuje przekazać input jako prop |
+| **Required indicator** | Używa `required={true}` i oczekuje że label się zmieni | Dodaje ręczny asterisk w label | Nie wie jak oznaczyć pole jako required |
+| **Error handling** | Przekazuje `error="..."` i nie dodaje ręcznego error display | Pyta "czy error wyświetla się automatycznie?" | Dodaje ręczny `<span className="text-red-600">` pod polem |
+| **Naming intuition** | Nie pyta o żaden prop name | Pyta o 1 prop name | Pyta o ≥3 prop names |
+| **Czas** | <2 min | 2-3 min | >3 min lub nie kończy |
+
+**Jeśli contributor ≤3 na "children pattern":** Rozważamy zmianę API na `input` prop zamiast `children`. Jeśli ≥4 na wszystkich: API jest intuicyjne.
+
+### Q.3 Observation Protocol — "Watch One, Do One"
+
+**Kiedy: PO hackathonie** (tydzień 2). Uzasadnienie: Chcemy walidować czy DS artefakty (templates, tokens, lint rules) działają w praktyce, nie w teorii.
+
+**Setup:**
+
+> "Wyobraź sobie, że Sales module potrzebuje nowej strony: lista warranties (gwarancji) z tabelą, statusami (active/expired/pending), pustym stanem i możliwością tworzenia nowej gwarancji. Zbuduj stronę listy. Masz 30 minut. Możesz używać dowolnych plików w repo. Powiedz mi na głos co robisz — np. 'otwieram customers żeby zobaczyć wzorzec'. Nie pytaj mnie o pomoc — rób jak byś robił sam."
+
+**Obserwacja — co notujesz:**
+
+| Czas | Notujesz |
+|------|----------|
+| 0:00-2:00 | **Gdzie szuka:** Otwiera DS.md? Customers module? Grepuje? Googluje? |
+| 2:00-5:00 | **Co kopiuje:** Który template/moduł? Czy używa K.1? |
+| 5:00-15:00 | **Gdzie utyka:** Import paths? Token names? StatusBadge API? EmptyState props? |
+| 15:00-25:00 | **Co omija:** Czy dodaje EmptyState? Loading state? useT()? metadata? |
+| 25:00-30:00 | **Czy lint pomógł:** Czy uruchamia lint? Czy lint wyłapał problemy? |
+
+**Zasada obserwacji:** Nie pomagasz, nie komentujesz, nie kiwasz głową aprobująco. Notujesz. Jedyny wyjątek: jeśli contributor jest zablokowany >3 min na tym samym miejscu, możesz powiedzieć "kontynuuj dalej, wrócimy do tego".
+
+**Debrief (3 pytania):**
+
+1. "Co było najłatwiejsze w budowaniu tej strony?"
+2. "Gdzie się zatrzymałeś najdłużej — i dlaczego?"
+3. "Gdybyś mógł zmienić jedno narzędzie/plik/komponent żeby to było szybsze — co by to było?"
+
+---
+
+## R. Decision Log
+
+### R.1 Format Decision Record
+
+```markdown
+### DR-NNN: [Tytuł decyzji]
+**Data:** YYYY-MM-DD
+**Status:** Accepted | Proposed | Deprecated
+**Kontekst:** [1-2 zdania — jaki problem rozwiązujemy]
+**Decyzja:** [1-2 zdania — co zdecydowaliśmy]
+**Uzasadnienie:** [2-3 zdania — dlaczego tak, a nie inaczej]
+**Alternatywy rozważane:** [lista odrzuconych opcji z 1-zdaniowym powodem]
+**Konsekwencje:** [co to oznacza w praktyce]
+```
+
+**Gdzie przechowywać: `packages/ui/decisions/` jako pliki DR-NNN.md.**
+
+Uzasadnienie: Obok kodu, wersjonowane w git, reviewowane w PR-ach. Nie GitHub Discussions — bo te toną w feedzie i nie są wersjonowane. Nie w głównym dokumencie DS — bo rośnie za szybko. Osobne pliki = łatwy link z komentarzy PR ("see DR-001 for why we don't use opacity tokens").
+
+### R.2 Kluczowe decyzje
+
+#### DR-001: Flat tokens zamiast opacity-based
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** Potrzebujemy tokenów kolorów statusowych (error/success/warning/info) z oddzielnymi wartościami dla bg, text, border, icon. Do wyboru: jeden bazowy token + opacity modifiers w Tailwind (`bg-status-error/5`) vs oddzielne flat tokens per rola.
+**Decyzja:** Flat tokens — oddzielna CSS custom property per rola z pełną wartością koloru, oddzielną dla light i dark mode.
+**Uzasadnienie:** Opacity-based tokens nie kontrolują kontrastu w dark mode. `oklch(0.577 0.245 27) / 5%` na białym tle daje subtlny róż, ale na czarnym tle jest niewidoczny. Flat tokens dają pełną kontrolę kontrastu w obu trybach. 20 dodatkowych custom properties to akceptowalny koszt wobec gwarancji accessibility.
+**Alternatywy rozważane:** Opacity-based (mniej tokenów, ale broken dark mode), hybrid (complex, two mental models).
+**Konsekwencje:** 20+20 CSS custom properties (light+dark). Naming: `--status-{status}-{role}`. Tailwind mapping via `@theme inline`.
+
+#### DR-002: Geist Sans jako primary font
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** Projekt używa Geist Sans od początku. Alternatywy to Inter (popularny w SaaS) lub System UI stack (zero web font loading).
+**Decyzja:** Zachowujemy Geist Sans. Zero zmian.
+**Uzasadnienie:** Geist jest już wdrożone z font optimization w Next.js. Zmiana fontu to zmiana visual identity — wykracza poza scope DS foundation. Geist ma świetny rendering w małych rozmiarach co jest kluczowe dla dense data UI jak ERP.
+**Alternatywy rozważane:** Inter (requires migration, minimal visual difference), System UI (inconsistent across OS).
+**Konsekwencje:** Brak dodatkowej pracy. Font załadowany via `next/font/local`.
+
+#### DR-003: lucide-react jako jedyna icon library
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** Codebase używa lucide-react plus 14 plików z inline SVG (portal, auth, workflows). Dostępne alternatywy: Phosphor, Heroicons, mix.
+**Decyzja:** lucide-react jako jedyne źródło ikon. Inline SVG do zmigrowania.
+**Uzasadnienie:** lucide-react jest już dominującą biblioteką w projekcie. Ma 1400+ ikon, spójne stroke width (2px default), tree-shakeable. Dodanie drugiej biblioteki ikon to gwarantowana niespójność (różne stroke widths, sizing conventions). 14 inline SVG to jednorazowa migracja.
+**Alternatywy rozważane:** Phosphor (6 weight variants — overkill), Heroicons (smaller set, different style), mix (inconsistent).
+**Konsekwencje:** Nowe ikony tylko z lucide-react. Inline SVG zmigrowane w ramach module migration.
+
+#### DR-004: Alert jako unified feedback component
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** Dwa komponenty inline feedback — Notice (3 warianty, 7 importów) i Alert (5 wariantów, 18 importów). Różne API, różne kolory.
+**Decyzja:** Alert jako primary. Notice deprecated z bridge period ≥1 minor version.
+**Uzasadnienie:** Alert ma więcej wariantów (5 vs 3), więcej importów (18 vs 7), i używa CVA (łatwe do rozszerzenia). Notice dodaje jedynie `compact` prop — łatwy do dodania w Alert. Ujednolicenie 4 różnych palet kolorów (sekcja 1.5) dla tego samego celu semantycznego wymaga jednego źródła prawdy.
+**Alternatywy rozważane:** Notice jako primary (fewer variants, less adoption), nowy komponent (unnecessary churn), utrzymanie obu (perpetuates inconsistency).
+**Konsekwencje:** Alert rozszerzony o `compact?`, `dismissible?`, `onDismiss?`. Notice ← `@deprecated` JSDoc + runtime console.warn. 7 importów Notice do zmigrowania.
+
+#### DR-005: FormField jako oddzielny komponent od CrudForm
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** CrudForm (1800 linii) ma wbudowany FieldControl z label + input + error. Portal i auth pages budują formularze ręcznie z niespójnym styling. Potrzebny reusable form field wrapper.
+**Decyzja:** Nowy `FormField` primitive w `packages/ui/src/primitives/form-field.tsx`, niezależny od CrudForm.
+**Uzasadnienie:** Refaktoryzacja CrudForm żeby wyeksponować FieldControl jako public API wymaga zmian w 1800-liniowym pliku używanym na ~20 stronach — ryzyko regresji jest zbyt duże na hackathon. Oddzielny FormField jest prosty, testowalny, i natychmiast użyteczny w portal/auth pages. CrudForm może go adoptować wewnętrznie w przyszłej iteracji.
+**Alternatywy rozważane:** Refactoring CrudForm (high risk, high reward but wrong timing), extract from CrudForm (tight coupling to CrudForm internals).
+**Konsekwencje:** FormField: `label?`, `required?`, `labelVariant?`, `description?`, `error?`, `children`. CrudForm nadal używa wewnętrznego FieldControl. Unifikacja w przyszłej iteracji.
+
+#### DR-006: OKLCH color space
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** Projekt już używa OKLCH w CSS custom properties (globals.css). Alternatywy: HSL (szerzej rozumiane), hex (tradycyjne).
+**Decyzja:** Zachowujemy OKLCH.
+**Uzasadnienie:** OKLCH jest perceptually uniform — zmiana lightness o tę samą wartość daje postrzeganą zmianę jasności. To kluczowe dla generowania spójnych palet statusowych (error, success, warning, info) z kontrolowanym kontrastem. HSL nie jest perceptually uniform — `hsl(0, 70%, 50%)` i `hsl(120, 70%, 50%)` mają różną perceived brightness. OKLCH jest zaimplementowane — zmiana to koszt bez korzyści.
+**Alternatywy rozważane:** HSL (wider support, not perceptually uniform), hex (no manipulation possible).
+**Konsekwencje:** Wszystkie nowe tokeny w OKLCH. Sprawdzanie kontrastu wymaga narzędzi OKLCH-aware (Chrome DevTools 120+).
+
+#### DR-007: Tailwind scale + text-overline zamiast custom type scale
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** 61 arbitralnych rozmiarów tekstu (text-[11px], text-[13px], etc.). Opcje: pełna custom typography scale (heading-1 through caption) vs leverage Tailwind + single custom token.
+**Decyzja:** Tailwind scale jako primary + jeden custom token `text-overline` (11px, uppercase, tracking-wider) dla label pattern.
+**Uzasadnienie:** Pełna custom scale duplikuje to co Tailwind już oferuje (text-xs, text-sm, text-base, text-lg, text-xl, text-2xl). Jedyny brakujący rozmiar to 11px uppercase label (33 wystąpienia text-[11px]) — dostaje dedykowany token. Reszta arbitralnych rozmiarów (text-[13px], text-[10px]) mapuje na najbliższy Tailwind size.
+**Alternatywy rozważane:** Full custom scale (maintenance burden, duplicates Tailwind), no custom tokens (loses 11px pattern).
+**Konsekwencje:** `--font-size-overline: 0.6875rem`. Codemod mapuje: `text-[11px]` → `text-overline`, `text-[13px]` → `text-sm`, `text-[10px]` → `text-xs`.
+
+#### DR-008: Per-module migration zamiast big-bang
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** 372 hardcoded kolorów w 34 modułach. Opcje: migracja wszystkiego naraz (big-bang) vs moduł po module.
+**Decyzja:** Per-module migration. Customers → Sales → Catalog → reszta organicznie.
+**Uzasadnienie:** Big-bang tworzy massive PR (100+ plików) który jest niemożliwy do review, łatwy do złamania, i blokuje wszystkie inne PR-y na czas merge. Per-module: każdy PR to 5-15 plików, reviewowalny w 30 minut, merge nie blokuje innych. Codemod script (sekcja J) automatyzuje 80% pracy. Pozwala też na validację — jeśli migracja customers ujawni problem z tokenami, naprawiamy ZANIM migrujemy 33 kolejne moduły.
+**Alternatywy rozważane:** Big-bang (fast but high risk, unreviewable), file-by-file (too granular, PR spam).
+**Konsekwencje:** ~34 PR-y migracyjne, 1-2h każdy. Lint rules `warn` na legacy, `error` na nowym kodzie. Dashboard (`ds-health-check.sh`) trackuje postęp.
+
+#### DR-009: warn-then-error lint strategy
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** 6 nowych lint rules DS. Opcje: od razu error (blokuje CI), warn (informuje bez blokowania), warn→error po migracji.
+**Decyzja:** warn na legacy, error na nowych modułach. Po migracji modułu → error globalnie.
+**Uzasadnienie:** Natychmiastowy error na 372 violations = zablokowany CI dla całego projektu. Nikt nie zmerguje niczego dopóki ktoś nie naprawi legacy. To paraliżuje development. warn pozwala kontynuować pracę, jednocześnie edukując (contributor widzi warning, uczy się). error na nowych plikach zapobiega nowej legacy. Gradual ramp-up.
+**Alternatywy rozważane:** Immediate error (blocks CI), warn forever (no enforcement), eslint-disable (defeats purpose).
+**Konsekwencje:** ESLint config z dwoma blokami — strict dla nowych plików, lenient dla legacy. Po migracji modułu: przenosimy pliki do strict.
+
+#### DR-010: StatusBadge + StatusMap pattern
+**Data:** 2026-04-10
+**Status:** Accepted
+**Kontekst:** Każdy moduł definiuje własne kolory statusów (hardcoded). Opcje: rozszerzenie Badge o status variants vs oddzielny StatusBadge.
+**Decyzja:** Oddzielny StatusBadge (semantic wrapper) który renderuje Badge wewnętrznie. Badge dostaje nowe CVA variants (success, warning, info).
+**Uzasadnienie:** StatusBadge i Badge mają różne API kontrakty. Badge to generic visual component (`variant: 'default'|'secondary'|'destructive'|...`). StatusBadge to semantic component (`variant: 'success'|'warning'|'error'|'info'|'neutral'`) — contributor myśli "jaki status?" nie "jaki styl?". Oddzielny komponent umożliwia dodanie `dot` indicator, animacji, i mapowania status→variant bez zaśmiecania Badge. Wewnętrznie: `StatusBadge variant="success"` → `Badge variant="success"`.
+**Alternatywy rozważane:** Extend Badge only (mixes semantic and visual concerns), StatusBadge without Badge (duplication).
+**Konsekwencje:** `StatusBadge` w `packages/ui/src/primitives/status-badge.tsx`. Badge w `badge.tsx` ← 3 nowe CVA variants. Zero breaking changes w istniejącym Badge API.
+
+---
+
+## S. Success Metrics Beyond Code
+
+### S.1 Contributor Experience Metrics
+
+#### 1. Time to First DS-Compliant PR
+
+| | |
+|---|---|
+| **Jak mierzyć** | Timestamp pierwszego UI-related commita → timestamp merge. Filter: PR-y od nowych contributorów (≤3 prior PRs) modyfikujące pliki `backend/**/*.tsx`. |
+| **Baseline** | Unknown — zmierzyć retrospektywnie z git log (5 ostatnich nowych contributor PRs). Estymata: 3-5 dni (w tym review rounds). |
+| **Target** | ≤2 dni (w tym review). |
+| **Cadence** | Per PR (automatic via git log), summarized monthly. |
+| **Komenda** | `git log --format="%H %aI" --diff-filter=A -- "packages/core/src/modules/*/backend/**/*.tsx" \| head -20` |
+
+#### 2. Review Rounds per UI PR
+
+| | |
+|---|---|
+| **Jak mierzyć** | Count "changes requested" reviews na PR-ach modyfikujących `backend/**/*.tsx`. Użyj GitHub API: `gh pr list --search "review:changes-requested" --json number,reviews`. |
+| **Baseline** | Estymata: 2-3 rounds (na podstawie audit findings — 372 hardcoded colors = dużo review comments). |
+| **Target** | ≤1 round (lint rules łapią mechanical issues, reviewer sprawdza logikę). |
+| **Cadence** | Monthly aggregate. |
+
+#### 3. DS Component Adoption Rate
+
+| | |
+|---|---|
+| **Jak mierzyć** | % nowych plików `page.tsx` (dodanych w ostatnich 30 dni) importujących ≥3 DS components z listy: Page, PageBody, DataTable, CrudForm, EmptyState, StatusBadge, LoadingMessage, FormField. |
+| **Baseline** | ~20% (estymata z audytu — większość stron nie używa EmptyState, StatusBadge). |
+| **Target** | 80% po 3 miesiącach, 95% po 6 miesiącach. |
+| **Cadence** | Monthly. |
+| **Komenda** | `git log --since="30 days ago" --diff-filter=A --name-only -- "**/backend/**/page.tsx" \| xargs grep -l "EmptyState\|StatusBadge\|LoadingMessage" \| wc -l` |
+
+#### 4. DS Bypass Rate
+
+| | |
+|---|---|
+| **Jak mierzyć** | Count lint warnings `om-ds/*` na nowych plikach w CI. Nowe pliki = dodane w tym PR (nie legacy). |
+| **Baseline** | N/A (lint rules jeszcze nie istnieją). Pierwszy pomiar po hackathonie. |
+| **Target** | <5% nowych plików z DS warnings po 1 miesiącu. 0% po 3 miesiącach. |
+| **Cadence** | Per CI run (automated), summarized weekly. |
+
+#### 5. Contributor Satisfaction (qualitative)
+
+| | |
+|---|---|
+| **Jak mierzyć** | Quarterly GitHub Discussion survey (3 pytania — sekcja S.2). |
+| **Baseline** | First survey = baseline. |
+| **Target** | Score ≥7/10 na pytaniu ilościowym. |
+| **Cadence** | Quarterly. |
+
+### S.2 Quarterly Contributor Survey
+
+**Format:** GitHub Discussion, category "Design System Feedback", pinned na 2 tygodnie.
+
+**3 pytania:**
+
+1. **(Quantitative)** "Na skali 1-10, jak łatwo jest zbudować nowy ekran UI w Open Mercato przy użyciu obecnych komponentów i dokumentacji?"
+
+2. **(Qualitative)** "Opisz w 1-2 zdaniach ostatnią sytuację gdy budując UI nie wiedziałeś jakiego komponentu lub tokena użyć."
+
+3. **(Actionable)** "Gdybyśmy mogli zmienić jedną rzecz w design system — co by ci najbardziej pomogło?"
+
+**Template na summary:**
+
+```markdown
+## DS Survey Q[N] 2026 — Summary
+
+**Responses:** [N]
+**Avg score (Q1):** [X]/10 (prev: [Y]/10, delta: [+/-Z])
+
+### Top themes (Q2 — friction points):
+1. [theme] — mentioned by [N] respondents
+2. [theme] — mentioned by [N] respondents
+
+### Top requests (Q3 — what to change):
+1. [request] — mentioned by [N] respondents
+2. [request] — mentioned by [N] respondents
+
+### Actions taken:
+- [concrete action based on feedback]
+- [concrete action based on feedback]
+
+### Deferred (and why):
+- [request] — deferred because [reason]
+```
+
+### S.3 Leading vs Lagging Indicators
+
+| Metryka | Typ | Dlaczego | Jak reagować |
+|---------|-----|----------|--------------|
+| **DS Bypass Rate** (S.1.4) | Leading | Wzrost = contributorzy aktywnie omijają system. Problem TERAZ, zanim pojawią się hardcoded colors w codebase. | Natychmiast: zbadaj dlaczego omijają (brak komponentu? złe API? nie znają?). |
+| **Review Rounds** (S.1.2) | Leading | Wzrost = DS nie eliminuje mechanical issues. Reviewerzy nadal łapią kolory/spacing ręcznie. | W ciągu tygodnia: sprawdź lint rules coverage, dodaj brakujące reguły. |
+| **Hardcoded colors count** (F) | Lagging | To jest pomiar stanu — spada tylko gdy ktoś aktywnie migruje. Nie sygnalizuje nowych problemów, potwierdza stare. | Trend miesięczny. Jeśli nie spada — brak migration activity. |
+| **Arbitrary text sizes** (F) | Lagging | Jak wyżej. | Trend miesięczny. |
+| **Empty state coverage** (F) | Lagging | Miara pokrycia — rośnie powoli z nowymi stronami i migracjami. | Trend miesięczny. |
+| **DS Adoption Rate** (S.1.3) | Leading | Niski = nowe strony budowane bez DS. Problem rośnie z każdym nowym modułem. | Natychmiast: czy templates są łatwe do znalezienia? Czy lint rules działają? |
+| **Time to First PR** (S.1.1) | Leading | Wzrost = DS nie przyspiesza onboardingu. | W ciągu 2 tygodni: obserwuj nowego contributora (Q.3), zidentyfikuj friction. |
+| **Contributor Satisfaction** (S.1.5) | Lagging | Kwartalna retrospekcja stanu. Nie sygnalizuje problemów w real-time. | Trend kwartalny. Jeśli spada — deep dive w qualitative answers. |
+
+**Zasada:** Na leading indicators reaguj w ciągu tygodnia. Na lagging indicators patrz w trendzie miesięcznym/kwartalnym.
+
+---
+
+## T. Iteration & Feedback Mechanism
+
+### T.1 DS Retrospective — 2 tygodnie po hackathonie
+
+**Data docelowa:** ~25 kwietnia 2026 (piątek)
+**Czas:** 30 minut
+**Uczestnicy:** DS lead + 2-3 championów (sekcja P) + 1-2 contributorów którzy budowali UI w ostatnich 2 tygodniach
+
+**Agenda:**
+
+| Min | Blok | Co robimy |
+|-----|------|-----------|
+| 0-5 | **Data review** | Wynik `ds-health-check.sh` vs baseline z hackathonu. Ile hardcoded colors ubyło? Ile modułów zmigrowano? Adoption rate nowych komponentów. |
+| 5-10 | **What worked** | Każdy uczestnik: 1 rzecz która się sprawdziła. Np. "codemod script zaoszczędził mi godzinę", "lint warning uratował mnie przed hardcoded color". |
+| 10-20 | **What didn't** | 3 pytania poniżej. To jest najważniejsza część — 10 minut, nie 5. |
+| 20-25 | **Token/component feedback** | Konkretne problemy z API: "StatusBadge nie ma wariantu X", "token name Y jest mylący", "FormField orientation nie działa z Z". |
+| 25-30 | **Next iteration** | 3 actionable items na następne 2 tygodnie. Zapisane w GitHub Discussion post. |
+
+**3 pytania na "what didn't" (zaprojektowane żeby wyciągać prawdę):**
+
+1. **"Czy w ciągu ostatnich 2 tygodni zdarzyło ci się ominąć DS guideline — np. użyć hardcoded koloru albo pominąć EmptyState? Jeśli tak — dlaczego?"**
+   Cel: Odkryć *dlaczego* ludzie obchodzą system. Powody: nie wiedzieli? Za trudne? Brak wariantu? Pośpiech? Każda odpowiedź prowadzi do innej akcji.
+
+2. **"Czy jest komponent lub token którego szukałeś i nie znalazłeś — i musiałeś zrobić workaround?"**
+   Cel: Odkryć luki w DS. Może brakuje wariantu StatusBadge. Może brakuje tokena dla border w kontekście nieobjętym status colors. To jest lista TODO na iterację 2.
+
+3. **"Gdybyś mógł cofnąć jedną decyzję DS — co by to było?"**
+   Cel: Wyłapać decyzje które wyglądały dobrze na papierze ale nie działają w praktyce. Jeśli 2/3 osób mówi "flat tokens mają za dużo nazw" — rozważamy uproszczenie. Jeśli mówią "lint rules są zbyt agresywne" — rozważamy przesunięcie na warn.
+
+### T.2 Feedback Channels — ongoing
+
+#### 1. GitHub Label: `design-system`
+
+| | |
+|---|---|
+| **Co tagujemy** | Każdy issue, PR lub discussion dotyczący DS: migracje, nowe komponenty, token changes, lint rules |
+| **Kto monitoruje** | DS lead (ty). Weekly scan: `gh issue list --label design-system` + `gh pr list --label design-system` |
+| **Cadence** | Continuous. Weekly review. |
+| **Co robimy z feedbackiem** | Triage: bug (fix w bieżącym sprincie), feature request (do backlogu DS), question (odpowiedź + update docs jeśli pytanie się powtarza) |
+
+#### 2. GitHub Discussion: "Design System Feedback"
+
+| | |
+|---|---|
+| **Co tu trafia** | Pytania ("czy powinienem użyć Alert czy Notice?"), propozycje ("potrzebuję wariantu X"), frustracje ("token naming jest mylący") |
+| **Kto monitoruje** | DS lead + championowie. Champions odpowiadają na proste pytania, eskalują nietrywialne. |
+| **Cadence** | Odpowiedź w ≤48h (standard OSS). |
+| **Co robimy z feedbackiem** | FAQ: jeśli pytanie się powtarza (≥3 razy) — dodajemy do DS.md. Propozycja: if popular — DR + implementation. Frustracja: investigate, acknowledge, fix or explain. |
+
+#### 3. PR Review Comments: tag `[DS]`
+
+| | |
+|---|---|
+| **Co to jest** | Reviewer dodaje `[DS]` prefix do komentarzy dotyczących design system: `[DS] Use text-destructive instead of text-red-600` |
+| **Kto monitoruje** | DS lead. Monthly grep: `gh api search/issues -f q="[DS] repo:open-mercato/open-mercato"` |
+| **Co robimy** | Recurring `[DS]` comments na ten sam temat → nowa lint rule lub update docs. Np. jeśli 5 PR-ów ma komentarz "[DS] missing EmptyState" i `require-empty-state` jest `warn` — rozważamy `error`. |
+
+#### 4. Monthly DS Digest
+
+| | |
+|---|---|
+| **Format** | GitHub Discussion post, 5 bulletów max |
+| **Struktura** | 1. Migrated modules (this month). 2. New tokens/components. 3. Top lint violations (trending). 4. Decisions made (link to DR). 5. Next month priorities. |
+| **Kto pisze** | DS lead |
+| **Cadence** | First week of month |
+| **Dlaczego** | Daje contributorowi context bez zmuszania do śledzenia każdego PR. 2-minutowy read raz w miesiącu. |
+
+### T.3 Version Strategy
+
+**Semver for DS: NIE.** DS jest częścią monorepo — wersjonowany razem z `@open-mercato/ui`. Osobna wersja DS to overhead bez korzyści w monorepo. Zmiany w tokenach/komponentach trafiają do standardowego `RELEASE_NOTES.md` z tagiem `[DS]`.
+
+**Deprecation policy:** ≥1 minor version między deprecated a removed. Spójne z `BACKWARD_COMPATIBILITY.md`. Konkretnie:
+- Deprecated component (np. Notice): dodaj `@deprecated` JSDoc + runtime `console.warn` w dev mode
+- Bridge: re-export z nowej lokalizacji lub wrapper
+- Po 1 minor version: usuń z codebase, zaktualizuj migration guide
+
+Ta sama policy co Notice → Alert (sekcja 1.14 audytu): deprecation announced → bridge period → removal.
+
+**Changelog:** Każda zmiana DS trafia do `RELEASE_NOTES.md` z prefixem `[DS]`:
+```
+## [DS] Semantic status tokens added
+- 20 new CSS custom properties (--status-{error|success|warning|info|neutral}-{bg|text|border|icon})
+- Light and dark mode values with WCAG AA contrast
+- Migration: see packages/ui/decisions/DR-001.md
+```
+
+**Migration guides:** Każdy breaking change dostaje migration guide w formacie sekcji J (mapping table + codemod script). Kto pisze: osoba wprowadzająca breaking change (enforced w PR template checkbox). Wzór: sekcja J niniejszego dokumentu.
+
+### T.4 "Good Enough" Permission
+
+> **Nasz design system nie musi być perfekcyjny. Musi istnieć.**
+>
+> 30% adopcji w pierwszym miesiącu to sukces — oznacza, że nowe moduły są budowane spójnie, nawet jeśli legacy jeszcze nie zmigrowane. Tokeny mogą się zmienić — po to są tokenami, a nie hardcoded wartościami. Jeśli API komponentu okazuje się złe po 2 tygodniach użytkowania, zmieniamy je — mamy deprecation policy i codemod scripty właśnie na takie sytuacje. Spójność jest ważniejsza od perfekcji: lepiej 34 moduły używające "dobrego enough" tokena niż 3 moduły z idealną paletą i 31 z hardcoded kolorami. Ten design system jest produktem — a produkty się iterują.
+>
+> Buduj, mierz, poprawiaj. W tej kolejności.
+
+---
+
+*Koniec supplementu N-T. Sekcje E-T stanowią kompletny plan design systemu: techniczny (E-M) i ludzki (N-T).*
