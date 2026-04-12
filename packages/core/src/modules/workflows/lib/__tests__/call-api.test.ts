@@ -4,6 +4,11 @@ import type { AwilixContainer } from 'awilix'
 import { executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
+  findWithDecryption: jest.fn(async (em: any, Entity: any, query: any, opts: any) => em.find(Entity, query, opts)),
+}))
+
 jest.setTimeout(20000)
 
 // Mock fetch globally

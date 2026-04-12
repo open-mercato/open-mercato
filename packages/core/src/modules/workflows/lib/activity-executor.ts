@@ -837,27 +837,32 @@ export async function resolveCallApiRoleIds(
 ): Promise<string[]> {
   if (!instance.definitionId) return []
 
+  const { findOneWithDecryption, findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
   const { User, UserRole, Role } = await import('../../auth/data/entities')
   const { WorkflowDefinition } = await import('../data/entities')
 
-  const definition = await em.findOne(WorkflowDefinition, {
+  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
+
+  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
     id: instance.definitionId,
     tenantId: instance.tenantId,
-  })
+  }, {}, scope)
   const authorUserId = definition?.createdBy
   if (!authorUserId) return []
 
-  const author = await em.findOne(User, {
+  const author = await findOneWithDecryption(em, User, {
     id: authorUserId,
     tenantId: instance.tenantId,
     deletedAt: null,
-  })
+  }, {}, scope)
   if (!author) return []
 
-  const userRoles = await em.find(
+  const userRoles = await findWithDecryption(
+    em,
     UserRole,
     { user: author.id, deletedAt: null },
-    { populate: ['role'] }
+    { populate: ['role'] },
+    scope,
   )
   const roleIds = userRoles
     .map((ur: any) => (typeof ur.role === 'string' ? ur.role : ur.role?.id))
@@ -865,11 +870,11 @@ export async function resolveCallApiRoleIds(
 
   if (roleIds.length === 0) return []
 
-  const scopedRoles = await em.find(Role, {
+  const scopedRoles = await findWithDecryption(em, Role, {
     id: { $in: roleIds },
     tenantId: instance.tenantId,
     deletedAt: null,
-  })
+  }, {}, scope)
   return scopedRoles.map((r: any) => r.id as string)
 }
 
