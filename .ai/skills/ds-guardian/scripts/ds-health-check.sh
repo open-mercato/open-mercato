@@ -1,6 +1,6 @@
 #!/bin/bash
 # ds-health-check.sh — run every sprint
-# Usage: bash .ai/scripts/ds-health-check.sh
+# Usage: bash .ai/skills/ds-guardian/scripts/ds-health-check.sh
 # Portable: works on macOS and Linux (uses grep, no rg dependency)
 
 set -euo pipefail
@@ -21,7 +21,6 @@ report "=== DESIGN SYSTEM HEALTH CHECK ==="
 report "Date: $DATE"
 report ""
 
-# Count matching lines across .ts/.tsx files, excluding tests and node_modules
 count_matches() {
   local pattern="$1"
   { grep -r -E "$pattern" \
@@ -32,7 +31,6 @@ count_matches() {
     || true; } | wc -l | tr -d ' '
 }
 
-# Count files with at least one match
 count_files() {
   local pattern="$1"
   { grep -r -l -E "$pattern" \
@@ -109,7 +107,6 @@ report "  Semantic token usages: $ST"
 report ""
 report "=== END REPORT ==="
 
-# Compare with previous report
 PREV=$(ls -1 "$REPORT_DIR"/ds-health-*.txt 2>/dev/null | grep -v "$DATE" | sort | tail -1 || true)
 if [ -n "${PREV:-}" ] && [ -f "$PREV" ]; then
   echo ""

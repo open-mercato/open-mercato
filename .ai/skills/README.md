@@ -21,6 +21,16 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │       └── review-checklist.md
 ├── create-agents-md/
 │   └── SKILL.md
+├── ds-guardian/
+│   ├── SKILL.md
+│   ├── references/
+│   │   ├── token-mapping.md
+│   │   ├── component-guide.md
+│   │   └── page-templates.md
+│   └── scripts/
+│       ├── ds-health-check.sh
+│       ├── ds-migrate-colors.sh
+│       └── ds-migrate-typography.sh
 ├── fix-specs/
 │   ├── SKILL.md
 │   └── scripts/
@@ -161,6 +171,7 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | `check-and-commit` | Running CI-style verification, fixing i18n drift, and only then committing and pushing the current branch |
 | `code-review` | Reviewing PRs, code changes, or auditing code quality against project conventions |
 | `create-agents-md` | Creating or rewriting AGENTS.md files for packages and modules |
+| `ds-guardian` | Design system enforcement: analyzing modules for DS violations, migrating hardcoded colors/typography to semantic tokens, scaffolding DS-compliant pages, reviewing code against DS principles, and reporting health metrics |
 | `fix-specs` | Normalizing legacy spec filenames to `{YYYY-MM-DD}-{slug}.md`, resolving post-normalization collisions, and updating references/links |
 | `implement-spec` | Implementing a spec (or specific phases) using coordinated subagents with unit tests, integration tests, docs, progress tracking, and code-review compliance gates. Asks whether to build as an external extension (UMES) or core modification |
 | `integration-tests` | Running existing integration tests and generating new QA tests (Playwright TypeScript, with optional markdown scenarios) from specs or feature descriptions |
