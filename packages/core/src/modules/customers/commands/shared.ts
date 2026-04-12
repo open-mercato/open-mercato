@@ -250,6 +250,10 @@ async function emitQueryIndexEvents(
             tenantId: entry.tenantId ?? null,
             crudAction,
           },
+          {
+            tenantId: entry.tenantId ?? null,
+            organizationId: entry.organizationId ?? null,
+          },
         )
         .catch(() => undefined),
     ),
