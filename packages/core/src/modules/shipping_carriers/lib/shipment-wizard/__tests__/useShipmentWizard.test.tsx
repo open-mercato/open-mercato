@@ -7,7 +7,7 @@ import { useShipmentWizard } from '../hooks/useShipmentWizard'
 
 const chance = new Chance()
 
-// ── Mocks ────────────────────────────────────────────────────────────────────
+// ── Mocks ────────────────────────────────────────────────────────────────────────────
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
@@ -52,7 +52,7 @@ const mockFetchOrderAddresses = fetchOrderAddresses as jest.MockedFunction<typeo
 const mockFetchRates = fetchRates as jest.MockedFunction<typeof fetchRates>
 const mockCreateShipment = createShipment as jest.MockedFunction<typeof createShipment>
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────────────
 
 const makeProvider = () => ({ providerKey: chance.word() })
 
@@ -90,7 +90,7 @@ const setupBaseMocks = (orderId: string | null = null) => {
   return { routerPush }
 }
 
-// ── Tests ──────────────────────────────────────────────────────────────────────
+// ── Tests ────────────────────────────────────────────────────────────────────────────
 
 describe('useShipmentWizard', () => {
   afterEach(() => jest.clearAllMocks())
@@ -416,4 +416,58 @@ describe('useShipmentWizard', () => {
       expect(result.current.canProceedFromConfigure).toBe(true)
     })
   })
+
+  describe('c2cSendingMethod', () => {
+    it('initialises c2cSendingMethod to dispatch_order', async () => {
+      setupBaseMocks()
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      expect(result.current.c2cSendingMethod).toBe('dispatch_order')
+    })
+
+    it('passes c2cSendingMethod to createShipment when set', async () => {
+      const orderId = chance.guid()
+      setupBaseMocks(orderId)
+      const rate = makeRate()
+      mockFetchRates.mockResolvedValue({ ok: true, rates: [rate] })
+      mockCreateShipment.mockResolvedValue({ ok: true })
+
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      act(() => {
+        result.current.setC2cSendingMethod('parcel_locker')
+        result.current.handleProviderSelect(chance.word())
+      })
+      act(() => result.current.handleConfigureNext())
+      await waitFor(() => expect(result.current.step).toBe('confirm'))
+      act(() => result.current.handleSubmit())
+
+      await waitFor(() => expect(mockCreateShipment).toHaveBeenCalled())
+      const callArgs = mockCreateShipment.mock.calls[0][0]
+      expect(callArgs.c2cSendingMethod).toBe('parcel_locker')
+    })
+
+    it('sends default dispatch_order value to createShipment when not changed', async () => {
+      const orderId = chance.guid()
+      setupBaseMocks(orderId)
+      const rate = makeRate()
+      mockFetchRates.mockResolvedValue({ ok: true, rates: [rate] })
+      mockCreateShipment.mockResolvedValue({ ok: true })
+
+      const { result } = renderHook(() => useShipmentWizard())
+      await waitFor(() => expect(result.current.isLoadingProviders).toBe(false))
+
+      act(() => result.current.handleProviderSelect(chance.word()))
+      act(() => result.current.handleConfigureNext())
+      await waitFor(() => expect(result.current.step).toBe('confirm'))
+      act(() => result.current.handleSubmit())
+
+      await waitFor(() => expect(mockCreateShipment).toHaveBeenCalled())
+      const callArgs = mockCreateShipment.mock.calls[0][0]
+      expect(callArgs.c2cSendingMethod).toBe('dispatch_order')
+    })
+  })
+
 })

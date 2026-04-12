@@ -7,7 +7,7 @@
   "shipping_carriers.create.action.searchPoints": "Search",
   "shipping_carriers.create.back": "Back",
   "shipping_carriers.create.c2cSendingMethod.any_point": "Any point",
-  "shipping_carriers.create.c2cSendingMethod.default": "Dispatch order (default)",
+  "shipping_carriers.create.c2cSendingMethod.dispatch_order": "Dispatch order",
   "shipping_carriers.create.c2cSendingMethod.parcel_locker": "Parcel locker",
   "shipping_carriers.create.c2cSendingMethod.pop": "POP (parcel pickup point)",
   "shipping_carriers.create.dropOffPoints.noResults": "No drop-off points found for this search.",

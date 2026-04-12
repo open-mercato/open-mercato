@@ -120,7 +120,7 @@ export const useShipmentWizard = (): ShipmentWizard => {
   const [senderContact, setSenderContact] = React.useState<ContactInfo>(EMPTY_CONTACT)
   const [receiverContact, setReceiverContact] = React.useState<ContactInfo>(EMPTY_CONTACT)
   const [targetPoint, setTargetPoint] = React.useState<string>('')
-  const [c2cSendingMethod, setC2cSendingMethod] = React.useState<string>('')
+  const [c2cSendingMethod, setC2cSendingMethod] = React.useState<string>('dispatch_order')
 
   const [dropOffPointQuery, setDropOffPointQuery] = React.useState<string>('')
   const [dropOffPoints, setDropOffPoints] = React.useState<DropOffPoint[]>([])

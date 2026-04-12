@@ -182,7 +182,7 @@ export const ConfirmStep = (props: ConfirmStepProps) => {
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   {t('shipping_carriers.create.summary.c2cSendingMethod', 'C2C sending method')}
                 </dt>
-                <dd className="mt-0.5">{c2cSendingMethod}</dd>
+                <dd className="mt-0.5">{c2cSendingMethod.replace(/_/g, ' ')}</dd>
               </div>
             ) : null}
           </dl>

@@ -200,7 +200,7 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
               onChange={(e) => onC2cSendingMethodChange(e.target.value)}
               disabled={isFetchingRates}
             >
-              <option value="">{t('shipping_carriers.create.c2cSendingMethod.default', 'Dispatch order (default)')}</option>
+              <option value="dispatch_order">{t('shipping_carriers.create.c2cSendingMethod.dispatch_order', 'Dispatch order')}</option>
               <option value="parcel_locker">{t('shipping_carriers.create.c2cSendingMethod.parcel_locker', 'Parcel locker')}</option>
               <option value="pop">{t('shipping_carriers.create.c2cSendingMethod.pop', 'POP (parcel pickup point)')}</option>
               <option value="any_point">{t('shipping_carriers.create.c2cSendingMethod.any_point', 'Any point')}</option>
@@ -340,4 +340,3 @@ export const ConfigureStep = (props: ConfigureStepProps) => {
     </section>
   )
 }
-
