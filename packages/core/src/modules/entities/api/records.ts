@@ -10,7 +10,6 @@ import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared
 import { setRecordCustomFields } from '../lib/helpers'
 import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { sanitizeCustomFieldHtmlRichTextValuesServer } from '../lib/htmlRichTextSanitizer'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.records.view'] },
@@ -257,12 +256,7 @@ export async function POST(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const norm = await sanitizeCustomFieldHtmlRichTextValuesServer(em, {
-      entityId,
-      organizationId: targetOrgId,
-      tenantId: auth.tenantId!,
-      values: normalizeValues(values),
-    })
+    const norm = normalizeValues(values)
 
     // Validate against custom field definitions
     try {
@@ -323,13 +317,7 @@ export async function PUT(req: Request) {
     const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
     const targetOrgId = scope.selectedId ?? auth.orgId
     if (!targetOrgId) return NextResponse.json({ error: 'Organization context is required' }, { status: 400 })
-    const norm = await sanitizeCustomFieldHtmlRichTextValuesServer(em, {
-      entityId,
-      organizationId: targetOrgId,
-      tenantId: auth.tenantId!,
-      values: normalizeValues(values),
-    })
-
+    const norm = normalizeValues(values)
 
     // Validate against custom field definitions
     try {
