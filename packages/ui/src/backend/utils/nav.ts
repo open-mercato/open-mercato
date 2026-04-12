@@ -34,9 +34,9 @@ export type BuildAdminNavOptions = {
  * @deprecated The internal fetch-based feature check will be removed.
  *             Provide `options.checkFeatures` so buildAdminNav can reuse your RBAC context.
  */
-async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string>> { // NOSONAR — mutable accumulator pattern; Set is populated between early return and final return
+async function fetchFeatureGrants(requestFeatures: string[]): Promise<{ granted: Set<string>; failed: boolean }> { // NOSONAR — mutable accumulator pattern; Set is populated between early return and final return
   const granted = new Set<string>()
-  if (!requestFeatures.length) return granted
+  if (!requestFeatures.length) return { granted, failed: false }
   let url = '/api/auth/feature-check'
   let headersInit: Record<string, string> | undefined
   if (typeof window === 'undefined') {
@@ -60,16 +60,21 @@ async function fetchFeatureGrants(requestFeatures: string[]): Promise<Set<string
       headers: { 'content-type': 'application/json', ...(headersInit || {}) },
       body: JSON.stringify({ features: requestFeatures }),
     } as any)
-    if (res.ok) {
-      const data = await res.json().catch(() => ({ granted: [] }))
-      if (Array.isArray(data?.granted)) {
-        data.granted.forEach((f: string) => granted.add(f))
-      }
+    if (!res.ok) {
+      console.error('[buildAdminNav] feature fetch returned non-ok status; skipping feature-gated filtering', {
+        status: res.status,
+      })
+      return { granted, failed: true }
     }
-  } catch {
-    // ignore fetch failures and keep feature set empty
+    const data = await res.json().catch(() => ({ granted: [] }))
+    if (Array.isArray(data?.granted)) {
+      data.granted.forEach((f: string) => granted.add(f))
+    }
+    return { granted, failed: false }
+  } catch (error) {
+    console.error('[buildAdminNav] feature fetch failed; skipping feature-gated filtering', error)
+    return { granted, failed: true }
   }
-  return granted
 }
 
 /**
@@ -248,6 +253,7 @@ export async function buildAdminNav(
 
   // Batch check all features in a single API call
   let userFeatures: string[] = []
+  let featureCheckFailed = false
   if (allRequiredFeatures.size > 0) {
     const requestFeatures = Array.from(allRequiredFeatures)
     if (options?.checkFeatures) {
@@ -256,11 +262,14 @@ export async function buildAdminNav(
         if (resolved) {
           userFeatures = Array.from(resolved).filter((feature): feature is string => typeof feature === 'string' && feature.length > 0)
         }
-      } catch {
-        // ignore and fall back to empty feature set
+      } catch (error) {
+        featureCheckFailed = true
+        console.error('[buildAdminNav] feature check failed; skipping feature-gated filtering', error)
       }
     } else {
-      userFeatures = Array.from(await fetchFeatureGrants(requestFeatures))
+      const featureFetch = await fetchFeatureGrants(requestFeatures)
+      userFeatures = Array.from(featureFetch.granted)
+      featureCheckFailed = featureFetch.failed
     }
   }
 
@@ -296,7 +305,7 @@ export async function buildAdminNav(
       }
       // If features are required, check from cached batch result
       const features = r.requireFeatures
-      if (features && features.length) {
+      if (features && features.length && !featureCheckFailed) {
         const ok = hasAllFeatures(features)
         if (!ok) continue
       }

@@ -7,6 +7,23 @@ import {
 } from '../utils/nav'
 
 describe('settings navigation helpers', () => {
+  let consoleErrorSpy: jest.SpyInstance
+  const originalFetch = global.fetch
+
+  beforeEach(() => {
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    delete (global as typeof globalThis & { fetch?: typeof fetch }).fetch
+  })
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore()
+    if (originalFetch) {
+      global.fetch = originalFetch
+      return
+    }
+    delete (global as typeof globalThis & { fetch?: typeof fetch }).fetch
+  })
+
   it('includes only settings-context entries', () => {
     const entries: AdminNavItem[] = [
       {
@@ -128,5 +145,67 @@ describe('settings navigation helpers', () => {
     )
 
     expect(entries.map((item) => item.href)).toContain('/backend/customer_accounts/users')
+  })
+
+  it('keeps feature-gated navigation visible when feature checking fails', async () => {
+    const entries = await buildAdminNav(
+      [
+        {
+          id: 'customer_accounts',
+          backendRoutes: [
+            {
+              pattern: '/backend/customer_accounts/users',
+              title: 'Users',
+              requireFeatures: ['customer_accounts.view'],
+              pageContext: 'settings',
+            },
+          ],
+        },
+      ],
+      { auth: { roles: [] } },
+      undefined,
+      undefined,
+      {
+        checkFeatures: async () => {
+          throw new Error('rbac unavailable')
+        },
+      },
+    )
+
+    expect(entries.map((item) => item.href)).toContain('/backend/customer_accounts/users')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[buildAdminNav] feature check failed; skipping feature-gated filtering',
+      expect.any(Error),
+    )
+  })
+
+  it('keeps feature-gated navigation visible when feature fetch returns non-ok', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    } as Response)
+
+    const entries = await buildAdminNav(
+      [
+        {
+          id: 'customer_accounts',
+          backendRoutes: [
+            {
+              pattern: '/backend/customer_accounts/users',
+              title: 'Users',
+              requireFeatures: ['customer_accounts.view'],
+              pageContext: 'settings',
+            },
+          ],
+        },
+      ],
+      { auth: { roles: [] } },
+    )
+
+    expect(entries.map((item) => item.href)).toContain('/backend/customer_accounts/users')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '[buildAdminNav] feature fetch returned non-ok status; skipping feature-gated filtering',
+      { status: 500 },
+    )
   })
 })
