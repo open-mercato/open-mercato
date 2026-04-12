@@ -23,6 +23,7 @@ import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '../lib/crud'
 import { E } from '#generated/entities.ids.generated'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
@@ -206,6 +207,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const tenantId = auth.tenantId
@@ -269,11 +271,15 @@ export async function POST(req: Request) {
   }
   const effectiveMaxBytes = resolveAttachmentMaxBytes(fieldMaxAttachmentSizeMb)
   if (file.size > effectiveMaxBytes) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
   }
   const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, tenantId)
   if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
-    return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
+    return NextResponse.json({
+      error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
+    }, { status: 413 })
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')

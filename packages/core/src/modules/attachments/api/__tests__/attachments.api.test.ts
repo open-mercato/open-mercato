@@ -142,7 +142,7 @@ describe('attachments API', () => {
     const file = new File([oversized], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(413)
     const payload = await res.json()
     expect(payload.error).toMatch(/exceeds/i)
   })
