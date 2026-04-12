@@ -23,23 +23,12 @@ export RECORD_ID="<entity record id you want to attach files to>"
 
 ## OCR / text extraction
 
-Open Mercato supports two OCR methods for extracting text from attachments:
+Open Mercato supports two text-extraction methods for attachments:
 
 1. **LLM-based OCR** (recommended) – uses OpenAI's GPT-4o vision capabilities for images and PDFs
-2. **markitdown** – fallback for non-image/PDF files (text, Office, Outlook)
+2. **markitdown** – fallback text extraction for PDFs and other non-image files (text, Office, Outlook) when LLM OCR is unavailable
 
 ### LLM-based OCR (images and PDFs)
-
-**System Dependencies**
-
-The LLM OCR feature requires system packages for PDF processing:
-
-- **macOS**: `brew install graphicsmagick ghostscript poppler`
-- **Ubuntu/Debian**: `sudo apt-get install graphicsmagick ghostscript poppler-utils`
-- **Docker**: Add to Dockerfile:
-  ```dockerfile
-  RUN apt-get update && apt-get install -y graphicsmagick ghostscript poppler-utils
-  ```
 
 **Environment Variables**
 
@@ -63,13 +52,14 @@ OCR_MODEL=gpt-4o
 **How it works**
 
 - **Images** (PNG, JPG, GIF, BMP, WebP, TIFF): Sent directly to GPT-4o for text extraction
-- **PDFs**: Converted to images page-by-page using pdf2pic (requires graphicsmagick + ghostscript), then each page is processed via GPT-4o
+- **PDFs**: Parsed with `pdfjs-dist`; text-layer content is used directly when available, and scanned/image-only pages are rendered through the Node canvas backend before OCR
 - **Processing**: Asynchronous – uploads return immediately, content is populated in the background
 - **Model selection**: Per-partition model override available in partition settings UI
 - **Extracted text**: Stored in `Attachment.content` field and shown in the metadata dialog
-- **Fallback**: Non-image/PDF files use markitdown for text extraction
+- **Security**: No `pdf2pic`, GraphicsMagick, or Ghostscript delegates are used in the PDF OCR path
+- **Fallback**: PDFs and other non-image files use `markitdown` when available on `PATH` and LLM OCR is not available
 
-### markitdown (non-image/PDF files)
+### markitdown (PDF and other non-image files)
 
 Prerequisite: the `markitdown` CLI must be on `PATH`. Easiest install:
 
@@ -81,14 +71,14 @@ markitdown --help                                        # verify it works
 
 How it works:
 
-- Non-image/PDF files (text, Office, Outlook) are passed to `markitdown` after upload if the partition opts in.
+- PDFs and other non-image files (text, Office, Outlook) are passed to `markitdown` after upload if the partition opts in and LLM OCR is unavailable.
 - The extracted text is stored on the attachment record and shown in the metadata dialog; empty output is ignored.
 
 ### Configuration
 
 - The default opt-in is controlled by `OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false`.
 - Each partition has a `requiresOcr` flag; disable it to skip extraction for that partition.
-- Partition-specific model selection is available in the partition settings UI for LLM-based OCR.
+- Partition-specific model selection is available in the partition settings UI for image/PDF OCR.
 
 ## Attachments per record
 
