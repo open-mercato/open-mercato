@@ -5,16 +5,16 @@ description: Expose REST endpoints for the Inventory module using the CRUD facto
 
 # Step 4: Create the data API
 
-API handlers live under `api/<method>/<path>.ts`. Instead of hand-coding every method, lean on the CRUD factory from `@open-mercato/core`—it wraps validation, RBAC metadata, DI wiring, and event emission so each module stays consistent.
+API handlers live under `api/<path>/route.ts`. Instead of hand-coding every method, lean on the CRUD factory (`makeCrudRoute`) from `@open-mercato/shared` -- it wraps validation, RBAC metadata, multi-tenant scoping, and event emission so each module stays consistent.
 
 ## 1. Implement a domain service
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory/services
-touch packages/inventory/src/modules/inventory/services/inventory-service.ts
+mkdir -p apps/mercato/src/modules/inventory/services
+touch apps/mercato/src/modules/inventory/services/inventory-service.ts
 ```
 
-```ts title="services/inventory-service.ts"
+```ts title="apps/mercato/src/modules/inventory/services/inventory-service.ts"
 import type { EntityManager } from '@mikro-orm/core';
 import { InventoryItemEntity } from '../data/entities';
 import type { UpsertInventoryItemInput } from '../data/validators';
@@ -42,7 +42,7 @@ export class InventoryService {
     });
   }
 
-  async create(input: UpsertInventoryItemInput) {
+  async create(input: UpsertInventoryItemInput & { tenantId: string; organizationId: string }) {
     const item = this.em.create(InventoryItemEntity, {
       tenant_id: input.tenantId,
       organization_id: input.organizationId,
@@ -55,13 +55,12 @@ export class InventoryService {
     return item;
   }
 
-  async update(id: string, input: UpsertInventoryItemInput) {
+  async update(id: string, input: UpsertInventoryItemInput & { tenantId: string }) {
     const item = await this.em.findOneOrFail(InventoryItemEntity, {
       id,
       tenant_id: input.tenantId,
       deleted_at: null,
     });
-    item.organization_id = input.organizationId;
     item.sku = input.sku;
     item.name = input.name;
     item.quantity = input.quantity;
@@ -78,9 +77,9 @@ export class InventoryService {
 }
 ```
 
-Wire the service in `di.ts`:
+Update `di.ts` to wire the service into the Awilix container:
 
-```ts title="di.ts"
+```ts title="apps/mercato/src/modules/inventory/di.ts"
 import { asClass } from 'awilix';
 import type { AppContainer } from '@open-mercato/shared/lib/di/container';
 import { InventoryService } from './services/inventory-service';
@@ -92,58 +91,82 @@ export function register(container: AppContainer) {
 }
 ```
 
-> ℹ️ Use `.scoped()` so each request receives a fresh instance bound to the request-scoped EntityManager.
+> Use `.scoped()` so each request receives a fresh instance bound to the request-scoped EntityManager.
 
-## 2. Create a CRUD router
+## 2. Create a CRUD route
+
+The platform uses `makeCrudRoute` from `@open-mercato/shared/lib/crud/factory` to generate consistent REST endpoints. Each route file must also export per-method `metadata` for RBAC guards and an `openApi` object for API documentation.
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory/api/items
-touch packages/inventory/src/modules/inventory/api/items/route.ts
+mkdir -p apps/mercato/src/modules/inventory/api/items
+touch apps/mercato/src/modules/inventory/api/items/route.ts
 ```
 
-```ts title="api/items/route.ts"
-import { createCrudRouter } from '@open-mercato/core/modules/api/crud-router';
-import type { AppRouteHandlerContext } from '@open-mercato/shared/modules/api/types';
+```ts title="apps/mercato/src/modules/inventory/api/items/route.ts"
+import { z } from 'zod';
+import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory';
+import { InventoryItemEntity } from '../../data/entities';
 import { upsertInventoryItemSchema } from '../../data/validators';
 
-export const { GET, POST, PATCH, DELETE, metadata } = createCrudRouter({
-  entityName: 'inventory_item',
-  requireAuth: true,
-  requireFeatures: {
-    list: ['inventory.view'],
-    create: ['inventory.create'],
-    update: ['inventory.edit'],
-    delete: ['inventory.delete'],
+const listSchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
+  search: z.string().optional(),
+}).passthrough();
+
+const routeMetadata = {
+  GET:    { requireAuth: true, requireFeatures: ['inventory.view'] },
+  POST:   { requireAuth: true, requireFeatures: ['inventory.create'] },
+  PUT:    { requireAuth: true, requireFeatures: ['inventory.edit'] },
+  DELETE: { requireAuth: true, requireFeatures: ['inventory.delete'] },
+};
+
+export const metadata = routeMetadata;
+
+const crud = makeCrudRoute({
+  metadata: routeMetadata,
+  orm: {
+    entity: InventoryItemEntity,
+    idField: 'id',
+    orgField: 'organization_id',
+    tenantField: 'tenant_id',
+    softDeleteField: 'deleted_at',
   },
-  validator: upsertInventoryItemSchema,
-  resolveServices: ({ container }: AppRouteHandlerContext) => ({
-    inventoryService: container.resolve('inventoryService'),
-  }),
-  list: async ({ inventoryService, auth }) =>
-    inventoryService.list({ tenantId: auth.tenantId, organizationId: auth.organizationId }),
-  create: async ({ inventoryService, auth }, input) =>
-    inventoryService.create({ ...input, tenantId: auth.tenantId }),
-  retrieve: async ({ inventoryService, auth }, id) =>
-    inventoryService.findOne(id, auth.tenantId),
-  update: async ({ inventoryService, auth }, id, input) =>
-    inventoryService.update(id, { ...input, tenantId: auth.tenantId }),
-  remove: async ({ inventoryService, auth }, id) =>
-    inventoryService.remove(id, auth.tenantId),
+  list: {
+    schema: listSchema,
+  },
+  create: {
+    schema: upsertInventoryItemSchema,
+  },
+  update: {
+    schema: upsertInventoryItemSchema,
+  },
 });
+
+export const GET = crud.GET;
+export const POST = crud.POST;
+export const PUT = crud.PUT;
+export const DELETE = crud.DELETE;
+
+export const openApi = {};
 ```
 
-The factory:
+`makeCrudRoute` handles the following automatically:
 
-- Generates `GET /`, `GET /:id`, `POST`, `PATCH`, and `DELETE` handlers with consistent naming.
-- Derives per-method metadata so RBAC and auth guards run automatically.
-- Validates request bodies against your zod schema and translates errors into HTTP responses.
-- Injects the Awilix container, making services accessible without direct imports.
-- Emits CRUD lifecycle events that indexing and workflow subscribers rely on.
+- **Multi-tenant scoping** -- filters every query by `tenant_id` and `organization_id` from the authenticated session.
+- **Soft deletes** -- excludes rows where `deleted_at` is set.
+- **Validation** -- validates request bodies against your zod schema and translates errors into structured HTTP responses.
+- **RBAC** -- per-method metadata ensures auth guards run before the handler.
+- **Pagination** -- the `list` handler supports `page` and `pageSize` query parameters out of the box.
 
 Once you restart the dev server, the new API is available at `/api/items`.
 
+:::info API route conventions
+Every API route file **must** export an `openApi` object (even if empty initially) for automatic API documentation generation. The `metadata` export controls per-method auth and RBAC guards. See the [CRUD Factory reference](../framework/api/crud-factory) for advanced options like custom filters, search integration, event emission, and response caching.
+:::
+
 ### Why the CRUD factory matters
 
-- **Less boilerplate** – the factory handles transport concerns so you focus on domain logic.
-- **Consistency** – every module shares response shapes, error handling, and emitted events.
-- **Extensibility** – override individual handlers (for example, add advanced filters in `list`) while keeping the rest untouched.
+- **Less boilerplate** -- the factory handles transport concerns so you focus on domain logic.
+- **Consistency** -- every module shares response shapes, error handling, and pagination.
+- **Extensibility** -- override individual handlers (for example, add advanced filters in `list.buildFilters`) while keeping the rest untouched.
