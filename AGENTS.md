@@ -72,6 +72,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/implement-spec/SKILL.md` |
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 | Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
+| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/review-pr/SKILL.md` |
 
 ## Core Principles
 
