@@ -56,9 +56,13 @@ OCR_MODEL=gpt-4o
 # Optional: Custom prompt for text extraction
 # OCR_DEFAULT_PROMPT="Extract all text content from this image..."
 
-# Optional: Enable/disable OCR by default for new partitions (default: true)
-# OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true
+# Optional attachment defaults and limits
+# OM_DEFAULT_ATTACHMENT_OCR_ENABLED=true
+# OM_ATTACHMENT_MAX_UPLOAD_MB=25
+# OM_ATTACHMENT_TENANT_QUOTA_MB=512
 ```
+
+Attachment env naming follows the standard `OM_*` prefix. Legacy `OPENMERCATO_*` aliases are still read for backward compatibility, but new deployments should use the `OM_*` names.
 
 **How it works**
 
@@ -86,7 +90,9 @@ How it works:
 
 ### Configuration
 
-- The default opt-in is controlled by `OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false`.
+- `OM_DEFAULT_ATTACHMENT_OCR_ENABLED=true|false` controls whether new partitions opt into OCR by default.
+- `OM_ATTACHMENT_MAX_UPLOAD_MB=<number>` sets the global upload cap per file before field-specific limits are applied. Default: `25`.
+- `OM_ATTACHMENT_TENANT_QUOTA_MB=<number>` sets the tenant-wide stored attachment quota. Default: `512`.
 - Each partition has a `requiresOcr` flag; disable it to skip extraction for that partition.
 - Partition-specific model selection is available in the partition settings UI for LLM-based OCR.
 

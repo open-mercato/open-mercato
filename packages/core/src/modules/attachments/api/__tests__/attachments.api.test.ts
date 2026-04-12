@@ -88,6 +88,9 @@ describe('attachments API', () => {
     mockEm.find.mockReset()
     mockEm.find.mockResolvedValue([])
     mockExtractAttachmentContent.mockReset()
+    delete process.env.OM_DEFAULT_ATTACHMENT_OCR_ENABLED
+    delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
+    delete process.env.OM_ATTACHMENT_TENANT_QUOTA_MB
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB
     delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
@@ -145,7 +148,7 @@ describe('attachments API', () => {
   })
 
   it('rejects files that exceed the default global upload limit without field config', async () => {
-    process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB = '0.0005'
+    process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '0.0005'
     const file = new File([new Uint8Array(1024)], 'doc.pdf', { type: 'application/pdf' })
     const fd = new FormData()
     fd.set('entityId', 'example:todo')
@@ -159,7 +162,7 @@ describe('attachments API', () => {
   })
 
   it('rejects uploads that exceed the tenant storage quota', async () => {
-    process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
+    process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
     mockEm.getConnection.mockReturnValue({
       getKnex: () => {
         const query = {
@@ -212,6 +215,7 @@ describe('attachments API', () => {
   })
 
   it('uses env default when partition flag is undefined', async () => {
+    delete process.env.OM_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     mockExtractAttachmentContent.mockResolvedValue('default text')
     const partitionWithoutFlag = { ...partitions[0] }

@@ -3,16 +3,14 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CarrierShipment } from '../data/entities'
 import { emitShippingEvent } from '../events'
+import type { ShippingWebhookEvent } from '../lib/adapter'
 import { getShippingAdapter } from '../lib/adapter-registry'
 import { getTerminalShippingEvent, syncShipmentStatus, TERMINAL_SHIPPING_STATUSES } from '../lib/status-sync'
 import { claimWebhookProcessing, releaseWebhookClaim } from '../lib/webhook-utils'
 
 type WebhookJobPayload = {
   providerKey: string
-  event: {
-    eventType: string
-    data: Record<string, unknown>
-  }
+  event: ShippingWebhookEvent
   shipmentId?: string | null
   scope?: {
     organizationId: string
