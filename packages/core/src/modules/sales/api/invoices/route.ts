@@ -4,6 +4,7 @@ import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fi
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { SalesInvoice } from '../../data/entities'
 import { invoiceCreateSchema, invoiceUpdateSchema } from '../../data/validators'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { withScopedPayload } from '../utils'
 import {
   createPagedListResponseSchema,
@@ -77,14 +78,15 @@ const crud = makeCrudRoute({
       grandTotalGrossAmount: 'grand_total_gross_amount',
       createdAt: 'created_at',
     },
-    buildFilters: async (query: any) => {
-      const filters: Record<string, any> = {}
+    buildFilters: async (query: z.infer<typeof listSchema>) => {
+      const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
       if (query.search) {
+        const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
-          { invoice_number: { $ilike: `%${query.search}%` } },
-          { status: { $ilike: `%${query.search}%` } },
+          { invoice_number: { $ilike: term } },
+          { status: { $ilike: term } },
         ]
       }
       return filters
