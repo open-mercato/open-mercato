@@ -19,6 +19,7 @@ export type MeilisearchDriverOptions = {
   defaultLimit?: number
   encryptionMapResolver?: (entityId: EntityId) => Promise<EncryptionMapEntry[]>
   fieldPolicyResolver?: (entityId: EntityId) => SearchFieldPolicy | undefined
+  searchableAttributesResolver?: (entityIds?: EntityId[]) => string[] | undefined
 }
 
 export function createMeilisearchDriver(
@@ -30,6 +31,7 @@ export function createMeilisearchDriver(
   const defaultLimit = options?.defaultLimit ?? 20
   const encryptionMapResolver = options?.encryptionMapResolver
   const fieldPolicyResolver = options?.fieldPolicyResolver
+  const searchableAttributesResolver = options?.searchableAttributesResolver
 
   let client: MeiliSearch | null = null
   const initializedIndexes = new Set<string>()
@@ -192,12 +194,16 @@ export function createMeilisearchDriver(
       try {
         const index = meiliClient.index(indexName)
         const filters = buildFilters(options)
+        const attributesToSearchOn = searchableAttributesResolver?.(options.entityTypes)
 
         const response = await index.search(query, {
           limit: options.limit ?? defaultLimit,
           offset: options.offset,
           filter: filters.length > 0 ? filters.join(' AND ') : undefined,
           showRankingScore: true,
+          attributesToSearchOn: attributesToSearchOn && attributesToSearchOn.length > 0
+            ? attributesToSearchOn
+            : undefined,
         })
 
         return response.hits.map((hit: Record<string, unknown>) => ({

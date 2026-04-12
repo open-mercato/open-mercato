@@ -28,6 +28,7 @@ export function createFulltextDriver(
       indexPrefix: options?.meilisearch?.indexPrefix ?? process.env.MEILISEARCH_INDEX_PREFIX,
       encryptionMapResolver: options?.encryptionMapResolver,
       fieldPolicyResolver: options?.fieldPolicyResolver,
+      searchableAttributesResolver: options?.searchableAttributesResolver,
       defaultLimit: options?.defaultLimit,
     })
   }

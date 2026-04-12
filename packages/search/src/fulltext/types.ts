@@ -76,6 +76,7 @@ export type IndexStats = {
 export type FullTextSearchDriverConfig = {
   encryptionMapResolver?: (entityId: EntityId) => Promise<EncryptionMapEntry[]>
   fieldPolicyResolver?: (entityId: EntityId) => SearchFieldPolicy | undefined
+  searchableAttributesResolver?: (entityIds?: EntityId[]) => string[] | undefined
   defaultLimit?: number
 }
 

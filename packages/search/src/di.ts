@@ -176,6 +176,25 @@ export function registerSearchModule(
         const config = entityConfigMap.get(entityId)
         return config?.fieldPolicy
       },
+      searchableAttributesResolver: (entityIds?: EntityId[]): string[] | undefined => {
+        const configs = entityIds?.length
+          ? entityIds
+            .map((entityId) => entityConfigMap.get(entityId))
+            .filter((config): config is SearchEntityConfig => Boolean(config))
+          : Array.from(entityConfigMap.values())
+        const seen = new Set<string>()
+        const searchableAttributes: string[] = []
+
+        for (const config of configs) {
+          for (const attribute of config.fieldPolicy?.searchable ?? []) {
+            if (seen.has(attribute)) continue
+            seen.add(attribute)
+            searchableAttributes.push(attribute)
+          }
+        }
+
+        return searchableAttributes.length > 0 ? searchableAttributes : undefined
+      },
       encryptionMapResolver,
     })
 
