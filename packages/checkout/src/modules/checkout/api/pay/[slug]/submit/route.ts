@@ -398,10 +398,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
     const sessionCurrencyCode = transaction.currencyCode
     if (!transaction.gatewayTransactionId) {
-      let paymentSessionError: unknown = null
-      const sessionStart = await em.transactional(async (tx: EntityManager): Promise<PaymentSessionStartResult> => {
-        const lockedTransaction = await findOneWithDecryption(tx, CheckoutTransaction, {
-          id: transaction.id,
       const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
         ? link.gatewaySettings.paymentTypes.filter(
             (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
@@ -420,54 +416,25 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         || link.gatewaySettings?.presentationMode === 'auto'
         ? link.gatewaySettings.presentationMode
         : undefined
-      try {
-        const sessionResult = await paymentGatewayService.createPaymentSession({
-          providerKey: link.gatewayProviderKey,
-          paymentId: transactionId,
-          amount: sessionAmount,
-          currencyCode: sessionCurrencyCode,
-          paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,
-          description: link.title ?? link.name,
-          successUrl,
-          cancelUrl,
-          metadata: {
-            checkoutLinkId: link.id,
-            checkoutSlug: link.slug,
+      let paymentSessionError: unknown = null
+      const sessionStart = await em.transactional(async (tx: EntityManager): Promise<PaymentSessionStartResult> => {
+        const lockedTransaction = await findOneWithDecryption(
+          tx,
+          CheckoutTransaction,
+          {
+            id: transaction.id,
+            organizationId: link.organizationId,
+            tenantId: link.tenantId,
           },
-          presentation: rendererKey || rendererSettings || presentationMode
-            ? {
-                ...(presentationMode ? { mode: presentationMode } : {}),
-                ...(rendererKey ? { rendererKey } : {}),
-                ...(rendererSettings ? { rendererSettings } : {}),
-              }
-            : undefined,
-          organizationId: link.organizationId,
-          tenantId: link.tenantId,
-        }, { lockMode: LockMode.PESSIMISTIC_WRITE }, { organizationId: link.organizationId, tenantId: link.tenantId })
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { organizationId: link.organizationId, tenantId: link.tenantId },
+        )
         if (!lockedTransaction) {
           throw new CrudHttpError(404, { error: 'Transaction not found' })
         }
         if (lockedTransaction.gatewayTransactionId) {
           return { transaction: lockedTransaction, sessionStarted: false }
         }
-        const configuredPaymentTypes = Array.isArray(link.gatewaySettings?.paymentTypes)
-          ? link.gatewaySettings.paymentTypes.filter(
-              (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0,
-            )
-          : []
-        const rendererKey = typeof link.gatewaySettings?.rendererKey === 'string' && link.gatewaySettings.rendererKey.trim().length > 0
-          ? link.gatewaySettings.rendererKey.trim()
-          : undefined
-        const rendererSettings = link.gatewaySettings?.rendererSettings
-          && typeof link.gatewaySettings.rendererSettings === 'object'
-          && !Array.isArray(link.gatewaySettings.rendererSettings)
-          ? link.gatewaySettings.rendererSettings as Record<string, unknown>
-          : undefined
-        const presentationMode = link.gatewaySettings?.presentationMode === 'embedded'
-          || link.gatewaySettings?.presentationMode === 'redirect'
-          || link.gatewaySettings?.presentationMode === 'auto'
-          ? link.gatewaySettings.presentationMode
-          : undefined
         try {
           const sessionResult = await paymentGatewayService.createPaymentSession({
             providerKey: gatewayProviderKey,
