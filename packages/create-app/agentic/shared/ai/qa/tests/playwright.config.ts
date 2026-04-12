@@ -4,7 +4,7 @@ import { discoverIntegrationSpecFiles } from '@open-mercato/cli/lib/testing/inte
 
 const captureScreenshots = process.env.PW_CAPTURE_SCREENSHOTS === '1'
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true'
-const projectRoot = path.resolve(__dirname, '..', '..')
+const projectRoot = path.resolve(__dirname, '..', '..', '..')
 const qaTestResultsRoot = path.join(projectRoot, '.ai', 'qa', 'test-results')
 const normalizePath = (value: string) => value.split(path.sep).join('/')
 const STATIC_TEST_IGNORES = [
