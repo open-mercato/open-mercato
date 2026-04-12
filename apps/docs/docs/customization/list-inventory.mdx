@@ -1,24 +1,23 @@
 ---
 title: List inventory items
-description: Render a DataGrid-backed admin page that consumes the Inventory API.
+description: Render a DataTable-backed admin page that consumes the Inventory API.
 ---
 
 # Step 5: List inventory items
 
-With the API live, replace the placeholder page with a data table that calls it. Reuse the shared `DataGrid` component to get pagination, filters, and column formatting out of the box.
+With the API live, replace the placeholder page with a data table that calls it. Reuse the shared `DataTable` component from `@open-mercato/ui` to get pagination, filters, and column formatting out of the box.
 
-## 1. Create a data provider
+## 1. Create the list page
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory/backend/inventory/list
-touch packages/inventory/src/modules/inventory/backend/inventory/list/page.tsx
-touch packages/inventory/src/modules/inventory/backend/inventory/list/page.meta.ts
+mkdir -p apps/mercato/src/modules/inventory/backend/inventory/list
+touch apps/mercato/src/modules/inventory/backend/inventory/list/page.tsx
+touch apps/mercato/src/modules/inventory/backend/inventory/list/page.meta.ts
 ```
 
-```tsx title="backend/inventory/list/page.tsx"
-import { DataGrid } from '@open-mercato/ui/backend/DataGrid';
-import type { DataGridColumn } from '@open-mercato/ui/backend/DataGrid/types';
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
+```tsx title="apps/mercato/src/modules/inventory/backend/inventory/list/page.tsx"
+import { DataTable } from '@open-mercato/ui/backend/DataTable';
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall';
 
 type InventoryItem = {
   id: string;
@@ -28,26 +27,24 @@ type InventoryItem = {
   location?: string | null;
 };
 
-const columns: DataGridColumn<InventoryItem>[] = [
+const columns = [
   { id: 'sku', title: 'SKU' },
-  { id: 'name', title: 'Name', grow: 2 },
-  { id: 'quantity', title: 'Quantity', align: 'right' },
-  { id: 'location', title: 'Location', grow: 1 },
+  { id: 'name', title: 'Name' },
+  { id: 'quantity', title: 'Quantity' },
+  { id: 'location', title: 'Location' },
 ];
 
-async function fetchItems(): Promise<InventoryItem[]> {
-  return readApiResultOrThrow('/api/items', undefined, { errorMessage: 'Failed to load inventory items' });
-}
-
 const InventoryListPage = async () => {
-  const rows = await fetchItems();
+  const response = await apiCall('/api/items');
+  const result = await response.json();
+  const rows: InventoryItem[] = result.data ?? result;
+
   return (
-    <DataGrid
+    <DataTable
+      tableId="inventory-items"
       title="Inventory"
-      description="Live stock overview pulled from the inventory_items table."
       columns={columns}
-      rows={rows}
-      getRowId={(row) => row.id}
+      data={rows}
     />
   );
 };
@@ -55,7 +52,7 @@ const InventoryListPage = async () => {
 export default InventoryListPage;
 ```
 
-```ts title="backend/inventory/list/page.meta.ts"
+```ts title="apps/mercato/src/modules/inventory/backend/inventory/list/page.meta.ts"
 import type { PageMetadata } from '@open-mercato/shared/modules/registry';
 
 export const metadata: PageMetadata = {
@@ -67,11 +64,15 @@ export const metadata: PageMetadata = {
 };
 ```
 
+:::info DataTable component
+The platform data grid component is called `DataTable` (imported from `@open-mercato/ui/backend/DataTable`). It supports column definitions, row actions, bulk actions, search, custom-field filters, and export. See the [Data Grids reference](../framework/admin-ui/data-grids) for the full API.
+:::
+
 ## 2. Link from the module landing page
 
 Update `backend/inventory/page.tsx` to redirect to the list route:
 
-```tsx title="backend/inventory/page.tsx"
+```tsx title="apps/mercato/src/modules/inventory/backend/inventory/page.tsx"
 import { redirect } from 'next/navigation';
 
 const InventoryLanding = () => {
@@ -82,4 +83,11 @@ const InventoryLanding = () => {
 export default InventoryLanding;
 ```
 
-Reload `/backend/inventory`. You should now see a fully functional grid. Filters and pagination can be wired by switching to the query engine (see the Framework reference) or by extending the API to accept query parameters.
+Regenerate and restart:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
+Reload `/backend/inventory`. You should now see a fully functional data table. Filters and pagination can be wired by switching to the query engine (see the [Framework reference](../framework/database/query-engine)) or by extending the API to accept query parameters.

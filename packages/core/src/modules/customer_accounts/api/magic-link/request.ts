@@ -11,15 +11,17 @@ import {
   customerMagicLinkRateLimitConfig,
   customerMagicLinkIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
+import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 
 export const metadata: { path?: string } = {}
 
 export async function POST(req: Request) {
+  const rateLimitEmail = await readNormalizedEmailFromJsonRequest(req)
   const { error: rateLimitError } = await checkAuthRateLimit({
     req,
     ipConfig: customerMagicLinkIpRateLimitConfig,
     compoundConfig: customerMagicLinkRateLimitConfig,
-    compoundIdentifier: '',
+    compoundIdentifier: rateLimitEmail,
   })
   if (rateLimitError) return rateLimitError
 
