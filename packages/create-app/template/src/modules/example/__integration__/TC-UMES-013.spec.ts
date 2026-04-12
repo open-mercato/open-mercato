@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { DEFAULT_CREDENTIALS } from '@open-mercato/core/helpers/integration/auth'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 
 test.describe('TC-UMES-013: Ephemeral login page suppresses global notice bars', () => {
   test.describe.configure({ timeout: 60_000 })
@@ -15,9 +15,7 @@ test.describe('TC-UMES-013: Ephemeral login page suppresses global notice bars',
     await expect(page.getByText(/demo environment/i)).toHaveCount(0)
     await expect(page.getByText(/this instance is provided for demo purposes only/i)).toHaveCount(0)
 
-    await page.getByLabel('Email').fill(DEFAULT_CREDENTIALS.admin.email)
-    await page.getByLabel('Password').fill(DEFAULT_CREDENTIALS.admin.password)
-    await page.getByLabel('Password').press('Enter')
+    await login(page, 'admin')
 
     await expect(page).toHaveURL(/\/backend(?:\/.*)?$/, { timeout: 20_000 })
   })

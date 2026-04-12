@@ -104,9 +104,15 @@ test.describe('Todo priority validation', () => {
 
       await priorityInput.fill('5')
       await severityField.locator('select').selectOption('medium')
+      const createTodoResponsePromise = page.waitForResponse(
+        (response) => response.url().includes('/api/example/todos') && response.request().method() === 'POST',
+        { timeout: 15_000 },
+      )
       await form.locator('button[type="submit"]').first().click()
+      const createTodoResponse = await createTodoResponsePromise
+      expect(createTodoResponse.ok()).toBeTruthy()
 
-      await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/)
+      await expect(page).toHaveURL(/\/backend\/todos(?:\?.*)?$/, { timeout: 20_000 })
 
       const response = await apiRequest(
         request,

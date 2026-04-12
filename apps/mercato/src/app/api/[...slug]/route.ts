@@ -21,7 +21,7 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
-import { validateSameOriginMutationRequest } from '@open-mercato/shared/lib/security/originGuard'
+import { isCorsValidationEnabled, validateSameOriginMutationRequest } from '@open-mercato/shared/lib/security/originGuard'
 
 type MethodMetadata = {
   requireAuth?: boolean
@@ -40,6 +40,9 @@ type LifecycleEventBus = {
   emitEvent?: (event: string, payload: unknown) => Promise<void>
 }
 
+const CORS_ALLOWED_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+const DEFAULT_CORS_ALLOWED_HEADERS = 'Authorization, X-Api-Key, Content-Type, Accept, Origin, Referer, X-Requested-With'
+
 function clearStaffAuthCookies(response: Response): Response {
   const nextResponse = response instanceof NextResponse
     ? response
@@ -50,6 +53,48 @@ function clearStaffAuthCookies(response: Response): Response {
       })
   nextResponse.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   nextResponse.cookies.set('session_token', '', { path: '/', maxAge: 0 })
+  return nextResponse
+}
+
+function toMutableResponse(response: Response): NextResponse {
+  return response instanceof NextResponse
+    ? response
+    : new NextResponse(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      })
+}
+
+function readCorsOrigin(req: Request): string | null {
+  const origin = req.headers.get('origin')?.trim()
+  if (!origin) return null
+  try {
+    return new URL(origin).origin
+  } catch {
+    return null
+  }
+}
+
+function applyCorsHeaders(req: Request, response: Response): Response {
+  if (isCorsValidationEnabled()) return response
+
+  const origin = readCorsOrigin(req)
+  if (!origin) return response
+
+  const nextResponse = toMutableResponse(response)
+  const requestedHeaders = req.headers.get('access-control-request-headers')?.trim()
+  nextResponse.headers.set('Access-Control-Allow-Origin', origin)
+  nextResponse.headers.set('Access-Control-Allow-Methods', CORS_ALLOWED_METHODS)
+  nextResponse.headers.set('Access-Control-Allow-Headers', requestedHeaders || DEFAULT_CORS_ALLOWED_HEADERS)
+  nextResponse.headers.set('Access-Control-Max-Age', '600')
+  const existingVary = nextResponse.headers.get('Vary')?.trim()
+  nextResponse.headers.set(
+    'Vary',
+    existingVary
+      ? `${existingVary}, Origin, Access-Control-Request-Headers`
+      : 'Origin, Access-Control-Request-Headers',
+  )
   return nextResponse
 }
 
@@ -271,10 +316,14 @@ async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
 }
 
 async function handleRequest(
-  method: HttpMethod,
+  method: HttpMethod | 'OPTIONS',
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
 ): Promise<Response> {
+  if (method === 'OPTIONS') {
+    return applyCorsHeaders(req, new NextResponse(null, { status: 204 }))
+  }
+
   const startedAt = Date.now()
   const requestId = buildRequestId(req)
   const { t } = await resolveTranslations()
@@ -295,9 +344,9 @@ async function handleRequest(
       status: response.status,
       durationMs: Date.now() - startedAt,
     })
-    return response
+    return applyCorsHeaders(req, response)
   }
-  const originViolation = validateSameOriginMutationRequest(req)
+  const originViolation = isCorsValidationEnabled() ? validateSameOriginMutationRequest(req) : null
   if (originViolation) {
     const response = NextResponse.json({ error: t('api.errors.invalidOrigin', 'Invalid request origin') }, { status: 403 })
     await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
@@ -306,7 +355,7 @@ async function handleRequest(
       originViolation: originViolation.reason,
       durationMs: Date.now() - startedAt,
     })
-    return response
+    return applyCorsHeaders(req, response)
   }
   const loadedRouteModule = await match.route.load()
   const rawHandler = match.route.kind === 'legacy'
@@ -319,7 +368,7 @@ async function handleRequest(
       status: response.status,
       durationMs: Date.now() - startedAt,
     })
-    return response
+    return applyCorsHeaders(req, response)
   }
   const handler = rawHandler as (req: NextRequest, ctx?: HandlerContext) => Promise<Response> | Response
   const routeMetadata = normalizeLoadedMetadata(loadedRouteModule.metadata, method, match.route.kind)
@@ -345,7 +394,7 @@ async function handleRequest(
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
-    return response
+    return applyCorsHeaders(req, response)
   }
 
   if (methodMetadata?.rateLimit) {
@@ -368,7 +417,7 @@ async function handleRequest(
             tenantId: auth?.tenantId ?? null,
             durationMs: Date.now() - startedAt,
           })
-          return rateLimitError
+          return applyCorsHeaders(req, rateLimitError)
         }
       }
     }
@@ -387,7 +436,7 @@ async function handleRequest(
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
-    return finalResponse
+    return applyCorsHeaders(req, finalResponse)
   } catch (error) {
     await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
       ...receivedPayload,
@@ -418,4 +467,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ sl
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
   return handleRequest('DELETE', req, params)
+}
+
+export async function OPTIONS(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
+  return handleRequest('OPTIONS', req, params)
 }

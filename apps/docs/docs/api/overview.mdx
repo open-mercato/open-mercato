@@ -34,6 +34,13 @@ export ORG_ID="<optional active organization id>"
 
 Human users still sign in with email/password for the admin UI, but machine-to-machine integrations should rely on API keys for predictable scoping and auditability.
 
+## External and Cross-Origin Clients
+
+- The safest external integration pattern is **server-to-server**: keep the API key on your backend, worker, or edge function and call Open Mercato over HTTPS with `X-Api-Key` or `Authorization: ApiKey ...`.
+- By default, `OM_ENABLE_CORS_VALIDATION=true` keeps unsafe browser mutations (`POST`, `PUT`, `PATCH`, `DELETE`) on the same origin. That protects cookie-based admin sessions from cross-site mutation attempts.
+- If you intentionally need browser-based cross-origin API access, set `OM_ENABLE_CORS_VALIDATION=false`. Open Mercato will answer CORS preflight (`OPTIONS`) requests and return `Access-Control-Allow-*` headers for requests with an `Origin` header.
+- When you disable that validation, do not expose staff session cookies to third-party origins. Use API keys or another server-side token boundary, and enforce your own origin allowlist at the reverse proxy / edge because Open Mercato no longer blocks cross-site mutation origins for you.
+
 ## Feature Gates & Access Control
 
 Each HTTP method exports `metadata` declaring `requireAuth`, `requireRoles`, and `requireFeatures`. The RBAC service evaluates the metadata against the authenticated principal:

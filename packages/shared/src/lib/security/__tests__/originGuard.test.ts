@@ -1,6 +1,14 @@
-import { validateSameOriginMutationRequest } from '../originGuard'
+import { isCorsValidationEnabled, validateSameOriginMutationRequest } from '../originGuard'
 
 describe('validateSameOriginMutationRequest', () => {
+  it('enables CORS validation by default', () => {
+    expect(isCorsValidationEnabled({} as NodeJS.ProcessEnv)).toBe(true)
+  })
+
+  it('allows disabling CORS validation through env', () => {
+    expect(isCorsValidationEnabled({ OM_ENABLE_CORS_VALIDATION: 'false' } as NodeJS.ProcessEnv)).toBe(false)
+  })
+
   it('allows safe methods without origin headers', () => {
     const req = new Request('https://app.example/api/customers/people', { method: 'GET' })
 

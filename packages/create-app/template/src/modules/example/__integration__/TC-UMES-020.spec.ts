@@ -19,11 +19,17 @@ test.describe('TC-UMES-020: Payment Gateway demo page', () => {
     await expect(page.getByRole('button', { name: /Pay with Mock Gateway/i })).toBeVisible()
 
     // Click "Pay with Mock Gateway"
+    const createSessionResponsePromise = page.waitForResponse(
+      (response) => response.url().includes('/api/payment_gateways/sessions') && response.request().method() === 'POST',
+      { timeout: 15_000 },
+    )
     await page.getByRole('button', { name: /Pay with Mock Gateway/i }).click()
+    const createSessionResponse = await createSessionResponsePromise
+    expect(createSessionResponse.ok()).toBeTruthy()
 
     // Wait for transaction details to appear
-    await expect(page.getByText('Transaction Details')).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText('authorized')).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Transaction Details/i })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/authorized/i)).toBeVisible()
 
     // Capture the payment
     await page.getByRole('button', { name: /Capture/i }).click()

@@ -58,18 +58,6 @@ test.describe('TC-LOCK-008: Reactive contention handling without legacy notifica
       const acquireResponse = await acquireResponsePromise;
       expect(acquireResponse.ok()).toBeTruthy();
 
-      await page.evaluate(() => {
-        const eventName = 'om:record_locks:record-deleted';
-        const store = window as unknown as { __tcLockDeletedEventCount?: number; __tcLockDeletedListenerInstalled?: boolean };
-        if (!store.__tcLockDeletedListenerInstalled) {
-          store.__tcLockDeletedEventCount = 0;
-          window.addEventListener(eventName, () => {
-            store.__tcLockDeletedEventCount = (store.__tcLockDeletedEventCount ?? 0) + 1;
-          });
-          store.__tcLockDeletedListenerInstalled = true;
-        }
-      });
-
       const createNotificationResponse = await apiRequest(request, 'POST', '/api/notifications/feature', {
         token: superadminToken,
         data: {
@@ -93,12 +81,8 @@ test.describe('TC-LOCK-008: Reactive contention handling without legacy notifica
       );
       expect(delivered.some((item) => item.sourceEntityId === companyId)).toBe(true);
 
-      await expect.poll(async () => {
-        return page.evaluate(() => {
-          const store = window as unknown as { __tcLockDeletedEventCount?: number };
-          return store.__tcLockDeletedEventCount ?? 0;
-        });
-      }, { timeout: 20_000 }).toBeGreaterThan(0);
+      await expect(page.getByRole('dialog', { name: /record was deleted/i })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByText(/this record was deleted by another user while you were editing/i)).toBeVisible({ timeout: 20_000 });
       expect(legacyPollRequests).toHaveLength(0);
     } finally {
       page.off('request', onRequest);

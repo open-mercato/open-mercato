@@ -10,7 +10,7 @@ jest.mock('@/bootstrap', () => ({
 }))
 
 // Import route handlers after bootstrap mock is set up
-import { GET, POST, PUT, PATCH, DELETE } from '@/app/api/[...slug]/route'
+import { GET, POST, PUT, PATCH, DELETE, OPTIONS } from '@/app/api/[...slug]/route'
 
 // Mock the auth module
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -162,6 +162,7 @@ describe('API Route Authorization', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    delete process.env.OM_ENABLE_CORS_VALIDATION
     mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockRbac.loadAcl.mockResolvedValue({
@@ -244,6 +245,23 @@ describe('API Route Authorization', () => {
       expect(await response.text()).toBe('POST success')
     })
 
+    it('should allow cross-site unsafe requests when OM_ENABLE_CORS_VALIDATION=false', async () => {
+      process.env.OM_ENABLE_CORS_VALIDATION = 'false'
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
+
+      const request = new NextRequest('http://localhost:3001/api/example/test', {
+        method: 'POST',
+        headers: {
+          origin: 'https://remote.example',
+        },
+      })
+      const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('access-control-allow-origin')).toBe('https://remote.example')
+      expect(await response.text()).toBe('POST success')
+    })
+
     it('should allow access with admin role', async () => {
       mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
 
@@ -287,6 +305,26 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(403)
       await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+    })
+  })
+
+  describe('OPTIONS /example/test', () => {
+    it('returns a CORS preflight response when OM_ENABLE_CORS_VALIDATION=false', async () => {
+      process.env.OM_ENABLE_CORS_VALIDATION = 'false'
+
+      const request = new NextRequest('http://localhost:3001/api/example/test', {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'https://remote.example',
+          'access-control-request-headers': 'authorization,x-api-key,content-type',
+        },
+      })
+      const response = await OPTIONS(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+      expect(response.status).toBe(204)
+      expect(response.headers.get('access-control-allow-origin')).toBe('https://remote.example')
+      expect(response.headers.get('access-control-allow-headers')).toBe('authorization,x-api-key,content-type')
+      expect(mockResolveAuthFromRequestDetailed).not.toHaveBeenCalled()
     })
   })
 

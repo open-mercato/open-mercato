@@ -1,3 +1,5 @@
+import { parseBooleanWithDefault } from '../boolean'
+
 const UNSAFE_HTTP_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export type SameOriginViolation = {
@@ -22,6 +24,10 @@ function readHeaderOrigin(value: string): string | null {
 
 export function isUnsafeHttpMethod(method: string): boolean {
   return UNSAFE_HTTP_METHODS.has(method.toUpperCase())
+}
+
+export function isCorsValidationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBooleanWithDefault(env.OM_ENABLE_CORS_VALIDATION, true)
 }
 
 export function validateSameOriginMutationRequest(req: Request): SameOriginViolation | null {
