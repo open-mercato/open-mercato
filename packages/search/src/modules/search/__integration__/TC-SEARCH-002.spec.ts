@@ -36,6 +36,14 @@ function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null
 }
 
+function requireValue<T>(value: T | null | undefined, message: string): NonNullable<T> {
+  if (value == null) {
+    throw new Error(message)
+  }
+
+  return value as NonNullable<T>
+}
+
 async function readJson<T extends JsonRecord>(response: APIResponse): Promise<T> {
   return ((await readJsonSafe<T>(response)) ?? {}) as T
 }
@@ -86,9 +94,10 @@ test.describe('TC-SEARCH-002: search endpoint merges duplicate strategy hits', (
     let mergedResult: SearchResultPayload | null = null
 
     try {
-      token = await getAuthToken(request, 'superadmin')
+      const authToken = await getAuthToken(request, 'superadmin')
+      token = authToken
 
-      const settingsResponse = await apiRequest(request, 'GET', '/api/search/settings', { token })
+      const settingsResponse = await apiRequest(request, 'GET', '/api/search/settings', { token: authToken })
       expect(settingsResponse.ok()).toBeTruthy()
       const settings = await readJson<SearchSettingsResponse>(settingsResponse)
 
@@ -102,12 +111,14 @@ test.describe('TC-SEARCH-002: search endpoint merges duplicate strategy hits', (
         return
       }
 
-      companyId = await createCompanyFixture(request, token, uniqueCompanyName)
+      companyId = await createCompanyFixture(request, authToken, uniqueCompanyName)
 
       await expect
         .poll(
           async () => {
-            const searchResponse = await apiRequest(request, 'GET', buildSearchPath(uniqueCompanyName), { token })
+            const searchResponse = await apiRequest(request, 'GET', buildSearchPath(uniqueCompanyName), {
+              token: authToken,
+            })
             if (!searchResponse.ok()) {
               mergedResult = null
               return 'response-not-ok'
@@ -136,19 +147,23 @@ test.describe('TC-SEARCH-002: search endpoint merges duplicate strategy hits', (
         )
         .toBe('fulltext,tokens')
 
-      expect(mergedResult).toBeTruthy()
-      expect(mergedResult?.source).toBe('fulltext')
-      expect(getPresenterTitle(mergedResult!)).toBe(uniqueCompanyName)
+      const ensuredMergedResult = requireValue<SearchResultPayload>(
+        mergedResult,
+        'Expected merged result from search response',
+      )
 
-      const metadata = isRecord(mergedResult?.metadata) ? mergedResult.metadata : {}
+      expect(ensuredMergedResult.source).toBe('fulltext')
+      expect(getPresenterTitle(ensuredMergedResult)).toBe(uniqueCompanyName)
+
+      const metadata = isRecord(ensuredMergedResult.metadata) ? ensuredMergedResult.metadata : {}
       expect(typeof metadata._rrfScore).toBe('number')
 
-      expect(mergedResult?.entityId).toBe('customers:customer_company_profile')
+      expect(ensuredMergedResult.entityId).toBe('customers:customer_company_profile')
 
-      expect(typeof mergedResult?.url).toBe('string')
-      expect(mergedResult?.url).toContain('/backend/customers/companies/')
+      expect(typeof ensuredMergedResult.url).toBe('string')
+      expect(ensuredMergedResult.url).toContain('/backend/customers/companies/')
 
-      const links = getLinks(mergedResult!)
+      const links = getLinks(ensuredMergedResult)
       expect(
         links.some((link) => typeof link.href === 'string' && link.href.includes('/backend/customers/companies/')),
       ).toBeTruthy()
