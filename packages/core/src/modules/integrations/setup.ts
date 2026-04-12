@@ -1,4 +1,19 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import crypto from 'node:crypto'
+
+function stableUuidFromString(input: string): string {
+  const hex = crypto.createHash('sha256').update(input).digest('hex').slice(0, 32)
+  // UUID format 8-4-4-4-12; set version=5-ish and RFC variant for UUID validity
+  const timeHi = `5${hex.slice(13, 16)}`
+  const clockSeqHi = (parseInt(hex.slice(16, 18), 16) & 0x3f | 0x80).toString(16).padStart(2, '0')
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 13) + timeHi,
+    clockSeqHi + hex.slice(18, 20),
+    hex.slice(20, 32),
+  ].join('-')
+}
 
 type SchedulerServiceLike = {
   register: (registration: {
@@ -36,7 +51,7 @@ export const setup: ModuleSetupConfig = {
 
     const schedulerService = container.resolve('schedulerService') as SchedulerServiceLike
     await schedulerService.register({
-      id: `integrations:health-probe:${tenantId}`,
+      id: stableUuidFromString(`integrations:health-probe:${tenantId}`),
       name: 'Integration health probes',
       description: 'Runs outbound health checks for enabled integrations every 15 minutes.',
       scopeType: 'organization',
