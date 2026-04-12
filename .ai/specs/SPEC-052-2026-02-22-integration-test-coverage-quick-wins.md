@@ -1,8 +1,8 @@
 # SPEC-052: Integration Test Coverage Quick Wins (API Tests)
 
 **Date:** 2026-02-22
-**Updated:** 2026-03-16
-**Status:** In Progress — Phases 1-2 complete, Phase 3 planner complete
+**Updated:** 2026-04-12
+**Status:** Complete — All phases implemented
 **Scope:** Integration test coverage improvement across all core modules
 
 ---
@@ -205,16 +205,56 @@ Complex stateful modules requiring multi-step fixture chains.
 
 ---
 
-### Phase 4 — Deepen Existing Module Coverage
+### Phase 4 — Deepen Existing Module Coverage ✅ COMPLETE
 
 Additional API tests for already-tested modules targeting untested endpoints (command files at 12–20%).
 
 | Module | Untested Endpoints | Est. Tests |
 |--------|-------------------|-----------|
 | **sales** | shipment/order/order-line statuses, document numbers/addresses, delivery windows, notes, tags, dashboard widgets | 5–8 |
-| **catalog** | offers, option-schemas, product-media | 3–4 |
+| **catalog** | offers, option-schemas, product-media | Already covered (TC-CAT-017/019/023) |
 | **customers** | dashboard widgets, address format settings, check-phone | 2–3 |
 | **auth** | session refresh, sidebar preferences, features list | 2–3 |
+
+**Sales test files:**
+
+| File | Test ID | Scope | Status |
+|------|---------|-------|--------|
+| `packages/core/src/modules/sales/__integration__/TC-SALES-024.spec.ts` | TC-SALES-024 | Status dictionary CRUD for shipment-statuses, order-statuses, order-line-statuses (parameterized) | ✅ |
+| `packages/core/src/modules/sales/__integration__/TC-SALES-025.spec.ts` | TC-SALES-025 | Delivery windows CRUD: create, list, update (name + leadTimeDays + isActive), delete | ✅ |
+| `packages/core/src/modules/sales/__integration__/TC-SALES-026.spec.ts` | TC-SALES-026 | Notes CRUD: create on order context, list by contextType+contextId, update body, delete | ✅ |
+| `packages/core/src/modules/sales/__integration__/TC-SALES-027.spec.ts` | TC-SALES-027 | Sales tags CRUD: create with auto-slug from label, list, update label+color, delete | ✅ |
+| `packages/core/src/modules/sales/__integration__/TC-SALES-028.spec.ts` | TC-SALES-028 | Document number generation (order + quote) and dashboard widgets (new-orders, new-quotes) | ✅ |
+
+**Customers test files:**
+
+| File | Test ID | Scope | Status |
+|------|---------|-------|--------|
+| `packages/core/src/modules/customers/__integration__/TC-CRM-034.spec.ts` | TC-CRM-034 | Dashboard widgets (new-customers, next-interactions), address format settings (read/update/restore), check-phone (no-match + invalid digits) | ✅ |
+
+**Auth test files:**
+
+| File | Test ID | Scope | Status |
+|------|---------|-------|--------|
+| `packages/core/src/modules/auth/__integration__/TC-AUTH-023.spec.ts` | TC-AUTH-023 | Sidebar preferences (read, update+restore), features list (admin access, employee denial) | ✅ |
+
+**Route coverage map — Phase 4**
+
+- `GET/POST/PUT/DELETE /api/sales/shipment-statuses`
+- `GET/POST/PUT/DELETE /api/sales/order-statuses`
+- `GET/POST/PUT/DELETE /api/sales/order-line-statuses`
+- `GET/POST/PUT/DELETE /api/sales/delivery-windows`
+- `GET/POST/PUT/DELETE /api/sales/notes`
+- `GET/POST/PUT/DELETE /api/sales/tags`
+- `POST /api/sales/document-numbers`
+- `GET /api/sales/dashboard/widgets/new-orders`
+- `GET /api/sales/dashboard/widgets/new-quotes`
+- `GET /api/customers/dashboard/widgets/new-customers`
+- `GET /api/customers/dashboard/widgets/next-interactions`
+- `GET/PUT /api/customers/settings/address-format`
+- `GET /api/customers/people/check-phone`
+- `GET/PUT /api/auth/sidebar/preferences`
+- `GET /api/auth/features`
 
 ---
 
@@ -267,3 +307,4 @@ Per module:
 - 2026-03-15: Refreshed Phase 2 after post-Phase-1 repo changes. Removed `notifications` from the zero-coverage list, aligned planned tests to current route behavior, added explicit route coverage mapping, and split `attachments` binary file/image checks into an optional deferred file.
 - 2026-03-16: Completed Phase 2 API-first coverage with 12 passing integration tests across `notifications`, `feature_toggles`, `business_rules`, and `attachments`. Updated route paths to the live underscore-based endpoints where applicable, aligned attachment partition coverage with demo-mode lock behavior, and fixed `business_rules` execution/log response serialization for bigint log IDs.
 - 2026-04-12: Implemented Phase 3 planner tests (TC-PLAN-002/003/004): availability rule set CRUD, weekly/date-specific replace APIs, individual rule CRUD, and employee access-control denial. Added `plannerFixtures.ts` helper and planner `meta.ts`.
+- 2026-04-12: Completed Phase 4 with 7 new test files (17 tests): sales status dictionaries (TC-SALES-024), delivery windows (TC-SALES-025), notes (TC-SALES-026), tags (TC-SALES-027), document numbers + dashboard widgets (TC-SALES-028), customers dashboard/settings/check-phone (TC-CRM-034), auth sidebar preferences + features list (TC-AUTH-023). Catalog endpoints already covered by TC-CAT-017/019/023.
