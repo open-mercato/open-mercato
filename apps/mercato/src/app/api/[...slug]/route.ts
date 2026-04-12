@@ -87,9 +87,11 @@ async function emitLifecycleEvent(eventId: ApplicationLifecycleEventId, payload:
 
 function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMetadata | null {
   if (!metadata || typeof metadata !== 'object') return null
-  const entry = (metadata as Partial<Record<HttpMethod, unknown>>)[method]
-  if (!entry || typeof entry !== 'object') return null
-  const source = entry as Record<string, unknown>
+  const metadataRecord = metadata as Partial<Record<HttpMethod, unknown>>
+  const entry = metadataRecord[method]
+  const source = entry && typeof entry === 'object'
+    ? entry as Record<string, unknown>
+    : metadata as Record<string, unknown>
   const normalized: MethodMetadata = {}
   if (typeof source.requireAuth === 'boolean') normalized.requireAuth = source.requireAuth
   if (Array.isArray(source.requireRoles)) {
@@ -109,7 +111,7 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
       }
     }
   }
-  return normalized
+  return Object.keys(normalized).length > 0 ? normalized : null
 }
 
 function normalizeLoadedMetadata(

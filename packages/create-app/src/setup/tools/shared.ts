@@ -148,8 +148,8 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
   )
 
-  // .ai/qa/ — Playwright config for integration tests
-  copyFile('ai/qa/playwright.config.ts', join(targetDir, '.ai', 'qa', 'playwright.config.ts'))
+  // .ai/qa/tests/ — Playwright config for integration tests
+  copyFile('ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
   // Package guides — auto-discovered from sibling packages during build
   if (existsSync(GUIDES_DIR)) {
