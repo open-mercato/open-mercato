@@ -13,10 +13,33 @@ type VectorReindexResponse = {
   }>
 }
 
+type SearchSettingsResponse = {
+  settings?: {
+    vectorReindexLock?: {
+      type?: 'vector'
+      action?: string
+      startedAt?: string
+      elapsedMinutes?: number
+      processedCount?: number | null
+      totalCount?: number | null
+    } | null
+  }
+}
+
 test.describe('TC-SEARCH-002: vector reindex handles invalid entity requests', () => {
   test('returns a structured failure for an entity that is not configured for search', async ({ request }) => {
     const token = await getAuthToken(request, 'superadmin')
     const entityId = `search:missing-debug-coverage-${Date.now()}`
+    const settingsResponse = await apiRequest(request, 'GET', '/api/search/settings', { token })
+    expect(settingsResponse.ok()).toBeTruthy()
+
+    const settingsBody = await readJsonSafe<SearchSettingsResponse>(settingsResponse)
+    test.skip(
+      Boolean(settingsBody?.settings?.vectorReindexLock),
+      'Vector reindex already in progress for this tenant; refusing to cancel shared work in a reused environment'
+    )
+
+    let shouldCancelReindex = false
 
     try {
       const response = await apiRequest(request, 'POST', '/api/search/embeddings/reindex', {
@@ -26,6 +49,7 @@ test.describe('TC-SEARCH-002: vector reindex handles invalid entity requests', (
           purgeFirst: false,
         },
       })
+      shouldCancelReindex = response.status() !== 409
 
       expect(response.status()).toBe(200)
 
@@ -41,10 +65,12 @@ test.describe('TC-SEARCH-002: vector reindex handles invalid entity requests', (
         },
       ])
     } finally {
-      const cancelResponse = await apiRequest(request, 'POST', '/api/search/embeddings/reindex/cancel', {
-        token,
-      })
-      expect(cancelResponse.ok()).toBeTruthy()
+      if (shouldCancelReindex) {
+        const cancelResponse = await apiRequest(request, 'POST', '/api/search/embeddings/reindex/cancel', {
+          token,
+        })
+        expect(cancelResponse.ok()).toBeTruthy()
+      }
     }
   })
 })
