@@ -6,7 +6,9 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
-    '^#generated/(.*)$': '<rootDir>/jest.mocks/$1',
+    '^#generated/entities/(.*)$': '<rootDir>/generated/entities/$1/index.ts',
+    '^#generated/entities\\.ids\\.generated$': '<rootDir>/generated/entities.ids.generated.ts',
+    '^#generated/entity-fields-registry$': '<rootDir>/src/generated-shims/entity-fields-registry.ts',
     '^@open-mercato/core/generated/(.*)$': '<rootDir>/generated/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
