@@ -19,6 +19,7 @@ import { loadEntityFieldsetConfigs, CustomFieldsetDefinition } from '../lib/fiel
 import { installCustomEntitiesFromModules } from '../lib/install-from-ce'
 import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
 import { CURRENCY_OPTIONS_URL } from '@open-mercato/shared/modules/entities/kinds'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 /**
  * Validate defaultValue against the field kind. Returns an error message string
@@ -29,7 +30,7 @@ async function validateDefaultValueByKind(
   value: unknown,
   kind: string,
   cfg: Record<string, unknown>,
-  em: any,
+  em: EntityManager,
   tenantContext: { tenantId: string | null; organizationId: string | null },
 ): Promise<string | null> {
   switch (kind) {
@@ -65,8 +66,9 @@ async function validateDefaultValueByKind(
             ...(tenantContext.tenantId ? { tenantId: tenantContext.tenantId } : {}),
           })
           if (!entry) return `defaultValue "${value}" does not match any entry in the configured dictionary`
-        } catch {
+        } catch (err) {
           // If the dictionaries module is not available, skip entry validation
+          console.debug('[entities.definitions] dictionary validation skipped — module not available', err)
         }
       }
       return null
@@ -76,15 +78,14 @@ async function validateDefaultValueByKind(
         return 'defaultValue for currency fields must be a string'
       try {
         const { Currency } = await import('@open-mercato/core/modules/currencies/data/entities')
-        const where: any = {
-          code: value,
-          ...(tenantContext.tenantId ? { tenantId: tenantContext.tenantId } : {}),
-        }
+        const where: Record<string, string> = { code: value as string }
+        if (tenantContext.tenantId) where.tenantId = tenantContext.tenantId
         if (tenantContext.organizationId) where.organizationId = tenantContext.organizationId
         const currency = await em.findOne(Currency, where)
         if (!currency) return `defaultValue "${value}" does not match any available currency`
-      } catch {
+      } catch (err) {
         // If the currencies module is not available, skip currency validation
+        console.debug('[entities.definitions] currency validation skipped — module not available', err)
       }
       return null
     }
