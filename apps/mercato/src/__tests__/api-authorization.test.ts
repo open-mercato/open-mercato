@@ -315,14 +315,14 @@ describe('API Route Authorization', () => {
   })
 
   describe('GET /example/missing-metadata', () => {
-    it('should deny anonymous access when route metadata is missing', async () => {
+    it('should allow anonymous access when route metadata is missing (route handles auth internally)', async () => {
       mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
 
       const request = new NextRequest('http://localhost:3001/api/example/missing-metadata')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'missing-metadata'] }) })
 
-      expect(response.status).toBe(401)
-      expect(await response.json()).toEqual({ error: 'Unauthorized' })
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('MISSING METADATA GET success')
     })
 
     it('should allow authenticated access when route metadata is missing', async () => {
