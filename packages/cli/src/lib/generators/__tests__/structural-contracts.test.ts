@@ -203,7 +203,9 @@ function scaffoldFixture(): ModuleEntry[] {
   touchFile(pkgModulePath('orders', 'i18n', 'pl.json'), JSON.stringify({ orders: { list: { title: 'Zamówienia' } } }))
   touchFile(pkgModulePath('orders', 'events.ts'), `export const eventsConfig = {\n  moduleId: 'orders',\n  events: [\n    { id: 'orders.order.created', label: 'Order Created', entity: 'sales_order', category: 'crud' },\n    { id: 'orders.order.updated', label: 'Order Updated', entity: 'sales_order', category: 'crud' },\n  ]\n}\nexport default eventsConfig\n`)
   touchFile(pkgModulePath('orders', 'notifications.ts'), `export const notificationTypes = [\n  { type: 'orders.order.created', module: 'orders', titleKey: 'orders.notifications.created.title', bodyKey: 'orders.notifications.created.body', icon: 'package', severity: 'info' },\n]\nexport default notificationTypes\n`)
+  touchFile(pkgModulePath('orders', 'notifications.client.ts'), `const OrdersCreatedRenderer = () => null\n\nexport const ordersNotificationTypes = [\n  {\n    type: 'orders.order.created',\n    module: 'orders',\n    titleKey: 'orders.notifications.created.title',\n    bodyKey: 'orders.notifications.created.body',\n    icon: 'package',\n    severity: 'info',\n    Renderer: OrdersCreatedRenderer,\n  },\n]\n\nexport default ordersNotificationTypes\n`)
   touchFile(pkgModulePath('orders', 'notifications.handlers.ts'), `export const notificationHandlers = [\n  { type: 'orders.order.created', handler: async (n: any) => {} },\n]\nexport default notificationHandlers\n`)
+  touchFile(pkgModulePath('orders', 'widgets', 'payments', 'client.tsx'), 'export default function OrdersPaymentClient() { return null }\n')
   touchFile(pkgModulePath('orders', 'translations.ts'), `export const translatableFields = {\n  'orders:sales_order': ['status_label', 'notes'],\n  'orders:order_item': ['product_name'],\n}\nexport default translatableFields\n`)
   touchFile(pkgModulePath('orders', 'inbox-actions.ts'), `export const inboxActions = [\n  { type: 'orders.approve', id: 'orders.approve-order', label: 'Approve Order', icon: 'check', description: 'Approve pending', async execute(a: any) { return { ok: true } } },\n]\nexport default inboxActions\n`)
   touchFile(pkgModulePath('orders', 'analytics.ts'), `export const analyticsConfig = {\n  entities: [{ entityId: 'orders:sales_order', requiredFeatures: ['orders.view'], entityConfig: { tableName: 'sales_orders', dateField: 'created_at' }, fieldMappings: { id: { dbColumn: 'id', type: 'uuid' } } }],\n}\nexport default analyticsConfig\n`)
@@ -676,6 +678,66 @@ describe('notifications.generated.ts', () => {
 
   it('imports from both notification convention files', () => {
     expect(countMatches(content, /import \* as NOTIF_/g)).toBe(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// notifications.client.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('notifications.client.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('notifications.client.generated.ts')
+  })
+
+  it('exports client entries, types, renderers, and getter', () => {
+    expectExports(content, [
+      'NotificationRenderers',
+      'notificationClientTypeEntries',
+      'notificationClientTypes',
+      'notificationRenderers',
+      'getNotificationRenderers',
+    ])
+  })
+
+  it('has client notification entry for orders module', () => {
+    expectModuleIds(content, ['orders'])
+    expect(countMatches(content, /import \* as NOTIF_CLIENT_/g)).toBe(1)
+  })
+
+  it('imports renderer-related types and builds the renderer map from Renderer fields', () => {
+    expect(hasTypeImport(content, 'ComponentType', 'react')).toBe(true)
+    expect(hasTypeImport(content, 'NotificationRendererProps', '@open-mercato/shared/modules/notifications/types')).toBe(true)
+    expect(content).toContain('Boolean(typeDef.Renderer)')
+    expect(content).toContain('typeDef.Renderer!')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// payments.client.generated.ts
+// ---------------------------------------------------------------------------
+
+describe('payments.client.generated.ts', () => {
+  let content: string
+
+  beforeEach(async () => {
+    const enabled = scaffoldFixture()
+    const resolver = createMockResolver(enabled)
+    await generateModuleRegistry({ resolver, quiet: true })
+    content = readGenerated('payments.client.generated.ts')
+  })
+
+  it('imports discovered payment client modules for side effects', () => {
+    expect(content).toMatch(/import\s+["'][^"']*orders\/widgets\/payments\/client["']/)
+  })
+
+  it('exports the discovered payment client module count', () => {
+    expect(content).toContain('export const paymentGatewayClientModuleCount = 1')
   })
 })
 
