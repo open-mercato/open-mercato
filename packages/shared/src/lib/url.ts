@@ -8,6 +8,11 @@ type EnvLike = {
 }
 type RequestInput = Request | string | undefined
 
+export type SecurityEmailUrlErrorMapping = {
+  scope: string
+  configMessage: string
+}
+
 export class AppOriginConfigurationError extends Error {
   constructor(message: string) {
     super(message)
@@ -22,23 +27,27 @@ export class AppOriginRejectedError extends Error {
   }
 }
 
-function normalizeBaseUrl(raw: string | undefined): string | null {
+function parseBaseUrl(raw: string | undefined): URL | null {
   const value = raw?.trim()
   if (!value) return null
   try {
     const url = new URL(value)
     url.hash = ''
     url.search = ''
-    return url.toString().replace(/\/$/, '')
+    return url
   } catch {
     return null
   }
 }
 
+function normalizeBaseUrl(raw: string | undefined): string | null {
+  const url = parseBaseUrl(raw)
+  return url ? url.toString().replace(/\/$/, '') : null
+}
+
 function normalizeOrigin(raw: string | undefined): string | null {
-  const baseUrl = normalizeBaseUrl(raw)
-  if (!baseUrl) return null
-  return new URL(baseUrl).origin
+  const url = parseBaseUrl(raw)
+  return url ? url.origin : null
 }
 
 function readCsv(value: string | undefined): string[] {
@@ -142,4 +151,18 @@ export function getSecurityEmailBaseUrl(input?: RequestInput, env: EnvLike = pro
 export function toSecurityEmailUrl(input: RequestInput, path: string, env: EnvLike = process.env): string {
   const base = getSecurityEmailBaseUrl(input, env)
   return `${base}/${path.replace(/^\/+/, '')}`
+}
+
+export function mapSecurityEmailUrlError(
+  error: unknown,
+  mapping: SecurityEmailUrlErrorMapping,
+): { status: number; body: { error: string } } | null {
+  if (error instanceof AppOriginRejectedError) {
+    return { status: 400, body: { error: 'Invalid request origin' } }
+  }
+  if (error instanceof AppOriginConfigurationError) {
+    console.error(`[${mapping.scope}] APP_URL is required in production`)
+    return { status: 500, body: { error: mapping.configMessage } }
+  }
+  return null
 }

@@ -12,8 +12,8 @@ import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
-import { AppOriginConfigurationError, AppOriginRejectedError } from '@open-mercato/shared/lib/url'
+import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 
@@ -109,15 +109,13 @@ export async function POST(req: Request) {
 
   let base: string
   try {
-    base = resolveInviteBaseUrl(req.url)
+    base = getSecurityEmailBaseUrl(req.url)
   } catch (error) {
-    if (error instanceof AppOriginRejectedError) {
-      return NextResponse.json({ error: 'Invalid request origin' }, { status: 400 })
-    }
-    if (error instanceof AppOriginConfigurationError) {
-      console.error('[auth.users.resend-invite] APP_URL is required for invitation emails in production')
-      return NextResponse.json({ error: 'Invitation email is not configured' }, { status: 500 })
-    }
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'auth.users.resend-invite',
+      configMessage: 'Invitation email is not configured',
+    })
+    if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
     throw error
   }
 

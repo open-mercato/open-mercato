@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
-import { AppOriginConfigurationError, AppOriginRejectedError, toSecurityEmailUrl } from '@open-mercato/shared/lib/url'
+import { mapSecurityEmailUrlError, toSecurityEmailUrl } from '@open-mercato/shared/lib/url'
 
 const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
   points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
@@ -41,13 +41,11 @@ export async function POST(req: Request) {
   try {
     resetUrlTemplate = toSecurityEmailUrl(req, '/reset/__token__')
   } catch (error) {
-    if (error instanceof AppOriginRejectedError) {
-      return NextResponse.json({ error: 'Invalid request origin' }, { status: 400 })
-    }
-    if (error instanceof AppOriginConfigurationError) {
-      console.error('[auth.reset] APP_URL is required for password reset emails in production')
-      return NextResponse.json({ error: 'Password reset is not configured' }, { status: 500 })
-    }
+    const mapped = mapSecurityEmailUrlError(error, {
+      scope: 'auth.reset',
+      configMessage: 'Password reset is not configured',
+    })
+    if (mapped) return NextResponse.json(mapped.body, { status: mapped.status })
     throw error
   }
   const c = await createRequestContainer()

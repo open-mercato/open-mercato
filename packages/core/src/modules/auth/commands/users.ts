@@ -34,7 +34,8 @@ import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
-import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import crypto from 'node:crypto'
 
 type SerializedUser = {
@@ -341,7 +342,7 @@ async function sendInviteToUser(
   const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
-  const base = resolveInviteBaseUrl()
+  const base = getSecurityEmailBaseUrl()
   const inviteUrl = `${base}/reset/${token}`
 
   const { translate } = await resolveTranslations()
