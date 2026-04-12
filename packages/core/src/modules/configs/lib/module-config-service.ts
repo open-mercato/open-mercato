@@ -87,6 +87,22 @@ export type ModuleConfigDefault = {
   value: unknown
 }
 
+export type ModuleConfigRestoreDefaultsFailure = {
+  moduleId: string
+  name: string
+  error: Error
+}
+
+export class ModuleConfigRestoreDefaultsError extends Error {
+  readonly failures: ModuleConfigRestoreDefaultsFailure[]
+
+  constructor(failures: ModuleConfigRestoreDefaultsFailure[]) {
+    super(`Failed to restore ${failures.length} module config default${failures.length === 1 ? '' : 's'}.`)
+    this.name = 'ModuleConfigRestoreDefaultsError'
+    this.failures = failures
+  }
+}
+
 export type ModuleConfigService = {
   getRecord(moduleId: string, name: string): Promise<ModuleConfigRecord | null>
   getValue<T = unknown>(moduleId: string, name: string, options?: { defaultValue?: T | null }): Promise<T | null>
@@ -159,33 +175,58 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     if (!em) return
     const repo = em.getRepository(ModuleConfig)
     const cache = resolveCache(container)
-    let dirty = false
-    const touched: ModuleConfig[] = []
+    const failures: ModuleConfigRestoreDefaultsFailure[] = []
+    const operations: Array<
+      | { kind: 'create'; entity: ModuleConfig }
+      | { kind: 'update'; entity: ModuleConfig; value: unknown }
+    > = []
     for (const entry of defaults) {
-      let entity: ModuleConfig | null = null
       try {
         const { moduleId, name } = normalizeKey(entry.moduleId, entry.name)
-        entity = await repo.findOne({ moduleId, name })
+        const entity = await repo.findOne({ moduleId, name })
         if (!entity) {
-          entity = repo.create({
-            moduleId,
-            name,
-            valueJson: entry.value ?? null,
+          operations.push({
+            kind: 'create',
+            entity: repo.create({
+              moduleId,
+              name,
+              valueJson: entry.value ?? null,
+            }),
           })
-          em.persist(entity)
-          dirty = true
-          touched.push(entity)
         } else if (options?.force) {
-          entity.valueJson = entry.value ?? null
-          entity.updatedAt = new Date()
-          dirty = true
-          touched.push(entity)
+          operations.push({
+            kind: 'update',
+            entity,
+            value: entry.value ?? null,
+          })
         }
-      } catch {}
+      } catch (error) {
+        const normalizedError = error instanceof Error ? error : new Error(String(error))
+        failures.push({
+          moduleId: String(entry?.moduleId ?? ''),
+          name: String(entry?.name ?? ''),
+          error: normalizedError,
+        })
+        console.error('[configs.module-config] restoreDefaults failed for entry', {
+          moduleId: entry?.moduleId,
+          name: entry?.name,
+          error: normalizedError,
+        })
+      }
     }
-    if (!dirty) return
+    if (failures.length > 0) throw new ModuleConfigRestoreDefaultsError(failures)
+    if (operations.length === 0) return
+    for (const operation of operations) {
+      if (operation.kind === 'create') {
+        em.persist(operation.entity)
+        continue
+      }
+      operation.entity.valueJson = operation.value
+      operation.entity.updatedAt = new Date()
+    }
     await em.flush()
-    for (const entity of touched) {
+    for (const operation of operations) {
+      const entity = operation.entity
       const record = toRecord(entity)
       await writeCache(cache, cacheKey(entity.moduleId, entity.name), { found: true, record }, entity.moduleId)
     }
@@ -211,4 +252,3 @@ export function createModuleConfigService(container: AppContainer): ModuleConfig
     invalidate,
   }
 }
-
