@@ -90,6 +90,8 @@ const setupBaseMocks = (orderId: string | null = null) => {
   return { routerPush }
 }
 
+const createPendingPromise = <T,>() => new Promise<T>(() => {})
+
 const runConfigureNext = async (result: { current: ReturnType<typeof useShipmentWizard> }) => {
   await act(async () => {
     result.current.handleConfigureNext()
@@ -112,19 +114,21 @@ describe('useShipmentWizard', () => {
   describe('initial state', () => {
     it('starts on the provider step', async () => {
       setupBaseMocks()
+      mockFetchProviders.mockReturnValue(createPendingPromise())
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.step).toBe('provider')
     })
 
     it('starts with isLoadingProviders:true', async () => {
       setupBaseMocks()
-      mockFetchProviders.mockReturnValue(new Promise(() => {})) // never resolves
+      mockFetchProviders.mockReturnValue(createPendingPromise())
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.isLoadingProviders).toBe(true)
     })
 
     it('sets backHref to orders list when no orderId', async () => {
       setupBaseMocks(null)
+      mockFetchProviders.mockReturnValue(createPendingPromise())
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.backHref).toBe('/backend/sales/orders')
     })
@@ -132,6 +136,8 @@ describe('useShipmentWizard', () => {
     it('sets backHref to order detail when orderId is present', async () => {
       const orderId = chance.guid()
       setupBaseMocks(orderId)
+      mockFetchProviders.mockReturnValue(createPendingPromise())
+      mockFetchOrderAddresses.mockReturnValue(createPendingPromise())
       const { result } = renderHook(() => useShipmentWizard())
       expect(result.current.backHref).toBe(`/backend/sales/orders/${orderId}`)
     })
