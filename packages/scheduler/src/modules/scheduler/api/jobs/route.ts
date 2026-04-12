@@ -97,9 +97,10 @@ const crud = makeCrudRoute({
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
 
+      filters.tenant_id = { $in: [ctx.auth?.tenantId, null] }
       filters.$or = [
         { scope_type: 'system' },
-        { scope_type: 'tenant', tenant_id: { $eq: ctx.auth?.tenantId } },
+        { scope_type: 'tenant' },
         { scope_type: 'organization', organization_id: { $eq: ctx.auth?.orgId } },
       ]
 
