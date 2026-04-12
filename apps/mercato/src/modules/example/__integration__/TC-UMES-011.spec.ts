@@ -63,8 +63,9 @@ function runMercato(args: string[]): { stdout: string; stderr: string; exitCode:
 
 test.describe('TC-UMES-011: CLI commands', () => {
   test('umes:list shows registered extensions from example module', () => {
-    const { stdout, exitCode } = runMercato(['umes:list'])
+    const { stdout, stderr, exitCode } = runMercato(['umes:list'])
     expect(exitCode).toBe(0)
+    expect(stderr.trim()).toBe('')
 
     // Should list example module extensions in the output
     expect(stdout).toContain('example')
@@ -74,8 +75,9 @@ test.describe('TC-UMES-011: CLI commands', () => {
   })
 
   test('umes:inspect shows grouped example module details and omits falsey fields', () => {
-    const { stdout, exitCode } = runMercato(['umes:inspect', '--module', 'example'])
+    const { stdout, stderr, exitCode } = runMercato(['umes:inspect', '--module', 'example'])
     expect(exitCode).toBe(0)
+    expect(stderr.trim()).toBe('')
 
     const output = stdout.replace(/\r\n/g, '\n')
     const responseEnrichersIndex = output.indexOf('Response Enrichers')
@@ -97,27 +99,19 @@ test.describe('TC-UMES-011: CLI commands', () => {
     expect(output).not.toContain('No UMES extensions found for this module.')
     expect(output).not.toContain('hasAfter: false')
     expect(output).not.toContain('hasCache: false')
-
-    if (responseEnrichersIndex >= 0) {
-      expect(output).toContain('example.customer-todo-count')
-      expect(output).toContain('target: customers.person')
-      expect(output).toContain('timeout: 2000')
-      expect(responseEnrichersIndex).toBeLessThan(componentOverridesIndex)
-    }
-
-    if (interceptorsIndex >= 0) {
-      expect(output).toContain('example.customer-priority-filter')
-      expect(output).toContain('targetRoute: customers/people')
-      expect(output).toContain('methods: GET')
-      expect(output).toContain('hasBefore: true')
-      expect(interceptorsIndex).toBeLessThan(componentOverridesIndex)
-    }
-
-    if (responseEnrichersIndex >= 0 && interceptorsIndex >= 0) {
-      expect(responseEnrichersIndex).toBeLessThan(interceptorsIndex)
-    }
-
+    expect(output).toContain('example.customer-todo-count')
+    expect(output).toContain('target: customers.person')
+    expect(output).toContain('timeout: 2000')
+    expect(output).toContain('example.customer-priority-filter')
+    expect(output).toContain('targetRoute: customers/people')
+    expect(output).toContain('methods: GET')
+    expect(output).toContain('hasBefore: true')
+    expect(responseEnrichersIndex).toBeGreaterThan(-1)
+    expect(interceptorsIndex).toBeGreaterThan(-1)
     expect(componentOverridesIndex).toBeGreaterThan(-1)
+    expect(responseEnrichersIndex).toBeLessThan(interceptorsIndex)
+    expect(responseEnrichersIndex).toBeLessThan(componentOverridesIndex)
+    expect(interceptorsIndex).toBeLessThan(componentOverridesIndex)
     expect(componentOverridesIndex).toBeLessThan(injectionWidgetsIndex)
   })
 
@@ -130,8 +124,9 @@ test.describe('TC-UMES-011: CLI commands', () => {
   })
 
   test('umes:check exits 0 with no conflicts', () => {
-    const { stdout, exitCode } = runMercato(['umes:check'])
+    const { stdout, stderr, exitCode } = runMercato(['umes:check'])
     expect(exitCode).toBe(0)
+    expect(stderr.trim()).toBe('')
 
     // Should indicate no errors found
     expect(stdout.toLowerCase()).toMatch(/no (conflict|error)|0 error/i)
