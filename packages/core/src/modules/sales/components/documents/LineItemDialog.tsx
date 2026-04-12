@@ -529,7 +529,11 @@ export function LineItemDialog({
   const loadProductOptions = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const params = new URLSearchParams({ pageSize: "8" });
-      if (query && query.trim().length) params.set("search", query.trim());
+      if (query && query.trim().length) {
+        params.set("search", query.trim());
+      } else {
+        params.set("sortField", "title");
+      }
       const response = await apiCall<{
         items?: Array<Record<string, unknown>>;
       }>(`/api/catalog/products?${params.toString()}`, undefined, {
@@ -538,8 +542,7 @@ export function LineItemDialog({
       const items = Array.isArray(response.result?.items)
         ? (response.result?.items ?? [])
         : [];
-      const needle = query?.trim().toLowerCase() ?? "";
-      return items
+      const mapped = items
         .map((item) => {
           const id = typeof item.id === "string" ? item.id : null;
           if (!id) return null;
@@ -595,11 +598,6 @@ export function LineItemDialog({
           const defaultUnit = uomFields.defaultUnit;
           const defaultSalesUnit = uomFields.defaultSalesUnit;
           const defaultSalesUnitQuantity = uomFields.defaultSalesUnitQuantity;
-          const matches =
-            !needle ||
-            title.toLowerCase().includes(needle) ||
-            (sku ? sku.toLowerCase().includes(needle) : false);
-          if (!matches) return null;
           return {
             id,
             title,
@@ -633,11 +631,11 @@ export function LineItemDialog({
         .filter(
           (entry): entry is LookupSelectItem & { option: ProductOption } =>
             Boolean(entry),
-        )
-        .map((entry) => {
-          productOptionsRef.current.set(entry.option.id, entry.option);
-          return entry;
-        });
+        );
+      return mapped.map((entry) => {
+        productOptionsRef.current.set(entry.option.id, entry.option);
+        return entry;
+      });
     },
     [],
   );
