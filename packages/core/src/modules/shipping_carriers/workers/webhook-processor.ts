@@ -5,6 +5,7 @@ import { CarrierShipment } from '../data/entities'
 import { emitShippingEvent } from '../events'
 import { getShippingAdapter } from '../lib/adapter-registry'
 import { getTerminalShippingEvent, syncShipmentStatus, TERMINAL_SHIPPING_STATUSES } from '../lib/status-sync'
+import { claimWebhookProcessing, releaseWebhookClaim } from '../lib/webhook-utils'
 
 type WebhookJobPayload = {
   providerKey: string
@@ -51,31 +52,53 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       : null
     if (!shipment) return
 
-    const carrierStatus = typeof job.payload.event.data.status === 'string'
-      ? job.payload.event.data.status
-      : job.payload.event.eventType
-    const unifiedStatus = adapter.mapStatus(carrierStatus)
-    shipment.carrierStatus = carrierStatus
-    shipment.lastWebhookAt = new Date()
-
-    const transitionApplied = syncShipmentStatus(shipment, unifiedStatus)
-    if (!transitionApplied) return
-
-    await em.flush()
-
-    const eventPayload = {
-      shipmentId: shipment.id,
-      providerKey: job.payload.providerKey,
-      previousStatus: carrierStatus,
-      newStatus: unifiedStatus,
-      organizationId: shipment.organizationId,
-      tenantId: shipment.tenantId,
+    const scope = { organizationId: shipment.organizationId, tenantId: shipment.tenantId }
+    const claimed = await claimWebhookProcessing(
+      em,
+      job.payload.event.idempotencyKey,
+      job.payload.providerKey,
+      scope,
+      job.payload.event.eventType,
+    )
+    if (!claimed) {
+      return
     }
-    await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload)
-    if (TERMINAL_SHIPPING_STATUSES.has(unifiedStatus)) {
-      const terminalEvent = getTerminalShippingEvent(unifiedStatus)
-      if (!terminalEvent) return
-      await emitShippingEvent(terminalEvent, eventPayload)
+
+    try {
+      const carrierStatus = typeof job.payload.event.data.status === 'string'
+        ? job.payload.event.data.status
+        : job.payload.event.eventType
+      const unifiedStatus = adapter.mapStatus(carrierStatus)
+      shipment.carrierStatus = carrierStatus
+      shipment.lastWebhookAt = new Date()
+
+      const transitionApplied = syncShipmentStatus(shipment, unifiedStatus)
+      if (!transitionApplied) return
+
+      await em.flush()
+
+      const eventPayload = {
+        shipmentId: shipment.id,
+        providerKey: job.payload.providerKey,
+        previousStatus: carrierStatus,
+        newStatus: unifiedStatus,
+        organizationId: shipment.organizationId,
+        tenantId: shipment.tenantId,
+      }
+      await emitShippingEvent('shipping_carriers.shipment.status_changed', eventPayload)
+      if (TERMINAL_SHIPPING_STATUSES.has(unifiedStatus)) {
+        const terminalEvent = getTerminalShippingEvent(unifiedStatus)
+        if (!terminalEvent) return
+        await emitShippingEvent(terminalEvent, eventPayload)
+      }
+    } catch (error) {
+      await releaseWebhookClaim(
+        em,
+        job.payload.event.idempotencyKey,
+        job.payload.providerKey,
+        scope,
+      )
+      throw error
     }
   } catch (error) {
     console.error('[shipping-carriers:webhook-processor] Job processing failed', {

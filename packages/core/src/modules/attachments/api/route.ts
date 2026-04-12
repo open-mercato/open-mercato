@@ -26,6 +26,11 @@ import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/
 import { attachmentCrudEvents, attachmentCrudIndexer } from '../lib/crud'
 import { E } from '#generated/entities.ids.generated'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
+import {
+  isMultipartRequestWithinUploadLimit,
+  resolveAttachmentMaxBytes,
+  willExceedAttachmentTenantQuota,
+} from '../lib/upload-limits'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -210,6 +215,9 @@ export async function POST(req: Request) {
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
   }
+  if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
+    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+  }
 
   const form = await req.formData()
   const formPayload = buildFormPayload(form)
@@ -233,6 +241,7 @@ export async function POST(req: Request) {
   await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
+  let fieldMaxAttachmentSizeMb: number | null = null
   if (fieldKey) {
     try {
       const { CustomFieldDef } = await import('@open-mercato/core/modules/entities/data/entities')
@@ -251,14 +260,20 @@ export async function POST(req: Request) {
         if (!allowed.has(ext)) return NextResponse.json({ error: 'File type not allowed' }, { status: 400 })
       }
       if (typeof cfg.maxAttachmentSizeMb === 'number' && cfg.maxAttachmentSizeMb > 0) {
-        const maxBytes = Math.floor(cfg.maxAttachmentSizeMb * 1024 * 1024)
-        const size = (await file.arrayBuffer()).byteLength
-        if (size > maxBytes) return NextResponse.json({ error: `File exceeds ${cfg.maxAttachmentSizeMb} MB limit` }, { status: 400 })
+        fieldMaxAttachmentSizeMb = cfg.maxAttachmentSizeMb
       }
       if (typeof cfg.partitionCode === 'string' && cfg.partitionCode.trim().length > 0) {
         partitionFromField = sanitizePartitionCode(cfg.partitionCode)
       }
     } catch {}
+  }
+  const effectiveMaxBytes = resolveAttachmentMaxBytes(fieldMaxAttachmentSizeMb)
+  if (file.size > effectiveMaxBytes) {
+    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+  }
+  const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, tenantId)
+  if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
+    return NextResponse.json({ error: 'Attachment storage quota exceeded for this tenant.' }, { status: 413 })
   }
   const buf = Buffer.from(await file.arrayBuffer())
   const safeName = String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -400,6 +415,25 @@ export async function POST(req: Request) {
       customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,
     },
   })
+}
+
+async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: string): Promise<number> {
+  try {
+    const knex = (em as any).getConnection().getKnex()
+    const row = await knex('attachments')
+      .where({ tenant_id: tenantId })
+      .sum({ totalSize: 'file_size' })
+      .first()
+    const total = row?.totalSize
+    if (typeof total === 'number') return Number.isFinite(total) ? total : 0
+    if (typeof total === 'string') {
+      const parsed = Number(total)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    return 0
+  } catch {
+    return 0
+  }
 }
 
 export async function DELETE(req: Request) {
