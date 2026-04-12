@@ -283,6 +283,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     if (!link.gatewayProviderKey) {
       throw new CrudHttpError(422, { error: 'A payment gateway must be configured before this link can be used' })
     }
+    const gatewayProviderKey = link.gatewayProviderKey
     const legalDocuments = link.legalDocuments && typeof link.legalDocuments === 'object'
       ? link.legalDocuments as Partial<Record<'terms' | 'privacyPolicy', CheckoutLegalDocumentRequirement>>
       : {}
@@ -319,12 +320,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       organizationId: link.organizationId,
       tenantId: link.tenantId,
     }, undefined, { organizationId: link.organizationId, tenantId: link.tenantId })
-    validateDescriptorCurrencies(link.gatewayProviderKey, [
+    validateDescriptorCurrencies(gatewayProviderKey, [
       existingTransaction?.currencyCode ?? resolvedAmount.currencyCode,
     ])
     if (existingTransaction?.gatewayTransactionId) {
       return NextResponse.json(
-        await buildSubmitResponse(req, em, link, existingTransaction, link.gatewayProviderKey),
+        await buildSubmitResponse(req, em, link, existingTransaction, gatewayProviderKey),
       )
     }
 
@@ -398,7 +399,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     const sessionCurrencyCode = transaction.currencyCode
     if (!transaction.gatewayTransactionId) {
       let paymentSessionError: unknown = null
-      const sessionStart = await em.transactional(async (tx): Promise<PaymentSessionStartResult> => {
+      const sessionStart = await em.transactional(async (tx: EntityManager): Promise<PaymentSessionStartResult> => {
         const lockedTransaction = await findOneWithDecryption(tx, CheckoutTransaction, {
           id: transaction.id,
           organizationId: link.organizationId,
@@ -430,7 +431,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           : undefined
         try {
           const sessionResult = await paymentGatewayService.createPaymentSession({
-            providerKey: link.gatewayProviderKey,
+            providerKey: gatewayProviderKey,
             paymentId: lockedTransaction.id,
             amount: sessionAmount,
             currencyCode: sessionCurrencyCode,
@@ -469,7 +470,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         console.error('[checkout] Failed to create payment session', {
           linkId: link.id,
           transactionId: transaction.id,
-          providerKey: link.gatewayProviderKey,
+          providerKey: gatewayProviderKey,
           error: paymentSessionError instanceof Error ? paymentSessionError.message : String(paymentSessionError),
         })
         throw new CrudHttpError(502, { error: 'Unable to start the payment session' })
@@ -485,7 +486,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
           paymentStatus: refreshedTransaction.paymentStatus ?? null,
           amount: Number(refreshedTransaction.amount),
           currency: refreshedTransaction.currencyCode,
-          gatewayProvider: link.gatewayProviderKey,
+          gatewayProvider: gatewayProviderKey,
           gatewayTransactionId: refreshedTransaction.gatewayTransactionId ?? null,
           occurredAt: new Date().toISOString(),
           tenantId: link.tenantId,
@@ -493,11 +494,11 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         }).catch(() => undefined)
       }
       return NextResponse.json(
-        await buildSubmitResponse(req, em, link, refreshedTransaction, link.gatewayProviderKey),
+        await buildSubmitResponse(req, em, link, refreshedTransaction, gatewayProviderKey),
         { status: sessionStart.sessionStarted ? 201 : 200 },
       )
     }
-    return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, link.gatewayProviderKey), { status: 201 })
+    return NextResponse.json(await buildSubmitResponse(req, em, link, transaction, gatewayProviderKey), { status: 201 })
   } catch (error) {
     return handleCheckoutRouteError(error)
   }
