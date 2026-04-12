@@ -67,16 +67,20 @@ export class AuthService {
   }
 
 
-  async createSession(user: User, expiresAt: Date): Promise<{ token: string }> {
+  async createSession(user: User, expiresAt: Date): Promise<{ session: Session; token: string }> {
     const rawToken = generateAuthToken()
     const tokenHash = hashAuthToken(rawToken)
     const sess = this.em.create(Session as any, { user, token: tokenHash, expiresAt, createdAt: new Date() } as any)
     await this.em.persistAndFlush(sess)
-    return { token: rawToken }
+    return { session: sess as Session, token: rawToken }
   }
 
   async deleteSessionByToken(token: string) {
-    await this.em.nativeDelete(Session, { token: hashAuthToken(token) })
+    const hashedToken = hashAuthToken(token)
+    const deleted = await this.em.nativeDelete(Session, { token: hashedToken })
+    if (!deleted) {
+      await this.em.nativeDelete(Session, { token })
+    }
   }
 
   async deleteAllUserSessions(userId: string) {
@@ -85,7 +89,11 @@ export class AuthService {
 
   async refreshFromSessionToken(token: string) {
     const now = new Date()
-    const sess = await this.em.findOne(Session, { token: hashAuthToken(token) })
+    const hashedToken = hashAuthToken(token)
+    let sess = await this.em.findOne(Session, { token: hashedToken })
+    if (!sess) {
+      sess = await this.em.findOne(Session, { token })
+    }
     if (!sess || sess.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: sess.user.id })
     if (!user) return null
@@ -106,7 +114,11 @@ export class AuthService {
 
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
-    const row = await this.em.findOne(PasswordReset, { token: hashAuthToken(token) })
+    const hashedToken = hashAuthToken(token)
+    let row = await this.em.findOne(PasswordReset, { token: hashedToken })
+    if (!row) {
+      row = await this.em.findOne(PasswordReset, { token })
+    }
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: row.user.id })
     if (!user) return null
