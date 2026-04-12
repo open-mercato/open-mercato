@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Todo } from './data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { E } from '@/.mercato/generated/entities.ids.generated'
+const ENTITY_ID = 'example:todo' as const
 import type { CacheStrategy } from '@open-mercato/cache/types'
 
 type TodoSeed = {
@@ -107,7 +107,7 @@ export async function seedExampleTodos(
   options: { logger?: (message: string) => void } = {},
 ): Promise<boolean> {
   const logger = options.logger ?? (() => {})
-  const entityId = E.example.todo
+  const entityId = ENTITY_ID
 
   let cache: CacheStrategy | null = null
   try {

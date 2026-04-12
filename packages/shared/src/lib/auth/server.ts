@@ -73,9 +73,7 @@ function resolveOrganizationOverride(raw: string | undefined): CookieOverride {
 
 function isSuperAdminAuth(auth: AuthContext | null | undefined): boolean {
   if (!auth) return false
-  if ((auth as Record<string, unknown>).isSuperAdmin === true) return true
-  const roles = Array.isArray(auth?.roles) ? auth.roles : []
-  return roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === SUPERADMIN_ROLE)
+  return (auth as Record<string, unknown>).isSuperAdmin === true
 }
 
 function applySuperAdminScope(
@@ -118,7 +116,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
     const { findApiKeyBySecret } = await import('@open-mercato/core/modules/api_keys/services/apiKeyService')
-    const { Role, User } = await import('@open-mercato/core/modules/auth/data/entities')
+    const { Role, RoleAcl, User } = await import('@open-mercato/core/modules/auth/data/entities')
     const { Organization, Tenant } = await import('@open-mercato/core/modules/directory/data/entities')
 
     const record = await findApiKeyBySecret(em, secret)
@@ -131,6 +129,15 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       ? await em.find(Role, { id: { $in: roleIds }, deletedAt: null })
       : []
     const roleNames = roles.map((role) => role.name).filter((name): name is string => typeof name === 'string' && name.length > 0)
+
+    let keyIsSuperAdmin = false
+    if (roleIds.length) {
+      const superAcl = await em.findOne(
+        RoleAcl,
+        { role: { $in: roleIds } as any, isSuperAdmin: true, deletedAt: null } as any,
+      )
+      keyIsSuperAdmin = !!(superAcl && (superAcl as { isSuperAdmin?: boolean }).isSuperAdmin)
+    }
 
     try {
       record.lastUsedAt = new Date()
@@ -165,6 +172,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       orgId: record.organizationId ?? null,
       roles: roleNames,
       isApiKey: true,
+      isSuperAdmin: keyIsSuperAdmin,
       keyId: record.id,
       keyName: record.name,
       ...(actualUserId ? { userId: actualUserId } : {}),

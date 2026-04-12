@@ -13,7 +13,7 @@ import {
   type InteractionRecord,
 } from '@open-mercato/core/modules/customers/lib/interactionCompatibility'
 import { hydrateCanonicalInteractions } from '@open-mercato/core/modules/customers/lib/interactionReadModel'
-import { E } from '../../../../.mercato/generated/entities.ids.generated'
+const EXAMPLE_TODO_ENTITY_ID = 'example:todo' as const
 import { Todo } from '../../example/data/entities'
 import { ExampleCustomerInteractionMapping } from '../data/entities'
 import { emitExampleCustomersSyncEvent } from '../events'
@@ -312,7 +312,7 @@ async function loadExampleTodoSnapshot(
   )
   if (!todo) return null
   const customValues = await loadCustomFieldSnapshot(em, {
-    entityId: E.example.todo,
+    entityId: EXAMPLE_TODO_ENTITY_ID,
     recordId: todo.id,
     tenantId: todo.tenantId ?? null,
     organizationId: todo.organizationId ?? null,
