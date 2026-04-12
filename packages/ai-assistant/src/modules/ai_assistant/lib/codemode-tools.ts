@@ -9,11 +9,13 @@
  */
 
 import { z } from 'zod'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { registerMcpTool } from './tool-registry'
 import type { McpToolContext } from './types'
 import { createSandbox } from './sandbox'
 import { truncateResult } from './truncate'
-import { getRawOpenApiSpec } from './api-endpoint-index'
+import { hasRequiredFeatures } from './auth'
+import { getApiEndpoints, getRawOpenApiSpec, type ApiEndpoint } from './api-endpoint-index'
 import {
   getCachedEntityGraph,
   inferModuleFromEntity,
@@ -37,6 +39,8 @@ let cachedCodeModeSpec: Record<string, unknown> | null = null
  * Generated once at startup from the OpenAPI spec.
  */
 let cachedCommonTypes: string | null = null
+
+export const CODE_MODE_REQUIRED_FEATURES = ['ai_assistant.view'] as const
 
 /**
  * Build the merged spec object for the search tool.
@@ -584,7 +588,7 @@ Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common 
             'An async arrow function that queries spec, e.g. async () => spec.paths["/api/customers/companies"]'
           ),
       }),
-      requiredFeatures: [],
+      requiredFeatures: [...CODE_MODE_REQUIRED_FEATURES],
       handler: async (input: { code: string }, ctx: McpToolContext) => {
         const codePreview = input.code.slice(0, 120).replace(/\n/g, ' ')
         console.error(`[AI Usage] search: code="${codePreview}${input.code.length > 120 ? '...' : ''}"`)
@@ -672,7 +676,7 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
             'Async arrow function. For reads: async () => api.request({ method: "GET", path: "/api/customers/companies" }). For updates: async () => api.request({ method: "PUT", path: "/api/customers/companies", body: { id: "<uuid>", name: "New Name" } }). id goes in BODY not URL.'
           ),
       }),
-      requiredFeatures: [], // ACL checked at API level
+      requiredFeatures: [...CODE_MODE_REQUIRED_FEATURES],
       handler: async (input: { code: string }, ctx: McpToolContext) => {
         const codePreview = input.code.slice(0, 120).replace(/\n/g, ' ')
         console.error(`[AI Usage] execute: code="${codePreview}${input.code.length > 120 ? '...' : ''}" user=${ctx.userId || 'unknown'}`)
@@ -770,15 +774,29 @@ function createApiRequestFn(
 
     const { method, path, query, body } = params
     const callStart = Date.now()
+    const normalizedMethod = method.toUpperCase()
+    const apiPath = normalizeApiRequestPath(path)
+    const authorization = await authorizeCodeModeApiRequest(ctx, normalizedMethod, apiPath)
 
-    // Ensure path starts with /api
-    const apiPath = path.startsWith('/api') ? path : `/api${path}`
+    if (!authorization.allowed) {
+      const callDuration = Date.now() - callStart
+      console.error(
+        `[AI Usage] api.request: ${normalizedMethod} ${apiPath} → ${authorization.statusCode} in ${callDuration}ms (blocked by Code Mode RBAC)`
+      )
+      return {
+        success: false,
+        statusCode: authorization.statusCode,
+        error: authorization.error,
+        details: authorization.details,
+      }
+    }
+
     let url = `${baseUrl}${apiPath}`
 
     // Build query parameters
     const queryParams: Record<string, string> = { ...query }
 
-    if (method === 'GET') {
+    if (normalizedMethod === 'GET') {
       if (ctx.tenantId) queryParams.tenantId = ctx.tenantId
       if (ctx.organizationId) queryParams.organizationId = ctx.organizationId
     }
@@ -790,7 +808,7 @@ function createApiRequestFn(
 
     // Build request body with context injection
     let requestBody: Record<string, unknown> | undefined
-    if (['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
+    if (['POST', 'PUT', 'PATCH'].includes(normalizedMethod)) {
       requestBody = { ...body }
       if (ctx.tenantId) requestBody.tenantId = ctx.tenantId
       if (ctx.organizationId) requestBody.organizationId = ctx.organizationId
@@ -806,7 +824,7 @@ function createApiRequestFn(
 
     // Execute request using host fetch (not sandbox)
     const response = await globalThis.fetch(url, {
-      method: method.toUpperCase(),
+      method: normalizedMethod,
       headers,
       body: requestBody ? JSON.stringify(requestBody) : undefined,
     })
@@ -816,7 +834,7 @@ function createApiRequestFn(
     const callDuration = Date.now() - callStart
 
     if (!response.ok) {
-      console.error(`[AI Usage] api.request: ${method.toUpperCase()} ${apiPath} → ${response.status} in ${callDuration}ms`)
+      console.error(`[AI Usage] api.request: ${normalizedMethod} ${apiPath} → ${response.status} in ${callDuration}ms`)
 
       // Format 400 validation errors into a clear fix instruction for the LLM
       if (response.status === 400) {
@@ -835,10 +853,10 @@ function createApiRequestFn(
       }
     }
 
-    console.error(`[AI Usage] api.request: ${method.toUpperCase()} ${apiPath} → ${response.status} in ${callDuration}ms (${responseText.length} bytes)`)
+    console.error(`[AI Usage] api.request: ${normalizedMethod} ${apiPath} → ${response.status} in ${callDuration}ms (${responseText.length} bytes)`)
 
     // Add mutation warning for non-GET calls
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod)) {
       return {
         success: true,
         statusCode: response.status,
@@ -853,6 +871,124 @@ function createApiRequestFn(
       data,
     }
   }
+}
+
+type CodeModeApiAuthorization =
+  | { allowed: true; endpoint: ApiEndpoint }
+  | { allowed: false; statusCode: number; error: string; details?: Record<string, unknown> }
+
+export async function authorizeCodeModeApiRequest(
+  ctx: McpToolContext,
+  method: string,
+  path: string
+): Promise<CodeModeApiAuthorization> {
+  const normalizedMethod = method.toUpperCase()
+  const normalizedPath = normalizeApiRequestPath(path)
+  const endpoint = await findCodeModeApiEndpoint(normalizedMethod, normalizedPath)
+
+  if (!endpoint) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      error: `Code Mode cannot call undocumented API endpoint ${normalizedMethod} ${normalizedPath}`,
+    }
+  }
+
+  const rbacService = resolveRbacService(ctx)
+  const requiredFeatures = endpoint.requiredFeatures ?? []
+
+  if (requiredFeatures.length > 0) {
+    if (hasRequiredFeatures(requiredFeatures, ctx.userFeatures, ctx.isSuperAdmin, rbacService)) {
+      return { allowed: true, endpoint }
+    }
+
+    return {
+      allowed: false,
+      statusCode: 403,
+      error: `Insufficient permissions for ${normalizedMethod} ${normalizedPath}`,
+      details: { requiredFeatures, operationId: endpoint.operationId },
+    }
+  }
+
+  if (isUnsafeHttpMethod(normalizedMethod)) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      error: `Code Mode cannot call mutation endpoint without declared required features: ${normalizedMethod} ${normalizedPath}`,
+      details: { operationId: endpoint.operationId },
+    }
+  }
+
+  return { allowed: true, endpoint }
+}
+
+function resolveRbacService(ctx: McpToolContext): RbacService | undefined {
+  try {
+    return ctx.container.resolve('rbacService') as RbacService
+  } catch {
+    return undefined
+  }
+}
+
+async function findCodeModeApiEndpoint(
+  method: string,
+  path: string
+): Promise<ApiEndpoint | null> {
+  const endpoints = await getApiEndpoints()
+  const exactMatch = endpoints.find((endpoint) => endpoint.method === method && endpoint.path === path)
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  return endpoints.find((endpoint) => endpoint.method === method && matchApiEndpointPath(endpoint.path, path)) ?? null
+}
+
+export function matchApiEndpointPath(endpointPath: string, requestPath: string): boolean {
+  const normalizedEndpointPath = normalizeApiRequestPath(endpointPath)
+  const normalizedRequestPath = normalizeApiRequestPath(requestPath)
+
+  if (normalizedEndpointPath === normalizedRequestPath) {
+    return true
+  }
+
+  const endpointSegments = normalizedEndpointPath.split('/').filter(Boolean)
+  const requestSegments = normalizedRequestPath.split('/').filter(Boolean)
+
+  if (endpointSegments.length !== requestSegments.length) {
+    return false
+  }
+
+  return endpointSegments.every((segment, index) => {
+    if (isPathParameterSegment(segment)) {
+      return requestSegments[index].length > 0
+    }
+    return segment === requestSegments[index]
+  })
+}
+
+function normalizeApiRequestPath(path: string): string {
+  const [rawPath] = path.split('?')
+  const normalizedPath = rawPath.startsWith('/api')
+    ? rawPath
+    : `/api${rawPath.startsWith('/') ? rawPath : `/${rawPath}`}`
+
+  if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
+    return normalizedPath.slice(0, -1)
+  }
+
+  return normalizedPath
+}
+
+function isPathParameterSegment(segment: string): boolean {
+  return (
+    (segment.startsWith('{') && segment.endsWith('}')) ||
+    (segment.startsWith('[') && segment.endsWith(']')) ||
+    segment.startsWith(':')
+  )
+}
+
+function isUnsafeHttpMethod(method: string): boolean {
+  return !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
 }
 
 function tryParseJson(text: string): unknown {

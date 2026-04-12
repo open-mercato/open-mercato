@@ -46,6 +46,7 @@ registerMcpTool({
 - MUST use zod schemas for `inputSchema` — never use raw JSON Schema
 - MUST return a serializable object from the handler
 - MUST use `moduleId` matching the module's `id` field
+- Code Mode `api.request()` MUST enforce endpoint-level RBAC before fetch and fail closed for undocumented or featureless mutation endpoints
 
 ### Modify OpenCode Configuration
 
