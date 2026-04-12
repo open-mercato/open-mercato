@@ -73,15 +73,52 @@ test.describe('TC-UMES-011: CLI commands', () => {
     expect(stdout.toLowerCase()).toMatch(/injection-widget|component-override|enricher/i)
   })
 
-  test('umes:inspect shows extension tree for example module', () => {
+  test('umes:inspect shows grouped example module details and omits falsey fields', () => {
     const { stdout, exitCode } = runMercato(['umes:inspect', '--module', 'example'])
     expect(exitCode).toBe(0)
 
-    // Should show the example module header
-    expect(stdout).toContain('example')
+    const output = stdout.replace(/\r\n/g, '\n')
+    const responseEnrichersIndex = output.indexOf('Response Enrichers')
+    const interceptorsIndex = output.indexOf('API Interceptors')
+    const componentOverridesIndex = output.indexOf('Component Overrides')
+    const injectionWidgetsIndex = output.indexOf('Injection Widgets')
 
-    // Should list extension type sections (title-case headers in tree output)
-    expect(stdout).toMatch(/Injection Widgets|Component Overrides|Declared Features/)
+    expect(output).toContain('UMES Extensions for module: example')
+    expect(output).toContain('Declared Features (8):')
+    expect(output).toContain('  - example.backend')
+    expect(output).toContain('  - example.view')
+    expect(output).toContain('Component Overrides (1):')
+    expect(output).toContain('example.section:ui.detail.NotesSection')
+    expect(output).toContain('target: section:ui.detail.NotesSection')
+    expect(output).toContain('overrideKind: wrapper')
+    expect(output).toMatch(/Injection Widgets \(\d+\):/)
+    expect(output).toContain('example.injection.crud-validation')
+    expect(output).toContain('example.injection.example-menus')
+    expect(output).not.toContain('No UMES extensions found for this module.')
+    expect(output).not.toContain('hasAfter: false')
+    expect(output).not.toContain('hasCache: false')
+
+    if (responseEnrichersIndex >= 0) {
+      expect(output).toContain('example.customer-todo-count')
+      expect(output).toContain('target: customers.person')
+      expect(output).toContain('timeout: 2000')
+      expect(responseEnrichersIndex).toBeLessThan(componentOverridesIndex)
+    }
+
+    if (interceptorsIndex >= 0) {
+      expect(output).toContain('example.customer-priority-filter')
+      expect(output).toContain('targetRoute: customers/people')
+      expect(output).toContain('methods: GET')
+      expect(output).toContain('hasBefore: true')
+      expect(interceptorsIndex).toBeLessThan(componentOverridesIndex)
+    }
+
+    if (responseEnrichersIndex >= 0 && interceptorsIndex >= 0) {
+      expect(responseEnrichersIndex).toBeLessThan(interceptorsIndex)
+    }
+
+    expect(componentOverridesIndex).toBeGreaterThan(-1)
+    expect(componentOverridesIndex).toBeLessThan(injectionWidgetsIndex)
   })
 
   test('umes:inspect reports missing modules on stderr and exits non-zero', () => {
