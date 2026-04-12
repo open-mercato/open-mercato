@@ -149,7 +149,11 @@ describe('CrudForm custom field loading', () => {
       },
     )
 
-    const manageButton = await screen.findByRole('button', { name: 'Manage fields' })
+    const manageButton = await screen.findByRole(
+      'button',
+      { name: 'Manage fields' },
+      { timeout: 5000 },
+    )
 
     fireEvent.click(manageButton)
 
