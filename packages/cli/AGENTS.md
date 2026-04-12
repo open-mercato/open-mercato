@@ -36,7 +36,6 @@ Generated output goes to `apps/mercato/.mercato/generated/`.
 
 ```bash
 yarn generate              # Run all generators
-npm run modules:prepare    # Same as generate (used in predev/prebuild)
 ```
 
 `yarn generate` now performs a best-effort post-step structural cache purge by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI. This post-step must never break generation; unavailable cache tooling must be treated as a skip.
