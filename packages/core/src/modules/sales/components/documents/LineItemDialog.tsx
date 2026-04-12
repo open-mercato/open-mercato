@@ -40,7 +40,6 @@ import {
   extractCustomFieldValues,
 } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
-import { rankProductLookupItems } from "./lineItemProductSearch";
 
 type ProductOption = {
   id: string;
@@ -529,8 +528,12 @@ export function LineItemDialog({
 
   const loadProductOptions = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
-      const params = new URLSearchParams({ pageSize: "25", sortField: "title" });
-      if (query && query.trim().length) params.set("search", query.trim());
+      const params = new URLSearchParams({ pageSize: "8" });
+      if (query && query.trim().length) {
+        params.set("search", query.trim());
+      } else {
+        params.set("sortField", "title");
+      }
       const response = await apiCall<{
         items?: Array<Record<string, unknown>>;
       }>(`/api/catalog/products?${params.toString()}`, undefined, {
@@ -629,10 +632,10 @@ export function LineItemDialog({
           (entry): entry is LookupSelectItem & { option: ProductOption } =>
             Boolean(entry),
         );
-      return rankProductLookupItems(query ?? "", mapped).map((entry) => {
-          productOptionsRef.current.set(entry.option.id, entry.option);
-          return entry;
-        });
+      return mapped.map((entry) => {
+        productOptionsRef.current.set(entry.option.id, entry.option);
+        return entry;
+      });
     },
     [],
   );
