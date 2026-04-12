@@ -118,7 +118,7 @@ test.describe('TC-PLAN-004: Availability rule CRUD & access control', () => {
           data: { name: `QA Blocked ${stamp}`, timezone: 'UTC' },
         },
       )
-      expect(createResponse.status(), 'Employee POST /api/planner/availability-rule-sets should be denied').toBeGreaterThanOrEqual(403)
+      expect(createResponse.status(), 'Employee POST /api/planner/availability-rule-sets should be denied').toBe(403)
 
       // Create one as admin for update/delete denial tests
       ruleSetId = await createAvailabilityRuleSetFixture(request, adminToken, {
@@ -136,7 +136,7 @@ test.describe('TC-PLAN-004: Availability rule CRUD & access control', () => {
           data: { id: ruleSetId, name: `QA Access ${stamp} Hacked` },
         },
       )
-      expect(updateResponse.status(), 'Employee PUT should be denied').toBeGreaterThanOrEqual(403)
+      expect(updateResponse.status(), 'Employee PUT should be denied').toBe(403)
 
       // Employee cannot delete rule sets
       const deleteResponse = await apiRequest(
@@ -145,7 +145,7 @@ test.describe('TC-PLAN-004: Availability rule CRUD & access control', () => {
         `/api/planner/availability-rule-sets?id=${encodeURIComponent(ruleSetId)}`,
         { token: employeeToken },
       )
-      expect(deleteResponse.status(), 'Employee DELETE should be denied').toBeGreaterThanOrEqual(403)
+      expect(deleteResponse.status(), 'Employee DELETE should be denied').toBe(403)
 
       // Verify rule set is still intact (admin can read)
       const verifyResponse = await apiRequest(
