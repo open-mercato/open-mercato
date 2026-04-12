@@ -123,6 +123,7 @@ const crud = makeCrudRoute({
       FV.metadata,
       FV.option_values,
       'custom_fieldset_code',
+      'default_media_id',
       FV.created_at,
       FV.updated_at,
     ],
@@ -258,6 +259,7 @@ const variantListItemSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   option_values: z.record(z.string(), z.unknown()).nullable().optional(),
   custom_fieldset_code: z.string().nullable().optional(),
+  default_media_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 })

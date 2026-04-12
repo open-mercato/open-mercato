@@ -39,6 +39,10 @@ import {
   type ProductMediaItem,
 } from "@open-mercato/core/modules/catalog/components/products/ProductMediaManager";
 import {
+  VariantMediaReadonlyGallery,
+  type VariantMediaGroup,
+} from "@open-mercato/core/modules/catalog/components/products/VariantMediaReadonlyGallery";
+import {
   fetchOptionSchemaTemplate,
   type OptionSchemaRecord,
   type OptionSchemaTemplateSummary,
@@ -62,6 +66,7 @@ import {
   normalizePriceKindSummary,
   buildOptionValuesKey,
   buildVariantCombinations,
+  resolveVariantMediaFallback,
   normalizeProductDimensions,
   normalizeProductWeight,
   sanitizeProductDimensions,
@@ -142,6 +147,8 @@ type VariantSummaryApi = {
   sku?: string | null;
   is_default?: boolean;
   isDefault?: boolean;
+  default_media_id?: string | null;
+  defaultMediaId?: string | null;
   metadata?: Record<string, unknown> | null;
 };
 
@@ -164,6 +171,7 @@ type VariantSummary = {
   name: string;
   sku: string;
   isDefault: boolean;
+  defaultMediaId: string | null;
   prices: VariantPriceSummary[];
   optionValues: Record<string, string> | null;
 };
@@ -310,6 +318,9 @@ export default function EditCatalogProductPage({
     channels: ProductCategorizePickerOption[];
     tags: ProductCategorizePickerOption[];
   }>({ categories: [], channels: [], tags: [] });
+  const [variantMediaGroups, setVariantMediaGroups] = React.useState<
+    VariantMediaGroup[]
+  >([]);
 
   const loadVariants = React.useCallback(async (id: string) => {
     try {
@@ -369,6 +380,12 @@ export default function EditCatalogProductPage({
                   : (variant.sku ?? variantId),
               sku: typeof variant.sku === "string" ? variant.sku : "",
               isDefault: Boolean(variant.is_default ?? variant.isDefault),
+              defaultMediaId:
+                typeof variant.default_media_id === "string"
+                  ? variant.default_media_id
+                  : typeof variant.defaultMediaId === "string"
+                    ? variant.defaultMediaId
+                    : null,
               prices: priceMap[variantId] ?? [],
               optionValues,
             };
@@ -407,6 +424,58 @@ export default function EditCatalogProductPage({
     },
     [],
   );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function loadVariantMedia() {
+      if (!productId || !variants.length) {
+        setVariantMediaGroups([]);
+        return;
+      }
+      const CONCURRENCY = 5;
+      const groups: VariantMediaGroup[] = [];
+      for (let i = 0; i < variants.length; i += CONCURRENCY) {
+        const batch = variants.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (variant) => {
+            try {
+              const res = await apiCall<AttachmentListResponse>(
+                `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variant.id)}`,
+              );
+              if (!res.ok) return null;
+              const items: ProductMediaItem[] = (res.result?.items ?? []).map(
+                (item) => ({
+                  id: item.id,
+                  url: item.url,
+                  fileName: item.fileName,
+                  fileSize: item.fileSize,
+                  thumbnailUrl: item.thumbnailUrl ?? undefined,
+                }),
+              );
+              if (!items.length) return null;
+              return {
+                variantId: variant.id,
+                variantName: variant.name,
+                defaultMediaId: variant.defaultMediaId,
+                items,
+                editUrl: `/backend/catalog/products/${productId}/variants/${variant.id}`,
+              } satisfies VariantMediaGroup;
+            } catch {
+              return null;
+            }
+          }),
+        );
+        for (const result of results) {
+          if (result) groups.push(result);
+        }
+      }
+      if (!cancelled) setVariantMediaGroups(groups);
+    }
+    loadVariantMedia().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, variants]);
 
   React.useEffect(() => {
     const loadTaxRates = async () => {
@@ -716,6 +785,10 @@ export default function EditCatalogProductPage({
             setValue={setValue}
             errors={errors}
             productId={productId ?? ""}
+            hasVariants={Boolean(
+              (values as ProductFormValues).hasVariants,
+            )}
+            variantMediaGroups={variantMediaGroups}
           />
         ),
       },
@@ -832,6 +905,7 @@ export default function EditCatalogProductPage({
       refreshVariants,
       t,
       taxRates,
+      variantMediaGroups,
       variants,
     ],
   );
@@ -947,11 +1021,19 @@ export default function EditCatalogProductPage({
           : null;
       };
       const productTaxRateValue = resolveTaxRateValue(values.taxRateId ?? null);
-      const defaultMediaId =
+      let defaultMediaId =
         typeof values.defaultMediaId === "string" &&
         values.defaultMediaId.trim().length
           ? values.defaultMediaId
           : null;
+      let fallbackVariantName: string | null = null;
+      if (!defaultMediaId && variants.length > 0) {
+        const fallback = resolveVariantMediaFallback(variants);
+        if (fallback) {
+          defaultMediaId = fallback.defaultMediaId;
+          fallbackVariantName = fallback.variantName;
+        }
+      }
       const defaultMediaEntry = defaultMediaId
         ? values.mediaItems.find((item) => item.id === defaultMediaId)
         : null;
@@ -959,7 +1041,9 @@ export default function EditCatalogProductPage({
         ? buildAttachmentImageUrl(defaultMediaEntry.id, {
             slug: slugifyAttachmentFileName(defaultMediaEntry.fileName),
           })
-        : null;
+        : defaultMediaId
+          ? buildAttachmentImageUrl(defaultMediaId, {})
+          : null;
       const defaultUnit = canonicalizeUnitCode(values.defaultUnit);
       const defaultSalesUnit = canonicalizeUnitCode(values.defaultSalesUnit);
       const defaultSalesUnitQuantity =
@@ -1213,9 +1297,18 @@ export default function EditCatalogProductPage({
         offersPayload,
       );
       flash(t("catalog.products.edit.success", "Product updated."), "success");
+      if (fallbackVariantName) {
+        flash(
+          t(
+            "catalog.products.variantMedia.defaultFallbackApplied",
+            "Product thumbnail set from variant \"{name}\".",
+          ).replace("{name}", fallbackVariantName),
+          "info",
+        );
+      }
       router.push("/backend/catalog/products");
     },
-    [productId, t, taxRates, router],
+    [productId, t, taxRates, router, variants],
   );
 
   if (!productId) {
@@ -1289,7 +1382,11 @@ type ProductFormGroupProps = CrudFormGroupComponentProps & {
   values: ProductFormValues;
 };
 
-type ProductDetailsSectionProps = ProductFormGroupProps & { productId: string };
+type ProductDetailsSectionProps = ProductFormGroupProps & {
+  productId: string;
+  hasVariants: boolean;
+  variantMediaGroups: VariantMediaGroup[];
+};
 
 type ProductMetaSectionProps = ProductFormGroupProps & {
   taxRates: TaxRateSummary[];
@@ -1315,6 +1412,8 @@ function ProductDetailsSection({
   setValue,
   errors,
   productId,
+  hasVariants,
+  variantMediaGroups,
 }: ProductDetailsSectionProps) {
   const t = useT();
   const mediaItems = React.useMemo(
@@ -1442,6 +1541,10 @@ function ProductDetailsSection({
         onItemsChange={handleMediaItemsChange}
         onDefaultChange={handleDefaultMediaChange}
       />
+
+      {hasVariants && variantMediaGroups.length > 0 ? (
+        <VariantMediaReadonlyGallery groups={variantMediaGroups} />
+      ) : null}
     </div>
   );
 }
