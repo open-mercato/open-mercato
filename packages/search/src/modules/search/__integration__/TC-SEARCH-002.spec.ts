@@ -84,7 +84,7 @@ function hasStrategy(
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for field-policy tests (from PR branch)
+// Helpers for field-policy tests
 // ---------------------------------------------------------------------------
 
 async function isFulltextConfigured(
@@ -206,7 +206,7 @@ async function createProductSearchFixture(
 }
 
 // ---------------------------------------------------------------------------
-// Helpers for merge-dedup tests (from develop)
+// Helpers for merge-dedup tests
 // ---------------------------------------------------------------------------
 
 function buildSearchPath(query: string): string {
