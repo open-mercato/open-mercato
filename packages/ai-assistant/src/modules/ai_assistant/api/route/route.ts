@@ -18,6 +18,7 @@ import {
   isProviderConfigured,
   type ChatProviderId,
 } from '../../lib/chat-config'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
@@ -29,6 +30,15 @@ const RouteResultSchema = z.object({
   confidence: z.number().min(0).max(1),
   reasoning: z.string(),
 })
+
+const routeRequestSchema = z.object({
+  query: z.string().describe('User natural language input'),
+  availableTools: z
+    .array(z.object({ name: z.string(), description: z.string() }))
+    .describe('Tools available to the user'),
+})
+
+const errorSchema = z.object({ error: z.string() })
 
 function createRoutingModel(providerId: ChatProviderId, configuredModel?: string) {
   const { modelId, modelWithProvider } = resolveOpenCodeModel(providerId, {
@@ -152,4 +162,30 @@ Respond with:
       { status: 500 }
     )
   }
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'Route AI query to tool or chat',
+  description:
+    'Classifies a user query to either a specific tool or general chat using the configured AI provider. Requires AI Assistant view permission.',
+  methods: {
+    POST: {
+      summary: 'Route query',
+      requestBody: {
+        contentType: 'application/json',
+        schema: routeRequestSchema,
+        description: 'User query and the list of available tools to consider.',
+      },
+      responses: [
+        { status: 200, description: 'Routing decision', schema: RouteResultSchema },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 503, description: 'No provider configured or unavailable', schema: errorSchema },
+        { status: 500, description: 'Routing request failed', schema: errorSchema },
+      ],
+    },
+  },
 }

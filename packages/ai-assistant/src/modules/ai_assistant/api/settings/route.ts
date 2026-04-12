@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import {
   OPEN_CODE_PROVIDER_IDS,
@@ -8,6 +9,7 @@ import {
   resolveOpenCodeModel,
   resolveOpenCodeProviderId,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
@@ -66,4 +68,37 @@ export async function GET(req: NextRequest) {
     console.error('[AI Settings] GET error:', error)
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
   }
+}
+
+const providerSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  model: z.string(),
+  defaultModel: z.string(),
+  envKey: z.string().nullable(),
+  configured: z.boolean(),
+})
+
+const settingsResponseSchema = z.object({
+  provider: providerSchema,
+  availableProviders: z.array(providerSchema),
+  mcpKeyConfigured: z.boolean(),
+})
+
+const errorSchema = z.object({ error: z.string() })
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'Get AI Assistant provider settings',
+  description: 'Returns configured AI provider, available providers, and MCP API key status derived from environment variables.',
+  methods: {
+    GET: {
+      summary: 'Read AI provider settings',
+      responses: [{ status: 200, description: 'Current provider configuration', schema: settingsResponseSchema }],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 500, description: 'Failed to fetch settings', schema: errorSchema },
+      ],
+    },
+  },
 }

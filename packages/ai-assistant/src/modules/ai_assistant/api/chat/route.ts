@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import {
   handleOpenCodeMessageStreaming,
@@ -13,6 +14,8 @@ import {
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 /**
  * System instructions injected at the start of new chat sessions.
@@ -342,4 +345,107 @@ export async function POST(req: NextRequest) {
     console.error('[AI Chat] Error:', error)
     return NextResponse.json({ error: 'Chat request failed' }, { status: 500 })
   }
+}
+
+const chatMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']).describe('Message role'),
+  content: z.string().min(1).describe('Message content'),
+})
+
+const chatRequestSchema = z.object({
+  messages: z.array(chatMessageSchema).min(1).describe('Conversation history; last user message is used'),
+  sessionId: z.string().describe('Existing chat session ID to continue').optional(),
+  answerQuestion: z
+    .object({
+      questionId: z.string(),
+      answer: z.number().int(),
+      sessionId: z.string(),
+    })
+    .describe('Answer to a previously asked confirmation question')
+    .optional(),
+})
+
+const chatQuestionSchema = z.object({
+  id: z.string(),
+  sessionID: z.string(),
+  questions: z.array(
+    z.object({
+      question: z.string(),
+      header: z.string(),
+      options: z.array(
+        z.object({
+          label: z.string(),
+          description: z.string(),
+        })
+      ),
+    })
+  ),
+  tool: z.object({
+    messageID: z.string(),
+    callID: z.string(),
+  }),
+})
+
+const chatSseEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('session-authorized'), sessionToken: z.string() }),
+  z.object({ type: z.literal('thinking') }),
+  z.object({ type: z.literal('text'), content: z.string() }),
+  z.object({ type: z.literal('tool-call'), id: z.string(), toolName: z.string(), args: z.unknown() }),
+  z.object({ type: z.literal('tool-result'), id: z.string(), result: z.unknown() }),
+  z.object({ type: z.literal('question'), question: chatQuestionSchema }),
+  z.object({
+    type: z.literal('metadata'),
+    model: z.string().optional(),
+    provider: z.string().optional(),
+    tokens: z
+      .object({
+        input: z.number().int().optional(),
+        output: z.number().int().optional(),
+      })
+      .optional(),
+    durationMs: z.number().int().optional(),
+  }),
+  z.object({ type: z.literal('debug'), partType: z.string(), data: z.unknown() }),
+  z.object({ type: z.literal('done'), sessionId: z.string() }),
+  z.object({ type: z.literal('error'), error: z.string() }),
+])
+
+const errorSchema = z.object({ error: z.string() })
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'Chat with AI Assistant (SSE)',
+  description:
+    'Streams AI Assistant responses over Server-Sent Events. Accepts chat history, optionally continues an existing session, and supports answering pending confirmation questions.',
+  methods: {
+    POST: {
+      summary: 'Send chat message and receive streamed response',
+      description:
+        'Starts or continues an AI chat session. Returns an SSE stream with thinking, tool-call/result, question, text, and done events. When answering a pending question, responds synchronously with JSON.',
+      requestBody: {
+        contentType: 'application/json',
+        schema: chatRequestSchema,
+        description:
+          'Chat history (messages) with optional sessionId to continue, or answerQuestion payload for responding to pending confirmation questions.',
+      },
+      responses: [
+        {
+          status: 200,
+          description: 'SSE stream of chat events when sending a message',
+          schema: chatSseEventSchema,
+          mediaType: 'text/event-stream',
+        },
+        {
+          status: 200,
+          description: 'Question answer acknowledged (no SSE) when answerQuestion is present',
+          schema: z.object({ success: z.boolean() }),
+        },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid payload', schema: errorSchema },
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 500, description: 'Chat request failed', schema: errorSchema },
+      ],
+    },
+  },
 }
