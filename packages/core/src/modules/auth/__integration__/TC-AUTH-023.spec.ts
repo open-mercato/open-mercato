@@ -54,6 +54,8 @@ test.describe('TC-AUTH-023: Role API enforces tenant-scoped creation', () => {
         }).catch(() => {})
       }
     }
+  })
+})
 
 test.describe('TC-AUTH-023: Sidebar preferences & features list API', () => {
   test('should read sidebar preferences', async ({ request }) => {
