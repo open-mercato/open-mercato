@@ -57,6 +57,18 @@ const nextConfig: NextConfig = {
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
         ],
       },
+      {
+        // Attachment file downloads set their own restrictive CSP (sandbox)
+        // in the route handler — override the global app CSP so it is not
+        // replaced at the Next.js config layer.
+        source: '/api/attachments/file/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: "default-src 'none'; sandbox" },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      },
     ]
   },
 }
