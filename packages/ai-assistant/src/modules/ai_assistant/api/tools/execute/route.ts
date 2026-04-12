@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { executeTool } from '../../../lib/tool-executor'
@@ -7,6 +8,14 @@ import { loadAllModuleTools } from '../../../lib/tool-loader'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { McpToolContext } from '../../../lib/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'Execute AI tool',
+  methods: {
+    POST: { summary: 'Execute a specific MCP tool by name' },
+  },
+}
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },

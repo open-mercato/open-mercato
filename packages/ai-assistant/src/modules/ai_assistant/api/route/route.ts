@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { generateObject } from '../../lib/ai-sdk'
 import {
   createOpenAI,
@@ -19,6 +20,14 @@ import {
   type ChatProviderId,
 } from '../../lib/chat-config'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'AI query routing',
+  methods: {
+    POST: { summary: 'Route user query to appropriate AI handler' },
+  },
+}
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },

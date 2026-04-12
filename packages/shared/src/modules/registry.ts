@@ -215,6 +215,8 @@ export type Module = {
   vector?: import('./vector').VectorModuleConfig
   // Optional: module-specific tenant setup configuration (from setup.ts)
   setup?: import('./setup').ModuleSetupConfig
+  // Optional: default encryption maps owned by the module (from encryption.ts)
+  defaultEncryptionMaps?: import('./encryption').ModuleEncryptionMap[]
   // Optional: integration marketplace declarations discovered from integration.ts
   integrations?: IntegrationDefinition[]
   bundles?: IntegrationBundle[]
@@ -355,6 +357,33 @@ export function getCliModules(): Module[] {
 
 export function hasCliModules(): boolean {
   return _cliModules !== null && _cliModules.length > 0
+}
+
+export function getDefaultEncryptionMaps(modules: Module[]): import('./encryption').ModuleEncryptionMap[] {
+  const byEntityId = new Map<string, { moduleId: string; map: import('./encryption').ModuleEncryptionMap }>()
+
+  for (const mod of modules) {
+    for (const entry of mod.defaultEncryptionMaps ?? []) {
+      const previous = byEntityId.get(entry.entityId)
+      if (previous) {
+        throw new Error(
+          `[registry] Duplicate default encryption map for "${entry.entityId}" declared by "${previous.moduleId}" and "${mod.id}"`
+        )
+      }
+      byEntityId.set(entry.entityId, {
+        moduleId: mod.id,
+        map: {
+          entityId: entry.entityId,
+          fields: entry.fields.map((field) => ({
+            field: field.field,
+            hashField: field.hashField ?? null,
+          })),
+        },
+      })
+    }
+  }
+
+  return Array.from(byEntityId.values(), ({ map }) => map)
 }
 
 function ensureLazyHandler<T extends (...args: any[]) => any>(

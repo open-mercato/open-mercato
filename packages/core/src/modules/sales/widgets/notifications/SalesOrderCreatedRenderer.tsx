@@ -59,8 +59,8 @@ export function SalesOrderCreatedRenderer({
   return (
     <div
       className={cn(
-        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors border-l-4 border-l-blue-500',
-        isUnread && 'bg-blue-50/50 dark:bg-blue-950/20'
+        'group relative px-4 py-3 hover:bg-muted/50 cursor-pointer transition-colors border-l-4 border-l-status-info-border',
+        isUnread && 'bg-status-info-bg/50'
       )}
       onClick={handleView}
       onKeyDown={(e) => {
@@ -78,8 +78,8 @@ export function SalesOrderCreatedRenderer({
 
       <div className="flex gap-3">
         <div className="flex-shrink-0 mt-0.5">
-          <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center">
-            <ShoppingCart className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+          <div className="h-10 w-10 rounded-lg bg-status-info-bg flex items-center justify-center">
+            <ShoppingCart className="h-5 w-5 text-status-info-icon" />
           </div>
         </div>
 

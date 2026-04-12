@@ -1,8 +1,17 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { handleOpenCodeHealth } from '../../lib/opencode-handlers'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'AI assistant health check',
+  methods: {
+    GET: { summary: 'Check OpenCode and MCP connection status' },
+  },
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },

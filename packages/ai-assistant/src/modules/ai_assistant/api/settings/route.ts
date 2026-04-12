@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import {
   OPEN_CODE_PROVIDER_IDS,
@@ -10,6 +11,14 @@ import {
   resolveOpenCodeProviderId,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'AI assistant settings',
+  methods: {
+    GET: { summary: 'Get AI provider configuration' },
+  },
+}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },

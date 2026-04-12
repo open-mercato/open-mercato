@@ -122,14 +122,14 @@ Include numbered checklists for common tasks. Pattern: "Adding a New X" or "Chec
 2. Export `metadata` with `{ queue: '<queue-name>', id: '<worker-id>', concurrency: <n> }`
 3. Export default async handler function
 4. Ensure handler is idempotent — check state before mutating
-5. Run `npm run modules:prepare` to register the worker
+5. Run `yarn generate` to register the worker
 6. Test with `QUEUE_STRATEGY=local` in development
 ```
 
 Every checklist MUST:
 - Use numbered steps (not bullets)
 - Start each step with an imperative verb
-- Include the `npm run modules:prepare` step when adding module files
+- Include the `yarn generate` step when adding module files
 - End with a testing/verification step
 
 ## Data Model Sections

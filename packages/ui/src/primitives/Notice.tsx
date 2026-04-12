@@ -2,18 +2,27 @@
 import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 
+/**
+ * @deprecated Use <Alert variant="destructive|warning|info"> instead.
+ * Migration guide: docs/design-system/migration-tables.md#j3-component-mapping
+ *
+ * Notice variant="error"   → Alert variant="destructive"
+ * Notice variant="warning" → Alert variant="warning"
+ * Notice variant="info"    → Alert variant="info"
+ */
+
 const variantStyles = {
   error: {
-    container: 'border-red-200 bg-red-50 text-red-800',
-    icon: 'border-red-500',
+    container: 'border-status-error-border bg-status-error-bg text-status-error-text',
+    icon: 'border-status-error-icon',
   },
   info: {
-    container: 'border-blue-200 bg-blue-50 text-blue-900',
-    icon: 'border-blue-500',
+    container: 'border-status-info-border bg-status-info-bg text-status-info-text',
+    icon: 'border-status-info-icon',
   },
   warning: {
-    container: 'border-amber-200 bg-amber-50 text-amber-800',
-    icon: 'border-amber-500',
+    container: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
+    icon: 'border-status-warning-icon',
   },
 } as const
 
@@ -38,6 +47,13 @@ export function Notice({
   className,
   compact = false,
 }: NoticeProps) {
+  if (process.env.NODE_ENV === 'development') {
+    console.warn(
+      '[DS] <Notice> is deprecated. Use <Alert variant="destructive|warning|info"> instead. ' +
+      'See: docs/design-system/migration-tables.md'
+    )
+  }
+
   const styles = variantStyles[variant]
 
   if (compact || (!title && !action && (children || message))) {
