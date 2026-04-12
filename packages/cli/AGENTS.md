@@ -14,7 +14,7 @@ packages/cli/src/
 
 The CLI auto-discovers module files across all packages and `apps/mercato/src/modules/`. It scans for:
 
-- `index.ts` (metadata), `cli.ts`, `di.ts`, `acl.ts`, `setup.ts`, `ce.ts`
+- `index.ts` (metadata), `cli.ts`, `di.ts`, `acl.ts`, `setup.ts`, `encryption.ts`, `ce.ts`
 - `search.ts`, `events.ts`, `notifications.ts`, `ai-tools.ts`
 - `generators.ts` — module-level generator plugin declarations (see below)
 - `data/entities.ts`, `data/extensions.ts`

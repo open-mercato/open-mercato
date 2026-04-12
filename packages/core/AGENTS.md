@@ -374,7 +374,7 @@ When adding features to `acl.ts`, also add them to `setup.ts` `defaultRoleFeatur
 - Do not hand-roll AES/KMS calls; rely on `TenantDataEncryptionService`
 - Query index: keep `entity_indexes.doc` encrypted at rest; use `decryptIndexDocCustomFields`, `decryptIndexDocForSearch`
 - Vector search: `result_title`/`result_subtitle`/`result_icon` encrypted at rest
-- When adding GDPR-relevant fields, update encryption defaults in `src/modules/entities/lib/encryptionDefaults.ts`
+- When adding GDPR-relevant fields, declare or update the module's `encryption.ts` `defaultEncryptionMaps` export
 
 ## Command Side Effects
 
