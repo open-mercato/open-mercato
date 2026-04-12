@@ -7,11 +7,13 @@ import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
 import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
+import { flash } from './FlashMessages'
 import { useInjectedMenuItems } from './injection/useInjectedMenuItems'
 import { mergeMenuItems, type MergedMenuItem } from './injection/mergeMenuItems'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { InjectionSpot } from './injection/InjectionSpot'
 import { BACKEND_TOPBAR_PROFILE_MENU_INJECTION_SPOT_ID } from './injection/spotIds'
+import { apiCall } from './utils/apiCall'
 
 export type ProfileDropdownProps = {
   email?: string
@@ -89,14 +91,27 @@ export function ProfileDropdown({
   }
 
   const handleLocaleChange = async (locale: Locale) => {
+    if (locale === currentLocale) return
     try {
-      await fetch('/api/auth/locale', {
+      const response = await apiCall('/api/auth/locale', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ locale }),
       })
+      if (!response.ok) {
+        flash(
+          t('ui.profileMenu.languageChangeError', 'Unable to change language. Please try again.'),
+          'error',
+        )
+        return
+      }
       window.location.reload()
-    } catch {}
+    } catch {
+      flash(
+        t('ui.profileMenu.languageChangeError', 'Unable to change language. Please try again.'),
+        'error',
+      )
+    }
   }
 
   const menuItemClass =
