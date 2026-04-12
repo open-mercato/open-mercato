@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Image as ImageIcon, ExternalLink, Star } from 'lucide-react'
+import { ExternalLink, Star } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import type { ProductMediaItem } from './ProductMediaManager'
@@ -54,13 +54,7 @@ export function VariantMediaReadonlyGallery({ groups }: Props) {
               return (
                 <div key={item.id} className="flex flex-col rounded-md border bg-card">
                   <div className="relative aspect-square overflow-hidden rounded-t-md bg-muted">
-                    {thumbnail ? (
-                      <img src={thumbnail} alt={item.fileName} className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full items-center justify-center text-muted-foreground">
-                        <ImageIcon className="h-8 w-8" />
-                      </div>
-                    )}
+                    <img src={thumbnail} alt={item.fileName} className="h-full w-full object-cover" />
                     {isDefault ? (
                       <div className="absolute right-1 top-1">
                         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">

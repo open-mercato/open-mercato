@@ -11,15 +11,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -29,13 +23,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -45,13 +32,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "name": {
@@ -61,13 +41,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "code": {
@@ -77,13 +50,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "description": {
@@ -93,13 +59,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "schema": {
@@ -109,13 +68,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "metadata": {
@@ -125,13 +77,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "is_active": {
@@ -141,13 +86,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "true",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "created_at": {
@@ -157,13 +96,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -173,13 +106,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
@@ -189,13 +116,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -247,15 +168,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -265,13 +180,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -281,13 +189,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "code": {
@@ -297,13 +198,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "title": {
@@ -313,13 +207,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "display_mode": {
@@ -329,13 +216,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'excluding-tax'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "currency_code": {
@@ -345,13 +226,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "is_promotion": {
@@ -361,13 +235,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "false",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "is_active": {
@@ -377,13 +245,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "true",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "created_at": {
@@ -393,13 +255,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -409,13 +265,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
@@ -425,13 +275,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -481,15 +325,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -499,13 +337,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -515,13 +346,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "title": {
@@ -531,13 +355,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "subtitle": {
@@ -547,13 +364,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "description": {
@@ -563,13 +373,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "sku": {
@@ -579,13 +382,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "handle": {
@@ -595,13 +391,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "tax_rate_id": {
@@ -611,13 +400,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tax_rate": {
@@ -627,13 +409,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 7,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "product_type": {
@@ -643,13 +420,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'simple'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "status_entry_id": {
@@ -659,13 +430,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "primary_currency_code": {
@@ -675,13 +439,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "default_unit": {
@@ -691,13 +448,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "default_sales_unit": {
@@ -707,13 +457,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "default_sales_unit_quantity": {
@@ -723,13 +466,9 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
           "precision": 18,
           "scale": 6,
           "default": "'1'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "uom_rounding_scale": {
@@ -739,13 +478,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "4",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "smallint"
         },
         "uom_rounding_mode": {
@@ -755,13 +488,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'half_up'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "unit_price_enabled": {
@@ -771,13 +498,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "false",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "unit_price_reference_unit": {
@@ -787,13 +508,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "unit_price_base_quantity": {
@@ -803,13 +517,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 18,
           "scale": 6,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "default_media_id": {
@@ -819,13 +528,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "default_media_url": {
@@ -835,13 +537,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "weight_value": {
@@ -851,13 +546,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 16,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "weight_unit": {
@@ -867,13 +557,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "dimensions": {
@@ -883,13 +566,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "metadata": {
@@ -899,13 +575,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "custom_fieldset_code": {
@@ -915,13 +584,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "option_schema_id": {
@@ -931,13 +593,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "is_configurable": {
@@ -947,13 +602,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "false",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "is_active": {
@@ -963,13 +612,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "true",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "created_at": {
@@ -979,13 +622,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -995,13 +632,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
@@ -1011,13 +642,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -1095,15 +720,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "product_id": {
@@ -1113,13 +732,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -1129,13 +741,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -1145,13 +750,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "channel_id": {
@@ -1161,13 +759,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "title": {
@@ -1177,13 +768,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "description": {
@@ -1193,13 +777,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "default_media_id": {
@@ -1209,13 +786,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "default_media_url": {
@@ -1225,13 +795,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "metadata": {
@@ -1241,13 +804,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "is_active": {
@@ -1257,13 +813,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "true",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "created_at": {
@@ -1273,13 +823,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -1289,13 +833,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
@@ -1305,13 +843,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -1378,15 +910,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -1396,13 +922,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -1412,13 +931,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "name": {
@@ -1428,13 +940,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "slug": {
@@ -1444,13 +949,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "description": {
@@ -1460,13 +958,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "parent_id": {
@@ -1476,13 +967,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "root_id": {
@@ -1492,13 +976,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tree_path": {
@@ -1508,13 +985,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "depth": {
@@ -1524,13 +994,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "0",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "ancestor_ids": {
@@ -1540,13 +1004,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'[]'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "child_ids": {
@@ -1556,13 +1014,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'[]'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "descendant_ids": {
@@ -1572,13 +1024,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'[]'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "metadata": {
@@ -1588,13 +1034,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "is_active": {
@@ -1604,13 +1043,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "true",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "created_at": {
@@ -1620,13 +1053,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -1636,13 +1063,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
@@ -1652,13 +1073,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -1710,15 +1125,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "product_id": {
@@ -1728,13 +1137,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "category_id": {
@@ -1744,13 +1146,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -1760,13 +1155,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -1776,13 +1164,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "position": {
@@ -1792,13 +1173,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "0",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "created_at": {
@@ -1808,13 +1183,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -1824,13 +1193,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -1908,15 +1271,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -1926,13 +1283,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -1942,13 +1292,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "label": {
@@ -1958,13 +1301,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "slug": {
@@ -1974,13 +1310,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "created_at": {
@@ -1990,13 +1319,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -2006,13 +1329,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -2064,15 +1381,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "product_id": {
@@ -2082,13 +1393,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tag_id": {
@@ -2098,13 +1402,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -2114,13 +1411,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -2130,13 +1420,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "created_at": {
@@ -2146,13 +1429,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -2162,13 +1439,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -2246,15 +1517,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "product_id": {
@@ -2264,13 +1529,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -2280,13 +1538,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -2296,13 +1547,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "unit_code": {
@@ -2312,13 +1556,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "to_base_factor": {
@@ -2328,13 +1565,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
           "precision": 24,
           "scale": 12,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "sort_order": {
@@ -2344,13 +1576,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "0",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "is_active": {
@@ -2360,13 +1586,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "true",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "metadata": {
@@ -2376,13 +1596,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "created_at": {
@@ -2392,13 +1605,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -2408,13 +1615,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
@@ -2424,13 +1625,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -2496,15 +1691,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "product_id": {
@@ -2514,13 +1703,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -2530,13 +1712,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -2546,13 +1721,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "name": {
@@ -2562,13 +1730,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "sku": {
@@ -2578,13 +1739,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "barcode": {
@@ -2594,13 +1748,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "status_entry_id": {
@@ -2610,13 +1757,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "is_default": {
@@ -2626,13 +1766,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "false",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "is_active": {
@@ -2642,13 +1776,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "true",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "weight_value": {
@@ -2658,13 +1786,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 16,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "weight_unit": {
@@ -2674,13 +1797,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "dimensions": {
@@ -2690,13 +1806,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "metadata": {
@@ -2706,13 +1815,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "tax_rate_id": {
@@ -2722,13 +1824,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tax_rate": {
@@ -2738,13 +1833,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 7,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "option_values": {
@@ -2754,46 +1844,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
-        },
-        "default_media_id": {
-          "name": "default_media_id",
-          "type": "uuid",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "uuid"
-        },
-        "default_media_url": {
-          "name": "default_media_url",
-          "type": "text",
-          "unsigned": false,
-          "autoincrement": false,
-          "primary": false,
-          "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
-          "mappedType": "text"
         },
         "custom_fieldset_code": {
           "name": "custom_fieldset_code",
@@ -2802,13 +1853,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "created_at": {
@@ -2818,13 +1862,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -2834,13 +1872,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "deleted_at": {
@@ -2850,13 +1882,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -2922,15 +1948,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "variant_id": {
@@ -2940,13 +1960,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "product_id": {
@@ -2956,13 +1969,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "offer_id": {
@@ -2972,13 +1978,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "price_kind_id": {
@@ -2988,13 +1987,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -3004,13 +1996,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -3020,13 +2005,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "currency_code": {
@@ -3036,13 +2014,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "kind": {
@@ -3052,13 +2023,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'regular'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "min_quantity": {
@@ -3068,13 +2033,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "1",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "max_quantity": {
@@ -3084,13 +2043,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "unit_price_net": {
@@ -3100,13 +2052,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 16,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "unit_price_gross": {
@@ -3116,13 +2063,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 16,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "tax_rate": {
@@ -3132,13 +2074,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 7,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "tax_amount": {
@@ -3148,13 +2085,8 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
           "precision": 16,
           "scale": 4,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "decimal"
         },
         "channel_id": {
@@ -3164,13 +2096,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "user_id": {
@@ -3180,13 +2105,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "user_group_id": {
@@ -3196,13 +2114,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "customer_id": {
@@ -3212,13 +2123,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "customer_group_id": {
@@ -3228,13 +2132,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "metadata": {
@@ -3244,13 +2141,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "starts_at": {
@@ -3260,13 +2150,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "ends_at": {
@@ -3276,13 +2160,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "created_at": {
@@ -3292,13 +2170,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -3308,13 +2180,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },
@@ -3420,15 +2286,9 @@
           "type": "uuid",
           "unsigned": false,
           "autoincrement": false,
-          "primary": true,
+          "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "gen_random_uuid()",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "parent_variant_id": {
@@ -3438,13 +2298,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "child_variant_id": {
@@ -3454,13 +2307,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "child_product_id": {
@@ -3470,13 +2316,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "organization_id": {
@@ -3486,13 +2325,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "tenant_id": {
@@ -3502,13 +2334,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "uuid"
         },
         "relation_type": {
@@ -3518,13 +2343,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "'grouped'",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "text"
         },
         "is_required": {
@@ -3534,13 +2353,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "false",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "boolean"
         },
         "min_quantity": {
@@ -3550,13 +2363,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "max_quantity": {
@@ -3566,13 +2372,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "position": {
@@ -3582,13 +2381,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
           "default": "0",
-          "comment": null,
-          "enumItems": [],
           "mappedType": "integer"
         },
         "metadata": {
@@ -3598,13 +2391,6 @@
           "autoincrement": false,
           "primary": false,
           "nullable": true,
-          "unique": false,
-          "length": null,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "json"
         },
         "created_at": {
@@ -3614,13 +2400,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         },
         "updated_at": {
@@ -3630,13 +2410,7 @@
           "autoincrement": false,
           "primary": false,
           "nullable": false,
-          "unique": false,
           "length": 6,
-          "precision": null,
-          "scale": null,
-          "default": null,
-          "comment": null,
-          "enumItems": [],
           "mappedType": "datetime"
         }
       },

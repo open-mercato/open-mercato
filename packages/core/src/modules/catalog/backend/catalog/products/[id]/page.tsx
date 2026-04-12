@@ -334,6 +334,7 @@ export default function EditCatalogProductPage({
       ]);
       if (!variantsRes.ok) {
         setVariants([]);
+        setVariantMediaGroups([]);
         return;
       }
       const priceMap: Record<string, VariantPriceSummary[]> = {};
@@ -362,39 +363,83 @@ export default function EditCatalogProductPage({
       const items = Array.isArray(variantsRes.result?.items)
         ? variantsRes.result?.items
         : [];
-      setVariants(
-        items
-          .map((variant) => {
-            const variantId =
-              typeof variant.id === "string" ? variant.id : null;
-            if (!variantId) return null;
-            const variantRecord = variant as Record<string, unknown>;
-            const optionValues =
-              normalizeVariantOptionValues(variantRecord?.["option_values"]) ??
-              normalizeVariantOptionValues(variantRecord?.optionValues);
-            return {
-              id: variantId,
-              name:
-                typeof variant.name === "string" && variant.name.trim().length
-                  ? variant.name
-                  : (variant.sku ?? variantId),
-              sku: typeof variant.sku === "string" ? variant.sku : "",
-              isDefault: Boolean(variant.is_default ?? variant.isDefault),
-              defaultMediaId:
-                typeof variant.default_media_id === "string"
-                  ? variant.default_media_id
-                  : typeof variant.defaultMediaId === "string"
-                    ? variant.defaultMediaId
-                    : null,
-              prices: priceMap[variantId] ?? [],
-              optionValues,
-            };
-          })
-          .filter((entry): entry is VariantSummary => Boolean(entry)),
-      );
+      const mapped = items
+        .map((variant) => {
+          const variantId =
+            typeof variant.id === "string" ? variant.id : null;
+          if (!variantId) return null;
+          const variantRecord = variant as Record<string, unknown>;
+          const optionValues =
+            normalizeVariantOptionValues(variantRecord?.["option_values"]) ??
+            normalizeVariantOptionValues(variantRecord?.optionValues);
+          return {
+            id: variantId,
+            name:
+              typeof variant.name === "string" && variant.name.trim().length
+                ? variant.name
+                : (variant.sku ?? variantId),
+            sku: typeof variant.sku === "string" ? variant.sku : "",
+            isDefault: Boolean(variant.is_default ?? variant.isDefault),
+            defaultMediaId:
+              typeof variant.default_media_id === "string"
+                ? variant.default_media_id
+                : typeof variant.defaultMediaId === "string"
+                  ? variant.defaultMediaId
+                  : null,
+            prices: priceMap[variantId] ?? [],
+            optionValues,
+          };
+        })
+        .filter((entry): entry is VariantSummary => Boolean(entry));
+      setVariants(mapped);
+
+      if (!mapped.length) {
+        setVariantMediaGroups([]);
+        return;
+      }
+      const CONCURRENCY = 5;
+      const groups: VariantMediaGroup[] = [];
+      for (let i = 0; i < mapped.length; i += CONCURRENCY) {
+        const batch = mapped.slice(i, i + CONCURRENCY);
+        const results = await Promise.all(
+          batch.map(async (variant) => {
+            try {
+              const res = await apiCall<AttachmentListResponse>(
+                `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variant.id)}`,
+              );
+              if (!res.ok) return null;
+              const mediaItems: ProductMediaItem[] = (res.result?.items ?? []).map(
+                (item) => ({
+                  id: item.id,
+                  url: item.url,
+                  fileName: item.fileName,
+                  fileSize: item.fileSize,
+                  thumbnailUrl: item.thumbnailUrl ?? undefined,
+                }),
+              );
+              if (!mediaItems.length) return null;
+              return {
+                variantId: variant.id,
+                variantName: variant.name,
+                defaultMediaId: variant.defaultMediaId,
+                items: mediaItems,
+                editUrl: `/backend/catalog/products/${id}/variants/${variant.id}`,
+              } satisfies VariantMediaGroup;
+            } catch {
+              // Non-critical: variant media is optional; gallery degrades gracefully
+              return null;
+            }
+          }),
+        );
+        for (const result of results) {
+          if (result) groups.push(result);
+        }
+      }
+      setVariantMediaGroups(groups);
     } catch (err) {
       console.error("catalog.variants.fetch failed", err);
       setVariants([]);
+      setVariantMediaGroups([]);
     }
   }, []);
 
@@ -424,58 +469,6 @@ export default function EditCatalogProductPage({
     },
     [],
   );
-
-  React.useEffect(() => {
-    let cancelled = false;
-    async function loadVariantMedia() {
-      if (!productId || !variants.length) {
-        setVariantMediaGroups([]);
-        return;
-      }
-      const CONCURRENCY = 5;
-      const groups: VariantMediaGroup[] = [];
-      for (let i = 0; i < variants.length; i += CONCURRENCY) {
-        const batch = variants.slice(i, i + CONCURRENCY);
-        const results = await Promise.all(
-          batch.map(async (variant) => {
-            try {
-              const res = await apiCall<AttachmentListResponse>(
-                `/api/attachments?entityId=${encodeURIComponent(E.catalog.catalog_product_variant)}&recordId=${encodeURIComponent(variant.id)}`,
-              );
-              if (!res.ok) return null;
-              const items: ProductMediaItem[] = (res.result?.items ?? []).map(
-                (item) => ({
-                  id: item.id,
-                  url: item.url,
-                  fileName: item.fileName,
-                  fileSize: item.fileSize,
-                  thumbnailUrl: item.thumbnailUrl ?? undefined,
-                }),
-              );
-              if (!items.length) return null;
-              return {
-                variantId: variant.id,
-                variantName: variant.name,
-                defaultMediaId: variant.defaultMediaId,
-                items,
-                editUrl: `/backend/catalog/products/${productId}/variants/${variant.id}`,
-              } satisfies VariantMediaGroup;
-            } catch {
-              return null;
-            }
-          }),
-        );
-        for (const result of results) {
-          if (result) groups.push(result);
-        }
-      }
-      if (!cancelled) setVariantMediaGroups(groups);
-    }
-    loadVariantMedia().catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [productId, variants]);
 
   React.useEffect(() => {
     const loadTaxRates = async () => {
