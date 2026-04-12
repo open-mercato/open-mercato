@@ -224,6 +224,13 @@ The scaffolded app includes three Compose files for different scenarios:
 
 The scaffolded project includes `AGENTS.md` and `CLAUDE.md` at the root. These files provide context for Claude Code and other AI-assisted development tools, describing the project structure, conventions, and available commands. You can customize them for your team's workflow.
 
+If you want an opt-in AI pre-commit hygiene gate, the scaffold also supports:
+
+- `yarn review:local` for fast local tracked-change review
+- `yarn review:light` for the same review plus `yarn typecheck`
+
+Set either `OM_AI_LIGHT_REVIEW_AUTOMATIC=true` or `OM_AI_LIGH_REVIEW_AUTOMATIC=true` in your local env to have `pre-commit` run `yarn review:local` automatically. The reviewer uses the configured Anthropic or OpenAI key from your local env files and checks for likely secrets, PII, unprofessional language, dangerous sinks, explicit `any`, and empty catch blocks.
+
 ### Integration test scaffold
 
 The project includes a starter integration test at `src/modules/auth/__integration__/TC-AUTH-001.spec.ts` with a helper module for authentication. Use this as a reference when writing Playwright-based integration tests for your custom modules. Run tests with `yarn test:integration`.

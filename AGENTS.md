@@ -87,7 +87,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
     -   **Implementation**: Use the **`implement-spec` skill** to execute spec phases with coordinated subagents, unit tests, progress tracking, and code-review compliance gates.
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
 3.  **Self-improvement**: After corrections, update `.ai/lessons.md` or relevant AGENTS.md. Write rules that prevent the same mistake.
-4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
+4.  **Verification**: Run tests, check build, suggest user verification. For fast pre-commit hygiene on local tracked changes, use `yarn review:local`; for the same review plus typecheck, use `yarn review:light`. Ask: "Would a staff engineer approve this?"
 5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
 6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
 
@@ -320,6 +320,8 @@ yarn dev:app              # Start compact app-only runtime
 yarn dev:app:verbose      # Start app-only runtime with raw passthrough logs
 yarn build                # Build everything
 yarn build:packages       # Build packages only
+yarn review:local         # Quick local tracked-change review (LLM + fast safety/guideline checks)
+yarn review:light         # `review:local` plus full typecheck
 yarn lint                 # Lint all packages
 yarn test                 # Run tests
 yarn generate             # Run module generators

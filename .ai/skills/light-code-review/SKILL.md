@@ -1,6 +1,6 @@
 ---
 name: light-code-review
-description: Run the lightweight local review workflow for quick safety checks before commit or push. Use when the user asks for a simple code review, a pre-push check, hook-safe verification, or a faster alternative to the full CI-style code-review flow. Uses a cheap LLM through the Vercel AI SDK to review added diff lines for likely secrets, likely PII, and unprofessional language, with optional typecheck.
+description: Run the lightweight local review workflow for quick safety checks before commit or push. Use when the user asks for a simple code review, a pre-push check, hook-safe verification, or a faster alternative to the full CI-style code-review flow. Uses a cheap LLM through the Vercel AI SDK to review local tracked changes for likely secrets, likely PII, unprofessional language, and a small set of high-signal security and guideline violations, with optional typecheck.
 ---
 
 # Light Code Review
@@ -13,16 +13,16 @@ Use this skill when the user wants a fast safety gate instead of the full `code-
 2. Run the lightweight review command that matches the situation:
 
 ```bash
-yarn review:light:staged
+yarn review:local
 ```
 
-Use that when the user is preparing a commit or when only staged changes matter.
+Use that when the user wants to review local tracked changes before commit. This includes both staged and unstaged modifications in existing files.
 
 ```bash
 yarn review:light
 ```
 
-Use that when the user is preparing to push or wants the full lightweight gate. This runs the outbound diff review and `yarn typecheck`.
+Use that when the user wants the full lightweight gate. It runs the same local review plus `yarn typecheck`.
 
 3. If the command fails, inspect the reported file and line references and fix only the introduced issue.
 4. Re-run the same lightweight command until it passes.
@@ -55,7 +55,11 @@ OM_AI_LIGHT_REVIEW_MODEL=openai/gpt-4o-mini
 - likely secrets committed inline
 - likely PII committed inline
 - explicit curse words or clearly unprofessional phrasing
+- obvious dangerous sinks such as `dangerouslySetInnerHTML`, `.innerHTML =`, `eval()`, and `new Function()`
+- explicit `any` types and empty catch blocks
 - repository-wide TypeScript type errors when using `yarn review:light`
+
+The primary reviewer is the LLM. Explicit profanity and a few high-confidence security and guideline checks also have deterministic fallbacks so obvious misses do not slip through when the model is too permissive.
 
 ## Boundaries
 

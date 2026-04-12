@@ -1,56 +1,56 @@
 ## TLDR
 
-Add a lightweight review workflow that uses a cheap LLM through the Vercel AI SDK to review added diff lines before commit or push.
+Add a lightweight review workflow that uses a cheap LLM through the Vercel AI SDK to review local tracked changes before commit, with a slightly heavier `light` mode that adds typecheck.
 
 The workflow has two layers:
-- manual commands for staged and outbound review
-- optional `pre-commit` automation, disabled by default and enabled only by env flag
+- `yarn review:local` for fast local review
+- `yarn review:light` for the same local review plus `yarn typecheck`
 
-Provide the same workflow to agents as a reusable `light-code-review` skill so humans and agents use one shared definition of "quick review".
+The `pre-commit` hook stays opt-in and only runs `review:local` when the env flag is enabled.
 
 ## Overview
 
-The current repository has Husky installed and a `pre-commit` hook, but it only auto-fixes i18n and template sync drift. There is no lightweight review gate for:
+The current repository already has Husky and pre-commit auto-fixes for i18n/template drift, but it still benefits from a fast branch-hygiene gate that catches:
 
 - accidental secrets
 - accidental personal data
 - unprofessional or abusive language
-- type safety before push
+- obvious dangerous sinks
+- a few near-zero-ambiguity guideline regressions
 
 The full `code-review` and `check-and-commit` workflows remain the correct path for release-quality verification, but they are intentionally heavier than what is reasonable on every commit.
 
 ## Proposed Solution
 
-Introduce a single script, `scripts/light-code-review.ts`, with two operating modes:
+Use one script, `scripts/light-code-review.ts`, with two modes:
 
-- `staged`
-  - reads staged added lines from `git diff --cached`
-  - sends only added lines to a cheap LLM review prompt
-  - returns structured findings for likely secrets, likely PII, or unprofessional language
+- `local`
+  - reviews local tracked changes against `HEAD`
+  - includes both staged and unstaged modifications in tracked files
+  - sends only added lines to a cheap LLM prompt
+  - also runs a few deterministic high-signal checks
 - `push`
-  - reads added lines from the outbound diff against `@{upstream}` and falls back safely when no upstream exists
-  - runs the same LLM review manually
-  - optionally runs `yarn typecheck`
+  - remains available for explicit outbound-diff inspection when needed
 
 Package scripts:
 
-- `yarn review:light:staged`
+- `yarn review:local`
 - `yarn review:light`
 
-Git hooks:
+Where:
+
+- `review:local` runs the local review only
+- `review:light` runs the same local review and then `yarn typecheck`
+
+Git hook behavior:
 
 - keep `pre-commit` silent by default
-- run `yarn review:light:staged` only when `OM_AI_LIGH_REVIEW_AUTOMATIC=true` or `OM_AI_LIGHT_REVIEW_AUTOMATIC=true`
-- remove the automatic `pre-push` hook
-
-Agent skill:
-
-- add `.ai/skills/light-code-review/SKILL.md`
-- scope: quick review, pre-push safety, hook failure diagnosis, lighter alternative to the full code-review workflow
+- run `yarn review:local` only when `OM_AI_LIGH_REVIEW_AUTOMATIC=true` or `OM_AI_LIGHT_REVIEW_AUTOMATIC=true`
+- keep `pre-push` manual
 
 ## Detection Rules
 
-The lightweight review is LLM-based and intentionally biased toward high-confidence issues in these categories:
+The lightweight review is primarily LLM-based and intentionally biased toward high-confidence issues in these categories:
 
 - Secrets
   - likely real API keys, tokens, passwords, private keys, or credentials
@@ -58,10 +58,16 @@ The lightweight review is LLM-based and intentionally biased toward high-confide
   - likely real personal email addresses, phone numbers, SSNs, payment card values, or similar sensitive identifiers
 - Language
   - explicit curses, insults, or clearly unprofessional phrasing in comments, user-facing text, logs, or notes
+- Security
+  - dangerous sinks such as `dangerouslySetInnerHTML`, `.innerHTML =`, `eval()`, or `new Function()`
+- Guideline
+  - cheap rules with near-zero ambiguity such as explicit `any` types and empty catch blocks
 
 The reviewer evaluates only added lines, not the full repository, to keep the hook focused on newly introduced risk and to control cost.
 
 The prompt explicitly tells the model to ignore examples, placeholders, fixtures, and environment-variable references unless they still appear to expose real sensitive data.
+
+For explicit profanity, dangerous sinks, `any`, and empty catch blocks, a small deterministic fallback is layered in so obvious misses do not slip through when the model under-flags them.
 
 ## Architecture
 
@@ -80,8 +86,9 @@ The prompt explicitly tells the model to ignore examples, placeholders, fixtures
 
 ### Skill contract
 
-- agents use `yarn review:light` unless the user explicitly asks for full CI-grade verification
-- agents report LLM findings as likely issues, not formal DLP guarantees
+- agents use `yarn review:local` for fast local review
+- agents use `yarn review:light` when they also want typecheck
+- agents report findings as likely issues, not formal DLP guarantees
 
 ## Risks And Impact Review
 
@@ -90,17 +97,20 @@ The prompt explicitly tells the model to ignore examples, placeholders, fixtures
 | False positives on fixture data or docs | Medium | Developer workflow | Prompt the model to ignore fake/example data and review only added lines | Some manual review may still be needed |
 | False negatives for subtle leaks | Medium | Security | Keep the prompt narrow and high-confidence, and use cheap models only as an early gate | This is not a substitute for server-side secret scanning |
 | LLM latency or provider outage blocks commits when automation is enabled | Medium | DX | Default automation to off and make the gate opt-in via env | Opted-in users still depend on provider availability |
+| Fast deterministic checks become noisy | Medium | DX | Keep them limited to high-confidence rules and code-only file types | Some edge cases may still require refinement |
 | Local hooks can be bypassed with `--no-verify` | High | Process | Document that hooks improve default behavior but do not replace CI or server-side enforcement | Intentional bypass remains possible |
 
 ## API And UX Surface
 
 - `package.json` scripts
+  - `review:local`
   - `review:light`
-  - `review:light:staged`
 - `.husky/pre-commit`
 - `.ai/skills/light-code-review/SKILL.md`
 - `apps/mercato/.env.example`
 - `packages/create-app/template/.env.example`
+- root `AGENTS.md`
+- standalone app docs AI tooling section
 
 ## Final Compliance Report
 
@@ -112,3 +122,4 @@ The prompt explicitly tells the model to ignore examples, placeholders, fixtures
 
 - 2026-04-11: Added spec for lightweight code review hooks and agent skill.
 - 2026-04-11: Updated the workflow to use Vercel AI SDK LLM review, with env-gated `pre-commit` automation only.
+- 2026-04-12: Simplified commands to `review:local` and `review:light`, and added deterministic quick checks for dangerous sinks, `any`, and empty catch blocks.
