@@ -115,6 +115,19 @@ test.describe('TC-UMES-011: CLI commands', () => {
     expect(componentOverridesIndex).toBeLessThan(injectionWidgetsIndex)
   })
 
+  test('umes:inspect preserves negative priorities from wildcard injection tables', () => {
+    const { stdout, stderr, exitCode } = runMercato(['umes:inspect', '--module', 'integrations'])
+    expect(exitCode).toBe(0)
+    expect(stderr.trim()).toBe('')
+
+    const output = stdout.replace(/\r\n/g, '\n')
+    expect(output).toContain('UMES Extensions for module: integrations')
+    expect(output).toMatch(
+      /integrations\.injection\.external-ids[\s\S]*?target: detail:\*:sidebar[\s\S]*?priority: -10/,
+    )
+    expect(output).not.toMatch(/integrations\.injection\.external-ids[\s\S]*?priority: 0/)
+  })
+
   test('umes:inspect reports missing modules on stderr and exits non-zero', () => {
     const { stderr, exitCode } = runMercato(['umes:inspect', '--module', 'missing-module'])
     expect(exitCode).toBe(1)

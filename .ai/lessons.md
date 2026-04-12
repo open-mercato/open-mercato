@@ -218,6 +218,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Any AI tool that requires the LLM to construct structured payloads (API calls, database queries, form submissions).
 
+## Static source readers must handle prefix unary numeric literals
+
+**Context**: The UMES static source reader evaluates exported config from module files so CLI commands like `umes:list` and `umes:inspect` can report real extension metadata without executing arbitrary module code.
+
+**Problem**: Supporting only `!expr` in `PrefixUnaryExpression` caused valid config like `priority: -10` in injection tables to be treated as unknown and later defaulted to `0`, which silently misreported extension ordering in CLI output.
+
+**Rule**: Any AST-based config reader that evaluates literal expressions must support numeric prefix unary operators at minimum (`-` and `+`) alongside boolean negation, and regression tests should include a real repo file using a negative literal.
+
+**Applies to**: `packages/cli/src/lib/umes/source-analysis.ts` and future static readers used by generators, inspectors, or config discovery tools.
+
 ## Format Zod validation errors for LLM consumption
 
 **Context**: When the API returns 400 errors with raw Zod validation output (nested `issues[]` arrays, `fieldErrors` maps, or raw arrays), the LLM struggles to interpret the error structure and extract actionable fix instructions.

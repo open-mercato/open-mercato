@@ -464,8 +464,18 @@ export function createStaticModuleReader() {
         : evaluateExpression(filePath, expression.whenFalse, locals)
     }
 
-    if (ts.isPrefixUnaryExpression(expression) && expression.operator === ts.SyntaxKind.ExclamationToken) {
-      return !toBoolean(evaluateExpression(filePath, expression.operand, locals))
+    if (ts.isPrefixUnaryExpression(expression)) {
+      const operand = evaluateExpression(filePath, expression.operand, locals)
+      switch (expression.operator) {
+        case ts.SyntaxKind.ExclamationToken:
+          return !toBoolean(operand)
+        case ts.SyntaxKind.PlusToken:
+          return typeof operand === 'number' ? operand : UNKNOWN_STATIC_VALUE
+        case ts.SyntaxKind.MinusToken:
+          return typeof operand === 'number' ? -operand : UNKNOWN_STATIC_VALUE
+        default:
+          return UNKNOWN_STATIC_VALUE
+      }
     }
 
     if (ts.isBinaryExpression(expression)) {

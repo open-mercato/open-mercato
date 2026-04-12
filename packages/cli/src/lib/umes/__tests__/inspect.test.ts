@@ -109,7 +109,7 @@ describe('runUmesInspect', () => {
             type: 'injection-widget',
             id: 'example.customer_badge',
             target: 'customer:header',
-            priority: 40,
+            priority: -10,
           },
         ],
       },
@@ -141,6 +141,7 @@ describe('runUmesInspect', () => {
     expect(output).toContain('hasBefore: true')
     expect(output).toContain('targetRoute: /api/customers/people')
     expect(output).toContain('overrideKind: wrapper')
+    expect(output).toContain('priority: -10')
     expect(output).not.toContain('hasAfter: false')
     expect(output).not.toContain('hasCache: false')
     expect(output.indexOf('Response Enrichers')).toBeLessThan(output.indexOf('API Interceptors'))

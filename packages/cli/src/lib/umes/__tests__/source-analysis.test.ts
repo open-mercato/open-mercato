@@ -113,4 +113,20 @@ describe('createStaticModuleReader', () => {
       ]),
     }))
   })
+
+  it('preserves negative priorities in real module injection tables', () => {
+    const reader = createStaticModuleReader()
+
+    const integrationsInjectionTable = reader.readExport(
+      repoPath('packages/core/src/modules/integrations/widgets/injection-table.ts'),
+      ['injectionTable', 'default'],
+    )
+
+    expect(integrationsInjectionTable).toEqual(expect.objectContaining({
+      'detail:*:sidebar': expect.objectContaining({
+        widgetId: 'integrations.injection.external-ids',
+        priority: -10,
+      }),
+    }))
+  })
 })
