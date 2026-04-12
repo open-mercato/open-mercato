@@ -1,6 +1,14 @@
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import type { ApiInterceptor, InterceptorAfterResult } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { readSecurityModuleConfig } from '../lib/security-config'
+
+const MFA_CHALLENGE_UNAVAILABLE: InterceptorAfterResult = {
+  replace: {
+    ok: false,
+    error: 'mfa_challenge_unavailable',
+    message: 'Multi-factor authentication is required but the challenge could not be issued.',
+  },
+}
 
 type JwtClaims = {
   sub: string
@@ -57,13 +65,17 @@ export const interceptors: ApiInterceptor[] = [
       if (response.statusCode !== 200) return {}
       if (response.body.ok !== true || response.body.mfa_required === true) return {}
       if (typeof response.body.token !== 'string' || response.body.token.length === 0) return {}
-      if (readSecurityModuleConfig().mfa.emergencyBypass) return {}
+      if (readSecurityModuleConfig().mfa.emergencyBypass) {
+        // eslint-disable-next-line no-console
+        console.warn('[security.mfa] Emergency bypass active — MFA challenge skipped on successful login. Source: OM_SECURITY_MFA_EMERGENCY_BYPASS env flag.')
+        return {}
+      }
 
       const claims = readClaims(response.body.token)
-      if (!claims) return {}
+      if (!claims) return MFA_CHALLENGE_UNAVAILABLE
 
       const mfaVerificationService = resolveMfaVerificationService(context.container as { resolve: (name: string) => unknown })
-      if (!mfaVerificationService) return {}
+      if (!mfaVerificationService) return MFA_CHALLENGE_UNAVAILABLE
 
       try {
         const challenge = await mfaVerificationService.createChallenge(claims.sub)
@@ -90,7 +102,7 @@ export const interceptors: ApiInterceptor[] = [
           },
         }
       } catch {
-        return {}
+        return MFA_CHALLENGE_UNAVAILABLE
       }
     },
   },

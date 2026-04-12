@@ -154,6 +154,48 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     })
   })
 
+  test('does not leak original JWT in cookie when interceptor replaces body without token', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.block',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return {
+                replace: {
+                  ok: false,
+                  error: 'mfa_challenge_unavailable',
+                },
+              }
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', remember: '1' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: false,
+      error: 'mfa_challenge_unavailable',
+    })
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).not.toContain('auth_token=')
+    expect(setCookie).not.toContain('jwt-token')
+    expect(setCookie).not.toContain('session_token=')
+  })
+
   test('applies body replace from matched after interceptor and keeps cookies valid', async () => {
     registerApiInterceptors([
       {

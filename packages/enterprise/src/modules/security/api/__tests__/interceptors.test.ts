@@ -92,7 +92,7 @@ describe('security auth/login api interceptor', () => {
     })
   })
 
-  test('fails closed to no-op when challenge creation fails', async () => {
+  test('fails closed with blocking replace when challenge creation fails', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     const createChallenge = jest.fn(async () => {
@@ -106,7 +106,38 @@ describe('security auth/login api interceptor', () => {
       buildContext(createChallenge),
     )
 
-    expect(result).toEqual({})
+    expect(result.replace).toBeDefined()
+    expect(result.replace?.ok).toBe(false)
+    expect(result.replace?.token).toBeUndefined()
+    expect(result.replace?.error).toBe('mfa_challenge_unavailable')
+  })
+
+  test('fails closed with blocking replace when mfa verification service is unavailable', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const brokenContext = {
+      userId: '',
+      organizationId: '',
+      tenantId: '',
+      em: {} as InterceptorContext['em'],
+      container: {
+        resolve() {
+          throw new Error('container not initialized')
+        },
+      },
+    } as InterceptorContext
+
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+      brokenContext,
+    )
+
+    expect(result.replace).toBeDefined()
+    expect(result.replace?.ok).toBe(false)
+    expect(result.replace?.token).toBeUndefined()
+    expect(result.replace?.error).toBe('mfa_challenge_unavailable')
   })
 
   test('skips MFA challenge injection when emergency bypass is enabled', async () => {

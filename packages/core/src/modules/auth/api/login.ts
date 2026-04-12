@@ -193,13 +193,15 @@ export async function POST(req: Request) {
   const interceptedBody = interceptedResponse.body
   const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0
     ? interceptedBody.token
-    : token
+    : null
   const refreshTokenForCookie = typeof interceptedBody.refreshToken === 'string'
     ? interceptedBody.refreshToken
     : undefined
 
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
-  res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  if (authTokenForCookie) {
+    res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  }
   if (remember && refreshTokenForCookie) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
