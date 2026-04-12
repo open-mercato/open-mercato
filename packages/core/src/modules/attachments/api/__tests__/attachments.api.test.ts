@@ -31,6 +31,16 @@ const mockEm = {
   persist: jest.fn(),
   flush: jest.fn(),
   find: jest.fn(),
+  getConnection: jest.fn(() => ({
+    getKnex: () => {
+      const query = {
+        where: jest.fn(() => query),
+        sum: jest.fn(() => query),
+        first: jest.fn(async () => ({ totalSize: 0 })),
+      }
+      return jest.fn(() => query)
+    },
+  })),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -100,6 +110,22 @@ describe('attachments API', () => {
     mockEm.find.mockReset()
     mockEm.find.mockResolvedValue([])
     mockExtractAttachmentContent.mockReset()
+    delete process.env.OM_DEFAULT_ATTACHMENT_OCR_ENABLED
+    delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
+    delete process.env.OM_ATTACHMENT_TENANT_QUOTA_MB
+    delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
+    delete process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB
+    delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
+    mockEm.getConnection.mockReturnValue({
+      getKnex: () => {
+        const query = {
+          where: jest.fn(() => query),
+          sum: jest.fn(() => query),
+          first: jest.fn(async () => ({ totalSize: 0 })),
+        }
+        return jest.fn(() => query)
+      },
+    })
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
@@ -145,9 +171,43 @@ describe('attachments API', () => {
     const file = new File([oversized], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(413)
     const payload = await res.json()
     expect(payload.error).toMatch(/exceeds/i)
+  })
+
+  it('rejects files that exceed the default global upload limit without field config', async () => {
+    process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '0.0005'
+    const file = new File([new Uint8Array(1024)], 'doc.pdf', { type: 'application/pdf' })
+    const fd = new FormData()
+    fd.set('entityId', 'example:todo')
+    fd.set('recordId', 'r1')
+    fd.set('file', file)
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+    expect(res.status).toBe(413)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/maximum upload size/i)
+  })
+
+  it('rejects uploads that exceed the tenant storage quota', async () => {
+    process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
+    mockEm.getConnection.mockReturnValue({
+      getKnex: () => {
+        const query = {
+          where: jest.fn(() => query),
+          sum: jest.fn(() => query),
+          first: jest.fn(async () => ({ totalSize: 1000 })),
+        }
+        return jest.fn(() => query)
+      },
+    })
+    const file = new File([new Uint8Array(200)], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(413)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/quota exceeded/i)
   })
 
   it('extracts content when partition requires OCR', async () => {

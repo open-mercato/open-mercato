@@ -1,5 +1,7 @@
 {
   "attachments.customers.storage.nav.group": "Storage",
+  "attachments.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
+  "attachments.errors.quotaExceeded": "Attachment storage quota exceeded for this tenant.",
   "attachments.library.actions.copied": "Link copied.",
   "attachments.library.actions.copyError": "Unable to copy link.",
   "attachments.library.actions.copyUrl": "Copy URL",

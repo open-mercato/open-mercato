@@ -1,5 +1,7 @@
 {
   "attachments.customers.storage.nav.group": "Speicher",
+  "attachments.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
+  "attachments.errors.quotaExceeded": "Das Speicherlimit für Anhänge dieses Tenants wurde überschritten.",
   "attachments.library.actions.copied": "Link kopiert.",
   "attachments.library.actions.copyError": "Link konnte nicht kopiert werden.",
   "attachments.library.actions.copyUrl": "URL kopieren",
