@@ -1177,8 +1177,8 @@ async function loadQuoteSnapshot(
     lineCustomFields,
     adjustmentCustomFields,
   ] = await Promise.all([
-    em.find(SalesDocumentAddress, { documentId: id, documentKind: "quote" }),
-    em.find(SalesNote, { contextType: "quote", contextId: id }),
+    findWithDecryption(em, SalesDocumentAddress, { documentId: id, documentKind: "quote", organizationId: quote.organizationId, tenantId: quote.tenantId }, {}, { tenantId: quote.tenantId, organizationId: quote.organizationId }),
+    findWithDecryption(em, SalesNote, { contextType: "quote", contextId: id, organizationId: quote.organizationId, tenantId: quote.tenantId }, {}, { tenantId: quote.tenantId, organizationId: quote.organizationId }),
     findWithDecryption(
       em,
       SalesDocumentTagAssignment,
@@ -1433,8 +1433,8 @@ async function loadOrderSnapshot(
     lineCustomFields,
     adjustmentCustomFields,
   ] = await Promise.all([
-    em.find(SalesDocumentAddress, { documentId: id, documentKind: "order" }),
-    em.find(SalesNote, { contextType: "order", contextId: id }),
+    findWithDecryption(em, SalesDocumentAddress, { documentId: id, documentKind: "order", organizationId: order.organizationId, tenantId: order.tenantId }, {}, { tenantId: order.tenantId, organizationId: order.organizationId }),
+    findWithDecryption(em, SalesNote, { contextType: "order", contextId: id, organizationId: order.organizationId, tenantId: order.tenantId }, {}, { tenantId: order.tenantId, organizationId: order.organizationId }),
     findWithDecryption(
       em,
       SalesDocumentTagAssignment,
@@ -4495,11 +4495,13 @@ const deleteQuoteCommand: CommandHandler<
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     const [addresses, notes, tags, adjustments, lines] = await Promise.all([
-      em.find(SalesDocumentAddress, {
+      findWithDecryption(em, SalesDocumentAddress, {
         documentId: quote.id,
         documentKind: "quote",
-      }),
-      em.find(SalesNote, { contextType: "quote", contextId: quote.id }),
+        organizationId: quote.organizationId,
+        tenantId: quote.tenantId,
+      }, {}, { tenantId: quote.tenantId, organizationId: quote.organizationId }),
+      findWithDecryption(em, SalesNote, { contextType: "quote", contextId: quote.id, organizationId: quote.organizationId, tenantId: quote.tenantId }, {}, { tenantId: quote.tenantId, organizationId: quote.organizationId }),
       em.find(SalesDocumentTagAssignment, {
         documentId: quote.id,
         documentKind: "quote",
@@ -5420,11 +5422,13 @@ const deleteOrderCommand: CommandHandler<
         : Promise.resolve([]),
       em.find(SalesPayment, { order: order.id }),
       em.find(SalesPaymentAllocation, { order: order.id }),
-      em.find(SalesDocumentAddress, {
+      findWithDecryption(em, SalesDocumentAddress, {
         documentId: order.id,
         documentKind: "order",
-      }),
-      em.find(SalesNote, { contextType: "order", contextId: order.id }),
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+      }, {}, { tenantId: order.tenantId, organizationId: order.organizationId }),
+      findWithDecryption(em, SalesNote, { contextType: "order", contextId: order.id, organizationId: order.organizationId, tenantId: order.tenantId }, {}, { tenantId: order.tenantId, organizationId: order.organizationId }),
       em.find(SalesDocumentTagAssignment, {
         documentId: order.id,
         documentKind: "order",
@@ -5803,6 +5807,45 @@ const convertQuoteToOrderCommand: CommandHandler<
         });
         em.persist(entity);
       });
+    const [addresses, notes, tags] = await Promise.all([
+      findWithDecryption(em, SalesDocumentAddress, {
+        documentId: snapshot.quote.id,
+        documentKind: "quote",
+        organizationId: snapshot.quote.organizationId,
+        tenantId: snapshot.quote.tenantId,
+      }, {}, { tenantId: snapshot.quote.tenantId, organizationId: snapshot.quote.organizationId }),
+      findWithDecryption(em, SalesNote, {
+        contextType: "quote",
+        contextId: snapshot.quote.id,
+        organizationId: snapshot.quote.organizationId,
+        tenantId: snapshot.quote.tenantId,
+      }, {}, { tenantId: snapshot.quote.tenantId, organizationId: snapshot.quote.organizationId }),
+      em.find(SalesDocumentTagAssignment, {
+        documentId: snapshot.quote.id,
+        documentKind: "quote",
+      }),
+    ]);
+    addresses.forEach((entry) => {
+      entry.documentKind = "order";
+      entry.documentId = order.id;
+      entry.order = order;
+      entry.quote = null;
+      entry.updatedAt = new Date();
+    });
+    notes.forEach((note) => {
+      note.contextType = "order";
+      note.contextId = order.id;
+      note.order = order;
+      note.quote = null;
+      note.updatedAt = new Date();
+    });
+    tags.forEach((assignment) => {
+      assignment.documentKind = "order";
+      assignment.documentId = order.id;
+      assignment.order = order;
+      assignment.quote = null;
+      assignment.updatedAt = new Date();
+    });
 
       const [addresses, notes, tags] = await Promise.all([
         em.find(SalesDocumentAddress, {

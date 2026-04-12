@@ -1,6 +1,6 @@
 import { cookies, headers } from 'next/headers'
 import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
-import { findRouteManifestMatch } from '@open-mercato/shared/modules/registry'
+import { findRouteManifestMatch, registerBackendRouteManifests } from '@open-mercato/shared/modules/registry'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -12,6 +12,8 @@ import { PageInjectionBoundary } from '@open-mercato/ui/backend/injection/PageIn
 import { DemoFeedbackWidget } from '@/components/DemoFeedbackWidget'
 import OrganizationSwitcher from '@/components/OrganizationSwitcher'
 import { BackendHeaderChrome } from '@/components/BackendHeaderChrome'
+
+registerBackendRouteManifests(backendRoutes)
 
 function collectStaticSettingsPathPrefixes(): string[] {
   const prefixes = new Set<string>()

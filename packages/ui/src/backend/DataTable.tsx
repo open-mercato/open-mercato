@@ -2429,9 +2429,15 @@ export function DataTable<T>({
                       // Check for custom tooltip content function in column meta for complex cells
                       const cellValue = cell.getValue()
                       const metaTooltipContent = columnMeta?.tooltipContent as ((row: unknown) => string | undefined) | undefined
-                      const tooltipText = metaTooltipContent
-                        ? metaTooltipContent(row.original)
-                        : (cellValue != null ? String(cellValue) : undefined)
+                      let tooltipText: string | undefined
+                      if (metaTooltipContent) {
+                        tooltipText = metaTooltipContent(row.original)
+                      } else if (isDateCol && cellValue != null) {
+                        const parsedDate = tryParseDate(cellValue)
+                        tooltipText = parsedDate ? simpleFormat(parsedDate, DATE_FORMAT) : String(cellValue)
+                      } else {
+                        tooltipText = cellValue != null ? String(cellValue) : undefined
+                      }
 
                       const wrappedContent = shouldTruncate ? (
                         <TruncatedCell maxWidth={maxWidth} tooltipContent={tooltipText}>
