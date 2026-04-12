@@ -30,7 +30,11 @@ function countMatches(source: string, pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0
 }
 
-function runMercato(mercatoBin: string, args: string[], cwd: string): { exitCode: number; stdout: string; stderr: string } {
+function runMercato(
+  mercatoBin: string,
+  args: string[],
+  cwd: string,
+): { exitCode: number; stdout: string; stderr: string } {
   const result = spawnSync(mercatoBin, args, {
     cwd,
     encoding: 'utf-8',
