@@ -53,6 +53,21 @@ afterEach(() => {
 })
 
 describe('generateModuleEntities', () => {
+  it('skips enabled modules that do not expose any entity convention file', async () => {
+    const moduleEntry: ModuleEntry = { id: 'empty_module', from: '@open-mercato/core' }
+
+    const resolver = createMockResolver(tmpDir, [moduleEntry])
+    const result = await generateModuleEntities({ resolver, quiet: true })
+    const output = readGenerated(tmpDir)
+
+    expect(result.errors).toEqual([])
+    expect(result.filesWritten).toHaveLength(1)
+    expect(output).toContain('function enhanceEntities(')
+    expect(output).toMatch(/export const entities = \[\s*\]/)
+    expect(output).not.toContain('empty_module')
+    expect(output).not.toContain('...enhanceEntities(')
+  })
+
   it('prefers app data entities over package override files for package-backed modules', async () => {
     const moduleEntry: ModuleEntry = { id: 'orders', from: '@open-mercato/core' }
 
@@ -133,5 +148,32 @@ describe('generateModuleEntities', () => {
     expect(secondResult.filesWritten).toEqual([])
     expect(secondResult.filesUnchanged).toEqual([outFile])
     expect(secondStat.mtimeMs).toBe(firstStat.mtimeMs)
+  })
+
+  it('logs generated output only when writing and quiet mode is disabled', async () => {
+    const moduleEntry: ModuleEntry = { id: 'orders', from: '@open-mercato/core' }
+
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'orders', 'data', 'entities.ts'),
+      'export class SalesOrder {}\n',
+    )
+
+    const resolver = createMockResolver(tmpDir, [moduleEntry])
+    const outFile = path.join(tmpDir, 'app', '.mercato', 'generated', 'entities.generated.ts')
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+
+    try {
+      const firstResult = await generateModuleEntities({ resolver, quiet: false })
+      const secondResult = await generateModuleEntities({ resolver, quiet: false })
+
+      expect(firstResult.errors).toEqual([])
+      expect(firstResult.filesWritten).toEqual([outFile])
+      expect(secondResult.errors).toEqual([])
+      expect(secondResult.filesUnchanged).toEqual([outFile])
+      expect(consoleLogSpy).toHaveBeenCalledTimes(1)
+      expect(consoleLogSpy).toHaveBeenCalledWith(`Generated ${path.relative(process.cwd(), outFile)}`)
+    } finally {
+      consoleLogSpy.mockRestore()
+    }
   })
 })
