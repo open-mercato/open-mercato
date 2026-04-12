@@ -3,11 +3,15 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const repoRoot = path.resolve(__dirname, '..', '..', '..', '..')
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..')
 const cliDir = path.join(repoRoot, 'packages', 'cli')
 const cliBin = path.join(cliDir, 'dist', 'bin.js')
 const cliBuildScript = path.join(cliDir, 'build.mjs')
+const cliIntegrationRunnerPath = path.join(cliDir, 'src', 'lib', 'testing', 'integration.ts')
+const standaloneTemplatePackageJsonPath = path.join(repoRoot, 'packages', 'create-app', 'template', 'package.json.template')
 const agenticRoot = path.join(repoRoot, 'packages', 'create-app', 'agentic')
 const packagesRoot = path.join(repoRoot, 'packages')
 
@@ -133,6 +137,33 @@ function mapCodexSourceToOutput(relativePath: string): string | null {
   throw new Error(`Unexpected Codex source path: ${relativePath}`)
 }
 
+function readPlaywrightConfigPathFromTemplate(): string {
+  const packageTemplate = JSON.parse(fs.readFileSync(standaloneTemplatePackageJsonPath, 'utf8')) as {
+    scripts?: Record<string, string>
+  }
+  const integrationScript = packageTemplate.scripts?.['test:integration']
+  if (!integrationScript) {
+    throw new Error('Standalone template is missing the test:integration script')
+  }
+
+  const configPathMatch = integrationScript.match(/--config\s+([^\s]+)/)
+  if (!configPathMatch?.[1]) {
+    throw new Error('Standalone template test:integration script is missing --config')
+  }
+
+  return normalizePath(configPathMatch[1])
+}
+
+function readPlaywrightConfigPathFromCliRunner(): string {
+  const integrationRunnerSource = fs.readFileSync(cliIntegrationRunnerPath, 'utf8')
+  const configPathMatch = integrationRunnerSource.match(/const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '([^']+)'/)
+  if (!configPathMatch?.[1]) {
+    throw new Error('CLI integration runner is missing PLAYWRIGHT_INTEGRATION_CONFIG_PATH')
+  }
+
+  return normalizePath(configPathMatch[1])
+}
+
 function expectedGuideOutputNames(): string[] {
   const collected = new Set<string>()
 
@@ -173,8 +204,11 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
 
     try {
       const appDir = createStandaloneFixture(tempRoot)
+      const standalonePlaywrightConfigPath = readPlaywrightConfigPathFromTemplate()
+      const cliPlaywrightConfigPath = readPlaywrightConfigPathFromCliRunner()
       const commandOutput = runMercato(['agentic:init', '--tool=claude-code,codex,cursor'], appDir)
 
+      expect(cliPlaywrightConfigPath).toBe(standalonePlaywrightConfigPath)
       expect(commandOutput).toContain('Agentic setup complete:')
       expect(fs.existsSync(path.join(appDir, '.mercato', 'generated'))).toBe(false)
 
@@ -185,7 +219,9 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
         .map(mapCodexSourceToOutput)
         .filter((relativePath): relativePath is string => relativePath !== null)
 
+      expect(sharedOutputs).toContain(standalonePlaywrightConfigPath)
       assertPathsExist(appDir, [...sharedOutputs, ...claudeOutputs, ...cursorOutputs, ...codexOutputs])
+      expect(fs.existsSync(path.join(appDir, standalonePlaywrightConfigPath))).toBe(true)
 
       const generatedGuideNames = listRelativeFiles(path.join(appDir, '.ai', 'guides'))
       expect(generatedGuideNames).toEqual(expectedGuideOutputNames())

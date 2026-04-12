@@ -177,7 +177,7 @@ function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
   )
 
-  copyFile(srcDir, 'ai/qa/playwright.config.ts', join(targetDir, '.ai', 'qa', 'playwright.config.ts'))
+  copyFile(srcDir, 'ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
