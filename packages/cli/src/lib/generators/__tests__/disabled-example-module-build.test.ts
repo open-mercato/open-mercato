@@ -36,13 +36,14 @@ describe('Disabled example module: typecheck passes (#601)', () => {
       fs.writeFileSync(MODULES_TS_PATH, disabledContent)
 
       // 2. Run generation
-      const generate = await runCommandAndCapture('yarn', ['generate'])
+      const generate = await runCommandAndCapture('yarn', ['generate'], { cwd: REPO_ROOT })
       expect(generate.code).toBe(0)
 
       // 3. Run typecheck
       const typecheck = await runCommandAndCapture(
         'npx',
         ['tsc', '--noEmit', '--pretty', 'false', '-p', path.join(APP_DIR, 'tsconfig.json')],
+        { cwd: REPO_ROOT },
       )
       if (typecheck.code !== 0) {
         const errorLines = typecheck.stdout
@@ -57,7 +58,7 @@ describe('Disabled example module: typecheck passes (#601)', () => {
 
       // 4. Restore and regenerate
       fs.writeFileSync(MODULES_TS_PATH, originalModulesTs)
-      const restore = await runCommandAndCapture('yarn', ['generate'])
+      const restore = await runCommandAndCapture('yarn', ['generate'], { cwd: REPO_ROOT })
       expect(restore.code).toBe(0)
     },
     120_000,
