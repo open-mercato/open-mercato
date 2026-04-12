@@ -18,23 +18,33 @@ test.describe('TC-SEARCH-002: vector reindex handles invalid entity requests', (
     const token = await getAuthToken(request, 'superadmin')
     const entityId = `search:missing-debug-coverage-${Date.now()}`
 
-    const response = await apiRequest(request, 'POST', '/api/search/embeddings/reindex', {
-      token,
-      data: {
-        entityId,
-        purgeFirst: false,
-      },
-    })
+    try {
+      const response = await apiRequest(request, 'POST', '/api/search/embeddings/reindex', {
+        token,
+        data: {
+          entityId,
+          purgeFirst: false,
+        },
+      })
 
-    expect(response.status()).toBe(200)
+      expect(response.status()).toBe(200)
 
-    const body = await readJsonSafe<VectorReindexResponse>(response)
-    expect(body?.ok).toBe(false)
-    expect(body?.recordsIndexed).toBe(0)
-    expect(body?.entitiesProcessed).toBe(0)
-    expect(Array.isArray(body?.errors)).toBe(true)
-    expect(body?.errors?.[0]?.entityId).toBe(entityId)
-    expect(typeof body?.errors?.[0]?.error).toBe('string')
-    expect(body?.errors?.[0]?.error?.length ?? 0).toBeGreaterThan(0)
+      const body = await readJsonSafe<VectorReindexResponse>(response)
+      expect(body?.ok).toBe(false)
+      expect(body?.recordsIndexed).toBe(0)
+      expect(body?.entitiesProcessed).toBe(0)
+      expect(body?.jobsEnqueued ?? 0).toBe(0)
+      expect(body?.errors).toEqual([
+        {
+          entityId,
+          error: 'Entity not configured for search',
+        },
+      ])
+    } finally {
+      const cancelResponse = await apiRequest(request, 'POST', '/api/search/embeddings/reindex/cancel', {
+        token,
+      })
+      expect(cancelResponse.ok()).toBeTruthy()
+    }
   })
 })
