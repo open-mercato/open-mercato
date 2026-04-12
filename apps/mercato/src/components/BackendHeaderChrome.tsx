@@ -71,6 +71,10 @@ export function BackendHeaderChrome({
     () => hasFeature(grantedFeatures, 'messages.view'),
     [grantedFeatures],
   )
+  const showSearch = React.useMemo(
+    () => hasFeature(grantedFeatures, 'search.global'),
+    [grantedFeatures],
+  )
 
   return (
     <>
@@ -79,7 +83,7 @@ export function BackendHeaderChrome({
           <LazyAiChatHeaderButton />
         </AiAssistantShellIntegration>
       ) : null}
-      {isReady ? (
+      {isReady && showSearch ? (
         <LazyGlobalSearchDialog
           embeddingConfigured={embeddingConfigured}
           missingConfigMessage={missingConfigMessage}
