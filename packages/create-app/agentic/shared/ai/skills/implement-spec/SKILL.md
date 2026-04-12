@@ -67,7 +67,7 @@ If the spec defines integration test scenarios (or the phase adds API endpoints 
 - Place tests in `src/modules/<module>/__integration__/TC-{CATEGORY}-{XXX}.spec.ts`
 - Tests MUST be self-contained: create fixtures in setup, clean up in teardown
 - Tests MUST NOT rely on seeded/demo data
-- Run and verify: `npx playwright test --config .ai/qa/playwright.config.ts <path> --retries=0`
+- Run and verify: `npx playwright test --config .ai/qa/tests/playwright.config.ts <path> --retries=0`
 
 If the spec does not explicitly list integration scenarios but the phase adds significant API or UI behavior, propose test scenarios to the user before writing them.
 

@@ -26,6 +26,7 @@ async function waitForRecordForm(page: Page, fieldIds: string[]): Promise<void> 
  * Source: .ai/qa/scenarios/TC-ADMIN-008-custom-entity-record.md
  */
 test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
+  test.setTimeout(60_000);
   test('should create and edit a record for a custom entity', async ({ page, request }) => {
     const stamp = Date.now();
     const entityId = `user:qa_admin_008_${stamp}`;
@@ -110,40 +111,54 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
       await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`, {
         waitUntil: 'domcontentloaded',
       });
-      await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
-      await expect(page.getByRole('link', { name: 'Create' })).toBeVisible();
+      // Wait for the DataTable loading indicator to appear then disappear.
+      // The records page initialises loading=false then flips it in an effect,
+      // so we must wait for the text to be attached before waiting for it to hide —
+      // otherwise Playwright resolves 'hidden' immediately on the initial render.
+      const listLoadingLocator = page.getByText('Loading data...');
+      await listLoadingLocator.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
+      await listLoadingLocator.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
+      // 'Create' button only renders once the cfDefs hook has resolved; give it time.
+      await expect(page.getByRole('link', { name: 'Create' })).toBeVisible({ timeout: 20_000 });
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
       await expect(page.getByRole('row', { name: new RegExp(location, 'i') })).toBeVisible();
       await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(recordId!)}`, {
         waitUntil: 'domcontentloaded',
       });
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/[^/]+$`, 'i'));
-      await page.getByText(/Loading record/i).waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
+      // Same two-phase wait: the edit form starts with loading=true immediately,
+      // so 'attached' resolves quickly and then we wait for it to disappear.
+      const editLoadingLocator = page.getByText(/Loading record/i);
+      await editLoadingLocator.waitFor({ state: 'attached', timeout: 5_000 }).catch(() => {});
+      await editLoadingLocator.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
       await waitForRecordForm(page, expectedFieldIds);
 
       await fillCustomEntityField(page, 'title', updatedTitle);
       const updateResponsePromise = page.waitForResponse((response) => {
         return response.request().method() === 'PUT' && response.url().includes('/api/entities/records') && response.ok();
-      });
+      }, { timeout: 15_000 });
       await page.getByRole('button', { name: 'Save' }).first().click();
       await updateResponsePromise;
 
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
       await expect
-        .poll(async () => {
-          const updatedRecordResponse = await apiRequest(
-            request,
-            'GET',
-            `/api/entities/records?entityId=${encodeURIComponent(entityId)}&id=${encodeURIComponent(recordId!)}`,
-            { token: authToken },
-          );
-          if (!updatedRecordResponse.ok()) return null;
-          const updatedRecordPayload = (await updatedRecordResponse.json()) as {
-            items?: Array<{ id?: string; title?: string }>;
-          };
-          const updatedRecord = (updatedRecordPayload.items ?? []).find((item) => String(item.id) === recordId);
-          return updatedRecord?.title ?? null;
-        })
+        .poll(
+          async () => {
+            const updatedRecordResponse = await apiRequest(
+              request,
+              'GET',
+              `/api/entities/records?entityId=${encodeURIComponent(entityId)}&id=${encodeURIComponent(recordId!)}`,
+              { token: authToken },
+            );
+            if (!updatedRecordResponse.ok()) return null;
+            const updatedRecordPayload = (await updatedRecordResponse.json()) as {
+              items?: Array<{ id?: string; title?: string }>;
+            };
+            const updatedRecord = (updatedRecordPayload.items ?? []).find((item) => String(item.id) === recordId);
+            return updatedRecord?.title ?? null;
+          },
+          { timeout: 15_000 },
+        )
         .toBe(updatedTitle);
     } finally {
       if (token && recordId) {

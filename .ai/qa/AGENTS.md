@@ -44,7 +44,6 @@ Discovery troubleshooting:
 │   └── ...
 ├── tests/                       # Playwright config/helpers + legacy test location
 │   ├── playwright.config.ts
-│   ├── .gitignore               # Ignores test-results/
 │   ├── helpers/
 │   │   ├── auth.ts              # Login helper
 │   │   └── api.ts               # API call helper
