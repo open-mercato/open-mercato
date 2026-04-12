@@ -4,6 +4,7 @@ import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { reindexEntity } from '../lib/reindexer'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+import { resolveQueryIndexReindexScope } from '../lib/subscriber-scope'
 
 export const metadata = { event: 'query_index.reindex', persistent: true }
 
@@ -18,9 +19,8 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   }
   const entityType = String(payload?.entityType || '')
   if (!entityType) return
-  // Keep undefined to mean "no filter"; null to mean "global-only"
-  const tenantId: string | null | undefined = payload?.tenantId
-  const organizationId: string | null | undefined = payload?.organizationId
+  let tenantId: string | null | undefined = payload?.tenantId
+  let organizationId: string | null | undefined = payload?.organizationId
   const forceFull: boolean = Boolean(payload?.force)
   const batchSize = Number.isFinite(payload?.batchSize) ? Number(payload.batchSize) : undefined
   const partitionCount = Number.isFinite(payload?.partitionCount) ? Math.max(1, Math.trunc(payload.partitionCount)) : undefined
@@ -115,6 +115,14 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   }
 
   try {
+    const resolvedScope = resolveQueryIndexReindexScope({
+      tenantId: payload?.tenantId,
+      organizationId: payload?.organizationId,
+      allowAllTenants: payload?.allowAllTenants === true,
+    })
+    tenantId = resolvedScope.tenantId
+    organizationId = resolvedScope.organizationId
+
     await recordIndexerLog(
       { em },
       {

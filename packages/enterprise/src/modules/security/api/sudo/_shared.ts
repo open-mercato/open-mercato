@@ -6,7 +6,11 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import type { SudoChallengeConfig } from '../../data/entities'
-import type { SudoChallengeService, SudoChallengeServiceError } from '../../services/SudoChallengeService'
+import type {
+  SudoAuthScope,
+  SudoChallengeService,
+  SudoChallengeServiceError,
+} from '../../services/SudoChallengeService'
 import { isSudoRequiredError } from '../../lib/sudo-middleware'
 import { localizeSecurityApiBody, securityApiError } from '../i18n'
 
@@ -18,6 +22,15 @@ export type SudoRequestContext = {
   container: RequestContainer
   commandContext: CommandRuntimeContext
   sudoChallengeService: SudoChallengeService
+  scope: SudoAuthScope
+}
+
+export function buildSudoAuthScope(auth: Auth): SudoAuthScope {
+  return {
+    tenantId: auth.tenantId ?? null,
+    organizationId: auth.orgId ?? null,
+    isSuperAdmin: auth.isSuperAdmin === true,
+  }
 }
 
 export function toSudoConfigResponse(config: SudoChallengeConfig) {
@@ -108,6 +121,7 @@ export async function resolveSudoContext(req: Request): Promise<SudoRequestConte
       request: req,
     },
     sudoChallengeService: container.resolve<SudoChallengeService>('sudoChallengeService'),
+    scope: buildSudoAuthScope(auth),
   }
 }
 

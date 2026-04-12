@@ -290,16 +290,9 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
     onClose()
   }
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!edge) return
-    const confirmed = await confirmDialog({
-      title: t('workflows.edgeEditor.confirmDelete'),
-      variant: 'destructive',
-    })
-    if (confirmed) {
-      onDelete(edge.id)
-      onClose()
-    }
+    onDelete(edge.id)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
