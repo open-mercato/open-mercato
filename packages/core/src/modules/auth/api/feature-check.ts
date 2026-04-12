@@ -3,14 +3,11 @@ import { z } from 'zod'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { featureCheckRequestSchema } from '../data/validators'
 
 export const metadata = {
   POST: { requireAuth: true },
 }
-
-const featureCheckRequestSchema = z.object({
-  features: z.array(z.string().max(128)).max(50).describe('Feature identifiers to check'),
-}).describe('Batch feature check payload')
 
 const featureCheckResponseSchema = z.object({
   ok: z.boolean().describe('Indicates whether all requested features are granted'),
@@ -27,7 +24,7 @@ export async function POST(req: Request) {
   let body: unknown = {}
   try {
     body = await req.json()
-  } catch { }
+  } catch { /* malformed JSON — safeParse below will reject */ }
 
   const parsed = featureCheckRequestSchema.safeParse(body)
   if (!parsed.success) {
@@ -42,7 +39,6 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const rbac = (container.resolve('rbacService') as any)
   const ok = await rbac.userHasAllFeatures(auth.sub, features, { tenantId: auth.tenantId, organizationId: auth.orgId })
-  // Return which features the user has (for batch checking)
   if (ok) {
     return NextResponse.json({ ok: true, granted: features, userId: auth.sub })
   }
@@ -74,6 +70,11 @@ const featureCheckMethodDoc: OpenApiMethodDoc = {
     },
   ],
   errors: [
+    {
+      status: 400,
+      description: 'Invalid request — features array missing, too large, or contains invalid entries',
+      schema: z.object({ ok: z.literal(false), error: z.string() }),
+    },
     {
       status: 401,
       description: 'Authentication required',
