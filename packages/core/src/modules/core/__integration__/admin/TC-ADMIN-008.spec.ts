@@ -108,14 +108,15 @@ test.describe('TC-ADMIN-008: Create Custom Entity Record', () => {
       expect(recordId).toBeTruthy();
 
       await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records`, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'networkidle',
       });
       await page.getByText('Loading data...').waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
+      await page.waitForLoadState('networkidle');
       await expect(page.getByRole('link', { name: 'Create' })).toBeVisible();
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records$`, 'i'));
       await expect(page.getByRole('row', { name: new RegExp(location, 'i') })).toBeVisible();
       await page.goto(`/backend/entities/user/${encodeURIComponent(entityId)}/records/${encodeURIComponent(recordId!)}`, {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'networkidle',
       });
       await expect(page).toHaveURL(new RegExp(`/backend/entities/user/${encodeURIComponent(entityId)}/records/[^/]+$`, 'i'));
       await page.getByText(/Loading record/i).waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
