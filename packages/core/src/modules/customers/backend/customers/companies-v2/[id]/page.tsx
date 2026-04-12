@@ -4,7 +4,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { Building2, Hash, Users, BarChart3 } from 'lucide-react'
+import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -13,27 +14,33 @@ import { ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
-import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
-import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { E } from '#generated/entities.ids.generated'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../components/detail/CompanyPeopleSection'
 import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
-import { formatTemplate } from '../../../../components/detail/utils'
 import type { TagSummary } from '../../../../components/detail/types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
-import { CompanyDashboardTab } from '../../../../components/detail/CompanyDashboardTab'
-import { CompanyDataTab } from '../../../../components/detail/CompanyDataTab'
-import { TasksSection } from '../../../../components/detail/TasksSection'
+import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
-import { ScheduleActivityDialog } from '../../../../components/detail/ScheduleActivityDialog'
+import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ComingSoonPlaceholder } from '../../../../components/detail/ComingSoonPlaceholder'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
-import type { CompanyOverview } from '../../../../components/formConfig'
+import {
+  buildCompanyEditPayload,
+  createCompanyEditFields,
+  createCompanyDaneFiremyGroups,
+  createCompanyEditSchema,
+  mapCompanyOverviewToFormValues,
+  type CompanyEditFormValues,
+  type CompanyOverview,
+} from '../../../../components/formConfig'
 
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -42,7 +49,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const searchParams = useSearchParams()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
-  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
 
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -55,11 +61,26 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
 
-  // Form state lifted from CompanyDataTab
+  // Form state
   const [isDirty, setIsDirty] = React.useState(false)
   const [isSaving, setIsSaving] = React.useState(false)
-  const formSubmitRef = React.useRef<(() => void) | null>(null)
+  const formWrapperRef = React.useRef<HTMLDivElement>(null)
+  const { organizationId } = useOrganizationScopeDetail()
+  const formSchema = React.useMemo(() => createCompanyEditSchema(), [])
+  const formFields = React.useMemo(() => createCompanyEditFields(t), [t])
+  const formGroups = React.useMemo(() => createCompanyDaneFiremyGroups(t), [t])
+  const initialValues = React.useMemo(
+    () => (data ? mapCompanyOverviewToFormValues(data) : undefined),
+    [data],
+  )
+  const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
+    { id: 'identity', icon: Building2, label: t('customers.companies.form.sections.identity', 'Identity') },
+    { id: 'contact', icon: Hash, label: t('customers.companies.form.sections.contact', 'Contact') },
+    { id: 'classification', icon: Users, label: t('customers.companies.form.sections.classification', 'Classification') },
+    { id: 'profile', icon: BarChart3, label: t('customers.companies.form.sections.businessProfile', 'Business profile') },
+  ], [t])
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
+  const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
 
   const currentCompanyId = data?.company?.id ?? null
@@ -83,29 +104,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     data?.company?.displayName && data.company.displayName.trim().length
       ? data.company.displayName
       : t('customers.companies.list.deleteFallbackName', 'this company')
-
-  const translateCompanyDetail = React.useCallback(
-    (key: string, fallback?: string, params?: Record<string, string | number>) => {
-      const mappedKey = key.startsWith('customers.people.detail.')
-        ? key.replace('customers.people.detail.', 'customers.companies.detail.')
-        : key
-      const adjustedFallback =
-        key.startsWith('customers.people.detail.') && fallback
-          ? fallback
-              .replace(/\bPerson\b/g, 'Company')
-              .replace(/\bperson\b/g, 'company')
-              .replace(/\bPeople\b/g, 'Companies')
-              .replace(/\bpeople\b/g, 'companies')
-          : fallback
-      const translated = t(mappedKey, params)
-      if (translated !== mappedKey || mappedKey === key) return translated
-      const fallbackValue = t(key, params)
-      if (fallbackValue !== key) return fallbackValue
-      if (!adjustedFallback) return mappedKey
-      return formatTemplate(adjustedFallback, params)
-    },
-    [t],
-  )
 
   // Data loading
   const initialLoadDoneRef = React.useRef(false)
@@ -166,6 +164,43 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       handleActivityCreated()
     } catch {
       flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
+    }
+  }, [handleActivityCreated, t])
+
+  const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
+    setScheduleEditData({
+      id: activity.id,
+      interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
+      title: typeof activity.title === 'string' ? activity.title : null,
+      body: typeof activity.body === 'string' ? activity.body : null,
+      scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
+      durationMinutes: typeof activity.duration === 'number' ? activity.duration : null,
+      location: typeof (activity as Record<string, unknown>).location === 'string' ? (activity as Record<string, unknown>).location as string : null,
+      allDay: typeof (activity as Record<string, unknown>).allDay === 'boolean' ? (activity as Record<string, unknown>).allDay as boolean : null,
+      recurrenceRule: typeof (activity as Record<string, unknown>).recurrenceRule === 'string' ? (activity as Record<string, unknown>).recurrenceRule as string : null,
+      participants: Array.isArray((activity as Record<string, unknown>).participants) ? (activity as Record<string, unknown>).participants as ScheduleActivityEditData['participants'] : null,
+      reminderMinutes: typeof (activity as Record<string, unknown>).reminderMinutes === 'number' ? (activity as Record<string, unknown>).reminderMinutes as number : null,
+      visibility: typeof (activity as Record<string, unknown>).visibility === 'string' ? (activity as Record<string, unknown>).visibility as string : null,
+    })
+    setScheduleDialogOpen(true)
+  }, [])
+
+  const openNewScheduleDialog = React.useCallback(() => {
+    setScheduleEditData(null)
+    setScheduleDialogOpen(true)
+  }, [])
+
+  const handleCancelActivity = React.useCallback(async (interactionId: string) => {
+    try {
+      await apiCallOrThrow('/api/customers/interactions', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: interactionId, status: 'canceled' }),
+      })
+      flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
+      handleActivityCreated()
+    } catch {
+      flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
     }
   }, [handleActivityCreated, t])
 
@@ -254,13 +289,41 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     router.push('/backend/customers/companies')
   }, [data?.company?.id, router, t])
 
+  // Form submit handler (lifted from CompanyDataTab)
+  const handleFormSubmit = React.useCallback(
+    async (values: CompanyEditFormValues) => {
+      setIsSaving(true)
+      try {
+        let payload: Record<string, unknown>
+        try {
+          payload = buildCompanyEditPayload(values, organizationId)
+        } catch (err) {
+          if (err instanceof Error) {
+            if (err.message === 'DISPLAY_NAME_REQUIRED') {
+              const message = t('customers.companies.form.displayName.error')
+              throw createCrudFormError(message, { displayName: message })
+            }
+            if (err.message === 'ANNUAL_REVENUE_INVALID') {
+              const message = t('customers.companies.form.annualRevenue.error')
+              throw createCrudFormError(message, { annualRevenue: message })
+            }
+          }
+          throw err
+        }
+        await updateCrud('customers/companies', payload)
+        flash(t('customers.companies.form.updateSuccess', 'Company updated.'), 'success')
+        await loadData()
+      } finally {
+        setIsSaving(false)
+      }
+    },
+    [loadData, organizationId, t],
+  )
+
   // Save handler (triggers form submit via ref)
   const handleHeaderSave = React.useCallback(() => {
-    formSubmitRef.current?.()
-  }, [])
-
-  const handleSubmitRefReady = React.useCallback((fn: () => void) => {
-    formSubmitRef.current = fn
+    const form = formWrapperRef.current?.querySelector('form')
+    if (form) form.requestSubmit()
   }, [])
 
   // Loading / error states
@@ -313,75 +376,96 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            activeTab={activeTab}
           />
 
-          {/* Full-width tab navigation + content */}
-          <CompanyDetailTabs
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
-            peopleCount={data.people?.length ?? 0}
-            dealsCount={data.deals?.length ?? 0}
-            activitiesCount={data.interactions?.length ?? 0}
-          >
-            {activeTab === 'dashboard' && (
-              <CompanyDashboardTab
-                data={data}
-                companyId={companyId}
-                onTabChange={setActiveTab}
-                onActivityCreated={handleActivityCreated}
-                onScheduleRequested={() => setScheduleDialogOpen(true)}
-                runGuardedMutation={runMutationWithContext}
-                useCanonicalInteractions={useCanonicalInteractions}
-              />
-            )}
+          {/* KPI bar — always visible above zones */}
+          <CompanyKpiBar data={data} />
 
-            {activeTab === 'dane-firmy' && (
-              <CompanyDataTab
-                data={data}
-                onDataRefresh={loadData}
-                onSubmitRefReady={handleSubmitRefReady}
-                onDirtyChange={setIsDirty}
-                onSavingChange={setIsSaving}
-                zone2={
-                  <>
-                    <DealsSection
-                      scope={dealsScope}
-                      emptyLabel={translateCompanyDetail('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
-                      addActionLabel={translateCompanyDetail('customers.companies.detail.actions.addDeal', 'Add deal')}
-                      emptyState={{
-                        title: translateCompanyDetail('customers.companies.detail.emptyState.deals.title', 'No active deals'),
-                        actionLabel: translateCompanyDetail('customers.companies.detail.emptyState.deals.action', 'Create a deal'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      translator={detailTranslator}
-                    />
-                    <TasksSection
-                      entityId={companyId}
-                      initialTasks={data.todos}
-                      useCanonicalInteractions={useCanonicalInteractions}
-                      runGuardedMutation={runMutationWithContext}
-                      onDataRefresh={loadData}
-                      emptyLabel={translateCompanyDetail('customers.companies.detail.empty.todos', 'No tasks linked to this company.')}
-                      addActionLabel={translateCompanyDetail('customers.companies.detail.tasks.add', 'Add task')}
-                      emptyState={{
-                        title: translateCompanyDetail('customers.companies.detail.emptyState.tasks.title', 'Plan what happens next'),
-                        actionLabel: translateCompanyDetail('customers.companies.detail.emptyState.tasks.action', 'Create task'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      translator={detailTranslator}
-                      entityName={companyName}
-                      dialogContextKey="customers.companies.detail.tasks.dialog.context"
-                      dialogContextFallback="This task will be linked to {{name}}"
-                    />
+          {/* Two-zone layout: zone1 = form, zone2 = tabs */}
+          <CollapsibleZoneLayout
+            pageType="company-v2"
+            entityName={companyName}
+            isDirty={isDirty}
+            sections={zoneSections}
+            zone1={
+              <div ref={formWrapperRef}>
+                <CrudForm<CompanyEditFormValues>
+                  embedded
+                  injectionSpotId="customers.company"
+                  entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
+                  schema={formSchema}
+                  fields={formFields}
+                  groups={formGroups}
+                  initialValues={initialValues}
+                  onSubmit={handleFormSubmit}
+                  onDelete={handleDelete}
+                  hideFooterActions
+                  collapsibleGroups={{ pageType: 'company-v2', chevronPosition: 'left' }}
+                  sortableGroups={{ pageType: 'company-v2' }}
+                  onDirtyChange={setIsDirty}
+                />
+              </div>
+            }
+            zone2={
+              <CompanyDetailTabs
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                peopleCount={data.people?.length ?? 0}
+                dealsCount={data.deals?.length ?? 0}
+                activitiesCount={data.interactions?.length ?? 0}
+              >
+                {activeTab === 'people' && (
+                  <CompanyPeopleSection
+                    companyId={companyId}
+                    companyName={data.company?.displayName ?? ''}
+                    initialPeople={data.people ?? []}
+                    addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
+                    emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
+                    emptyState={{
+                      title: t('customers.companies.detail.emptyState.people.title', 'Build the account team'),
+                      actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
+                    }}
+                    onActionChange={handleSectionActionChange}
+                    translator={detailTranslator}
+                    onDataRefresh={loadData}
+                    runGuardedMutation={runMutationWithContext}
+                    onPeopleChange={(next) => {
+                      setData((prev) => (prev ? { ...prev, people: next } : prev))
+                    }}
+                  />
+                )}
+
+                {activeTab === 'deals' && (
+                  <DealsSection
+                    scope={dealsScope}
+                    emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
+                    addActionLabel={t('customers.companies.detail.actions.addDeal', 'Add deal')}
+                    emptyState={{
+                      title: t('customers.companies.detail.emptyState.deals.title', 'No deals yet'),
+                      actionLabel: t('customers.companies.detail.emptyState.deals.action', 'Create a deal'),
+                    }}
+                    onActionChange={handleSectionActionChange}
+                    translator={detailTranslator}
+                  />
+                )}
+
+                {activeTab === 'activity-log' && (
+                  <div className="space-y-4">
                     <InlineActivityComposer
                       entityType="company"
                       entityId={companyId}
                       onActivityCreated={handleActivityCreated}
                       runGuardedMutation={runMutationWithContext}
-                      onScheduleRequested={() => setScheduleDialogOpen(true)}
+                      onScheduleRequested={openNewScheduleDialog}
                       useCanonicalInteractions={useCanonicalInteractions}
+                    />
+                    <PlannedActivitiesSection
+                      activities={plannedActivities}
+                      onComplete={handleMarkDone}
+                      onSchedule={openNewScheduleDialog}
+                      onEdit={handleEditActivity}
+                      onCancel={handleCancelActivity}
                     />
                     <ActivitiesSection
                       entityId={companyId}
@@ -390,102 +474,34 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                       runGuardedMutation={runMutationWithContext}
                       onDataRefresh={handleActivityCreated}
                       refreshKey={activityRefreshKey}
-                      addActionLabel={translateCompanyDetail('customers.companies.detail.activities.add', 'Log activity')}
+                      addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
                       emptyState={{
-                        title: translateCompanyDetail('customers.companies.detail.emptyState.activities.title', 'No recent activity'),
-                        actionLabel: translateCompanyDetail('customers.companies.detail.emptyState.activities.action', 'Log activity'),
+                        title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
+                        actionLabel: t('customers.companies.detail.emptyState.activities.action', 'Log activity'),
                       }}
                       onActionChange={handleSectionActionChange}
-                      onLoadingChange={() => {}}
+                      onEditActivity={handleEditActivity}
                     />
-                  </>
-                }
-              />
-            )}
+                  </div>
+                )}
 
-            {activeTab === 'people' && (
-              <CompanyPeopleSection
-                companyId={companyId}
-                companyName={data.company?.displayName ?? ''}
-                initialPeople={data.people ?? []}
-                addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
-                emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.people.title', 'Build the account team'),
-                  actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
-                }}
-                onActionChange={handleSectionActionChange}
-                translator={detailTranslator}
-                onDataRefresh={loadData}
-                runGuardedMutation={runMutationWithContext}
-                onPeopleChange={(next) => {
-                  setData((prev) => (prev ? { ...prev, people: next } : prev))
-                }}
-              />
-            )}
+                {activeTab === 'analysis' && (
+                  <ComingSoonPlaceholder label={t('customers.companies.detail.tabs.analysis', 'Analysis')} />
+                )}
 
-            {activeTab === 'deals' && (
-              <DealsSection
-                scope={dealsScope}
-                emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}
-                addActionLabel={t('customers.companies.detail.actions.addDeal', 'Add deal')}
-                emptyState={{
-                  title: t('customers.companies.detail.emptyState.deals.title', 'No deals yet'),
-                  actionLabel: t('customers.companies.detail.emptyState.deals.action', 'Create a deal'),
-                }}
-                onActionChange={handleSectionActionChange}
-                translator={detailTranslator}
-              />
-            )}
+                {activeTab === 'changelog' && companyId && (
+                  <ChangelogTab entityId={companyId} entityType="company" />
+                )}
 
-            {activeTab === 'activity-log' && (
-              <div className="space-y-4">
-                <InlineActivityComposer
-                  entityType="company"
-                  entityId={companyId}
-                  onActivityCreated={handleActivityCreated}
-                  runGuardedMutation={runMutationWithContext}
-                  onScheduleRequested={() => setScheduleDialogOpen(true)}
-                  useCanonicalInteractions={useCanonicalInteractions}
-                />
-                <PlannedActivitiesSection
-                  activities={plannedActivities}
-                  onComplete={handleMarkDone}
-                  onSchedule={() => setScheduleDialogOpen(true)}
-                />
-                <ActivitiesSection
-                  entityId={companyId}
-                  entityName={companyName}
-                  useCanonicalInteractions={useCanonicalInteractions}
-                  runGuardedMutation={runMutationWithContext}
-                  onDataRefresh={handleActivityCreated}
-                  refreshKey={activityRefreshKey}
-                  addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
-                  emptyState={{
-                    title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
-                    actionLabel: t('customers.companies.detail.emptyState.activities.action', 'Log activity'),
-                  }}
-                  onActionChange={handleSectionActionChange}
-                  onLoadingChange={() => {}}
-                />
-              </div>
-            )}
+                {activeTab === 'files' && (
+                  <ComingSoonPlaceholder label={t('customers.companies.detail.tabs.files', 'Files')} />
+                )}
 
-            {activeTab === 'analysis' && (
-              <ComingSoonPlaceholder label={t('customers.companies.detail.tabs.analysis', 'Analiza')} />
-            )}
-
-            {activeTab === 'changelog' && companyId && (
-              <ChangelogTab entityId={companyId} entityType="company" />
-            )}
-
-            {activeTab === 'files' && (
-              <ComingSoonPlaceholder label={t('customers.companies.detail.tabs.files', 'Pliki')} />
-            )}
-
-            {/* Injected tabs from UMES */}
-            {injectedTabMap.has(activeTab) && injectedTabMap.get(activeTab)!()}
-          </CompanyDetailTabs>
+                {/* Injected tabs from UMES */}
+                {injectedTabMap.has(activeTab) && injectedTabMap.get(activeTab)!()}
+              </CompanyDetailTabs>
+            }
+          />
 
           {/* UMES footer injection */}
           <InjectionSpot spotId="detail:customers.company:footer" context={injectionContext} data={data} />
@@ -493,11 +509,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           {/* Schedule Activity Dialog */}
           <ScheduleActivityDialog
             open={scheduleDialogOpen}
-            onClose={() => setScheduleDialogOpen(false)}
+            onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
             entityId={companyId}
             entityName={companyName}
             entityType="company"
             onActivityCreated={handleActivityCreated}
+            editData={scheduleEditData}
           />
         </div>
       </PageBody>

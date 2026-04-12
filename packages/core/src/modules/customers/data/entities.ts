@@ -75,6 +75,12 @@ export class CustomerEntity {
   @Property({ name: 'source', type: 'text', nullable: true })
   source?: string | null
 
+  @Property({ name: 'temperature', type: 'text', nullable: true })
+  temperature?: string | null
+
+  @Property({ name: 'renewal_quarter', type: 'text', nullable: true })
+  renewalQuarter?: string | null
+
   @Property({ name: 'next_interaction_at', type: Date, nullable: true })
   nextInteractionAt?: Date | null
 
@@ -930,4 +936,163 @@ export class CustomerEntityRole {
 
   @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_dictionary_kind_settings' })
+@Index({ name: 'customer_dict_kind_settings_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_dict_kind_settings_unique', properties: ['organizationId', 'tenantId', 'kind'] })
+export class CustomerDictionaryKindSetting {
+  [OptionalProps]?: 'selectionMode' | 'visibleInTags' | 'sortOrder' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'text' })
+  kind!: string
+
+  @Property({ name: 'selection_mode', type: 'text', default: 'single' })
+  selectionMode: string = 'single'
+
+  @Property({ name: 'visible_in_tags', type: 'boolean', default: true })
+  visibleInTags: boolean = true
+
+  @Property({ name: 'sort_order', type: 'int', default: 0 })
+  sortOrder: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_labels' })
+@Index({ name: 'customer_labels_scope_idx', properties: ['organizationId', 'tenantId', 'userId'] })
+@Unique({ name: 'customer_labels_unique', properties: ['userId', 'tenantId', 'organizationId', 'slug'] })
+export class CustomerLabel {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ type: 'text' })
+  slug!: string
+
+  @Property({ type: 'text' })
+  label!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_label_assignments' })
+@Index({ name: 'customer_label_assignments_entity_idx', properties: ['entity'] })
+@Unique({ name: 'customer_label_assignments_unique', properties: ['label', 'entity'] })
+export class CustomerLabelAssignment {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @ManyToOne(() => CustomerLabel, { fieldName: 'label_id' })
+  label!: CustomerLabel
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
+  entity!: CustomerEntity
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_company_billing' })
+@Index({ name: 'customer_company_billing_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_company_billing_entity_unique', properties: ['entity'] })
+export class CustomerCompanyBilling {
+  [OptionalProps]?: 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'entity_id' })
+  entity!: CustomerEntity
+
+  @Property({ name: 'bank_name', type: 'text', nullable: true })
+  bankName?: string | null
+
+  @Property({ name: 'bank_account_masked', type: 'text', nullable: true })
+  bankAccountMasked?: string | null
+
+  @Property({ name: 'payment_terms', type: 'text', nullable: true })
+  paymentTerms?: string | null
+
+  @Property({ name: 'preferred_currency', type: 'text', nullable: true })
+  preferredCurrency?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+@Entity({ tableName: 'customer_person_company_roles' })
+@Index({ name: 'customer_pcr_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'customer_pcr_person_company_idx', properties: ['personEntity', 'companyEntity'] })
+@Unique({ name: 'customer_pcr_unique', properties: ['personEntity', 'companyEntity', 'roleValue'] })
+export class CustomerPersonCompanyRole {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'person_entity_id' })
+  personEntity!: CustomerEntity
+
+  @ManyToOne(() => CustomerEntity, { fieldName: 'company_entity_id' })
+  companyEntity!: CustomerEntity
+
+  @Property({ name: 'role_value', type: 'text' })
+  roleValue!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }

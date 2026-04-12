@@ -3,38 +3,52 @@
 import * as React from 'react'
 import {
   CalendarDays,
-  Flame,
+  Check,
   GripVertical,
   Hash,
   Info,
+  Plus,
   Radio,
   RefreshCw,
+  Save,
+  Search,
   Tag,
+  Thermometer,
   Trash2,
+  Users,
+  X,
 } from 'lucide-react'
-import { useQueryClient } from '@tanstack/react-query'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
   Dialog,
   DialogContent,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { invalidateDictionaryEntries } from '@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries'
-import { ICON_SUGGESTIONS, renderDictionaryIcon } from '@open-mercato/core/modules/customers/lib/dictionaries'
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 
-type DictionaryInfo = {
-  id: string
-  key: string
-  label: string
-  entryCount: number
-}
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type TagEntryDraft = {
   localId: string
@@ -43,47 +57,49 @@ type TagEntryDraft = {
   label: string
   color: string
   icon: string
+  isDefault: boolean
+  isInherited: boolean
   manualValue: boolean
   deleted: boolean
 }
 
-const TAG_CATEGORY_KEYS = [
-  'customers.status',
-  'customers.lifecycle_stage',
-  'customers.source',
-  'customers.renewal_quarter',
-  'customers.temperature',
-  'customers.custom_tags',
-] as const
+// ---------------------------------------------------------------------------
+// Category definitions — maps to /api/customers/dictionaries/{kind}
+// ---------------------------------------------------------------------------
 
-const CATEGORY_META: Record<
-  string,
+type CategoryDef = {
+  kind: string // route param for /api/customers/dictionaries/{kind}
+  icon: React.ComponentType<{ className?: string }>
+  shortLabel: string
+  description: string
+  badges?: string[]
+  noteTitle: string
+  noteDescription: string
+}
+
+const CATEGORIES: CategoryDef[] = [
   {
-    icon: React.ComponentType<{ className?: string }>
-    shortLabel: string
-    description: string
-    badges?: string[]
-    noteTitle: string
-    noteDescription: string
-  }
-> = {
-  'customers.status': {
+    kind: 'statuses',
     icon: Tag,
     shortLabel: 'Status',
     description: 'Single-select values visible on the hero area of person, company, and deal cards.',
     badges: ['system', 'required'],
     noteTitle: 'System category',
-    noteDescription: 'Status is required on customer cards. Existing rows can be edited, but this category should remain available tenant-wide.',
+    noteDescription:
+      'Status is required on customer cards. Existing rows can be edited, but this category should remain available tenant-wide.',
   },
-  'customers.lifecycle_stage': {
+  {
+    kind: 'lifecycle-stages',
     icon: RefreshCw,
     shortLabel: 'Lifecycle',
     description: 'Pipeline-aligned lifecycle values shared across CRM detail pages.',
     badges: ['system'],
     noteTitle: 'Shared lifecycle values',
-    noteDescription: 'Use lifecycle stages to keep person and company headers visually consistent across CRM detail views.',
+    noteDescription:
+      'Use lifecycle stages to keep person and company headers visually consistent across CRM detail views.',
   },
-  'customers.source': {
+  {
+    kind: 'sources',
     icon: Radio,
     shortLabel: 'Source',
     description: 'Acquisition source labels used in Zone 1 forms and CRM summary badges.',
@@ -91,28 +107,59 @@ const CATEGORY_META: Record<
     noteTitle: 'Source dictionary',
     noteDescription: 'These values are reused by customer forms and reporting filters.',
   },
-  'customers.renewal_quarter': {
+  {
+    kind: 'temperature',
+    icon: Thermometer,
+    shortLabel: 'Temperature',
+    description: 'Temperature / interest level for leads and contacts.',
+    noteTitle: 'Temperature / Interest',
+    noteDescription: 'Use temperature to quickly classify contact interest level — from hot to cold.',
+  },
+  {
+    kind: 'renewal-quarters',
     icon: CalendarDays,
     shortLabel: 'Renewal',
-    description: 'Quarter-based renewal helpers displayed in CRM detail cards and pipeline summaries.',
-    noteTitle: 'Renewal planning',
-    noteDescription: 'Keep quarter naming consistent so renewal filters remain readable across the CRM.',
+    description: 'Renewal quarter labels for tracking contract renewal timing.',
+    noteTitle: 'Renewal quarter',
+    noteDescription: 'Assign renewal quarters to track when contracts or subscriptions are up for renewal.',
   },
-  'customers.temperature': {
-    icon: Flame,
-    shortLabel: 'Temperature',
-    description: 'Hot, warm, and cold style indicators used in the person and company header badges.',
-    noteTitle: 'Sales temperature',
-    noteDescription: 'Temperature values affect the visual emphasis of CRM header badges and deal context chips.',
+  {
+    kind: 'person-company-roles',
+    icon: Users,
+    shortLabel: 'Roles',
+    description: 'Person-company relationship roles such as decision maker, influencer, or budget holder.',
+    noteTitle: 'Person-company roles',
+    noteDescription: 'Use roles to classify how a person relates to a company — e.g. decision maker, technical evaluator, or primary contact.',
   },
-  'customers.custom_tags': {
+  {
+    kind: 'activity-types',
+    icon: CalendarDays,
+    shortLabel: 'Activity',
+    description: 'Activity types for calls, emails, meetings, and other CRM interactions.',
+    noteTitle: 'Activity types',
+    noteDescription: 'Keep activity type names consistent so timeline filters remain readable across CRM views.',
+  },
+  {
+    kind: 'deal-statuses',
+    icon: Tag,
+    shortLabel: 'Deal status',
+    description: 'Deal status labels used in pipeline views and deal detail cards.',
+    noteTitle: 'Deal statuses',
+    noteDescription: 'Deal status values affect pipeline filtering and reporting groupings.',
+  },
+  {
+    kind: 'industries',
     icon: Hash,
-    shortLabel: 'Custom',
-    description: 'Optional tenant-specific tags for people, companies, and linked deals.',
-    noteTitle: 'Custom tags',
-    noteDescription: 'Add lightweight CRM-specific labels here when the built-in status dictionaries are not enough.',
+    shortLabel: 'Industry',
+    description: 'Industry classification labels for companies and contacts.',
+    noteTitle: 'Industry labels',
+    noteDescription: 'Add industry categories that match your target market segments for consistent CRM classification.',
   },
-}
+]
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function createLocalId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -156,6 +203,8 @@ function makeDraftEntry(entry: Record<string, unknown>): TagEntryDraft | null {
         : value,
     color: normalizeColor(typeof entry.color === 'string' ? entry.color : null),
     icon: sanitizeIcon(typeof entry.icon === 'string' ? entry.icon : null),
+    isDefault: false,
+    isInherited: typeof entry.isInherited === 'boolean' ? entry.isInherited : false,
     manualValue: true,
     deleted: false,
   }
@@ -179,6 +228,117 @@ function serializeEntries(entries: TagEntryDraft[]): string {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Sortable entry row
+// ---------------------------------------------------------------------------
+
+function SortableEntryRow({
+  entry,
+  isDefault,
+  onLabelChange,
+  onValueChange,
+  onColorChange,
+  onDelete,
+  t,
+}: {
+  entry: TagEntryDraft
+  isDefault: boolean
+  onLabelChange: (value: string) => void
+  onValueChange: (value: string) => void
+  onColorChange: (value: string) => void
+  onDelete: () => void
+  t: ReturnType<typeof useT>
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: entry.localId,
+  })
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-[10px] rounded-[6px] border border-border bg-white px-[10px] py-[8px]"
+    >
+      {/* Grip handle */}
+      <div
+        className="flex size-[18px] shrink-0 cursor-grab items-center justify-center text-muted-foreground/70"
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-[14px]" />
+      </div>
+
+      {/* Label + default indicator */}
+      <div className="flex min-w-0 flex-1 flex-col gap-[3px]">
+        <input
+          type="text"
+          value={entry.label}
+          onChange={(e) => onLabelChange(e.target.value)}
+          className="w-full rounded-[5px] border border-input bg-white px-[12px] py-[7px] text-[13px] font-medium text-foreground outline-none focus:border-foreground"
+        />
+        {isDefault && (
+          <div className="flex items-center gap-[5px]">
+            <Check className="size-[10px] text-green-500" />
+            <span className="text-[10px] text-muted-foreground">
+              {t('customers.tags.manage.defaultEntry', 'default when creating new records')}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Slug (read-only style) */}
+      <div className="w-[140px] shrink-0">
+        <input
+          type="text"
+          value={entry.value}
+          onChange={(e) => onValueChange(slugifyLabel(e.target.value))}
+          className="w-full rounded-[5px] bg-muted px-[10px] py-[7px] text-[11px] font-medium text-muted-foreground outline-none"
+        />
+      </div>
+
+      {/* Color picker */}
+      <div className="flex w-[80px] shrink-0 items-center gap-[6px] rounded-[5px] border border-input px-[8px] py-[6px]">
+        <label className="relative size-[16px] shrink-0 cursor-pointer">
+          <span
+            className="block size-full rounded-[3px]"
+            style={{ backgroundColor: normalizeColor(entry.color) }}
+          />
+          <input
+            type="color"
+            value={normalizeColor(entry.color)}
+            onChange={(e) => onColorChange(normalizeColor(e.target.value))}
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
+          />
+        </label>
+        <span className="text-[10px] font-medium text-muted-foreground">
+          {normalizeColor(entry.color)}
+        </span>
+      </div>
+
+      {/* Delete */}
+      <IconButton
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="size-[32px] shrink-0 text-muted-foreground hover:text-destructive"
+        onClick={onDelete}
+        aria-label={t('customers.tags.manage.delete', 'Delete')}
+      >
+        <Trash2 className="size-[14px]" />
+      </IconButton>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main dialog
+// ---------------------------------------------------------------------------
+
 interface ManageTagsDialogProps {
   open: boolean
   onClose: () => void
@@ -186,71 +346,62 @@ interface ManageTagsDialogProps {
 
 export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   const t = useT()
-  const queryClient = useQueryClient()
-  const [dictionaries, setDictionaries] = React.useState<DictionaryInfo[]>([])
-  const [activeTab, setActiveTab] = React.useState<string | null>(null)
+  const [activeTab, setActiveTab] = React.useState(CATEGORIES[0].kind)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [searchValue, setSearchValue] = React.useState('')
-  const [draftsByKey, setDraftsByKey] = React.useState<Record<string, TagEntryDraft[]>>({})
-  const [originalByKey, setOriginalByKey] = React.useState<Record<string, TagEntryDraft[]>>({})
+  const [entryCounts, setEntryCounts] = React.useState<Record<string, number>>({})
+  const [draftsByKind, setDraftsByKind] = React.useState<Record<string, TagEntryDraft[]>>({})
+  const [originalByKind, setOriginalByKind] = React.useState<Record<string, TagEntryDraft[]>>({})
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  )
+
+  // --- data loading ---
 
   const loadData = React.useCallback(async () => {
     setLoading(true)
     try {
-      const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-        '/api/dictionaries?pageSize=100',
-      )
-      const items = Array.isArray(data?.items) ? data.items : []
-      const matched: DictionaryInfo[] = []
       const loadedDrafts: Record<string, TagEntryDraft[]> = {}
+      const counts: Record<string, number> = {}
 
-      for (const key of TAG_CATEGORY_KEYS) {
-        const dictionary = items.find(
-          (item) => typeof item.key === 'string' && item.key === key && typeof item.id === 'string',
-        )
-        if (!dictionary || typeof dictionary.id !== 'string') continue
-
-        const entriesPayload = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/dictionaries/${dictionary.id}/entries`,
-        )
-        const entries = Array.isArray(entriesPayload?.items)
-          ? entriesPayload.items.map(makeDraftEntry).filter((entry): entry is TagEntryDraft => entry !== null)
-          : []
-
-        matched.push({
-          id: dictionary.id,
-          key,
-          label:
-            typeof dictionary.name === 'string' && dictionary.name.trim().length
-              ? dictionary.name.trim()
-              : CATEGORY_META[key]?.shortLabel ?? key,
-          entryCount: entries.length,
-        })
-        loadedDrafts[key] = entries
+      for (const category of CATEGORIES) {
+        try {
+          const data = await readApiResultOrThrow<{
+            items?: Array<Record<string, unknown>>
+          }>(`/api/customers/dictionaries/${category.kind}`, { cache: 'no-store' })
+          const entries = Array.isArray(data?.items)
+            ? data.items
+                .map(makeDraftEntry)
+                .filter((entry): entry is TagEntryDraft => entry !== null)
+            : []
+          loadedDrafts[category.kind] = entries
+          counts[category.kind] = entries.length
+        } catch {
+          loadedDrafts[category.kind] = []
+          counts[category.kind] = 0
+        }
       }
 
-      setDictionaries(matched)
-      setDraftsByKey(
-        Object.fromEntries(Object.entries(loadedDrafts).map(([key, entries]) => [key, cloneDrafts(entries)])),
+      setDraftsByKind(
+        Object.fromEntries(
+          Object.entries(loadedDrafts).map(([k, v]) => [k, cloneDrafts(v)]),
+        ),
       )
-      setOriginalByKey(
-        Object.fromEntries(Object.entries(loadedDrafts).map(([key, entries]) => [key, cloneDrafts(entries)])),
+      setOriginalByKind(
+        Object.fromEntries(
+          Object.entries(loadedDrafts).map(([k, v]) => [k, cloneDrafts(v)]),
+        ),
       )
-      setActiveTab((current) => {
-        if (current && matched.some((dictionary) => dictionary.key === current)) return current
-        return matched[0]?.key ?? null
-      })
+      setEntryCounts(counts)
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : t('customers.tags.manage.loadError', 'Failed to load tag dictionaries.')
       flash(message, 'error')
-      setDictionaries([])
-      setDraftsByKey({})
-      setOriginalByKey({})
-      setActiveTab(null)
     } finally {
       setLoading(false)
     }
@@ -262,41 +413,38 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     loadData().catch(() => {})
   }, [loadData, open])
 
-  const activeDictionary = React.useMemo(
-    () => dictionaries.find((dictionary) => dictionary.key === activeTab) ?? null,
-    [activeTab, dictionaries],
-  )
+  // --- derived state ---
 
-  const activeMeta = activeTab ? CATEGORY_META[activeTab] : null
-  const activeEntries = activeTab ? draftsByKey[activeTab] ?? [] : []
+  const activeMeta = CATEGORIES.find((c) => c.kind === activeTab) ?? null
+  const activeEntries = draftsByKind[activeTab] ?? []
   const visibleEntries = React.useMemo(() => {
     const query = searchValue.trim().toLowerCase()
     return activeEntries.filter((entry) => {
       if (entry.deleted) return false
       if (!query) return true
-      return entry.label.toLowerCase().includes(query) || entry.value.toLowerCase().includes(query)
+      return (
+        entry.label.toLowerCase().includes(query) || entry.value.toLowerCase().includes(query)
+      )
     })
   }, [activeEntries, searchValue])
 
   const hasChanges = React.useMemo(
     () =>
-      dictionaries.some((dictionary) => {
-        const original = originalByKey[dictionary.key] ?? []
-        const current = draftsByKey[dictionary.key] ?? []
+      CATEGORIES.some((category) => {
+        const original = originalByKind[category.kind] ?? []
+        const current = draftsByKind[category.kind] ?? []
         return serializeEntries(original) !== serializeEntries(current)
       }),
-    [dictionaries, draftsByKey, originalByKey],
+    [draftsByKind, originalByKind],
   )
 
+  // --- draft mutations ---
+
   const updateDraftEntry = React.useCallback(
-    (
-      dictionaryKey: string,
-      localId: string,
-      updater: (entry: TagEntryDraft) => TagEntryDraft,
-    ) => {
-      setDraftsByKey((current) => ({
+    (kind: string, localId: string, updater: (e: TagEntryDraft) => TagEntryDraft) => {
+      setDraftsByKind((current) => ({
         ...current,
-        [dictionaryKey]: (current[dictionaryKey] ?? []).map((entry) =>
+        [kind]: (current[kind] ?? []).map((entry) =>
           entry.localId === localId ? updater(entry) : entry,
         ),
       }))
@@ -305,8 +453,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   )
 
   const handleAddEntry = React.useCallback(() => {
-    if (!activeTab) return
-    setDraftsByKey((current) => ({
+    setDraftsByKind((current) => ({
       ...current,
       [activeTab]: [
         ...(current[activeTab] ?? []),
@@ -317,6 +464,8 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
           label: '',
           color: '#D1D5DB',
           icon: '',
+          isDefault: false,
+          isInherited: false,
           manualValue: false,
           deleted: false,
         },
@@ -324,34 +473,60 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     }))
   }, [activeTab])
 
-  const handleDeleteEntry = React.useCallback((dictionaryKey: string, localId: string) => {
-    setDraftsByKey((current) => {
-      const nextEntries = (current[dictionaryKey] ?? [])
-        .map((entry) => {
-          if (entry.localId !== localId) return entry
-          if (!entry.id) return null
-          return { ...entry, deleted: true }
-        })
-        .filter((entry): entry is TagEntryDraft => entry !== null)
-      return {
-        ...current,
-        [dictionaryKey]: nextEntries,
-      }
-    })
-  }, [])
+  const handleDeleteEntry = React.useCallback(
+    (kind: string, localId: string) => {
+      setDraftsByKind((current) => {
+        const nextEntries = (current[kind] ?? [])
+          .map((entry) => {
+            if (entry.localId !== localId) return entry
+            if (!entry.id) return null
+            return { ...entry, deleted: true }
+          })
+          .filter((entry): entry is TagEntryDraft => entry !== null)
+        return { ...current, [kind]: nextEntries }
+      })
+    },
+    [],
+  )
+
+  // --- drag & drop ---
+
+  const handleDragEnd = React.useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+
+      setDraftsByKind((current) => {
+        const entries = current[activeTab] ?? []
+        const liveEntries = entries.filter((e) => !e.deleted)
+        const oldIndex = liveEntries.findIndex((e) => e.localId === active.id)
+        const newIndex = liveEntries.findIndex((e) => e.localId === over.id)
+        if (oldIndex === -1 || newIndex === -1) return current
+        const reordered = arrayMove(liveEntries, oldIndex, newIndex)
+        const deletedEntries = entries.filter((e) => e.deleted)
+        return { ...current, [activeTab]: [...reordered, ...deletedEntries] }
+      })
+    },
+    [activeTab],
+  )
+
+  // --- save ---
 
   const handleSave = React.useCallback(async () => {
     if (saving) return
 
-    for (const dictionary of dictionaries) {
-      const entries = draftsByKey[dictionary.key] ?? []
+    for (const category of CATEGORIES) {
+      const entries = draftsByKind[category.kind] ?? []
       for (const entry of entries) {
         if (entry.deleted) continue
         const nextLabel = entry.label.trim()
         const nextValue = entry.value.trim()
         if (!nextLabel || !nextValue) {
           flash(
-            t('customers.tags.manage.validation.required', 'Each entry must have both a label and a slug before saving.'),
+            t(
+              'customers.tags.manage.validation.required',
+              'Each entry must have both a label and a slug before saving.',
+            ),
             'error',
           )
           return
@@ -361,32 +536,32 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
 
     setSaving(true)
     try {
-      for (const dictionary of dictionaries) {
-        const currentEntries = draftsByKey[dictionary.key] ?? []
-        const originalEntries = originalByKey[dictionary.key] ?? []
+      for (const category of CATEGORIES) {
+        const currentEntries = draftsByKind[category.kind] ?? []
+        const originalEntries = originalByKind[category.kind] ?? []
         const originalById = new Map(
-          originalEntries.filter((entry) => entry.id).map((entry) => [entry.id as string, entry]),
+          originalEntries.filter((e) => e.id).map((e) => [e.id as string, e]),
         )
 
         for (const entry of currentEntries) {
           if (entry.deleted) {
             if (entry.id) {
-              await apiCallOrThrow(`/api/dictionaries/${dictionary.id}/entries/${entry.id}`, {
+              await apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
                 method: 'DELETE',
               })
             }
             continue
           }
 
-          const payload = {
+          const payload: Record<string, unknown> = {
             value: entry.value.trim(),
             label: entry.label.trim(),
             color: normalizeColor(entry.color),
-            icon: sanitizeIcon(entry.icon) || undefined,
+            icon: sanitizeIcon(entry.icon) || null,
           }
 
           if (!entry.id) {
-            await apiCallOrThrow(`/api/dictionaries/${dictionary.id}/entries`, {
+            await apiCallOrThrow(`/api/customers/dictionaries/${category.kind}`, {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify(payload),
@@ -394,25 +569,26 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             continue
           }
 
+          // Skip inherited entries — they belong to a parent org and can't be PATCHed
+          if (entry.isInherited) continue
+
           const originalEntry = originalById.get(entry.id)
           if (
             originalEntry &&
-            originalEntry.value === payload.value &&
-            originalEntry.label === payload.label &&
-            normalizeColor(originalEntry.color) === payload.color &&
-            sanitizeIcon(originalEntry.icon) === sanitizeIcon(payload.icon)
+            originalEntry.value === (payload.value as string) &&
+            originalEntry.label === (payload.label as string) &&
+            normalizeColor(originalEntry.color) === normalizeColor(payload.color as string) &&
+            sanitizeIcon(originalEntry.icon) === sanitizeIcon(payload.icon as string)
           ) {
             continue
           }
 
-          await apiCallOrThrow(`/api/dictionaries/${dictionary.id}/entries/${entry.id}`, {
+          await apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
             method: 'PATCH',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(payload),
           })
         }
-
-        await invalidateDictionaryEntries(queryClient, dictionary.id)
       }
 
       flash(t('customers.tags.manage.saveSuccess', 'Tag dictionaries updated.'), 'success')
@@ -426,232 +602,249 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     } finally {
       setSaving(false)
     }
-  }, [dictionaries, draftsByKey, loadData, originalByKey, queryClient, saving, t])
+  }, [draftsByKind, loadData, originalByKind, saving, t])
+
+  // --- keyboard shortcut ---
+
+  React.useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault()
+        void handleSave()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [open, handleSave])
+
+  // --- render ---
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="sm:max-w-[760px] overflow-hidden p-0">
-        <DialogHeader className="border-b border-border/70 px-6 py-5">
-          <DialogTitle className="text-[28px] font-semibold leading-none">
-            {t('customers.tags.manage.title', 'Manage tags')}
-          </DialogTitle>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {t('customers.tags.manage.subtitle', 'Tag dictionaries for the entire tenant')}
-          </p>
-        </DialogHeader>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose()
+      }}
+    >
+      <DialogContent
+        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-[0px_20px_48px_0px_rgba(0,0,0,0.18)] sm:max-w-[820px] sm:rounded-[12px] [&>[data-dialog-close]]:hidden"
+        aria-describedby={undefined}
+      >
+        <VisuallyHidden>
+          <DialogTitle>{t('customers.tags.manage.title', 'Manage tags')}</DialogTitle>
+        </VisuallyHidden>
+
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between pb-[10px] pl-[24px] pr-[20px] pt-[16px]">
+          <div className="flex flex-col gap-[3px]">
+            <h2 className="text-[16px] font-bold leading-tight text-foreground">
+              {t('customers.tags.manage.title', 'Manage tags')}
+            </h2>
+            <p className="text-[11px] leading-tight text-muted-foreground">
+              {t(
+                'customers.tags.manage.subtitle',
+                'Tag dictionaries for the entire tenant',
+              )}
+            </p>
+          </div>
+          <IconButton
+            type="button"
+            variant="outline"
+            size="sm"
+            className="size-[28px] shrink-0 rounded-[6px] border-border"
+            onClick={onClose}
+            aria-label={t('customers.tags.manage.closeDialog', 'Close')}
+          >
+            <X className="size-[13px]" />
+          </IconButton>
+        </div>
+        <div className="h-px shrink-0 bg-border" />
 
         {loading ? (
-          <div className="px-6 py-12 text-center text-sm text-muted-foreground">
+          <div className="px-[28px] py-12 text-center text-sm text-muted-foreground">
             {t('customers.tags.manage.loading', 'Loading...')}
           </div>
         ) : (
           <>
-            <div className="border-b border-border/70 px-6">
-              <div className="flex flex-wrap items-center gap-4">
-                {dictionaries.map((dictionary) => {
-                  const meta = CATEGORY_META[dictionary.key]
-                  const Icon = meta?.icon ?? Tag
-                  const isActive = dictionary.key === activeTab
-                  return (
-                    <button
-                      key={dictionary.key}
-                      type="button"
-                      onClick={() => setActiveTab(dictionary.key)}
-                      className={`inline-flex items-center gap-2 border-b-2 px-1 py-3 text-sm transition-colors ${
-                        isActive
-                          ? 'border-foreground font-semibold text-foreground'
-                          : 'border-transparent text-muted-foreground hover:text-foreground'
-                      }`}
+            {/* Tab bar */}
+            <div className="flex shrink-0 items-end overflow-x-auto border-b border-border px-[24px]">
+              {CATEGORIES.map((category) => {
+                const Icon = category.icon
+                const isActive = category.kind === activeTab
+                const count = entryCounts[category.kind] ?? 0
+                return (
+                  <Button
+                    key={category.kind}
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setActiveTab(category.kind)
+                      setSearchValue('')
+                    }}
+                    className={`flex h-auto shrink-0 items-center gap-[5px] rounded-none border-b-2 px-[10px] py-[8px] hover:bg-transparent ${
+                      isActive
+                        ? '-mb-px border-foreground text-foreground'
+                        : '-mb-px border-transparent text-muted-foreground'
+                    }`}
+                  >
+                    <Icon className="size-[13px]" />
+                    <span
+                      className={`whitespace-nowrap text-[11px] ${isActive ? 'font-semibold' : 'font-medium'}`}
                     >
-                      <Icon className="size-3.5" />
-                      <span>{meta?.shortLabel ?? dictionary.label}</span>
-                      <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
-                        {dictionary.entryCount}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
+                      {category.shortLabel}
+                    </span>
+                    <span className="rounded-[3px] bg-muted px-[4px] py-px text-[9px] font-semibold text-foreground">
+                      {count}
+                    </span>
+                  </Button>
+                )
+              })}
             </div>
 
-            <div className="space-y-5 px-6 py-5">
-              {activeDictionary && activeMeta ? (
+            {/* Content */}
+            <div className="flex min-h-0 flex-1 flex-col gap-[12px] overflow-y-auto px-[24px] py-[14px]">
+              {activeMeta ? (
                 <>
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold text-foreground">
-                          {activeMeta.shortLabel.toUpperCase()}
-                        </h3>
+                  {/* Category header + search */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col gap-[3px]">
+                      <div className="flex items-center gap-[6px]">
+                        <span className="text-[15px] font-bold text-foreground">
+                          {activeMeta.shortLabel}
+                        </span>
                         {(activeMeta.badges ?? []).map((badge) => (
-                          <Badge key={badge} variant="outline" className="rounded-[6px] px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                            {badge}
-                          </Badge>
+                          <span
+                            key={badge}
+                            className={`rounded-[3px] px-[7px] py-[2px] text-[9px] font-bold ${
+                              badge === 'required'
+                                ? 'bg-amber-100 text-amber-500'
+                                : 'bg-muted text-muted-foreground'
+                            }`}
+                          >
+                            {badge === 'required'
+                              ? t('customers.tags.manage.badge.required', 'REQUIRED')
+                              : t('customers.tags.manage.badge.system', 'SYSTEM')}
+                          </span>
                         ))}
                       </div>
-                      <div className="flex items-start gap-2 text-sm text-muted-foreground">
-                        <Info className="mt-0.5 size-3.5 shrink-0" />
-                        <span>{t(`customers.tags.manage.description.${activeDictionary.key}`, activeMeta.description)}</span>
+                      <div className="flex items-center gap-[6px]">
+                        <Info className="size-[12px] shrink-0 text-muted-foreground" />
+                        <span className="text-[11px] text-muted-foreground">
+                          {activeMeta.description}
+                        </span>
                       </div>
                     </div>
-                    <div className="w-full lg:max-w-[220px]">
-                      <Input
+                    <div className="relative w-[220px] shrink-0">
+                      <Search className="absolute left-[12px] top-1/2 size-[13px] -translate-y-1/2 text-muted-foreground/70" />
+                      <input
+                        type="text"
                         value={searchValue}
-                        onChange={(event) => setSearchValue(event.target.value)}
+                        onChange={(e) => setSearchValue(e.target.value)}
                         placeholder={t('customers.tags.manage.search', 'Search values...')}
-                        className="h-10 rounded-[10px] border-border/80 shadow-none"
+                        className="w-full rounded-[6px] border border-input bg-white py-[8px] pl-[36px] pr-[12px] text-[11px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
                       />
                     </div>
                   </div>
 
-                  <div className="rounded-[14px] border border-border/70 bg-background">
-                    <div className="grid grid-cols-[32px_minmax(0,1.6fr)_minmax(0,1fr)_130px_110px_40px] gap-3 border-b border-border/70 px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      <span />
-                      <span>{t('customers.tags.manage.columns.label', 'Label')}</span>
-                      <span>{t('customers.tags.manage.columns.slug', 'Slug')}</span>
-                      <span>{t('customers.tags.manage.columns.color', 'Color')}</span>
-                      <span>{t('customers.tags.manage.columns.icon', 'Icon')}</span>
-                      <span />
+                  {/* Column headers */}
+                  <div className="flex items-center gap-[12px] px-[12px] py-[6px]">
+                    <div className="w-[18px] shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground">
+                        {t('customers.tags.manage.columns.label', 'LABEL')}
+                      </span>
                     </div>
-
-                    <div className="space-y-0">
-                      {visibleEntries.map((entry, index) => (
-                        <div
-                          key={entry.localId}
-                          className={`grid grid-cols-[32px_minmax(0,1.6fr)_minmax(0,1fr)_130px_110px_40px] gap-3 px-4 py-3 ${
-                            index < visibleEntries.length - 1 ? 'border-b border-border/60' : ''
-                          }`}
-                        >
-                          <div className="flex items-center justify-center text-muted-foreground">
-                            <GripVertical className="size-4" />
-                          </div>
-                          <div className="space-y-1">
-                            <Input
-                              value={entry.label}
-                              onChange={(event) => {
-                                const nextLabel = event.target.value
-                                updateDraftEntry(activeDictionary.key, entry.localId, (current) => ({
-                                  ...current,
-                                  label: nextLabel,
-                                  value: current.manualValue ? current.value : slugifyLabel(nextLabel),
-                                }))
-                              }}
-                              className="h-9 rounded-[10px] border-border/80 shadow-none"
-                            />
-                            <p className="text-[11px] text-muted-foreground">
-                              {entry.id
-                                ? t('customers.tags.manage.entrySaved', 'Existing dictionary value')
-                                : t('customers.tags.manage.entryNew', 'New dictionary value')}
-                            </p>
-                          </div>
-                          <div>
-                            <Input
-                              value={entry.value}
-                              onChange={(event) => {
-                                const nextValue = slugifyLabel(event.target.value)
-                                updateDraftEntry(activeDictionary.key, entry.localId, (current) => ({
-                                  ...current,
-                                  value: nextValue,
-                                  manualValue: true,
-                                }))
-                              }}
-                              className="h-9 rounded-[10px] border-border/80 bg-muted/40 shadow-none"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="color"
-                              value={normalizeColor(entry.color)}
-                              onChange={(event) => {
-                                const nextColor = normalizeColor(event.target.value)
-                                updateDraftEntry(activeDictionary.key, entry.localId, (current) => ({
-                                  ...current,
-                                  color: nextColor,
-                                }))
-                              }}
-                              className="h-9 w-10 cursor-pointer rounded-[10px] border border-border/80 bg-background"
-                              aria-label={t('customers.tags.manage.columns.color', 'Color')}
-                            />
-                            <Input
-                              value={normalizeColor(entry.color)}
-                              onChange={(event) => {
-                                const nextColor = normalizeColor(event.target.value)
-                                updateDraftEntry(activeDictionary.key, entry.localId, (current) => ({
-                                  ...current,
-                                  color: nextColor,
-                                }))
-                              }}
-                              className="h-9 rounded-[10px] border-border/80 px-2 text-xs uppercase shadow-none"
-                            />
-                          </div>
-                          <div>
-                            <div className="relative">
-                              <select
-                                value={entry.icon}
-                                onChange={(event) => {
-                                  updateDraftEntry(activeDictionary.key, entry.localId, (current) => ({
-                                    ...current,
-                                    icon: event.target.value,
-                                  }))
-                                }}
-                                className="h-9 w-full rounded-[10px] border border-border/80 bg-background pl-9 pr-2 text-sm shadow-none focus:outline-none focus:ring-2 focus:ring-ring/30"
-                              >
-                                <option value="">{t('customers.tags.manage.icon.none', 'No icon')}</option>
-                                {ICON_SUGGESTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
-                                {entry.icon ? renderDictionaryIcon(entry.icon, 'size-4') : <Tag className="size-4" />}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-center">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDeleteEntry(activeDictionary.key, entry.localId)}
-                              aria-label={t('customers.tags.manage.delete', 'Delete')}
-                            >
-                              <Trash2 className="size-4 text-muted-foreground" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-
-                      {visibleEntries.length === 0 ? (
-                        <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-                          {t('customers.tags.manage.noMatches', 'No entries match the current search.')}
-                        </div>
-                      ) : null}
+                    <div className="w-[140px] shrink-0">
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground">
+                        {t('customers.tags.manage.columns.slug', 'SLUG')}
+                      </span>
                     </div>
-
-                    <div className="border-t border-dashed border-border/70 px-4 py-3">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={handleAddEntry}
-                        className="w-full rounded-[10px] border border-dashed border-border/70 text-sm text-muted-foreground hover:text-foreground"
-                      >
-                        + {t('customers.tags.manage.addValue', 'Add new value')}
-                      </Button>
+                    <div className="w-[80px] shrink-0">
+                      <span className="text-[9px] font-bold uppercase text-muted-foreground">
+                        {t('customers.tags.manage.columns.color', 'COLOR')}
+                      </span>
                     </div>
+                    <div className="w-[32px] shrink-0" />
                   </div>
 
-                  <div className="rounded-[12px] bg-muted/30 px-4 py-3">
-                    <div className="flex items-start gap-2">
-                      <Info className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                      <div>
-                        <p className="text-sm font-semibold text-foreground">
-                          {t(`customers.tags.manage.noteTitle.${activeDictionary.key}`, activeMeta.noteTitle)}
-                        </p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          {t(`customers.tags.manage.noteDescription.${activeDictionary.key}`, activeMeta.noteDescription)}
-                        </p>
+                  {/* Entry rows */}
+                  <div className="flex flex-col gap-[8px]">
+                    <DndContext
+                      sensors={sensors}
+                      collisionDetection={closestCenter}
+                      onDragEnd={handleDragEnd}
+                    >
+                      <SortableContext
+                        items={visibleEntries.map((e) => e.localId)}
+                        strategy={verticalListSortingStrategy}
+                      >
+                        {visibleEntries.map((entry, index) => (
+                          <SortableEntryRow
+                            key={entry.localId}
+                            entry={entry}
+                            isDefault={index === 0 && entry.id !== null}
+                            onLabelChange={(value) => {
+                              updateDraftEntry(activeTab, entry.localId, (current) => ({
+                                ...current,
+                                label: value,
+                                value: current.manualValue
+                                  ? current.value
+                                  : slugifyLabel(value),
+                              }))
+                            }}
+                            onValueChange={(value) => {
+                              updateDraftEntry(activeTab, entry.localId, (current) => ({
+                                ...current,
+                                value,
+                                manualValue: true,
+                              }))
+                            }}
+                            onColorChange={(value) => {
+                              updateDraftEntry(activeTab, entry.localId, (current) => ({
+                                ...current,
+                                color: value,
+                              }))
+                            }}
+                            onDelete={() => handleDeleteEntry(activeTab, entry.localId)}
+                            t={t}
+                          />
+                        ))}
+                      </SortableContext>
+                    </DndContext>
+
+                    {visibleEntries.length === 0 && (
+                      <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                        {t(
+                          'customers.tags.manage.noMatches',
+                          'No entries match the current search.',
+                        )}
                       </div>
+                    )}
+                  </div>
+
+                  {/* Add new value */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={handleAddEntry}
+                    className="flex h-auto w-full items-center justify-center gap-[8px] rounded-[6px] border border-dashed border-border bg-white p-[12px] text-[12px] font-semibold text-foreground hover:bg-muted"
+                  >
+                    <Plus className="size-[14px]" />
+                    {t('customers.tags.manage.addValue', 'Add new value')}
+                  </Button>
+
+                  {/* Info note */}
+                  <div className="flex items-start gap-[10px] rounded-[6px] bg-muted px-[14px] py-[12px]">
+                    <Info className="mt-0.5 size-[14px] shrink-0 text-muted-foreground" />
+                    <div className="flex flex-1 flex-col gap-[3px]">
+                      <span className="text-[11px] font-semibold text-foreground">
+                        {activeMeta.noteTitle}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground">
+                        {activeMeta.noteDescription}
+                      </span>
                     </div>
                   </div>
                 </>
@@ -662,21 +855,44 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
               )}
             </div>
 
-            <DialogFooter className="border-t border-border/70 px-6 py-4 sm:justify-between">
-              <p className="text-xs text-muted-foreground">
-                {t('customers.tags.manage.tenantNotice', 'Changes apply to the entire tenant and are visible immediately.')}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" onClick={onClose}>
+            {/* Separator */}
+            <div className="h-px shrink-0 bg-border" />
+
+            {/* Footer */}
+            <div className="flex shrink-0 items-center justify-between px-[24px] py-[12px]">
+              <div className="flex items-center gap-[6px]">
+                <Info className="size-[12px] shrink-0 text-muted-foreground" />
+                <span className="text-[11px] text-muted-foreground">
+                  {t(
+                    'customers.tags.manage.tenantNotice',
+                    'Changes apply to the entire tenant \u00b7 visible immediately',
+                  )}
+                </span>
+              </div>
+              <div className="flex items-center gap-[10px]">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onClose}
+                  className="rounded-[6px] border-border px-[16px] py-[10px] text-[13px] font-semibold text-foreground"
+                >
                   {t('customers.tags.manage.close', 'Cancel')}
                 </Button>
-                <Button type="button" onClick={() => { void handleSave() }} disabled={saving || !hasChanges}>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    void handleSave()
+                  }}
+                  disabled={saving || !hasChanges}
+                  className="rounded-[6px] bg-foreground px-[16px] py-[10px] text-[13px] font-semibold text-background hover:bg-foreground/90"
+                >
+                  <Save className="mr-[8px] size-[15px]" />
                   {saving
                     ? t('customers.tags.manage.saving', 'Saving...')
                     : t('customers.tags.manage.save', 'Save changes')}
                 </Button>
               </div>
-            </DialogFooter>
+            </div>
           </>
         )}
       </DialogContent>

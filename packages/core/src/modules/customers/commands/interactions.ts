@@ -38,6 +38,7 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
 
@@ -107,7 +108,7 @@ type InteractionUndoPayload = {
 }
 
 async function loadInteractionSnapshot(em: EntityManager, id: string): Promise<InteractionSnapshot | null> {
-  const interaction = await em.findOne(CustomerInteraction, { id }, { populate: ['entity'] })
+  const interaction = await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
   if (!interaction) return null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: INTERACTION_ENTITY_ID,
@@ -358,7 +359,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     if (!interactionId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const record = await trx.findOne(CustomerInteraction, { id: interactionId })
+      const record = await findOneWithDecryption(trx, CustomerInteraction, { id: interactionId })
       if (!record) return null
       const entityId = typeof record.entity === 'string' ? record.entity : record.entity.id
       trx.remove(record)
@@ -395,7 +396,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -491,7 +492,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
-      let interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+      let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       const entity = await requireCustomerEntity(trx, before.interaction.entityId, undefined, 'Customer not found')
 
       if (!interaction) {
@@ -595,7 +596,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     const parsed = interactionCompleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -672,7 +673,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
 
       interaction.status = before.interaction.status
@@ -727,7 +728,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     const parsed = interactionCancelSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: parsed.id, deletedAt: null })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -802,7 +803,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const result = await runInTransaction(em, async (trx) => {
-      const interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+      const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
       if (!interaction) return null
 
       interaction.status = before.interaction.status
@@ -857,7 +858,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const id = requireId(input, 'Interaction id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-        const interaction = await trx.findOne(CustomerInteraction, { id, deletedAt: null })
+        const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
         if (!interaction) throw new CrudHttpError(404, { error: 'Interaction not found' })
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
@@ -920,7 +921,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
         const entity = await requireCustomerEntity(trx, before.interaction.entityId, undefined, 'Customer not found')
-        let interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
+        let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
             id: before.interaction.id,

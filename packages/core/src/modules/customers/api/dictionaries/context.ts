@@ -19,6 +19,9 @@ export const dictionaryKindSchema = z.enum([
   'pipeline-stages',
   'job-titles',
   'industries',
+  'temperature',
+  'renewal-quarters',
+  'person-company-roles',
 ])
 
 export type DictionaryRouteParam = z.infer<typeof dictionaryKindSchema>
@@ -32,6 +35,9 @@ export type DictionaryEntityKind =
   | 'pipeline_stage'
   | 'job_title'
   | 'industry'
+  | 'temperature'
+  | 'renewal_quarter'
+  | 'person_company_role'
 
 const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   statuses: 'status',
@@ -43,6 +49,9 @@ const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
   'pipeline-stages': 'pipeline_stage',
   'job-titles': 'job_title',
   industries: 'industry',
+  temperature: 'temperature',
+  'renewal-quarters': 'renewal_quarter',
+  'person-company-roles': 'person_company_role',
 }
 
 export const paramsSchema = z.object({
@@ -61,6 +70,15 @@ export type DictionaryRouteContext = {
   ctx: CommandRuntimeContext
 }
 
+export function resolveDictionaryActorId(
+  auth: Awaited<ReturnType<typeof getAuthFromRequest>>,
+): string {
+  if (auth && typeof auth.sub === 'string' && auth.sub.trim().length > 0) return auth.sub
+  if (auth && typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
+  if (auth && typeof auth.keyId === 'string' && auth.keyId.trim().length > 0) return auth.keyId
+  return 'system'
+}
+
 export function mapDictionaryKind(kind: string | undefined) {
   const parsed = paramsSchema.parse({ kind })
   return {
@@ -69,7 +87,10 @@ export function mapDictionaryKind(kind: string | undefined) {
   }
 }
 
-export async function resolveDictionaryRouteContext(req: Request): Promise<DictionaryRouteContext> {
+export async function resolveDictionaryRouteContext(
+  req: Request,
+  options?: { selectedId?: string | null },
+): Promise<DictionaryRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   const { translate } = await resolveTranslations()
@@ -77,7 +98,12 @@ export async function resolveDictionaryRouteContext(req: Request): Promise<Dicti
     throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
   }
 
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const scope = await resolveOrganizationScopeForRequest({
+    container,
+    auth,
+    request: req,
+    selectedId: options?.selectedId,
+  })
   const em = (container.resolve('em') as EntityManager)
   const tenantId = scope?.tenantId ?? auth.tenantId
   const organizationId = scope?.selectedId ?? auth.orgId ?? null

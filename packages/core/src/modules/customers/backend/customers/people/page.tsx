@@ -21,6 +21,7 @@ import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advance
 import { serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import {
   DictionaryValue,
+  createEmptyCustomerDictionaryMaps,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
@@ -74,20 +75,6 @@ type DictionaryKindKey = CustomerDictionaryKind
 type DictionaryMap = CustomerDictionaryMap
 
 const NO_MATCH_TAG_SENTINEL = '__no_match__'
-
-function createEmptyDictionaryMaps(): Record<DictionaryKindKey, DictionaryMap> {
-  return {
-    statuses: {},
-    sources: {},
-    'lifecycle-stages': {},
-    'address-types': {},
-    'activity-types': {},
-    'deal-statuses': {},
-    'pipeline-stages': {},
-    'job-titles': {},
-    industries: {},
-  }
-}
 
 function formatDate(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback
@@ -169,7 +156,7 @@ export default function CustomersPeoplePage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyDictionaryMaps())
+  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyCustomerDictionaryMaps())
   const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -269,7 +256,7 @@ export default function CustomersPeoplePage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps(createEmptyDictionaryMaps())
+      setDictionaryMaps(createEmptyCustomerDictionaryMaps())
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),

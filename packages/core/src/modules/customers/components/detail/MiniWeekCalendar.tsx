@@ -5,6 +5,7 @@ import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import type { InteractionSummary, ActivitySummary } from './types'
 
@@ -32,8 +33,17 @@ function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
-const DAY_LABELS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-const DAY_LABELS_PL = ['PN', 'WT', 'ŚR', 'CZ', 'PT', 'SB', 'ND']
+function getDayLabels(t: ReturnType<typeof useT>): string[] {
+  return [
+    t('customers.calendar.day.mon', 'MON'),
+    t('customers.calendar.day.tue', 'TUE'),
+    t('customers.calendar.day.wed', 'WED'),
+    t('customers.calendar.day.thu', 'THU'),
+    t('customers.calendar.day.fri', 'FRI'),
+    t('customers.calendar.day.sat', 'SAT'),
+    t('customers.calendar.day.sun', 'SUN'),
+  ]
+}
 
 const INTERACTION_TYPE_COLORS: Record<string, string> = {
   call: 'bg-orange-500',
@@ -190,7 +200,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
     return result
   }, [eventsByDay, activeDay, t])
 
-  const dayLabels = t('customers.calendar.locale', 'en') === 'pl' ? DAY_LABELS_PL : DAY_LABELS
+  const dayLabels = getDayLabels(t)
 
   return (
     <div className="rounded-lg border border-border/60 p-4">
@@ -201,10 +211,10 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
           {monthLabel}
         </div>
         <div className="flex items-center gap-1">
-          <IconButton type="button" variant="ghost" size="xs" onClick={() => setWeekOffset((w) => w - 1)} aria-label="Previous week">
+          <IconButton type="button" variant="ghost" size="xs" onClick={() => setWeekOffset((w) => w - 1)} aria-label={t('customers.calendar.previousWeek', 'Previous week')}>
             <ChevronLeft className="size-3.5" />
           </IconButton>
-          <IconButton type="button" variant="ghost" size="xs" onClick={() => setWeekOffset((w) => w + 1)} aria-label="Next week">
+          <IconButton type="button" variant="ghost" size="xs" onClick={() => setWeekOffset((w) => w + 1)} aria-label={t('customers.calendar.nextWeek', 'Next week')}>
             <ChevronRight className="size-3.5" />
           </IconButton>
         </div>
@@ -227,12 +237,14 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
           const dayEvents = eventsByDay.get(day.toDateString()) ?? []
           const hasEvents = dayEvents.length > 0
           return (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               key={day.toISOString()}
               onClick={() => setSelectedDay(isSameDay(day, selectedDay ?? today) ? null : day)}
               className={cn(
-                'flex flex-col items-center border-r last:border-r-0 py-3 text-sm transition-colors cursor-pointer',
+                'h-auto flex flex-col items-center border-r last:border-r-0 py-3 text-sm transition-colors cursor-pointer rounded-none',
                 isSelected ? 'bg-foreground text-background font-bold' : 'hover:bg-accent/50',
               )}
             >
@@ -250,7 +262,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
                   ))}
                 </div>
               )}
-            </button>
+            </Button>
           )
         })}
       </div>

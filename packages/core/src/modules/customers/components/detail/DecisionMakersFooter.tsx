@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Lightbulb, Send } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@open-mercato/ui/primitives/tooltip'
 
 interface DecisionMakersFooterProps {
   names: string[]
@@ -25,8 +26,8 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
             {t('customers.people.decisionMakers.label', 'Decision Makers')}
           </p>
           <p className="text-sm font-medium truncate">
-            {t('customers.people.decisionMakers.count', '{{count}} key people', { count: names.length })}:
-            {' '}{names.join(' · ')}
+            {t('customers.people.decisionMakers.count', '{count} key people', { count: names.length })}:
+            {' '}{names.join(' \u00b7 ')}
           </p>
           {suggestion && (
             <p className="text-xs text-muted-foreground mt-0.5">{suggestion}</p>
@@ -34,10 +35,17 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
         </div>
       </div>
       {onSendInvitation && (
-        <Button type="button" size="sm" onClick={onSendInvitation} className="shrink-0">
-          <Send className="mr-1.5 size-3.5" />
-          {t('customers.people.decisionMakers.sendInvitation', 'Send invitation')}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="shrink-0">
+              <Button type="button" size="sm" disabled className="pointer-events-none">
+                <Send className="mr-1.5 size-3.5" />
+                {t('customers.people.decisionMakers.sendInvitation', 'Send invitation')}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{t('customers.ai.comingSoon', 'Coming soon')}</TooltipContent>
+        </Tooltip>
       )}
     </div>
   )

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Sparkles } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@open-mercato/ui/primitives/tooltip'
 
 type ActivityType = 'call' | 'email' | 'meeting' | 'note' | string
@@ -50,13 +51,15 @@ export function AiActionChips({ activityType }: AiActionChipsProps) {
             {index > 0 && <span className="text-[10px] text-muted-foreground/40">|</span>}
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
+                <Button
                   type="button"
-                  className="inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 >
                   <Sparkles className="size-2.5" />
                   {t(action.labelKey, action.fallback)}
-                </button>
+                </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">
                 {t('customers.ai.comingSoon', 'Coming soon')}

@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   CustomerEntity,
   CustomerPersonCompanyLink,
@@ -20,7 +21,7 @@ async function requireCompany(
   organizationId: string,
   tenantId: string,
 ): Promise<CustomerEntity> {
-  const company = await em.findOne(CustomerEntity, { id: companyId, kind: 'company', deletedAt: null })
+  const company = await findOneWithDecryption(em, CustomerEntity, { id: companyId, kind: 'company', deletedAt: null }, {}, { tenantId, organizationId })
   if (!company) {
     throw new CrudHttpError(404, { error: 'Company not found' })
   }
@@ -34,10 +35,12 @@ export async function loadPersonCompanyLinks(
   em: EntityManager,
   person: CustomerEntity,
 ): Promise<CustomerPersonCompanyLink[]> {
-  return em.find(
+  return findWithDecryption(
+    em,
     CustomerPersonCompanyLink,
     { person, organizationId: person.organizationId, tenantId: person.tenantId },
     { populate: ['company'], orderBy: { isPrimary: 'desc', createdAt: 'asc' } },
+    { tenantId: person.tenantId, organizationId: person.organizationId },
   )
 }
 
@@ -80,6 +83,37 @@ async function clearPrimaryFlags(em: EntityManager, person: CustomerEntity): Pro
     { person, organizationId: person.organizationId, tenantId: person.tenantId, isPrimary: true },
     { isPrimary: false },
   )
+}
+
+function resolveLinkedCompany(link: CustomerPersonCompanyLink): CustomerEntity | null {
+  return typeof link.company === 'string' ? null : link.company
+}
+
+async function promoteFallbackPrimaryLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  profile: CustomerPersonProfile,
+  links: CustomerPersonCompanyLink[],
+  removedCompanyId?: string | null,
+): Promise<void> {
+  const nextPrimary = links[0] ?? null
+  if (!nextPrimary) {
+    if (
+      !removedCompanyId
+      || (profile.company && typeof profile.company !== 'string' && profile.company.id === removedCompanyId)
+      || profile.company == null
+    ) {
+      profile.company = null
+    }
+    return
+  }
+
+  await clearPrimaryFlags(em, person)
+  nextPrimary.isPrimary = true
+  const nextCompany = resolveLinkedCompany(nextPrimary)
+  if (nextCompany) {
+    profile.company = nextCompany
+  }
 }
 
 export async function syncLegacyPrimaryCompanyLink(
@@ -195,12 +229,18 @@ export async function updatePersonCompanyLink(
   if (patch.isPrimary === true) {
     await clearPrimaryFlags(em, person)
     link.isPrimary = true
-    if (typeof link.company !== 'string') {
-      profile.company = link.company
+    const company = resolveLinkedCompany(link)
+    if (company) {
+      profile.company = company
     }
   } else if (patch.isPrimary === false) {
+    const linkWasPrimary = link.isPrimary
+    const removedCompanyId = typeof link.company === 'string' ? link.company : link.company.id
     link.isPrimary = false
-    if (profile.company && typeof link.company !== 'string' && profile.company.id === link.company.id) {
+    if (linkWasPrimary) {
+      const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
+      await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, removedCompanyId)
+    } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === removedCompanyId) {
       profile.company = null
     }
   }
@@ -233,20 +273,12 @@ export async function removePersonCompanyLink(
   const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
 
   if (removedWasPrimary) {
-    const nextPrimary = remainingLinks[0] ?? null
-    if (nextPrimary) {
-      await clearPrimaryFlags(em, person)
-      nextPrimary.isPrimary = true
-      if (typeof nextPrimary.company !== 'string') {
-        profile.company = nextPrimary.company
-      }
-    } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === removedCompanyId) {
-      profile.company = null
-    }
+    await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, removedCompanyId)
   } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === removedCompanyId) {
     const primary = remainingLinks.find((entry) => entry.isPrimary) ?? null
-    if (primary && typeof primary.company !== 'string') {
-      profile.company = primary.company
+    const primaryCompany = primary ? resolveLinkedCompany(primary) : null
+    if (primaryCompany) {
+      profile.company = primaryCompany
     }
   }
 }

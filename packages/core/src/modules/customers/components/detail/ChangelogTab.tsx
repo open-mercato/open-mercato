@@ -8,6 +8,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { KpiCard } from '@open-mercato/ui/backend/charts/KpiCard'
+import { getInitials } from './utils'
 
 type ChangelogEntry = {
   id: string
@@ -110,14 +111,7 @@ const ACTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   delete: RefreshCw,
 }
 
-function getInitials(name: string): string {
-  const words = name.trim().split(/\s+/)
-  if (words.length === 0 || !words[0]) return '?'
-  if (words.length === 1) return words[0].charAt(0).toUpperCase()
-  return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase()
-}
-
-function groupByDay(entries: ChangelogEntry[]): Array<{ date: string; label: string; entries: ChangelogEntry[] }> {
+function groupByDay(entries: ChangelogEntry[], t: ReturnType<typeof useT>): Array<{ date: string; label: string; entries: ChangelogEntry[] }> {
   const groups = new Map<string, ChangelogEntry[]>()
   for (const entry of entries) {
     const dateKey = new Date(entry.timestamp).toDateString()
@@ -132,7 +126,7 @@ function groupByDay(entries: ChangelogEntry[]): Array<{ date: string; label: str
 
   return Array.from(groups.entries()).map(([dateKey, items]) => ({
     date: dateKey,
-    label: dateKey === today ? 'TODAY' : dateKey === yesterday ? 'YESTERDAY' : new Date(dateKey).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase(),
+    label: dateKey === today ? t('customers.changelog.groupLabel.today', 'TODAY') : dateKey === yesterday ? t('customers.changelog.groupLabel.yesterday', 'YESTERDAY') : new Date(dateKey).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase(),
     entries: items,
   }))
 }
@@ -162,7 +156,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
       .finally(() => setLoading(false))
   }, [entityId, entityType, dateRange])
 
-  const grouped = React.useMemo(() => groupByDay(entries), [entries])
+  const grouped = React.useMemo(() => groupByDay(entries, t), [entries, t])
   const todayCount = React.useMemo(() => {
     const today = new Date().toDateString()
     return entries.filter((e) => new Date(e.timestamp).toDateString() === today).length

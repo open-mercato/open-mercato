@@ -71,7 +71,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
         organizationId: dictionary.organizationId,
         tenantId: dictionary.tenantId,
       },
-      { orderBy: { label: 'asc' } },
+      { orderBy: { position: 'asc', label: 'asc' } },
     )
 
     return NextResponse.json({
@@ -81,6 +81,8 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
         label: entry.label,
         color: entry.color,
         icon: entry.icon,
+        position: entry.position ?? 0,
+        isDefault: entry.isDefault ?? false,
         createdAt: entry.createdAt,
         updatedAt: entry.updatedAt,
       })),
@@ -129,6 +131,8 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
       label: entry.label,
       color: entry.color,
       icon: entry.icon,
+      position: entry.position ?? 0,
+      isDefault: entry.isDefault ?? false,
       createdAt: entry.createdAt,
       updatedAt: entry.updatedAt,
     }, { status: 201 })
@@ -158,7 +162,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
 
 const dictionaryEntriesGetDoc: OpenApiMethodDoc = {
   summary: 'List dictionary entries',
-  description: 'Returns entries for the specified dictionary ordered alphabetically.',
+  description: 'Returns entries for the specified dictionary ordered by position.',
   tags: [dictionariesTag],
   responses: [
     { status: 200, description: 'Dictionary entries.', schema: dictionaryEntryListResponseSchema },

@@ -4,6 +4,13 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (emInstance: any, entity: unknown, filters: unknown, opts?: unknown) =>
+    emInstance.find(entity, filters, opts),
+  findOneWithDecryption: (emInstance: any, entity: unknown, filters: unknown, opts?: unknown) =>
+    emInstance.findOne(entity, filters, opts),
+}))
+
 import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry, registerCommand } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'

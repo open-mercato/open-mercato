@@ -45,6 +45,8 @@ const baseEntitySchema = {
   status: z.string().trim().max(100).optional(),
   lifecycleStage: z.string().trim().max(100).optional(),
   source: z.string().trim().max(150).optional(),
+  temperature: z.string().trim().max(100).optional(),
+  renewalQuarter: z.string().trim().max(100).optional(),
   isActive: z.boolean().optional(),
   nextInteraction: nextInteractionSchema.nullable().optional(),
   tags: z.array(uuid()).optional(),
@@ -227,6 +229,9 @@ const dictionaryKindEnum = z.enum([
   'pipeline_stage',
   'job_title',
   'industry',
+  'temperature',
+  'renewal_quarter',
+  'person_company_role',
 ])
 
 const dictionaryValueSchema = z.string().trim().min(1).max(150)
@@ -306,6 +311,8 @@ export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
 export type InteractionStatus = typeof interactionStatusValues[number]
 
 export const interactionCreateSchema = z.object({
+  organizationId: z.string().uuid().optional(),
+  tenantId: z.string().uuid().optional(),
   id: z.string().uuid().optional(),
   entityId: z.string().uuid(),
   interactionType: z.string().trim().min(1).max(100),
@@ -321,7 +328,7 @@ export const interactionCreateSchema = z.object({
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
   appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
   source: z.string().trim().max(100).optional().nullable(),
-}).passthrough()
+})
 
 export type InteractionCreateInput = z.infer<typeof interactionCreateSchema>
 
@@ -340,7 +347,7 @@ export const interactionUpdateSchema = z.object({
   appearanceIcon: z.string().trim().max(100).optional().nullable(),
   appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
   pinned: z.boolean().optional(),
-}).passthrough()
+})
 
 export type InteractionUpdateInput = z.infer<typeof interactionUpdateSchema>
 
@@ -455,3 +462,26 @@ export const entityRoleDeleteSchema = scopedSchema.extend({
 export type EntityRoleCreateInput = z.infer<typeof entityRoleCreateSchema>
 export type EntityRoleUpdateInput = z.infer<typeof entityRoleUpdateSchema>
 export type EntityRoleDeleteInput = z.infer<typeof entityRoleDeleteSchema>
+
+export const updateKindSettingSchema = z.object({
+  kind: z.string().trim().min(1).max(100),
+  selectionMode: z.enum(['single', 'multi']).optional(),
+  visibleInTags: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+})
+
+export type UpdateKindSettingInput = z.infer<typeof updateKindSettingSchema>
+
+export const labelCreateSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/).optional(),
+})
+
+export type LabelCreateInput = z.infer<typeof labelCreateSchema>
+
+export const labelAssignmentSchema = z.object({
+  labelId: z.string().uuid(),
+  entityId: z.string().uuid(),
+})
+
+export type LabelAssignmentInput = z.infer<typeof labelAssignmentSchema>

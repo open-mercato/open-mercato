@@ -129,9 +129,20 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
   return (
     <div className="space-y-3">
       {roles.length === 0 && (
-        <p className="text-xs text-muted-foreground">
-          {t('customers.roles.subtitle', 'Multi-role assignment for this entity')}
-        </p>
+        <div className="rounded-lg border border-dashed p-4 text-center">
+          <p className="text-xs text-muted-foreground">
+            {t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-2"
+            onClick={() => setDialogOpen(true)}
+          >
+            {t('customers.roles.choosePerson', 'Choose person')}
+          </Button>
+        </div>
       )}
       {roles.map((role) => (
         <RoleAssignmentRow

@@ -6,8 +6,6 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
-  LayoutDashboard,
-  Building2,
   Users,
   Handshake,
   Clock,
@@ -17,8 +15,6 @@ import {
 } from 'lucide-react'
 
 export type CompanyTabId =
-  | 'dashboard'
-  | 'dane-firmy'
   | 'people'
   | 'deals'
   | 'activity-log'
@@ -46,14 +42,16 @@ type CompanyDetailTabsProps = {
 }
 
 const LEGACY_TAB_MAP: Record<string, CompanyTabId> = {
-  notes: 'dane-firmy',
+  notes: 'people',
   activities: 'activity-log',
-  addresses: 'dane-firmy',
-  tasks: 'dashboard',
+  addresses: 'people',
+  tasks: 'people',
+  dashboard: 'people',
+  'dane-firmy': 'people',
 }
 
 export function resolveLegacyTab(tab: string | null | undefined): CompanyTabId {
-  if (!tab) return 'dashboard'
+  if (!tab) return 'people'
   if (LEGACY_TAB_MAP[tab]) return LEGACY_TAB_MAP[tab]
   return tab as CompanyTabId
 }
@@ -90,17 +88,6 @@ export function CompanyDetailTabs({
   const builtInTabs: TabDef[] = React.useMemo(
     () => [
       {
-        id: 'dashboard',
-        label: t('customers.companies.detail.tabs.dashboard', 'Dashboard'),
-        icon: <LayoutDashboard className="size-4" />,
-        badge: <NewBadge />,
-      },
-      {
-        id: 'dane-firmy',
-        label: t('customers.companies.detail.tabs.daneFiremy', 'Dane firmy'),
-        icon: <Building2 className="size-4" />,
-      },
-      {
         id: 'people',
         label: t('customers.companies.detail.tabs.people', 'People'),
         icon: <Users className="size-4" />,
@@ -108,31 +95,31 @@ export function CompanyDetailTabs({
       },
       {
         id: 'deals',
-        label: t('customers.companies.detail.tabs.deals', 'Deale'),
+        label: t('customers.companies.detail.tabs.deals', 'Deals'),
         icon: <Handshake className="size-4" />,
         badge: <CountBadge count={dealsCount} />,
       },
       {
         id: 'activity-log',
-        label: t('customers.companies.detail.tabs.activityLog', 'Dziennik aktywności'),
+        label: t('customers.companies.detail.tabs.activityLog', 'Activity log'),
         icon: <Clock className="size-4" />,
         badge: <CountBadge count={activitiesCount} />,
       },
       {
         id: 'analysis',
-        label: t('customers.companies.detail.tabs.analysis', 'Analiza'),
+        label: t('customers.companies.detail.tabs.analysis', 'Analysis'),
         icon: <TrendingUp className="size-4" />,
         badge: <NewBadge />,
       },
       {
         id: 'changelog',
-        label: t('customers.companies.detail.tabs.changelog', 'Dziennik zmian'),
+        label: t('customers.companies.detail.tabs.changelog', 'Changelog'),
         icon: <History className="size-4" />,
         badge: <NewBadge />,
       },
       {
         id: 'files',
-        label: t('customers.companies.detail.tabs.files', 'Pliki'),
+        label: t('customers.companies.detail.tabs.files', 'Files'),
         icon: <Paperclip className="size-4" />,
         badge: <CountBadge count={filesCount} />,
       },

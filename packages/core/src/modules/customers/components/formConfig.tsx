@@ -1720,6 +1720,8 @@ export type CompanyOverview = {
     nextInteractionRefId?: string | null
     nextInteractionIcon?: string | null
     nextInteractionColor?: string | null
+    temperature?: string | null
+    renewalQuarter?: string | null
     organizationId?: string | null
   }
   profile: {
@@ -1759,6 +1761,8 @@ export type PersonOverview = {
     status?: string | null
     lifecycleStage?: string | null
     source?: string | null
+    temperature?: string | null
+    renewalQuarter?: string | null
     nextInteractionAt?: string | null
     nextInteractionName?: string | null
     nextInteractionRefId?: string | null

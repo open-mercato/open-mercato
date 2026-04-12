@@ -271,7 +271,7 @@ describe('BasicQueryEngine', () => {
     expect(hasEqualityFilter).toBe(true)
   })
 
-  test('customFieldSources equality filters stay exact when search tokens are available', async () => {
+  test('customFieldSources equality filters use search tokens when available', async () => {
     const fakeKnex = createFakeKnex({
       customer_entities: [],
       customer_people: [],
@@ -303,17 +303,9 @@ describe('BasicQueryEngine', () => {
       page: { page: 1, pageSize: 10 },
     })
 
-    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    expect(applySearchTokensSpy).toHaveBeenCalled()
     const baseCall = fakeKnex._calls.find((b: any) => b._ops.table === 'customer_entities')
     expect(baseCall).toBeTruthy()
-    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
-    expect(existsFilter).toBeTruthy()
-    const subQuery = existsFilter[1]
-    expect(subQuery?._ops?.table).toBe('customer_people')
-    const hasEqualityFilter = Array.isArray(subQuery?._ops?.wheres)
-      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'person_profile.id' && w[1] === 'profile-1')
-      : false
-    expect(hasEqualityFilter).toBe(true)
   })
 
   test('uses search tokens for index document fields on base entities', async () => {

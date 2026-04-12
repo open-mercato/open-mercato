@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
+import { getInitials } from './utils'
 
 type StaffMember = {
   id: string
@@ -38,13 +39,6 @@ type TeamFilter = {
   id: string
   label: string
   count: number
-}
-
-function getInitials(name: string): string {
-  const words = name.trim().split(/\s+/)
-  if (!words.length || !words[0]) return '?'
-  if (words.length === 1) return words[0].charAt(0).toUpperCase()
-  return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase()
 }
 
 export function AssignRoleDialog({
@@ -173,6 +167,19 @@ export function AssignRoleDialog({
     }
   }, [onAssign, onClose, selectedRoleType, selectedUser])
 
+  const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault()
+      if (step === 3 && !saving && selectedUser && selectedRoleType) {
+        handleAssign()
+      } else if (step === 1 && selectedRoleType && availableRoleTypes.length) {
+        setStep(2)
+      } else if (step === 2 && selectedUser) {
+        setStep(3)
+      }
+    }
+  }, [availableRoleTypes.length, handleAssign, saving, selectedRoleType, selectedUser, step])
+
   const previewCard = selectedUser && selectedRole ? (
     <div className="rounded-[12px] border border-border/70 bg-muted/30 px-4 py-4">
       <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
@@ -199,7 +206,7 @@ export function AssignRoleDialog({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="sm:max-w-[580px] overflow-hidden p-0">
+      <DialogContent className="sm:max-w-[580px] overflow-hidden p-0" onKeyDown={handleKeyDown}>
         <DialogHeader className="border-b border-border/70 px-6 py-5">
           <DialogTitle className="text-[28px] font-semibold leading-none">
             {t('customers.roles.dialog.title', 'Assign role')}
@@ -329,11 +336,12 @@ export function AssignRoleDialog({
                   filteredUsers.map((user) => {
                     const isSelected = selectedUser?.id === user.id
                     return (
-                      <button
+                      <Button
                         key={user.id}
                         type="button"
+                        variant="ghost"
                         onClick={() => setSelectedUser(user)}
-                        className={`flex w-full items-center gap-3 rounded-[12px] border px-4 py-3 text-left transition-colors ${
+                        className={`h-auto flex w-full items-center gap-3 rounded-[12px] border px-4 py-3 text-left transition-colors ${
                           isSelected
                             ? 'border-foreground bg-background shadow-sm'
                             : 'border-border/70 bg-background hover:bg-accent/40'
@@ -366,7 +374,7 @@ export function AssignRoleDialog({
                         >
                           <Check className="size-3.5" />
                         </span>
-                      </button>
+                      </Button>
                     )
                   })
                 )}

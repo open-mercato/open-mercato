@@ -15,9 +15,10 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
 
 interface ActivityTimelineProps {
   activities: InteractionSummary[]
+  onEdit?: (activity: InteractionSummary) => void
 }
 
-export function ActivityTimeline({ activities }: ActivityTimelineProps) {
+export function ActivityTimeline({ activities, onEdit }: ActivityTimelineProps) {
   const t = useT()
 
   if (activities.length === 0) {
@@ -30,14 +31,33 @@ export function ActivityTimeline({ activities }: ActivityTimelineProps) {
 
   return (
     <div>
-      {activities.map((activity, index) => (
-        <TimelineEntry
-          key={activity.id}
-          activity={activity}
-          t={t}
-          withBorder={index < activities.length - 1}
-        />
-      ))}
+      {activities.map((activity, index) => {
+        const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
+        const activityYear = dateStr ? new Date(dateStr).getFullYear() : null
+        const prevDateStr = index > 0 ? (activities[index - 1].scheduledAt ?? activities[index - 1].occurredAt ?? activities[index - 1].createdAt) : null
+        const prevYear = prevDateStr ? new Date(prevDateStr).getFullYear() : null
+        const showYearSeparator = activityYear !== null && prevYear !== null && activityYear !== prevYear
+
+        return (
+          <React.Fragment key={activity.id}>
+            {showYearSeparator && (
+              <div className="flex items-center gap-3 py-3 px-5">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs font-semibold text-muted-foreground">
+                  {t('customers.activities.yearSeparator', '{year}', { year: activityYear })}
+                </span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            )}
+            <TimelineEntry
+              activity={activity}
+              t={t}
+              withBorder={index < activities.length - 1}
+              onEdit={onEdit}
+            />
+          </React.Fragment>
+        )
+      })}
     </div>
   )
 }
@@ -46,10 +66,12 @@ function TimelineEntry({
   activity,
   t,
   withBorder,
+  onEdit,
 }: {
   activity: InteractionSummary
   t: TranslateFn
   withBorder: boolean
+  onEdit?: (activity: InteractionSummary) => void
 }) {
   const dateStr = activity.scheduledAt ?? activity.occurredAt ?? activity.createdAt
   const TypeIcon = TYPE_ICONS[activity.interactionType]
@@ -57,7 +79,13 @@ function TimelineEntry({
   const duration = activity.duration ? ` (${activity.duration} min)` : ''
 
   return (
-    <div className={`px-5 py-4 ${withBorder ? 'border-b border-border/60' : ''}`}>
+    <div
+      className={`px-5 py-4 ${withBorder ? 'border-b border-border/60' : ''} ${onEdit ? 'cursor-pointer hover:bg-accent/50 transition-colors' : ''}`}
+      onClick={() => onEdit?.(activity)}
+      role={onEdit ? 'button' : undefined}
+      tabIndex={onEdit ? 0 : undefined}
+      onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
+    >
       <div className="grid items-start gap-3" style={{ gridTemplateColumns: '72px 40px 1fr' }}>
         {/* Column 1: Date */}
         <div className="shrink-0 pt-0.5">

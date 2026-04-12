@@ -6,10 +6,14 @@ import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/typ
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { CustomerDictionaryEntry, CustomerPipelineStage } from '../../../data/entities'
 import { ensureDictionaryEntry } from '../../../commands/shared'
-import { mapDictionaryKind, resolveDictionaryRouteContext } from '../context'
+import { mapDictionaryKind, resolveDictionaryActorId, resolveDictionaryRouteContext } from '../context'
 import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
 const iconSchema = z.string().trim().min(1).max(48)
@@ -21,6 +25,10 @@ const postSchema = z.object({
   icon: iconSchema.or(z.null()).optional(),
 })
 
+const querySchema = z.object({
+  organizationId: z.string().uuid().optional(),
+})
+
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
   POST: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
@@ -28,24 +36,36 @@ export const metadata = {
 
 export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
   try {
-    const { translate, em, organizationId, tenantId, readableOrganizationIds, cache } = await resolveDictionaryRouteContext(req)
+    const url = new URL(req.url)
+    const query = querySchema.parse({
+      organizationId: url.searchParams.get('organizationId') ?? undefined,
+    })
+    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache } = await resolveDictionaryRouteContext(req, {
+      selectedId: query.organizationId ?? undefined,
+    })
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
+    if (!organizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
+    const scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
 
     let cacheKey: string | null = null
     if (cache) {
-      cacheKey = createDictionaryCacheKey({ tenantId, organizationId, mappedKind, readableOrganizationIds })
+      cacheKey = createDictionaryCacheKey({
+        tenantId,
+        organizationId,
+        mappedKind,
+        readableOrganizationIds: scopedOrganizationIds,
+      })
       const cached = await cache.get(cacheKey)
       if (cached) {
         return NextResponse.json(cached)
       }
     }
 
-    const organizationOrder = new Map<string, number>()
-    readableOrganizationIds.forEach((id, index) => organizationOrder.set(id, index))
-
     const entries = await em.find(
       CustomerDictionaryEntry,
-      { tenantId, organizationId: { $in: readableOrganizationIds }, kind: mappedKind } as any,
+      { tenantId, kind: mappedKind, organizationId: { $in: scopedOrganizationIds } } as any,
       { orderBy: { label: 'asc' } }
     )
 
@@ -68,45 +88,65 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       }
     }
 
-    const byValue = new Map<string, { entry: CustomerDictionaryEntry; isInherited: boolean; order: number }>()
-    for (const entry of entries) {
-      const normalized = entry.normalizedValue
-      const order = organizationOrder.get(entry.organizationId) ?? Number.MAX_SAFE_INTEGER
-      if (!byValue.has(normalized) || order < byValue.get(normalized)!.order) {
-        byValue.set(normalized, {
-          entry,
-          isInherited: organizationId ? entry.organizationId !== organizationId : false,
-          order,
-        })
-      }
+    const inheritedPriority = new Map(scopedOrganizationIds.map((id, index) => [id, index]))
+    const sortByLabel = (left: CustomerDictionaryEntry, right: CustomerDictionaryEntry) =>
+      left.label.localeCompare(right.label, undefined, { sensitivity: 'base' })
+
+    const localEntries = entries
+      .filter((entry) => entry.organizationId === organizationId)
+      .sort(sortByLabel)
+    const inheritedEntries = entries
+      .filter((entry) => entry.organizationId !== organizationId)
+      .sort((left, right) => {
+        const leftPriority = inheritedPriority.get(left.organizationId) ?? Number.MAX_SAFE_INTEGER
+        const rightPriority = inheritedPriority.get(right.organizationId) ?? Number.MAX_SAFE_INTEGER
+        if (leftPriority !== rightPriority) return leftPriority - rightPriority
+        return sortByLabel(left, right)
+      })
+
+    const preferredEntries = new Map<string, CustomerDictionaryEntry>()
+    for (const entry of [...localEntries, ...inheritedEntries]) {
+      const normalizedValue = entry.normalizedValue?.trim() || entry.value.trim().toLowerCase()
+      if (!normalizedValue || preferredEntries.has(normalizedValue)) continue
+      preferredEntries.set(normalizedValue, entry)
     }
 
-    const items = Array.from(byValue.values()).map(({ entry, isInherited, order }) => ({
-      id: entry.id,
-      value: entry.value,
-      label: entry.label,
-      color: entry.color,
-      icon: entry.icon,
-      organizationId: entry.organizationId,
-      isInherited,
-      __order: order,
-    }))
-
-    items.sort((a, b) => {
-      if (a.isInherited !== b.isInherited) return a.isInherited ? 1 : -1
-      if (a.__order !== b.__order) return a.__order - b.__order
-      return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' })
-    })
+    const items = [
+      ...Array.from(preferredEntries.values())
+        .filter((entry) => entry.organizationId === organizationId)
+        .sort(sortByLabel)
+        .map((entry) => ({
+          id: entry.id,
+          value: entry.value,
+          label: entry.label,
+          color: entry.color,
+          icon: entry.icon,
+          organizationId: entry.organizationId,
+          isInherited: false,
+        })),
+      ...Array.from(preferredEntries.values())
+        .filter((entry) => entry.organizationId !== organizationId)
+        .sort(sortByLabel)
+        .map((entry) => ({
+          id: entry.id,
+          value: entry.value,
+          label: entry.label,
+          color: entry.color,
+          icon: entry.icon,
+          organizationId: entry.organizationId,
+          isInherited: true,
+        })),
+    ]
 
     const responseBody = {
-      items: items.map(({ __order, ...item }) => item),
+      items,
     }
 
     if (cache && cacheKey) {
       const tags = createDictionaryCacheTags({
         tenantId,
         mappedKind,
-        organizationIds: readableOrganizationIds,
+        organizationIds: scopedOrganizationIds,
       })
       try {
         await cache.set(cacheKey, responseBody, {
@@ -137,6 +177,21 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
     }
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const body = postSchema.parse(await req.json().catch(() => ({})))
+    const guardUserId = resolveDictionaryActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: '',
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: body,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
     const commandBus = (context.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } =
       (await commandBus.execute('customers.dictionaryEntries.create', {
@@ -161,6 +216,20 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
       mappedKind,
       organizationIds: [entry.organizationId],
     })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'customers.dictionary_entry',
+        resourceId: entry.id,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     const response = NextResponse.json(
       {
@@ -223,7 +292,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List dictionary entries',
-      description: 'Returns the merged dictionary entries for the requested kind, including inherited values.',
+      description: 'Returns dictionary entries for the requested kind within the currently selected organization.',
       responses: [
         { status: 200, description: 'Dictionary entries', schema: dictionaryListResponseSchema },
         { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },

@@ -9,14 +9,15 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
-import { TagsSection } from './TagsSection'
-import { ManageTagsDialog } from './ManageTagsDialog'
-import { useCustomerDictionary } from './hooks/useCustomerDictionary'
+import { useQueryClient } from '@tanstack/react-query'
+import { PersonTagsDialog } from './PersonTagsDialog'
+import { useCustomerDictionary, invalidateCustomerDictionary } from './hooks/useCustomerDictionary'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
 import type { TagSummary } from './types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import type { PersonOverview } from '../formConfig'
 import type { CustomerDictionaryMap } from '@open-mercato/core/modules/customers/lib/dictionaries'
+import { getInitials, formatFallbackLabel } from './utils'
 
 type PersonDetailHeaderProps = {
   data: PersonOverview
@@ -29,45 +30,40 @@ type PersonDetailHeaderProps = {
   /** Callback to focus a specific field in the Zone 1 CrudForm by field name. */
   onFocusField?: (fieldName: string) => void
   onOpenCompaniesTab?: () => void
+  /** Callback to reload person data after tags dialog save. */
+  onDataReload?: () => void
 }
 
-function getInitials(name: string): string {
-  const words = name.trim().split(/\s+/)
-  if (words.length === 0) return '?'
-  if (words.length === 1) return words[0].charAt(0).toUpperCase()
-  return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase()
-}
-
-/** Renders a badge with an optional colored dot indicator and/or icon from a dictionary map. */
-function DictionaryBadge({ value, map, className }: { value: string; map: CustomerDictionaryMap | undefined; className?: string }) {
+function DictionaryBadge({ value, map, categoryIcon, className }: { value: string; map: CustomerDictionaryMap | undefined; categoryIcon?: React.ReactNode; className?: string }) {
   const entry = map?.[value]
   const color = entry?.color ?? null
   const icon = entry?.icon ?? null
-  const isHot = value.toLowerCase() === 'hot'
+  const label = entry?.label ?? formatFallbackLabel(value)
+  const colorStyle: React.CSSProperties | undefined = color
+    ? { color, borderColor: color, backgroundColor: `${color}1A` }
+    : undefined
   return (
     <Badge
       variant="outline"
       className={cn(
         'rounded-[4px] gap-1.5 text-[11px] font-medium',
-        isHot && 'border-transparent bg-red-50 text-destructive dark:bg-red-950/30',
         className,
       )}
+      style={colorStyle}
     >
-      {icon ? (
-        renderDictionaryIcon(icon, 'size-2.5')
-      ) : color ? (
-        <span className="inline-block size-2 shrink-0 rounded-[3px]" style={{ backgroundColor: color }} />
-      ) : null}
-      {value}
+      {icon ? renderDictionaryIcon(icon, 'size-2.5') : categoryIcon ?? null}
+      {label}
     </Badge>
   )
 }
 
-/** Renders a tag badge with an optional colored dot from TagSummary.color. */
+/** Renders a tag badge with color-based text/border/background from TagSummary.color. */
 function TagBadge({ tag }: { tag: TagSummary }) {
+  const colorStyle: React.CSSProperties | undefined = tag.color
+    ? { color: tag.color, borderColor: tag.color, backgroundColor: `${tag.color}1A` }
+    : undefined
   return (
-    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium">
-      {tag.color && <span className="inline-block size-2 shrink-0 rounded-[3px]" style={{ backgroundColor: tag.color }} />}
+    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium" style={colorStyle}>
       {tag.label}
     </Badge>
   )
@@ -83,8 +79,10 @@ export function PersonDetailHeader({
   isSaving,
   onFocusField,
   onOpenCompaniesTab,
+  onDataReload,
 }: PersonDetailHeaderProps) {
   const t = useT()
+  const queryClient = useQueryClient()
   const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
   const person = data.person
   const profile = data.profile
@@ -103,10 +101,13 @@ export function PersonDetailHeader({
   const companyName = primaryCompany?.displayName ?? null
   const companyId = primaryCompany?.id ?? profile?.companyEntityId ?? null
 
-  // Fetch dictionary maps for colored badge rendering
-  const { data: statusDict } = useCustomerDictionary('statuses')
-  const { data: lifecycleDict } = useCustomerDictionary('lifecycle-stages')
-  const { data: sourceDict } = useCustomerDictionary('sources')
+  // Fetch dictionary maps for colored badge rendering (scoped to person's organization)
+  const personOrgId = person.organizationId ?? null
+  const { data: statusDict } = useCustomerDictionary('statuses', 0, personOrgId)
+  const { data: lifecycleDict } = useCustomerDictionary('lifecycle-stages', 0, personOrgId)
+  const { data: sourceDict } = useCustomerDictionary('sources', 0, personOrgId)
+  const { data: temperatureDict } = useCustomerDictionary('temperature', 0, personOrgId)
+  const { data: renewalQuarterDict } = useCustomerDictionary('renewal-quarters', 0, personOrgId)
 
   return (
     <div className="rounded-lg border bg-card px-6 py-5">
@@ -230,44 +231,27 @@ export function PersonDetailHeader({
             {person.source && (
               <DictionaryBadge value={person.source} map={sourceDict?.map} />
             )}
+            {person.temperature && (
+              <DictionaryBadge value={person.temperature} map={temperatureDict?.map} />
+            )}
+            {person.renewalQuarter && (
+              <DictionaryBadge value={person.renewalQuarter} map={renewalQuarterDict?.map} />
+            )}
             {/* Inline tag pills */}
             {data.tags.map((tag) => (
               <TagBadge key={tag.id ?? tag.label} tag={tag} />
             ))}
-            {/* Manage tags — opens popover */}
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-auto rounded-[4px] px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-                >
-                  <Settings className="mr-1 size-3" />
-                  {t('customers.people.detail.actions.manageTags', 'Manage tags')}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-80" align="start">
-                <TagsSection
-                  entityId={person.id}
-                  tags={data.tags}
-                  onChange={onTagsChange}
-                  isSubmitting={false}
-                  controllerRef={tagsSectionControllerRef}
-                />
-                <div className="mt-3 border-t pt-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="w-full text-xs text-muted-foreground"
-                    onClick={() => setManageTagsOpen(true)}
-                  >
-                    {t('customers.tags.manage.openFull', 'Manage tag dictionaries...')}
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
+            {/* Manage tags — opens dialog directly */}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto rounded-[4px] px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              onClick={() => setManageTagsOpen(true)}
+            >
+              <Settings className="mr-1 size-3" />
+              {t('customers.people.detail.actions.manageTags', 'Manage tags')}
+            </Button>
           </div>
         </div>
 
@@ -305,7 +289,28 @@ export function PersonDetailHeader({
           </Button>
         </div>
       </div>
-      <ManageTagsDialog open={manageTagsOpen} onClose={() => setManageTagsOpen(false)} />
+      <PersonTagsDialog
+        open={manageTagsOpen}
+        onClose={() => setManageTagsOpen(false)}
+        personId={person.id}
+        personOrganizationId={person.organizationId ?? null}
+        personData={{
+          status: person.status,
+          lifecycleStage: person.lifecycleStage,
+          source: person.source,
+          temperature: person.temperature,
+          renewalQuarter: person.renewalQuarter,
+        }}
+        onSaved={() => {
+          // Invalidate dictionary caches so header badges pick up fresh colors
+          void invalidateCustomerDictionary(queryClient, 'statuses')
+          void invalidateCustomerDictionary(queryClient, 'lifecycle-stages')
+          void invalidateCustomerDictionary(queryClient, 'sources')
+          void invalidateCustomerDictionary(queryClient, 'temperature')
+          void invalidateCustomerDictionary(queryClient, 'renewal-quarters')
+          onDataReload?.()
+        }}
+      />
     </div>
   )
 }

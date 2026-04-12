@@ -85,13 +85,15 @@ export function StageProgressBar({
                   )}
                 />
               )}
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => !isClosed && !disabled && onStageClick(stage.id)}
                 onKeyDown={(event) => handleKeyDown(event, index)}
                 disabled={isClosed || disabled}
                 className={cn(
-                  'flex flex-col items-center gap-1 group min-w-0',
+                  'h-auto flex flex-col items-center gap-1 group min-w-0 p-0',
                   !isClosed && !disabled && 'cursor-pointer',
                   (isClosed || disabled) && 'cursor-default',
                 )}
@@ -133,7 +135,7 @@ export function StageProgressBar({
                 >
                   {stage.label}
                 </span>
-              </button>
+              </Button>
             </React.Fragment>
           )
         })}

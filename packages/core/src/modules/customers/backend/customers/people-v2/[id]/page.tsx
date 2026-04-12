@@ -16,21 +16,18 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
-import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
-import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
-import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
-import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
+
 import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealsSection } from '../../../../components/detail/DealsSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import type { TagSummary } from '../../../../components/detail/types'
 import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
 import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
-import { ScheduleActivityDialog } from '../../../../components/detail/ScheduleActivityDialog'
+import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { PersonDetailTabs, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
@@ -53,7 +50,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const { organizationId } = useOrganizationScopeDetail()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
-  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
+
 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
@@ -70,14 +67,15 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const initialTab = React.useMemo(() => {
     const raw = searchParams?.get('tab')
-    if (raw === 'personalData' || raw === 'activities' || raw === 'deals' || raw === 'companies' || raw === 'tasks' || raw === 'files') {
+    if (raw === 'activities' || raw === 'deals' || raw === 'companies' || raw === 'tasks' || raw === 'files') {
       return raw as PersonTabId
     }
-    return 'personalData' as PersonTabId
+    return 'activities' as PersonTabId
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
+  const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
 
   const currentPersonId = data?.person?.id ?? null
@@ -157,15 +155,47 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const handleMarkDone = React.useCallback(async (interactionId: string) => {
     try {
-      await apiCallOrThrow(`/api/customers/interactions?id=${encodeURIComponent(interactionId)}`, {
+      await apiCallOrThrow('/api/customers/interactions', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ status: 'done', occurredAt: new Date().toISOString() }),
+        body: JSON.stringify({ id: interactionId, status: 'done', occurredAt: new Date().toISOString() }),
       })
       flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
       handleActivityCreated()
     } catch {
       flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
+    }
+  }, [handleActivityCreated, t])
+
+  const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
+    setScheduleEditData({
+      id: activity.id,
+      interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
+      title: typeof activity.title === 'string' ? activity.title : null,
+      body: typeof activity.body === 'string' ? activity.body : null,
+      scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
+      durationMinutes: typeof activity.duration === 'number' ? activity.duration : null,
+      location: typeof (activity as Record<string, unknown>).location === 'string' ? (activity as Record<string, unknown>).location as string : null,
+      allDay: typeof (activity as Record<string, unknown>).allDay === 'boolean' ? (activity as Record<string, unknown>).allDay as boolean : null,
+      recurrenceRule: typeof (activity as Record<string, unknown>).recurrenceRule === 'string' ? (activity as Record<string, unknown>).recurrenceRule as string : null,
+      participants: Array.isArray((activity as Record<string, unknown>).participants) ? (activity as Record<string, unknown>).participants as ScheduleActivityEditData['participants'] : null,
+      reminderMinutes: typeof (activity as Record<string, unknown>).reminderMinutes === 'number' ? (activity as Record<string, unknown>).reminderMinutes as number : null,
+      visibility: typeof (activity as Record<string, unknown>).visibility === 'string' ? (activity as Record<string, unknown>).visibility as string : null,
+    })
+    setScheduleDialogOpen(true)
+  }, [])
+
+  const handleCancelActivity = React.useCallback(async (interactionId: string) => {
+    try {
+      await apiCallOrThrow('/api/customers/interactions', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: interactionId, status: 'canceled' }),
+      })
+      flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
+      handleActivityCreated()
+    } catch {
+      flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
     }
   }, [handleActivityCreated, t])
 
@@ -346,6 +376,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             isDirty={isDirty}
             isSaving={isSaving}
             onOpenCompaniesTab={() => setActiveTab('companies')}
+            onDataReload={() => { loadData().catch(() => {}) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
                 primaryEmail: 'input[type="email"]',
@@ -360,72 +391,46 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             }}
           />
 
-          {/* Tab bar — ABOVE both zones */}
-          <PersonDetailTabs
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
-            activitiesCount={interactionCount}
-            dealsCount={dealCount}
-            companiesCount={companyCount}
-            tasksCount={todoCount}
-          >
-            {/* Two-column layout: Zone 1 (collapsible) + Zone 2 (changes per tab) */}
-            <CollapsibleZoneLayout
-              pageType="person-v2"
-              entityName={personName}
-              isDirty={isDirty}
-              sections={zoneSections}
-              zone1={
-                <div ref={formWrapperRef}>
-                  <CrudForm<PersonEditFormValues>
-                    embedded
-                    injectionSpotId="customers.person"
-                    entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
-                    schema={formSchema}
-                    fields={fields}
-                    groups={groups}
-                    initialValues={initialValues}
-                    onSubmit={handleFormSubmit}
-                    onDelete={handleFormDelete}
-                    hideFooterActions
-                    collapsibleGroups={{ pageType: 'person-v2', chevronPosition: 'left' }}
-                    sortableGroups={{ pageType: 'person-v2' }}
-                    onDirtyChange={setIsDirty}
-                  />
-                </div>
-              }
-              zone2={
+          {/* Two-column layout: Zone 1 (collapsible form) + Zone 2 (tabs + tab content) */}
+          <CollapsibleZoneLayout
+            pageType="person-v2"
+            entityName={personName}
+            isDirty={isDirty}
+            sections={zoneSections}
+            zone1={
+              <div ref={formWrapperRef}>
+                <CrudForm<PersonEditFormValues>
+                  embedded
+                  injectionSpotId="customers.person"
+                  entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
+                  schema={formSchema}
+                  fields={fields}
+                  groups={groups}
+                  initialValues={initialValues}
+                  onSubmit={handleFormSubmit}
+                  onDelete={handleFormDelete}
+                  hideFooterActions
+                  collapsibleGroups={{ pageType: 'person-v2', chevronPosition: 'left' }}
+                  sortableGroups={{ pageType: 'person-v2' }}
+                  onDirtyChange={setIsDirty}
+                />
+              </div>
+            }
+            zone2={
+              <PersonDetailTabs
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+                activitiesCount={interactionCount}
+                dealsCount={dealCount}
+                companiesCount={companyCount}
+                tasksCount={todoCount}
+              >
                 <div className="min-w-0">
                 {(() => {
                   // Injected tab content
                   const injected = injectedTabMap.get(activeTab)
                   if (injected) return injected()
-
-                  if (activeTab === 'personalData') {
-                    return (
-                      <NotesSection
-                        entityId={personId}
-                        emptyLabel={t('customers.people.detail.empty.comments', 'No notes yet.')}
-                        viewerUserId={data.viewer?.userId ?? null}
-                        viewerName={data.viewer?.name ?? null}
-                        viewerEmail={data.viewer?.email ?? null}
-                        addActionLabel={t('customers.people.detail.notes.addLabel', 'Add note')}
-                        emptyState={{
-                          title: t('customers.people.detail.emptyState.notes.title', 'Keep everyone in the loop'),
-                          actionLabel: t('customers.people.detail.emptyState.notes.action', 'Create a note'),
-                        }}
-                        onActionChange={handleSectionActionChange}
-                        translator={detailTranslator}
-                        dataAdapter={notesAdapter}
-                        renderIcon={renderDictionaryIcon}
-                        renderColor={renderDictionaryColor}
-                        iconSuggestions={ICON_SUGGESTIONS}
-                        readMarkdownPreference={readMarkdownPreferenceCookie}
-                        writeMarkdownPreference={writeMarkdownPreferenceCookie}
-                      />
-                    )
-                  }
 
                   if (activeTab === 'activities') {
                     return (
@@ -435,13 +440,15 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                           entityId={personId}
                           onActivityCreated={handleActivityCreated}
                           runGuardedMutation={runMutationWithContext}
-                          onScheduleRequested={() => setScheduleDialogOpen(true)}
+                          onScheduleRequested={() => { setScheduleEditData(null); setScheduleDialogOpen(true) }}
                           useCanonicalInteractions={useCanonicalInteractions}
                         />
                         <PlannedActivitiesSection
                           activities={plannedActivities}
                           onComplete={handleMarkDone}
-                          onSchedule={() => setScheduleDialogOpen(true)}
+                          onSchedule={() => { setScheduleEditData(null); setScheduleDialogOpen(true) }}
+                          onEdit={handleEditActivity}
+                          onCancel={handleCancelActivity}
                         />
                         <ActivitiesSection
                           entityId={personId}
@@ -456,6 +463,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                             actionLabel: t('customers.people.detail.emptyState.activities.action', 'Log activity'),
                           }}
                           onActionChange={handleSectionActionChange}
+                          onEditActivity={handleEditActivity}
                         />
                       </div>
                     )
@@ -481,8 +489,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     return (
                       <PersonCompaniesSection
                         personId={personId}
-                        onChanged={loadData}
-                        runGuardedMutation={runMutationWithContext}
+                        personName={personName}
+                        onChanged={() => { loadData().catch(() => {}) }}
                       />
                     )
                   }
@@ -523,10 +531,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
                   return null
                 })()}
-              </div>
-              }
-            />
-          </PersonDetailTabs>
+                </div>
+              </PersonDetailTabs>
+            }
+          />
 
           {/* UMES footer injection */}
           <InjectionSpot spotId="detail:customers.person:footer" context={injectionContext} data={data} />
@@ -534,12 +542,13 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           {/* Schedule Activity Dialog — opened from PlannedActivities "+ Schedule" or other triggers */}
           <ScheduleActivityDialog
             open={scheduleDialogOpen}
-            onClose={() => setScheduleDialogOpen(false)}
+            onClose={() => { setScheduleDialogOpen(false); setScheduleEditData(null) }}
             entityId={personId}
             entityName={personName}
             companyName={data.company?.displayName ?? data.companies?.[0]?.displayName ?? null}
             entityType="person"
             onActivityCreated={handleActivityCreated}
+            editData={scheduleEditData}
           />
         </div>
       </PageBody>

@@ -10,13 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import type { CompanyPersonSummary } from './CompanyPeopleSection'
-
-function getInitials(name: string): string {
-  const words = name.trim().split(/\s+/)
-  if (words.length === 0 || !words[0]) return '?'
-  if (words.length === 1) return words[0].charAt(0).toUpperCase()
-  return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase()
-}
+import { getInitials } from './utils'
 
 const sourceColorMap: Record<string, string> = {
   linkedin: 'border-blue-400 text-blue-400',
@@ -61,13 +55,16 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-semibold">{person.displayName}</span>
               {onToggleStar && (
-                <button
+                <IconButton
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => onToggleStar(person.id)}
-                  className="text-muted-foreground hover:text-amber-500"
+                  className="h-auto text-muted-foreground hover:text-amber-500 p-0"
+                  aria-label={t('customers.people.card.toggleStar', 'Toggle star')}
                 >
                   <Star className={cn('size-3.5', isStarred && 'fill-amber-400 text-amber-400')} />
-                </button>
+                </IconButton>
               )}
             </div>
             <div className="flex items-center gap-1.5 mt-0.5">
@@ -87,7 +84,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
         </div>
         <Popover>
           <PopoverTrigger asChild>
-            <IconButton type="button" variant="ghost" size="xs" aria-label="More">
+            <IconButton type="button" variant="ghost" size="xs" aria-label={t('customers.people.card.more', 'More')}>
               <MoreHorizontal className="size-3.5" />
             </IconButton>
           </PopoverTrigger>
@@ -124,13 +121,13 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
         )}
         {person.createdAt && (
           <div className="text-[10px]">
-            {person.lifecycleStage ?? 'customer'} · Linked {new Date(person.createdAt).toLocaleDateString()}
+            {person.lifecycleStage ?? t('customers.people.card.defaultStage', 'customer')} · {t('customers.people.card.linkedOn', 'Linked {{date}}', { date: new Date(person.createdAt).toLocaleDateString() })}
           </div>
         )}
       </div>
 
-      {/* Source + temperature badges */}
-      {(person.lifecycleStage || person.temperature) && (
+      {/* Temperature + source badges */}
+      {(person.temperature || person.source) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {person.temperature && (
             <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -138,12 +135,12 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
               {person.temperature}
             </span>
           )}
-          {person.lifecycleStage && (
+          {person.source && (
             <Badge
               variant="outline"
-              className={cn('text-[10px] px-1.5 py-0', sourceColorMap[person.lifecycleStage.toLowerCase()])}
+              className={cn('text-[10px] px-1.5 py-0', sourceColorMap[person.source.toLowerCase()])}
             >
-              {person.lifecycleStage}
+              {person.source}
             </Badge>
           )}
         </div>

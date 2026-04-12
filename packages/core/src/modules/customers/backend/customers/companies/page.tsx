@@ -21,6 +21,7 @@ import type { AdvancedFilterState } from '@open-mercato/shared/lib/query/advance
 import { serializeAdvancedFilter } from '@open-mercato/shared/lib/query/advanced-filter'
 import {
   DictionaryValue,
+  createEmptyCustomerDictionaryMaps,
   renderDictionaryColor,
   renderDictionaryIcon,
   type CustomerDictionaryKind,
@@ -149,17 +150,7 @@ export default function CustomersCompaniesPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
-  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>({
-    statuses: {},
-    sources: {},
-    'lifecycle-stages': {},
-    'address-types': {},
-    'activity-types': {},
-    'deal-statuses': {},
-    'pipeline-stages': {},
-    'job-titles': {},
-    industries: {},
-  })
+  const [dictionaryMaps, setDictionaryMaps] = React.useState<Record<DictionaryKindKey, DictionaryMap>>(createEmptyCustomerDictionaryMaps())
   const [tagIdToLabel, setTagIdToLabel] = React.useState<Record<string, string>>({})
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -259,7 +250,7 @@ export default function CustomersCompaniesPage() {
     let cancelled = false
     async function loadAll() {
       if (cancelled) return
-      setDictionaryMaps({ statuses: {}, sources: {}, 'lifecycle-stages': {}, 'address-types': {}, 'activity-types': {}, 'deal-statuses': {}, 'pipeline-stages': {}, 'job-titles': {}, industries: {} })
+      setDictionaryMaps(createEmptyCustomerDictionaryMaps())
       await Promise.all([
         fetchDictionaryEntries('statuses'),
         fetchDictionaryEntries('sources'),

@@ -29,6 +29,7 @@ export type ActivitiesSectionProps = {
   defaultEntityId?: string | null
   runGuardedMutation?: GuardedMutationRunner
   refreshKey?: number
+  onEditActivity?: (activity: InteractionSummary) => void
 }
 
 function toDateOnly(value: string | null | undefined): string {
@@ -100,6 +101,7 @@ export function ActivitiesSection({
   onActionChange,
   onLoadingChange,
   refreshKey = 0,
+  onEditActivity,
 }: ActivitiesSectionProps) {
   const t = useT()
   const [filterTypes, setFilterTypes] = React.useState<string[]>([])
@@ -273,7 +275,16 @@ export function ActivitiesSection({
           {t('customers.people.detail.activities.loading', 'Loading activities…')}
         </div>
       ) : (
-        <ActivityTimeline activities={activities} />
+        <>
+          <ActivityTimeline activities={activities} onEdit={onEditActivity} />
+          {activities.length > 0 && (
+            <div className="border-t px-5 py-3">
+              <span className="text-xs text-muted-foreground">
+                {t('customers.activities.seeAll', 'See all {count} activities', { count: activities.length })}
+              </span>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

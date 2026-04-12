@@ -5,17 +5,14 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
-  User,
   SquareCheckBig,
   Briefcase,
   Building2,
   Check,
   Paperclip,
-  SquarePen,
 } from 'lucide-react'
 
 export type PersonTabId =
-  | 'personalData'
   | 'activities'
   | 'deals'
   | 'companies'
@@ -66,11 +63,6 @@ export function PersonDetailTabs({
 
   const builtInTabs: TabDef[] = React.useMemo(
     () => [
-      {
-        id: 'personalData',
-        label: t('customers.people.detail.tabs.personalData', 'Personal data'),
-        icon: <User className="size-4" />,
-      },
       {
         id: 'activities',
         label: t('customers.people.detail.tabs.activities', 'Activities'),

@@ -33,7 +33,7 @@ import {
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
@@ -60,7 +60,7 @@ async function resolvePipelineStageValue(
   tenantId: string,
   organizationId: string,
 ): Promise<string | null> {
-  const stage = await em.findOne(CustomerPipelineStage, { id: pipelineStageId })
+  const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: pipelineStageId }, {}, { tenantId, organizationId })
   if (!stage) return null
   const entry = await ensureDictionaryEntry(em, {
     tenantId,
@@ -107,7 +107,7 @@ type DealChangeMap = Record<string, { from: unknown; to: unknown }> & {
 }
 
 async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnapshot | null> {
-  const deal = await em.findOne(CustomerDeal, { id, deletedAt: null })
+  const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
   if (!deal) return null
   const decryptionScope = { tenantId: deal.tenantId ?? null, organizationId: deal.organizationId ?? null }
   const peopleLinks = await findWithDecryption(
@@ -297,7 +297,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const dealId = logEntry?.resourceId
     if (!dealId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const deal = await em.findOne(CustomerDeal, { id: dealId })
+    const deal = await findOneWithDecryption(em, CustomerDeal, { id: dealId })
     if (!deal) return
     await em.nativeDelete(CustomerDealPersonLink, { deal })
     await em.nativeDelete(CustomerDealCompanyLink, { deal })
@@ -317,7 +317,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const deal = await em.findOne(CustomerDeal, { id: parsed.id, deletedAt: null })
+    const deal = await findOneWithDecryption(em, CustomerDeal, { id: parsed.id, deletedAt: null })
     const record = deal ?? null
     if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
     ensureTenantScope(ctx, record.tenantId)
@@ -403,8 +403,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
             organizationId: record.organizationId,
           })
         }
-      } catch {
-        // Notification creation is non-critical, don't fail the command
+      } catch (err) {
+        console.warn('[customers.deals.update] notification send failed', err)
       }
     }
 
@@ -440,7 +440,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let deal = await em.findOne(CustomerDeal, { id: before.deal.id })
+    let deal = await findOneWithDecryption(em, CustomerDeal, { id: before.deal.id })
     if (!deal) {
       deal = em.create(CustomerDeal, {
         id: before.deal.id,
@@ -526,7 +526,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     async execute(input, ctx) {
       const id = requireId(input, 'Deal id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const deal = await em.findOne(CustomerDeal, { id, deletedAt: null })
+      const deal = await findOneWithDecryption(em, CustomerDeal, { id, deletedAt: null })
       const record = deal ?? null
       if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
       ensureTenantScope(ctx, record.tenantId)
@@ -574,7 +574,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      let deal = await em.findOne(CustomerDeal, { id: before.deal.id })
+      let deal = await findOneWithDecryption(em, CustomerDeal, { id: before.deal.id })
       if (!deal) {
         deal = em.create(CustomerDeal, {
           id: before.deal.id,

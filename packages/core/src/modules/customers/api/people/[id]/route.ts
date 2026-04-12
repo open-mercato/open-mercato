@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+}
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -12,6 +16,8 @@ import {
   CustomerActivity,
   CustomerTagAssignment,
   CustomerTag,
+  CustomerLabelAssignment,
+  CustomerLabel,
   CustomerDealPersonLink,
   CustomerDeal,
   CustomerTodoLink,
@@ -485,6 +491,13 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     )
     profiler.mark('tags_loaded', { count: tagAssignments.length })
 
+    const labelAssignments = await em.find(
+      CustomerLabelAssignment,
+      { entity: person.id },
+      { populate: ['label'] },
+    )
+    profiler.mark('labels_loaded', { count: labelAssignments.length })
+
     if (includeComments) {
       comments = await em.find(CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
       profiler.mark('comments_loaded', { count: comments.length })
@@ -651,6 +664,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         status: person.status,
         lifecycleStage: person.lifecycleStage,
         source: person.source,
+        temperature: person.temperature,
+        renewalQuarter: person.renewalQuarter,
         nextInteractionAt: person.nextInteractionAt ? person.nextInteractionAt.toISOString() : null,
         nextInteractionName: person.nextInteractionName,
         nextInteractionRefId: person.nextInteractionRefId,
@@ -679,7 +694,16 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           }
         : null,
       customFields,
-      tags: serializeTags(tagAssignments),
+      tags: [
+        ...serializeTags(tagAssignments),
+        ...labelAssignments
+          .map((a) => {
+            const label = a.label as CustomerLabel | string | null
+            if (!label || typeof label === 'string') return null
+            return { id: label.id, label: label.label, color: null }
+          })
+          .filter((t): t is { id: string; label: string; color: null } => t !== null),
+      ],
       addresses: includeAddresses
         ? addresses.map((address) => ({
             id: address.id,

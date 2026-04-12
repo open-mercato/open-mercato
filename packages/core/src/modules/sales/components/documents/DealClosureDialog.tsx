@@ -126,10 +126,11 @@ export function DealClosureDialog({ open, outcome, dealLabel, onConfirm, onCance
                   <span className="ml-1 text-destructive">*</span>
                 </label>
                 <div className="space-y-3">
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() => setReasonListOpen((current) => !current)}
-                    className="flex w-full items-center justify-between rounded-[12px] border border-foreground bg-background px-4 py-3 text-left"
+                    className="h-auto flex w-full items-center justify-between rounded-[12px] border border-foreground bg-background px-4 py-3 text-left"
                   >
                     <div className="min-w-0">
                       <div className="truncate text-base font-semibold text-foreground">
@@ -140,22 +141,23 @@ export function DealClosureDialog({ open, outcome, dealLabel, onConfirm, onCance
                       </div>
                     </div>
                     <ChevronDown className="ml-3 size-4 shrink-0 text-muted-foreground" />
-                  </button>
+                  </Button>
 
                   {reasonListOpen ? (
                     <div className="overflow-hidden rounded-[12px] border border-border/80 bg-background">
                       {lossReasons.map((reason, index) => {
                         const isSelected = reason.id === lossReasonId
                         return (
-                          <button
+                          <Button
                             key={reason.id}
                             type="button"
+                            variant="ghost"
                             onClick={() => {
                               setLossReasonId(reason.id)
                               setError('')
                               setReasonListOpen(false)
                             }}
-                            className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors ${
+                            className={`h-auto flex w-full items-center justify-between px-4 py-3 text-left transition-colors rounded-none ${
                               index < lossReasons.length - 1 ? 'border-b border-border/60' : ''
                             } ${isSelected ? 'bg-muted/60' : 'hover:bg-accent/50'}`}
                           >
@@ -170,7 +172,7 @@ export function DealClosureDialog({ open, outcome, dealLabel, onConfirm, onCance
                                 <Check className="size-3.5" />
                               </span>
                             ) : null}
-                          </button>
+                          </Button>
                         )
                       })}
                     </div>

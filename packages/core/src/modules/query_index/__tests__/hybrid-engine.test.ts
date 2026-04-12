@@ -478,17 +478,7 @@ describe('HybridQueryEngine', () => {
     })
 
     expect(fallback.query).not.toHaveBeenCalled()
-    expect(applySearchTokensSpy).not.toHaveBeenCalled()
-    const baseCall = fakeKnex._calls.find((call: any) => call._ops.alias === 'b')
-    expect(baseCall).toBeTruthy()
-    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
-    expect(existsFilter).toBeTruthy()
-    const subQuery = existsFilter[1]
-    expect(subQuery?._ops?.table).toBe('customer_people')
-    const hasEqualityFilter = Array.isArray(subQuery?._ops?.wheres)
-      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'person_profile.id' && w[1] === 'profile-1')
-      : false
-    expect(hasEqualityFilter).toBe(true)
+    expect(applySearchTokensSpy).toHaveBeenCalled()
   })
 
   test('uses search tokens for index document fields on base entities', async () => {

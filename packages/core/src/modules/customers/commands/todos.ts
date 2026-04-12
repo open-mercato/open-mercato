@@ -125,6 +125,8 @@ function mapTodoCreateInput(
 ): InteractionCreateInput & { customValues?: Record<string, unknown> } {
   const customValues = collectTodoCustomValues(input)
   return {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     entityId: input.entityId,
     interactionType: 'task',
     title: input.title,

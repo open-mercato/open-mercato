@@ -1,0 +1,255 @@
+import { NextResponse } from 'next/server'
+import { z } from 'zod'
+import { CustomerLabel, CustomerLabelAssignment } from '../../data/entities'
+import { labelCreateSchema } from '../../data/validators'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveLabelActorUserId } from './auth'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
+import {
+  createMissingCustomerLabelTablesError,
+  isMissingCustomerLabelTable,
+} from './table-errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  POST: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+}
+
+const querySchema = z.object({
+  entityId: z.string().uuid().optional(),
+  organizationId: z.string().uuid().optional(),
+})
+
+const createLabelRequestSchema = labelCreateSchema.extend({
+  organizationId: z.string().uuid().optional(),
+})
+
+export async function GET(req: Request) {
+  try {
+    const { translate } = await resolveTranslations()
+    const container = await createRequestContainer()
+    const auth = await getAuthFromRequest(req)
+    const actorUserId = resolveLabelActorUserId(auth)
+    if (!auth || !auth.tenantId || !actorUserId) {
+      return NextResponse.json({ error: translate('customers.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+    }
+
+    const em = container.resolve('em') as EntityManager
+    const url = new URL(req.url)
+    const query = querySchema.parse({
+      entityId: url.searchParams.get('entityId') ?? undefined,
+      organizationId: url.searchParams.get('organizationId') ?? undefined,
+    })
+    const scope = await resolveOrganizationScopeForRequest({
+      container,
+      auth,
+      request: req,
+      selectedId: query.organizationId ?? undefined,
+    })
+    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    if (!organizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
+
+    // Load all labels for this user
+    const labels = await findWithDecryption(em, CustomerLabel, {
+      tenantId: auth.tenantId,
+      organizationId,
+      userId: actorUserId,
+    }, { orderBy: { label: 'asc' } }, { tenantId: auth.tenantId, organizationId })
+
+    // If entityId provided, also load assignments for that entity
+    let assignedLabelIds: string[] = []
+    if (query.entityId) {
+      const assignments = await findWithDecryption(em, CustomerLabelAssignment, {
+        tenantId: auth.tenantId,
+        organizationId,
+        userId: actorUserId,
+        entity: query.entityId,
+      } as FilterQuery<CustomerLabelAssignment>, {}, { tenantId: auth.tenantId, organizationId })
+      assignedLabelIds = assignments.map((a) => {
+        try { return a.label.id } catch { return '' }
+      })
+      // Handle unloaded references
+      if (assignedLabelIds.some((id) => !id)) {
+        const loaded = await findWithDecryption(em, CustomerLabelAssignment, {
+          tenantId: auth.tenantId,
+          organizationId,
+          userId: actorUserId,
+          entity: query.entityId,
+        } as FilterQuery<CustomerLabelAssignment>, { populate: ['label'] }, { tenantId: auth.tenantId, organizationId })
+        assignedLabelIds = loaded.map((a) => a.label.id)
+      }
+    }
+
+    return NextResponse.json({
+      items: labels.map((l) => ({
+        id: l.id,
+        slug: l.slug,
+        label: l.label,
+      })),
+      assignedIds: assignedLabelIds.filter(Boolean),
+    })
+  } catch (err) {
+    if (isMissingCustomerLabelTable(err)) {
+      return NextResponse.json({ items: [], assignedIds: [] })
+    }
+    if (err instanceof CrudHttpError) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    console.error('[customers/labels.GET]', err)
+    return NextResponse.json({ error: 'Failed to load labels' }, { status: 500 })
+  }
+}
+
+function slugifyLabel(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+export async function POST(req: Request) {
+  try {
+    const { translate } = await resolveTranslations()
+    const container = await createRequestContainer()
+    const auth = await getAuthFromRequest(req)
+    const actorUserId = resolveLabelActorUserId(auth)
+    if (!auth || !auth.tenantId || !actorUserId) {
+      return NextResponse.json({ error: translate('customers.errors.unauthorized', 'Unauthorized') }, { status: 401 })
+    }
+
+    const body = createLabelRequestSchema.parse(await readJsonSafe(req, {}))
+    const scope = await resolveOrganizationScopeForRequest({
+      container,
+      auth,
+      request: req,
+      selectedId: body.organizationId ?? undefined,
+    })
+    const organizationId = scope?.selectedId ?? auth.orgId ?? null
+    if (!organizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
+    const slug = body.slug || slugifyLabel(body.label)
+
+    const em = (container.resolve('em') as EntityManager).fork()
+    const guardResult = await validateCrudMutationGuard(container, {
+      tenantId: auth.tenantId,
+      organizationId,
+      userId: actorUserId,
+      resourceKind: 'customers.label',
+      resourceId: organizationId,
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: body,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
+    // Check duplicate
+    const existing = await findOneWithDecryption(em, CustomerLabel, {
+      tenantId: auth.tenantId,
+      organizationId,
+      userId: actorUserId,
+      slug,
+    }, {}, { tenantId: auth.tenantId, organizationId })
+    if (existing) {
+      throw new CrudHttpError(409, { error: translate('customers.errors.label_duplicate', 'A label with this slug already exists') })
+    }
+
+    const label = em.create(CustomerLabel, {
+      tenantId: auth.tenantId,
+      organizationId,
+      userId: actorUserId,
+      slug,
+      label: body.label.trim(),
+    })
+    em.persist(label)
+    await em.flush()
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(container, {
+        tenantId: auth.tenantId,
+        organizationId,
+        userId: actorUserId,
+        resourceKind: 'customers.label',
+        resourceId: organizationId,
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
+
+    return NextResponse.json({
+      id: label.id,
+      slug: label.slug,
+      label: label.label,
+    }, { status: 201 })
+  } catch (err) {
+    if (isMissingCustomerLabelTable(err)) {
+      const migrationError = createMissingCustomerLabelTablesError()
+      return NextResponse.json(migrationError.body, { status: migrationError.status })
+    }
+    if (err instanceof CrudHttpError) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    console.error('[customers/labels.POST]', err)
+    return NextResponse.json({ error: 'Failed to create label' }, { status: 500 })
+  }
+}
+
+const labelSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  label: z.string(),
+})
+
+const labelsListSchema = z.object({
+  items: z.array(labelSchema),
+  assignedIds: z.array(z.string().uuid()),
+})
+
+const errorSchema = z.object({ error: z.string() })
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Customers',
+  summary: 'Customer labels (user- and organization-scoped)',
+  methods: {
+    GET: {
+      summary: 'List labels',
+      description: 'Returns labels for the current user within the selected organization. Optionally includes assignment status for a specific entity.',
+      responses: [
+        { status: 200, description: 'Labels list', schema: labelsListSchema },
+      ],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+      ],
+    },
+    POST: {
+      summary: 'Create label',
+      description: 'Creates a new label scoped to the current user and selected organization.',
+      requestBody: { contentType: 'application/json', schema: createLabelRequestSchema },
+      responses: [
+        { status: 201, description: 'Label created', schema: labelSchema },
+      ],
+      errors: [
+        { status: 409, description: 'Duplicate slug', schema: errorSchema },
+      ],
+    },
+  },
+}
