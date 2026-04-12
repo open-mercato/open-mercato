@@ -538,7 +538,6 @@ export function LineItemDialog({
       const items = Array.isArray(response.result?.items)
         ? (response.result?.items ?? [])
         : [];
-      const needle = query?.trim().toLowerCase() ?? "";
       return items
         .map((item) => {
           const id = typeof item.id === "string" ? item.id : null;
@@ -595,11 +594,6 @@ export function LineItemDialog({
           const defaultUnit = uomFields.defaultUnit;
           const defaultSalesUnit = uomFields.defaultSalesUnit;
           const defaultSalesUnitQuantity = uomFields.defaultSalesUnitQuantity;
-          const matches =
-            !needle ||
-            title.toLowerCase().includes(needle) ||
-            (sku ? sku.toLowerCase().includes(needle) : false);
-          if (!matches) return null;
           return {
             id,
             title,
