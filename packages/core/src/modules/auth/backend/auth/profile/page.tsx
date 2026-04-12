@@ -67,7 +67,8 @@ export default function AuthProfilePage() {
     }
     load()
     return () => { cancelled = true }
-  }, [t])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- t is only used in error message, must not trigger re-fetch
+  }, [])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'email', label: t('auth.profile.form.email', 'Email'), type: 'text', required: true },
