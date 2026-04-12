@@ -99,6 +99,10 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
   async execute(rawInput, ctx) {
+    // Reject explicit null tenantId before schema parsing (global roles are not supported)
+    if (rawInput && typeof rawInput === 'object' && 'tenantId' in (rawInput as Record<string, unknown>) && (rawInput as Record<string, unknown>).tenantId === null) {
+      throw new CrudHttpError(400, { error: 'tenantId cannot be null — global roles are not supported' })
+    }
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     assertRoleNameAllowed(parsed.name)
     const resolvedTenantId = parsed.tenantId ?? ctx.auth?.tenantId ?? null
