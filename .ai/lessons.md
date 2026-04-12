@@ -208,6 +208,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/cli/src/lib/agentic-init.ts` and any future tool-scoped bootstrap or regeneration commands.
 
+## Create-app template integration specs must stay standalone-safe
+
+**Context**: A template integration spec under `packages/create-app/template/src/modules/**/__integration__` imported CLI generator source via a monorepo-relative path like `../../../../packages/cli/src/...`.
+
+**Problem**: The same spec is copied into scaffolded standalone apps and discovered by parity coverage, where monorepo-only relative paths do not exist. The test passed in-repo but failed its actual standalone contract.
+
+**Rule**: Any integration spec that lives in the create-app template or has a mirrored template copy must import only package exports (`@open-mercato/*`), local test helpers, or runtime files created by the test itself. Never import monorepo-only relative paths such as `packages/...`, `apps/mercato/...`, or workspace source outside the generated app root.
+
+**Applies to**: `packages/create-app/template/**/__integration__`, mirrored app/template integration specs, and standalone parity smoke coverage.
+
 ## Inject TypeScript types into LLM tool descriptions for correct API payloads
 
 **Context**: The AI Code Mode tools (`search` + `execute`) require the LLM to construct API payloads. When the LLM must query a separate tool to discover schema fields and then mentally translate a compact JSON format, it frequently constructs wrong payloads and enters debug spirals (20+ tool calls, 50+ API requests).

@@ -1,108 +1,192 @@
 import { expect, test } from '@playwright/test'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import vm from 'node:vm'
 import ts from 'typescript'
-import { CodeBlockWriter, VariableDeclarationKind, type WriterFunction } from 'ts-morph'
-import { arrayLiteral, identifier, writeValue } from '../../../../../../packages/cli/src/lib/generators/ast'
-import {
-  dynamicImportExpression,
-  emptyArray,
-  moduleEntry,
-  namespaceFallback,
-  namespaceImportSpec,
-  renderGeneratedTsSource,
-} from '../../../../../../packages/cli/src/lib/generators/extensions/shared'
+import { generateModuleRegistry } from '@open-mercato/cli/lib/generators/module-registry'
+import type { ModuleEntry, PackageResolver } from '@open-mercato/cli/lib/resolver'
 
-function renderWriter(writerFunction: WriterFunction): string {
-  const writer = new CodeBlockWriter({
-    indentNumberOfSpaces: 2,
-    newLine: '\n',
-    useSingleQuote: false,
-    useTabs: false,
-  })
-  writerFunction(writer)
-  return writer.toString()
+function createTempRoot(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'om-umes-021-'))
+}
+
+function writeModuleFile(rootDir: string, moduleId: string, relativePath: string, content: string): void {
+  const absolutePath = path.join(rootDir, 'src', 'modules', moduleId, relativePath)
+  fs.mkdirSync(path.dirname(absolutePath), { recursive: true })
+  fs.writeFileSync(absolutePath, content, 'utf8')
+}
+
+function createStandaloneResolver(rootDir: string, enabledModules: ModuleEntry[]): PackageResolver {
+  const outputDir = path.join(rootDir, '.mercato', 'generated')
+  fs.mkdirSync(outputDir, { recursive: true })
+
+  return {
+    isMonorepo: () => false,
+    getRootDir: () => rootDir,
+    getAppDir: () => rootDir,
+    getOutputDir: () => outputDir,
+    getModulesConfigPath: () => path.join(rootDir, 'src', 'modules.ts'),
+    discoverPackages: () => [],
+    loadEnabledModules: () => enabledModules,
+    getModulePaths: (entry: ModuleEntry) => ({
+      appBase: path.join(rootDir, 'src', 'modules', entry.id),
+      pkgBase: path.join(rootDir, 'node_modules', '@open-mercato', 'core', 'dist', 'modules', entry.id),
+    }),
+    getModuleImportBase: (entry: ModuleEntry) => ({
+      appBase: `@/modules/${entry.id}`,
+      pkgBase: `@open-mercato/core/modules/${entry.id}`,
+    }),
+    getPackageOutputDir: () => outputDir,
+    getPackageRoot: (from?: string) =>
+      path.join(rootDir, 'node_modules', ...(from ?? '@open-mercato/core').split('/')),
+  }
+}
+
+function readGenerated(rootDir: string, fileName: string): string {
+  return fs.readFileSync(path.join(rootDir, '.mercato', 'generated', fileName), 'utf8')
 }
 
 function parseDiagnostics(source: string): string[] {
-  const sourceFile = ts.createSourceFile('registry.generated.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const sourceFile = ts.createSourceFile('generated.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   return sourceFile.parseDiagnostics.map((diagnostic) =>
     ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'),
   )
 }
 
-function evaluateExpression(expression: string, globals: Record<string, unknown>): unknown {
-  const compiled = ts.transpileModule(`result = ${expression};`, {
+function evaluateGeneratedSource(options: {
+  source: string
+  namespaceValue: Record<string, unknown>
+  resultExpression: string
+}): unknown {
+  const namespaceImportMatch = options.source.match(/^import \* as (\w+) from "[^"]+";$/m)
+  if (!namespaceImportMatch) {
+    throw new Error('Expected generated source to contain a module namespace import.')
+  }
+
+  const executableSource = [
+    `const ${namespaceImportMatch[1]} = MODULE`,
+    options.source.replace(/^import[^\n]*\n/gm, ''),
+    `result = ${options.resultExpression}`,
+  ].join('\n')
+
+  const compiled = ts.transpileModule(executableSource, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
       target: ts.ScriptTarget.ES2020,
     },
   }).outputText
 
-  const context = { result: undefined as unknown, ...globals }
+  const context = {
+    MODULE: options.namespaceValue,
+    exports: {},
+    module: { exports: {} },
+    result: undefined as unknown,
+  }
   vm.runInNewContext(compiled, context)
   return context.result
 }
 
-test.describe('TC-UMES-021: CLI generator shared helper contract', () => {
-  test('renders parseable registry source through the package export path', () => {
-    const source = renderGeneratedTsSource({
-      fileName: 'registry.generated.ts',
-      imports: [namespaceImportSpec('EXAMPLE', '@/modules/example/config')],
-      build(sourceFile) {
-        sourceFile.addVariableStatement({
-          declarationKind: VariableDeclarationKind.Const,
-          isExported: true,
-          declarations: [
-            {
-              name: 'registryEntries',
-              initializer: arrayLiteral(
-                [
-                  moduleEntry('example', [
-                    {
-                      name: 'config',
-                      value: namespaceFallback({
-                        importName: 'EXAMPLE',
-                        members: ['default', 'config'],
-                        fallback: emptyArray(),
-                        castType: 'unknown[]',
-                      }),
-                    },
-                    {
-                      name: 'loader',
-                      value: dynamicImportExpression('@/modules/example/widgets/dashboard/todos/widget'),
-                    },
-                  ]),
-                ],
-                writeValue,
-              ),
-            },
-          ],
-        })
-      },
-    })
+test.describe('TC-UMES-021: CLI generator registry outputs', () => {
+  let tempRoot = ''
 
-    expect(source.startsWith('// AUTO-GENERATED by mercato generate registry\n')).toBe(true)
-    expect(source).toContain('import * as EXAMPLE from "@/modules/example/config";')
-    expect(source).toContain('moduleId: "example"')
-    expect(source).toMatch(/"default"[\s,]+"config"/)
-    expect(source).toContain('import("@/modules/example/widgets/dashboard/todos/widget")')
-    expect(parseDiagnostics(source)).toEqual([])
+  test.beforeEach(() => {
+    tempRoot = createTempRoot()
   })
 
-  test('namespaceFallback keeps falsey exports and only falls back on nullish values', () => {
-    const expression = renderWriter(
-      namespaceFallback({
-        importName: 'MODULE',
-        members: ['default', 'config'],
-        fallback: identifier('fallbackValue'),
-        castType: 'unknown',
-      }),
+  test.afterEach(() => {
+    if (tempRoot) {
+      fs.rmSync(tempRoot, { recursive: true, force: true })
+    }
+  })
+
+  test('package-exported registry generation keeps extension outputs isolated for standalone fixtures', async () => {
+    const moduleId = 'qa_shared_registry'
+    writeModuleFile(
+      tempRoot,
+      moduleId,
+      'search.ts',
+      'export const searchConfig = { entityType: "qa_shared_registry", indexFields: [] }\n',
+    )
+    writeModuleFile(
+      tempRoot,
+      moduleId,
+      'notifications.ts',
+      'export const notificationTypes = [{ type: "qa.shared", category: "system" }]\n',
     )
 
-    expect(evaluateExpression(expression, { MODULE: { default: 0, config: 5 }, fallbackValue: 'fallback' })).toBe(0)
-    expect(evaluateExpression(expression, { MODULE: { default: null, config: false }, fallbackValue: 'fallback' })).toBe(false)
+    const resolver = createStandaloneResolver(tempRoot, [{ id: moduleId, from: '@app' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const searchSource = readGenerated(tempRoot, 'search.generated.ts')
+    const notificationsSource = readGenerated(tempRoot, 'notifications.generated.ts')
+
+    expect(searchSource.startsWith('// AUTO-GENERATED by mercato generate registry\n')).toBe(true)
+    expect(searchSource).toMatch(new RegExp(`import \\* as \\w+ from "(?:@/modules/|(?:\\.\\./)+src/modules/)${moduleId}/search";`))
+    expect(searchSource).toContain('searchModuleConfigs:')
+    expect(searchSource).toContain('candidate != null')
+    expect(searchSource).not.toContain('packages/cli/src')
+    expect(searchSource).not.toContain('NotificationTypeEntry')
+    expect(parseDiagnostics(searchSource)).toEqual([])
+
+    expect(notificationsSource.startsWith('// AUTO-GENERATED by mercato generate registry\n')).toBe(true)
+    expect(notificationsSource).toMatch(new RegExp(`import \\* as \\w+ from "(?:@/modules/|(?:\\.\\./)+src/modules/)${moduleId}/notifications";`))
+    expect(notificationsSource).toContain('export const notificationTypeEntries')
+    expect(notificationsSource).not.toContain('packages/cli/src')
+    expect(notificationsSource).not.toContain('SearchConfigEntry')
+    expect(parseDiagnostics(notificationsSource)).toEqual([])
+  })
+
+  test('generated search registry source preserves falsey namespace exports and only falls back on nullish values', async () => {
+    const moduleId = 'qa_shared_registry'
+    writeModuleFile(
+      tempRoot,
+      moduleId,
+      'search.ts',
+      'export const searchConfig = { entityType: "qa_shared_registry", indexFields: [] }\n',
+    )
+
+    const resolver = createStandaloneResolver(tempRoot, [{ id: moduleId, from: '@app' }])
+    const result = await generateModuleRegistry({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+
+    const searchSource = readGenerated(tempRoot, 'search.generated.ts')
+    expect(parseDiagnostics(searchSource)).toEqual([])
+
     expect(
-      evaluateExpression(expression, { MODULE: { default: undefined, config: null }, fallbackValue: 'fallback' }),
-    ).toBe('fallback')
+      evaluateGeneratedSource({
+        source: searchSource,
+        namespaceValue: { default: 0, searchConfig: { entityType: 'ignored' } },
+        resultExpression: '({ raw: entriesRaw[0].config, configs: searchModuleConfigs })',
+      }),
+    ).toEqual({
+      raw: 0,
+      configs: [0],
+    })
+
+    expect(
+      evaluateGeneratedSource({
+        source: searchSource,
+        namespaceValue: { default: null, searchConfig: false },
+        resultExpression: '({ raw: entriesRaw[0].config, configs: searchModuleConfigs })',
+      }),
+    ).toEqual({
+      raw: false,
+      configs: [false],
+    })
+
+    expect(
+      evaluateGeneratedSource({
+        source: searchSource,
+        namespaceValue: { default: undefined, searchConfig: null, config: undefined },
+        resultExpression: '({ raw: entriesRaw[0].config, configs: searchModuleConfigs })',
+      }),
+    ).toEqual({
+      raw: null,
+      configs: [],
+    })
   })
 })
