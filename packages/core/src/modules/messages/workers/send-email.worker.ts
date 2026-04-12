@@ -82,12 +82,18 @@ async function resolveMessageScope(
   em: EntityManager,
   payload: SendMessageEmailJob
 ) {
-  return await em.findOne(Message, {
-    id: payload.messageId,
-    tenantId: payload.tenantId,
-    organizationId: payload.organizationId ?? null,
-    deletedAt: null,
-  })
+  return await findOneWithDecryption(
+    em,
+    Message,
+    {
+      id: payload.messageId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId ?? null,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: payload.tenantId, organizationId: payload.organizationId ?? null },
+  )
 }
 
 export async function claimRecipientDelivery(

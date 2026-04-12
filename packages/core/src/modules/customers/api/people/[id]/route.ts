@@ -43,6 +43,10 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+}
+
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })

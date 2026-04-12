@@ -942,19 +942,15 @@ function closeSplashServer() {
 
 function openBrowser(url) {
   try {
+    let child
     if (process.platform === 'darwin') {
-      const child = spawn('open', [url], { detached: true, stdio: 'ignore' })
-      child.unref()
-      return
+      child = spawn('open', [url], { detached: true, stdio: 'ignore' })
+    } else if (process.platform === 'win32') {
+      child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' })
+    } else {
+      child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' })
     }
-
-    if (process.platform === 'win32') {
-      const child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' })
-      child.unref()
-      return
-    }
-
-    const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' })
+    child.on('error', () => { /* best-effort: browser open is non-critical */ })
     child.unref()
   } catch { /* best-effort: browser open is non-critical */ }
 }

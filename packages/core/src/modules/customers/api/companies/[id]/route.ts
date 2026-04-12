@@ -45,6 +45,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
+}
+
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })

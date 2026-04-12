@@ -253,6 +253,94 @@ function extractNamedObjectLiteralSource(sourceFile: string, exportName: string)
   return null
 }
 
+function resolveLocalStringConstants(parsed: ts.SourceFile): Map<string, string> {
+  const constants = new Map<string, string>()
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue
+      if (!declaration.initializer) continue
+      if (ts.isStringLiteral(declaration.initializer) || ts.isNoSubstitutionTemplateLiteral(declaration.initializer)) {
+        constants.set(declaration.name.text, declaration.initializer.text)
+      }
+    }
+  }
+  return constants
+}
+
+function extractObjectPropertiesFromAst(sourceFile: string, exportName: string): Record<string, unknown> | null {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return null
+  }
+
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) {
+        exportedNames.add(element.name.text)
+      }
+    }
+  }
+
+  let objectLiteral: ts.ObjectLiteralExpression | undefined
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const statementExportsNameDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier: ts.Modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue
+      if (!statementExportsNameDirectly && !exportedNames.has(exportName)) continue
+      objectLiteral = unwrapObjectLiteralExpression(declaration.initializer)
+      break
+    }
+    if (objectLiteral) break
+  }
+
+  if (!objectLiteral) return null
+
+  const localConstants = resolveLocalStringConstants(parsed)
+  const result: Record<string, unknown> = {}
+
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const key = ts.isIdentifier(property.name) ? property.name.text
+      : ts.isStringLiteral(property.name) ? property.name.text
+      : null
+    if (!key) continue
+
+    const initializer = property.initializer
+    if (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) {
+      result[key] = initializer.text
+    } else if (ts.isNumericLiteral(initializer)) {
+      result[key] = Number(initializer.text)
+    } else if (initializer.kind === ts.SyntaxKind.TrueKeyword) {
+      result[key] = true
+    } else if (initializer.kind === ts.SyntaxKind.FalseKeyword) {
+      result[key] = false
+    } else if (ts.isIdentifier(initializer) && localConstants.has(initializer.text)) {
+      result[key] = localConstants.get(initializer.text)
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null
+}
+
 function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
   const literal = extractNamedObjectLiteralSource(sourceFile, exportName)
   if (!literal) return null
@@ -260,7 +348,7 @@ function extractNamedObjectLiteralExport(sourceFile: string, exportName: string)
     const extracted = Function(`"use strict"; return (${literal});`)()
     return extracted && typeof extracted === 'object' ? extracted as Record<string, unknown> : null
   } catch {
-    return null
+    return extractObjectPropertiesFromAst(sourceFile, exportName)
   }
 }
 

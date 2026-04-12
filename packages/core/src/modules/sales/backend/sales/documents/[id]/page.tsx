@@ -1876,7 +1876,7 @@ export default function SalesDocumentDetailPage({
   const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
-  const [activeTab, setActiveTab] = React.useState<string>('comments')
+  const [activeTab, setActiveTab] = React.useState<string>('items')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const detailSectionRef = React.useRef<HTMLDivElement | null>(null)
   const [generating, setGenerating] = React.useState(false)
@@ -4011,10 +4011,10 @@ export default function SalesDocumentDetailPage({
   const tabButtons = React.useMemo<Array<{ id: string; label: string }>>(
     () => {
       const tabs: Array<{ id: string; label: string }> = [
-        { id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') },
-        { id: 'addresses', label: t('sales.documents.detail.tabs.addresses', 'Addresses') },
         { id: 'items', label: t('sales.documents.detail.tabs.items', 'Items') },
+        { id: 'addresses', label: t('sales.documents.detail.tabs.addresses', 'Addresses') },
       ]
+      tabs.push({ id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') })
       if (kind === 'order') {
         tabs.push(
           { id: 'shipments', label: t('sales.documents.detail.tabs.shipments', 'Shipments') },
@@ -4022,10 +4022,10 @@ export default function SalesDocumentDetailPage({
           { id: 'returns', label: t('sales.documents.detail.tabs.returns', 'Returns') },
         )
       }
-      tabs.push({ id: 'adjustments', label: t('sales.documents.detail.tabs.adjustments', 'Adjustments') })
       injectedTabs.forEach((tab) => {
         tabs.push({ id: tab.id, label: tab.label })
       })
+      tabs.push({ id: 'comments', label: t('sales.documents.detail.tabs.comments', 'Comments') })
       return tabs
     },
     [injectedTabs, kind, t],
@@ -4827,19 +4827,23 @@ export default function SalesDocumentDetailPage({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 pb-2">
             <div className="flex flex-wrap items-center gap-2">
               {tabButtons.map((tab) => (
-                <button
+                <Button
                   key={tab.id}
                   type="button"
+                  variant="ghost"
+                  size="sm"
+                  data-tab-id={tab.id}
+                  data-active={activeTab === tab.id ? 'true' : 'false'}
                   className={cn(
-                    'px-3 py-2 text-sm font-medium transition-colors',
+                    'h-auto rounded-none border-b-2 px-3 py-2 text-sm font-medium transition-colors hover:bg-transparent',
                     activeTab === tab.id
                       ? 'border-b-2 border-primary text-primary'
-                      : 'text-muted-foreground hover:text-foreground'
+                      : 'border-transparent text-muted-foreground hover:text-foreground'
                   )}
                   onClick={() => setActiveTab(tab.id)}
                 >
                   {tab.label}
-                </button>
+                </Button>
               ))}
             </div>
             {sectionAction ? (

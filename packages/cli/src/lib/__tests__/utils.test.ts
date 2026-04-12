@@ -10,6 +10,7 @@ import {
   toVar,
   toSnake,
   createGeneratorResult,
+  sourceFileHasNamedExport,
   type ChecksumRecord,
 } from '../utils'
 
@@ -267,6 +268,62 @@ describe('utils', () => {
 
       expect(result).toBe(true)
       expect(mockFs.writeFileSync).toHaveBeenCalledWith('/path/to/file.ts', 'new content')
+    })
+  })
+
+  describe('sourceFileHasNamedExport', () => {
+    it('detects direct const export', () => {
+      mockFs.readFileSync.mockReturnValue('export const openApi = { summary: "Test" }')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(true)
+    })
+
+    it('detects direct function export', () => {
+      mockFs.readFileSync.mockReturnValue('export function openApi() { return {} }')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(true)
+    })
+
+    it('detects async function export', () => {
+      mockFs.readFileSync.mockReturnValue('export async function openApi() { return {} }')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(true)
+    })
+
+    it('detects re-export from export block', () => {
+      mockFs.readFileSync.mockReturnValue('const openApi = {}\nexport { openApi }')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(true)
+    })
+
+    it('detects export with other names in block', () => {
+      mockFs.readFileSync.mockReturnValue('export { foo, openApi, bar }')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(true)
+    })
+
+    it('returns false when export does not exist', () => {
+      mockFs.readFileSync.mockReturnValue('export const metadata = {}')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(false)
+    })
+
+    it('returns false when file cannot be read', () => {
+      mockFs.readFileSync.mockImplementation(() => { throw new Error('ENOENT') })
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(false)
+    })
+
+    it('does not false-positive on partial name matches', () => {
+      mockFs.readFileSync.mockReturnValue('export const openApiSpec = {}')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'openApi')).toBe(false)
+    })
+
+    it('detects export with TypeScript type annotation', () => {
+      mockFs.readFileSync.mockReturnValue('export const metadata: WorkerMeta = { queue: "test" }')
+
+      expect(sourceFileHasNamedExport('/path/to/file.ts', 'metadata')).toBe(true)
     })
   })
 })

@@ -654,7 +654,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       organizationId: entity.organizationId,
       tenantId: entity.tenantId,
     }
-    await em.nativeDelete(CustomerTagAssignment, { entity })
+    await em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
     if (profile) {
       await em.remove(profile).flush()
     }
@@ -953,12 +953,12 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       ensureOrganizationScope(ctx, record.organizationId)
       const profile = await em.findOne(CustomerPersonProfile, { entity: record })
       if (profile) em.remove(profile)
-      await em.nativeDelete(CustomerAddress, { entity: record })
-      await em.nativeDelete(CustomerComment, { entity: record })
-      await em.nativeDelete(CustomerActivity, { entity: record })
-      await em.nativeDelete(CustomerInteraction, { entity: record })
-      await em.nativeDelete(CustomerTodoLink, { entity: record })
-      await em.nativeDelete(CustomerTagAssignment, { entity: record })
+      await em.nativeDelete(CustomerAddress, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerComment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerTodoLink, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
+      await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
       await em.nativeDelete(CustomerDealPersonLink, { person: record })
       await em.nativeDelete(CustomerPersonCompanyLink, { person: record })
       em.remove(record)
@@ -1197,7 +1197,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerActivity, { entity })
+      await em.nativeDelete(CustomerActivity, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const activity of beforeActivities) {
         const restoredActivity = em.create(CustomerActivity, {
           id: activity.id,
@@ -1219,7 +1219,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerComment, { entity })
+      await em.nativeDelete(CustomerComment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const comment of before.comments) {
         const restoredComment = em.create(CustomerComment, {
           id: comment.id,
@@ -1239,7 +1239,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerAddress, { entity })
+      await em.nativeDelete(CustomerAddress, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const address of before.addresses) {
         const restoredAddress = em.create(CustomerAddress, {
           id: address.id,
@@ -1262,7 +1262,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      await em.nativeDelete(CustomerTodoLink, { entity })
+      await em.nativeDelete(CustomerTodoLink, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const todo of beforeTodos) {
         const restoredTodo = em.create(CustomerTodoLink, {
           id: todo.id,
@@ -1279,7 +1279,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.flush()
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await em.nativeDelete(CustomerInteraction, { entity })
+      await em.nativeDelete(CustomerInteraction, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const interaction of beforeInteractions) {
         const restoredInteraction = em.create(CustomerInteraction, {
           id: interaction.id,

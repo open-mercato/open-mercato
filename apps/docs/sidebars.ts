@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "user-guide/overview",
         "user-guide/login",
+        "user-guide/self-service-onboarding",
         "user-guide/users-and-roles",
         "user-guide/api-keys",
         "user-guide/feature-toggles",
@@ -74,6 +75,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/integrations",
             "user-guide/webhooks",
             "user-guide/akeneo-pim",
+            "user-guide/checkout",
             "user-guide/stripe-payments",
             "user-guide/payment-transactions",
           ],

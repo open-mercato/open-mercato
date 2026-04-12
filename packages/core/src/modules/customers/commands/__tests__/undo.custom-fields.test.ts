@@ -1635,7 +1635,7 @@ describe('customers commands undo custom fields', () => {
     const ctx = createMockContext({ em, dataEngine })
     await handler.execute({ query: { id: entity.id } }, ctx)
 
-    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerInteraction, { entity })
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerInteraction, expect.objectContaining({ entity, organizationId: entity.organizationId, tenantId: entity.tenantId }))
     const interactionDeleteOrder = em.nativeDelete.mock.invocationCallOrder[
       em.nativeDelete.mock.calls.findIndex(([ctor]) => ctor === CustomerInteraction)
     ]
@@ -1745,7 +1745,7 @@ describe('customers commands undo custom fields', () => {
     const ctx = createMockContext({ em, dataEngine })
     await handler.execute({ query: { id: entity.id } }, ctx)
 
-    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerInteraction, { entity })
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerInteraction, expect.objectContaining({ entity, organizationId: entity.organizationId, tenantId: entity.tenantId }))
     const interactionDeleteOrder = em.nativeDelete.mock.invocationCallOrder[
       em.nativeDelete.mock.calls.findIndex(([ctor]) => ctor === CustomerInteraction)
     ]

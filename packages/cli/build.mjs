@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
-import { readFileSync, writeFileSync, chmodSync, existsSync, cpSync } from 'node:fs'
+import { readFileSync, writeFileSync, chmodSync, existsSync, cpSync, mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -97,6 +97,34 @@ const agenticSrc = join(__dirname, '..', 'create-app', 'agentic')
 if (existsSync(agenticSrc)) {
   cpSync(agenticSrc, join(outdir, 'agentic'), { recursive: true })
   console.log('Copied create-app/agentic/ → dist/agentic/')
+}
+
+const packagesDir = join(__dirname, '..')
+const guidesDestDir = join(outdir, 'agentic', 'guides')
+mkdirSync(guidesDestDir, { recursive: true })
+
+let guidesFound = 0
+for (const pkg of readdirSync(packagesDir)) {
+  const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
+  if (existsSync(guideSource)) {
+    cpSync(guideSource, join(guidesDestDir, `${pkg}.md`))
+    guidesFound++
+  }
+
+  const modulesDir = join(packagesDir, pkg, 'src', 'modules')
+  if (!existsSync(modulesDir)) continue
+
+  for (const mod of readdirSync(modulesDir)) {
+    const moduleGuideSource = join(modulesDir, mod, 'agentic', 'standalone-guide.md')
+    if (existsSync(moduleGuideSource)) {
+      cpSync(moduleGuideSource, join(guidesDestDir, `${pkg}.${mod}.md`))
+      guidesFound++
+    }
+  }
+}
+
+if (guidesFound > 0) {
+  console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
 }
 
 console.log('CLI built successfully')

@@ -100,7 +100,7 @@ Follow the customers module API patterns (CRUD factory + query engine):
 
 Every module participating in tenant initialization must declare `setup.ts`. The generator auto-discovers these files.
 
-See [SPEC-013](../../.ai/specs/SPEC-013-2026-01-27-decouple-module-setup.md) for the full ADR.
+See [SPEC-013](../../.ai/specs/implemented/SPEC-013-2026-01-27-decouple-module-setup.md) for the full ADR.
 
 ```typescript
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'

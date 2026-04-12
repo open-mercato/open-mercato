@@ -301,6 +301,7 @@ export default function CustomersPeoplePage() {
       label: t('customers.people.list.filters.tags'),
       type: 'tags',
       loadOptions: loadTagOptions,
+      formatValue: (value: string) => tagIdToLabel[value] ?? value,
     },
     {
       id: 'createdAt',
@@ -328,7 +329,7 @@ export default function CustomersPeoplePage() {
       label: t('customers.people.list.filters.hasNextInteraction'),
       type: 'checkbox',
     },
-  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, t])
+  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, tagIdToLabel, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -742,6 +743,7 @@ export default function CustomersPeoplePage() {
       <PageBody>
         <DataTable<PersonRow>
           stickyFirstColumn
+          stickyActionsColumn
           title={t('customers.people.list.title')}
           refreshButton={{
             label: t('customers.people.list.actions.refresh'),
