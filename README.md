@@ -261,6 +261,7 @@ Prerequisites:
 - **Git**
 - **Docker Desktop with WSL 2 backend enabled**
 - **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
+- **Microsoft Visual C++ Redistributable 2015+ x64** for native binaries used by the toolchain
 
 One-time setup:
 
@@ -270,13 +271,14 @@ corepack prepare yarn@stable --activate
 git config --global core.autocrlf false
 ```
 
-On a fresh Windows machine, install the Visual C++ toolchain before `yarn install`. Some dependencies include native modules and will fail during install without it:
+On a fresh Windows machine, install these required Windows components before `yarn install`:
 
 ```powershell
-winget install --id Microsoft.VisualStudio.2022.BuildTools --exact --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.22621"
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Microsoft.VCRedist.2015+.x64
 ```
 
-After the install finishes, open a new terminal and continue with the monorepo setup.
+If you install Build Tools through the UI, make sure the C++ build tools workload is included. After both installs finish, open a new terminal and continue with the monorepo setup.
 
 From the monorepo root, start only infrastructure services:
 
@@ -286,15 +288,11 @@ docker compose up -d
 
 The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
 
-You may then run the optional Windows optimizer:
+Optional performance tip for Windows: exclude the current project directory from Microsoft Defender real-time scanning. This is not required for correctness; it only helps file-heavy Node.js workflows run faster.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\windows-optimize.ps1
+Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
 ```
-
-The optimizer shows a plan first, then asks whether to relaunch itself as Administrator. If you accept, a new elevated PowerShell window opens, shows the same plan again, and asks for execution confirmation before applying changes. Close the original non-elevated window after the optimizer completes.
-
-The optimizer does not disable Microsoft Defender globally. It only adds a Defender exclusion for the current project root and saves rollback state once to `.mercato\windows-optimize-state.json`.
 
 Then continue with the monorepo setup:
 
@@ -302,11 +300,12 @@ Then continue with the monorepo setup:
 yarn install
 yarn build:packages
 yarn generate
+yarn build:packages
 yarn initialize
 yarn dev
 ```
 
-`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps created by `create-mercato-app`.
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps created by `create-mercato-app`. On a fresh local setup, run it both before and after `yarn generate` so `yarn initialize` can see the generated scripts.
 
 For an existing database where you only need to apply new migrations:
 
@@ -315,14 +314,6 @@ yarn db:migrate
 yarn generate
 yarn dev
 ```
-
-To roll back the optional Windows optimizer:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\windows-rollback.ps1
-```
-
-Rollback reads `.mercato\windows-optimize-state.json`, preserves Defender exclusions that existed before optimization, removes only exclusions the optimizer added, restores the captured Git, long-paths, and user-level `NODE_OPTIONS` values, and deletes the state file after a completed rollback. If the state file is absent, rollback exits with an error instead of guessing. Restart your terminal after rollback so environment variable changes take effect.
 
 Optional Windows cleanup scripts:
 
