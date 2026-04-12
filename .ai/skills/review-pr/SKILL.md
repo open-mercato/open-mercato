@@ -163,13 +163,13 @@ Based on the review findings, determine the outcome:
 
 | Condition | Decision |
 |-----------|----------|
-| Any **Critical** or **High** findings | `changes_requested` |
-| Only **Medium** and/or **Low** findings | `approved` |
+| Any **Critical**, **High**, or **Medium** findings | `changes_requested` |
+| Only **Low** findings | `approved` |
 | No findings at all | `approved` |
 
 ### 7. Submit the GitHub review
 
-#### If approved (no Critical/High findings):
+#### If approved (only Low findings or no findings):
 
 ```bash
 gh pr review {prNumber} --approve --body "$(cat <<'EOF'
@@ -182,7 +182,7 @@ EOF
 )"
 ```
 
-#### If changes requested (Critical or High findings):
+#### If changes requested (any Critical, High, or Medium findings):
 
 ```bash
 gh pr review {prNumber} --request-changes --body "$(cat <<'EOF'
