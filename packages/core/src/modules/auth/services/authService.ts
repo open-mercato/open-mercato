@@ -86,7 +86,7 @@ export class AuthService {
     const now = new Date()
     const sess = await this.em.findOne(Session, { token })
     if (!sess || sess.expiresAt <= now) return null
-    const user = await this.em.findOne(User, { id: sess.user.id })
+    const user = await this.em.findOne(User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
     return { user, roles }
