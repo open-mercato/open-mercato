@@ -15,7 +15,6 @@ import {
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 /**
  * System instructions injected at the start of new chat sessions.
