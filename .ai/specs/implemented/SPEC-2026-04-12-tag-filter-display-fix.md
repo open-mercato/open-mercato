@@ -2,7 +2,7 @@
 
 **Issue:** open-mercato/open-mercato#238
 **Date:** 2026-04-12
-**Status:** In Progress
+**Status:** Implemented
 **Scope:** UI bug fix for existing filter rendering behavior; no API, schema, or contract changes
 
 ## TL;DR
