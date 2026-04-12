@@ -1177,8 +1177,20 @@ async function loadQuoteSnapshot(
     lineCustomFields,
     adjustmentCustomFields,
   ] = await Promise.all([
-    em.find(SalesDocumentAddress, { documentId: id, documentKind: "quote" }),
-    em.find(SalesNote, { contextType: "quote", contextId: id }),
+    findWithDecryption(
+      em,
+      SalesDocumentAddress,
+      { documentId: id, documentKind: "quote" },
+      undefined,
+      { tenantId: quote.tenantId, organizationId: quote.organizationId },
+    ),
+    findWithDecryption(
+      em,
+      SalesNote,
+      { contextType: "quote", contextId: id },
+      undefined,
+      { tenantId: quote.tenantId, organizationId: quote.organizationId },
+    ),
     findWithDecryption(
       em,
       SalesDocumentTagAssignment,
@@ -1433,8 +1445,20 @@ async function loadOrderSnapshot(
     lineCustomFields,
     adjustmentCustomFields,
   ] = await Promise.all([
-    em.find(SalesDocumentAddress, { documentId: id, documentKind: "order" }),
-    em.find(SalesNote, { contextType: "order", contextId: id }),
+    findWithDecryption(
+      em,
+      SalesDocumentAddress,
+      { documentId: id, documentKind: "order" },
+      undefined,
+      { tenantId: order.tenantId, organizationId: order.organizationId },
+    ),
+    findWithDecryption(
+      em,
+      SalesNote,
+      { contextType: "order", contextId: id },
+      undefined,
+      { tenantId: order.tenantId, organizationId: order.organizationId },
+    ),
     findWithDecryption(
       em,
       SalesDocumentTagAssignment,
@@ -4495,11 +4519,23 @@ const deleteQuoteCommand: CommandHandler<
       throw new CrudHttpError(404, { error: "Sales quote not found" });
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     const [addresses, notes, tags, adjustments, lines] = await Promise.all([
-      em.find(SalesDocumentAddress, {
-        documentId: quote.id,
-        documentKind: "quote",
-      }),
-      em.find(SalesNote, { contextType: "quote", contextId: quote.id }),
+      findWithDecryption(
+        em,
+        SalesDocumentAddress,
+        {
+          documentId: quote.id,
+          documentKind: "quote",
+        },
+        undefined,
+        { tenantId: quote.tenantId, organizationId: quote.organizationId },
+      ),
+      findWithDecryption(
+        em,
+        SalesNote,
+        { contextType: "quote", contextId: quote.id },
+        undefined,
+        { tenantId: quote.tenantId, organizationId: quote.organizationId },
+      ),
       em.find(SalesDocumentTagAssignment, {
         documentId: quote.id,
         documentKind: "quote",
@@ -5420,11 +5456,23 @@ const deleteOrderCommand: CommandHandler<
         : Promise.resolve([]),
       em.find(SalesPayment, { order: order.id }),
       em.find(SalesPaymentAllocation, { order: order.id }),
-      em.find(SalesDocumentAddress, {
-        documentId: order.id,
-        documentKind: "order",
-      }),
-      em.find(SalesNote, { contextType: "order", contextId: order.id }),
+      findWithDecryption(
+        em,
+        SalesDocumentAddress,
+        {
+          documentId: order.id,
+          documentKind: "order",
+        },
+        undefined,
+        { tenantId: order.tenantId, organizationId: order.organizationId },
+      ),
+      findWithDecryption(
+        em,
+        SalesNote,
+        { contextType: "order", contextId: order.id },
+        undefined,
+        { tenantId: order.tenantId, organizationId: order.organizationId },
+      ),
       em.find(SalesDocumentTagAssignment, {
         documentId: order.id,
         documentKind: "order",
