@@ -19,7 +19,8 @@ If you plan to use the [Docker development setup](./setup#docker-development-set
   corepack enable
   corepack prepare yarn@stable --activate
   ```
-- **Visual Studio 2022 Build Tools** - recommended for native Windows monorepo development. Some Node.js dependencies include native modules and can fail on a clean machine without the Visual C++ toolchain. See [Windows native local development](./setup#windows-native-local-development) for the `winget` install command.
+- **Visual Studio 2022 Build Tools** - required for native Windows monorepo development. Some Node.js dependencies include native modules and can fail on a clean machine without the Visual C++ toolchain. See [Windows native local development](./setup#windows-native-local-development) for the `winget` install command.
+- **Microsoft Visual C++ Redistributable 2015+ x64** - required on Windows for native binaries used by the toolchain. See [Windows native local development](./setup#windows-native-local-development) for the `winget` install command.
 - **Docker & Docker Compose** - required for running PostgreSQL with pgvector and Redis.
 - **OpenSSL** - handy for generating random secrets while configuring `.env`.
 - **GraphicsMagick, Ghostscript, and Poppler** (optional) - required for LLM-based OCR on PDFs:
