@@ -37,6 +37,10 @@ import {
   SalesShipmentItem,
   SalesPayment,
   SalesPaymentAllocation,
+  SalesInvoice,
+  SalesInvoiceLine,
+  SalesCreditMemo,
+  SalesCreditMemoLine,
   SalesDocumentAddress,
   SalesNote,
   SalesChannel,
@@ -67,12 +71,18 @@ import {
   orderCreateSchema,
   orderLineCreateSchema,
   orderAdjustmentCreateSchema,
+  invoiceCreateSchema,
+  invoiceUpdateSchema,
+  creditMemoCreateSchema,
+  creditMemoUpdateSchema,
   type QuoteCreateInput,
   type QuoteLineCreateInput,
   type QuoteAdjustmentCreateInput,
   type OrderCreateInput,
   type OrderLineCreateInput,
   type OrderAdjustmentCreateInput,
+  type InvoiceCreateInput,
+  type CreditMemoCreateInput,
 } from "../data/validators";
 import {
   ensureOrganizationScope,
@@ -420,6 +430,115 @@ type QuoteUndoPayload = {
 type QuoteConvertUndoPayload = {
   quote?: QuoteGraphSnapshot | null;
   order?: OrderGraphSnapshot | null;
+};
+
+type InvoiceGraphSnapshot = {
+  invoice: {
+    id: string;
+    organizationId: string;
+    tenantId: string;
+    invoiceNumber: string;
+    orderId: string | null;
+    statusEntryId: string | null;
+    status: string | null;
+    issueDate: string | Date | null;
+    dueDate: string | Date | null;
+    currencyCode: string;
+    subtotalNetAmount: string;
+    subtotalGrossAmount: string;
+    discountTotalAmount: string;
+    taxTotalAmount: string;
+    grandTotalNetAmount: string;
+    grandTotalGrossAmount: string;
+    paidTotalAmount: string;
+    outstandingAmount: string;
+    metadata: Record<string, unknown> | null;
+    customFieldSetId: string | null;
+    customFields: Record<string, unknown> | null;
+  };
+  lines: InvoiceLineSnapshot[];
+};
+
+type InvoiceLineSnapshot = {
+  id: string;
+  orderLineId: string | null;
+  lineNumber: number;
+  kind: string;
+  name: string | null;
+  sku: string | null;
+  description: string | null;
+  quantity: string;
+  quantityUnit: string | null;
+  normalizedQuantity: string;
+  normalizedUnit: string | null;
+  uomSnapshot: Record<string, unknown> | null;
+  currencyCode: string;
+  unitPriceNet: string;
+  unitPriceGross: string;
+  discountAmount: string;
+  discountPercent: string;
+  taxRate: string;
+  taxAmount: string;
+  totalNetAmount: string;
+  totalGrossAmount: string;
+  metadata: Record<string, unknown> | null;
+};
+
+type CreditMemoGraphSnapshot = {
+  creditMemo: {
+    id: string;
+    organizationId: string;
+    tenantId: string;
+    creditMemoNumber: string;
+    orderId: string | null;
+    invoiceId: string | null;
+    statusEntryId: string | null;
+    status: string | null;
+    reason: string | null;
+    issueDate: string | Date | null;
+    currencyCode: string;
+    subtotalNetAmount: string;
+    subtotalGrossAmount: string;
+    taxTotalAmount: string;
+    grandTotalNetAmount: string;
+    grandTotalGrossAmount: string;
+    metadata: Record<string, unknown> | null;
+    customFieldSetId: string | null;
+    customFields: Record<string, unknown> | null;
+  };
+  lines: CreditMemoLineSnapshot[];
+};
+
+type CreditMemoLineSnapshot = {
+  id: string;
+  orderLineId: string | null;
+  lineNumber: number;
+  name: string | null;
+  sku: string | null;
+  description: string | null;
+  quantity: string;
+  quantityUnit: string | null;
+  normalizedQuantity: string;
+  normalizedUnit: string | null;
+  uomSnapshot: Record<string, unknown> | null;
+  currencyCode: string;
+  unitPriceNet: string;
+  unitPriceGross: string;
+  taxRate: string;
+  taxAmount: string;
+  totalNetAmount: string;
+  totalGrossAmount: string;
+  metadata: Record<string, unknown> | null;
+};
+
+type InvoiceUndoPayload = {
+  before?: InvoiceGraphSnapshot | null;
+  after?: InvoiceGraphSnapshot | null;
+};
+
+type CreditMemoUndoPayload = {
+  before?: CreditMemoGraphSnapshot | null;
+  after?: CreditMemoGraphSnapshot | null;
 };
 
 const currencyCodeSchema = z
@@ -1694,6 +1813,143 @@ async function loadOrderSnapshot(
     tags: tagSnapshots,
     shipments: shipmentSnapshots,
     payments: paymentSnapshots,
+  };
+}
+
+async function loadInvoiceSnapshot(
+  em: EntityManager,
+  id: string,
+): Promise<InvoiceGraphSnapshot | null> {
+  const invoice = await em.findOne(SalesInvoice, { id, deletedAt: null });
+  if (!invoice) return null;
+  const lines = await em.find(
+    SalesInvoiceLine,
+    { invoice: invoice },
+    { orderBy: { lineNumber: "asc" } },
+  );
+  const [invoiceCustomFields] = await Promise.all([
+    loadCustomFieldValues({
+      em,
+      entityId: E.sales.sales_invoice,
+      recordIds: [invoice.id],
+      tenantIdByRecord: { [invoice.id]: invoice.tenantId },
+      organizationIdByRecord: { [invoice.id]: invoice.organizationId },
+    }),
+  ]);
+  return {
+    invoice: {
+      id: invoice.id,
+      organizationId: invoice.organizationId,
+      tenantId: invoice.tenantId,
+      invoiceNumber: invoice.invoiceNumber,
+      orderId: invoice.orderId ?? null,
+      statusEntryId: invoice.statusEntryId ?? null,
+      status: invoice.status ?? null,
+      issueDate: invoice.issueDate ?? null,
+      dueDate: invoice.dueDate ?? null,
+      currencyCode: invoice.currencyCode,
+      subtotalNetAmount: String(invoice.subtotalNetAmount),
+      subtotalGrossAmount: String(invoice.subtotalGrossAmount),
+      discountTotalAmount: String(invoice.discountTotalAmount),
+      taxTotalAmount: String(invoice.taxTotalAmount),
+      grandTotalNetAmount: String(invoice.grandTotalNetAmount),
+      grandTotalGrossAmount: String(invoice.grandTotalGrossAmount),
+      paidTotalAmount: String(invoice.paidTotalAmount),
+      outstandingAmount: String(invoice.outstandingAmount),
+      metadata: invoice.metadata ?? null,
+      customFieldSetId: invoice.customFieldSetId ?? null,
+      customFields: invoiceCustomFields[invoice.id] ?? null,
+    },
+    lines: lines.map((line) => ({
+      id: line.id,
+      orderLineId: line.orderLineId ?? null,
+      lineNumber: line.lineNumber,
+      kind: line.kind ?? "product",
+      name: line.name ?? null,
+      sku: line.sku ?? null,
+      description: line.description ?? null,
+      quantity: String(line.quantity),
+      quantityUnit: line.quantityUnit ?? null,
+      normalizedQuantity: String(line.normalizedQuantity),
+      normalizedUnit: line.normalizedUnit ?? null,
+      uomSnapshot: line.uomSnapshot ?? null,
+      currencyCode: line.currencyCode,
+      unitPriceNet: String(line.unitPriceNet),
+      unitPriceGross: String(line.unitPriceGross),
+      discountAmount: String(line.discountAmount),
+      discountPercent: String(line.discountPercent),
+      taxRate: String(line.taxRate),
+      taxAmount: String(line.taxAmount),
+      totalNetAmount: String(line.totalNetAmount),
+      totalGrossAmount: String(line.totalGrossAmount),
+      metadata: line.metadata ?? null,
+    })),
+  };
+}
+
+async function loadCreditMemoSnapshot(
+  em: EntityManager,
+  id: string,
+): Promise<CreditMemoGraphSnapshot | null> {
+  const creditMemo = await em.findOne(SalesCreditMemo, { id, deletedAt: null });
+  if (!creditMemo) return null;
+  const lines = await em.find(
+    SalesCreditMemoLine,
+    { creditMemo: creditMemo },
+    { orderBy: { lineNumber: "asc" } },
+  );
+  const [creditMemoCustomFields] = await Promise.all([
+    loadCustomFieldValues({
+      em,
+      entityId: E.sales.sales_credit_memo,
+      recordIds: [creditMemo.id],
+      tenantIdByRecord: { [creditMemo.id]: creditMemo.tenantId },
+      organizationIdByRecord: { [creditMemo.id]: creditMemo.organizationId },
+    }),
+  ]);
+  return {
+    creditMemo: {
+      id: creditMemo.id,
+      organizationId: creditMemo.organizationId,
+      tenantId: creditMemo.tenantId,
+      creditMemoNumber: creditMemo.creditMemoNumber,
+      orderId: creditMemo.orderId ?? null,
+      invoiceId: creditMemo.invoiceId ?? null,
+      statusEntryId: creditMemo.statusEntryId ?? null,
+      status: creditMemo.status ?? null,
+      reason: creditMemo.reason ?? null,
+      issueDate: creditMemo.issueDate ?? null,
+      currencyCode: creditMemo.currencyCode,
+      subtotalNetAmount: String(creditMemo.subtotalNetAmount),
+      subtotalGrossAmount: String(creditMemo.subtotalGrossAmount),
+      taxTotalAmount: String(creditMemo.taxTotalAmount),
+      grandTotalNetAmount: String(creditMemo.grandTotalNetAmount),
+      grandTotalGrossAmount: String(creditMemo.grandTotalGrossAmount),
+      metadata: creditMemo.metadata ?? null,
+      customFieldSetId: creditMemo.customFieldSetId ?? null,
+      customFields: creditMemoCustomFields[creditMemo.id] ?? null,
+    },
+    lines: lines.map((line) => ({
+      id: line.id,
+      orderLineId: line.orderLineId ?? null,
+      lineNumber: line.lineNumber,
+      name: line.name ?? null,
+      sku: line.sku ?? null,
+      description: line.description ?? null,
+      quantity: String(line.quantity),
+      quantityUnit: line.quantityUnit ?? null,
+      normalizedQuantity: String(line.normalizedQuantity),
+      normalizedUnit: line.normalizedUnit ?? null,
+      uomSnapshot: line.uomSnapshot ?? null,
+      currencyCode: line.currencyCode,
+      unitPriceNet: String(line.unitPriceNet),
+      unitPriceGross: String(line.unitPriceGross),
+      taxRate: String(line.taxRate),
+      taxAmount: String(line.taxAmount),
+      totalNetAmount: String(line.totalNetAmount),
+      totalGrossAmount: String(line.totalGrossAmount),
+      metadata: line.metadata ?? null,
+    })),
   };
 }
 
@@ -7673,6 +7929,938 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
   },
 };
 
+// ---------------------------------------------------------------------------
+// Invoice CRUD commands
+// ---------------------------------------------------------------------------
+
+const invoiceCrudEvents: CrudEventsConfig<SalesInvoice> = {
+  module: "sales",
+  entity: "invoice",
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+};
+
+const createInvoiceCommand: CommandHandler<
+  InvoiceCreateInput,
+  { invoiceId: string }
+> = {
+  id: "sales.invoices.create",
+  async execute(rawInput, ctx) {
+    const generator = ctx.container.resolve(
+      "salesDocumentNumberGenerator",
+    ) as SalesDocumentNumberGenerator;
+    const initial = invoiceCreateSchema.parse(rawInput ?? {});
+    const invoiceNumber =
+      typeof initial.invoiceNumber === "string" &&
+      initial.invoiceNumber.trim().length
+        ? initial.invoiceNumber.trim()
+        : (
+            await generator.generate({
+              kind: "invoice",
+              organizationId: initial.organizationId,
+              tenantId: initial.tenantId,
+            })
+          ).number;
+    const parsed = invoiceCreateSchema.parse({ ...initial, invoiceNumber });
+    const ensuredInvoiceNumber = parsed.invoiceNumber ?? invoiceNumber;
+    if (!ensuredInvoiceNumber) {
+      throw new CrudHttpError(400, { error: "Invoice number is required." });
+    }
+    ensureOrganizationScope(ctx, parsed.organizationId);
+    ensureTenantScope(ctx, parsed.tenantId);
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const status = await resolveDictionaryEntryValue(
+      em,
+      parsed.statusEntryId ?? null,
+    );
+
+    // Validate orderId belongs to same org/tenant
+    if (parsed.orderId) {
+      const orderExists = await em.findOne(SalesOrder, {
+        id: parsed.orderId,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (!orderExists) {
+        throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
+      }
+    }
+
+    const invoiceId = randomUUID();
+    const invoice = em.create(SalesInvoice, {
+      id: invoiceId,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      invoiceNumber: ensuredInvoiceNumber,
+      orderId: parsed.orderId ?? null,
+      statusEntryId: parsed.statusEntryId ?? null,
+      status,
+      issueDate: parsed.issueDate ?? new Date(),
+      dueDate: parsed.dueDate ?? null,
+      currencyCode: parsed.currencyCode,
+      subtotalNetAmount: toNumericString(parsed.subtotalNetAmount ?? 0),
+      subtotalGrossAmount: toNumericString(parsed.subtotalGrossAmount ?? 0),
+      discountTotalAmount: toNumericString(parsed.discountTotalAmount ?? 0),
+      taxTotalAmount: toNumericString(parsed.taxTotalAmount ?? 0),
+      grandTotalNetAmount: toNumericString(parsed.grandTotalNetAmount ?? 0),
+      grandTotalGrossAmount: toNumericString(parsed.grandTotalGrossAmount ?? 0),
+      paidTotalAmount: toNumericString(parsed.paidTotalAmount ?? 0),
+      outstandingAmount: toNumericString(parsed.outstandingAmount ?? 0),
+      metadata: parsed.metadata ?? null,
+      customFieldSetId: parsed.customFieldSetId ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    em.persist(invoice);
+
+    if (parsed.lines?.length) {
+      for (let i = 0; i < parsed.lines.length; i++) {
+        const line = parsed.lines[i];
+        em.persist(
+          em.create(SalesInvoiceLine, {
+            id: randomUUID(),
+            invoice,
+            orderLineId: line.orderLineId ?? null,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            lineNumber: line.lineNumber ?? i + 1,
+            kind: line.kind ?? "product",
+            name: line.name ?? null,
+            sku: line.sku ?? null,
+            description: line.description ?? null,
+            quantity: toNumericString(line.quantity ?? 0),
+            quantityUnit: line.quantityUnit ?? null,
+            normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
+            normalizedUnit: line.normalizedUnit ?? null,
+            uomSnapshot: line.uomSnapshot ?? null,
+            currencyCode: line.currencyCode ?? parsed.currencyCode,
+            unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
+            unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
+            discountAmount: toNumericString(line.discountAmount ?? 0),
+            discountPercent: toNumericString(line.discountPercent ?? 0),
+            taxRate: toNumericString(line.taxRate ?? 0),
+            taxAmount: toNumericString(line.taxAmount ?? 0),
+            totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+            totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
+            metadata: line.metadata ?? null,
+          }),
+        );
+      }
+    }
+
+    if (parsed.customFieldSetId) {
+      await setRecordCustomFields(em, invoiceId, parsed.customFieldSetId, parsed);
+    }
+
+    await em.flush();
+
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "created",
+      entity: invoice,
+      identifiers: {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      events: invoiceCrudEvents,
+      indexer: { entityType: E.sales.sales_invoice },
+    });
+
+    await invalidateCrudCache(
+      ctx.container,
+      "sales.invoice",
+      {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      ctx.auth?.tenantId ?? null,
+      "created",
+    );
+
+    return { invoiceId: invoice.id };
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    return loadInvoiceSnapshot(em, result.invoiceId);
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as InvoiceGraphSnapshot | undefined;
+    if (!after) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate("sales.audit.invoices.create", "Create invoice"),
+      resourceKind: "sales.invoice",
+      resourceId: result.invoiceId,
+      tenantId: after.invoice.tenantId,
+      organizationId: after.invoice.organizationId,
+      snapshotAfter: after,
+      payload: {
+        undo: { after } satisfies InvoiceUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InvoiceUndoPayload>(logEntry);
+    const after = payload?.after;
+    if (!after) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const invoice = await em.findOne(SalesInvoice, { id: after.invoice.id });
+    if (!invoice) return;
+    ensureOrganizationScope(ctx, invoice.organizationId);
+    ensureTenantScope(ctx, invoice.tenantId);
+    await em.nativeDelete(SalesInvoiceLine, { invoice: invoice.id });
+    em.remove(invoice);
+    await em.flush();
+  },
+};
+
+const updateInvoiceCommand: CommandHandler<
+  z.infer<typeof invoiceUpdateSchema>,
+  { invoiceId: string }
+> = {
+  id: "sales.invoices.update",
+  async prepare(input, ctx) {
+    const id = requireId(input);
+    const em = ctx.container.resolve("em") as EntityManager;
+    const snapshot = await loadInvoiceSnapshot(em, id);
+    if (snapshot) {
+      ensureOrganizationScope(ctx, snapshot.invoice.organizationId);
+      ensureTenantScope(ctx, snapshot.invoice.tenantId);
+    }
+    return snapshot ? { before: snapshot } : {};
+  },
+  async execute(rawInput, ctx) {
+    const parsed = invoiceUpdateSchema.parse(rawInput ?? {});
+    const id = requireId(parsed);
+    ensureOrganizationScope(ctx, parsed.organizationId);
+    ensureTenantScope(ctx, parsed.tenantId);
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const invoice = await em.findOneOrFail(SalesInvoice, {
+      id,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      deletedAt: null,
+    });
+
+    const changes = buildChanges(invoice, parsed, [
+      "invoiceNumber",
+      "statusEntryId",
+      "status",
+      "issueDate",
+      "dueDate",
+      "currencyCode",
+      "subtotalNetAmount",
+      "subtotalGrossAmount",
+      "discountTotalAmount",
+      "taxTotalAmount",
+      "grandTotalNetAmount",
+      "grandTotalGrossAmount",
+      "paidTotalAmount",
+      "outstandingAmount",
+      "metadata",
+    ]);
+
+    if (parsed.statusEntryId !== undefined) {
+      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null);
+    }
+
+    Object.assign(invoice, changes);
+    invoice.updatedAt = new Date();
+    await em.flush();
+
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: invoice,
+      identifiers: {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      events: invoiceCrudEvents,
+      indexer: { entityType: E.sales.sales_invoice },
+    });
+
+    await invalidateCrudCache(
+      ctx.container,
+      "sales.invoice",
+      {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      ctx.auth?.tenantId ?? null,
+      "updated",
+    );
+
+    return { invoiceId: invoice.id };
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    return loadInvoiceSnapshot(em, result.invoiceId);
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as InvoiceGraphSnapshot | undefined;
+    const after = snapshots.after as InvoiceGraphSnapshot | undefined;
+    if (!after) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate("sales.audit.invoices.update", "Update invoice"),
+      resourceKind: "sales.invoice",
+      resourceId: result.invoiceId,
+      tenantId: after.invoice.tenantId,
+      organizationId: after.invoice.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      payload: {
+        undo: { before, after } satisfies InvoiceUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InvoiceUndoPayload>(logEntry);
+    const before = payload?.before;
+    if (!before) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const invoice = await em.findOne(SalesInvoice, { id: before.invoice.id });
+    if (!invoice) return;
+    ensureOrganizationScope(ctx, invoice.organizationId);
+    ensureTenantScope(ctx, invoice.tenantId);
+    invoice.invoiceNumber = before.invoice.invoiceNumber;
+    invoice.orderId = before.invoice.orderId;
+    invoice.statusEntryId = before.invoice.statusEntryId;
+    invoice.status = before.invoice.status;
+    invoice.issueDate = before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : null;
+    invoice.dueDate = before.invoice.dueDate ? new Date(before.invoice.dueDate as string) : null;
+    invoice.currencyCode = before.invoice.currencyCode;
+    invoice.subtotalNetAmount = before.invoice.subtotalNetAmount;
+    invoice.subtotalGrossAmount = before.invoice.subtotalGrossAmount;
+    invoice.discountTotalAmount = before.invoice.discountTotalAmount;
+    invoice.taxTotalAmount = before.invoice.taxTotalAmount;
+    invoice.grandTotalNetAmount = before.invoice.grandTotalNetAmount;
+    invoice.grandTotalGrossAmount = before.invoice.grandTotalGrossAmount;
+    invoice.paidTotalAmount = before.invoice.paidTotalAmount;
+    invoice.outstandingAmount = before.invoice.outstandingAmount;
+    invoice.metadata = before.invoice.metadata;
+    invoice.updatedAt = new Date();
+    await em.flush();
+  },
+};
+
+const deleteInvoiceCommand: CommandHandler<
+  { id: string; organizationId: string; tenantId: string },
+  { invoiceId: string }
+> = {
+  id: "sales.invoices.delete",
+  async prepare(input, ctx) {
+    const id = requireId(input);
+    const em = ctx.container.resolve("em") as EntityManager;
+    const snapshot = await loadInvoiceSnapshot(em, id);
+    if (snapshot) {
+      ensureOrganizationScope(ctx, snapshot.invoice.organizationId);
+      ensureTenantScope(ctx, snapshot.invoice.tenantId);
+    }
+    return snapshot ? { before: snapshot } : {};
+  },
+  async execute(rawInput, ctx) {
+    const id = requireId(rawInput);
+    ensureOrganizationScope(ctx, rawInput.organizationId);
+    ensureTenantScope(ctx, rawInput.tenantId);
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const invoice = await em.findOneOrFail(SalesInvoice, {
+      id,
+      organizationId: rawInput.organizationId,
+      tenantId: rawInput.tenantId,
+      deletedAt: null,
+    });
+    invoice.deletedAt = new Date();
+    invoice.updatedAt = new Date();
+    await em.flush();
+
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "deleted",
+      entity: invoice,
+      identifiers: {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      events: invoiceCrudEvents,
+      indexer: { entityType: E.sales.sales_invoice },
+    });
+
+    await invalidateCrudCache(
+      ctx.container,
+      "sales.invoice",
+      {
+        id: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+      },
+      ctx.auth?.tenantId ?? null,
+      "deleted",
+    );
+
+    return { invoiceId: invoice.id };
+  },
+  buildLog: async ({ snapshots }) => {
+    const before = snapshots.before as InvoiceGraphSnapshot | undefined;
+    if (!before) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate("sales.audit.invoices.delete", "Delete invoice"),
+      resourceKind: "sales.invoice",
+      resourceId: before.invoice.id,
+      tenantId: before.invoice.tenantId,
+      organizationId: before.invoice.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: { before } satisfies InvoiceUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<InvoiceUndoPayload>(logEntry);
+    const before = payload?.before;
+    if (!before) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    ensureOrganizationScope(ctx, before.invoice.organizationId);
+    ensureTenantScope(ctx, before.invoice.tenantId);
+    const restored = em.create(SalesInvoice, {
+      id: before.invoice.id,
+      organizationId: before.invoice.organizationId,
+      tenantId: before.invoice.tenantId,
+      invoiceNumber: before.invoice.invoiceNumber,
+      orderId: before.invoice.orderId,
+      statusEntryId: before.invoice.statusEntryId,
+      status: before.invoice.status,
+      issueDate: before.invoice.issueDate ? new Date(before.invoice.issueDate as string) : new Date(),
+      dueDate: before.invoice.dueDate ? new Date(before.invoice.dueDate as string) : null,
+      currencyCode: before.invoice.currencyCode,
+      subtotalNetAmount: before.invoice.subtotalNetAmount,
+      subtotalGrossAmount: before.invoice.subtotalGrossAmount,
+      discountTotalAmount: before.invoice.discountTotalAmount,
+      taxTotalAmount: before.invoice.taxTotalAmount,
+      grandTotalNetAmount: before.invoice.grandTotalNetAmount,
+      grandTotalGrossAmount: before.invoice.grandTotalGrossAmount,
+      paidTotalAmount: before.invoice.paidTotalAmount,
+      outstandingAmount: before.invoice.outstandingAmount,
+      metadata: before.invoice.metadata,
+      customFieldSetId: before.invoice.customFieldSetId,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    em.persist(restored);
+    for (const line of before.lines) {
+      em.persist(em.create(SalesInvoiceLine, {
+        id: line.id,
+        invoice: restored,
+        orderLineId: line.orderLineId,
+        organizationId: before.invoice.organizationId,
+        tenantId: before.invoice.tenantId,
+        lineNumber: line.lineNumber,
+        kind: line.kind,
+        name: line.name,
+        sku: line.sku,
+        description: line.description,
+        quantity: line.quantity,
+        quantityUnit: line.quantityUnit,
+        normalizedQuantity: line.normalizedQuantity,
+        normalizedUnit: line.normalizedUnit,
+        uomSnapshot: line.uomSnapshot,
+        currencyCode: line.currencyCode,
+        unitPriceNet: line.unitPriceNet,
+        unitPriceGross: line.unitPriceGross,
+        discountAmount: line.discountAmount,
+        discountPercent: line.discountPercent,
+        taxRate: line.taxRate,
+        taxAmount: line.taxAmount,
+        totalNetAmount: line.totalNetAmount,
+        totalGrossAmount: line.totalGrossAmount,
+        metadata: line.metadata,
+      }));
+    }
+    await em.flush();
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Credit Memo CRUD commands
+// ---------------------------------------------------------------------------
+
+const creditMemoCrudEvents: CrudEventsConfig<SalesCreditMemo> = {
+  module: "sales",
+  entity: "credit_memo",
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+  }),
+};
+
+const createCreditMemoCommand: CommandHandler<
+  CreditMemoCreateInput,
+  { creditMemoId: string }
+> = {
+  id: "sales.credit_memos.create",
+  async execute(rawInput, ctx) {
+    const generator = ctx.container.resolve(
+      "salesDocumentNumberGenerator",
+    ) as SalesDocumentNumberGenerator;
+    const initial = creditMemoCreateSchema.parse(rawInput ?? {});
+    const creditMemoNumber =
+      typeof initial.creditMemoNumber === "string" &&
+      initial.creditMemoNumber.trim().length
+        ? initial.creditMemoNumber.trim()
+        : (
+            await generator.generate({
+              kind: "credit_memo",
+              organizationId: initial.organizationId,
+              tenantId: initial.tenantId,
+            })
+          ).number;
+    const parsed = creditMemoCreateSchema.parse({ ...initial, creditMemoNumber });
+    const ensuredCreditMemoNumber = parsed.creditMemoNumber ?? creditMemoNumber;
+    if (!ensuredCreditMemoNumber) {
+      throw new CrudHttpError(400, { error: "Credit memo number is required." });
+    }
+    ensureOrganizationScope(ctx, parsed.organizationId);
+    ensureTenantScope(ctx, parsed.tenantId);
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const status = await resolveDictionaryEntryValue(
+      em,
+      parsed.statusEntryId ?? null,
+    );
+
+    // Validate orderId belongs to same org/tenant
+    if (parsed.orderId) {
+      const orderExists = await em.findOne(SalesOrder, {
+        id: parsed.orderId,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (!orderExists) {
+        throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
+      }
+    }
+
+    // Validate invoiceId belongs to same org/tenant
+    if (parsed.invoiceId) {
+      const invoiceExists = await em.findOne(SalesInvoice, {
+        id: parsed.invoiceId,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (!invoiceExists) {
+        throw new CrudHttpError(400, { error: "Referenced invoice not found in current scope." });
+      }
+    }
+
+    const creditMemoId = randomUUID();
+    const creditMemo = em.create(SalesCreditMemo, {
+      id: creditMemoId,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      creditMemoNumber: ensuredCreditMemoNumber,
+      orderId: parsed.orderId ?? null,
+      invoiceId: parsed.invoiceId ?? null,
+      statusEntryId: parsed.statusEntryId ?? null,
+      status,
+      reason: parsed.reason ?? null,
+      issueDate: parsed.issueDate ?? new Date(),
+      currencyCode: parsed.currencyCode,
+      subtotalNetAmount: toNumericString(parsed.subtotalNetAmount ?? 0),
+      subtotalGrossAmount: toNumericString(parsed.subtotalGrossAmount ?? 0),
+      taxTotalAmount: toNumericString(parsed.taxTotalAmount ?? 0),
+      grandTotalNetAmount: toNumericString(parsed.grandTotalNetAmount ?? 0),
+      grandTotalGrossAmount: toNumericString(parsed.grandTotalGrossAmount ?? 0),
+      metadata: parsed.metadata ?? null,
+      customFieldSetId: parsed.customFieldSetId ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    em.persist(creditMemo);
+
+    if (parsed.lines?.length) {
+      for (let i = 0; i < parsed.lines.length; i++) {
+        const line = parsed.lines[i];
+        em.persist(
+          em.create(SalesCreditMemoLine, {
+            id: randomUUID(),
+            creditMemo,
+            orderLineId: line.orderLineId ?? null,
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            lineNumber: line.lineNumber ?? i + 1,
+            name: line.name ?? null,
+            sku: line.sku ?? null,
+            description: line.description ?? null,
+            quantity: toNumericString(line.quantity ?? 0),
+            quantityUnit: line.quantityUnit ?? null,
+            normalizedQuantity: toNumericString(line.normalizedQuantity ?? 0),
+            normalizedUnit: line.normalizedUnit ?? null,
+            uomSnapshot: line.uomSnapshot ?? null,
+            currencyCode: line.currencyCode ?? parsed.currencyCode,
+            unitPriceNet: toNumericString(line.unitPriceNet ?? 0),
+            unitPriceGross: toNumericString(line.unitPriceGross ?? 0),
+            taxRate: toNumericString(line.taxRate ?? 0),
+            taxAmount: toNumericString(line.taxAmount ?? 0),
+            totalNetAmount: toNumericString(line.totalNetAmount ?? 0),
+            totalGrossAmount: toNumericString(line.totalGrossAmount ?? 0),
+            metadata: line.metadata ?? null,
+          }),
+        );
+      }
+    }
+
+    if (parsed.customFieldSetId) {
+      await setRecordCustomFields(em, creditMemoId, parsed.customFieldSetId, parsed);
+    }
+
+    await em.flush();
+
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "created",
+      entity: creditMemo,
+      identifiers: {
+        id: creditMemo.id,
+        organizationId: creditMemo.organizationId,
+        tenantId: creditMemo.tenantId,
+      },
+      events: creditMemoCrudEvents,
+      indexer: { entityType: E.sales.sales_credit_memo },
+    });
+
+    await invalidateCrudCache(
+      ctx.container,
+      "sales.credit_memo",
+      {
+        id: creditMemo.id,
+        organizationId: creditMemo.organizationId,
+        tenantId: creditMemo.tenantId,
+      },
+      ctx.auth?.tenantId ?? null,
+      "created",
+    );
+
+    return { creditMemoId: creditMemo.id };
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    return loadCreditMemoSnapshot(em, result.creditMemoId);
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const after = snapshots.after as CreditMemoGraphSnapshot | undefined;
+    if (!after) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate("sales.audit.credit_memos.create", "Create credit memo"),
+      resourceKind: "sales.credit_memo",
+      resourceId: result.creditMemoId,
+      tenantId: after.creditMemo.tenantId,
+      organizationId: after.creditMemo.organizationId,
+      snapshotAfter: after,
+      payload: {
+        undo: { after } satisfies CreditMemoUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CreditMemoUndoPayload>(logEntry);
+    const after = payload?.after;
+    if (!after) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const creditMemo = await em.findOne(SalesCreditMemo, { id: after.creditMemo.id });
+    if (!creditMemo) return;
+    ensureOrganizationScope(ctx, creditMemo.organizationId);
+    ensureTenantScope(ctx, creditMemo.tenantId);
+    await em.nativeDelete(SalesCreditMemoLine, { creditMemo: creditMemo.id });
+    em.remove(creditMemo);
+    await em.flush();
+  },
+};
+
+const updateCreditMemoCommand: CommandHandler<
+  z.infer<typeof creditMemoUpdateSchema>,
+  { creditMemoId: string }
+> = {
+  id: "sales.credit_memos.update",
+  async prepare(input, ctx) {
+    const id = requireId(input);
+    const em = ctx.container.resolve("em") as EntityManager;
+    const snapshot = await loadCreditMemoSnapshot(em, id);
+    if (snapshot) {
+      ensureOrganizationScope(ctx, snapshot.creditMemo.organizationId);
+      ensureTenantScope(ctx, snapshot.creditMemo.tenantId);
+    }
+    return snapshot ? { before: snapshot } : {};
+  },
+  async execute(rawInput, ctx) {
+    const parsed = creditMemoUpdateSchema.parse(rawInput ?? {});
+    const id = requireId(parsed);
+    ensureOrganizationScope(ctx, parsed.organizationId);
+    ensureTenantScope(ctx, parsed.tenantId);
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const creditMemo = await em.findOneOrFail(SalesCreditMemo, {
+      id,
+      organizationId: parsed.organizationId,
+      tenantId: parsed.tenantId,
+      deletedAt: null,
+    });
+
+    const changes = buildChanges(creditMemo, parsed, [
+      "creditMemoNumber",
+      "statusEntryId",
+      "status",
+      "reason",
+      "issueDate",
+      "currencyCode",
+      "subtotalNetAmount",
+      "subtotalGrossAmount",
+      "taxTotalAmount",
+      "grandTotalNetAmount",
+      "grandTotalGrossAmount",
+      "metadata",
+    ]);
+
+    if (parsed.statusEntryId !== undefined) {
+      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null);
+    }
+
+    Object.assign(creditMemo, changes);
+    creditMemo.updatedAt = new Date();
+    await em.flush();
+
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "updated",
+      entity: creditMemo,
+      identifiers: {
+        id: creditMemo.id,
+        organizationId: creditMemo.organizationId,
+        tenantId: creditMemo.tenantId,
+      },
+      events: creditMemoCrudEvents,
+      indexer: { entityType: E.sales.sales_credit_memo },
+    });
+
+    await invalidateCrudCache(
+      ctx.container,
+      "sales.credit_memo",
+      {
+        id: creditMemo.id,
+        organizationId: creditMemo.organizationId,
+        tenantId: creditMemo.tenantId,
+      },
+      ctx.auth?.tenantId ?? null,
+      "updated",
+    );
+
+    return { creditMemoId: creditMemo.id };
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    return loadCreditMemoSnapshot(em, result.creditMemoId);
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as CreditMemoGraphSnapshot | undefined;
+    const after = snapshots.after as CreditMemoGraphSnapshot | undefined;
+    if (!after) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate("sales.audit.credit_memos.update", "Update credit memo"),
+      resourceKind: "sales.credit_memo",
+      resourceId: result.creditMemoId,
+      tenantId: after.creditMemo.tenantId,
+      organizationId: after.creditMemo.organizationId,
+      snapshotBefore: before,
+      snapshotAfter: after,
+      payload: {
+        undo: { before, after } satisfies CreditMemoUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CreditMemoUndoPayload>(logEntry);
+    const before = payload?.before;
+    if (!before) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const creditMemo = await em.findOne(SalesCreditMemo, { id: before.creditMemo.id });
+    if (!creditMemo) return;
+    ensureOrganizationScope(ctx, creditMemo.organizationId);
+    ensureTenantScope(ctx, creditMemo.tenantId);
+    creditMemo.creditMemoNumber = before.creditMemo.creditMemoNumber;
+    creditMemo.orderId = before.creditMemo.orderId;
+    creditMemo.invoiceId = before.creditMemo.invoiceId;
+    creditMemo.statusEntryId = before.creditMemo.statusEntryId;
+    creditMemo.status = before.creditMemo.status;
+    creditMemo.reason = before.creditMemo.reason;
+    creditMemo.issueDate = before.creditMemo.issueDate ? new Date(before.creditMemo.issueDate as string) : null;
+    creditMemo.currencyCode = before.creditMemo.currencyCode;
+    creditMemo.subtotalNetAmount = before.creditMemo.subtotalNetAmount;
+    creditMemo.subtotalGrossAmount = before.creditMemo.subtotalGrossAmount;
+    creditMemo.taxTotalAmount = before.creditMemo.taxTotalAmount;
+    creditMemo.grandTotalNetAmount = before.creditMemo.grandTotalNetAmount;
+    creditMemo.grandTotalGrossAmount = before.creditMemo.grandTotalGrossAmount;
+    creditMemo.metadata = before.creditMemo.metadata;
+    creditMemo.updatedAt = new Date();
+    await em.flush();
+  },
+};
+
+const deleteCreditMemoCommand: CommandHandler<
+  { id: string; organizationId: string; tenantId: string },
+  { creditMemoId: string }
+> = {
+  id: "sales.credit_memos.delete",
+  async prepare(input, ctx) {
+    const id = requireId(input);
+    const em = ctx.container.resolve("em") as EntityManager;
+    const snapshot = await loadCreditMemoSnapshot(em, id);
+    if (snapshot) {
+      ensureOrganizationScope(ctx, snapshot.creditMemo.organizationId);
+      ensureTenantScope(ctx, snapshot.creditMemo.tenantId);
+    }
+    return snapshot ? { before: snapshot } : {};
+  },
+  async execute(rawInput, ctx) {
+    const id = requireId(rawInput);
+    ensureOrganizationScope(ctx, rawInput.organizationId);
+    ensureTenantScope(ctx, rawInput.tenantId);
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const creditMemo = await em.findOneOrFail(SalesCreditMemo, {
+      id,
+      organizationId: rawInput.organizationId,
+      tenantId: rawInput.tenantId,
+      deletedAt: null,
+    });
+    creditMemo.deletedAt = new Date();
+    creditMemo.updatedAt = new Date();
+    await em.flush();
+
+    const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
+    await emitCrudSideEffects({
+      dataEngine,
+      action: "deleted",
+      entity: creditMemo,
+      identifiers: {
+        id: creditMemo.id,
+        organizationId: creditMemo.organizationId,
+        tenantId: creditMemo.tenantId,
+      },
+      events: creditMemoCrudEvents,
+      indexer: { entityType: E.sales.sales_credit_memo },
+    });
+
+    await invalidateCrudCache(
+      ctx.container,
+      "sales.credit_memo",
+      {
+        id: creditMemo.id,
+        organizationId: creditMemo.organizationId,
+        tenantId: creditMemo.tenantId,
+      },
+      ctx.auth?.tenantId ?? null,
+      "deleted",
+    );
+
+    return { creditMemoId: creditMemo.id };
+  },
+  buildLog: async ({ snapshots }) => {
+    const before = snapshots.before as CreditMemoGraphSnapshot | undefined;
+    if (!before) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate("sales.audit.credit_memos.delete", "Delete credit memo"),
+      resourceKind: "sales.credit_memo",
+      resourceId: before.creditMemo.id,
+      tenantId: before.creditMemo.tenantId,
+      organizationId: before.creditMemo.organizationId,
+      snapshotBefore: before,
+      payload: {
+        undo: { before } satisfies CreditMemoUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<CreditMemoUndoPayload>(logEntry);
+    const before = payload?.before;
+    if (!before) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    ensureOrganizationScope(ctx, before.creditMemo.organizationId);
+    ensureTenantScope(ctx, before.creditMemo.tenantId);
+    const restored = em.create(SalesCreditMemo, {
+      id: before.creditMemo.id,
+      organizationId: before.creditMemo.organizationId,
+      tenantId: before.creditMemo.tenantId,
+      creditMemoNumber: before.creditMemo.creditMemoNumber,
+      orderId: before.creditMemo.orderId,
+      invoiceId: before.creditMemo.invoiceId,
+      statusEntryId: before.creditMemo.statusEntryId,
+      status: before.creditMemo.status,
+      reason: before.creditMemo.reason,
+      issueDate: before.creditMemo.issueDate ? new Date(before.creditMemo.issueDate as string) : new Date(),
+      currencyCode: before.creditMemo.currencyCode,
+      subtotalNetAmount: before.creditMemo.subtotalNetAmount,
+      subtotalGrossAmount: before.creditMemo.subtotalGrossAmount,
+      taxTotalAmount: before.creditMemo.taxTotalAmount,
+      grandTotalNetAmount: before.creditMemo.grandTotalNetAmount,
+      grandTotalGrossAmount: before.creditMemo.grandTotalGrossAmount,
+      metadata: before.creditMemo.metadata,
+      customFieldSetId: before.creditMemo.customFieldSetId,
+      deletedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    em.persist(restored);
+    for (const line of before.lines) {
+      em.persist(em.create(SalesCreditMemoLine, {
+        id: line.id,
+        creditMemo: restored,
+        orderLineId: line.orderLineId,
+        organizationId: before.creditMemo.organizationId,
+        tenantId: before.creditMemo.tenantId,
+        lineNumber: line.lineNumber,
+        name: line.name,
+        sku: line.sku,
+        description: line.description,
+        quantity: line.quantity,
+        quantityUnit: line.quantityUnit,
+        normalizedQuantity: line.normalizedQuantity,
+        normalizedUnit: line.normalizedUnit,
+        uomSnapshot: line.uomSnapshot,
+        currencyCode: line.currencyCode,
+        unitPriceNet: line.unitPriceNet,
+        unitPriceGross: line.unitPriceGross,
+        taxRate: line.taxRate,
+        taxAmount: line.taxAmount,
+        totalNetAmount: line.totalNetAmount,
+        totalGrossAmount: line.totalGrossAmount,
+        metadata: line.metadata,
+      }));
+    }
+    await em.flush();
+  },
+};
+
 registerCommand(updateQuoteCommand);
 registerCommand(createQuoteCommand);
 registerCommand(deleteQuoteCommand);
@@ -7688,3 +8876,9 @@ registerCommand(orderAdjustmentUpsertCommand);
 registerCommand(orderAdjustmentDeleteCommand);
 registerCommand(quoteAdjustmentUpsertCommand);
 registerCommand(quoteAdjustmentDeleteCommand);
+registerCommand(createInvoiceCommand);
+registerCommand(updateInvoiceCommand);
+registerCommand(deleteInvoiceCommand);
+registerCommand(createCreditMemoCommand);
+registerCommand(updateCreditMemoCommand);
+registerCommand(deleteCreditMemoCommand);
