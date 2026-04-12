@@ -353,6 +353,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       type: 'tags',
       options: tagOptions,
       loadOptions: loadTagOptions,
+      formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
     },
   ], [channelOptions, loadChannelOptions, loadTagOptions, tagOptions, t])
 

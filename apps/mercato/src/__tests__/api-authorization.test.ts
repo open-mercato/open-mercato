@@ -212,6 +212,32 @@ describe('API Route Authorization', () => {
       expect(response.status).toBe(403)
       await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
     })
+
+    it('should enforce top-level metadata for route files when method metadata is absent', async () => {
+      const originalMetadata = mockedRouteModule.metadata
+      mockedRouteModule.metadata = {
+        requireAuth: true,
+        requireFeatures: ['example.todos.view'],
+      } as RouteMetadata & typeof mockedRouteModule.metadata
+
+      try {
+        mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
+        mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
+
+        const request = new NextRequest('http://localhost:3001/api/example/test')
+        const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+        expect(response.status).toBe(403)
+        await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+        expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
+          'user1',
+          ['example.todos.view'],
+          expect.objectContaining({ tenantId: 'tenant1' }),
+        )
+      } finally {
+        mockedRouteModule.metadata = originalMetadata
+      }
+    })
   })
 
   describe('POST /example/test', () => {

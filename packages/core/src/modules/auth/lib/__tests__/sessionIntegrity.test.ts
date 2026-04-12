@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { RoleAcl, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 
 const findOneWithDecryption = jest.fn()
@@ -15,6 +15,24 @@ const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
 const scopedTenantId = '44444444-4444-4444-8444-444444444444'
 const scopedOrganizationId = '55555555-5555-4555-8555-555555555555'
+const adminRoleId = '66666666-6666-4666-8666-666666666666'
+const impostorRoleId = '77777777-7777-4777-8777-777777777777'
+
+type MockStore = {
+  user?: unknown
+  userAcl?: unknown
+  roleAcl?: unknown
+}
+
+function mockFindOneByEntity(store: MockStore) {
+  findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+    const entity = args[1]
+    if (entity === User) return store.user ?? null
+    if (entity === UserAcl) return store.userAcl ?? null
+    if (entity === RoleAcl) return store.roleAcl ?? null
+    return null
+  })
+}
 
 describe('isAuthContextValid', () => {
   const em = {} as EntityManager
@@ -25,11 +43,7 @@ describe('isAuthContextValid', () => {
   })
 
   it('accepts a user that still exists in the same tenant and organization', async () => {
-    findOneWithDecryption.mockResolvedValue({
-      id: userId,
-      tenantId,
-      organizationId,
-    })
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
 
     await expect(
       isAuthContextValid(em, { sub: userId, tenantId, orgId: organizationId, roles: [] }),
@@ -45,14 +59,13 @@ describe('isAuthContextValid', () => {
   })
 
   it('returns canonical auth with roles refreshed from the database', async () => {
-    findOneWithDecryption.mockResolvedValue({
-      id: userId,
-      tenantId,
-      organizationId,
+    mockFindOneByEntity({
+      user: { id: userId, tenantId, organizationId },
+      roleAcl: { isSuperAdmin: true },
     })
     findWithDecryption.mockResolvedValue([
-      { role: { name: 'admin' } },
-      { role: { name: 'superadmin' } },
+      { role: { id: adminRoleId, name: 'admin' } },
+      { role: { id: impostorRoleId, name: 'superadmin' } },
     ])
 
     await expect(
@@ -71,8 +84,57 @@ describe('isAuthContextValid', () => {
     })
   })
 
+  it('does not elevate a user whose role is merely named "superadmin" without a RoleAcl flag', async () => {
+    mockFindOneByEntity({
+      user: { id: userId, tenantId, organizationId },
+    })
+    findWithDecryption.mockResolvedValue([
+      { role: { id: impostorRoleId, name: 'Superadmin' } },
+    ])
+
+    await expect(
+      resolveCanonicalStaffAuthContext(em, {
+        sub: userId,
+        tenantId,
+        orgId: organizationId,
+        roles: ['Superadmin'],
+      }),
+    ).resolves.toEqual({
+      sub: userId,
+      tenantId,
+      orgId: organizationId,
+      roles: ['Superadmin'],
+      isSuperAdmin: false,
+    })
+  })
+
+  it('elevates a user whose role has UserAcl.isSuperAdmin flag set', async () => {
+    mockFindOneByEntity({
+      user: { id: userId, tenantId, organizationId },
+      userAcl: { isSuperAdmin: true },
+    })
+    findWithDecryption.mockResolvedValue([
+      { role: { id: adminRoleId, name: 'admin' } },
+    ])
+
+    await expect(
+      resolveCanonicalStaffAuthContext(em, {
+        sub: userId,
+        tenantId,
+        orgId: organizationId,
+        roles: ['admin'],
+      }),
+    ).resolves.toEqual({
+      sub: userId,
+      tenantId,
+      orgId: organizationId,
+      roles: ['admin'],
+      isSuperAdmin: true,
+    })
+  })
+
   it('rejects an auth context when the user no longer exists', async () => {
-    findOneWithDecryption.mockResolvedValue(null)
+    mockFindOneByEntity({ user: null })
 
     await expect(
       isAuthContextValid(em, { sub: userId, tenantId, orgId: organizationId, roles: [] }),
@@ -80,10 +142,8 @@ describe('isAuthContextValid', () => {
   })
 
   it('rejects an auth context when the persisted tenant or organization changed', async () => {
-    findOneWithDecryption.mockResolvedValue({
-      id: userId,
-      tenantId,
-      organizationId: scopedOrganizationId,
+    mockFindOneByEntity({
+      user: { id: userId, tenantId, organizationId: scopedOrganizationId },
     })
 
     await expect(
@@ -92,11 +152,13 @@ describe('isAuthContextValid', () => {
   })
 
   it('validates superadmin scoped sessions against actor scope, not selected scope', async () => {
-    findOneWithDecryption.mockResolvedValue({
-      id: userId,
-      tenantId,
-      organizationId,
+    mockFindOneByEntity({
+      user: { id: userId, tenantId, organizationId },
+      roleAcl: { isSuperAdmin: true },
     })
+    findWithDecryption.mockResolvedValue([
+      { role: { id: adminRoleId, name: 'admin' } },
+    ])
 
     await expect(
       isAuthContextValid(em, {
@@ -105,7 +167,7 @@ describe('isAuthContextValid', () => {
         orgId: scopedOrganizationId,
         actorTenantId: tenantId,
         actorOrgId: organizationId,
-        roles: ['superadmin'],
+        roles: ['admin'],
         isSuperAdmin: true,
       }),
     ).resolves.toBe(true)
