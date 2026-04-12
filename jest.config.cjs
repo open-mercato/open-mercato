@@ -7,7 +7,9 @@ module.exports = {
   watchman: false,
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
-    '^#generated/(.*)$': '<rootDir>/packages/core/jest.mocks/$1',
+    '^#generated/entities/(.*)$': '<rootDir>/packages/core/generated/entities/$1/index.ts',
+    '^#generated/entities\\.ids\\.generated$': '<rootDir>/packages/core/generated/entities.ids.generated.ts',
+    '^#generated/entity-fields-registry$': '<rootDir>/packages/core/src/generated-shims/entity-fields-registry.ts',
     '^@/generated/(.*)$': '<rootDir>/generated/$1',
     '^@/lib/(.*)$': '<rootDir>/packages/shared/src/lib/$1',
     '^@/types/(.*)$': '<rootDir>/packages/shared/src/types/$1',
