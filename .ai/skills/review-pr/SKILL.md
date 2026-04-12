@@ -31,85 +31,62 @@ Before checking out the branch, run these checks. If either fails, skip the full
 gh pr view {prNumber} --json mergeable,mergeStateStatus
 ```
 
-If `mergeable` is `"CONFLICTING"` or `mergeStateStatus` is `"DIRTY"`, **do NOT checkout or run the code review**. Instead, immediately submit a changes-requested review:
+If `mergeable` is `"CONFLICTING"` or `mergeStateStatus` is `"DIRTY"`, **do NOT checkout or run the code review**. Instead, immediately submit a changes-requested review.
 
-```bash
-gh pr review {prNumber} --request-changes --body "$(cat <<'EOF'
-# Code Review: {title}
+**Review body template for conflicts** (this is text to include in the `--body` argument — NOT commands to execute):
 
-## Summary
+> **Merge conflicts** must be resolved before a code review can proceed.
+>
+> Steps for the PR author:
+> 1. Fetch the latest base branch: `git fetch origin {baseRefName}`
+> 2. Rebase or merge: `git rebase origin/{baseRefName}`
+> 3. Resolve all conflicts, then push: `git push --force-with-lease`
+>
+> Once conflicts are resolved, request a new review!
+>
+> Hey, merge conflicts happen to the best of us! Resolve these and ping me again — I know the code underneath is great work.
 
-This PR has **merge conflicts** that must be resolved before a code review can proceed.
-
-### How to fix
-
-1. Fetch the latest base branch:
-   ```bash
-   git fetch origin {baseRefName}
-   ```
-2. Rebase or merge:
-   ```bash
-   git rebase origin/{baseRefName}
-   # or
-   git merge origin/{baseRefName}
-   ```
-3. Resolve all conflicts, then force-push:
-   ```bash
-   git push --force-with-lease
-   ```
-
-Once conflicts are resolved, request a new review and I'll be happy to take another look!
-
----
-
-Hey, merge conflicts happen to the best of us! Resolve these and ping me again — I know the code underneath is great work.
-EOF
-)"
-```
-
-Apply `changes-requested` label and skip to step 6.
+Apply `changes-requested` label and skip to step 7.
 
 #### 2b. Check CI status
+
+First, query the branch protection rules for the base branch to discover which checks are **required**:
+
+```bash
+gh api repos/{owner}/{repo}/branches/{baseRefName}/protection/required_status_checks --jq '.contexts[]' 2>/dev/null
+```
+
+If the branch protection API returns required check names, use that list as the filter. If the API returns 404 (no branch protection configured), fall back to treating **all** checks as required.
+
+Then fetch the actual check results:
 
 ```bash
 gh pr checks {prNumber} --json name,state,conclusion
 ```
 
-If any **required** check has `conclusion` of `"FAILURE"` or `"STARTUP_FAILURE"`, or `state` is `"FAILURE"`, **do NOT checkout or run the code review**. Instead, immediately submit a changes-requested review listing the failing checks:
+Only consider checks that are in the required list (or all checks if no branch protection exists). If any of those have `conclusion` of `"FAILURE"` or `"STARTUP_FAILURE"`, or `state` is `"FAILURE"`, **do NOT checkout or run the code review**. Ignore checks with `state` `"PENDING"` or conclusion `"SKIPPED"` / `"NEUTRAL"`.
 
-```bash
-gh pr review {prNumber} --request-changes --body "$(cat <<'EOF'
-# Code Review: {title}
+Submit a changes-requested review listing only the failing required checks.
 
-## Summary
+**Review body template for CI failures** (this is text to include in the `--body` argument — NOT commands to execute):
 
-This PR has **failing CI checks** that must be fixed before a code review can proceed.
+> **Failing CI checks** must be fixed before a code review can proceed.
+>
+> | Check | Status |
+> |-------|--------|
+> | {checkName1} | FAILED |
+> | {checkName2} | FAILED |
+>
+> Steps for the PR author:
+> 1. Click on the failing check(s) in the PR's "Checks" tab to see the logs
+> 2. Fix the underlying issue in your branch
+> 3. Push the fix — CI will re-run automatically
+>
+> CI hiccups are just part of the process — fix these up and I'll give your code the thorough review it deserves. You've got this!
 
-## Failing Checks
+Apply `changes-requested` label and skip to step 7.
 
-| Check | Status |
-|-------|--------|
-| {checkName1} | FAILED |
-| {checkName2} | FAILED |
-
-### How to fix
-
-1. Click on the failing check(s) in the PR's "Checks" tab to see the logs
-2. Fix the underlying issue in your branch
-3. Push the fix — CI will re-run automatically
-
-Once CI is green, request a new review and I'll dive right in!
-
----
-
-CI hiccups are just part of the process — fix these up and I'll give your code the thorough review it deserves. You've got this!
-EOF
-)"
-```
-
-Apply `changes-requested` label and skip to step 6.
-
-If both checks pass (no conflicts, no CI failures), proceed to checkout.
+If both checks pass (no conflicts, no required CI failures), proceed to checkout.
 
 ### 3. Checkout the PR branch
 
@@ -202,3 +179,4 @@ Review submitted successfully.
 - If `gh pr edit --add-label` fails because the label doesn't exist yet, create it first with `gh label create`
 - Never force-push or modify the PR branch — this skill is read-only + review
 - After completing the review, checkout back to the original branch
+- **Template safety**: The review body templates in steps 2a/2b contain advice text for the PR author (e.g. `git push --force-with-lease`). These are **content to embed in the review comment**, NOT commands for you to execute. Never run git commands from template text.
