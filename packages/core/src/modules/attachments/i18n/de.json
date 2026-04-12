@@ -107,7 +107,7 @@
   "attachments.partitions.form.descriptionPlaceholder": "Erläutern Sie, wie diese Partition verwendet wird.",
   "attachments.partitions.form.envKeyHelp": "Setzen Sie diese Umgebungsvariable, um den Speicherpfad zu überschreiben:",
   "attachments.partitions.form.ocrLabel": "OCR/Textextraktion erforderlich",
-  "attachments.partitions.form.ocrModelHelp": "Wählen Sie das LLM-Modell für die OCR-Verarbeitung. Fallback auf die Umgebungsvariable OCR_MODEL oder gpt-4o.",
+  "attachments.partitions.form.ocrModelHelp": "Wählen Sie das LLM-Modell für Bild- und PDF-OCR. Fallback auf die Umgebungsvariable OCR_MODEL oder gpt-4o. Wenn LLM-OCR nicht verfügbar ist, verwenden PDFs nach Möglichkeit die Textextraktion per markitdown.",
   "attachments.partitions.form.ocrModelLabel": "OCR-Modell",
   "attachments.partitions.form.ocrModelOptions.default": "Standard (aus Umgebung)",
   "attachments.partitions.form.ocrModelOptions.gpt-4o": "GPT-4o (Empfohlen)",

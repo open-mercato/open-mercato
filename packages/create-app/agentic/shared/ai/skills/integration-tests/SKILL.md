@@ -11,9 +11,9 @@ This skill generates executable Playwright tests in module-local `__integration_
 
 | Action | Command |
 |--------|---------|
-| Run all tests | `npx playwright test --config .ai/qa/playwright.config.ts` |
-| Run single test | `npx playwright test --config .ai/qa/playwright.config.ts <path>` |
-| Debug (fail-fast) | `npx playwright test --config .ai/qa/playwright.config.ts <path> --retries=0` |
+| Run all tests | `npx playwright test --config .ai/qa/tests/playwright.config.ts` |
+| Run single test | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path>` |
+| Debug (fail-fast) | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path> --retries=0` |
 | View report | `npx playwright show-report .ai/qa/test-results/html` |
 | Test files location | `src/modules/<module>/__integration__/TC-XXX.spec.ts` |
 | Scenario sources (optional) | `.ai/qa/scenarios/TC-XXX-*.md` |
@@ -21,7 +21,7 @@ This skill generates executable Playwright tests in module-local `__integration_
 ## Runtime Policy
 
 Default QA runtime policy:
-- Keep global settings in `.ai/qa/playwright.config.ts`:
+- Keep global settings in `.ai/qa/tests/playwright.config.ts`:
   - `timeout: 20_000`
   - `expect.timeout: 20_000`
   - `retries: 1`
@@ -179,13 +179,13 @@ This step is **optional** — skip it if the user only wants the executable test
 Run the new test to confirm it passes:
 
 ```bash
-npx playwright test --config .ai/qa/playwright.config.ts <path-to-test-file>
+npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-file>
 ```
 
 When developing/debugging the test, run fail-fast with no retries:
 
 ```bash
-npx playwright test --config .ai/qa/playwright.config.ts <path-to-test-file> --retries=0
+npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-test-file> --retries=0
 ```
 
 If it fails, fix it. Do not leave broken tests.

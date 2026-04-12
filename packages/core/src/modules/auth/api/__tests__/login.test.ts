@@ -36,6 +36,11 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/jwt', () => ({ signJwt: () => 'jwt-token' }))
 
+jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
+  checkAuthRateLimit: jest.fn(async () => ({ error: null, compoundKey: null })),
+  resetAuthRateLimit: jest.fn(async () => undefined),
+}))
+
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
   emitAuthEvent: jest.fn(async () => undefined),
 }))
@@ -118,6 +123,28 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=jwt-token')
     expect(setCookie).toContain('session_token=session-token')
+  })
+
+  test('rotates the browser session cookie even when remember me is disabled', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: true,
+      token: 'jwt-token',
+      redirect: '/backend',
+    })
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=jwt-token')
+    expect(setCookie).toContain('session_token=session-token')
+    expect(authServiceMock.createSession).toHaveBeenCalledTimes(1)
   })
 
   test('applies body merge from matched after interceptor', async () => {

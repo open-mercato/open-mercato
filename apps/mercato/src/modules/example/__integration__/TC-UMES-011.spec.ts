@@ -7,7 +7,7 @@
  * Spec reference: SPEC-041k — DevTools + Conflict Detection (TC-UMES-DT02)
  */
 import { test, expect } from '@playwright/test'
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
@@ -28,27 +28,42 @@ function findProjectRoot(): string {
 }
 
 const ROOT = findProjectRoot()
-const MERCATO_BIN = path.join(ROOT, 'node_modules/.bin/mercato')
 
-function runMercato(args: string): { stdout: string; exitCode: number } {
-  const cmd = `"${MERCATO_BIN}" ${args} 2>/dev/null`
-  try {
-    const stdout = execSync(cmd, {
-      cwd: ROOT,
-      encoding: 'utf-8',
-      timeout: 60_000,
-      env: { ...process.env, FORCE_COLOR: '0', NODE_NO_WARNINGS: '1' },
-    })
-    return { stdout, exitCode: 0 }
-  } catch (err) {
-    const error = err as { stdout?: string; status?: number | null }
-    return { stdout: error.stdout ?? '', exitCode: error.status ?? 1 }
+function resolveMercatoBin(): string {
+  const candidates = [
+    path.join(ROOT, 'node_modules/.bin/mercato'),
+    path.join(ROOT, 'node_modules/@open-mercato/cli/bin/mercato'),
+    path.join(ROOT, 'packages/cli/bin/mercato'),
+  ]
+
+  const match = candidates.find((candidate) => fs.existsSync(candidate))
+  if (!match) {
+    throw new Error(`Could not find mercato bin. Checked: ${candidates.join(', ')}`)
+  }
+
+  return match
+}
+
+const MERCATO_BIN = resolveMercatoBin()
+
+function runMercato(args: string[]): { stdout: string; stderr: string; exitCode: number } {
+  const result = spawnSync(MERCATO_BIN, args, {
+    cwd: ROOT,
+    encoding: 'utf-8',
+    timeout: 60_000,
+    env: { ...process.env, FORCE_COLOR: '0', NODE_NO_WARNINGS: '1' },
+  })
+
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    exitCode: result.status ?? 1,
   }
 }
 
 test.describe('TC-UMES-011: CLI commands', () => {
   test('umes:list shows registered extensions from example module', () => {
-    const { stdout, exitCode } = runMercato('umes:list')
+    const { stdout, exitCode } = runMercato(['umes:list'])
     expect(exitCode).toBe(0)
 
     // Should list example module extensions in the output
@@ -59,7 +74,7 @@ test.describe('TC-UMES-011: CLI commands', () => {
   })
 
   test('umes:inspect shows extension tree for example module', () => {
-    const { stdout, exitCode } = runMercato('umes:inspect --module example')
+    const { stdout, exitCode } = runMercato(['umes:inspect', '--module', 'example'])
     expect(exitCode).toBe(0)
 
     // Should show the example module header
@@ -69,8 +84,16 @@ test.describe('TC-UMES-011: CLI commands', () => {
     expect(stdout).toMatch(/Injection Widgets|Component Overrides|Declared Features/)
   })
 
+  test('umes:inspect reports missing modules on stderr and exits non-zero', () => {
+    const { stderr, exitCode } = runMercato(['umes:inspect', '--module', 'missing-module'])
+    expect(exitCode).toBe(1)
+    expect(stderr).toContain('Module "missing-module" not found.')
+    expect(stderr).toContain('Available modules:')
+    expect(stderr).toContain('example')
+  })
+
   test('umes:check exits 0 with no conflicts', () => {
-    const { stdout, exitCode } = runMercato('umes:check')
+    const { stdout, exitCode } = runMercato(['umes:check'])
     expect(exitCode).toBe(0)
 
     // Should indicate no errors found

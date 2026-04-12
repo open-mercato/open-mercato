@@ -100,7 +100,7 @@ Follow the customers module API patterns (CRUD factory + query engine):
 
 Every module participating in tenant initialization must declare `setup.ts`. The generator auto-discovers these files.
 
-See [SPEC-013](../../.ai/specs/SPEC-013-2026-01-27-decouple-module-setup.md) for the full ADR.
+See [SPEC-013](../../.ai/specs/implemented/SPEC-013-2026-01-27-decouple-module-setup.md) for the full ADR.
 
 ```typescript
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
@@ -184,7 +184,7 @@ Event fields: `id` (required), `label` (required), `description`, `category` (`c
 
 MUST use `as const` — provides compile-time safety; undeclared events trigger TypeScript errors and runtime warnings.
 
-Run `npm run modules:prepare` after creating/modifying `events.ts` files.
+Run `yarn generate` after creating/modifying `events.ts` files.
 
 ## Translatable Fields
 
@@ -199,7 +199,7 @@ export const translatableFields: Record<string, string[]> = {
 
 When a module defines `translations.ts`, all its entity types automatically get the Translation Manager widget injected into their CrudForm edit pages.
 
-Run `npm run modules:prepare` after creating/modifying `translations.ts` files.
+Run `yarn generate` after creating/modifying `translations.ts` files.
 
 ### Event Subscribers
 
@@ -463,7 +463,7 @@ Output to `apps/mercato/.mercato/generated/`. Never edit manually. Never import 
 | `ai-tools.generated.ts` | AI tool definitions |
 | `modules.cli.generated.ts` | CLI module registrations |
 
-Run `npm run modules:prepare` or rely on `predev`/`prebuild`.
+Run `yarn generate` or rely on `predev`/`prebuild`.
 
 ## Response Enrichers
 

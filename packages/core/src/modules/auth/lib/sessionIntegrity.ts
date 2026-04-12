@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Role, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, RoleAcl, User, UserAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const INVALID_SCOPE = Symbol('invalid-scope')
@@ -78,9 +78,17 @@ export async function resolveCanonicalStaffAuthContext(
       )
     : []
 
-  const roles = links
-    .map((link) => link.role?.name)
-    .filter((role): role is string => typeof role === 'string' && role.trim().length > 0)
+  const linkedRoles = links
+    .map((link) => link.role)
+    .filter((role): role is Role => !!role)
+
+  const roles = linkedRoles
+    .map((role) => role.name)
+    .filter((name): name is string => typeof name === 'string' && name.trim().length > 0)
+
+  const isSuperAdmin = currentTenantId
+    ? await hasSuperAdminFlag(em, user.id, linkedRoles, currentTenantId, currentOrganizationId)
+    : false
 
   return {
     ...auth,
@@ -88,8 +96,55 @@ export async function resolveCanonicalStaffAuthContext(
     tenantId: currentTenantId,
     orgId: currentOrganizationId,
     roles,
-    isSuperAdmin: roles.some((role) => role.trim().toLowerCase() === 'superadmin'),
+    isSuperAdmin,
   }
+}
+
+async function hasSuperAdminFlag(
+  em: EntityManager,
+  userId: string,
+  linkedRoles: Role[],
+  tenantId: string,
+  organizationId: string | null,
+): Promise<boolean> {
+  const userAcl = await findOneWithDecryption(
+    em,
+    UserAcl,
+    {
+      user: userId,
+      tenantId,
+      isSuperAdmin: true,
+      deletedAt: null,
+    } as never,
+    undefined,
+    { tenantId, organizationId },
+  )
+  if (userAcl && (userAcl as { isSuperAdmin?: boolean }).isSuperAdmin === true) {
+    return true
+  }
+
+  const roleIds = Array.from(
+    new Set(
+      linkedRoles
+        .map((role) => (role?.id ? String(role.id) : null))
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  )
+  if (!roleIds.length) return false
+
+  const roleAcl = await findOneWithDecryption(
+    em,
+    RoleAcl,
+    {
+      tenantId,
+      isSuperAdmin: true,
+      deletedAt: null,
+      role: { $in: roleIds },
+    } as never,
+    undefined,
+    { tenantId, organizationId },
+  )
+  return !!(roleAcl && (roleAcl as { isSuperAdmin?: boolean }).isSuperAdmin === true)
 }
 
 export async function isAuthContextValid(

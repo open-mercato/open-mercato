@@ -61,6 +61,8 @@ export type ExecutionResult = z.infer<typeof executionResultSchema>
 // Uses runtime validation to check structure, nesting, and field paths
 function createConditionExpressionSchema(t?: TranslatorFn) {
   return z.any()
+    .optional()
+    .nullable()
     .superRefine((val, ctx) => {
       // Null/undefined is allowed (optional field)
       if (val === null || val === undefined) return
