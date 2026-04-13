@@ -40,15 +40,16 @@ function parseEventName(eventName: string): { entityType: string; eventType: str
   return { entityType, eventType }
 }
 
-type EventPayload = {
-  tenantId?: string
-  organizationId?: string
-  [key: string]: unknown
+type CrudRuleTriggerContext = {
+  resolve: <T = unknown>(name: string) => T
+  eventName?: string
+  tenantId?: string | null
+  organizationId?: string | null
 }
 
 export default async function handle(
   payload: unknown,
-  ctx: { resolve: <T = unknown>(name: string) => T; eventName?: string },
+  ctx: CrudRuleTriggerContext,
 ): Promise<void> {
   const eventName = ctx.eventName
   if (!eventName) return
@@ -57,9 +58,9 @@ export default async function handle(
   const parsed = parseEventName(eventName)
   if (!parsed) return
 
-  const data = (payload ?? {}) as EventPayload
-  const tenantId = data.tenantId
-  const organizationId = data.organizationId
+  const data = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
+  const tenantId = typeof ctx.tenantId === 'string' && ctx.tenantId.length > 0 ? ctx.tenantId : undefined
+  const organizationId = typeof ctx.organizationId === 'string' && ctx.organizationId.length > 0 ? ctx.organizationId : undefined
   if (!tenantId || !organizationId) return
 
   const em = ctx.resolve<EntityManager>('em')

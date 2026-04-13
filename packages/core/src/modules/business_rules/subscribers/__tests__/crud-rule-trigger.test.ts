@@ -15,13 +15,20 @@ const executeRulesMock = executeRules as jest.MockedFunction<typeof executeRules
 describe('business_rules crud-rule-trigger subscriber', () => {
   const mockEm = {} as any
 
-  function makeCtx(eventName?: string) {
+  function makeCtx(
+    eventName?: string,
+    scope: { tenantId?: string | null; organizationId?: string | null } = {
+      tenantId: 't1',
+      organizationId: 'o1',
+    },
+  ) {
     return {
       resolve: jest.fn((name: string) => {
         if (name === 'em') return mockEm
         return null
       }),
       eventName,
+      ...scope,
     }
   }
 
@@ -35,31 +42,43 @@ describe('business_rules crud-rule-trigger subscriber', () => {
     expect(metadata.id).toBe('business_rules:crud-rule-trigger')
   })
 
-  it('calls executeRules for a CRUD event with tenant scope', async () => {
+  it('calls executeRules for a CRUD event with trusted subscriber context scope', async () => {
     await handler(
-      { tenantId: 't1', organizationId: 'o1', id: 'person-1' },
+      { id: 'person-1' },
       makeCtx('customers.person.created'),
     )
     expect(executeRulesMock).toHaveBeenCalledWith(mockEm, {
       entityType: 'customers.person',
       eventType: 'created',
-      data: { tenantId: 't1', organizationId: 'o1', id: 'person-1' },
+      data: { id: 'person-1' },
       tenantId: 't1',
       organizationId: 'o1',
     })
   })
 
+  it('does not trust payload tenant scope over subscriber context scope', async () => {
+    await handler(
+      { tenantId: 'spoofed-tenant', organizationId: 'spoofed-org', id: 'person-1' },
+      makeCtx('customers.person.created', { tenantId: 'trusted-tenant', organizationId: 'trusted-org' }),
+    )
+    expect(executeRulesMock).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+      data: { tenantId: 'spoofed-tenant', organizationId: 'spoofed-org', id: 'person-1' },
+      tenantId: 'trusted-tenant',
+      organizationId: 'trusted-org',
+    }))
+  })
+
   it('skips excluded internal events', async () => {
     for (const event of ['query_index.updated', 'search.reindex', 'cache.invalidated', 'business_rules.rule.created', 'workflows.instance.completed']) {
-      await handler({ tenantId: 't1', organizationId: 'o1' }, makeCtx(event))
+      await handler({}, makeCtx(event))
     }
     expect(executeRulesMock).not.toHaveBeenCalled()
   })
 
-  it('skips events without tenantId or organizationId', async () => {
-    await handler({ tenantId: 't1' }, makeCtx('customers.person.created'))
-    await handler({ organizationId: 'o1' }, makeCtx('customers.person.created'))
-    await handler({}, makeCtx('customers.person.created'))
+  it('skips events without trusted tenantId or organizationId context', async () => {
+    await handler({ tenantId: 't1', organizationId: 'o1' }, makeCtx('customers.person.created', { tenantId: 't1' }))
+    await handler({ tenantId: 't1', organizationId: 'o1' }, makeCtx('customers.person.created', { organizationId: 'o1' }))
+    await handler({ tenantId: 't1', organizationId: 'o1' }, makeCtx('customers.person.created', {}))
     expect(executeRulesMock).not.toHaveBeenCalled()
   })
 
