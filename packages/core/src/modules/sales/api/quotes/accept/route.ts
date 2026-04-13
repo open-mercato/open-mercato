@@ -8,6 +8,10 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { checkRateLimit, getClientIp, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { validateSameOriginMutationRequest } from './originGuard'
 import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -23,13 +27,40 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+const quoteAcceptRateLimitConfig = readEndpointRateLimitConfig('SALES_QUOTES_ACCEPT', {
+  points: 10,
+  duration: 60,
+  blockDuration: 300,
+  keyPrefix: 'sales_quote_accept',
+})
+
 export async function POST(req: Request) {
   try {
+    const { translate } = await resolveTranslations()
+    const sameOriginViolation = validateSameOriginMutationRequest(req)
+    if (sameOriginViolation) {
+      return NextResponse.json(
+        { error: translate('sales.quotes.accept.forbidden', 'Cross-site quote acceptance is not allowed.') },
+        { status: 403 },
+      )
+    }
+
+    const rateLimiterService = getCachedRateLimiterService()
+    const clientIp = rateLimiterService ? getClientIp(req, rateLimiterService.trustProxyDepth) : null
+    if (rateLimiterService && clientIp) {
+      const rateLimitResponse = await checkRateLimit(
+        rateLimiterService,
+        quoteAcceptRateLimitConfig,
+        clientIp,
+        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+      )
+      if (rateLimitResponse) return rateLimitResponse
+    }
+
     const { token } = quoteAcceptSchema.parse(await req.json().catch(() => ({})))
     const auth = await getAuthFromRequest(req)
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
-    const { translate } = await resolveTranslations()
 
     const quote = await findOneWithDecryption(
       em,
@@ -143,7 +174,9 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.object({ orderId: z.string().uuid(), orderNumber: z.string() }),
         },
         { status: 400, description: 'Invalid or expired quote', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Cross-site request rejected', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Quote not found', schema: z.object({ error: z.string() }) },
+        { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
       ],
     },
   },

@@ -201,6 +201,12 @@ type CatalogSnapshotRecord = Record<string, unknown> & {
 };
 
 type SnapshotEntity = {
+  defaultUnit?: string | null;
+  default_unit?: string | null;
+  defaultSalesUnit?: string | null;
+  default_sales_unit?: string | null;
+  defaultSalesUnitQuantity?: number | null;
+  default_sales_unit_quantity?: number | null;
   title?: string;
   sku?: string;
   thumbnailUrl?: string;
@@ -278,7 +284,7 @@ function buildPriceScopeReason(
 
 function buildPlaceholder(label?: string | null) {
   return (
-    <div className="flex h-8 w-8 items-center justify-center rounded border bg-muted text-[10px] uppercase text-muted-foreground">
+    <div className="flex h-8 w-8 items-center justify-center rounded border bg-muted text-xs uppercase text-muted-foreground">
       {(label ?? "").slice(0, 2) || "•"}
     </div>
   );
@@ -529,7 +535,11 @@ export function LineItemDialog({
   const loadProductOptions = React.useCallback(
     async (query?: string): Promise<LookupSelectItem[]> => {
       const params = new URLSearchParams({ pageSize: "8" });
-      if (query && query.trim().length) params.set("search", query.trim());
+      if (query && query.trim().length) {
+        params.set("search", query.trim());
+      } else {
+        params.set("sortField", "title");
+      }
       const response = await apiCall<{
         items?: Array<Record<string, unknown>>;
       }>(`/api/catalog/products?${params.toString()}`, undefined, {
@@ -538,8 +548,7 @@ export function LineItemDialog({
       const items = Array.isArray(response.result?.items)
         ? (response.result?.items ?? [])
         : [];
-      const needle = query?.trim().toLowerCase() ?? "";
-      return items
+      const mapped = items
         .map((item) => {
           const id = typeof item.id === "string" ? item.id : null;
           if (!id) return null;
@@ -595,11 +604,6 @@ export function LineItemDialog({
           const defaultUnit = uomFields.defaultUnit;
           const defaultSalesUnit = uomFields.defaultSalesUnit;
           const defaultSalesUnitQuantity = uomFields.defaultSalesUnitQuantity;
-          const matches =
-            !needle ||
-            title.toLowerCase().includes(needle) ||
-            (sku ? sku.toLowerCase().includes(needle) : false);
-          if (!matches) return null;
           return {
             id,
             title,
@@ -633,11 +637,11 @@ export function LineItemDialog({
         .filter(
           (entry): entry is LookupSelectItem & { option: ProductOption } =>
             Boolean(entry),
-        )
-        .map((entry) => {
-          productOptionsRef.current.set(entry.option.id, entry.option);
-          return entry;
-        });
+        );
+      return mapped.map((entry) => {
+        productOptionsRef.current.set(entry.option.id, entry.option);
+        return entry;
+      });
     },
     [],
   );
@@ -2484,11 +2488,19 @@ export function LineItemDialog({
           ? metaRecord.productThumbnail
           : null;
       if (productTitle && initialLine.productId) {
-        const option = {
+        const snapshotUom = snapshotProduct
+          ? getUomProductFields(snapshotProduct)
+          : { defaultUnit: null, defaultSalesUnit: null, defaultSalesUnitQuantity: Number.NaN };
+        const option: ProductOption = {
           id: initialLine.productId,
           title: productTitle,
           sku: productSku,
           thumbnailUrl: productThumbnail,
+          defaultUnit: snapshotUom.defaultUnit,
+          defaultSalesUnit: snapshotUom.defaultSalesUnit,
+          defaultSalesUnitQuantity: Number.isFinite(snapshotUom.defaultSalesUnitQuantity)
+            ? snapshotUom.defaultSalesUnitQuantity
+            : null,
         };
         productOptionsRef.current.set(initialLine.productId, option);
         resolvedProductOption = option;
@@ -2540,6 +2552,12 @@ export function LineItemDialog({
         thumbnailUrl: snapshotThumb,
         taxRateId: typeof sp.taxRateId === "string" ? sp.taxRateId : null,
         taxRate: Number.isFinite(snapshotTaxRate) ? snapshotTaxRate : null,
+        defaultUnit: normalizeUnitCode(sp.defaultUnit ?? sp.default_unit),
+        defaultSalesUnit: normalizeUnitCode(sp.defaultSalesUnit ?? sp.default_sales_unit),
+        defaultSalesUnitQuantity: (() => {
+          const raw = normalizeNumber(sp.defaultSalesUnitQuantity ?? sp.default_sales_unit_quantity, Number.NaN);
+          return Number.isFinite(raw) ? raw : null;
+        })(),
       };
       productOptionsRef.current.set(initialLine.productId, option);
       resolvedProductOption = option;

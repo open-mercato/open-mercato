@@ -453,7 +453,11 @@ export class DefaultDataEngine implements DataEngine {
             ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
           }
       try {
-        await bus.emitEvent(eventName, payload, { persistent: !!events.persistent })
+        await bus.emitEvent(eventName, payload, {
+          persistent: !!events.persistent,
+          tenantId: ctx.identifiers.tenantId ?? null,
+          organizationId: ctx.identifiers.organizationId ?? null,
+        })
       } catch {
         // non-blocking
       }

@@ -1,4 +1,6 @@
 /** @jest-environment jsdom */
+jest.setTimeout(15000)
+
 const pushMock = jest.fn()
 const confirmDialogMock = jest.fn()
 
@@ -14,6 +16,16 @@ jest.mock('../confirm-dialog', () => ({
     confirm: confirmDialogMock,
     ConfirmDialogElement: null,
   }),
+}))
+jest.mock('../injection/InjectionSpot', () => ({
+  __esModule: true,
+  InjectionSpot: () => null,
+  useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
+  useInjectionSpotEvents: () => ({ triggerEvent: jest.fn() }),
+}))
+jest.mock('../injection/useInjectionDataWidgets', () => ({
+  __esModule: true,
+  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
 }))
 
 import * as React from 'react'

@@ -33,9 +33,13 @@ describe('Events Worker', () => {
   })
 
   describe('handle', () => {
-    const createMockJob = (event: string, payload: unknown): QueuedJob<{ event: string; payload: unknown }> => ({
+    const createMockJob = (
+      event: string,
+      payload: unknown,
+      options?: { tenantId?: string | null; organizationId?: string | null },
+    ): QueuedJob<{ event: string; payload: unknown; options?: { tenantId?: string | null; organizationId?: string | null } }> => ({
       id: 'test-job-id',
-      payload: { event, payload },
+      payload: { event, payload, options },
       createdAt: new Date().toISOString(),
     })
 
@@ -182,6 +186,66 @@ describe('Events Worker', () => {
 
       expect(capturedContext).toBeDefined()
       expect((capturedContext as { resolve: unknown }).resolve).toBeDefined()
+    })
+
+    it('should pass trusted tenant and organization scope to subscriber context', async () => {
+      let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
+
+      const mockModule: Module = {
+        id: 'test-module',
+        subscribers: [
+          {
+            id: 'test:subscriber',
+            event: 'test.event',
+            handler: async (_payload: unknown, ctx: unknown) => {
+              const typed = ctx as { tenantId?: string | null; organizationId?: string | null }
+              capturedContext = {
+                tenantId: typed.tenantId,
+                organizationId: typed.organizationId,
+              }
+            },
+          },
+        ],
+      }
+
+      registerCliModules([mockModule])
+
+      const job = createMockJob('test.event', {}, { tenantId: 'tenant-1', organizationId: 'org-1' })
+      const ctx = createMockContext()
+
+      await handle(job, ctx)
+
+      expect(capturedContext).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    })
+
+    it('should not trust payload scope when trusted scope is omitted', async () => {
+      let capturedContext: { tenantId?: string | null; organizationId?: string | null } | null = null
+
+      const mockModule: Module = {
+        id: 'test-module',
+        subscribers: [
+          {
+            id: 'test:subscriber',
+            event: 'test.event',
+            handler: async (_payload: unknown, ctx: unknown) => {
+              const typed = ctx as { tenantId?: string | null; organizationId?: string | null }
+              capturedContext = {
+                tenantId: typed.tenantId,
+                organizationId: typed.organizationId,
+              }
+            },
+          },
+        ],
+      }
+
+      registerCliModules([mockModule])
+
+      const job = createMockJob('test.event', { tenantId: 'payload-tenant', organizationId: 'payload-org' })
+      const ctx = createMockContext()
+
+      await handle(job, ctx)
+
+      expect(capturedContext).toEqual({ tenantId: null, organizationId: null })
     })
 
     it('should handle modules without subscribers', async () => {
