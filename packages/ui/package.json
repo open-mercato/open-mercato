@@ -121,7 +121,7 @@
     "date-fns": "^4.1.0",
     "react-big-calendar": "^1.19.4",
     "react-day-picker": "^9.6.4",
-    "recharts": "^2.15.0"
+    "recharts": "^3.8.1"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*",

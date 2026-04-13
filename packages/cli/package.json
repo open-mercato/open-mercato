@@ -55,15 +55,15 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@mikro-orm/core": "^6.6.10",
-    "@mikro-orm/migrations": "^6.6.10",
-    "@mikro-orm/postgresql": "^6.6.10",
+    "@mikro-orm/core": "^7.0.10",
+    "@mikro-orm/migrations": "^7.0.10",
+    "@mikro-orm/postgresql": "^7.0.10",
     "@open-mercato/shared": "workspace:*",
     "pg": "8.20.0",
     "semver": "^7.7.3",
     "testcontainers": "^11.12.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.2"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*"

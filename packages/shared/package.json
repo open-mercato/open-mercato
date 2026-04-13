@@ -89,7 +89,7 @@
     }
   },
   "dependencies": {
-    "rate-limiter-flexible": "^9.0.0"
+    "rate-limiter-flexible": "^11.0.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
