@@ -13,6 +13,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 7. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
 8. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`) and MUST NOT rewrite package versions, source files, or inject agentic setup files
 9. **MUST skip the interactive agentic wizard for imported ready apps** — imported snapshots stay repo-owned; any agentic tooling must be added later via a deliberate manual command inside the generated app
+10. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
 
 ## Standalone App vs Monorepo
 
@@ -31,9 +32,10 @@ When changes affect app shell behavior, verify all relevant template files are r
 2. `apps/mercato/src/app/(backend)/backend/layout.tsx` ↔ `packages/create-app/template/src/app/(backend)/backend/layout.tsx`
 3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*`
 4. `scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev.mjs`
-5. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`
-6. `scripts/dev-splash-helpers.mjs` ↔ `packages/create-app/template/scripts/dev-splash-helpers.mjs`
-7. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
+5. `scripts/dev-log-files.mjs` ↔ `packages/create-app/template/scripts/dev-log-files.mjs`
+6. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`
+7. `scripts/dev-splash-helpers.mjs` ↔ `packages/create-app/template/scripts/dev-splash-helpers.mjs`
+8. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
 
 ## Dev Runtime Expectations
 

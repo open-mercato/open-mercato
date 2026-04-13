@@ -182,6 +182,7 @@
         gap: 18px;
         justify-content: flex-start;
         background: var(--panel-strong);
+        overflow: visible;
       }
       .status-line {
         font-size: 15px;
@@ -245,6 +246,183 @@
         display: flex;
         gap: 12px;
         flex-wrap: wrap;
+        align-items: flex-start;
+        overflow: visible;
+      }
+      .coding-shell {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+        flex: 0 0 auto;
+      }
+      .coding-menu {
+        position: relative;
+        width: fit-content;
+        max-width: 100%;
+      }
+      .coding-summary {
+        list-style: none;
+        cursor: pointer;
+        user-select: none;
+        max-width: 100%;
+      }
+      .coding-summary::-webkit-details-marker {
+        display: none;
+      }
+      .coding-summary[aria-disabled="true"] {
+        opacity: 0.55;
+        pointer-events: none;
+      }
+      .coding-menu-panel {
+        position: absolute;
+        top: calc(100% + 10px);
+        left: 0;
+        min-width: 320px;
+        max-width: min(380px, calc(100vw - 64px));
+        display: grid;
+        gap: 8px;
+        padding: 10px;
+        border-radius: 18px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel-strong);
+        box-shadow: var(--shadow);
+        z-index: 20;
+      }
+      .coding-menu[data-align="end"] .coding-menu-panel {
+        left: auto;
+        right: 0;
+      }
+      .coding-menu[data-layout="stacked"] {
+        width: 100%;
+      }
+      .coding-menu[data-layout="stacked"] .coding-summary {
+        width: 100%;
+      }
+      .coding-menu[data-layout="stacked"] .coding-menu-panel {
+        position: static;
+        top: auto;
+        left: auto;
+        right: auto;
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+        margin-top: 10px;
+      }
+      .coding-item {
+        width: 100%;
+        display: grid;
+        gap: 4px;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+        color: var(--text);
+        text-align: left;
+        font: inherit;
+        cursor: pointer;
+      }
+      .coding-item[disabled] {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+      .coding-item-title {
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .coding-item-description {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+      .coding-status {
+        max-width: 360px;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      .coding-status[hidden] {
+        display: none;
+      }
+      .coding-status[data-kind="error"] {
+        color: var(--danger);
+      }
+      .coding-status[data-kind="success"] {
+        color: var(--text);
+      }
+      .git-repo-shell {
+        display: grid;
+        gap: 12px;
+        padding: 16px 18px;
+        border-radius: 18px;
+        border: 1px solid var(--panel-border);
+        background: var(--surface);
+      }
+      .git-repo-shell[hidden] {
+        display: none;
+      }
+      .git-repo-header {
+        display: grid;
+        gap: 6px;
+      }
+      .git-repo-heading {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .git-repo-message {
+        color: var(--text);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .git-repo-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .git-repo-grid[hidden] {
+        display: none;
+      }
+      .git-repo-field {
+        display: grid;
+        gap: 6px;
+      }
+      .git-repo-label {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .git-repo-input,
+      .git-repo-select {
+        width: 100%;
+        min-height: 44px;
+        border-radius: 12px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel-strong);
+        color: var(--text);
+        padding: 0 12px;
+        font: inherit;
+      }
+      .git-repo-input[disabled],
+      .git-repo-select[disabled] {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+      .git-repo-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .git-repo-secondary {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.6;
+      }
+      .git-repo-secondary[hidden] {
+        display: none;
       }
       .progress-stack {
         display: grid;
@@ -277,13 +455,18 @@
       .button {
         display: inline-flex;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
+        gap: 10px;
         min-height: 52px;
         padding: 0 18px;
         border-radius: 14px;
         border: 1px solid transparent;
         text-decoration: none;
+        text-align: left;
         font-weight: 600;
+        font: inherit;
+        cursor: pointer;
+        background: transparent;
         transition: transform 0.18s ease, opacity 0.18s ease, border-color 0.18s ease;
       }
       .button.primary {
@@ -453,6 +636,29 @@
           height: auto;
           max-height: min(232px, 34vh);
         }
+        .git-repo-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      @media (max-width: 640px) {
+        .actions {
+          align-items: stretch;
+        }
+        .coding-shell,
+        .coding-menu,
+        .coding-summary {
+          width: 100%;
+        }
+        .coding-menu-panel {
+          position: static;
+          top: auto;
+          left: auto;
+          right: auto;
+          min-width: 0;
+          max-width: none;
+          width: 100%;
+          margin-top: 10px;
+        }
       }
     </style>
   </head>
@@ -497,8 +703,43 @@
         <div class="status-line"><span id="target-label">Current target:</span> <span class="url" id="ready-url">pending</span></div>
         <div class="actions">
           <a class="button primary" id="login-button" href="#" aria-disabled="true">🚀 App is preparing…</a>
+          <div class="coding-shell" id="coding-shell" hidden>
+            <details class="coding-menu" id="coding-menu">
+              <summary class="button secondary coding-summary" id="coding-summary" aria-disabled="true">🤖 Start coding with AI</summary>
+              <div class="coding-menu-panel" id="coding-menu-panel"></div>
+            </details>
+            <div class="coding-status" id="coding-status" hidden></div>
+          </div>
           <div class="terminal-hint" id="terminal-hint">🖥 Keep terminal visible</div>
         </div>
+        <section class="git-repo-shell" id="git-repo-shell" hidden>
+          <div class="git-repo-header">
+            <div class="git-repo-heading" id="git-repo-heading">GitHub repository</div>
+            <div class="git-repo-message" id="git-repo-message"></div>
+          </div>
+          <div class="git-repo-grid" id="git-repo-grid" hidden>
+            <label class="git-repo-field" id="git-repo-owner-field" hidden>
+              <span class="git-repo-label" id="git-repo-owner-label">Owner</span>
+              <select class="git-repo-select" id="git-repo-owner"></select>
+            </label>
+            <label class="git-repo-field">
+              <span class="git-repo-label" id="git-repo-name-label">Repository</span>
+              <input class="git-repo-input" id="git-repo-name" type="text" autocomplete="off" />
+            </label>
+            <label class="git-repo-field">
+              <span class="git-repo-label" id="git-repo-visibility-label">Visibility</span>
+              <select class="git-repo-select" id="git-repo-visibility">
+                <option value="private">Private</option>
+                <option value="public">Public</option>
+              </select>
+            </label>
+          </div>
+          <div class="git-repo-actions">
+            <button class="button secondary" id="git-repo-action" type="button" hidden></button>
+            <a class="button secondary" id="git-repo-link" href="#" hidden target="_blank" rel="noreferrer">Open GitHub repository</a>
+          </div>
+          <div class="git-repo-secondary" id="git-repo-secondary" hidden></div>
+        </section>
         <section class="failure-box" id="failure-box" hidden>
           <div class="failure-heading" id="failure-heading">Recent failure output</div>
           <div class="failure-command" id="failure-command"></div>
@@ -521,6 +762,25 @@
       const localeToggle = document.getElementById('locale-toggle')
       const readyUrl = document.getElementById('ready-url')
       const loginButton = document.getElementById('login-button')
+      const codingShell = document.getElementById('coding-shell')
+      const codingMenu = document.getElementById('coding-menu')
+      const codingSummary = document.getElementById('coding-summary')
+      const codingMenuPanel = document.getElementById('coding-menu-panel')
+      const codingStatus = document.getElementById('coding-status')
+      const gitRepoShell = document.getElementById('git-repo-shell')
+      const gitRepoHeading = document.getElementById('git-repo-heading')
+      const gitRepoMessage = document.getElementById('git-repo-message')
+      const gitRepoGrid = document.getElementById('git-repo-grid')
+      const gitRepoOwnerField = document.getElementById('git-repo-owner-field')
+      const gitRepoOwnerLabel = document.getElementById('git-repo-owner-label')
+      const gitRepoOwner = document.getElementById('git-repo-owner')
+      const gitRepoNameLabel = document.getElementById('git-repo-name-label')
+      const gitRepoName = document.getElementById('git-repo-name')
+      const gitRepoVisibilityLabel = document.getElementById('git-repo-visibility-label')
+      const gitRepoVisibility = document.getElementById('git-repo-visibility')
+      const gitRepoAction = document.getElementById('git-repo-action')
+      const gitRepoLink = document.getElementById('git-repo-link')
+      const gitRepoSecondary = document.getElementById('git-repo-secondary')
       const terminalHint = document.getElementById('terminal-hint')
       const activityList = document.getElementById('activity-list')
       const statusCard = document.getElementById('status-card')
@@ -538,6 +798,9 @@
         : supportedLocales[0]
       const localeLabels = splashBootstrap.localeLabels || {}
       const activitySeenAt = new Map()
+      let codingActionInFlight = false
+      let gitRepoActionInFlight = false
+      let codingMenuLayoutRaf = 0
       const translations = {
         en: {
           badge: 'Open Mercato Dev',
@@ -560,6 +823,21 @@
           modeDev: 'Standard dev flow',
           modeGreenfield: 'Greenfield dev flow',
           modeSetup: 'Project setup flow',
+          codingButtonLabel: '🤖 Start coding with AI',
+          codingNoTools: 'No supported coding tools were detected on this machine.',
+          gitRepoHeading: 'GitHub repository',
+          gitRepoOwner: 'Owner',
+          gitRepoName: 'Repository',
+          gitRepoVisibility: 'Visibility',
+          gitRepoVisibilityPrivate: 'Private',
+          gitRepoVisibilityPublic: 'Public',
+          gitRepoCreate: 'Create new GitHub repository',
+          gitRepoPublish: 'Publish to GitHub',
+          gitRepoBusyAuth: 'Authenticating with GitHub…',
+          gitRepoBusyLocal: 'Preparing local repository…',
+          gitRepoBusyRemote: 'Publishing to GitHub…',
+          gitRepoOpen: 'Open GitHub repository',
+          gitRepoRestartHint: 'Install GitHub CLI, then restart `yarn dev`.',
         },
         pl: {
           badge: 'Open Mercato Dev',
@@ -582,6 +860,21 @@
           modeDev: 'Standardowy tryb dev',
           modeGreenfield: 'Tryb greenfield',
           modeSetup: 'Tryb konfiguracji projektu',
+          codingButtonLabel: '🤖 Zacznij kodowac z AI',
+          codingNoTools: 'Na tej maszynie nie wykryto obslugiwanych narzedzi do kodowania.',
+          gitRepoHeading: 'Repozytorium GitHub',
+          gitRepoOwner: 'Wlasciciel',
+          gitRepoName: 'Repozytorium',
+          gitRepoVisibility: 'Widocznosc',
+          gitRepoVisibilityPrivate: 'Prywatne',
+          gitRepoVisibilityPublic: 'Publiczne',
+          gitRepoCreate: 'Utworz nowe repozytorium GitHub',
+          gitRepoPublish: 'Opublikuj na GitHub',
+          gitRepoBusyAuth: 'Trwa uwierzytelnianie w GitHub…',
+          gitRepoBusyLocal: 'Przygotowywanie lokalnego repozytorium…',
+          gitRepoBusyRemote: 'Publikowanie na GitHub…',
+          gitRepoOpen: 'Otworz repozytorium GitHub',
+          gitRepoRestartHint: 'Zainstaluj GitHub CLI, a potem uruchom ponownie `yarn dev`.',
         },
         es: {
           badge: 'Open Mercato Dev',
@@ -604,6 +897,21 @@
           modeDev: 'Flujo dev estándar',
           modeGreenfield: 'Flujo dev greenfield',
           modeSetup: 'Flujo de configuración del proyecto',
+          codingButtonLabel: '🤖 Empezar a programar con IA',
+          codingNoTools: 'No se detectaron herramientas de programacion compatibles en esta maquina.',
+          gitRepoHeading: 'Repositorio de GitHub',
+          gitRepoOwner: 'Propietario',
+          gitRepoName: 'Repositorio',
+          gitRepoVisibility: 'Visibilidad',
+          gitRepoVisibilityPrivate: 'Privado',
+          gitRepoVisibilityPublic: 'Publico',
+          gitRepoCreate: 'Crear nuevo repositorio de GitHub',
+          gitRepoPublish: 'Publicar en GitHub',
+          gitRepoBusyAuth: 'Autenticando con GitHub…',
+          gitRepoBusyLocal: 'Preparando el repositorio local…',
+          gitRepoBusyRemote: 'Publicando en GitHub…',
+          gitRepoOpen: 'Abrir repositorio de GitHub',
+          gitRepoRestartHint: 'Instala GitHub CLI y luego reinicia `yarn dev`.',
         },
         de: {
           badge: 'Open Mercato Dev',
@@ -626,6 +934,21 @@
           modeDev: 'Standard-Dev-Ablauf',
           modeGreenfield: 'Greenfield-Dev-Ablauf',
           modeSetup: 'Projekt-Setup-Ablauf',
+          codingButtonLabel: '🤖 Mit KI programmieren',
+          codingNoTools: 'Auf diesem Rechner wurden keine unterstuetzten Coding-Tools erkannt.',
+          gitRepoHeading: 'GitHub-Repository',
+          gitRepoOwner: 'Besitzer',
+          gitRepoName: 'Repository',
+          gitRepoVisibility: 'Sichtbarkeit',
+          gitRepoVisibilityPrivate: 'Privat',
+          gitRepoVisibilityPublic: 'Oeffentlich',
+          gitRepoCreate: 'Neues GitHub-Repository erstellen',
+          gitRepoPublish: 'Auf GitHub veroeffentlichen',
+          gitRepoBusyAuth: 'GitHub-Anmeldung wird gestartet…',
+          gitRepoBusyLocal: 'Lokales Repository wird vorbereitet…',
+          gitRepoBusyRemote: 'Auf GitHub wird veroeffentlicht…',
+          gitRepoOpen: 'GitHub-Repository oeffnen',
+          gitRepoRestartHint: 'Installiere GitHub CLI und starte dann `yarn dev` neu.',
         },
       }
       const exactTranslations = {
@@ -700,6 +1023,18 @@
         currentLocale = supportedLocales[(currentIndex + 1) % supportedLocales.length] || defaultLocale
         localStorage.setItem(LOCALE_KEY, currentLocale)
         renderStaticText()
+      })
+
+      document.addEventListener('click', (event) => {
+        if (!codingMenu.contains(event.target)) {
+          codingMenu.open = false
+        }
+      })
+      codingMenu.addEventListener('toggle', () => {
+        scheduleCodingMenuLayout()
+      })
+      window.addEventListener('resize', () => {
+        scheduleCodingMenuLayout()
       })
 
       function template(value, vars = {}) {
@@ -792,6 +1127,8 @@
         terminalHint.textContent = t('terminalHint')
         localeToggle.textContent = '🌐 ' + getLocaleLabel(currentLocale)
         themeToggle.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight')
+        renderCodingFlow(lastState)
+        renderGitRepoFlow(lastState)
       }
 
       function formatActivityTimestamp(value) {
@@ -820,7 +1157,7 @@
       }
 
       function renderFailure(state) {
-        const failed = state?.failed === true
+        const failed = state?.failed === true && state?.ready !== true
         failureBox.hidden = !failed
 
         if (!failed) {
@@ -836,6 +1173,330 @@
         failureCommand.textContent = command ? t('failureCommand') + ': ' + command : ''
         const lines = Array.isArray(state.failureLines) ? state.failureLines : []
         failureLines.textContent = lines.join('\n')
+      }
+
+      async function startCoding(toolId) {
+        const codingBootstrap = splashBootstrap.codingFlow
+        if (!codingBootstrap || codingBootstrap.enabled !== true) return
+        if (codingActionInFlight) return
+
+        codingActionInFlight = true
+        renderCodingFlow(lastState)
+
+        try {
+          const response = await fetch('/actions/start-coding', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-om-dev-splash-token': codingBootstrap.actionToken || '',
+            },
+            body: JSON.stringify({ toolId }),
+          })
+          const payload = await response.json().catch(() => ({}))
+
+          if (payload && payload.codingFlow) {
+            lastState = {
+              ...(lastState || {}),
+              codingFlow: payload.codingFlow,
+            }
+          }
+
+          if (!response.ok) {
+            throw new Error(payload?.error || 'Unable to start the selected coding tool.')
+          }
+
+          codingMenu.open = false
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unable to start the selected coding tool.'
+          lastState = {
+            ...(lastState || {}),
+            codingFlow: {
+              ...(lastState?.codingFlow || {}),
+              enabled: true,
+              lastResult: {
+                kind: 'error',
+                message,
+              },
+            },
+          }
+        } finally {
+          codingActionInFlight = false
+          renderCodingFlow(lastState)
+        }
+      }
+
+      function updateCodingMenuLayout() {
+        if (codingShell.hidden) {
+          delete codingMenu.dataset.align
+          delete codingMenu.dataset.layout
+          return
+        }
+
+        const viewportPadding = 24
+        const summaryRect = codingSummary.getBoundingClientRect()
+        const availableViewportWidth = Math.max(0, window.innerWidth - (viewportPadding * 2))
+        const preferredPanelWidth = Math.min(380, availableViewportWidth)
+        const panelWidth = Math.max(Math.min(preferredPanelWidth, 380), Math.min(320, availableViewportWidth))
+        const rightOverflow = summaryRect.left + panelWidth > window.innerWidth - viewportPadding
+        const leftOverflow = summaryRect.right - panelWidth < viewportPadding
+        const shouldStack = window.innerWidth <= 640 || (rightOverflow && leftOverflow)
+
+        if (shouldStack) {
+          codingMenu.dataset.layout = 'stacked'
+          delete codingMenu.dataset.align
+          return
+        }
+
+        delete codingMenu.dataset.layout
+        codingMenu.dataset.align = rightOverflow ? 'end' : 'start'
+      }
+
+      function scheduleCodingMenuLayout() {
+        if (codingMenuLayoutRaf) {
+          window.cancelAnimationFrame(codingMenuLayoutRaf)
+        }
+        codingMenuLayoutRaf = window.requestAnimationFrame(() => {
+          codingMenuLayoutRaf = 0
+          updateCodingMenuLayout()
+        })
+      }
+
+      function isRealGitHubRepoUrl(value) {
+        const raw = typeof value === 'string' ? value.trim() : ''
+        if (!raw) return false
+
+        try {
+          const parsed = new URL(raw)
+          const segments = parsed.pathname.replace(/\/+$/, '').split('/').filter(Boolean)
+          return parsed.protocol === 'https:' && parsed.hostname === 'github.com' && segments.length === 2
+        } catch {
+          return false
+        }
+      }
+
+      function renderCodingFlow(state) {
+        const codingFlow = state?.codingFlow
+        const ready = state?.ready === true
+        const enabled = codingFlow?.enabled === true && splashBootstrap?.codingFlow?.enabled === true
+
+        codingShell.hidden = !enabled || !ready
+        if (codingShell.hidden) {
+          codingMenu.open = false
+          codingMenuPanel.innerHTML = ''
+          codingStatus.hidden = true
+          delete codingMenu.dataset.align
+          delete codingMenu.dataset.layout
+          return
+        }
+
+        const tools = Array.isArray(codingFlow?.tools) ? codingFlow.tools : []
+        const busy = codingActionInFlight || codingFlow?.busy === true
+        const menuDisabled = busy || tools.length === 0
+
+        codingSummary.textContent = t('codingButtonLabel')
+        codingSummary.setAttribute('aria-disabled', menuDisabled ? 'true' : 'false')
+
+        if (menuDisabled) {
+          codingMenu.open = false
+        }
+
+        codingMenuPanel.innerHTML = tools.map((tool) => {
+          const safeId = escapeHtml(tool.id)
+          const safeLabel = escapeHtml(tool.label)
+          const safeDescription = escapeHtml(tool.description || '')
+          return `<button class="coding-item" type="button" data-coding-tool-id="${safeId}" ${busy ? 'disabled' : ''}><span class="coding-item-title">${safeLabel}</span><span class="coding-item-description">${safeDescription}</span></button>`
+        }).join('')
+
+        codingMenuPanel.querySelectorAll('[data-coding-tool-id]').forEach((button) => {
+          button.addEventListener('click', () => {
+            const selectedToolId = button.getAttribute('data-coding-tool-id')
+            if (selectedToolId) {
+              startCoding(selectedToolId)
+            }
+          })
+        })
+
+        const lastResult = codingFlow?.lastResult
+        if (lastResult?.message) {
+          codingStatus.hidden = false
+          codingStatus.dataset.kind = lastResult.kind || 'info'
+          codingStatus.textContent = translateMessage(lastResult.message)
+          scheduleCodingMenuLayout()
+          return
+        }
+
+        if (tools.length === 0) {
+          codingStatus.hidden = false
+          codingStatus.dataset.kind = 'info'
+          codingStatus.textContent = t('codingNoTools')
+          scheduleCodingMenuLayout()
+          return
+        }
+
+        codingStatus.hidden = true
+        codingStatus.textContent = ''
+        codingStatus.dataset.kind = ''
+        scheduleCodingMenuLayout()
+      }
+
+      gitRepoName.addEventListener('input', () => {
+        gitRepoName.dataset.userEdited = 'true'
+      })
+
+      async function startGitRepoFlow() {
+        const gitRepoBootstrap = splashBootstrap.gitRepoFlow
+        const gitRepoFlow = lastState?.gitRepoFlow
+        if (!gitRepoBootstrap || gitRepoBootstrap.enabled !== true) return
+        if (gitRepoActionInFlight) return
+        if (gitRepoFlow?.ghStatus !== 'available') return
+
+        gitRepoActionInFlight = true
+        renderGitRepoFlow(lastState)
+
+        try {
+          const response = await fetch('/actions/git-repo-flow/start', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-om-dev-splash-token': gitRepoBootstrap.actionToken || '',
+            },
+            body: JSON.stringify({
+              owner: gitRepoOwnerField.hidden ? '' : gitRepoOwner.value,
+              repoName: gitRepoName.value,
+              visibility: gitRepoVisibility.value,
+            }),
+          })
+          const payload = await response.json().catch(() => ({}))
+
+          if (payload && payload.gitRepoFlow) {
+            lastState = {
+              ...(lastState || {}),
+              gitRepoFlow: payload.gitRepoFlow,
+            }
+          }
+
+          if (!response.ok) {
+            throw new Error(payload?.error || 'Unable to publish this project to GitHub.')
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unable to publish this project to GitHub.'
+          lastState = {
+            ...(lastState || {}),
+            gitRepoFlow: {
+              ...(lastState?.gitRepoFlow || {}),
+              enabled: true,
+              actionState: 'error',
+              message,
+            },
+          }
+        } finally {
+          gitRepoActionInFlight = false
+          renderGitRepoFlow(lastState)
+        }
+      }
+
+      function getGitRepoActionLabel(gitRepoFlow) {
+        if (gitRepoActionInFlight || gitRepoFlow?.actionState === 'authenticating') {
+          return t('gitRepoBusyAuth')
+        }
+        if (gitRepoFlow?.actionState === 'creating_local_repo') {
+          return t('gitRepoBusyLocal')
+        }
+        if (gitRepoFlow?.actionState === 'creating_remote_repo') {
+          return t('gitRepoBusyRemote')
+        }
+        return gitRepoFlow?.repoState === 'local_only'
+          ? t('gitRepoPublish')
+          : t('gitRepoCreate')
+      }
+
+      function renderGitRepoFlow(state) {
+        const gitRepoFlow = state?.gitRepoFlow
+        const ready = state?.ready === true
+        const enabled = gitRepoFlow?.enabled === true && splashBootstrap?.gitRepoFlow?.enabled === true
+
+        gitRepoShell.hidden = !enabled || !ready
+        if (gitRepoShell.hidden) {
+          gitRepoGrid.hidden = true
+          gitRepoAction.hidden = true
+          gitRepoLink.hidden = true
+          gitRepoSecondary.hidden = true
+          return
+        }
+
+        gitRepoHeading.textContent = t('gitRepoHeading')
+        gitRepoOwnerLabel.textContent = t('gitRepoOwner')
+        gitRepoNameLabel.textContent = t('gitRepoName')
+        gitRepoVisibilityLabel.textContent = t('gitRepoVisibility')
+        gitRepoSecondary.textContent = gitRepoFlow?.ghStatus === 'missing' ? t('gitRepoRestartHint') : ''
+        gitRepoSecondary.hidden = gitRepoFlow?.ghStatus !== 'missing'
+        gitRepoMessage.textContent = translateMessage(gitRepoFlow?.message || '')
+
+        const currentVisibility = gitRepoVisibility.value || 'private'
+        gitRepoVisibility.innerHTML = [
+          `<option value="private">${escapeHtml(t('gitRepoVisibilityPrivate'))}</option>`,
+          `<option value="public">${escapeHtml(t('gitRepoVisibilityPublic'))}</option>`,
+        ].join('')
+        gitRepoVisibility.value = currentVisibility === 'public' ? 'public' : 'private'
+
+        const ownerOptions = Array.isArray(gitRepoFlow?.ownerOptions) ? gitRepoFlow.ownerOptions : []
+        const showOwnerField = ownerOptions.length > 0
+        const hasRealRepoUrl = isRealGitHubRepoUrl(gitRepoFlow?.repoUrl)
+        const canOpenRepository = hasRealRepoUrl && (
+          gitRepoFlow?.repoState === 'github_remote'
+          || gitRepoFlow?.remoteRepoExists === true
+          || gitRepoFlow?.actionState === 'done'
+        )
+        const showForm = gitRepoFlow?.ghStatus === 'available'
+          && gitRepoFlow?.repoState !== 'github_remote'
+          && gitRepoFlow?.repoState !== 'other_remote'
+          && gitRepoFlow?.remoteRepoExists !== true
+          && !canOpenRepository
+
+        gitRepoGrid.hidden = !showForm
+        gitRepoOwnerField.hidden = !showOwnerField
+
+        if (showOwnerField) {
+          const previousOwner = gitRepoOwner.value
+          gitRepoOwner.innerHTML = ownerOptions.map((owner) => (
+            `<option value="${escapeHtml(owner)}">${escapeHtml(owner)}</option>`
+          )).join('')
+          const nextOwner = ownerOptions.includes(previousOwner)
+            ? previousOwner
+            : (gitRepoFlow?.defaultOwner || ownerOptions[0])
+          gitRepoOwner.value = nextOwner || ''
+        } else {
+          gitRepoOwner.innerHTML = ''
+        }
+
+        if ((!gitRepoName.dataset.userEdited || !gitRepoName.value) && typeof gitRepoFlow?.defaultRepoName === 'string') {
+          gitRepoName.value = gitRepoFlow.defaultRepoName
+        }
+
+        const busy = gitRepoActionInFlight
+          || gitRepoFlow?.actionState === 'authenticating'
+          || gitRepoFlow?.actionState === 'creating_local_repo'
+          || gitRepoFlow?.actionState === 'creating_remote_repo'
+        const canStart = showForm
+          && gitRepoFlow?.ghStatus === 'available'
+          && (gitRepoFlow?.repoState === 'missing' || gitRepoFlow?.repoState === 'local_only')
+
+        gitRepoAction.hidden = !canStart
+        gitRepoAction.disabled = busy
+        gitRepoAction.textContent = getGitRepoActionLabel(gitRepoFlow)
+        gitRepoAction.onclick = () => {
+          void startGitRepoFlow()
+        }
+
+        gitRepoName.disabled = busy || !showForm
+        gitRepoVisibility.disabled = busy || !showForm
+        gitRepoOwner.disabled = busy || !showOwnerField
+
+        gitRepoLink.hidden = false
+        gitRepoLink.textContent = t('gitRepoOpen')
+        gitRepoLink.href = canOpenRepository ? gitRepoFlow.repoUrl : '#'
+        gitRepoLink.setAttribute('aria-disabled', canOpenRepository ? 'false' : 'true')
+        gitRepoLink.tabIndex = canOpenRepository ? 0 : -1
       }
 
       function escapeHtml(value) {
@@ -874,17 +1535,10 @@
           renderActivities(state.activities)
           renderFailure(state)
           lastState = state
+          renderCodingFlow(state)
+          renderGitRepoFlow(state)
 
-          if (state.failed) {
-            statusCard.classList.remove('ready')
-            statusCard.classList.add('failed')
-            loginButton.textContent = t('loginFailed')
-            loginButton.classList.remove('primary')
-            loginButton.classList.add('danger')
-            loginButton.href = '#'
-            loginButton.setAttribute('aria-disabled', 'true')
-            terminalHint.textContent = t('terminalFixHint')
-          } else if (state.ready && state.loginUrl) {
+          if (state.ready && state.loginUrl) {
             statusCard.classList.add('ready')
             statusCard.classList.remove('failed')
             loginButton.textContent = t('loginReady')
@@ -893,6 +1547,15 @@
             loginButton.href = state.loginUrl
             loginButton.setAttribute('aria-disabled', 'false')
             terminalHint.textContent = t('terminalHint')
+          } else if (state.failed) {
+            statusCard.classList.remove('ready')
+            statusCard.classList.add('failed')
+            loginButton.textContent = t('loginFailed')
+            loginButton.classList.remove('primary')
+            loginButton.classList.add('danger')
+            loginButton.href = '#'
+            loginButton.setAttribute('aria-disabled', 'true')
+            terminalHint.textContent = t('terminalFixHint')
           } else {
             statusCard.classList.remove('ready')
             statusCard.classList.remove('failed')

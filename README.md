@@ -176,7 +176,7 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 ## Getting Started
 
 
-This is a quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
+This is the quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
 
 <table>
   <tr>
@@ -264,6 +264,20 @@ yarn dev:greenfield
 - `yarn dev:ephemeral` now uses the same splash-first startup experience for its install/build/generate/init stages before handing off to the app runtime. `yarn dev:ephemeral:verbose` keeps the runtime logs raw.
 - `yarn dev:ephemeral:classic` keeps the ephemeral database flow but skips the splash and uses raw passthrough output end to end.
 - Set `OM_DEV_SPLASH_PORT` to override the splash port. Default: `4000`. Use `random` (or `0`) for native local runs when you want a free ephemeral port instead of the stable default.
+- Set `OM_DEV_AUTO_OPEN=0` to keep the splash from opening automatically in your browser.
+- The standalone app splash can expose two ready-state helpers:
+  - `Start coding with AI` launches detected coding tools from the splash when the coding flow is enabled.
+  - `Create new GitHub repository` / `Publish to GitHub` appears in standalone apps when `gh` is installed and `OM_DEV_CREATE_GIT_REPO_FLOW` is not disabled.
+
+### Recommended tools
+
+If you are using the native dev runtime or building a standalone app, these tools are recommended:
+
+- **GitHub CLI (`gh`)** for the standalone splash GitHub publish flow: <https://cli.github.com/>
+- **Codex CLI** for the OpenAI terminal workflow surfaced by `Start coding with AI`: <https://developers.openai.com/codex/cli>
+- **Claude Code** for the Anthropic terminal workflow surfaced by `Start coding with AI`: <https://code.claude.com/docs/en/setup>
+- **Visual Studio Code** as the recommended general-purpose editor: <https://code.visualstudio.com/Download>
+- **Cursor** as a recommended AI-first editor: <https://cursor.com/download>
 
 For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, splash-based startup status, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 
@@ -485,11 +499,11 @@ Open Mercato follows a **spec-first development approach**. Before implementing 
 
 ### How It Works
 
-1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `SPEC-###-YYYY-MM-DD-title.md`)
+1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `{YYYY-MM-DD}-{title}.md`)
 2. **New features**: Create or update the spec with your design before implementation
 3. **After changes**: Update the spec's changelog with a dated summary
 
-**Naming convention**: Specs use the format `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-007-2026-01-26-sidebar-reorganization.md`)
+**Naming convention**: Specs use the format `{YYYY-MM-DD}-{title}.md` (e.g., `2026-01-26-sidebar-reorganization.md`)
 
 See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory and [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
 

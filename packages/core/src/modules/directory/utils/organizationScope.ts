@@ -98,8 +98,9 @@ export async function resolveOrganizationScope({
   if (!tenantId) {
     return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
-  const explicitAllSelection = selectedId === null
-  const normalizedSelectedId = typeof selectedId === 'string' && isAllOrganizationsSelection(selectedId)
+  const explicitAllOrgsChoice =
+    typeof selectedId === 'string' && isAllOrganizationsSelection(selectedId)
+  const normalizedSelectedId = explicitAllOrgsChoice
     ? null
     : (selectedId ?? null)
   const contextOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
@@ -144,7 +145,14 @@ export async function resolveOrganizationScope({
     }
   }
 
-  const initialSelected = normalizedSelectedId ?? (explicitAllSelection && effectiveSuperAdmin ? null : accountOrgId ?? null)
+  const hasUnrestrictedAccess = effectiveSuperAdmin || (accessibleList === null)
+  const noOrgSelection = selectedId == null
+  const widenToAllOrgs =
+    (explicitAllOrgsChoice && hasUnrestrictedAccess)
+    || (effectiveSuperAdmin && noOrgSelection)
+  const initialSelected =
+    normalizedSelectedId
+    ?? (widenToAllOrgs ? null : accountOrgId ?? null)
   let effectiveSelected: string | null = null
   if (initialSelected) {
     if (allowedSet === null || allowedSet.has(initialSelected)) {
@@ -157,13 +165,13 @@ export async function resolveOrganizationScope({
     filterSet = await collectWithDescendants(em, tenantId, [effectiveSelected])
   } else if (allowedSet !== null) {
     filterSet = allowedSet
-  } else if (explicitAllSelection && effectiveSuperAdmin) {
+  } else if (widenToAllOrgs) {
     filterSet = null
   } else if (auth.orgId) {
     filterSet = await loadFallbackSet()
   }
 
-  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !(explicitAllSelection && effectiveSuperAdmin)) {
+  if ((!filterSet || filterSet.size === 0) && fallbackOrgId && !widenToAllOrgs) {
     const computed = await loadFallbackSet()
     if (computed && computed.size > 0) {
       filterSet = computed
@@ -254,12 +262,11 @@ export async function resolveOrganizationScopeForRequest({
   }
 
   const rawSelected = selectedId !== undefined ? selectedId : (request ? getSelectedOrganizationFromRequest(request) : null)
-  const reqSelected = typeof rawSelected === 'string' && isAllOrganizationsSelection(rawSelected) ? null : rawSelected
   const baseScope = await resolveOrganizationScope({
     em,
     rbac,
     auth: scopedAuth,
-    selectedId: reqSelected,
+    selectedId: rawSelected,
     tenantId: effectiveTenantId,
   })
 

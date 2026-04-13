@@ -9,7 +9,7 @@
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "build": "next build",
     "start": "mercato server start",
-    "lint": "next lint",
+    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
     "generate": "mercato generate",
@@ -17,7 +17,8 @@
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",
     "initialize": "mercato init",
-    "reinstall": "mercato init --reinstall"
+    "reinstall": "mercato init --reinstall",
+    "seed:defaults": "mercato seed:defaults"
   },
   "engines": {
     "node": "24.x"
@@ -27,6 +28,7 @@
     "@mikro-orm/core": "^6.6.10",
     "@mikro-orm/migrations": "^6.6.10",
     "@mikro-orm/postgresql": "^6.6.10",
+    "@napi-rs/canvas": "^0.1.78",
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
     "@open-mercato/checkout": "workspace:*",
@@ -64,7 +66,7 @@
     "lucide-react": "^0.556.0",
     "newrelic": "^13.16.0",
     "next": "16.1.7",
-    "pdf2pic": "^3.2.0",
+    "pdfjs-dist": "^5.4.149",
     "pg": "8.20.0",
     "react": "19.2.1",
     "react-big-calendar": "^1.19.4",

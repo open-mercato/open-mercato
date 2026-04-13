@@ -20,6 +20,19 @@ The `create-mercato-app` CLI scaffolds a fully configured, self-contained Open M
   corepack prepare yarn@stable --activate
   ```
 - **Docker & Docker Compose** — for PostgreSQL (with pgvector), Redis, and Meilisearch.
+- **GitHub CLI (`gh`)** — strongly recommended if you want to create or publish the repository from the standalone splash. Install guide: [cli.github.com](https://cli.github.com/)
+- **Codex CLI** — recommended OpenAI terminal workflow for the splash `Start coding with AI` menu. Install guide: [developers.openai.com/codex/cli](https://developers.openai.com/codex/cli)
+- **Claude Code** — recommended Anthropic terminal workflow for the same splash menu. Install guide: [code.claude.com/docs/en/setup](https://code.claude.com/docs/en/setup)
+- **Visual Studio Code** — recommended general-purpose editor for standalone Open Mercato apps. Download: [code.visualstudio.com/Download](https://code.visualstudio.com/Download)
+- **Cursor** — recommended AI-first editor if you prefer an IDE workflow over a terminal-only CLI workflow. Download: [cursor.com/download](https://cursor.com/download)
+
+Useful one-time setup commands:
+
+```bash
+gh auth login
+npm i -g @openai/codex
+curl -fsSL https://claude.ai/install.sh | bash
+```
 
 ## Scaffold the app
 
@@ -68,7 +81,19 @@ yarn dev
 
 If you prefer the old raw terminal output with no splash screen during standalone bootstrap, use `yarn setup:classic` instead of the compact `setup` flow.
 
-`yarn dev` starts the compact development runtime with a splash screen that shows live startup progress. On native local runs the splash is served on `http://localhost:4000` by default and auto-opens when supported; the terminal also prints the backend URL at `http://localhost:3000/backend`. If you want the previous raw passthrough experience instead, run `yarn dev:classic`.
+`yarn dev` starts the compact development runtime with a splash screen that shows live startup progress. On native local runs the splash is served on `http://localhost:4000` by default and auto-opens when supported; the terminal also prints the backend URL at `http://localhost:3000/backend`. Once the app is ready, the splash can also expose:
+
+- `Start coding with AI` for detected coding tools
+- `Create new GitHub repository` / `Publish to GitHub` through `gh` in standalone apps
+
+If you want the previous raw passthrough experience instead, run `yarn dev:classic`.
+
+Useful standalone splash env vars:
+
+- `OM_DEV_SPLASH_PORT=4100 yarn dev` to move the splash to a fixed port
+- `OM_DEV_AUTO_OPEN=0 yarn dev` to disable browser auto-open
+- `OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev` to hide the GitHub publish panel
+- `OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev` to hide the coding-tools menu
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 

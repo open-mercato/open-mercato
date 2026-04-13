@@ -47,9 +47,34 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-splash-helpers.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
+    rel: 'scripts/dev-splash-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-coding-flow.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-coding-flow.mjs'),
+    rel: 'scripts/dev-splash-coding-flow.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-splash-git-repo-flow.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-git-repo-flow.mjs'),
+    rel: 'scripts/dev-splash-git-repo-flow.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-orchestration-log-policy.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-orchestration-log-policy.mjs'),
+    rel: 'scripts/dev-orchestration-log-policy.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
     rel: 'scripts/dev-runtime.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev-runtime-log-policy.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
+    rel: 'scripts/dev-runtime-log-policy.mjs',
   },
 ] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([

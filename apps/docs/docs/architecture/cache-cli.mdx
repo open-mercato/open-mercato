@@ -1,0 +1,125 @@
+---
+title: Cache CLI architecture
+description: Understand how each cache CLI purge mode reaches the tenant-aware cache service and how structural cache cleanup behaves.
+---
+
+The cache CLI is intentionally implemented as a **module CLI**, not as a hard-coded command in the core CLI binary. That keeps cache operations aligned with Open Mercato's module architecture: the `configs` module owns the cache management feature in the UI, the HTTP API, and the CLI.
+
+## Discovery through the module generator
+
+The command lives in `packages/core/src/modules/configs/cli.ts`. It becomes runnable only after the generator scans enabled modules and emits the CLI registry used by `yarn mercato`.
+
+Flow:
+
+1. The `configs` module exports a `cli.ts` file with the `cache` subcommand.
+2. `yarn generate` scans enabled modules and collects every `cli.ts`.
+3. The generator emits `apps/mercato/.mercato/generated/modules.cli.generated.ts`.
+4. `packages/cli` loads that generated registry at runtime.
+5. `yarn mercato configs cache ...` resolves the `configs` module command and dispatches into the cache helper.
+
+This design matters because:
+
+- the CLI surface stays additive and module-owned
+- apps can disable the owning module and lose the command naturally
+- generator output remains the single source of truth for discovered module commands
+
+For the full generator system, see [Generator architecture](./generators).
+
+## Runtime architecture
+
+```mermaid
+flowchart TD
+  command["`yarn mercato configs cache ...`<br/>stats, purge, structural<br/>scope flags: `--tenant`, `--global`, `--all-tenants`"]
+  parser["`packages/core/src/modules/configs/cli.ts`<br/>argument parsing + scope selection"]
+  helper["`packages/core/src/modules/configs/lib/cache-cli.ts`<br/>normalizes one request shape<br/>supports dry-run + JSON output<br/>maps `structural` to `nav:*`"]
+  cache["tenant-aware cache service<br/>resolved from DI and scoped with `runWithCacheTenant(...)`"]
+
+  subgraph Primitives["Purge primitives"]
+    stats["stats → `collectCrudCacheStats()`"]
+    segment["segment → `purgeCrudCacheSegment()`"]
+    tag["tag → `cache.deleteByTags(tags)`"]
+    key["key → `cache.delete(key)`"]
+    id["id → `cache.keys('*token*')` + delete"]
+    pattern["pattern → `cache.keys(pattern)` + delete"]
+    all["all → `cache.clear()`"]
+    structural["structural → pattern `nav:*`"]
+  end
+
+  backends["storage backends<br/>memory, SQLite, Redis, jsonfile"]
+
+  command --> parser --> helper --> cache
+  cache --> Primitives
+  cache --> backends
+```
+
+The cache command delegates into `packages/core/src/modules/configs/lib/cache-cli.ts`, which normalizes user input into one of a few request shapes.
+
+### Request types
+
+| Request type | Helper path | Underlying cache primitive |
+| --- | --- | --- |
+| `stats` | `collectCacheStats()` | `collectCrudCacheStats()` |
+| `purge --segment` | `executeCachePurge({ kind: 'segment' })` | `purgeCrudCacheSegment()` |
+| `purge --tag` | `executeCachePurge({ kind: 'tags' })` | `cache.deleteByTags()` |
+| `purge --key` | `executeCachePurge({ kind: 'keys' })` | `cache.delete()` for each exact key |
+| `purge --id` | `executeCachePurge({ kind: 'ids' })` | `cache.keys('*token*')` + `cache.delete()` |
+| `purge --pattern` | `executeCachePurge({ kind: 'pattern' })` | `cache.keys(pattern)` + `cache.delete()` |
+| `purge --all` | `executeCachePurge({ kind: 'all' })` | `cache.clear()` |
+| `structural` | `runStructuralCachePurge()` | `purge --pattern 'nav:*'` |
+
+## Scope handling
+
+The helper does not talk to cache storage directly. It always resolves the tenant-aware cache service from DI and applies the selected scope through `runWithCacheTenant(...)`.
+
+Scope rules:
+
+- `--tenant <id>` runs inside one tenant scope.
+- `--global` runs inside the global scope (`tenantId = null`).
+- `--all-tenants` loads active tenants from the directory module and executes once for global plus once per tenant.
+
+That is why `structural --all-tenants` is the safe default for page/module/sidebar changes: navigation cache can exist per user and per tenant, so a single-tenant purge is often insufficient during development.
+
+## Structural purge behavior
+
+The structural shortcut is intentionally narrow. It targets `nav:*` keys because those are the stale entries that typically survive:
+
+- backend sidebar payloads
+- settings/profile section navigation
+- entity-driven sidebar additions
+- per-user sidebar preference projections
+
+It does **not** wipe unrelated CRUD caches unless you explicitly ask for `--all`, `--segment`, or another broader purge target.
+
+## Relationship to the admin cache page
+
+The **Backend → Configuration → Cache** page and the CLI share the same ownership boundary but not the same surface area.
+
+- The admin page exposes `stats`, `purge all`, and `purge segment`.
+- The CLI adds `tag`, `key`, `id`, `pattern`, `dry-run`, JSON output, and multi-scope iteration.
+
+This split is deliberate:
+
+- the UI stays safe and task-focused for operators
+- the CLI stays expressive for developers, CI, and troubleshooting
+
+## Generate-time structural purge
+
+`yarn generate` now performs a **best-effort structural cache purge** after successful generation by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI.
+
+That post-step is intentionally non-fatal:
+
+- generation still succeeds if the app does not expose the `configs` cache command
+- generation still succeeds if the environment cannot reach the cache/database stack
+- operators can still rerun `yarn mercato configs cache structural --all-tenants` manually when they want an explicit purge pass
+
+## Source files
+
+| File | Responsibility |
+| --- | --- |
+| `packages/core/src/modules/configs/cli.ts` | CLI command parsing, scope resolution, command entrypoints |
+| `packages/core/src/modules/configs/lib/cache-cli.ts` | Request normalization, preview mode, purge execution |
+| `packages/core/src/modules/configs/api/cache/route.ts` | Admin page HTTP API (`stats`, `purgeAll`, `purgeSegment`) |
+| `packages/shared/src/lib/crud/cache-stats.ts` | CRUD/widget segment analysis and segment purge |
+| `packages/cache/src/service.ts` | Tenant-aware cache wrapper over memory/SQLite/Redis/jsonfile strategies |
+
+For operator usage, see [`mercato configs cache`](../cli/configs-cache).

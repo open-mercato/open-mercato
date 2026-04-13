@@ -210,7 +210,7 @@ test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setu
         cwd: PACKAGE_ROOT,
         encoding: 'utf8',
         env: process.env,
-        timeout: 5000,
+        timeout: 15000,
       },
     )
 

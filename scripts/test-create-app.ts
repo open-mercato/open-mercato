@@ -98,6 +98,10 @@ async function main(): Promise<void> {
       cwd: appDir,
       env: standaloneInstallEnv,
     })
+    runCommand('yarn', ['generate'], {
+      cwd: appDir,
+      env: standaloneInstallEnv,
+    })
 
     console.log(green('\ncreate-mercato-app scaffold test passed'))
     console.log(cyan(`App path: ${appDir}`))

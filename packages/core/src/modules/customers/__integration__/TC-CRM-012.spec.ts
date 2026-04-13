@@ -84,6 +84,10 @@ test.describe('TC-CRM-012: Tag Customers for Segmentation', () => {
       await page.getByRole('button', { name: 'Apply' }).last().click();
       await filteredListResponse;
 
+      // Verify filter chip shows tag label, not UUID (open-mercato#238)
+      const filterChip = page.getByRole('button', { name: new RegExp(`Tags:\\s*${tagOne}`) });
+      await expect(filterChip).toBeVisible({ timeout: 5000 });
+
       await expect
         .poll(
           async () => {

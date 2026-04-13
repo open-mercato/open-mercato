@@ -2,6 +2,10 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  createRuntimeNoiseFilter,
+  isStatelessRuntimeNoiseLine,
+} from './dev-runtime-log-policy.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -306,35 +310,16 @@ function updateSplashState(patch) {
 }
 
 function collectRuntimeFailureLines(maxLines = 10) {
+  const ignoreLine = createRuntimeNoiseFilter()
   const lines = []
 
-  for (let index = rawLogBuffer.length - 1; index >= 0; index -= 1) {
-    const normalized = stripAnsi(String(rawLogBuffer[index] ?? '')).replace(/\s+$/, '')
-    const plain = normalized.trim()
-    if (!plain) continue
-    if (plain.startsWith('[queue:')) continue
-    if (plain.startsWith('[scheduler:')) continue
-    if (plain === 'Press Ctrl+C to stop.') continue
-    if (plain.startsWith('Warning: Ignoring extra certs from')) continue
-    if (isIgnorableDerivedKeyWarningLine(plain)) continue
-    lines.unshift(normalized)
-    if (lines.length >= maxLines) break
+  for (const entry of rawLogBuffer) {
+    const normalized = stripAnsi(String(entry ?? '')).replace(/\s+$/, '')
+    if (ignoreLine(normalized, { startupReady: splashState.ready })) continue
+    lines.push(normalized)
   }
 
-  return lines
-}
-
-function isIgnorableDerivedKeyWarningLine(line) {
-  return line.startsWith('⚠️ [encryption][kms] Vault read error')
-    || line.startsWith('⚠️ [encryption][kms] No tenant DEK found in Vault')
-    || line.startsWith("path: 'secret/data/tenant_key_")
-    || line.startsWith("error: 'fetch failed'")
-    || line === '}'
-    || line.startsWith('━━━━━━━━')
-    || line.includes('Using derived tenant encryption keys')
-    || line.startsWith('Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY')
-    || line.startsWith('Secret: ')
-    || line.startsWith('Persist this secret securely.')
+  return lines.slice(-maxLines)
 }
 
 function publishRuntimeFailure(detail, options = {}) {
@@ -367,10 +352,7 @@ function publishRuntimeFailure(detail, options = {}) {
 }
 
 function looksLikeFailure(line) {
-  if (isIgnorableDerivedKeyWarningLine(line)) return false
-  if (line.startsWith('⨯ preloadEntriesOnStart')) return false
-  if (line.startsWith('⨯ serverMinification')) return false
-  if (line.startsWith('⨯ turbopackMinify')) return false
+  if (isStatelessRuntimeNoiseLine(line)) return false
 
   return /^error\b/i.test(line)
     || /^Error:/i.test(line)
@@ -411,6 +393,27 @@ function waitForExit(child) {
   })
 }
 
+function isExpectedShutdownSignal(signal) {
+  return signal === 'SIGINT' || signal === 'SIGTERM'
+}
+
+function isGracefulShutdownResult(result) {
+  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+}
+
+function resolveChildExitCode(result, fallback = 1) {
+  if (typeof result?.code === 'number') {
+    return result.code
+  }
+  if (result?.signal === 'SIGINT') {
+    return 130
+  }
+  if (result?.signal === 'SIGTERM') {
+    return 143
+  }
+  return fallback
+}
+
 function joinBaseUrl(baseUrl, pathname) {
   return `${String(baseUrl ?? '').replace(/\/$/, '')}${pathname}`
 }
@@ -426,6 +429,14 @@ function resolveWarmupCredentials() {
   return {
     email: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com',
     password: readNonEmptyEnvValue('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret',
+  }
+}
+
+class LoginError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.name = 'LoginError'
+    this.status = status
   }
 }
 
@@ -681,7 +692,7 @@ async function runTargetedRouteWarmup() {
           throw createWarmupTransientError('login warmup required tenant selection')
         }
       }
-      throw new Error(`login warmup failed: ${failure}`)
+      throw new LoginError(`login warmup failed: ${failure}`, loginResponse.status)
     }
 
     const cookieHeader = buildCookieHeader(loginResponse)
@@ -790,21 +801,44 @@ async function runTargetedRouteWarmup() {
       return
     }
 
-    const warmupWarning = `⚠️ Warmup incomplete: ${error instanceof Error ? error.message : 'unknown error'}`
+    const errorMessage = error instanceof Error ? error.message : 'unknown error'
+    const isCredentialsFailure = error instanceof LoginError && error.status === 401
+    const warmupWarning = `⚠️ Warmup incomplete: ${errorMessage}`
+    const loginUrl = runtimeWarmupState.baseUrl
+      ? `${runtimeWarmupState.baseUrl}/login`
+      : null
+    const failureLines = isCredentialsFailure
+      ? [
+          'Warmup login failed with HTTP 401 — the app is running but warmup credentials are invalid.',
+          'Set OM_INIT_SUPERADMIN_EMAIL and OM_INIT_SUPERADMIN_PASSWORD in .env,',
+          'or run: yarn initialize  (to seed demo data with default credentials).',
+        ]
+      : []
+    runtimeWarmupState.completed = true
+    runtimeWarmupState.failed = false
     updateSplashState({
       phase: 'App is ready',
       detail: warmupWarning,
       failed: false,
-      failureLines: [],
+      failureLines,
       failureCommand: null,
       ready: true,
+      loginUrl,
       progressCurrent: runtimeReadyProgressCurrent,
       progressTotal: startupProgress.total,
       progressPercent: resolveProgressPercent(runtimeReadyProgressCurrent, startupProgress.total),
       progressLabel: 'App is ready',
       activity: warmupWarning,
     })
-    console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    if (isCredentialsFailure) {
+      console.log(formatStatusOutput(
+        '⚠️ Warmup login returned 401 — credentials invalid. Set OM_INIT_SUPERADMIN_EMAIL/PASSWORD in .env or run: yarn initialize',
+        runtimeReadyProgressCurrent,
+        'App is ready',
+      ))
+    } else {
+      console.log(formatStatusOutput(warmupWarning, runtimeReadyProgressCurrent, 'App is ready'))
+    }
   }
 }
 
@@ -1098,8 +1132,14 @@ async function runInitialGenerate() {
   if (verbose) {
     const child = spawnMercato(['generate'])
     const result = await waitForExit(child)
-    if (result.signal) shutdown(1)
-    if ((result.code ?? 1) !== 0) shutdown(result.code ?? 1)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      shutdown(exitCode)
+    }
     return
   }
 
@@ -1117,16 +1157,17 @@ async function runInitialGenerate() {
   connectLineStream(child.stderr, capture)
 
   const result = await waitForExit(child)
-  if (result.signal) {
-    shutdown(1)
+  if (isGracefulShutdownResult(result)) {
+    return
   }
 
-  if ((result.code ?? 1) !== 0) {
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
     console.error('❌ Artifact generation failed')
     for (const line of capturedLines) {
       console.error(line)
     }
-    shutdown(result.code ?? 1)
+    shutdown(exitCode)
   }
 
   updateSplashState({
@@ -1143,6 +1184,7 @@ async function runInitialGenerate() {
 
 function createFilteredReporter(label, classifyLine) {
   let passthrough = false
+  const ignoreLine = createRuntimeNoiseFilter()
 
   return (line) => {
     const plain = stripAnsi(line).trim()
@@ -1152,6 +1194,10 @@ function createFilteredReporter(label, classifyLine) {
     captureBackgroundServiceLine(plain)
 
     if (passthrough) {
+      return
+    }
+
+    if (ignoreLine(plain, { startupReady: splashState.ready })) {
       return
     }
 
@@ -1265,9 +1311,6 @@ function classifyWatchLine(line) {
       progressLabel: 'Watching structural module files',
     }
   }
-  if (line.startsWith('[Bootstrap] Entity IDs re-registered')) {
-    return { type: 'ignore' }
-  }
   if (line.includes('All generators completed')) {
     return {
       type: 'status',
@@ -1283,9 +1326,6 @@ function classifyWatchLine(line) {
 }
 
 function classifyServerLine(line) {
-  if (isIgnorableDerivedKeyWarningLine(line)) {
-    return { type: 'ignore' }
-  }
   if (line.startsWith('🚀 Running server:dev')) {
     return {
       type: 'status',
@@ -1413,30 +1453,6 @@ function classifyServerLine(line) {
     }
   }
 
-  if (
-    line.startsWith('Source: ')
-    || line.startsWith('Secret: ')
-    || line.startsWith('Persist this secret securely.')
-    || line.startsWith('▲ Next.js ')
-    || line === '✓ Starting...'
-    || line.startsWith('- Network:')
-    || line.startsWith('- Environments:')
-    || line.startsWith('- Experiments')
-    || line.startsWith('⨯ preloadEntriesOnStart')
-    || line.startsWith('⨯ serverMinification')
-    || line.startsWith('⨯ turbopackMinify')
-    || line.startsWith('[Bootstrap] Entity IDs re-registered')
-    || line.startsWith('[queue:')
-    || line.startsWith('[scheduler:')
-    || line.startsWith('🚀 Starting scheduler')
-    || line.startsWith('✓ Local scheduler started')
-    || line === 'Press Ctrl+C to stop.'
-    || line.startsWith('💡 Tip:')
-    || line.startsWith('━━━━━━━━')
-  ) {
-    return { type: 'ignore' }
-  }
-
   if (line.startsWith('⚠ ')) {
     return { type: 'status', message: line }
   }
@@ -1467,24 +1483,23 @@ function startFilteredChild(args, label, classifyLine) {
 async function runClassicRuntime() {
   const initialGenerate = spawnMercato(['generate'])
   const initialGenerateResult = await waitForExit(initialGenerate)
-
-  if (initialGenerateResult.signal) {
-    shutdown(1)
+  if (isGracefulShutdownResult(initialGenerateResult)) {
+    return
   }
 
-  if ((initialGenerateResult.code ?? 1) !== 0) {
-    shutdown(initialGenerateResult.code ?? 1)
+  const initialGenerateExitCode = resolveChildExitCode(initialGenerateResult)
+  if (initialGenerateExitCode !== 0) {
+    shutdown(initialGenerateExitCode)
   }
 
   const watch = spawnMercato(['generate', 'watch', '--skip-initial'])
   const server = spawnMercato(['server', 'dev'])
   const result = await Promise.race([waitForExit(watch), waitForExit(server)])
-
-  if (result.signal) {
-    shutdown(1)
+  if (isGracefulShutdownResult(result)) {
+    return
   }
 
-  shutdown(result.code ?? 0)
+  shutdown(resolveChildExitCode(result, 0))
 }
 
 if (classic) {
@@ -1500,9 +1515,6 @@ const watch = startFilteredChild(['generate', 'watch', '--skip-initial'], 'Gener
 const server = startFilteredChild(['server', 'dev'], 'App runtime', classifyServerLine)
 
 const result = await Promise.race([waitForExit(watch), waitForExit(server)])
-
-if (result.signal) {
-  shutdown(1)
+if (!isGracefulShutdownResult(result)) {
+  shutdown(resolveChildExitCode(result, 0))
 }
-
-shutdown(result.code ?? 0)

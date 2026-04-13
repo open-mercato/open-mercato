@@ -177,10 +177,29 @@ export function toSnake(s: string): string {
     .toLowerCase()
 }
 
-export async function moduleHasExport(filePath: string, exportName: string): Promise<boolean> {
+export function sourceFileHasNamedExport(filePath: string, exportName: string): boolean {
+  let source: string
   try {
-    // On Windows, absolute paths must be file:// URLs for ESM imports
-    // But package imports (starting with @ or not starting with . or /) should be used as-is
+    source = fs.readFileSync(filePath, 'utf8')
+  } catch {
+    return false
+  }
+
+  const escaped = exportName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (new RegExp(`export\\s+(?:const|let|var|function|class|async\\s+function)\\s+${escaped}\\b`).test(source)) {
+    return true
+  }
+  if (new RegExp(`export\\s+\\{[^}]*\\b${escaped}\\b[^}]*\\}`).test(source)) {
+    return true
+  }
+  return false
+}
+
+export async function moduleHasExport(filePath: string, exportName: string): Promise<boolean> {
+  if (sourceFileHasNamedExport(filePath, exportName)) {
+    return true
+  }
+  try {
     const isAbsolutePath = path.isAbsolute(filePath)
     const importUrl = isAbsolutePath ? pathToFileURL(filePath).href : filePath
     const mod = await import(importUrl)

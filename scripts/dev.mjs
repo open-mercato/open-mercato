@@ -3,6 +3,17 @@ import { createServer } from 'node:http'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  attachLoggedProcessStreams,
+  createDevLogSession,
+  formatDevLogAnnouncement,
+  noteCommandEnd,
+  noteCommandStart,
+} from './dev-log-files.mjs'
+import {
+  isIgnorableFailureLine,
+  isIgnorableTurboLine,
+} from './dev-orchestration-log-policy.mjs'
+import {
   clampPercent,
   connectLineStream,
   decorateActivityMessage,
@@ -11,6 +22,9 @@ import {
   resolveProgressPercent,
   stripAnsi,
 } from './dev-splash-helpers.mjs'
+import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
+import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
+import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -134,6 +148,12 @@ function resolveSplashPortConfig() {
   throw new Error(`Invalid OM_DEV_SPLASH_PORT="${rawValue}". Use a port number, "random", or "off".`)
 }
 
+function shouldRetrySplashServerWithRandomPort(error) {
+  if (splashPortConfig.port === 0) return false
+  if (!error || typeof error !== 'object') return false
+  return error.code === 'EADDRINUSE'
+}
+
 function normalizePublicBaseUrl(value) {
   if (typeof value !== 'string' || value.trim().length === 0) return null
 
@@ -180,6 +200,41 @@ const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
+const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false'
+
+let devLogSessionInstance = null
+let devRunnerLogInstance = null
+
+function getDevLogSession() {
+  if (devLogSessionInstance) return devLogSessionInstance
+  devLogSessionInstance = createDevLogSession({
+    logDir: process.env.OM_DEV_LOG_DIR?.trim()
+      ? path.resolve(process.env.OM_DEV_LOG_DIR.trim())
+      : (isMonorepo
+        ? path.join(process.cwd(), 'apps', 'mercato', '.mercato', 'logs')
+        : path.join(process.cwd(), '.mercato', 'logs')),
+    role: setupMode ? 'dev-setup' : 'dev-runner',
+    runId: process.env.OM_DEV_RUN_ID?.trim(),
+  })
+  return devLogSessionInstance
+}
+
+function getDevRunnerLog() {
+  if (devLogTeeDisabled) return null
+  if (devRunnerLogInstance) return devRunnerLogInstance
+  devRunnerLogInstance = getDevLogSession().openLog('runner', {
+    argv: args,
+    cwd: process.cwd(),
+    mode: splashMode,
+  })
+  return devRunnerLogInstance
+}
+
+function closeDevLogSession() {
+  if (devLogSessionInstance) {
+    devLogSessionInstance.closeAll?.()
+  }
+}
 
 const children = new Set()
 let shuttingDown = false
@@ -218,6 +273,18 @@ const splashState = {
     : (setupMode ? 'Preparing project setup' : 'Preparing app runtime'),
   activities: [],
 }
+const codingFlow = createDevSplashCodingFlow({
+  env: process.env,
+  platform: process.platform,
+  launchDir: process.cwd(),
+  agenticSetupDir: !isMonorepo && fs.existsSync(path.join(process.cwd(), 'src', 'modules.ts')) ? process.cwd() : null,
+})
+const gitRepoFlow = createDevSplashGitRepoFlow({
+  env: process.env,
+  platform: process.platform,
+  launchDir: process.cwd(),
+  enabled: !isMonorepo,
+})
 
 function formatProgressLine(label, current, total, percent) {
   const meta = Number.isFinite(current) && Number.isFinite(total) && total > 0
@@ -242,21 +309,60 @@ function printSplashAccessUrls() {
   console.log(`🌐 Backend URL ${resolveExpectedBackendUrl()}`)
 }
 
+function printDevLogLocation() {
+  if (devLogTeeDisabled) return
+  if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
+  console.log(`📝 Verbose logs ${formatDevLogAnnouncement(getDevLogSession())}`)
+  process.env.OM_DEV_LOG_ANNOUNCED = '1'
+}
+
 function spawnCommand(command, commandArgs, options = {}) {
+  const teeRequested = options.mirrorOutput === true
+  const teeActive = teeRequested && !devLogTeeDisabled
+  const logFile = devLogTeeDisabled ? null : (options.logFile ?? null)
+  const needsLoggedPipe = teeActive || logFile != null
+
+  let stdio
+  if (needsLoggedPipe) {
+    stdio = ['inherit', 'pipe', 'pipe']
+  } else if (teeRequested) {
+    // Tee was requested but disabled via OM_DEV_LOG_TEE=0 — preserve original
+    // stdio: 'inherit' so the child keeps direct TTY access (colors, spinners,
+    // line-rewrites). Logs are not captured for this child in that case.
+    stdio = 'inherit'
+  } else {
+    stdio = options.stdio ?? 'pipe'
+  }
+
   const child = spawn(command, commandArgs, {
     cwd: options.cwd ?? process.cwd(),
     env: {
       ...process.env,
       TURBO_NO_UPDATE_NOTIFIER: '1',
+      ...(teeActive && process.stdout.isTTY && !process.env.FORCE_COLOR ? { FORCE_COLOR: '1' } : {}),
       ...options.env,
     },
-    stdio: options.stdio ?? 'pipe',
+    stdio,
   })
+
+  const label = options.label ?? command
+
+  if (logFile) {
+    noteCommandStart(logFile, label, command, commandArgs)
+    attachLoggedProcessStreams(child, logFile, teeActive
+      ? { stdout: process.stdout, stderr: process.stderr }
+      : undefined)
+  } else if (teeActive) {
+    attachLoggedProcessStreams(child, null, { stdout: process.stdout, stderr: process.stderr })
+  }
 
   children.add(child)
 
-  child.on('close', () => {
+  child.on('close', (code, signal) => {
     children.delete(child)
+    if (logFile) {
+      noteCommandEnd(logFile, label, code, signal)
+    }
   })
 
   child.on('error', (error) => {
@@ -385,9 +491,19 @@ function resolveSplashLocaleConfig() {
 }
 
 function buildSplashChildEnv() {
-  if (!splashChildStateFile) return undefined
+  const childEnv = devLogTeeDisabled
+    ? {}
+    : {
+        ...getDevLogSession().env,
+        OM_DEV_LOG_ANNOUNCED: '1',
+      }
+
+  if (!splashChildStateFile) {
+    return Object.keys(childEnv).length > 0 ? childEnv : undefined
+  }
 
   return {
+    ...childEnv,
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
     OM_DEV_SPLASH_MODE: splashMode,
   }
@@ -578,16 +694,6 @@ function normalizeCapturedLine(line) {
   return stripAnsi(String(line ?? '')).replace(/\s+$/, '')
 }
 
-function isIgnorableFailureLine(line) {
-  const plain = normalizeCapturedLine(line).trim()
-  if (!plain) return true
-  if (/^[╭│╰]/.test(plain)) return true
-  if (/^◇ injecting env \(\d+\) from \.env\b/i.test(plain)) return true
-  if (/^\[setup\] (Copied \.env\.example to \.env|Keeping existing \.env)$/i.test(plain)) return true
-  if (/^Open Mercato CLI$/i.test(plain)) return true
-  return false
-}
-
 function extractFailureLines(capturedLines, maxLines = 10) {
   const lines = []
 
@@ -665,15 +771,18 @@ function readSplashChildState() {
 
 function getMergedSplashState() {
   const childState = readSplashChildState()
-  if (!childState) {
-    return { ...splashState }
-  }
-
-  return {
+  const mergedState = childState ? normalizeSplashDisplayState({
     ...splashState,
     ...childState,
     activities: mergeActivities(splashState.activities, childState.activities),
-  }
+  }) : normalizeSplashDisplayState({ ...splashState })
+
+  mergedState.codingFlow = codingFlow.getSnapshot({
+    ready: mergedState.ready,
+    failed: mergedState.failed,
+  })
+
+  return mergedState
 }
 
 function renderSplashHtml(req) {
@@ -691,6 +800,8 @@ function renderSplashHtml(req) {
     defaultLocale: localeConfig.defaultLocale,
     initialLocale,
     localeLabels,
+    codingFlow: codingFlow.getBootstrapPayload(),
+    gitRepoFlow: gitRepoFlow.getBootstrapPayload(),
   })
   return loadSplashHtmlTemplate()
     .replace('__SPLASH_INITIAL_LOCALE__', initialLocale)
@@ -705,16 +816,36 @@ async function startSplashServer() {
   fs.mkdirSync(path.dirname(splashChildStateFile), { recursive: true })
   writeSplashChildStateFileClear()
 
-  splashServer = createServer((req, res) => {
+  const createSplashHttpServer = () => createServer(async (req, res) => {
     if (!req.url) {
       res.statusCode = 404
       res.end('Not found')
       return
     }
 
+    const mergedState = getMergedSplashState()
+
+    if (await codingFlow.handleRequest(req, res, {
+      ready: mergedState.ready,
+      failed: mergedState.failed,
+    })) {
+      return
+    }
+
+    if (await gitRepoFlow.handleRequest(req, res, {
+      ready: mergedState.ready,
+      failed: mergedState.failed,
+    })) {
+      return
+    }
+
     if (req.url === '/status') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
-      res.end(JSON.stringify(getMergedSplashState()))
+      const enrichedState = await gitRepoFlow.enrichState(mergedState, {
+        ready: mergedState.ready,
+        failed: mergedState.failed,
+      })
+      res.end(JSON.stringify(enrichedState))
       return
     }
 
@@ -728,27 +859,64 @@ async function startSplashServer() {
     res.end('Not found')
   })
 
+  const listenSplashServer = (port) => new Promise((resolve, reject) => {
+    if (!splashServer) {
+      reject(new Error('Splash server is not initialized.'))
+      return
+    }
+
+    const handleError = (error) => {
+      splashServer?.off('listening', handleListening)
+      reject(error)
+    }
+    const handleListening = () => {
+      splashServer?.off('error', handleError)
+      resolve()
+    }
+
+    splashServer.once('error', handleError)
+    splashServer.once('listening', handleListening)
+    splashServer.listen(port, splashBindHost)
+  })
+
+  splashServer = createSplashHttpServer()
   try {
-    await new Promise((resolve, reject) => {
-      splashServer.once('error', reject)
-      splashServer.listen(splashPortConfig.port, splashBindHost, () => resolve())
-    })
+    await listenSplashServer(splashPortConfig.port)
   } catch (error) {
-    const portLabel = splashPortConfig.port === 0 ? 'a random port' : `port ${splashPortConfig.port}`
-    console.error(`❌ Unable to start dev splash on ${portLabel}`)
-    if (splashPortConfig.port !== 0) {
-      console.error('   Change `OM_DEV_SPLASH_PORT` or set it to `random` to use an ephemeral port.')
+    if (shouldRetrySplashServerWithRandomPort(error)) {
+      console.warn(`⚠️ Dev splash port ${splashPortConfig.port} is already in use. Switching to a random free port.`)
+      splashServer.close()
+      splashServer = createSplashHttpServer()
+      try {
+        await listenSplashServer(0)
+      } catch (fallbackError) {
+        console.error('❌ Unable to start dev splash on a random port')
+        if (fallbackError instanceof Error && fallbackError.message) {
+          console.error(`   ${fallbackError.message}`)
+        }
+        shutdown(1)
+        return
+      }
+    } else {
+      const portLabel = splashPortConfig.port === 0 ? 'a random port' : `port ${splashPortConfig.port}`
+      console.error(`❌ Unable to start dev splash on ${portLabel}`)
+      if (splashPortConfig.port !== 0) {
+        console.error('   Change `OM_DEV_SPLASH_PORT` or set it to `random` to use an ephemeral port.')
+      }
+      if (error instanceof Error && error.message) {
+        console.error(`   ${error.message}`)
+      }
+      shutdown(1)
+      return
     }
-    if (error instanceof Error && error.message) {
-      console.error(`   ${error.message}`)
-    }
-    shutdown(1)
-    return
   }
 
   const address = splashServer.address()
   if (!address || typeof address === 'string') return
   splashUrl = `http://localhost:${address.port}`
+  if (splashPortConfig.port !== 0 && address.port !== splashPortConfig.port) {
+    console.log(`🪟 Dev splash moved to ${splashUrl}`)
+  }
   printSplashAccessUrls()
   updateSplashState({
     activity: autoOpenSplash
@@ -774,19 +942,15 @@ function closeSplashServer() {
 
 function openBrowser(url) {
   try {
+    let child
     if (process.platform === 'darwin') {
-      const child = spawn('open', [url], { detached: true, stdio: 'ignore' })
-      child.unref()
-      return
+      child = spawn('open', [url], { detached: true, stdio: 'ignore' })
+    } else if (process.platform === 'win32') {
+      child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' })
+    } else {
+      child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' })
     }
-
-    if (process.platform === 'win32') {
-      const child = spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' })
-      child.unref()
-      return
-    }
-
-    const child = spawn('xdg-open', [url], { detached: true, stdio: 'ignore' })
+    child.on('error', () => { /* best-effort: browser open is non-critical */ })
     child.unref()
   } catch { /* best-effort: browser open is non-critical */ }
 }
@@ -798,6 +962,7 @@ function shutdown(exitCode = 0) {
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
+    closeDevLogSession()
     process.exit(exitCode)
     return
   }
@@ -812,37 +977,59 @@ function shutdown(exitCode = 0) {
         child.kill('SIGKILL')
       }
     }
+    closeDevLogSession()
     process.exit(exitCode)
   }, 3000)
 }
 
-async function runRawYarnCommand(commandArgs) {
-  const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
-  const code = await new Promise((resolve) => child.on('close', resolve))
+function waitForClose(child) {
+  return new Promise((resolve) => {
+    child.on('close', (code, signal) => {
+      resolve({ code, signal })
+    })
+  })
+}
 
-  if ((code ?? 1) !== 0) {
-    shutdown(code ?? 1)
+function isExpectedShutdownSignal(signal) {
+  return signal === 'SIGINT' || signal === 'SIGTERM'
+}
+
+function isGracefulShutdownResult(result) {
+  return shuttingDown && isExpectedShutdownSignal(result?.signal)
+}
+
+function resolveChildExitCode(result, fallback = 1) {
+  if (typeof result?.code === 'number') {
+    return result.code
+  }
+  if (result?.signal === 'SIGINT') {
+    return 130
+  }
+  if (result?.signal === 'SIGTERM') {
+    return 143
+  }
+  return fallback
+}
+
+async function runRawYarnCommand(commandArgs) {
+  const child = spawnCommand(yarnCommand, commandArgs, {
+    label: commandArgs.join(' '),
+    logFile: getDevRunnerLog(),
+    mirrorOutput: true,
+  })
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
+    return
+  }
+
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
+    shutdown(exitCode)
   }
 }
 
 process.on('SIGINT', () => shutdown(130))
 process.on('SIGTERM', () => shutdown(143))
-
-function isIgnorableTurboLine(line) {
-  const plain = stripAnsi(line).trim()
-  if (plain.length === 0) return true
-  if (plain.startsWith('• turbo ')) return true
-  if (plain.startsWith('• Packages in scope:')) return true
-  if (plain.startsWith('• Running build in ')) return true
-  if (plain.startsWith('• Running watch in ')) return true
-  if (plain.startsWith('• Remote caching disabled')) return true
-  if (plain.startsWith('Tasks:')) return true
-  if (plain.startsWith('Cached:')) return true
-  if (plain.startsWith('Time:')) return true
-  if (/^[╭│╰]/.test(plain)) return true
-  if (plain === '^C    ...Finishing writing to cache...') return true
-  return false
-}
 
 function isWorkspacePackageBuildCommand(commandArgs) {
   return Array.isArray(commandArgs)
@@ -941,8 +1128,12 @@ async function resolveWorkspacePackageBuildPlan(commandArgs) {
     stderr += chunk
   })
 
-  const code = await new Promise((resolve) => child.on('close', resolve))
-  if ((code ?? 1) !== 0) {
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
+    return null
+  }
+
+  if (resolveChildExitCode(result) !== 0) {
     return null
   }
 
@@ -994,7 +1185,10 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
     activity: `${label} started`,
   })
 
-  const child = spawnCommand(yarnCommand, withTurboFullLogs(commandArgs))
+  const child = spawnCommand(yarnCommand, withTurboFullLogs(commandArgs), {
+    label,
+    logFile: getDevRunnerLog(),
+  })
   const capturedLines = []
   const completedPackages = new Set()
 
@@ -1035,11 +1229,16 @@ async function runWorkspacePackageBuildStage(label, commandArgs, options = {}) {
   connectLineStream(child.stdout, capture)
   connectLineStream(child.stderr, capture)
 
-  const code = await new Promise((resolve) => child.on('close', resolve))
-
-  if ((code ?? 1) !== 0) {
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
     progressReporter.clear()
-    await reportStageFailure(label, commandArgs, capturedLines, code, {
+    return
+  }
+
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
+    progressReporter.clear()
+    await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
     })
@@ -1097,15 +1296,27 @@ async function runStage(label, commandArgs, options = {}) {
   })
 
   if (verbose) {
-    const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
-    const code = await new Promise((resolve) => child.on('close', resolve))
-    if ((code ?? 1) !== 0) {
-      shutdown(code ?? 1)
+    const child = spawnCommand(yarnCommand, commandArgs, {
+      label,
+      logFile: getDevRunnerLog(),
+      mirrorOutput: true,
+    })
+    const result = await waitForClose(child)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      shutdown(exitCode)
     }
     return
   }
 
-  const child = spawnCommand(yarnCommand, commandArgs)
+  const child = spawnCommand(yarnCommand, commandArgs, {
+    label,
+    logFile: getDevRunnerLog(),
+  })
   const capturedLines = []
   const capture = (line) => {
     capturedLines.push(line)
@@ -1117,10 +1328,14 @@ async function runStage(label, commandArgs, options = {}) {
   connectLineStream(child.stdout, capture)
   connectLineStream(child.stderr, capture)
 
-  const code = await new Promise((resolve) => child.on('close', resolve))
+  const result = await waitForClose(child)
+  if (isGracefulShutdownResult(result)) {
+    return
+  }
 
-  if ((code ?? 1) !== 0) {
-    await reportStageFailure(label, commandArgs, capturedLines, code, {
+  const exitCode = resolveChildExitCode(result)
+  if (exitCode !== 0) {
+    await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
       stageCurrent,
       stageTotal,
     })
@@ -1165,13 +1380,25 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   })
 
   if (verbose) {
-    const child = spawnCommand(yarnCommand, commandArgs, { stdio: 'inherit' })
-    const code = await new Promise((resolve) => child.on('close', resolve))
-    if ((code ?? 1) !== 0) {
-      shutdown(code ?? 1)
+    const child = spawnCommand(yarnCommand, commandArgs, {
+      label,
+      logFile: getDevRunnerLog(),
+      mirrorOutput: true,
+    })
+    const result = await waitForClose(child)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      shutdown(exitCode)
     }
   } else {
-    const child = spawnCommand(yarnCommand, commandArgs)
+    const child = spawnCommand(yarnCommand, commandArgs, {
+      label,
+      logFile: getDevRunnerLog(),
+    })
     const capturedLines = []
     const capture = (line) => {
       capturedLines.push(line)
@@ -1183,9 +1410,14 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
     connectLineStream(child.stdout, capture)
     connectLineStream(child.stderr, capture)
 
-    const code = await new Promise((resolve) => child.on('close', resolve))
-    if ((code ?? 1) !== 0) {
-      await reportStageFailure(label, commandArgs, capturedLines, code, {
+    const result = await waitForClose(child)
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (exitCode !== 0) {
+      await reportStageFailure(label, commandArgs, capturedLines, exitCode, {
         stageCurrent,
         stageTotal,
       })
@@ -1208,13 +1440,21 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
 function startPackageWatch() {
   if (classic) {
     const child = spawnCommand(yarnCommand, ['watch:packages'], {
-      stdio: 'inherit',
+      label: 'watch:packages',
+      logFile: getDevRunnerLog(),
+      mirrorOutput: true,
     })
 
-    child.on('close', (code) => {
-      if (!shuttingDown && (code ?? 1) !== 0) {
+    child.on('close', (code, signal) => {
+      const result = { code, signal }
+      if (isGracefulShutdownResult(result)) {
+        return
+      }
+
+      const exitCode = resolveChildExitCode(result)
+      if (!shuttingDown && exitCode !== 0) {
         console.error('❌ Package watch stopped')
-        shutdown(code ?? 1)
+        shutdown(exitCode)
       }
     })
 
@@ -1244,14 +1484,22 @@ function startPackageWatch() {
     '--log-order=grouped',
     '--log-prefix=none',
   ], {
-    stdio: verbose ? 'inherit' : 'pipe',
+    label: 'Watching workspace packages',
+    logFile: getDevRunnerLog(),
+    mirrorOutput: verbose,
   })
 
   if (verbose) {
-    child.on('close', (code) => {
-      if (!shuttingDown && (code ?? 1) !== 0) {
+    child.on('close', (code, signal) => {
+      const result = { code, signal }
+      if (isGracefulShutdownResult(result)) {
+        return
+      }
+
+      const exitCode = resolveChildExitCode(result)
+      if (!shuttingDown && exitCode !== 0) {
         console.error('❌ Package watch stopped')
-        shutdown(code ?? 1)
+        shutdown(exitCode)
       }
     })
     return child
@@ -1260,7 +1508,7 @@ function startPackageWatch() {
   let surfacedFailure = false
 
   const handleLine = (line) => {
-    if (isIgnorableTurboLine(line)) return
+    if (shuttingDown || isIgnorableTurboLine(line)) return
 
     if (!surfacedFailure) {
       surfacedFailure = true
@@ -1273,10 +1521,16 @@ function startPackageWatch() {
   connectLineStream(child.stdout, handleLine)
   connectLineStream(child.stderr, handleLine)
 
-  child.on('close', (code) => {
-    if (!shuttingDown && (code ?? 1) !== 0) {
+  child.on('close', (code, signal) => {
+    const result = { code, signal }
+    if (isGracefulShutdownResult(result)) {
+      return
+    }
+
+    const exitCode = resolveChildExitCode(result)
+    if (!shuttingDown && exitCode !== 0) {
       console.error('❌ Package watch stopped')
-      shutdown(code ?? 1)
+      shutdown(exitCode)
     }
   })
 
@@ -1306,9 +1560,9 @@ function launchMonorepoAppDev() {
     env: buildSplashChildEnv(),
   })
 
-  app.on('close', (code) => {
+  app.on('close', (code, signal) => {
     if (!shuttingDown) {
-      shutdown(code ?? 0)
+      shutdown(resolveChildExitCode({ code, signal }, 0))
     }
   })
 }
@@ -1403,6 +1657,7 @@ async function runClassicStandaloneDev() {
 }
 
 async function main() {
+  printDevLogLocation()
   await startSplashServer()
 
   if (!isMonorepo) {

@@ -30,10 +30,17 @@ export function verifyJwt(token: string, secret = process.env.JWT_SECRET!) {
   const [h, p, s] = parts
   const data = `${h}.${p}`
   const expected = base64url(crypto.createHmac('sha256', secret).update(data).digest())
-  if (!crypto.timingSafeEqual(Buffer.from(s), Buffer.from(expected))) return null
-  const payload = JSON.parse(Buffer.from(p, 'base64').toString('utf8'))
+  const providedSignature = Buffer.from(s)
+  const expectedSignature = Buffer.from(expected)
+  if (providedSignature.length !== expectedSignature.length) return null
+  if (!crypto.timingSafeEqual(providedSignature, expectedSignature)) return null
+  let payload: JwtPayload
+  try {
+    payload = JSON.parse(Buffer.from(p, 'base64').toString('utf8'))
+  } catch {
+    return null
+  }
   const now = Math.floor(Date.now() / 1000)
   if (payload.exp && now > payload.exp) return null
   return payload
 }
-

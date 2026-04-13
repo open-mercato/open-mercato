@@ -108,6 +108,16 @@ When you run `yarn dev` on the host, Open Mercato starts a compact development r
 - Browser auto-open happens on interactive local runs when supported by the OS
 - The terminal still prints both URLs, so you can open them manually if needed
 - Press `d` while `yarn dev` is running to toggle raw logs
+- Standalone apps can show a `Start coding with AI` menu for detected coding tools
+- Standalone apps can show a GitHub publish panel that creates or publishes the local project through `gh`
+
+For the standalone splash features, install these recommended tools up front:
+
+- **GitHub CLI (`gh`)** for the GitHub publish panel: [cli.github.com](https://cli.github.com/)
+- **Codex CLI** for the OpenAI terminal workflow: [developers.openai.com/codex/cli](https://developers.openai.com/codex/cli)
+- **Claude Code** for the Anthropic terminal workflow: [code.claude.com/docs/en/setup](https://code.claude.com/docs/en/setup)
+- **Visual Studio Code** as the recommended general-purpose editor: [code.visualstudio.com/Download](https://code.visualstudio.com/Download)
+- **Cursor** as the recommended AI-first editor: [cursor.com/download](https://cursor.com/download)
 
 To override the splash port for native local runs:
 
@@ -119,6 +129,24 @@ To use a random free splash port instead of the stable default:
 
 ```bash
 OM_DEV_SPLASH_PORT=random yarn dev
+```
+
+To keep the splash from opening automatically:
+
+```bash
+OM_DEV_AUTO_OPEN=0 yarn dev
+```
+
+To hide the standalone GitHub publish panel from the splash:
+
+```bash
+OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev
+```
+
+To hide the coding-tools menu from the splash:
+
+```bash
+OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev
 ```
 
 ## Docker Management
@@ -339,6 +367,13 @@ Key variables you may want to override:
 |----------|---------|-------------|
 | `APP_PORT` | `3000` | Host port for the app |
 | `OM_DEV_SPLASH_PORT` | `4000` | Host and container port for the dev splash progress page |
+| `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open for the splash on supported local runs |
+| `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Set to `false` to hide the standalone splash GitHub publish panel |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the splash coding-tools menu |
+| `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu |
+| `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu |
+| `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu |
+| `OM_DEV_SPLASH_CODEX_PATH` | auto-detect | Optional path override for the Codex CLI used by the splash coding menu |
 | `POSTGRES_USER` | `postgres` | Database username |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
 | `JWT_SECRET` | `JWT` | Auth token secret |
