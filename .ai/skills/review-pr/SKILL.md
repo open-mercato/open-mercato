@@ -306,6 +306,7 @@ Rules:
 
 - Never force-push unless the user explicitly asked for it.
 - Prefer a normal follow-up commit.
+- Use conventional-commit-style messages scoped to the affected area: `fix(<area>): <summary>`, `feat(<area>): <summary>`, `refactor(<area>): <summary>`, etc.
 - Before pushing, ensure the latest autofix cycle included unit tests, typecheck, and a fresh code review on the final diff.
 
 #### 10b. Fork PRs
@@ -332,6 +333,7 @@ Validation requirements for autofix mode:
 
 Replacement PR requirements:
 
+- Use conventional-commit-style PR title scoped to the affected module or area: `fix(<area>): <summary>`, `feat(<area>): <summary>`, `refactor(<area>): <summary>`, etc. Where `<area>` is the primary affected module or package (e.g., `auth`, `catalog`, `ui`, `shared`)
 - Include the original PR link
 - Credit the original PR author explicitly
 - State that the new PR carries forward the original work plus the requested fixes

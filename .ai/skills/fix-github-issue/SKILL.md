@@ -226,6 +226,18 @@ Suggested commit style:
 
 - `fix(issue #{issueId}): {short summary}`
 
+**PR title convention**: Use conventional-commit-style prefixes scoped to the affected module or area:
+
+- `fix(<area>): <short summary> (#issueId)` — for bug fixes (most issue fixes)
+- `feat(<area>): <short summary> (#issueId)` — for new features
+- `refactor(<area>): <short summary> (#issueId)` — for refactors
+- `security(<area>): <short summary> (#issueId)` — for security fixes
+
+Where `<area>` is the primary affected module or package (e.g., `auth`, `feature_toggles`, `catalog`, `ui`, `shared`). Examples:
+
+- `fix(auth): prevent privilege escalation via role name spoofing (#1427)`
+- `feat(catalog): add bulk product import endpoint (#1500)`
+
 Push with tracking:
 
 ```bash
