@@ -38,21 +38,25 @@ In practice, reconstructing the original text from embeddings is difficult, but 
 
 ## Define encryption maps in code
 
-- Default maps live at `packages/core/src/modules/entities/lib/encryptionDefaults.ts`. Add an entry per entity:
+- Each owning module can declare default maps in a root `encryption.ts` file by exporting `defaultEncryptionMaps`:
 
 ```ts
-{
-  entityId: 'customers:customer_address',
-  fields: [
-    { field: 'postal_code' },
-    { field: 'email', hashField: 'email_hash' }, // add hash when lookups must stay deterministic
-  ],
-}
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: 'customers:customer_address',
+    fields: [
+      { field: 'postal_code' },
+      { field: 'email', hashField: 'email_hash' }, // add hash when lookups must stay deterministic
+    ],
+  },
+]
 ```
 
 - Seed or update maps for a tenant with the CLI (respects the env toggle):
   - `yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`
-- During `auth:setup`, maps from `DEFAULT_ENCRYPTION_MAPS` are applied automatically when encryption is enabled.
+- During `auth:setup`, the app collects `defaultEncryptionMaps` from enabled modules and applies them automatically when encryption is enabled.
 
 ## Manage maps in the UI
 

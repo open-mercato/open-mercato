@@ -8,6 +8,7 @@ import { SudoChallengeConfig } from '../data/entities'
 import type { SudoChallengeService } from '../services/SudoChallengeService'
 import {
   applySudoConfigSnapshot,
+  buildSudoAuthScopeFromAuth,
   captureSudoConfigSnapshot,
   readSudoConfigUndoPayload,
   type SudoConfigUndoPayload,
@@ -33,6 +34,13 @@ registerCommand({
     if (!config) {
       throw new CrudHttpError(404, { error: 'Sudo configuration not found' })
     }
+    const scope = buildSudoAuthScopeFromAuth(ctx.auth)
+    if (!scope.isSuperAdmin) {
+      const tenantMatches = (config.tenantId ?? null) === scope.tenantId && scope.tenantId !== null
+      if (!tenantMatches || config.isDeveloperDefault) {
+        throw new CrudHttpError(404, { error: 'Sudo configuration not found' })
+      }
+    }
     return { before: captureSudoConfigSnapshot(config) }
   },
   async execute(rawInput, ctx) {
@@ -45,7 +53,8 @@ registerCommand({
     }
 
     const service = ctx.container.resolve<SudoChallengeService>('sudoChallengeService')
-    await service.updateConfig(parsed.data.id, parsed.data.data, ctx.auth.sub)
+    const scope = buildSudoAuthScopeFromAuth(ctx.auth)
+    await service.updateConfig(parsed.data.id, parsed.data.data, ctx.auth.sub, scope)
     return { ok: true as const }
   },
   async buildLog({ input, snapshots, ctx }) {

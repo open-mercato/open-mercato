@@ -56,7 +56,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     } catch (error) {
       const job = await progressService.getJob(run.progressJobId, progressCtx)
       const cancelRequested = job && (job.status === 'running' || job.status === 'cancelled')
-        ? await progressService.isCancellationRequested(run.progressJobId)
+        ? await progressService.isCancellationRequested(run.progressJobId, progressCtx.tenantId)
         : false
 
       if (job?.status !== 'cancelled' && !cancelRequested) {

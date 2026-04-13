@@ -2,7 +2,7 @@
 
 The `integrations` module is the foundation layer for all external connectors (payment gateways, shipping carriers, communication channels, data sync providers, etc.). It provides three shared mechanisms: **Integration Registry**, **Credentials API**, and **Operation Logs**.
 
-**Spec**: `.ai/specs/SPEC-045-2026-02-24-integration-marketplace.md` + `.ai/specs/SPEC-045a-foundation.md`
+**Spec**: `.ai/specs/implemented/SPEC-045-2026-02-24-integration-marketplace.md` + `.ai/specs/implemented/SPEC-045a-foundation.md`
 
 ---
 
@@ -115,7 +115,7 @@ For platform connectors with multiple integrations (e.g., MedusaJS):
 
 ## UMES Extensibility
 
-Integration provider modules can leverage the full **Unified Module Extension System (UMES)** — see `.ai/specs/SPEC-041-2026-02-24-universal-module-extension-system.md` for details.
+Integration provider modules can leverage the full **Unified Module Extension System (UMES)** — see `.ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md` for details.
 
 ### Available Extension Points for Providers
 
