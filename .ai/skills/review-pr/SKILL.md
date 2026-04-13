@@ -268,6 +268,7 @@ If the user approves implementation, continue inside the isolated worktree.
 
 Do not stop after the first patch. Treat autofix as an iterative loop:
 
+0. **Unit test audit**: Before fixing code findings, check whether the PR includes unit tests for the changed behavior. If the PR has no test files in the diff (`*.test.ts`, `*.spec.ts`, `__tests__/*`), add appropriate unit tests as the first autofix action. Every behavior change, bug fix, or new feature must have corresponding test coverage — this is non-negotiable in autofix mode.
 1. Convert the current review findings into a concrete fix list.
 2. If the PR is currently conflicted, resolve conflicts against the latest base branch first.
 3. Implement the next batch of fixable findings.
@@ -394,3 +395,4 @@ If blockers remain, the summary must end by asking whether to implement the fixe
 - For fork PRs, prefer a replacement PR in the main repository over waiting for the original author
 - Never close the original PR until the replacement PR is created successfully
 - Always clean up any temporary worktree created by the current run
+- In autofix mode, always verify the PR includes unit tests for changed behavior; if tests are missing, add them before addressing other findings

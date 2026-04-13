@@ -24,6 +24,7 @@ import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@o
 
 type MethodMetadata = {
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig

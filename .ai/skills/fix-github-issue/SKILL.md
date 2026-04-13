@@ -26,9 +26,10 @@ gh issue view {issueId} --repo {owner}/{repo} --json number,title,body,state,aut
 Capture at least:
 
 - repository name
-- default branch
 - issue title, URL, state, author
 - issue body and recent comments
+
+**Base branch**: Always use `develop` as the base branch for fix branches and PRs, regardless of the repository's default branch. The `develop` branch is the active integration branch; `main` receives merges from `develop` at release time.
 
 ### 2. Check whether the issue is already solved or already has a solution in progress
 
@@ -40,8 +41,8 @@ Recommended checks:
 gh issue view {issueId} --repo {owner}/{repo} --json state
 gh search prs --repo {owner}/{repo} "#{issueId}" --state open --json number,title,url,state
 gh search prs --repo {owner}/{repo} "#{issueId}" --state merged --json number,title,url,state
-git fetch origin {defaultBranch}
-git log origin/{defaultBranch} --grep="#{issueId}" --oneline
+git fetch origin develop
+git log origin/develop --grep="#{issueId}" --oneline
 ```
 
 Also inspect issue comments for phrases like:
@@ -93,13 +94,13 @@ if [ "$GIT_DIR" != "$GIT_COMMON_DIR" ]; then
 else
   WORKTREE_DIR="$WORKTREE_PARENT/issue-{issueId}-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$WORKTREE_PARENT"
-  git fetch origin {defaultBranch}
-  git worktree add --detach "$WORKTREE_DIR" "origin/{defaultBranch}"
+  git fetch origin develop
+  git worktree add --detach "$WORKTREE_DIR" "origin/develop"
   CREATED_WORKTREE=1
 fi
 
 cd "$WORKTREE_DIR"
-git checkout -B "codex/issue-{issueId}-{slug}" "origin/{defaultBranch}"
+git checkout -B "codex/issue-{issueId}-{slug}" "origin/develop"
 yarn install --mode=skip-build
 ```
 
@@ -233,7 +234,7 @@ git push -u origin "$(git branch --show-current)"
 
 ### 11. Open the PR
 
-Open a PR against `{defaultBranch}` using the current repository.
+Open a PR against `develop` using the current repository.
 
 The PR should:
 
