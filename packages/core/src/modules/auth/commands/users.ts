@@ -178,7 +178,7 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
 
     const emailHash = computeEmailHash(parsed.email)
-    const duplicate = await em.findOne(User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any)
+    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any, {}, { tenantId: null, organizationId: null })
     if (duplicate) await throwDuplicateEmailError()
 
     let passwordHash: string | null = null
@@ -380,7 +380,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(User, { id: parsed.id, deletedAt: null })
+    const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
     const roles = await loadUserRoleNames(em, parsed.id)
     const acls = await loadUserAclSnapshots(em, parsed.id)
@@ -401,13 +401,16 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     if (parsed.email !== undefined) {
       const emailHash = computeEmailHash(parsed.email)
-      const duplicate = await em.findOne(
+      const duplicate = await findOneWithDecryption(
+        em,
         User,
         {
           $or: [{ email: parsed.email }, { emailHash }],
           deletedAt: null,
           id: { $ne: parsed.id } as any,
         } as FilterQuery<User>,
+        {},
+        { tenantId: null, organizationId: null },
       )
       if (duplicate) await throwDuplicateEmailError()
     }
@@ -614,7 +617,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async prepare(input, ctx) {
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(User, { id, deletedAt: null })
+    const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) return {}
     const roles = await loadUserRoleNames(em, id)
     const acls = await loadUserAclSnapshots(em, id)
@@ -684,7 +687,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
-    let user = await em.findOne(User, { id: before.id })
+    let user = await findOneWithDecryption(em, User, { id: before.id }, {}, { tenantId: null, organizationId: null })
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     if (user) {
@@ -753,9 +756,9 @@ async function resolveRole(
     if (normalizedTenantId !== null) {
       where.tenantId = normalizedTenantId
     }
-    return em.findOne(Role, where as any)
+    return findOneWithDecryption(em, Role, where as any, {}, { tenantId: normalizedTenantId, organizationId: null })
   }
-  return em.findOne(Role, { name: value, tenantId: normalizedTenantId })
+  return findOneWithDecryption(em, Role, { name: value, tenantId: normalizedTenantId }, {}, { tenantId: normalizedTenantId, organizationId: null })
 }
 
 async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string[], tenantId: string | null) {
@@ -779,7 +782,7 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
   }
 
   const desiredIds = new Set(resolvedRoles.map((r) => String(r.id)))
-  const currentLinks = await em.find(UserRole, { user })
+  const currentLinks = await findWithDecryption(em, UserRole, { user }, {}, { tenantId: null, organizationId: null })
   const currentRoleIds = new Map(
     currentLinks.map((link) => {
       const roleId = String(link.role?.id ?? (link.role as unknown as string) ?? '')
@@ -853,7 +856,7 @@ function captureUserSnapshots(
 }
 
 async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<UserAclSnapshot[]> {
-  const list = await em.find(UserAcl, { user: userId as unknown as User })
+  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User }, {}, { tenantId: null, organizationId: null })
   return list.map((acl) => ({
     tenantId: String(acl.tenantId),
     features: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,

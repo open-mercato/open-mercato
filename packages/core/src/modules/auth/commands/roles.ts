@@ -12,6 +12,7 @@ import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/l
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -206,7 +207,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Role, { id: parsed.id, deletedAt: null })
+    const existing = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'Role not found' })
     const acls = await loadRoleAclSnapshots(em, parsed.id)
     const custom = await loadCustomFieldSnapshot(em, {
@@ -221,7 +222,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const em = (ctx.container.resolve('em') as EntityManager)
     if (parsed.name !== undefined) {
       assertRoleNameAllowed(parsed.name)
-      const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
+      const current = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
       if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
       assertRoleNameAllowed(current.name)
       const nextName = parsed.name
@@ -232,7 +233,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         }
       }
     } else {
-      const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
+      const current = await findOneWithDecryption(em, Role, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
       if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
       assertRoleNameAllowed(current.name)
     }
@@ -365,7 +366,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async prepare(input, ctx) {
     const id = requireId(input, 'Role id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Role, { id, deletedAt: null })
+    const existing = await findOneWithDecryption(em, Role, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) return {}
     const acls = await loadRoleAclSnapshots(em, id)
     const custom = await loadCustomFieldSnapshot(em, {
@@ -378,7 +379,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async execute(input, ctx) {
     const id = requireId(input, 'Role id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const role = await em.findOne(Role, { id, deletedAt: null })
+    const role = await findOneWithDecryption(em, Role, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
     const activeAssignments = await em.count(UserRole, { role, deletedAt: null })
     if (activeAssignments > 0) throw new CrudHttpError(400, { error: 'Role has assigned users' })
@@ -432,7 +433,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let role = await em.findOne(Role, { id: before.id })
+    let role = await findOneWithDecryption(em, Role, { id: before.id }, {}, { tenantId: null, organizationId: null })
     if (role) {
       role.deletedAt = null
       role.name = before.name
@@ -507,7 +508,7 @@ function captureRoleSnapshots(
 }
 
 async function loadRoleAclSnapshots(em: EntityManager, roleId: string): Promise<RoleAclSnapshot[]> {
-  const entries = await em.find(RoleAcl, { role: roleId as unknown as Role })
+  const entries = await findWithDecryption(em, RoleAcl, { role: roleId as unknown as Role }, {}, { tenantId: null, organizationId: null })
   return entries.map((entry) => ({
     id: entry.id ? String(entry.id) : null,
     tenantId: String(entry.tenantId),
