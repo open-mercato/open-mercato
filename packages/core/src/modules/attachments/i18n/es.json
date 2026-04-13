@@ -1,7 +1,7 @@
 {
   "attachments.customers.storage.nav.group": "Almacenamiento",
-  "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
   "attachments.errors.activeContentBlocked": "No se permite la carga de contenido activo.",
+  "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
   "attachments.errors.publicPartitionBlocked": "No se pueden seleccionar explícitamente particiones de almacenamiento públicas para esta carga.",
   "attachments.errors.quotaExceeded": "Se superó la cuota de almacenamiento de adjuntos para este tenant.",
   "attachments.library.actions.copied": "Enlace copiado.",

@@ -1,7 +1,7 @@
 {
   "attachments.customers.storage.nav.group": "Storage",
-  "attachments.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
   "attachments.errors.activeContentBlocked": "Active content uploads are not allowed.",
+  "attachments.errors.maxUploadSize": "Attachment exceeds the maximum upload size.",
   "attachments.errors.publicPartitionBlocked": "Public storage partitions cannot be selected explicitly for this upload.",
   "attachments.errors.quotaExceeded": "Attachment storage quota exceeded for this tenant.",
   "attachments.library.actions.copied": "Link copied.",
