@@ -36,3 +36,46 @@ describe('parseScopedCommandInput', () => {
     })
   })
 })
+
+describe('withScopedPayload', () => {
+  const { withScopedPayload } = require('../scoped')
+  const { CrudHttpError } = require('../../crud/errors')
+  const translate = (_key: string, fallback?: string) => fallback ?? _key
+
+  it('throws organization required even when user has global org access', () => {
+    const ctx = {
+      auth: { tenantId: 'tenant-1', orgId: null },
+      selectedOrganizationId: null,
+      organizationScope: { allowedIds: null },
+    }
+    expect(() => withScopedPayload({}, ctx as any, translate)).toThrow(CrudHttpError)
+    try {
+      withScopedPayload({}, ctx as any, translate)
+    } catch (error: any) {
+      expect(error).toBeInstanceOf(CrudHttpError)
+      expect(error.status).toBe(400)
+      expect(error.body).toEqual({ error: 'Organization context is required.' })
+    }
+  })
+
+  it('succeeds when user has global org access and provides organizationId in payload', () => {
+    const ctx = {
+      auth: { tenantId: 'tenant-1', orgId: null },
+      selectedOrganizationId: null,
+      organizationScope: { allowedIds: null },
+    }
+    const result = withScopedPayload({ organizationId: 'org-1' }, ctx as any, translate)
+    expect(result.organizationId).toBe('org-1')
+    expect(result.tenantId).toBe('tenant-1')
+  })
+
+  it('succeeds when user has global org access and selectedOrganizationId is set', () => {
+    const ctx = {
+      auth: { tenantId: 'tenant-1', orgId: null },
+      selectedOrganizationId: 'org-2',
+      organizationScope: { allowedIds: null },
+    }
+    const result = withScopedPayload({}, ctx as any, translate)
+    expect(result.organizationId).toBe('org-2')
+  })
+})
