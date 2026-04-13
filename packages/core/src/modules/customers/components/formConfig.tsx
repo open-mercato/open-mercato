@@ -259,7 +259,7 @@ const createPrimaryEmailField = (t: Translator): CrudField => ({
           disabled={disabled}
         />
         {!error && duplicate ? (
-          <p className="text-xs text-amber-600">
+          <p className="text-xs text-status-warning-text">
             {t('customers.people.form.emailDuplicateNotice', undefined, { name: duplicate.displayName })}{' '}
             <Link className="font-medium text-primary underline underline-offset-2" href={`/backend/customers/people-v2/${duplicate.id}`}>
               {t('customers.people.form.emailDuplicateLink')}
@@ -603,7 +603,7 @@ export function CompanySelectField({ value, onChange, labels }: CompanySelectFie
                   disabled={saving}
                 />
               </div>
-              {formError ? <p className="text-sm text-red-600">{formError}</p> : null}
+              {formError ? <p className="text-sm text-status-error-text">{formError}</p> : null}
               <DialogFooter>
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
                   {labels.cancelLabel}
@@ -759,7 +759,7 @@ export const createDisplayNameSection = (t: Translator) =>
                   onChange={handleChange}
                   placeholder={t('customers.people.form.displayName.placeholder')}
                 />
-                {error ? <p className="text-xs text-red-600">{error}</p> : null}
+                {error ? <p className="text-xs text-status-error-text">{error}</p> : null}
               </div>
             ) : (
               <div className="mt-1 text-base font-medium">{previewValue || placeholder}</div>

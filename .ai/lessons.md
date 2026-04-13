@@ -218,6 +218,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: Any AI tool that requires the LLM to construct structured payloads (API calls, database queries, form submissions).
 
+## Do not rasterize untrusted uploads through sunsetted external converters
+
+**Context**: The attachments module OCR path rasterized uploaded PDFs through `pdf2pic -> gm -> Ghostscript` before sending page images to the LLM.
+
+**Problem**: Deprecated converters and delegate-based document parsers expand the attack surface for untrusted uploads and can introduce host-level RCE chains outside the TypeScript codebase.
+
+**Rule**: For untrusted uploads, do not introduce or keep sunsetted external converter chains (for example `pdf2pic`, `gm`, or Ghostscript delegates) in default request/background pipelines. Prefer native parsers, best-effort text extraction, or isolated sandboxed workers. If the safer path is not ready, disable the risky format-specific processing rather than keeping it enabled.
+
+**Applies to**: `attachments`, document preview/thumbnail pipelines, OCR services, importers, and any future upload-processing worker.
+
 ## Format Zod validation errors for LLM consumption
 
 **Context**: When the API returns 400 errors with raw Zod validation output (nested `issues[]` arrays, `fieldErrors` maps, or raw arrays), the LLM struggles to interpret the error structure and extract actionable fix instructions.
@@ -730,3 +740,42 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Backend chrome, breadcrumbs, static settings path discovery, and other route-aware consumers should read `backend-routes.generated.ts` or `getBackendRouteManifests()`. Keep `modules.app.generated.ts` in bootstrap unless the caller truly needs the full module registry beyond route manifests.
 
 **Applies to**: `apps/*/src/bootstrap.ts`, backend layouts, hydrated sidebar/header APIs, route matching helpers, and any future performance optimization around generated registries.
+
+## When a task brief requires Playwright coverage, unit tests are not a substitute
+
+**Context**: `packages/search/src/lib/merger.ts` received new Jest coverage, but the task brief and QA guides explicitly required module-local Playwright integration coverage.
+
+**Problem**: The branch still failed review because the required coverage class was missing even though the low-level tests passed.
+
+**Rule**: When a task brief, review artifact, or QA guide says Playwright or integration coverage is required, add or update a module-local `__integration__/TC-*.spec.ts` in the same change. Treat Jest or other low-level tests as complementary, not a replacement.
+
+**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.ai/skills/integration-tests/SKILL.md`.
+
+## Provider credentials must never control authenticated cross-origin requests
+
+**Context**: The Akeneo client accepted an arbitrary tenant-provided `apiUrl` and also trusted absolute pagination or download URLs returned by the remote API.
+
+**Problem**: A malicious or mistyped host could turn OAuth password-grant login into credential exfiltration, and hostile `next` or media download links could pivot authenticated bearer-token requests to a different origin.
+
+**Rule**: For integration providers, normalize and validate the configured base URL server-side before any network call, restrict it to an operator-owned allowlist plus a safe scheme/origin shape, build OAuth endpoints from fixed paths, and reject any absolute follow-up URL whose origin differs from the validated provider origin.
+
+**Applies to**: `packages/sync-akeneo/src/modules/sync_akeneo/lib/client.ts`, provider-specific HTTP clients, OAuth/token helpers, pagination cursors, media download helpers, and any future integration that consumes remote absolute URLs.
+## Never guard sensitive routes with `requireRoles` on mutable role names
+
+**Context**: Feature toggles routes were guarded with `requireRoles: ['superadmin']`. Since role names are user-editable, a tenant admin with `auth.roles.manage` could create a role named "superadmin" and escalate privileges — even though reserved-name validation blocked the exact attack, the architecture remained fragile.
+
+**Problem**: `requireRoles` checks mutable string names against the auth context. If the reserved name list has a gap or a new privileged name is introduced, the same privilege escalation pattern reappears.
+
+**Rule**: Always use `requireFeatures` with immutable feature IDs (declared in `acl.ts`) instead of `requireRoles` for access control. Reserve `requireRoles` only for truly exceptional, well-documented cases. When adding a new module, declare granular features in `acl.ts` and wire `defaultRoleFeatures` in `setup.ts` — never ship an empty `acl.ts` with `requireRoles` guards.
+
+**Applies to**: All API routes, backend page metadata (`page.meta.ts`), and any runtime access control check.
+
+## Standalone template env examples must mirror security-sensitive app env keys
+
+**Context**: Payment gateway webhook hardening introduced `MOCK_GATEWAY_WEBHOOK_SECRET` as the explicit non-production signing secret for the mock gateway. The monorepo app `.env.example` documented it, but the standalone template `.env.example` did not.
+
+**Problem**: Standalone parity and local generated apps can silently miss required security-sensitive env keys even when the monorepo app documents them, leading to standalone-only regressions that look like product bugs.
+
+**Rule**: When a feature adds a new app-level env var required for local, test, or non-production behavior, update both `apps/mercato/.env.example` and `packages/create-app/template/.env.example` in the same change. If standalone CI/bootstrap scripts synthesize `.env`, set the same var there explicitly too.
+
+**Applies to**: `apps/mercato/.env.example`, `packages/create-app/template/.env.example`, create-app smoke/parity scripts, and any new env-backed local/testing security feature.
