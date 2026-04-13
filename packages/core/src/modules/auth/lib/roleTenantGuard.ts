@@ -44,6 +44,10 @@ export async function enforceRoleTenantAccess(
   const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
   const existingTenantId = normalizeTenantId(existing.tenantId ?? null) ?? null
 
+  if (!isSuperAdmin && !actorTenant) {
+    throw forbidden('Not authorized')
+  }
+
   if (!isSuperAdmin && existingTenantId !== actorTenant) {
     throw forbidden('Not authorized')
   }

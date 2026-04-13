@@ -304,6 +304,7 @@ export default function CustomersCompaniesPage() {
       label: t('customers.companies.list.filters.tags'),
       type: 'tags',
       loadOptions: loadTagOptions,
+      formatValue: (value: string) => tagIdToLabel[value] ?? value,
     },
     {
       id: 'createdAt',
@@ -331,7 +332,7 @@ export default function CustomersCompaniesPage() {
       label: t('customers.companies.list.filters.hasNextInteraction'),
       type: 'checkbox',
     },
-  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, t])
+  ], [dictionaryOptions.lifecycleStages, dictionaryOptions.sources, dictionaryOptions.statuses, loadDictionaryOptions, loadTagOptions, tagIdToLabel, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()

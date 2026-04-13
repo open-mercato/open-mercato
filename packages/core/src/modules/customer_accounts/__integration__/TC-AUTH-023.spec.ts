@@ -9,8 +9,7 @@ import { getAuthToken, apiRequest } from '@open-mercato/core/helpers/integration
  * for up to 30 days after the password was changed.
  *
  * After revokeAllUserSessions, sessions-refresh must return 401.
- * Note: an existing JWT remains cryptographically valid until its natural
- * expiry (default TTL: 8 hours) — full JWT invalidation is tracked separately.
+ * JWT invalidation via sessionsRevokedAt is covered by TC-AUTH-024.
  */
 test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens', () => {
   test('sessions-refresh should be blocked after admin resets the password', async ({ request }) => {
@@ -85,8 +84,7 @@ test.describe('TC-AUTH-023: Admin password reset revokes customer session tokens
       expect(resetRes.ok(), 'Admin password reset should succeed').toBeTruthy()
 
       // 7. sessions-refresh must now be rejected — this is the regression assertion.
-      // The JWT may still be valid (default TTL: 8 hours), but the session token
-      // is revoked in DB so the attacker cannot renew access beyond the current JWT window.
+      // The session token is revoked in DB. JWT invalidation is tested in TC-AUTH-024.
       const refreshAfterRes = await request.post('/api/customer_accounts/portal/sessions-refresh', {
         headers: { Cookie: authCookie },
       })

@@ -4,6 +4,7 @@
  * Client for communicating with OpenCode server running in headless mode.
  * OpenCode is used as an AI agent that can execute MCP tools.
  */
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 
 export type OpenCodeClientConfig = {
   baseUrl: string
@@ -195,7 +196,9 @@ export class OpenCodeClient {
       throw new Error(`Health check failed: ${res.status}`)
     }
 
-    return res.json()
+    const data = await readJsonSafe<OpenCodeHealth>(res, null)
+    if (!data) throw new Error('Health check returned invalid JSON response')
+    return data
   }
 
   /**
@@ -210,7 +213,9 @@ export class OpenCodeClient {
       throw new Error(`MCP status check failed: ${res.status}`)
     }
 
-    return res.json()
+    const data = await readJsonSafe<OpenCodeMcpStatus>(res, null)
+    if (!data) throw new Error('MCP status check returned invalid JSON response')
+    return data
   }
 
   /**
@@ -228,7 +233,9 @@ export class OpenCodeClient {
       throw new Error(`Failed to create session: ${error}`)
     }
 
-    return res.json()
+    const data = await readJsonSafe<OpenCodeSession>(res, null)
+    if (!data) throw new Error('Create session returned invalid JSON response')
+    return data
   }
 
   /**
@@ -243,7 +250,9 @@ export class OpenCodeClient {
       throw new Error(`Failed to get session: ${res.status}`)
     }
 
-    return res.json()
+    const data = await readJsonSafe<OpenCodeSession>(res, null)
+    if (!data) throw new Error('Get session returned invalid JSON response')
+    return data
   }
 
   /**
@@ -275,7 +284,9 @@ export class OpenCodeClient {
       throw new Error(`Failed to send message: ${error}`)
     }
 
-    return res.json()
+    const data = await readJsonSafe<OpenCodeMessage>(res, null)
+    if (!data) throw new Error('Send message returned invalid JSON response')
+    return data
   }
 
   /**
@@ -305,7 +316,9 @@ export class OpenCodeClient {
       throw new Error(`Failed to get config: ${res.status}`)
     }
 
-    return res.json()
+    const data = await readJsonSafe<Record<string, unknown>>(res, null)
+    if (!data) throw new Error('Get config returned invalid JSON response')
+    return data
   }
 
   /**
@@ -320,7 +333,9 @@ export class OpenCodeClient {
       throw new Error(`Failed to get questions: ${res.status}`)
     }
 
-    return res.json()
+    const data = await readJsonSafe<OpenCodeQuestion[]>(res, null)
+    if (!data) throw new Error('Get questions returned invalid JSON response')
+    return data
   }
 
   /**
@@ -395,7 +410,8 @@ export class OpenCodeClient {
       if (res.ok) {
         const contentType = res.headers.get('content-type')
         if (contentType && contentType.includes('application/json')) {
-          return res.json()
+          const data = await readJsonSafe<{ status: string; questionId?: string }>(res, null)
+          if (data) return data
         }
       }
     } catch {

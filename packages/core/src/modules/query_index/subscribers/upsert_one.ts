@@ -1,7 +1,7 @@
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { upsertIndexRow } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
+import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/subscriber-scope'
 
 export const metadata = { event: 'query_index.upsert_one', persistent: false }
 
@@ -10,21 +10,24 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   const entityType = String(payload?.entityType || '')
   const recordId = String(payload?.recordId || '')
   if (!entityType || !recordId) return
-  let organizationId = payload?.organizationId ?? null
-  let tenantId = payload?.tenantId ?? null
+  let organizationId: string | null = payload?.organizationId ?? null
+  let tenantId: string | null = payload?.tenantId ?? null
   const suppressCoverage = payload?.suppressCoverage === true
   const coverageDelayMs = typeof payload?.coverageDelayMs === 'number' ? payload.coverageDelayMs : undefined
-  // Fill missing scope from base table if needed
-  if (organizationId == null || tenantId == null) {
-    try {
-      const knex = (em as any).getConnection().getKnex()
-      const table = resolveEntityTableName(em, entityType)
-      const row = await knex(table).select(['organization_id', 'tenant_id']).where({ id: recordId }).first()
-      if (organizationId == null) organizationId = row?.organization_id ?? organizationId
-      if (tenantId == null) tenantId = row?.tenant_id ?? tenantId
-    } catch {}
-  }
   try {
+    const hasPayloadOrganizationId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'organizationId')
+    const hasPayloadTenantId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'tenantId')
+    const rowScope = await loadQueryIndexRowScope(em, entityType, recordId).catch(() => null)
+    const resolvedScope = resolveQueryIndexRecordScope({
+      payloadOrganizationId: payload?.organizationId,
+      payloadTenantId: payload?.tenantId,
+      hasPayloadOrganizationId,
+      hasPayloadTenantId,
+      rowScope,
+    })
+    organizationId = resolvedScope.organizationId
+    tenantId = resolvedScope.tenantId
+
     const result = await upsertIndexRow(em, { entityType, recordId, organizationId, tenantId })
     if (!suppressCoverage) {
       const doc = result.doc
