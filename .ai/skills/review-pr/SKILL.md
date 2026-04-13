@@ -254,17 +254,22 @@ Label rules:
 - `changes-requested`: `#BA6609` — changes requested during review
 - Always add the correct label and remove the opposite label
 
-### 9. If blockers remain, ask the user whether to implement fixes
+### 9. Autonomous autofix flow
 
-After posting a `changes_requested` review, stop and ask the user:
+After posting a `changes_requested` review, **immediately proceed to fix all actionable findings** without asking the user. The review-pr skill must be fully autonomous — it reviews, fixes, re-reviews, and iterates until the PR is merge-ready or a truly critical blocker remains.
 
-`This PR still has blockers. Do you want me to implement the fixes, commit them, and push the result?`
+Only stop and ask the user in these critical situations:
 
-Do not modify code until the user answers yes.
+- Ambiguous product or architecture decisions that could go multiple valid ways
+- Missing credentials, environment access, or infrastructure failures
+- Changes that would break backward compatibility in ways not covered by the deprecation protocol
+- Scope expansion that would fundamentally change what the PR does
 
-### 10. Autofix and fix-forward flow after user approval
+For everything else — missing tests, code style issues, i18n problems, type errors, lint failures, missing metadata exports, security hardening — fix them autonomously.
 
-If the user approves implementation, continue inside the isolated worktree.
+### 10. Autofix and fix-forward loop
+
+Continue inside the isolated worktree.
 
 Do not stop after the first patch. Treat autofix as an iterative loop:
 
@@ -373,11 +378,14 @@ Worktree: {path}
 Review submitted successfully.
 ```
 
-If blockers remain, the summary must end by asking whether to implement the fixes.
+If all findings were auto-fixed, the summary should note that fixes were applied and the PR is ready for merge.
+
+If a critical blocker remains that requires human judgment, the summary must describe the blocker and ask for guidance.
 
 ## Rules
 
 - Always fetch the specific PR from GitHub before acting
+- After posting a changes-requested review, immediately proceed to auto-fix all actionable findings without asking the user — only stop for critical architectural decisions, missing credentials, or BC-breaking scope changes
 - Always use an isolated worktree for checkout, review, validation, and optional fixes
 - Reuse the current linked worktree when already inside one; do not create nested worktrees
 - The repository’s main worktree must remain unchanged
