@@ -588,6 +588,60 @@ describe('Workflow Executor (Unit Tests)', () => {
         workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
       ).rejects.toThrow('Workflow definition not found')
     })
+
+    test('should return FAILED status when transition fails', async () => {
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+
+      const instance = {
+        id: testInstanceId,
+        definitionId: testDefinitionId,
+        workflowId: 'simple-workflow',
+        version: 1,
+        status: 'RUNNING',
+        currentStepId: 'start',
+        context: {},
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as WorkflowInstance
+
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: unknown) => {
+        if ((where as Record<string, unknown>)?.id === testInstanceId) {
+          return instance
+        }
+        if ((where as Record<string, unknown>)?.id === testDefinitionId) {
+          return mockDefinition as WorkflowDefinition
+        }
+        return null
+      })
+
+      transitionHandler.findValidTransitions.mockResolvedValue([
+        {
+          isValid: true,
+          transition: {
+            transitionId: 'start-to-end',
+            fromStepId: 'start',
+            toStepId: 'end',
+            trigger: 'auto',
+          },
+        },
+      ])
+      transitionHandler.executeTransition.mockResolvedValue({
+        success: false,
+        error: 'Activities failed: Email delivery error',
+      })
+
+      const result = await workflowExecutor.executeWorkflow(mockEm, mockContainer, testInstanceId)
+
+      expect(result.status).toBe('FAILED')
+      expect(result.errors).toContain('Activities failed: Email delivery error')
+    })
   })
 
   // ============================================================================

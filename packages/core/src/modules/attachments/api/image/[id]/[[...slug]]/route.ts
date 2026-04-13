@@ -11,6 +11,7 @@ import {
   readThumbnailCache,
   writeThumbnailCache,
 } from '@open-mercato/core/modules/attachments/lib/thumbnailCache'
+import { canRenderInlineAttachment } from '@open-mercato/core/modules/attachments/lib/security'
 import { checkAttachmentAccess } from '@open-mercato/core/modules/attachments/lib/access'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { promises as fs } from 'fs'
@@ -57,7 +58,7 @@ export async function GET(
   if (!attachment) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
-  if (typeof attachment.mimeType !== 'string' || !attachment.mimeType.startsWith('image/')) {
+  if (!canRenderInlineAttachment(attachment.mimeType)) {
     return NextResponse.json({ error: 'Unsupported media type' }, { status: 400 })
   }
   const partition = await em.findOne(AttachmentPartition, { code: attachment.partitionCode })
@@ -124,6 +125,7 @@ export async function GET(
       headers: {
         'Content-Type': attachment.mimeType || 'image/jpeg',
         'Cache-Control': partition.isPublic ? 'public, max-age=3600' : 'private, max-age=60',
+        'X-Content-Type-Options': 'nosniff',
       },
     })
   } catch (error) {

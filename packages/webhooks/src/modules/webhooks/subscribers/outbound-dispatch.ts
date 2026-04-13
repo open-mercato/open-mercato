@@ -25,6 +25,7 @@ export default async function handler(
   if (!tenantId) return
 
   if (eventId.startsWith('webhooks.')) return
+  if (eventId.startsWith('query_index.')) return
 
   const resolve = ('resolve' in ctx && typeof ctx.resolve === 'function')
     ? ctx.resolve
