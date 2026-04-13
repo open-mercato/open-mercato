@@ -60,6 +60,10 @@
     "initialize": {
       "cache": false,
       "outputs": []
+    },
+    "seed:defaults": {
+      "cache": false,
+      "outputs": []
     }
   }
 }

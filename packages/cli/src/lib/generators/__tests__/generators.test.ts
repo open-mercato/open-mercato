@@ -1,7 +1,5 @@
 import type { GeneratorResult } from '../../utils'
 
-// Note: Some generators import ESM-only packages (like openapi-typescript)
-// which don't work well with Jest's CommonJS environment.
 // We test the generator interfaces and expected behavior patterns here.
 
 describe('generators', () => {
@@ -36,11 +34,9 @@ describe('generators', () => {
       expect(typeof module.generateModulePackageSources).toBe('function')
     })
 
-    // Note: api-client uses openapi-typescript which is ESM-only
-    // and doesn't work with Jest's CommonJS environment
-    it.skip('should export generateApiClient', async () => {
-      const module = await import('../api-client')
-      expect(typeof module.generateApiClient).toBe('function')
+    it('should export generateOpenApi', async () => {
+      const module = await import('../openapi')
+      expect(typeof module.generateOpenApi).toBe('function')
     })
   })
 

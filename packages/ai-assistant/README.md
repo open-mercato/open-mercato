@@ -13,7 +13,7 @@ AI-powered chat and tool execution for Open Mercato, using MCP (Model Context Pr
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 24+
 - Docker (for OpenCode)
 - An LLM API key (Anthropic, OpenAI, or Google)
 - An Open Mercato API key (created via Backend > Settings > API Keys)
@@ -347,7 +347,7 @@ export const aiTools: AiToolDefinition[] = [
 Tools are automatically discovered when you run the module generator:
 
 ```bash
-npm run modules:prepare
+yarn generate
 ```
 
 This scans all modules for `ai-tools.ts` files and generates `ai-tools.generated.ts` in `.mercato/generated/`.
@@ -355,7 +355,7 @@ This scans all modules for `ai-tools.ts` files and generates `ai-tools.generated
 ### Registration Flow
 
 1. Create `ai-tools.ts` in your module
-2. Run `npm run modules:prepare` (or it runs automatically during `predev`/`prebuild`)
+2. Run `yarn generate` (or it runs automatically during `predev`/`prebuild`)
 3. Tools are available in the MCP server
 
 **Example**: See `packages/search/src/modules/search/ai-tools.ts` for a complete implementation with search-related tools.

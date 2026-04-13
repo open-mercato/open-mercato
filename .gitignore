@@ -13,9 +13,9 @@
 .turbo
 
 # testing
-/coverage
-/test-results
-/playwright-report
+coverage/
+test-results/
+playwright-report/
 published-app/
 
 # next.js
