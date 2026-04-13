@@ -75,7 +75,7 @@ export async function GET(req: Request) {
     ...(auth.orgId ? { organizationId: auth.orgId } : {}),
     fields,
     filters,
-    page: { page: 1, pageSize: ids.length || 50 },
+    page: { page: 1, pageSize: Math.min(ids.length || 50, 200) },
   })
   const items = (res.items || []).map((it: any) => {
     const routeContext = routeContextFields.reduce<Record<string, unknown>>((acc, field) => {
@@ -117,7 +117,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List relation options',
-      description: 'Returns up to 50 option entries for populating relation dropdowns, automatically resolving label fields when omitted.',
+      description: 'Returns up to 200 option entries for populating relation dropdowns, automatically resolving label fields when omitted.',
       query: relationOptionsQuerySchema,
       responses: [
         {

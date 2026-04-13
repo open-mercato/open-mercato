@@ -79,4 +79,41 @@ describe('GET /api/entities/relations/options', () => {
       }),
     )
   })
+
+  it('caps pageSize at 200 even when more ids are requested', async () => {
+    const manyIds = Array.from({ length: 300 }, (_, index) => `id-${index}`).join(',')
+    mockQE.query.mockResolvedValueOnce({ items: [] })
+
+    const req = new Request(
+      `http://x/api/entities/relations/options?entityId=virtual:example&labelField=title&ids=${manyIds}`,
+    )
+
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    expect(mockQE.query).toHaveBeenCalledWith(
+      'virtual:example',
+      expect.objectContaining({
+        page: { page: 1, pageSize: 200 },
+      }),
+    )
+  })
+
+  it('defaults to pageSize 50 when no ids are provided', async () => {
+    mockQE.query.mockResolvedValueOnce({ items: [] })
+
+    const req = new Request(
+      'http://x/api/entities/relations/options?entityId=virtual:example&labelField=title',
+    )
+
+    const res = await GET(req)
+
+    expect(res.status).toBe(200)
+    expect(mockQE.query).toHaveBeenCalledWith(
+      'virtual:example',
+      expect.objectContaining({
+        page: { page: 1, pageSize: 50 },
+      }),
+    )
+  })
 })
