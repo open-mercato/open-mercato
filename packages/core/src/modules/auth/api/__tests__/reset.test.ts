@@ -137,4 +137,15 @@ describe('POST /api/auth/reset', () => {
     expect(mockRequestPasswordReset).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
+
+  test('returns success even when email delivery fails', async () => {
+    mockSendEmail.mockRejectedValueOnce(new Error('RESEND_API_KEY is not set'))
+
+    const res = await POST(makeResetRequest('https://app.example.com/api/auth/reset'))
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true })
+    expect(mockRequestPasswordReset).toHaveBeenCalledWith('staff@example.com')
+  })
 })

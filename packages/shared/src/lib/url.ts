@@ -1,6 +1,6 @@
 const DEFAULT_DEV_APP_URL = 'http://localhost:3000'
 
-type EnvLike = {
+type EnvLike = Record<string, string | undefined> & {
   APP_URL?: string
   NEXT_PUBLIC_APP_URL?: string
   APP_ALLOWED_ORIGINS?: string

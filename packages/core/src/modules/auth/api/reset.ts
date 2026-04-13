@@ -65,7 +65,11 @@ export async function POST(req: Request) {
     hint: translate('auth.email.resetPassword.hint', "If you didn't request this, you can safely ignore this email."),
   }
 
-  await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
+  try {
+    await sendEmail({ to: user.email, subject, react: ResetPasswordEmail({ resetUrl, copy }) })
+  } catch (err) {
+    console.error('[auth.reset] Failed to send reset email:', err)
+  }
   try {
     const tenantId = user.tenantId ? String(user.tenantId) : null
     if (tenantId) {
