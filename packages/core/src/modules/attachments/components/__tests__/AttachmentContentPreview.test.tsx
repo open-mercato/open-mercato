@@ -19,6 +19,16 @@ describe('AttachmentContentPreview', () => {
     expect(screen.getByText(/no text extracted/i)).toBeInTheDocument()
   })
 
+  it('shows placeholder when content is empty string', () => {
+    render(<AttachmentContentPreview content="" />)
+    expect(screen.getByText(/no text extracted/i)).toBeInTheDocument()
+  })
+
+  it('shows placeholder when content is whitespace only', () => {
+    render(<AttachmentContentPreview content="   " />)
+    expect(screen.getByText(/no text extracted/i)).toBeInTheDocument()
+  })
+
   it('renders inline content when short', () => {
     render(<AttachmentContentPreview content="hello world" />)
     expect(screen.getByText('hello world')).toBeInTheDocument()

@@ -37,8 +37,27 @@ jest.mock('../injection/InjectionSpot', () => ({
   },
 }))
 
+jest.mock('../injection/useInjectedMenuItems', () => ({
+  useInjectedMenuItems: () => ({
+    items: [],
+    isLoading: false,
+  }),
+}))
+
+jest.mock('../injection/eventBridge', () => ({
+  useEventBridge: jest.fn(),
+}))
+
+jest.mock('../injection/StatusBadgeInjectionSpot', () => ({
+  StatusBadgeInjectionSpot: () => <div data-testid="status-badge-injection-spot" />,
+}))
+
 jest.mock('../operations/LastOperationBanner', () => ({
   LastOperationBanner: () => <div data-testid="last-operation-banner" />,
+}))
+
+jest.mock('../progress/ProgressTopBar', () => ({
+  ProgressTopBar: () => <div data-testid="progress-top-bar" />,
 }))
 
 jest.mock('../indexes/PartialIndexBanner', () => ({
@@ -55,6 +74,10 @@ jest.mock('../../frontend/LanguageSwitcher', () => ({
 
 jest.mock('../upgrades/UpgradeActionBanner', () => ({
   UpgradeActionBanner: () => <div data-testid="upgrade-action-banner" />,
+}))
+
+jest.mock('../devtools', () => ({
+  UmesDevToolsPanel: () => null,
 }))
 
 const dict = {

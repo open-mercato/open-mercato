@@ -16,8 +16,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
+  const container = await createRequestContainer()
+  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+
   try {
-    requireCustomerFeature(auth, ['portal.users.roles.manage'])
+    await requireCustomerFeature(auth, ['portal.users.roles.manage'], customerRbacService)
   } catch (response) {
     return response as NextResponse
   }
@@ -38,9 +41,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
-  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
 
   // Verify target user belongs to same company
   const targetUser = await findOneWithDecryption(em, CustomerUser, {

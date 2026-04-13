@@ -1,8 +1,9 @@
 /** @jest-environment node */
 
 /**
- * Tests that all findWithDecryption(SalesDocumentAddress, ...) calls include
- * organizationId and tenantId filters, preventing cross-tenant data leaks.
+ * Tests that SalesDocumentAddress reads pass immutable tenant/org scope through
+ * the dedicated findWithDecryption scope argument, preventing cross-tenant leaks
+ * without relying on overrideable where filters.
  *
  * Fixed in: packages/core/src/modules/sales/commands/documents.ts
  *   - loadQuoteSnapshot (line ~1179)
@@ -221,7 +222,7 @@ function makeCtx(em: unknown, organizationId: string, tenantId: string) {
 /**
  * Filter findWithDecryption mock calls where the entity class is SalesDocumentAddress.
  * findWithDecryption signature: (em, entityName, where, options?, scope?)
- * so entityName is args[1] and where is args[2].
+ * so entityName is args[1], where is args[2], and scope is args[4].
  */
 function addressDecryptionCalls() {
   return (findWithDecryption as jest.Mock).mock.calls.filter(
@@ -255,6 +256,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: QUOTE_ID,
         documentKind: 'quote',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })
@@ -272,6 +275,10 @@ describe('SalesDocumentAddress query scoping', () => {
 
       const calls = addressDecryptionCalls()
       expect(calls[0][2]).toMatchObject({
+        documentId: QUOTE_ID,
+        documentKind: 'quote',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: differentOrg,
         tenantId: differentTenant,
       })
@@ -294,6 +301,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: ORDER_ID,
         documentKind: 'order',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })
@@ -311,6 +320,10 @@ describe('SalesDocumentAddress query scoping', () => {
 
       const calls = addressDecryptionCalls()
       expect(calls[0][2]).toMatchObject({
+        documentId: ORDER_ID,
+        documentKind: 'order',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: differentOrg,
         tenantId: differentTenant,
       })
@@ -333,6 +346,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: QUOTE_ID,
         documentKind: 'quote',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })
@@ -355,6 +370,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: ORDER_ID,
         documentKind: 'order',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })

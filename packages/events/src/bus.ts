@@ -47,6 +47,7 @@ export function registerGlobalEventTap(handler: GlobalEventTap): () => void {
 type EventJobData = {
   event: string
   payload: EventPayload
+  options?: EmitOptions
 }
 
 /**
@@ -110,7 +111,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    * Delivers an event to all registered in-memory handlers.
    * Supports wildcard pattern matching for event patterns.
    */
-  async function deliver(event: string, payload: EventPayload): Promise<void> {
+  async function deliver(event: string, payload: EventPayload, options?: EmitOptions): Promise<void> {
     // Check all registered patterns (including wildcards)
     for (const [pattern, handlers] of listeners) {
       if (!matchEventPattern(event, pattern)) continue
@@ -122,6 +123,8 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
           await Promise.resolve(handler(payload, {
             resolve: opts.resolve,
             eventName: event,
+            tenantId: options?.tenantId ?? null,
+            organizationId: options?.organizationId ?? null,
           }))
         } catch (error) {
           console.error(`[events] Handler error for "${event}" (pattern: "${pattern}"):`, error)
@@ -169,7 +172,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     }
 
     // Always deliver to in-memory handlers first
-    await deliver(event, payload)
+    await deliver(event, payload, options)
 
     if (isBroadcastEvent(event) && hasTenantScope(payload)) {
       try {
@@ -182,7 +185,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     // If persistent, also enqueue for async processing
     if (options?.persistent) {
       const q = getQueue()
-      await q.enqueue({ event, payload })
+      await q.enqueue({ event, payload, options })
     }
   }
 
