@@ -1,11 +1,11 @@
 ---
 name: review-pr
-description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional fix-and-forward flow that can replace fork PRs with a merge-ready follow-up PR. Usage - /review-pr <PR-number>
+description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional autofix and fix-forward flow that iterates through conflict resolution, code fixes, unit tests, typecheck, and re-review until the PR is merge-ready or a real blocker remains. Usage - /review-pr <PR-number>
 ---
 
 # Review PR
 
-Review a GitHub pull request by number without touching the current worktree. Always fetch the exact PR from GitHub, review it in an isolated worktree, submit the verdict, and if the PR still has blockers offer an explicit follow-up fix flow.
+Review a GitHub pull request by number without touching the current worktree. Always fetch the exact PR from GitHub, review it in an isolated worktree, submit the verdict, and if the PR still has blockers offer an explicit autofix flow that keeps resolving conflicts, fixing code, testing, typechecking, and re-reviewing until the PR is actually ready or a non-actionable blocker remains.
 
 ## Arguments
 
@@ -58,9 +58,14 @@ Run these checks before the worktree is created. If either fails, skip the full 
 gh pr view {prNumber} --json mergeable,mergeStateStatus,baseRefName
 ```
 
-If `mergeable` is `CONFLICTING` or `mergeStateStatus` is `DIRTY`, do not continue with checkout or review execution.
+If `mergeable` is `CONFLICTING` or `mergeStateStatus` is `DIRTY`, do not continue with checkout or review execution on the first pass.
 
-Submit a changes-requested review with a conflict-focused body, apply the `changes-requested` label, remove `merge-queue`, and stop.
+Submit a changes-requested review with a conflict-focused body, apply the `changes-requested` label, remove `merge-queue`, and stop the first pass.
+
+Important:
+
+- On the initial review pass, conflicts are still an early stop.
+- On the second pass, if the user approves autofix, conflicts become actionable work and must be resolved inside the isolated worktree or carry-forward branch before re-reviewing.
 
 #### 3b. Check CI status
 
@@ -237,19 +242,50 @@ After posting a `changes_requested` review, stop and ask the user:
 
 Do not modify code until the user answers yes.
 
-### 10. Fix-and-forward flow after user approval
+### 10. Autofix and fix-forward flow after user approval
 
 If the user approves implementation, continue inside the isolated worktree.
 
+Do not stop after the first patch. Treat autofix as an iterative loop:
+
+1. Convert the current review findings into a concrete fix list.
+2. If the PR is currently conflicted, resolve conflicts against the latest base branch first.
+3. Implement the next batch of fixable findings.
+4. Run validation for the updated code:
+   - Run relevant unit tests for every changed package or module.
+   - Run relevant typecheck commands for every changed package or module.
+   - If the review findings touched shared contracts or multiple packages, expand validation to the affected workspace scope.
+5. Re-run the code review on the updated diff in the same worktree.
+6. If new or remaining actionable findings exist, repeat from step 1.
+7. Stop only when:
+   - the re-review outcome is `approved`, or
+   - a real blocker remains that cannot be resolved autonomously in the current turn.
+
+Examples of real blockers:
+
+- ambiguous product or architecture decisions that require user input
+- environment or infrastructure failures unrelated to the changed code
+- missing credentials or missing external access
+
+Conflict-resolution rules for autofix mode:
+
+- Resolve conflicts only inside the isolated worktree or carry-forward branch.
+- Never attempt conflict resolution in the user's active worktree.
+- Always fetch the latest `{baseRefName}` before resolving conflicts.
+- After conflicts are resolved, rerun the relevant unit tests, typecheck, and code review before deciding the branch is ready.
+- If conflict resolution introduces additional findings, continue the autofix loop instead of stopping.
+
+For autofix mode, the goal is not "submit one fix commit". The goal is "finish the PR". Keep iterating until the code review is clean and validation passes, unless a real blocker stops progress.
+
 #### 10a. Same-repo PRs
 
-If the PR head branch is in the main repository and you have push access, implement the fixes on the checked-out PR branch, run validation, commit, and push to that branch.
+If the PR head branch is in the main repository and you have push access, implement the fixes on the checked-out PR branch, resolve any base-branch conflicts there if needed, run the autofix loop above, then commit and push to that branch only after the latest re-review is approvable.
 
 Rules:
 
 - Never force-push unless the user explicitly asked for it.
 - Prefer a normal follow-up commit.
-- Re-run the relevant validation before pushing.
+- Before pushing, ensure the latest autofix cycle included unit tests, typecheck, and a fresh code review on the final diff.
 
 #### 10b. Fork PRs
 
@@ -260,16 +296,25 @@ Instead:
 1. Keep the current worktree based on the fetched PR head SHA so the original commits and authorship are preserved.
 2. Create a new branch in the main repository, for example `carry/pr-{prNumber}-ready`.
 3. Implement the fixes there.
-4. Run validation.
-5. Commit and push the new branch to `origin`.
-6. Open a replacement PR against `{baseRefName}`.
-7. Close the original PR only after the replacement PR exists successfully.
+4. Resolve any conflicts against `{baseRefName}` on that carry-forward branch.
+5. Run the autofix loop above until the branch is re-reviewed as approvable or a real blocker remains.
+6. Commit and push the new branch to `origin`.
+7. Open a replacement PR against `{baseRefName}`.
+8. Close the original PR only after the replacement PR exists successfully.
+
+Validation requirements for autofix mode:
+
+- On every cycle, run unit tests for changed packages or modules.
+- On every cycle, run typecheck for changed packages or modules.
+- Before the final push, run at least one last unit-test pass and one last typecheck pass against the final branch state.
+- If the original review required broader workspace validation, rerun the broader validation before opening or updating the replacement PR.
 
 Replacement PR requirements:
 
 - Include the original PR link
 - Credit the original PR author explicitly
 - State that the new PR carries forward the original work plus the requested fixes
+- Mention that the branch was re-reviewed after autofix and is intended to be merge-ready
 
 Suggested replacement PR body:
 
@@ -313,6 +358,11 @@ If blockers remain, the summary must end by asking whether to implement the fixe
 - Always use an isolated worktree for checkout, review, validation, and optional fixes
 - The main worktree must remain unchanged
 - Always restore Yarn install state inside the isolated worktree before running build, test, or typecheck commands
+- On the first review pass, conflicts are an early-stop review outcome
+- In autofix mode, conflicts must be resolved as part of the second run instead of being left as a permanent blocker
+- In autofix mode, always rerun code review after each fix batch instead of assuming the previous findings list is complete
+- In autofix mode, always run unit tests and typecheck for the changed scope on every iteration and again on the final branch state
+- In autofix mode, continue iterating until the PR is ready or a real blocker is reported explicitly
 - Must run the full CI/CD verification gate from the `code-review` skill
 - Must use the `code-review` skill severity model
 - Must run the diff-level automated checks in step 5
