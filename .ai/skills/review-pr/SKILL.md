@@ -162,6 +162,42 @@ if [ "$CREATED_WORKTREE" = "1" ]; then
 fi
 ```
 
+### 4a. Check for duplicated or already-merged changes
+
+Before proceeding with the full review, verify that the PR does not duplicate work already present in the base branch. This catches cases where:
+
+- The base branch already contains the same fix (e.g., merged via a different PR)
+- A parallel PR landed the same feature while this one was open
+- The PR's changes are a subset of recently merged work
+
+Steps:
+
+1. Get the list of changed files from the PR diff:
+   ```bash
+   gh pr diff {prNumber} --name-only
+   ```
+
+2. For each changed file, compare the PR version against the base branch version to identify overlap:
+   ```bash
+   git diff origin/{baseRefName} -- <file>
+   ```
+
+3. Check recent commits on the base branch that touch the same files:
+   ```bash
+   git log origin/{baseRefName} --oneline -20 -- <files>
+   ```
+
+4. Look for semantic duplication — the same logic, function, or fix already present in the base branch even if the code differs slightly.
+
+If the PR's core changes are already present in the base branch:
+- Submit a changes-requested review explaining that the changes duplicate already-merged work.
+- List the specific commits or PRs in the base branch that already contain the equivalent changes.
+- Apply `changes-requested`, remove `merge-queue`, and stop.
+
+If partial overlap exists (some changes are new, some are redundant):
+- Note the redundant parts as a finding in the review.
+- Continue reviewing the genuinely new changes.
+
 ### 5. Diff-level automated checks
 
 Before running the full code-review skill, scan the PR diff for hard-rule violations. Use:
@@ -339,7 +375,7 @@ Replacement PR requirements:
 Suggested replacement PR body:
 
 ```markdown
-Supersedes #{prNumber}: {originalUrl}
+Supersedes #{prNumber}
 
 Credit: original implementation by @{originalAuthor}. This follow-up PR carries that work forward with the requested fixes so it can merge without waiting on the original branch.
 
