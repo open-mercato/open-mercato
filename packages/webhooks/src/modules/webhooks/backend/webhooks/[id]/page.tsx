@@ -394,7 +394,7 @@ export default function WebhookDetailPage() {
     {
       accessorKey: 'responseStatus',
       header: t('webhooks.deliveries.columns.responseStatus'),
-      cell: ({ row }) => row.original.responseStatus ?? '\u2014',
+      cell: ({ row }) => row.original.responseStatus ?? '—',
     },
     {
       accessorKey: 'attemptNumber',
@@ -404,14 +404,14 @@ export default function WebhookDetailPage() {
     {
       accessorKey: 'durationMs',
       header: t('webhooks.deliveries.columns.duration'),
-      cell: ({ row }) => row.original.durationMs != null ? `${row.original.durationMs}ms` : '\u2014',
+      cell: ({ row }) => row.original.durationMs != null ? `${row.original.durationMs}ms` : '—',
     },
     {
       accessorKey: 'createdAt',
       header: t('webhooks.deliveries.columns.enqueuedAt'),
       cell: ({ row }) => {
         try { return new Date(row.original.enqueuedAt).toLocaleString() }
-        catch { return '\u2014' }
+        catch { return '—' }
       },
     },
   ], [t])
@@ -575,16 +575,16 @@ export default function WebhookDetailPage() {
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.list.columns.lastDelivery')}:</span>
-              <span className="ml-2">{webhook.lastSuccessAt ?? webhook.lastFailureAt ?? '\u2014'}</span>
+              <span className="ml-2">{webhook.lastSuccessAt ?? webhook.lastFailureAt ?? '—'}</span>
             </div>
             <div>
               <span className="text-muted-foreground">{t('webhooks.detail.previousSecretSetAt')}:</span>
-              <span className="ml-2">{webhook.previousSecretSetAt ?? '\u2014'}</span>
+              <span className="ml-2">{webhook.previousSecretSetAt ?? '—'}</span>
             </div>
             <div className="col-span-2">
               <span className="text-muted-foreground">{t('webhooks.form.customHeaders')}:</span>
               <pre className="mt-2 rounded border bg-muted/40 p-3 text-xs">
-                {webhook.customHeaders ? JSON.stringify(webhook.customHeaders, null, 2) : '\u2014'}
+                {webhook.customHeaders ? JSON.stringify(webhook.customHeaders, null, 2) : '—'}
               </pre>
             </div>
           </div>
@@ -595,8 +595,8 @@ export default function WebhookDetailPage() {
             <h2 className="text-sm font-semibold">{t('webhooks.detail.testResult')}</h2>
             <div className="mt-3 grid gap-2 text-sm">
               <div>{t('webhooks.deliveries.columns.status')}: {testDelivery.status}</div>
-              <div>{t('webhooks.deliveries.columns.responseStatus')}: {testDelivery.responseStatus ?? '\u2014'}</div>
-              <div>{t('webhooks.deliveries.columns.duration')}: {testDelivery.durationMs != null ? `${testDelivery.durationMs}ms` : '\u2014'}</div>
+              <div>{t('webhooks.deliveries.columns.responseStatus')}: {testDelivery.responseStatus ?? '—'}</div>
+              <div>{t('webhooks.deliveries.columns.duration')}: {testDelivery.durationMs != null ? `${testDelivery.durationMs}ms` : '—'}</div>
               <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
                 {JSON.stringify(testDelivery.payload, null, 2)}
               </pre>
@@ -667,8 +667,8 @@ export default function WebhookDetailPage() {
             ) : (
               <div className="mt-3 space-y-4 text-sm">
                 <div>{t('webhooks.deliveries.columns.status')}: {selectedDelivery.status}</div>
-                <div>{t('webhooks.deliveries.columns.responseStatus')}: {selectedDelivery.responseStatus ?? '\u2014'}</div>
-                <div>{t('webhooks.deliveries.columns.duration')}: {selectedDelivery.durationMs != null ? `${selectedDelivery.durationMs}ms` : '\u2014'}</div>
+                <div>{t('webhooks.deliveries.columns.responseStatus')}: {selectedDelivery.responseStatus ?? '—'}</div>
+                <div>{t('webhooks.deliveries.columns.duration')}: {selectedDelivery.durationMs != null ? `${selectedDelivery.durationMs}ms` : '—'}</div>
                 <div>
                   <div className="mb-2 font-medium">{t('webhooks.deliveries.requestBody')}</div>
                   <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
@@ -678,13 +678,13 @@ export default function WebhookDetailPage() {
                 <div>
                   <div className="mb-2 font-medium">{t('webhooks.deliveries.responseBody')}</div>
                   <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
-                    {selectedDelivery.responseBody ?? '\u2014'}
+                    {selectedDelivery.responseBody ?? '—'}
                   </pre>
                 </div>
                 <div>
                   <div className="mb-2 font-medium">{t('webhooks.deliveries.responseHeaders')}</div>
                   <pre className="overflow-auto rounded border bg-muted/40 p-3 text-xs">
-                    {selectedDelivery.responseHeaders ? JSON.stringify(selectedDelivery.responseHeaders, null, 2) : '\u2014'}
+                    {selectedDelivery.responseHeaders ? JSON.stringify(selectedDelivery.responseHeaders, null, 2) : '—'}
                   </pre>
                 </div>
               </div>
