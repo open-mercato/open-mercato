@@ -104,9 +104,9 @@ describe('runCustomRouteAfterInterceptors', () => {
             id: 'example.auth.login.timeout',
             targetRoute: 'auth/login',
             methods: ['POST'],
-            timeoutMs: 5,
+            timeoutMs: 10,
             async after() {
-              await new Promise((resolve) => setTimeout(resolve, 20))
+              await new Promise((resolve) => setTimeout(resolve, 200))
               return {}
             },
           },
