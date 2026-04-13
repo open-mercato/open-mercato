@@ -7,8 +7,8 @@ import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import type { Metadata } from 'next'
 import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
@@ -63,7 +63,13 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
     }
     const customerFeatures = match.route.requireCustomerFeatures
     if (customerFeatures && customerFeatures.length) {
-      const ok = hasAllFeatures(customerFeatures as string[], customerAuth.resolvedFeatures)
+      const portalContainer = await createRequestContainer()
+      const customerRbac = portalContainer.resolve('customerRbacService') as CustomerRbacService
+      const ok = await customerRbac.userHasAllFeatures(
+        customerAuth.sub,
+        customerFeatures as string[],
+        { tenantId: customerAuth.tenantId, organizationId: customerAuth.orgId },
+      )
       if (!ok) return renderAccessDenied()
     }
     const Component = await match.route.load()

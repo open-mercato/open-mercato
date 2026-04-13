@@ -20,6 +20,18 @@ import fs from 'node:fs'
 
 let envLoaded = false
 
+async function runWithCapturedExitCode(action: () => Promise<void>): Promise<number> {
+  const previousExitCode = process.exitCode
+  process.exitCode = undefined
+
+  try {
+    await action()
+    return process.exitCode ?? 0
+  } finally {
+    process.exitCode = previousExitCode
+  }
+}
+
 function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWorker[] {
   const allWorkers: ModuleWorker[] = []
   for (const mod of modules) {
@@ -862,14 +874,12 @@ export async function run(argv = process.argv) {
       return 1
     }
     const { runUmesInspect } = await import('./lib/umes/inspect')
-    await runUmesInspect(moduleArg)
-    return 0
+    return runWithCapturedExitCode(() => runUmesInspect(moduleArg))
   }
 
   if (first === 'umes:check') {
     const { runUmesCheck } = await import('./lib/umes/check')
-    await runUmesCheck()
-    return 0
+    return runWithCapturedExitCode(() => runUmesCheck())
   }
 
   if (first === 'seed:defaults') {

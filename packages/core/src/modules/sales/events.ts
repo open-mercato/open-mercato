@@ -21,6 +21,11 @@ const events = [
   { id: 'sales.invoice.updated', label: 'Invoice Updated', entity: 'invoice', category: 'crud' },
   { id: 'sales.invoice.deleted', label: 'Invoice Deleted', entity: 'invoice', category: 'crud' },
 
+  // Credit Memos
+  { id: 'sales.credit_memo.created', label: 'Credit Memo Created', entity: 'credit_memo', category: 'crud' },
+  { id: 'sales.credit_memo.updated', label: 'Credit Memo Updated', entity: 'credit_memo', category: 'crud' },
+  { id: 'sales.credit_memo.deleted', label: 'Credit Memo Deleted', entity: 'credit_memo', category: 'crud' },
+
   // Order Lines
   { id: 'sales.line.created', label: 'Order Line Created', entity: 'line', category: 'crud' },
   { id: 'sales.line.updated', label: 'Order Line Updated', entity: 'line', category: 'crud' },

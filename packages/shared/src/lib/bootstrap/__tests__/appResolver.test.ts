@@ -21,6 +21,17 @@ function createApp(rootDir: string, relativeAppDir: string, configName: NextConf
   return { appDir, mercatoDir, generatedDir }
 }
 
+function createInvalidConfigDirectory(rootDir: string, relativeAppDir: string, configName: NextConfigName): AppRoot {
+  const appDir = path.join(rootDir, relativeAppDir)
+  const mercatoDir = path.join(appDir, '.mercato')
+  const generatedDir = path.join(mercatoDir, 'generated')
+
+  fs.mkdirSync(path.join(appDir, configName), { recursive: true })
+  fs.mkdirSync(generatedDir, { recursive: true })
+
+  return { appDir, mercatoDir, generatedDir }
+}
+
 describe('appResolver', () => {
   let tempDir: string
 
@@ -61,6 +72,16 @@ describe('appResolver', () => {
       expect(findAppRoot(nestedDir)).toEqual(innerApp)
     })
 
+    it('ignores directories masquerading as Next.js config files', () => {
+      const outerApp = createApp(tempDir, 'apps/outer', 'next.config.ts')
+      const invalidInnerApp = createInvalidConfigDirectory(outerApp.appDir, 'examples/inner', 'next.config.js')
+      const nestedDir = path.join(invalidInnerApp.appDir, 'src')
+
+      fs.mkdirSync(nestedDir, { recursive: true })
+
+      expect(findAppRoot(nestedDir)).toEqual(outerApp)
+    })
+
     it('returns null when no Next.js app can be found', () => {
       const nestedDir = path.join(tempDir, 'packages', 'shared', 'src')
 
@@ -80,6 +101,9 @@ describe('appResolver', () => {
       createApp(tempDir, 'apps/docs', 'next.config.js')
       createApp(tempDir, 'apps/admin', 'next.config.mjs')
       createApp(tempDir, 'apps/incomplete', 'next.config.ts', false)
+      createInvalidConfigDirectory(tempDir, 'apps/not-really-an-app', 'next.config.ts')
+
+      fs.mkdirSync(path.join(tempDir, 'apps', 'folder-without-next-config'), { recursive: true })
 
       fs.writeFileSync(path.join(tempDir, 'apps', 'README.md'), 'not an app')
 

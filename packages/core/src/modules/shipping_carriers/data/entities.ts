@@ -1,4 +1,4 @@
-import { Entity, Index, OptionalProps, PrimaryKey, Property } from '@mikro-orm/core'
+import { Entity, Index, OptionalProps, PrimaryKey, Property, Unique } from '@mikro-orm/core'
 
 @Entity({ tableName: 'carrier_shipments' })
 @Index({ properties: ['orderId', 'organizationId', 'tenantId'] })
@@ -57,4 +57,34 @@ export class CarrierShipment {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'carrier_webhook_events' })
+@Unique({
+  name: 'carrier_webhook_events_idempotency_unique',
+  properties: ['idempotencyKey', 'providerKey', 'organizationId', 'tenantId'],
+})
+export class CarrierWebhookProcessedEvent {
+  [OptionalProps]?: 'processedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'idempotency_key', type: 'text' })
+  idempotencyKey!: string
+
+  @Property({ name: 'event_type', type: 'text' })
+  eventType!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'processed_at', type: Date, onCreate: () => new Date() })
+  processedAt: Date = new Date()
 }
