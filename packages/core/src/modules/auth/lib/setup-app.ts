@@ -19,7 +19,7 @@ const DEFAULT_DERIVED_EMAIL_DOMAIN = DEMO_SUPERADMIN_EMAIL.split('@')[1] ?? 'acm
 
 export type EnsureRolesOptions = {
   roleNames?: string[]
-  tenantId?: string | null
+  tenantId?: string
 }
 
 async function ensureRolesInContext(
@@ -36,8 +36,8 @@ async function ensureRolesInContext(
 
 export async function ensureRoles(em: EntityManager, options: EnsureRolesOptions = {}) {
   const roleNames = options.roleNames ?? [...DEFAULT_ROLE_NAMES]
-  const tenantId = normalizeTenantId(options.tenantId ?? null) ?? null
-  if (tenantId === null) {
+  const tenantId = normalizeTenantId(options.tenantId ?? null)
+  if (!tenantId) {
     throw new Error('ensureRoles requires a tenantId — global roles are not supported')
   }
   await em.transactional(async (tem) => {

@@ -14,7 +14,7 @@ The `roles.tenant_id` column has been changed from nullable to `NOT NULL`. Globa
 
 **Function impact**: `ensureRoles()` and `ensureRolesInContext()` now require a non-null `tenantId`. All internal callers already provided one; third-party modules calling these functions with `tenantId: null` must update.
 
-**Spec**: [`.ai/specs/2026-04-11-eliminate-global-roles.md`](.ai/specs/2026-04-11-eliminate-global-roles.md)
+**Spec**: [`.ai/specs/implemented/2026-04-11-eliminate-global-roles.md`](.ai/specs/implemented/2026-04-11-eliminate-global-roles.md)
 
 ---
 

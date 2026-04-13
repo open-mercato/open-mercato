@@ -99,8 +99,8 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
   async execute(rawInput, ctx) {
-    // Reject explicit null tenantId before schema parsing (global roles are not supported)
-    if (rawInput && typeof rawInput === 'object' && 'tenantId' in (rawInput as Record<string, unknown>) && (rawInput as Record<string, unknown>).tenantId === null) {
+    const rawBody = rawInput && typeof rawInput === 'object' ? rawInput as Record<string, unknown> : {}
+    if ('tenantId' in rawBody && rawBody.tenantId === null) {
       throw new CrudHttpError(400, { error: 'tenantId cannot be null — global roles are not supported' })
     }
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
@@ -327,7 +327,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
       apply: (entity) => {
         entity.name = before.name
-        if (before.tenantId) entity.tenantId = before.tenantId
+        entity.tenantId = before.tenantId
       },
     })
     if (updated) {
@@ -340,7 +340,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
         entityId: E.auth.role,
         recordId: before.id,
         organizationId: null,
-        tenantId: before.tenantId ?? null,
+        tenantId: before.tenantId,
         values: reset,
         notify: false,
       })
@@ -436,7 +436,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     if (role) {
       role.deletedAt = null
       role.name = before.name
-      if (before.tenantId) role.tenantId = before.tenantId
+      role.tenantId = before.tenantId
       await em.flush()
     } else {
       role = await de.createOrmEntity({
