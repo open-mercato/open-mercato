@@ -203,6 +203,64 @@ describe('Business Rules API - /api/business_rules/rules', () => {
       expect(mockEm.persistAndFlush).toHaveBeenCalled()
     })
 
+    test('should create a rule without conditionExpression', async () => {
+      const newRule = {
+        ruleId: 'RULE-NO-COND',
+        ruleName: 'Rule Without Conditions',
+        ruleType: 'VALIDATION',
+        entityType: 'Customer',
+        enabled: true,
+        priority: 100,
+        version: 1,
+      }
+
+      mockEm.create.mockReturnValue({ id: '323e4567-e89b-12d3-a456-426614174005', ...newRule, conditionExpression: null })
+      mockEm.persistAndFlush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+      const body = await response.json()
+      expect(body.id).toBe('323e4567-e89b-12d3-a456-426614174005')
+      expect(mockEm.create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          conditionExpression: null,
+          ruleId: 'RULE-NO-COND',
+          tenantId: validTenantId,
+          organizationId: validOrgId,
+        })
+      )
+      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+    })
+
+    test('should create a rule with explicit null conditionExpression', async () => {
+      const newRule = {
+        ruleId: 'RULE-NULL-COND',
+        ruleName: 'Rule With Null Conditions',
+        ruleType: 'ACTION',
+        entityType: 'Order',
+        conditionExpression: null,
+      }
+
+      mockEm.create.mockReturnValue({ id: '423e4567-e89b-12d3-a456-426614174006', ...newRule })
+      mockEm.persistAndFlush.mockResolvedValue(undefined)
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(201)
+      const body = await response.json()
+      expect(body.id).toBe('423e4567-e89b-12d3-a456-426614174006')
+    })
+
     test('should return 400 for invalid rule data', async () => {
       const invalidRule = {
         ruleId: '',
@@ -246,6 +304,29 @@ describe('Business Rules API - /api/business_rules/rules', () => {
           createdBy: 'user-1',
         })
       )
+    })
+
+    test('should return 500 with JSON error when persistAndFlush fails', async () => {
+      const newRule = {
+        ruleId: 'RULE-DB-FAIL',
+        ruleName: 'DB Failure Rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        conditionExpression: { field: 'status', operator: '=', value: 'ACTIVE' },
+      }
+
+      mockEm.create.mockReturnValue({ id: '523e4567-e89b-12d3-a456-426614174007', ...newRule })
+      mockEm.persistAndFlush.mockRejectedValue(new Error('NOT NULL constraint violation'))
+
+      const request = new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'POST',
+        body: JSON.stringify(newRule),
+      })
+      const response = await POST(request)
+
+      expect(response.status).toBe(500)
+      const body = await response.json()
+      expect(body.error).toContain('Failed to create rule')
     })
   })
 

@@ -12,6 +12,7 @@ import {
   SalesQuoteAdjustment,
 } from "../../../../data/entities";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
@@ -21,7 +22,7 @@ export const metadata = {
   GET: { requireAuth: false },
 };
 
-export async function GET(_req: Request, ctx: { params: { token: string } }) {
+export async function GET(req: Request, ctx: { params: { token: string } }) {
   try {
     const { token } = paramsSchema.parse(ctx.params ?? {});
     const container = await createRequestContainer();
@@ -32,6 +33,13 @@ export async function GET(_req: Request, ctx: { params: { token: string } }) {
     });
     const { translate } = await resolveTranslations();
     if (!quote) {
+      throw new CrudHttpError(404, {
+        error: translate("sales.quotes.public.notFound", "Quote not found."),
+      });
+    }
+
+    const auth = await getAuthFromRequest(req);
+    if (auth?.tenantId && quote.tenantId !== auth.tenantId) {
       throw new CrudHttpError(404, {
         error: translate("sales.quotes.public.notFound", "Quote not found."),
       });

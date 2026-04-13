@@ -5,13 +5,17 @@ description: Scaffold the Inventory module and surface its first admin page in t
 
 # Step 2: Create your first module
 
-With the base app running, add a custom `inventory` module directly inside the app. Modules placed under `apps/mercato/src/modules/<id>/` are automatically resolved when you register them with `from: '@app'`—no separate package setup required.
+With the base app running, add a custom `inventory` module directly inside the app. Modules placed under `apps/mercato/src/modules/<id>/` (or `src/modules/<id>/` in a standalone app) are automatically resolved when you register them with `from: '@app'` -- no separate package setup required.
+
+:::info Monorepo vs. standalone paths
+This tutorial uses monorepo paths (`apps/mercato/src/modules/`). If you scaffolded a standalone app with `create-mercato-app`, replace every `apps/mercato/src/` prefix with `src/`. Everything else is identical.
+:::
 
 ## 1. Scaffold the module
 
 ```bash
 mkdir -p apps/mercato/src/modules/inventory
-touch apps/mercato/src/modules/inventory/{index.ts,acl.ts,di.ts}
+touch apps/mercato/src/modules/inventory/{index.ts,acl.ts,setup.ts,di.ts}
 ```
 
 Populate the metadata in `index.ts` so the module shows up in registries:
@@ -40,7 +44,22 @@ export const features = [
 export default features;
 ```
 
-Create an Awilix registrar in `di.ts` even if you do not wire services yet—the file keeps the structure predictable:
+Every module that declares features in `acl.ts` should also create a `setup.ts` file with `defaultRoleFeatures`. Without this, the features exist but no role will have them assigned by default -- users would need to manually grant them from the admin panel:
+
+```ts title="apps/mercato/src/modules/inventory/setup.ts"
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup';
+
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    admin: ['inventory.*'],
+    employee: ['inventory.view'],
+  },
+};
+
+export default setup;
+```
+
+Create an Awilix registrar in `di.ts` even if you do not wire services yet -- the file keeps the structure predictable:
 
 ```ts title="apps/mercato/src/modules/inventory/di.ts"
 import type { AppContainer } from '@open-mercato/shared/lib/di/container';
@@ -57,7 +76,7 @@ Open `apps/mercato/src/modules.ts` and add the new entry to the `enabledModules`
 ```ts title="apps/mercato/src/modules.ts"
 export const enabledModules: ModuleEntry[] = [
   // ... existing modules ...
-  { id: 'inventory', from: '@app' }, // 👈 new module
+  { id: 'inventory', from: '@app' }, // new module
 ];
 ```
 
@@ -104,12 +123,21 @@ export const metadata: PageMetadata = {
 };
 ```
 
+After adding pages, regenerate the module registry and clear the navigation cache so the sidebar picks up the new page:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
 Restart the dev server (or wait for hot reload) and open `/backend`. You should now see an **Inventory** link in the sidebar that leads to the placeholder page.
 
-> To see a working example of the same pattern, refer to `apps/mercato/src/modules/example/`. Core modules from `@open-mercato/core` can be replaced by adding override files under `apps/mercato/src/modules/auth`, `apps/mercato/src/modules/directory`, etc.
+:::tip Existing reference modules
+Browse `apps/mercato/src/modules/example/` for a full working module that exercises most platform features (entities, APIs, forms, grids, events, dashboard widgets, custom fields, and injection). Core modules from `@open-mercato/core` can be customized by adding override files under `apps/mercato/src/modules/auth`, `apps/mercato/src/modules/directory`, etc.
+:::
 
 :::tip Publish your module
 
-If you've built a module that would be useful for others, you can publish it to the [Official Modules repository](../framework/modules/official-modules). This is the recommended way to share your work with the community — your module gets core-team review, npm publication, and one-command installation for all Open Mercato users.
+If you've built a module that would be useful for others, you can publish it to the [Official Modules repository](../framework/modules/official-modules). This is the recommended way to share your work with the community -- your module gets core-team review, npm publication, and one-command installation for all Open Mercato users.
 
 :::

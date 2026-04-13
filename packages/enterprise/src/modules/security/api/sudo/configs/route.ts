@@ -42,7 +42,7 @@ export async function GET(req: Request) {
   if (context instanceof NextResponse) return context
 
   try {
-    const items = await context.sudoChallengeService.listConfigs()
+    const items = await context.sudoChallengeService.listConfigs(context.scope)
     const enriched = await attachSudoConfigScopeNames(context.container, items)
     return NextResponse.json({ items: enriched })
   } catch (error) {

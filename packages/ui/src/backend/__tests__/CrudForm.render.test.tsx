@@ -1,4 +1,11 @@
 /** @jest-environment jsdom */
+jest.setTimeout(15000)
+
+const triggerInjectionEventMock = jest.fn(async (_event: string, data: Record<string, unknown>) => ({
+  ok: true,
+  data,
+}))
+
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
   usePathname: () => '/',
@@ -6,6 +13,16 @@ jest.mock('next/navigation', () => ({
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
 jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
+jest.mock('../injection/InjectionSpot', () => ({
+  __esModule: true,
+  InjectionSpot: () => null,
+  useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
+  useInjectionSpotEvents: () => ({ triggerEvent: triggerInjectionEventMock }),
+}))
+jest.mock('../injection/useInjectionDataWidgets', () => ({
+  __esModule: true,
+  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
+}))
 
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
@@ -38,6 +55,10 @@ describe('CrudForm SSR render', () => {
 
 describe('CrudForm initialValues', () => {
   const fields: CrudField[] = [{ id: 'name', label: 'Name', type: 'text' }]
+
+  beforeEach(() => {
+    triggerInjectionEventMock.mockClear()
+  })
 
   function getInput(container: HTMLElement): HTMLInputElement {
     return container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement

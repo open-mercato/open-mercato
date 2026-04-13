@@ -8,6 +8,7 @@ import { SudoChallengeConfig } from '../data/entities'
 import type { SudoChallengeService } from '../services/SudoChallengeService'
 import {
   applySudoConfigSnapshot,
+  buildSudoAuthScopeFromAuth,
   captureSudoConfigSnapshot,
   readSudoConfigUndoPayload,
   type SudoConfigUndoPayload,
@@ -29,7 +30,8 @@ registerCommand({
     }
 
     const service = ctx.container.resolve<SudoChallengeService>('sudoChallengeService')
-    const config = await service.createConfig(parsed.data, ctx.auth.sub)
+    const scope = buildSudoAuthScopeFromAuth(ctx.auth)
+    const config = await service.createConfig(parsed.data, ctx.auth.sub, scope)
     return { id: config.id }
   },
   async buildLog({ result, ctx }) {

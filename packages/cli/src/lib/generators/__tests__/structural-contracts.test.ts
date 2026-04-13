@@ -198,6 +198,7 @@ function scaffoldFixture(): ModuleEntry[] {
   touchFile(pkgModulePath('orders', 'commands', 'interceptors.ts'), `export const interceptors = [\n  { id: 'orders.audit-log', commandId: 'orders.create', phase: 'after', async handler(command: any) { return { ok: true } } },\n]\n`)
   touchFile(pkgModulePath('orders', 'acl.ts'), "export const features = ['orders.view', 'orders.create', 'orders.edit', 'orders.delete']\n")
   touchFile(pkgModulePath('orders', 'setup.ts'), "export const setup = { defaultRoleFeatures: ['orders.view'] }\n")
+  touchFile(pkgModulePath('orders', 'encryption.ts'), "export const defaultEncryptionMaps = [{ entityId: 'orders:sales_order', fields: [{ field: 'customer_email', hashField: 'customer_email_hash' }] }]\nexport default defaultEncryptionMaps\n")
   touchFile(pkgModulePath('orders', 'di.ts'), 'export function register(container: any) {}\n')
   touchFile(pkgModulePath('orders', 'i18n', 'en.json'), JSON.stringify({ orders: { list: { title: 'Orders' } } }))
   touchFile(pkgModulePath('orders', 'i18n', 'pl.json'), JSON.stringify({ orders: { list: { title: 'Zamówienia' } } }))
@@ -495,6 +496,11 @@ describe('modules.generated.ts', () => {
 
   it('modules include setup references', () => {
     expect(content).toContain('setup:')
+  })
+
+  it('modules include default encryption maps from encryption.ts', () => {
+    expect(content).toContain('defaultEncryptionMaps:')
+    expect(content).toContain('ENCRYPTION_orders_')
   })
 
   it('modules include translation locale keys', () => {
