@@ -495,6 +495,8 @@
   "customers.errors.organization_forbidden": "Organization not accessible",
   "customers.errors.organization_required": "Organization context is required",
   "customers.errors.person_required": "Person id is required",
+  "customers.errors.profile_must_be_object": "profile must be an object",
+  "customers.errors.profile_unsupported_field": "Unsupported profile field: {{field}}",
   "customers.errors.save_failed": "Failed to save customer record.",
   "customers.errors.tag_required": "Tag id is required",
   "customers.errors.tenant_required": "Tenant context is required",
