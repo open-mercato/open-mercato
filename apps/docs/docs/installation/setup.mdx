@@ -12,7 +12,7 @@ If you want to build a production app without cloning the monorepo, use [`create
 :::
 
 :::tip Windows users
-If you are on **Windows**, skip the native setup and jump straight to the [Docker development setup](#docker-development-setup) below. It runs the entire stack — app, database, Redis, and search — inside containers, so you don't need Node.js, Yarn, or native build tools installed on your machine. This is also a great option for any platform where you prefer a fully containerized workflow.
+If you are on **Windows**, prefer the [Windows native local development](#windows-native-local-development) flow below: Docker Desktop for infrastructure services, then run the app natively with Node.js and Yarn. The full [Docker development setup](#docker-development-setup) remains available as a container-only option, but on Windows it is usually much slower for this monorepo because bind-mounted file watching and filesystem I/O cross the Windows/WSL boundary.
 :::
 
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
@@ -49,7 +49,7 @@ Continue with the develop setup steps below.
 
 ### Docker-based setup (all platforms)
 
-Use this track if you want to run the **entire stack inside Docker** with hot reload — no local Node.js or Yarn required. This is the **recommended path for Windows** and works on macOS/Linux too.
+Use this track if you want to run the **entire stack inside Docker** with hot reload — no local Node.js or Yarn required. This works on macOS/Linux and remains available on Windows as a container-only option, but Windows contributors should usually prefer the native local workflow above because it is faster and more reliable for this monorepo.
 
 See the [full Docker Development Setup](#docker-development-setup) section below for step-by-step instructions.
 
@@ -103,7 +103,17 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
 
 ## Windows native local development
 
-This is the preferred Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but it can be slower on Windows/WSL because a large Node.js monorepo with bind-mounted source files does many watched file reads across the Windows/Linux filesystem boundary.
+This is the recommended Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but on Windows it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy watched file reads across the Windows/Linux filesystem boundary.
+
+### One-time bootstrap
+
+From the repository root, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-dev-setup.ps1
+```
+
+This script installs or repairs Git, Node.js, Docker Desktop, Visual Studio 2022 Build Tools, and the Microsoft Visual C++ Redistributable, enables Corepack/Yarn, sets `git config --global core.autocrlf false`, and adds a Microsoft Defender exclusion for the current repository path. It relaunches itself as Administrator when needed.
 
 ### Prerequisites
 
@@ -117,7 +127,7 @@ This is the preferred Windows setup for day-to-day work on the monorepo. Docker 
 - **Microsoft Visual C++ Redistributable 2015+ x64** - required for native binaries used by the toolchain.
 - **Docker Desktop with WSL 2 backend** - for PostgreSQL, Redis, and Meilisearch.
 
-Install these required Windows components before `yarn install`:
+If you prefer to do the machine setup manually instead of using the bootstrap script, install these required Windows components before `yarn install`:
 
 ```powershell
 winget install Microsoft.VisualStudio.2022.BuildTools
@@ -136,7 +146,7 @@ docker compose up -d
 
 The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
 
-Optional performance tip for Windows: exclude the current project directory from Microsoft Defender real-time scanning. This is not required for correctness; it only helps file-heavy Node.js workflows run faster.
+The bootstrap script already applies the recommended Microsoft Defender exclusion for the current repository path. If you prefer to do it manually, use:
 
 ```powershell
 Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
@@ -163,16 +173,6 @@ yarn generate
 yarn dev
 ```
 
-### Optional Windows cleanup scripts
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\clean-generated-windows.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\clean-packages-windows.ps1
-```
-
-Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato/generated`, `.mercato/next`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
-
-Use `clean-packages-windows.ps1` for a deeper dependency/build reset. It stops repo-scoped `esbuild`/`turbo` processes, removes `node_modules`, `dist`, `*.tsbuildinfo`, `.yarn\cache`, and `.yarn\install-state.gz`, then you should run `yarn install` again.
 ### Native dev runtime splash screen
 
 When you run `yarn dev` on the host, Open Mercato starts a compact development runtime with a dedicated splash page that shows startup progress while packages, generators, and the app server warm up.
@@ -249,7 +249,7 @@ docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname
 
 ## Docker Development Setup
 
-Run the entire Open Mercato stack inside Docker **with hot reload**. Source code is mounted from the host so every file change is picked up automatically — no local Node.js, Yarn, or native build tools required. This is the **recommended setup for Windows** and a convenient option on any OS.
+Run the entire Open Mercato stack inside Docker **with hot reload**. Source code is mounted from the host so every file change is picked up automatically — no local Node.js, Yarn, or native build tools required. This is a convenient option on any OS, but on Windows it is usually slower than the native local workflow because of bind-mounted monorepo file watching.
 
 ### Prerequisites
 
@@ -705,3 +705,4 @@ The `docker-compose.fullapp.yml` stack includes:
 Services communicate via a dedicated Docker network (`mercato-network-fullapp`) and use health checks to ensure proper startup order.
 
 For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
+

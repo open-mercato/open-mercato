@@ -211,7 +211,7 @@ This is the quickest way to get Open Mercato up and running on your localhost / 
   nvm use 24
   ```
   
-**Windows:** Use [Docker Setup](#docker-setup) for native setup.
+**Windows:** prefer [Windows local development](#windows-local-development). Use the full Docker dev stack only when you explicitly want a container-only workflow and accept slower file watching and builds.
 
 ### Quickstart: (Monorepo, core development / contributing)
 
@@ -251,7 +251,15 @@ Note: `yarn initialize` seeds demo data and may abort if users already exist. Fo
 
 ### Windows local development
 
-On Windows, the fastest reliable workflow is usually **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains useful when you want an isolated, fully containerized environment, but it can be slower for day-to-day work because this repository is a large Node.js monorepo and bind-mounted file watching across the Windows/WSL filesystem boundary has high file I/O overhead.
+On Windows, the recommended workflow for day-to-day monorepo development is **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains available when you explicitly want an isolated, fully containerized environment, but for this repository it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy file watching across the Windows/WSL filesystem boundary.
+
+One-time bootstrap from the repository root:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows-dev-setup.ps1
+```
+
+The script installs or repairs Git, Node.js, Docker Desktop, Visual Studio 2022 Build Tools, the Microsoft Visual C++ Redistributable, enables Corepack/Yarn, sets `git config --global core.autocrlf false`, and adds a Microsoft Defender exclusion for the current repository path. It relaunches itself as Administrator when needed.
 
 Prerequisites:
 
@@ -262,7 +270,7 @@ Prerequisites:
 - **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
 - **Microsoft Visual C++ Redistributable 2015+ x64** for native binaries used by the toolchain
 
-One-time setup:
+If you prefer to run the machine setup manually instead of using the bootstrap script:
 
 ```powershell
 corepack enable
@@ -287,7 +295,7 @@ docker compose up -d
 
 The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
 
-Optional performance tip for Windows: exclude the current project directory from Microsoft Defender real-time scanning. This is not required for correctness; it only helps file-heavy Node.js workflows run faster.
+The bootstrap script already applies the recommended Microsoft Defender exclusion for the current repository path. If you prefer to do it manually, use:
 
 ```powershell
 Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
@@ -314,16 +322,6 @@ yarn generate
 yarn dev
 ```
 
-Optional Windows cleanup scripts:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\clean-generated-windows.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\clean-packages-windows.ps1
-```
-
-Use `clean-generated-windows.ps1` when generated/build output is stale. It removes repo-local `.mercato/generated`, `.mercato/next`, `generated`, `.turbo`, `.next`, and `dist` directories while checking paths stay under the project root.
-
-Use `clean-packages-windows.ps1` for a deeper dependency/build reset. It stops repo-scoped `esbuild`/`turbo` processes, removes `node_modules`, `dist`, `*.tsbuildinfo`, `.yarn\cache`, and `.yarn\install-state.gz`, then you should run `yarn install` again.
 For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
 
 ```bash
@@ -420,7 +418,7 @@ npx create-mercato-app@develop my-app
 
 ## Docker Setup
 
-Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
+Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. On Windows, prefer the native local workflow above for regular monorepo work; use the dev Docker stack when you specifically need a container-only environment.
 
 ### Dev mode (hot reload)
 
@@ -649,3 +647,4 @@ What’s included:
 Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
+
