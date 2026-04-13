@@ -3,6 +3,7 @@ import {
   sendMessageEmailToExternal,
   sendMessageEmailToRecipient,
 } from '../email-sender'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 
 const sendEmailMock = jest.fn(async () => {})
 const loadDictionaryMock = jest.fn(async () => ({}))
@@ -65,6 +66,10 @@ describe('messages email sender', () => {
 
     expect(token).toHaveLength(64)
     expect(em.create).toHaveBeenCalledTimes(1)
+    const persisted = em.create.mock.calls[0][1]
+    expect(persisted.token).toBe(hashOpaqueToken(token))
+    expect(persisted.tokenHash).toBe(hashOpaqueToken(token))
+    expect(persisted.token).not.toBe(token)
     expect(em.persistAndFlush).toHaveBeenCalledTimes(1)
   })
 

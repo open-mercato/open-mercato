@@ -7,6 +7,7 @@ import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/c
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 import type { Message, MessageObject } from '../data/entities'
 import { MessageAccessToken } from '../data/entities'
 import MessageEmail from '../emails/MessageEmail'
@@ -150,11 +151,13 @@ export async function createMessageAccessToken(
   recipientUserId: string,
 ): Promise<string> {
   const token = generateAccessToken()
+  const tokenHash = hashOpaqueToken(token)
   const expiresAt = new Date(Date.now() + ACCESS_TOKEN_EXPIRY_HOURS * 60 * 60 * 1000)
   const record = em.create(MessageAccessToken, {
     messageId,
     recipientUserId,
-    token,
+    token: tokenHash,
+    tokenHash,
     expiresAt,
     useCount: 0,
   })
