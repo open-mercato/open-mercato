@@ -20,7 +20,7 @@ For the recommended Windows monorepo workflow, run:
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-dev-setup.ps1
 ```
 
-from the repository root. The script is intentionally narrow: it runs `corepack enable`, `corepack prepare yarn@stable --activate`, and `git config --global core.autocrlf false`, installs or repairs Visual Studio 2022 Build Tools plus the Microsoft Visual C++ Redistributable, and adds the repository path to Microsoft Defender exclusions. It does not install Git, Node.js, or Docker Desktop.
+from the repository root. The script is intentionally narrow: it only installs or repairs Visual Studio 2022 Build Tools plus the Microsoft Visual C++ Redistributable, and adds the repository path to Microsoft Defender exclusions. It does not install or configure Git, Node.js, Yarn/Corepack, or Docker Desktop.
 :::
 
 - **Node.js 24+** - aligns with the runtime requirements. Use `nvm`/`fnm` to switch versions if needed.

@@ -62,42 +62,6 @@ function Get-ScriptRelaunchArguments {
   return ($argsList -join ' ')
 }
 
-function Test-CommandAvailable {
-  param([string]$Name)
-  return $null -ne (Get-Command $Name -ErrorAction SilentlyContinue)
-}
-
-function Get-YarnVersion {
-  if (-not (Test-CommandAvailable -Name 'yarn')) {
-    return $null
-  }
-
-  $output = & yarn --version 2>$null
-  if (-not $output) {
-    return $null
-  }
-
-  return $output.Trim()
-}
-
-function Get-NodeMajorVersion {
-  if (-not (Test-CommandAvailable -Name 'node')) {
-    return $null
-  }
-
-  $versionOutput = & node -v 2>$null
-  if (-not $versionOutput) {
-    return $null
-  }
-
-  $trimmed = $versionOutput.Trim()
-  if ($trimmed -match '^v(?<major>\d+)\.') {
-    return [int]$Matches.major
-  }
-
-  return $null
-}
-
 function Test-WingetPackageInstalled {
   param([Parameter(Mandatory = $true)][string]$Id)
 
@@ -130,35 +94,6 @@ function Invoke-WingetInstall {
   ) + $AdditionalArguments
 
   & winget @arguments
-}
-
-function Ensure-BaseCommands {
-  if (-not (Test-CommandAvailable -Name 'git')) {
-    throw 'git is required but not available on this machine. Install Git manually, reopen PowerShell, and rerun the script.'
-  }
-
-  $nodeMajor = Get-NodeMajorVersion
-  if ($null -eq $nodeMajor -or $nodeMajor -lt 24) {
-    throw 'Node.js 24+ is required but not available on this machine. Install Node.js manually, reopen PowerShell, and rerun the script.'
-  }
-
-  if (-not (Test-CommandAvailable -Name 'corepack')) {
-    throw 'corepack is required but not available on this machine. Install Node.js 24+, reopen PowerShell, and rerun the script.'
-  }
-
-  Write-Step 'Configuring Git line endings'
-  & git config --global core.autocrlf false
-
-  $yarnVersion = Get-YarnVersion
-  if ($null -eq $yarnVersion) {
-    Write-Step 'Enabling Corepack'
-    & corepack enable
-  } else {
-    Write-Step "Yarn $yarnVersion already available"
-  }
-
-  Write-Step 'Activating stable Yarn via Corepack'
-  & corepack prepare yarn@stable --activate
 }
 
 function Ensure-BuildTools {
@@ -224,12 +159,7 @@ if (-not (Test-Path -LiteralPath $ProjectPath)) {
   throw "Project path does not exist: $ProjectPath"
 }
 
-if (-not (Test-CommandAvailable -Name 'winget')) {
-  throw 'winget is required but not available on this machine.'
-}
-
 Write-Step 'Preparing Windows prerequisites for Open Mercato'
-Ensure-BaseCommands
 Ensure-BuildTools
 Ensure-VcRedist
 Ensure-DefenderExclusion
