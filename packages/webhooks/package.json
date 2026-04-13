@@ -74,7 +74,7 @@
     "@open-mercato/ui": "workspace:*"
   },
   "peerDependencies": {
-    "@mikro-orm/postgresql": "^6.6.10",
+    "@mikro-orm/postgresql": "^7.0.10",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

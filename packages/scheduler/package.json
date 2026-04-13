@@ -63,7 +63,7 @@
     "cron-parser": "^4.9.0"
   },
   "peerDependencies": {
-    "@mikro-orm/core": "^6.6.10",
+    "@mikro-orm/core": "^7.0.10",
     "@open-mercato/shared": "workspace:*",
     "bullmq": "^5.0.0",
     "ioredis": "^5.0.0",
