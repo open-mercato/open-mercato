@@ -9,7 +9,7 @@ const globalTogglesIcon = React.createElement('svg', { width: 16, height: 16, vi
 
 export const metadata = {
   requireAuth: true,
-  requireRoles: ['superadmin'],
+  requireFeatures: ['feature_toggles.view'],
   pageTitle: 'Global',
   pageTitleKey: 'feature_toggles.nav.global',
   pageGroup: 'Feature Toggles',

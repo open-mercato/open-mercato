@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "user-guide/overview",
         "user-guide/login",
+        "user-guide/self-service-onboarding",
         "user-guide/users-and-roles",
         "user-guide/api-keys",
         "user-guide/feature-toggles",
@@ -39,6 +40,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-entities",
         "user-guide/system-status",
         "user-guide/products-and-sales-channels",
+        "user-guide/attachments",
         "user-guide/cache-management",
         "user-guide/taxes",
         "user-guide/search",

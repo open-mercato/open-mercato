@@ -407,7 +407,7 @@ function EntityMultiSelect({
       {!loading && !filteredSuggestions.length && input.trim().length ? (
         <div className="text-xs text-muted-foreground">{noResultsLabel}</div>
       ) : null}
-      {error ? <div className="text-xs text-red-600">{error}</div> : null}
+      {error ? <div className="text-xs text-status-error-text">{error}</div> : null}
       {!normalizedValue.length && !input.trim().length ? (
         <div className="text-xs text-muted-foreground">{emptyLabel}</div>
       ) : null}

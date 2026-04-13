@@ -1,4 +1,9 @@
-import { parseIdList, buildProductFilters, buildPricingContext } from '../products/route'
+import {
+  parseIdList,
+  buildProductFilters,
+  buildPricingContext,
+  scoreProductSearchRelevance,
+} from '../products/route'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
 
@@ -98,5 +103,39 @@ describe('catalog products route helpers', () => {
     )
 
     expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
+  })
+
+  it('scores obvious product title and sku matches by relevance', () => {
+    expect(scoreProductSearchRelevance('aurora', 'Aurora', 'AU-01')).toBe(0)
+    expect(scoreProductSearchRelevance('aurora', 'Northern Lights', 'aurora')).toBe(1)
+    expect(scoreProductSearchRelevance('aurora', 'Aurora Borealis', 'AB-01')).toBe(2)
+    expect(scoreProductSearchRelevance('aurora', 'Northern Lights', 'AURORA-SKU')).toBe(3)
+    expect(scoreProductSearchRelevance('aurora', 'Polar Aurora Light', 'NL-01')).toBe(4)
+    expect(scoreProductSearchRelevance('aurora', 'Northern Lights', 'SKU-AURORA-01')).toBe(5)
+    expect(scoreProductSearchRelevance('aurora', 'Borealis', 'NL-01')).toBe(6)
+  })
+
+  it('supports case-insensitive title matching for issue 1350 scenarios', () => {
+    const ranked = [
+      { title: 'Alpha', sku: 'SKU-A' },
+      { title: 'Aurora', sku: 'AU-01' },
+      { title: 'Northern Lights', sku: 'AURORA-SKU' },
+      { title: 'Aurora Borealis', sku: 'AB-01' },
+    ]
+      .map((entry) => ({
+        ...entry,
+        score: scoreProductSearchRelevance('aurora', entry.title, entry.sku),
+      }))
+      .sort((left, right) => {
+        if (left.score !== right.score) return left.score - right.score
+        return left.title.localeCompare(right.title)
+      })
+
+    expect(ranked.map((entry) => entry.title)).toEqual([
+      'Aurora',
+      'Aurora Borealis',
+      'Northern Lights',
+      'Alpha',
+    ])
   })
 })
