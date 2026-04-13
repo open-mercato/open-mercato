@@ -7,6 +7,10 @@ import {
 import { verifyAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
+beforeAll(() => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret-for-unit-tests'
+})
+
 describe('CustomerSessionService.signCustomerJwt', () => {
   const em = {} as EntityManager
   const service = new CustomerSessionService(em)

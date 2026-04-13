@@ -21,6 +21,10 @@ jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => ({
 
 import { POST } from '@open-mercato/core/modules/auth/api/logout'
 
+beforeAll(() => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret-for-unit-tests'
+})
+
 const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 

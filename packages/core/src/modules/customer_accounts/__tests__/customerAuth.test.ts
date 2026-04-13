@@ -24,6 +24,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { getCustomerAuthFromRequest } = require('@open-mercato/core/modules/customer_accounts/lib/customerAuth') as typeof import('@open-mercato/core/modules/customer_accounts/lib/customerAuth')
 
+beforeAll(() => {
+  process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret-for-unit-tests'
+})
+
 const CUSTOMER_AUDIENCE = 'customer'
 const sessionId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const userId = 'uuuuuuuu-uuuu-4uuu-8uuu-uuuuuuuuuuuu'
