@@ -13,7 +13,7 @@ Use `@open-mercato/content` for static content pages (privacy policies, terms, l
 1. Create a new page file in `packages/content/src/modules/content/frontend/<page-name>/page.tsx`
 2. Add translations to `i18n/<locale>.json` for all user-facing copy
 3. Keep the component simple — render translated content with standard layout
-4. Run `npm run modules:prepare` to register the new page
+4. Run `yarn generate` to register the new page
 
 ## Structure
 

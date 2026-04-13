@@ -635,7 +635,7 @@ export const returnCreateSchema = scoped.extend({
 
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
-  invoiceNumber: z.string().trim().min(1).max(191),
+  invoiceNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   issueDate: z.coerce.date().optional(),
   dueDate: z.coerce.date().optional(),
@@ -688,7 +688,7 @@ export const invoiceUpdateSchema = z
 export const creditMemoCreateSchema = scoped.extend({
   orderId: uuid().optional(),
   invoiceId: uuid().optional(),
-  creditMemoNumber: z.string().trim().min(1).max(191),
+  creditMemoNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   issueDate: z.coerce.date().optional(),
   reason: z.string().trim().max(4000).optional(),
@@ -805,7 +805,7 @@ export const noteUpdateSchema = z
   )
 
 export const documentNumberRequestSchema = scoped.extend({
-  kind: z.enum(['order', 'quote']),
+  kind: z.enum(['order', 'quote', 'invoice', 'credit_memo']),
   format: numberFormatSchema.optional(),
 })
 

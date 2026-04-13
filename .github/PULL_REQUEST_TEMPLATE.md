@@ -37,6 +37,14 @@ List the tests or commands you ran to validate the change.
 - [ ] I added or updated integration tests in `.ai/qa/tests/` (or documented why integration coverage is not required).
 - [ ] I created or updated the spec in `.ai/specs/` with a changelog entry (if applicable).
 
+### Design System Compliance
+- [ ] No hardcoded status colors (`text-red-*`, `bg-green-*`, `text-emerald-*`, `bg-amber-*`, `bg-blue-*`) — use semantic tokens
+- [ ] No arbitrary text sizes (`text-[Npx]`) — use typography scale or `text-overline`
+- [ ] Empty state handled for list/data pages (`<EmptyState>` or DataTable `emptyState` prop)
+- [ ] Loading state handled for async pages
+- [ ] `aria-label` on all icon-only buttons (`<IconButton>`)
+- [ ] Uses existing DS components (Alert, StatusBadge, FormField) — no custom replacements
+
 ## Linked issues
 
 Reference any related issues with `Fixes #...` when applicable.

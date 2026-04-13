@@ -12,6 +12,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
+import { workflowInstanceResponseSchema } from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -128,7 +129,7 @@ export const openApi = {
           status: 200,
           description: 'Workflow cancelled successfully',
           schema: z.object({
-            data: z.any(),
+            data: workflowInstanceResponseSchema,
             message: z.string(),
           }),
         },

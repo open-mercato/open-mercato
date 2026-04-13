@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export interface CustomerAuthContext {
   sub: string
@@ -24,6 +26,19 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
     }
   }
   return undefined
+}
+
+async function isSessionRevoked(sub: string, iat: unknown): Promise<boolean> {
+  const [{ createRequestContainer }, { CustomerUser }] = await Promise.all([
+    import('@open-mercato/shared/lib/di/container'),
+    import('@open-mercato/core/modules/customer_accounts/data/entities'),
+  ])
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const user = await findOneWithDecryption(em, CustomerUser, { id: sub }, { fields: ['sessionsRevokedAt'] })
+  if (!user) return true
+  if (!user.sessionsRevokedAt || typeof iat !== 'number') return false
+  return iat * 1000 < user.sessionsRevokedAt.getTime()
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
@@ -52,6 +67,12 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
     if (!payload) return null
     if (payload.type !== 'customer') return null
 
+    try {
+      if (await isSessionRevoked(String(payload.sub), payload.iat)) return null
+    } catch {
+      return null
+    }
+
     return {
       sub: String(payload.sub),
       type: 'customer',
@@ -77,9 +98,18 @@ export async function requireCustomerAuth(req: Request): Promise<CustomerAuthCon
   return auth
 }
 
-export function requireCustomerFeature(auth: CustomerAuthContext, features: string[]): void {
+export async function requireCustomerFeature(
+  auth: CustomerAuthContext,
+  features: string[],
+  rbac: CustomerRbacService,
+): Promise<void> {
   if (!features.length) return
-  if (!hasAllFeatures(features, auth.resolvedFeatures)) {
+  const ok = await rbac.userHasAllFeatures(
+    auth.sub,
+    features,
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
+  if (!ok) {
     throw NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
 }
