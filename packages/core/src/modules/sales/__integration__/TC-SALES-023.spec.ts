@@ -144,5 +144,61 @@ test.describe('TC-SALES-023: Order Returns - Adjustments and returned_quantity',
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
   })
-})
 
+  test('should reject concurrent returns that exceed the remaining order line quantity', async ({ request }) => {
+    const token = await getAuthToken(request)
+    let orderId: string | null = null
+
+    try {
+      orderId = await createSalesOrderFixture(request, token, 'USD')
+      const orderLineId = await createOrderLineFixture(request, token, orderId, {
+        quantity: 1,
+        unitPriceNet: 10,
+        unitPriceGross: 12,
+        currencyCode: 'USD',
+      })
+
+      const payload = {
+        orderId,
+        lines: [{ orderLineId, quantity: '1' }],
+      }
+      const responses = await Promise.all([
+        apiRequest(request, 'POST', '/api/sales/returns', { token, data: payload }),
+        apiRequest(request, 'POST', '/api/sales/returns', { token, data: payload }),
+      ])
+      const statuses = responses.map((response) => response.status()).sort((left, right) => left - right)
+
+      expect(statuses).toEqual([201, 400])
+
+      const orderLinesRes = await apiRequest(
+        request,
+        'GET',
+        `/api/sales/order-lines?orderId=${encodeURIComponent(orderId)}&page=1&pageSize=50`,
+        { token },
+      )
+      expect(orderLinesRes.ok(), `Failed to read order lines: ${orderLinesRes.status()}`).toBeTruthy()
+      const orderLinesBody = (await orderLinesRes.json()) as unknown
+      const orderLines = readItems(orderLinesBody)
+      const updatedLine = orderLines.find((line) => line.id === orderLineId) ?? null
+      expect(updatedLine, 'Returned order line should be present').toBeTruthy()
+      const returnedQuantity = readNumber(updatedLine?.returned_quantity ?? updatedLine?.returnedQuantity)
+      expect(Math.abs(returnedQuantity - 1) < 0.0001, 'returned_quantity should be incremented once').toBeTruthy()
+
+      const adjustmentsRes = await apiRequest(
+        request,
+        'GET',
+        `/api/sales/order-adjustments?orderId=${encodeURIComponent(orderId)}&page=1&pageSize=50`,
+        { token },
+      )
+      expect(adjustmentsRes.ok(), `Failed to read order adjustments: ${adjustmentsRes.status()}`).toBeTruthy()
+      const adjustmentsBody = (await adjustmentsRes.json()) as unknown
+      const adjustments = readItems(adjustmentsBody)
+      const returnAdjustments = adjustments.filter(
+        (adj) => adj.kind === 'return' && adj.scope === 'line' && (adj.order_line_id ?? adj.orderLineId) === orderLineId,
+      )
+      expect(returnAdjustments.length).toBe(1)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+})

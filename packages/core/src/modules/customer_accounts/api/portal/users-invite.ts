@@ -4,8 +4,10 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata: { path?: string } = {}
 
@@ -15,8 +17,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
+  const container = await createRequestContainer()
+  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+
   try {
-    requireCustomerFeature(auth, ['portal.users.manage'])
+    await requireCustomerFeature(auth, ['portal.users.manage'], customerRbacService)
   } catch (response) {
     return response as NextResponse
   }
@@ -37,12 +42,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
   // Validate all roles are customer_assignable
   for (const roleId of parsed.data.roleIds) {
-    const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
+    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null } as any, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
     if (!role) {
       return NextResponse.json({ ok: false, error: `Role ${roleId} not found` }, { status: 400 })
     }

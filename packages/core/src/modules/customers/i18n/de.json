@@ -495,6 +495,8 @@
   "customers.errors.organization_forbidden": "Organisation nicht verfügbar",
   "customers.errors.organization_required": "Organisationskontext erforderlich",
   "customers.errors.person_required": "Personen-ID ist erforderlich",
+  "customers.errors.profile_must_be_object": "Profil muss ein Objekt sein",
+  "customers.errors.profile_unsupported_field": "Nicht unterstütztes Profilfeld: {{field}}",
   "customers.errors.save_failed": "Kundendatensatz konnte nicht gespeichert werden.",
   "customers.errors.tag_required": "Tag-ID ist erforderlich",
   "customers.errors.tenant_required": "Mandantenkontext erforderlich",

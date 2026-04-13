@@ -33,7 +33,12 @@ function isExcludedEvent(eventName: string): boolean {
 
 export default async function handle(
   payload: unknown,
-  ctx: { resolve: <T = unknown>(name: string) => T; eventName?: string }
+  ctx: {
+    resolve: <T = unknown>(name: string) => T
+    eventName?: string
+    tenantId?: string | null
+    organizationId?: string | null
+  }
 ): Promise<void> {
   const eventName = ctx.eventName
   if (!eventName) {
@@ -49,11 +54,14 @@ export default async function handle(
   // Ensure payload is an object
   const eventPayload = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>
 
-  // Extract tenant/org from payload
-  const tenantId = eventPayload?.tenantId as string | undefined
-  const organizationId = eventPayload?.organizationId as string | undefined
+  // Only trust scope attached by the emitter via event bus options.
+  const tenantId = typeof ctx.tenantId === 'string' && ctx.tenantId.length > 0 ? ctx.tenantId : undefined
+  const organizationId =
+    typeof ctx.organizationId === 'string' && ctx.organizationId.length > 0
+      ? ctx.organizationId
+      : undefined
 
-  // Skip events without tenant context
+  // Skip events without trusted tenant context
   if (!tenantId || !organizationId) {
     return
   }
