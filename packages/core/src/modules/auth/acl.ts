@@ -1,5 +1,6 @@
 // Module-level features declaration for RBAC
 export const features = [
+  { id: 'auth.view', title: 'View admin navigation', module: 'auth' },
   { id: 'auth.users.list', title: 'List users', module: 'auth' },
   { id: 'auth.users.create', title: 'Create users', module: 'auth' },
   { id: 'auth.users.edit', title: 'Edit users', module: 'auth' },
