@@ -181,6 +181,7 @@ Per iteration:
    - `yarn db:generate` when entity schema changed
    - `yarn template:sync` when template-covered files changed
 5. Re-read the diff and remove any accidental scope creep.
+6. Grep changed non-test files for raw `em.findOne(`/`em.find(` — replace with `findOneWithDecryption`/`findWithDecryption`. This is a hard rule from AGENTS.md.
 
 Before publishing, run the full CI/CD verification gate from the `code-review` skill:
 
@@ -206,7 +207,7 @@ You must explicitly verify:
 - no frozen or stable contract surface was broken without the deprecation protocol
 - no API response fields were removed
 - no event IDs, widget spot IDs, ACL IDs, import paths, or DI names were broken
-- no tenant isolation or encryption rules were violated
+- no tenant isolation or encryption rules were violated — grep changed files for raw `em.findOne(`/`em.find(` in production code; every hit must use `findOneWithDecryption`/`findWithDecryption` instead
 - the fix remains minimal and does not introduce unrelated churn
 
 If your self-review finds new issues, fix them and repeat the validation loop.

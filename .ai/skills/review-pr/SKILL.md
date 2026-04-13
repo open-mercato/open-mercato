@@ -228,6 +228,7 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | New API route file missing `export const openApi` or `export const metadata` | High: required exports for auto-discovery |
 | New subscriber or worker file missing `export const metadata` | High: required exports for auto-discovery |
 | Raw `fetch(` call in UI or backend page code, outside tests | High: must use `apiCall` or `apiCallOrThrow` |
+| New raw `em.findOne(` or `em.find(` in non-test production code (grep the diff: `gh pr diff {prNumber} \| grep "^+" \| grep -v "test\." \| grep -v "__tests__" \| grep "em\.find"`) | High: must use `findOneWithDecryption`/`findWithDecryption` from `@open-mercato/shared/lib/encryption/find` |
 | Behavior change with no corresponding test file in the diff | High: behavior changes must include tests |
 
 #### Medium auto-detections
@@ -239,7 +240,6 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | `alert(` or custom toast instead of `flash()` | Medium: use `flash()` |
 | Hand-written migration SQL file | Medium: never hand-write migrations |
 | Entity schema changed but no migration file in the diff | Medium: run `yarn db:generate` |
-| New raw `em.find` or `em.findOne` usage | Medium: use encryption helpers |
 | Missing explicit tenant scoping in sub-entity queries | Medium: defense in depth |
 | New or modified i18n locale JSON keys not in alphabetical order | Medium: CI i18n-check-sync requires sorted keys — run `yarn i18n:check-sync --fix` or sort manually |
 
