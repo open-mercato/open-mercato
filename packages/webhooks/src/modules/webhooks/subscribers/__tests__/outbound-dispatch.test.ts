@@ -3,6 +3,7 @@ import handler from '../outbound-dispatch'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
+  findOneWithDecryption: jest.fn(),
 }))
 
 jest.mock('../../lib/delivery', () => ({
@@ -16,7 +17,7 @@ jest.mock('../../lib/integration-state', () => ({
   isWebhookIntegrationEnabled: jest.fn(),
 }))
 
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createWebhookDelivery } from '../../lib/delivery'
 import { enqueueWebhookDelivery } from '../../lib/queue'
 import { isWebhookIntegrationEnabled } from '../../lib/integration-state'
@@ -79,6 +80,55 @@ describe('webhooks outbound dispatch subscriber', () => {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
     })
+  })
+
+  it('scopes the failed-delivery lookup to webhook tenantId and organizationId when enqueue throws', async () => {
+    const em = {
+      fork: jest.fn(function fork() {
+        return em
+      }),
+      flush: jest.fn(async () => undefined),
+    } as unknown as EntityManager
+
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([
+      {
+        id: 'webhook-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        subscribedEvents: ['catalog.product.created'],
+      },
+    ])
+    ;(isWebhookIntegrationEnabled as jest.Mock).mockResolvedValue(true)
+    ;(createWebhookDelivery as jest.Mock).mockResolvedValue({
+      id: 'delivery-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    ;(enqueueWebhookDelivery as jest.Mock).mockRejectedValue(new Error('Queue unavailable'))
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue({
+      id: 'delivery-1',
+      status: 'pending',
+      nextRetryAt: null,
+    })
+
+    await handler(
+      { id: 'product-2', tenantId: 'tenant-1', organizationId: 'org-1' },
+      {
+        eventName: 'catalog.product.created',
+        resolve: <T,>(name: string): T => {
+          if (name === 'em') return em as T
+          throw new Error(`Unexpected dependency: ${name}`)
+        },
+      },
+    )
+
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em,
+      expect.anything(),
+      expect.objectContaining({ id: 'delivery-1', tenantId: 'tenant-1', organizationId: 'org-1' }),
+      undefined,
+      expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
   })
 
   it('does not crash when the event bus provides only ctx.resolve during reindex flows', async () => {

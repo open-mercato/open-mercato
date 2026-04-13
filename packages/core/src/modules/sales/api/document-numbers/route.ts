@@ -52,14 +52,20 @@ async function resolveRequestContext(req: Request): Promise<RequestContext> {
 
 async function ensureKindPermission(
   ctx: CommandRuntimeContext,
-  kind: 'order' | 'quote',
+  kind: 'order' | 'quote' | 'invoice' | 'credit_memo',
   translate: (key: string, fallback?: string) => string
 ) {
   const rbac = ctx.container.resolve('rbacService') as RbacService | null
   const auth = ctx.auth
   if (!rbac || !auth?.sub) return
+  const kindFeatureMap: Record<string, string> = {
+    order: 'sales.orders.manage',
+    quote: 'sales.quotes.manage',
+    invoice: 'sales.invoices.manage',
+    credit_memo: 'sales.credit_memos.manage',
+  }
   const requiredFeatures = [
-    kind === 'order' ? 'sales.orders.manage' : 'sales.quotes.manage',
+    kindFeatureMap[kind] ?? 'sales.orders.manage',
     'sales.documents.number.edit',
   ]
   const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {

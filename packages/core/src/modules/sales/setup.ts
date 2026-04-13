@@ -81,7 +81,7 @@ export const setup: ModuleSetupConfig = {
       )
     }
 
-    for (const kind of ['order', 'quote', 'return'] as const) {
+    for (const kind of ['order', 'quote', 'return', 'invoice', 'credit_memo'] as const) {
       const seq = await em.findOne(SalesDocumentSequence, {
         tenantId,
         organizationId,

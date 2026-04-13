@@ -46,6 +46,7 @@ registerMcpTool({
 - MUST use zod schemas for `inputSchema` — never use raw JSON Schema
 - MUST return a serializable object from the handler
 - MUST use `moduleId` matching the module's `id` field
+- Code Mode `api.request()` MUST enforce endpoint-level RBAC before fetch and fail closed for undocumented or featureless mutation endpoints
 
 ### Modify OpenCode Configuration
 
@@ -58,7 +59,7 @@ registerMcpTool({
 APIs are automatically available via the Code Mode `search` tool (reads the OpenAPI spec at runtime). To add new endpoints:
 
 1. Define the endpoint in your module's route file with an `openApi` export
-2. Regenerate the OpenAPI spec (`yarn modules:prepare`)
+2. Regenerate the OpenAPI spec (`yarn generate`)
 3. Restart the MCP server — the `search` tool's `spec.paths` will include the new endpoint
 
 ### Debug Tool Calls

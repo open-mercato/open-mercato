@@ -7,6 +7,7 @@ import { CustomerInvitationService } from '@open-mercato/core/modules/customer_a
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata: { path?: string } = {}
 
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
   // Validate all roles are customer_assignable
   for (const roleId of parsed.data.roleIds) {
-    const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
+    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null } as any, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
     if (!role) {
       return NextResponse.json({ ok: false, error: `Role ${roleId} not found` }, { status: 400 })
     }
