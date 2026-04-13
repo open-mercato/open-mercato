@@ -299,7 +299,7 @@ export function createSyncEngine(deps: EngineDeps) {
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
         })) {
-          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId)) {
+          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
             await finalizeRun(run.id, 'cancelled', scope)
             return
           }
@@ -427,7 +427,7 @@ export function createSyncEngine(deps: EngineDeps) {
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
         })) {
-          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId)) {
+          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
             await finalizeRun(run.id, 'cancelled', scope)
             return
           }

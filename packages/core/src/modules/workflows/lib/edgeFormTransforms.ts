@@ -85,7 +85,7 @@ export function edgeToFormValues(edge: Edge): EdgeFormValues {
     priority: (edgeData?.priority || 100).toString(),
     continueOnActivityFailure: edgeData?.continueOnActivityFailure !== undefined
       ? edgeData.continueOnActivityFailure
-      : true,
+      : false,
     preConditions: normalizeConditions(edgeData?.preConditions || []),
     postConditions: normalizeConditions(edgeData?.postConditions || []),
     activities: edgeData?.activities || [],

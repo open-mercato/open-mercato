@@ -204,6 +204,11 @@ export function DockableChat() {
   const handleChatKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.stopPropagation()
+      if (phase !== 'idle') {
+        reset()
+      } else {
+        close()
+      }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()

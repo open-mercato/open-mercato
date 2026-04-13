@@ -17,6 +17,11 @@ import {
   type StartWorkflowApiInput,
   workflowInstanceStatusSchema,
 } from '../../data/validators'
+import {
+  workflowInstanceResponseSchema,
+  workflowBackgroundStartSchema,
+  paginationSchema,
+} from '../openapi'
 import * as workflowExecutor from '../../lib/workflow-executor'
 
 export const metadata = {
@@ -293,13 +298,8 @@ export const openApi = {
           status: 200,
           description: 'List of workflow instances',
           schema: z.object({
-            data: z.array(z.any()),
-            pagination: z.object({
-              total: z.number(),
-              limit: z.number(),
-              offset: z.number(),
-              hasMore: z.boolean(),
-            }),
+            data: z.array(workflowInstanceResponseSchema),
+            pagination: paginationSchema,
           }),
         },
         {
@@ -329,8 +329,8 @@ export const openApi = {
           description: 'Workflow started successfully',
           schema: z.object({
             data: z.object({
-              instance: z.any(),
-              execution: z.any(),
+              instance: workflowInstanceResponseSchema,
+              execution: workflowBackgroundStartSchema,
             }),
             message: z.string(),
           }),

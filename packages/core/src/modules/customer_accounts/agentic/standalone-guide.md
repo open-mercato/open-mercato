@@ -58,10 +58,15 @@ if (!auth) redirect('/login')
 ### API Routes
 ```typescript
 import { requireCustomerAuth, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 
 // In your API handler:
-const auth = requireCustomerAuth(request)  // throws 401 if not authenticated
-requireCustomerFeature(auth, ['portal.orders.view'])  // throws 403 if missing
+const auth = await requireCustomerAuth(request)  // throws 401 if not authenticated
+const container = await createRequestContainer()
+const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+// Re-resolves ACL on every request so role/feature revocation is immediate
+await requireCustomerFeature(auth, ['portal.orders.view'], customerRbacService)  // throws 403 if missing
 ```
 
 ### RBAC Service

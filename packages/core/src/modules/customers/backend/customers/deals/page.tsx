@@ -968,6 +968,7 @@ export default function CustomersDealsPage() {
       <PageBody>
         <DataTable<DealRow>
           stickyFirstColumn
+          stickyActionsColumn
           title={t('customers.deals.list.title')}
           actions={(
             <Button asChild>
