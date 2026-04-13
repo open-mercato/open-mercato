@@ -48,6 +48,7 @@ type TimeProjectMemberSnapshot = {
   staffMemberId: string
   role: string | null
   status: string
+  showInGrid: boolean
   assignedStartDate: string
   assignedEndDate: string | null
   deletedAt: string | null
@@ -89,6 +90,7 @@ async function loadTimeProjectMemberSnapshot(em: EntityManager, id: string): Pro
     staffMemberId: member.staffMemberId,
     role: member.role ?? null,
     status: member.status,
+    showInGrid: member.showInGrid ?? false,
     assignedStartDate: member.assignedStartDate instanceof Date ? member.assignedStartDate.toISOString().split('T')[0] : String(member.assignedStartDate),
     assignedEndDate: member.assignedEndDate instanceof Date ? member.assignedEndDate.toISOString().split('T')[0] : (member.assignedEndDate ?? null),
     deletedAt: member.deletedAt ? member.deletedAt.toISOString() : null,
@@ -436,6 +438,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
       staffMemberId: parsed.staffMemberId,
       role: parsed.role ?? null,
       status: parsed.status ?? 'active',
+      showInGrid: false,
       assignedStartDate: parsed.assignedStartDate,
       assignedEndDate: parsed.assignedEndDate ?? null,
       createdAt: now,
@@ -549,6 +552,7 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
         staffMemberId: before.staffMemberId,
         role: before.role ?? null,
         status: (before.status ?? 'active') as StaffTimeProjectMemberStatus,
+        showInGrid: before.showInGrid ?? false,
         assignedStartDate: new Date(before.assignedStartDate),
         assignedEndDate: before.assignedEndDate ? new Date(before.assignedEndDate) : null,
         deletedAt: null,

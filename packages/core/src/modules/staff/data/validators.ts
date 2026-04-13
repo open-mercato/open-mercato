@@ -347,6 +347,10 @@ export const staffTimeProjectMemberUpdateSchema = z.object({
   assignedEndDate: z.coerce.date().optional().nullable(),
 })
 
+export const staffMyProjectVisibilityUpdateSchema = z.object({
+  showInGrid: z.boolean(),
+})
+
 export type StaffTimeEntryCreateInput = z.infer<typeof staffTimeEntryCreateSchema>
 export type StaffTimeEntryUpdateInput = z.infer<typeof staffTimeEntryUpdateSchema>
 export type StaffTimeEntryBulkSaveInput = z.infer<typeof staffTimeEntryBulkSaveSchema>
@@ -356,3 +360,4 @@ export type StaffTimeProjectCreateInput = z.infer<typeof staffTimeProjectCreateS
 export type StaffTimeProjectUpdateInput = z.infer<typeof staffTimeProjectUpdateSchema>
 export type StaffTimeProjectMemberAssignInput = z.infer<typeof staffTimeProjectMemberAssignSchema>
 export type StaffTimeProjectMemberUpdateInput = z.infer<typeof staffTimeProjectMemberUpdateSchema>
+export type StaffMyProjectVisibilityUpdateInput = z.infer<typeof staffMyProjectVisibilityUpdateSchema>

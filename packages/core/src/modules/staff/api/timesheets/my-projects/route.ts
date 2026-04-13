@@ -65,6 +65,7 @@ export async function GET(req: Request) {
       status: assignment.status ?? null,
       assigned_start_date: assignment.assignedStartDate ?? null,
       assigned_end_date: assignment.assignedEndDate ?? null,
+      show_in_grid: assignment.showInGrid ?? false,
     }))
 
     return NextResponse.json({ items, total: items.length }, { status: 200 })
@@ -101,6 +102,7 @@ export const openApi: OpenApiRouteDoc = {
               status: z.string().nullable(),
               assigned_start_date: z.string().nullable(),
               assigned_end_date: z.string().nullable(),
+              show_in_grid: z.boolean(),
             })),
             total: z.number(),
           }),

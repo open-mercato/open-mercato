@@ -2051,6 +2051,16 @@
           ],
           "mappedType": "enum"
         },
+        "show_in_grid": {
+          "name": "show_in_grid",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "default": "false",
+          "mappedType": "boolean"
+        },
         "assigned_start_date": {
           "name": "assigned_start_date",
           "type": "date",

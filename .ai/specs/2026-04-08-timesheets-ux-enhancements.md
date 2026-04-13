@@ -139,6 +139,18 @@ New field added to existing entity:
 |-------|------|---------|-------|
 | `color` | varchar(20), nullable | `null` | Predefined color key (e.g. `'blue'`, `'green'`, `'purple'`). Null = auto-generate from name hash. |
 
+### StaffTimeProjectMember (Modified — additive only)
+
+> **Added 2026-04-13 (post-original-spec)**: This field was **not in the original specification**. During Phase 2 implementation we realised that "projects don't auto-appear in grid — user controls which projects are visible" (a design decision documented above) requires a persistence mechanism per-user. Local-only state would lose grid membership on refresh and between devices. Storing visibility on the assignment row is the simplest additive-only option that matches Toggl's per-user grid behaviour.
+
+New field added to existing entity:
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `show_in_grid` | boolean, not null | `false` | When true, the project appears as a row in the user's My Timesheets weekly/monthly grid. Toggled via "+ Add row" (true) and the new X remove button (false). |
+
+Migration backfill: existing memberships where the user already has time entries are set to `true`, so current users don't lose visibility on existing tracked projects.
+
 Predefined palette (12 colors):
 
 ```typescript
@@ -162,7 +174,26 @@ Auto-generate fallback: `PROJECT_COLORS[hashCode(project.name) % PROJECT_COLORS.
 
 ## API Contracts
 
-No new API endpoints. All existing Phase 1 endpoints are reused.
+One new self-service endpoint (added 2026-04-13, see Data Models section). All existing Phase 1 endpoints are reused otherwise.
+
+### New Endpoint (added 2026-04-13)
+
+**`PATCH /api/staff/timesheets/my-projects/{projectId}`**
+
+Self-service endpoint for the authenticated user to toggle grid visibility of their own project assignments without the admin-only `staff.timesheets.projects.manage` feature.
+
+- Guard: `requireFeatures: ['staff.timesheets.manage_own']`
+- Enforces: the membership row's `staff_member_id` must match the authenticated user's staff member.
+
+Request body:
+
+```typescript
+{
+  showInGrid: boolean
+}
+```
+
+Response: `{ ok: true, showInGrid: boolean }` on success; `403` if the assignment does not belong to the caller; `404` if no active assignment exists for `projectId`.
 
 ### Modified Request (additive)
 
@@ -213,6 +244,10 @@ Validation: `color` must be one of `PROJECT_COLORS[].key` or `null`.
 | `staff.timesheets.my.list.yesterday` | `Yesterday` |
 | `staff.timesheets.my.list.addDescription` | `Add description` |
 | `staff.timesheets.projects.form.color` | `Project color` |
+| `staff.timesheets.my.removeRow` | `Remove from grid` |
+| `staff.timesheets.my.removeRow.confirm` | `Remove {projectName} from your timesheet grid? You can re-add it anytime via "+ Add row".` |
+| `staff.timesheets.my.removeRow.error` | `Could not remove the project. Please try again.` |
+| `staff.timesheets.my.addRow.error` | `Could not add the project. Please try again.` |
 
 ## UI/UX
 
@@ -323,11 +358,26 @@ Notes:
 ```sql
 ALTER TABLE staff_time_projects
   ADD COLUMN color varchar(20) DEFAULT NULL;
+
+-- Added 2026-04-13
+ALTER TABLE staff_time_project_members
+  ADD COLUMN show_in_grid boolean NOT NULL DEFAULT false;
+
+-- Backfill: preserve visibility for members that already have entries
+UPDATE staff_time_project_members m
+SET show_in_grid = true
+WHERE EXISTS (
+  SELECT 1 FROM staff_time_entries e
+  WHERE e.time_project_id = m.time_project_id
+    AND e.staff_member_id = m.staff_member_id
+    AND e.deleted_at IS NULL
+);
 ```
 
-- No data backfill needed (null = auto-generate fallback)
+- `color`: no data backfill needed (null = auto-generate fallback)
+- `show_in_grid`: backfilled from existing entries so current users don't lose visibility
 - No existing columns modified or removed
-- No index needed (color is not queried/filtered)
+- No index needed (both columns are not queried/filtered directly)
 
 ### Backward Compatibility
 
@@ -379,6 +429,13 @@ ALTER TABLE staff_time_projects
 - Triggered from "+ Add row" → "+ Create a new project"
 - On create: auto-assign creator + add project to grid
 
+**Step 6.5** (added 2026-04-13): Persist grid membership + remove row
+- Add `show_in_grid` boolean to `staff_time_project_members` (migration + backfill)
+- New self-service endpoint `PATCH /api/staff/timesheets/my-projects/{projectId}` guarded by `staff.timesheets.manage_own`
+- `+ Add row` now calls PATCH to set `show_in_grid = true` (persists across refreshes/devices)
+- New X button on each grid project row → simple confirm dialog → PATCH `show_in_grid = false`
+- On initial load, grid renders only assignments with `show_in_grid = true`
+
 ### Phase 3: Project Colors & Polish
 
 **Step 7**: Color field migration + entity update
@@ -417,7 +474,9 @@ ALTER TABLE staff_time_projects
 | `packages/core/src/modules/staff/i18n/pl.json` | Modify | Sync new keys |
 | `packages/core/src/modules/staff/i18n/es.json` | Modify | Sync new keys |
 | `packages/core/src/modules/staff/i18n/de.json` | Modify | Sync new keys |
-| DB migration | Create | Add `color` column to `staff_time_projects` |
+| DB migration | Create | Add `color` column to `staff_time_projects`; add `show_in_grid` to `staff_time_project_members` with backfill (added 2026-04-13) |
+| `packages/core/src/modules/staff/api/timesheets/my-projects/route.ts` | Modify | Return `show_in_grid` in GET response (added 2026-04-13) |
+| `packages/core/src/modules/staff/api/timesheets/my-projects/[projectId]/route.ts` | Create | Self-service PATCH to toggle `show_in_grid` (added 2026-04-13) |
 
 ## Risks & Impact Review
 
@@ -448,6 +507,13 @@ ALTER TABLE staff_time_projects
 - **Affected area**: Deployment
 - **Mitigation**: `ADD COLUMN ... DEFAULT NULL` on PostgreSQL is metadata-only (no table rewrite). Safe for any table size.
 - **Residual risk**: None
+
+#### Grid Membership Persistence — `show_in_grid`
+- **Scenario**: A user removes a project from their grid (X button) while they still have saved time entries for that project. On the next refresh the grid hides the row but the entries remain in the DB.
+- **Severity**: Low
+- **Affected area**: My Timesheets grid rendering
+- **Mitigation**: Removing from grid only flips `show_in_grid` — no entries are deleted or hidden elsewhere (reports, list view, exports still show them). The "+ Add row" dropdown lets the user re-surface the row instantly; i18n copy makes this explicit. Confirm dialog before removal prevents accidental clicks.
+- **Residual risk**: None — entries are preserved; only the per-user grid layout changes.
 
 #### Page Rewrite Regression
 - **Scenario**: Major rewrite of `page.tsx` introduces regressions in existing monthly grid or bulk save
@@ -495,6 +561,12 @@ ALTER TABLE staff_time_projects
 **Fully compliant** — ready for implementation.
 
 ## Changelog
+
+### 2026-04-13
+- Added `show_in_grid` boolean to `staff_time_project_members` (additive migration + backfill) to persist per-user grid membership. This closed a gap in the original spec: the design decision "projects don't auto-appear in grid — user controls which projects are visible" did not define a persistence mechanism, so "+ Add row" was only updating local React state.
+- Added new self-service endpoint `PATCH /api/staff/timesheets/my-projects/{projectId}` (guarded by `staff.timesheets.manage_own`) so the same user who owns the assignment can toggle visibility without needing the admin-only `staff.timesheets.projects.manage` feature.
+- Added X remove button on grid rows with a confirm dialog; new i18n keys for remove/add errors. Remove preserves all existing time entries (only flips visibility).
+- Updated Phase 2 implementation plan with Step 6.5 and extended File Manifest accordingly. New "Grid Membership Persistence" entry added to Risks.
 
 ### 2026-04-08
 - Initial specification based on PR #1111 review feedback and Toggl Track reference

@@ -9,7 +9,7 @@ import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import Link from 'next/link'
 import { ViewSwitcher } from '../../../lib/timesheets-ui/ViewSwitcher'
 import { CalendarPicker } from '../../../lib/timesheets-ui/CalendarPicker'
@@ -266,6 +266,12 @@ export default function MyTimesheetsPage() {
       const assignedProjectIds = assignmentItems
         .map((item) => String(item.time_project_id ?? item.timeProjectId ?? ''))
         .filter((id) => id.length > 0)
+      const visibleProjectIdSet = new Set(
+        assignmentItems
+          .filter((item) => item.show_in_grid === true || item.showInGrid === true)
+          .map((item) => String(item.time_project_id ?? item.timeProjectId ?? ''))
+          .filter((id) => id.length > 0),
+      )
 
       const [projectsRes, entriesRes] = await Promise.all([
         assignedProjectIds.length > 0
@@ -289,11 +295,8 @@ export default function MyTimesheetsPage() {
         code: typeof item.code === 'string' ? item.code : null,
       }))
       setAllAssignedProjects(mappedProjects)
-      setProjects((prev) => {
-        const prevIds = new Set(prev.map((p) => p.id))
-        const newProjects = mappedProjects.filter((p) => !prevIds.has(p.id))
-        return prev.length === 0 ? mappedProjects : [...prev, ...newProjects]
-      })
+      const visibleProjects = mappedProjects.filter((p) => visibleProjectIdSet.has(p.id))
+      setProjects(visibleProjects)
 
       const entryItems = Array.isArray(entriesRes.items) ? entriesRes.items : []
       setRawEntries(entryItems)
@@ -497,15 +500,72 @@ export default function MyTimesheetsPage() {
   // --- Add row handler ---
   const visibleProjectIds = React.useMemo(() => new Set(projects.map((p) => p.id)), [projects])
 
-  const handleAddProject = React.useCallback((project: ProjectRow) => {
-    setProjects((prev) => {
-      if (prev.some((p) => p.id === project.id)) return prev
-      return [...prev, project]
-    })
-  }, [])
+  const handleAddProject = React.useCallback(async (project: ProjectRow) => {
+    try {
+      const res = await apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ showInGrid: true }),
+      })
+      if (!res.ok) throw new Error(await res.response.text())
+      setProjects((prev) => {
+        if (prev.some((p) => p.id === project.id)) return prev
+        return [...prev, project]
+      })
+    } catch (error) {
+      console.error('staff.timesheets.my.addRow', error)
+      flash(t('staff.timesheets.my.addRow.error', 'Could not add the project. Please try again.'), 'error')
+    }
+  }, [t])
 
-  const handleProjectCreated = React.useCallback((project: { id: string; name: string; code: string | null }) => {
+  const handleRemoveProject = React.useCallback(async (project: ProjectRow) => {
+    const confirmed = await confirm({
+      title: t('staff.timesheets.my.removeRow', 'Remove from grid'),
+      text: t(
+        'staff.timesheets.my.removeRow.confirm',
+        'Remove {projectName} from your timesheet grid? You can re-add it anytime via "+ Add row".',
+      ).replace('{projectName}', project.name),
+    })
+    if (!confirmed) return
+
+    try {
+      const res = await apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ showInGrid: false }),
+      })
+      if (!res.ok) throw new Error(await res.response.text())
+      setProjects((prev) => prev.filter((p) => p.id !== project.id))
+      setDirty((prev) => {
+        if (!prev[project.id]) return prev
+        const next = { ...prev }
+        delete next[project.id]
+        return next
+      })
+      setRawText((prev) => {
+        if (!prev[project.id]) return prev
+        const next = { ...prev }
+        delete next[project.id]
+        return next
+      })
+    } catch (error) {
+      console.error('staff.timesheets.my.removeRow', error)
+      flash(t('staff.timesheets.my.removeRow.error', 'Could not remove the project. Please try again.'), 'error')
+    }
+  }, [confirm, t])
+
+  const handleProjectCreated = React.useCallback(async (project: { id: string; name: string; code: string | null }) => {
     setAllAssignedProjects((prev) => [...prev, project])
+    // New projects start hidden; immediately opt them into the grid for the creator.
+    try {
+      await apiCall(`/api/staff/timesheets/my-projects/${project.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ showInGrid: true }),
+      })
+    } catch (error) {
+      console.error('staff.timesheets.my.createProject.visibility', error)
+    }
     setProjects((prev) => [...prev, project])
     setCreateDialogOpen(false)
   }, [])
@@ -675,14 +735,27 @@ export default function MyTimesheetsPage() {
               </thead>
               <tbody>
                 {projects.map((project) => (
-                  <tr key={project.id} className="border-b hover:bg-muted/30">
+                  <tr key={project.id} className="group border-b hover:bg-muted/30">
                     <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium">
-                      <div className="truncate" title={project.name}>
-                        {project.name}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate" title={project.name}>
+                            {project.name}
+                          </div>
+                          {project.code && (
+                            <div className="text-[10px] text-muted-foreground">{project.code}</div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => { void handleRemoveProject(project) }}
+                          aria-label={t('staff.timesheets.my.removeRow', 'Remove from grid')}
+                          title={t('staff.timesheets.my.removeRow', 'Remove from grid')}
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 inline-flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground transition-opacity"
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
                       </div>
-                      {project.code && (
-                        <div className="text-[10px] text-muted-foreground">{project.code}</div>
-                      )}
                     </td>
                     {visibleDays.map((date) => {
                       const dateKey = formatDateKey(date)

@@ -539,6 +539,9 @@ export class StaffTimeProjectMember {
   @Enum({ items: ['active', 'inactive'], type: 'text', name: 'status', default: 'active' })
   status: StaffTimeProjectMemberStatus = 'active'
 
+  @Property({ name: 'show_in_grid', type: 'boolean', default: false })
+  showInGrid: boolean = false
+
   @Property({ name: 'assigned_start_date', type: 'date' })
   assignedStartDate!: Date
 
