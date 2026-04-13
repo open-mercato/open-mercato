@@ -100,13 +100,20 @@ describe('extractAttachmentContent', () => {
     expect(result).toBe('HUNT-PARSER-01-MARKER extracted text')
   })
 
-  it('extracts DOC content via mammoth when MIME type is application/msword', async () => {
-    getMammothMock().extractRawText.mockResolvedValue({ value: 'doc text' })
+  it('returns null for legacy .doc — mammoth does not support binary Word format', async () => {
     const filePath = await writeTempFile('legacy.doc', 'placeholder')
     const { extractAttachmentContent } = await import('../textExtraction')
     const result = await extractAttachmentContent({ filePath, mimeType: 'application/msword' })
-    expect(getMammothMock().extractRawText).toHaveBeenCalledWith({ path: filePath })
-    expect(result).toBe('doc text')
+    expect(result).toBeNull()
+    expect(getMammothMock().extractRawText).not.toHaveBeenCalled()
+  })
+
+  it('returns null for .doc by extension regardless of mime type', async () => {
+    const filePath = await writeTempFile('legacy2.doc', 'placeholder')
+    const { extractAttachmentContent } = await import('../textExtraction')
+    const result = await extractAttachmentContent({ filePath, mimeType: 'application/vnd.ms-word' })
+    expect(result).toBeNull()
+    expect(getMammothMock().extractRawText).not.toHaveBeenCalled()
   })
 
   it('returns null when mammoth returns empty string for DOCX', async () => {

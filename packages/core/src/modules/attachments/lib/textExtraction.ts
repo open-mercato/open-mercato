@@ -39,12 +39,10 @@ function isPdf(mimeType: string, ext: string): boolean {
 }
 
 function isDocx(mimeType: string, ext: string): boolean {
+  // mammoth supports only Open XML .docx, not legacy binary .doc files.
   return (
     mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    || mimeType === 'application/msword'
-    || mimeType === 'application/vnd.ms-word'
     || ext === '.docx'
-    || ext === '.doc'
   )
 }
 
