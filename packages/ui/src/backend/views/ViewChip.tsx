@@ -92,7 +92,6 @@ export function ViewChip({
 
   return (
     <div
-      key={id}
       className={`inline-flex items-center gap-0.5 rounded-md border h-8 text-sm ${
         isActive
           ? 'bg-brand-violet/10 border-brand-violet/30 font-medium text-brand-violet'

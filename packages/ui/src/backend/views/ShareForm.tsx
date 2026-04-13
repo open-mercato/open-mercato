@@ -22,7 +22,9 @@ export function ShareForm({ roles, shareRoles, shareSetDefault, onToggleRole, on
     <div className="rounded border border-primary/30 bg-primary/5 p-3 space-y-2">
       <div className="text-xs font-medium text-muted-foreground uppercase">{t('ui.perspectives.form.shareWithRoles', 'Share with roles')}</div>
       <div className="space-y-1">
-        {roles.map((role) => (
+        {roles.length === 0 ? (
+          <p className="text-xs text-muted-foreground">{t('ui.perspectives.form.noRolesAvailable', 'No roles available')}</p>
+        ) : roles.map((role) => (
           <label key={role.id} className="flex items-center gap-2 text-sm">
             <Checkbox
               checked={shareRoles.includes(role.id)}

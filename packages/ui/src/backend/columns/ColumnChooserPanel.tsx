@@ -215,7 +215,7 @@ export function ColumnChooserSection({
 
         <div className="border-t px-4 py-3 mt-4 mb-4">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
-            {t('ui.columnChooser.available', 'Available')}
+            {t('ui.columnChooser.available', 'Available columns')}
           </div>
           {Array.from(groupedAvailable.entries()).map(([group, columns]) => {
             const isCollapsed = !searchQuery && !expandedGroups.has(group)

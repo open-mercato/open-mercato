@@ -2279,6 +2279,7 @@ export function DataTable<T>({
                       type="button"
                       variant="ghost"
                       size="icon"
+                      onClick={() => setPerspectiveOpen(true)}
                       aria-label={t('ui.dataTable.customizeColumns.ariaLabel', 'Customize columns')}
                       title={t('ui.dataTable.customizeColumns.title', 'Customize columns')}
                     >
