@@ -74,6 +74,9 @@ const TRIGGER_CACHE_TTL = 5 * 60 * 1000
 // Filter Evaluation
 // ============================================================================
 
+const MAX_WORKFLOW_REGEX_PATTERN_LENGTH = 200
+const MAX_WORKFLOW_REGEX_INPUT_LENGTH = 10_000
+
 /**
  * Get a nested value from an object using dot notation.
  */
@@ -90,6 +93,111 @@ function getNestedValue(obj: unknown, path: string): unknown {
   }
 
   return current
+}
+
+function getQuantifierEnd(pattern: string, index: number): number | null {
+  const char = pattern[index]
+  if (char === '*' || char === '+' || char === '?') return index
+  if (char !== '{') return null
+
+  const closeIndex = pattern.indexOf('}', index + 1)
+  if (closeIndex === -1) return null
+
+  const body = pattern.slice(index + 1, closeIndex)
+  return /^[0-9]+(?:,[0-9]*)?$/.test(body) ? closeIndex : null
+}
+
+interface RegexGroupFrame {
+  hasAlternation: boolean
+  hasQuantifier: boolean
+}
+
+function isSafeWorkflowRegexPattern(pattern: string): boolean {
+  if (pattern.length > MAX_WORKFLOW_REGEX_PATTERN_LENGTH) return false
+
+  const groupStack: RegexGroupFrame[] = [{ hasAlternation: false, hasQuantifier: false }]
+  let inCharClass = false
+  let lastClosedGroup: RegexGroupFrame | null = null
+  let lastAtomWasQuantified = false
+
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index]
+
+    if (char === '\\') {
+      const next = pattern[index + 1]
+      if (!inCharClass && (/[1-9]/.test(next ?? '') || (next === 'k' && pattern[index + 2] === '<'))) {
+        return false
+      }
+      index += 1
+      lastClosedGroup = null
+      lastAtomWasQuantified = false
+      continue
+    }
+
+    if (inCharClass) {
+      if (char === ']') {
+        inCharClass = false
+        lastAtomWasQuantified = false
+      }
+      lastClosedGroup = null
+      continue
+    }
+
+    if (char === '[') {
+      inCharClass = true
+      lastClosedGroup = null
+      lastAtomWasQuantified = false
+      continue
+    }
+
+    if (char === '(') {
+      if (pattern[index + 1] === '?') {
+        if (pattern[index + 2] !== ':') return false
+        index += 2
+      }
+
+      groupStack.push({ hasAlternation: false, hasQuantifier: false })
+      lastClosedGroup = null
+      lastAtomWasQuantified = false
+      continue
+    }
+
+    if (char === ')') {
+      if (groupStack.length === 1) return false
+      lastClosedGroup = groupStack.pop()!
+      lastAtomWasQuantified = false
+      continue
+    }
+
+    if (char === '|') {
+      groupStack[groupStack.length - 1].hasAlternation = true
+      lastClosedGroup = null
+      lastAtomWasQuantified = false
+      continue
+    }
+
+    const quantifierEnd = getQuantifierEnd(pattern, index)
+    if (quantifierEnd !== null) {
+      if (lastAtomWasQuantified) return false
+      if (lastClosedGroup?.hasAlternation || lastClosedGroup?.hasQuantifier) return false
+
+      groupStack[groupStack.length - 1].hasQuantifier = true
+      lastClosedGroup = null
+      lastAtomWasQuantified = true
+      index = quantifierEnd
+
+      if (pattern[index + 1] === '?') {
+        index += 1
+      }
+
+      continue
+    }
+
+    lastClosedGroup = null
+    lastAtomWasQuantified = false
+  }
+
+  return groupStack.length === 1 && !inCharClass
 }
 
 /**
@@ -147,6 +255,8 @@ function evaluateCondition(condition: TriggerFilterCondition, payload: Record<st
 
     case 'regex':
       if (typeof value !== 'string' || typeof expected !== 'string') return false
+      if (value.length > MAX_WORKFLOW_REGEX_INPUT_LENGTH) return false
+      if (!isSafeWorkflowRegexPattern(expected)) return false
       try {
         const regex = new RegExp(expected)
         return regex.test(value)
