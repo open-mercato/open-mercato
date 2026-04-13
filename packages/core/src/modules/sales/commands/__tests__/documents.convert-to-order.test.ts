@@ -3,6 +3,7 @@
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesDocumentAddress,
   SalesDocumentTagAssignment,
@@ -12,6 +13,18 @@ import {
   SalesQuoteAdjustment,
   SalesQuoteLine,
 } from '@open-mercato/core/modules/sales/data/entities'
+
+jest.mock('#generated/entities.ids.generated', () => ({
+  E: {
+    sales: {
+      sales_order: 'sales.sales_order',
+      sales_order_line: 'sales.sales_order_line',
+      sales_quote: 'sales.sales_quote',
+      sales_quote_line: 'sales.sales_quote_line',
+      sales_quote_adjustment: 'sales.sales_quote_adjustment',
+    },
+  },
+}))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -31,6 +44,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
   findOneWithDecryption: jest.fn(),
 }))
+
+const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockedFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 describe('sales.quotes.convert_to_order', () => {
   beforeAll(async () => {
@@ -138,24 +154,8 @@ describe('sales.quotes.convert_to_order', () => {
           release?.()
         }
       }),
-      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>, options?: unknown) => {
-        if (entity === SalesQuote) {
-          lockOptions.push(options ?? null)
-          return where.id === quote.id && quoteExists ? quote : null
-        }
-        if (entity === SalesOrder) {
-          return createdOrderIds.includes(where.id as string) ? { id: where.id, deletedAt: null } : null
-        }
-        return null
-      }),
-      find: jest.fn(async (entity: unknown) => {
-        if (entity === SalesQuoteLine) return quoteExists ? [quoteLine] : []
-        if (entity === SalesQuoteAdjustment) return []
-        if (entity === SalesDocumentAddress) return []
-        if (entity === SalesNote) return []
-        if (entity === SalesDocumentTagAssignment) return []
-        return []
-      }),
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async () => []),
       create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
       persist: jest.fn((entity: Record<string, unknown>) => {
         if (typeof entity.orderNumber === 'string' && typeof entity.id === 'string') {
@@ -169,6 +169,26 @@ describe('sales.quotes.convert_to_order', () => {
       flush: jest.fn(async () => undefined),
     }
     em.fork.mockReturnValue(em)
+
+    mockedFindOneWithDecryption.mockImplementation(async (_em, entity, where: any, options?: any) => {
+      if (entity === SalesQuote) {
+        lockOptions.push(options ?? null)
+        return where.id === quote.id && quoteExists ? quote as any : null
+      }
+      if (entity === SalesOrder) {
+        return createdOrderIds.includes(where.id as string) ? { id: where.id, deletedAt: null } as any : null
+      }
+      return null
+    })
+
+    mockedFindWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === SalesQuoteLine) return quoteExists ? [quoteLine] as any : []
+      if (entity === SalesQuoteAdjustment) return []
+      if (entity === SalesDocumentAddress) return []
+      if (entity === SalesNote) return []
+      if (entity === SalesDocumentTagAssignment) return []
+      return []
+    })
 
     const ctx = {
       container: {

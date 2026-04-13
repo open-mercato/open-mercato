@@ -1,6 +1,8 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { SalesQuote, SalesOrder } from '@open-mercato/core/modules/sales/data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -35,6 +37,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn().mockResolvedValue([]),
   findOneWithDecryption: jest.fn().mockResolvedValue(null),
 }))
+
+const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
 function buildQuote(overrides?: Partial<Record<string, unknown>>) {
   return {
@@ -130,6 +134,14 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     }
   })
 
+  function setupQuoteMocks(quote: ReturnType<typeof buildQuote>) {
+    mockedFindOneWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === SalesQuote) return quote as any
+      if (entity === SalesOrder) return null
+      return null
+    })
+  }
+
   function buildCtx() {
     return {
       container: {
@@ -156,14 +168,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     expect(handler).toBeTruthy()
 
     const quote = buildQuote()
-
-    // findOne calls: (1) SalesQuote by quoteId, (2) SalesQuote in loadQuoteSnapshot, (3) SalesOrder existence check
-    let callCount = 0
-    mockEm.findOne.mockImplementation(async () => {
-      callCount++
-      if (callCount <= 2) return quote
-      return null
-    })
+    setupQuoteMocks(quote)
 
     const result = await handler!.execute(
       { quoteId: quote.id },
@@ -172,14 +177,12 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
 
     expect(result).toEqual({ orderId: quote.id })
 
-    // Verify the generator was called with kind: 'order'
     expect(mockGenerator.generate).toHaveBeenCalledWith({
       kind: 'order',
       organizationId: quote.organizationId,
       tenantId: quote.tenantId,
     })
 
-    // Find the created SalesOrder entity (the first created entity should be the order)
     const orderEntity = createdEntities.find(
       (entity) => 'orderNumber' in entity,
     )
@@ -193,13 +196,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     expect(handler).toBeTruthy()
 
     const quote = buildQuote({ quoteNumber: 'QUOTE-20260101-99999' })
-
-    let callCount = 0
-    mockEm.findOne.mockImplementation(async () => {
-      callCount++
-      if (callCount <= 2) return quote
-      return null
-    })
+    setupQuoteMocks(quote)
 
     mockGenerator.generate.mockResolvedValue({
       number: 'ORDER-20260101-00042',
@@ -222,13 +219,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     expect(handler).toBeTruthy()
 
     const quote = buildQuote()
-
-    let callCount = 0
-    mockEm.findOne.mockImplementation(async () => {
-      callCount++
-      if (callCount <= 2) return quote
-      return null
-    })
+    setupQuoteMocks(quote)
 
     await handler!.execute(
       { quoteId: quote.id, orderNumber: 'CUSTOM-001' },
