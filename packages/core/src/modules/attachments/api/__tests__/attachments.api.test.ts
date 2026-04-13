@@ -149,6 +149,7 @@ describe('attachments API', () => {
   })
 
   it('rejects active content uploads even when the client claims a safe image mime type', async () => {
+    const { POST: upload } = await loadHandlers()
     const file = new File(
       [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', 'utf8')],
       'avatar.jpg',
@@ -359,6 +360,7 @@ describe('attachments API', () => {
   })
 
   it('rejects explicit uploads to unrelated public partitions', async () => {
+    const { POST: upload } = await loadHandlers()
     const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request(
       'http://x/api/attachments',

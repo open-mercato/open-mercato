@@ -1,6 +1,8 @@
 {
   "attachments.customers.storage.nav.group": "Magazyn",
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
+  "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
+  "attachments.errors.publicPartitionBlocked": "Nie można jawnie wybrać publicznej partycji do tego przesyłania.",
   "attachments.errors.quotaExceeded": "Przekroczono limit miejsca na załączniki dla tego tenantu.",
   "attachments.library.actions.copied": "Link skopiowany.",
   "attachments.library.actions.copyError": "Nie można skopiować linku.",

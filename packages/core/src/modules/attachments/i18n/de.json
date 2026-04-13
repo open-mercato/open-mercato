@@ -1,6 +1,8 @@
 {
   "attachments.customers.storage.nav.group": "Speicher",
   "attachments.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
+  "attachments.errors.activeContentBlocked": "Das Hochladen aktiver Inhalte ist nicht erlaubt.",
+  "attachments.errors.publicPartitionBlocked": "Öffentliche Speicherpartitionen können für diesen Upload nicht explizit ausgewählt werden.",
   "attachments.errors.quotaExceeded": "Das Speicherlimit für Anhänge dieses Tenants wurde überschritten.",
   "attachments.library.actions.copied": "Link kopiert.",
   "attachments.library.actions.copyError": "Link konnte nicht kopiert werden.",

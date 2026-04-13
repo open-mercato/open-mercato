@@ -290,7 +290,7 @@ export async function POST(req: Request) {
   const safeName = sanitizeUploadedFileName(file.name)
   const fileMimeType = detectAttachmentMimeType(buf, safeName, (file as any).type)
   if (isActiveContentAttachment(buf, safeName, fileMimeType)) {
-    return NextResponse.json({ error: 'Active content uploads are not allowed.' }, { status: 400 })
+    return NextResponse.json({ error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
   }
   const defaultPartitionCode = resolveDefaultPartitionCode(entityId)
   const resolvedPartitionCode = partitionOverride ?? partitionFromField ?? defaultPartitionCode
@@ -323,7 +323,7 @@ export async function POST(req: Request) {
     partition.code !== defaultPartitionCode &&
     partition.code !== partitionFromField
   if (requestedPublicOverride) {
-    return NextResponse.json({ error: 'Public storage partitions cannot be selected explicitly for this upload.' }, { status: 403 })
+    return NextResponse.json({ error: t('attachments.errors.publicPartitionBlocked', 'Public storage partitions cannot be selected explicitly for this upload.') }, { status: 403 })
   }
   let stored
   try {
