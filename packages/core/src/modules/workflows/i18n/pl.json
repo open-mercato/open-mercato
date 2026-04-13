@@ -197,7 +197,7 @@
   "workflows.edgeEditor.confirmDelete": "Czy na pewno chcesz usunąć to przejście?",
   "workflows.edgeEditor.confirmRemoveActivity": "Czy na pewno chcesz usunąć to działanie?",
   "workflows.edgeEditor.continueOnActivityFailure": "Kontynuuj przy Niepowodzeniu Działania",
-  "workflows.edgeEditor.continueOnActivityFailureHint": "Jeśli odznaczone, przejście zakończy się niepowodzeniem, gdy którekolwiek działanie się nie powiedzie (domyślnie: zaznaczone)",
+  "workflows.edgeEditor.continueOnActivityFailureHint": "Jeśli odznaczone, przejście zakończy się niepowodzeniem, gdy którekolwiek działanie się nie powiedzie (domyślnie: odznaczone)",
   "workflows.edgeEditor.deleteTransition": "Usuń Przejście",
   "workflows.edgeEditor.description": "Konfiguruj właściwości przejścia, warunki i działania",
   "workflows.edgeEditor.entityType": "Typ Encji",
