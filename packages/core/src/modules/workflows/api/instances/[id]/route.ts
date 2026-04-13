@@ -48,11 +48,17 @@ export async function GET(
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationIds = (() => {
+      if (scope?.selectedId) return [scope.selectedId]
+      if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
+      if (scope?.filterIds === null) return undefined
+      if (auth.orgId) return [auth.orgId]
+      return undefined
+    })()
 
-    if (!tenantId || !organizationId) {
+    if (!tenantId) {
       return NextResponse.json(
-        { error: 'Missing tenant or organization context' },
+        { error: 'Missing tenant context' },
         { status: 400 }
       )
     }
@@ -60,7 +66,7 @@ export async function GET(
     const instance = await em.findOne(WorkflowInstance, {
       id: params.id,
       tenantId,
-      organizationId,
+      ...(organizationIds ? { organizationId: { $in: organizationIds } } : {}),
     })
 
     if (!instance) {

@@ -46,11 +46,17 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationId = scope?.selectedId ?? auth.orgId
+    const organizationIds = (() => {
+      if (scope?.selectedId) return [scope.selectedId]
+      if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
+      if (scope?.filterIds === null) return undefined
+      if (auth.orgId) return [auth.orgId]
+      return undefined
+    })()
 
-    if (!tenantId || !organizationId) {
+    if (!tenantId) {
       return NextResponse.json(
-        { error: 'Missing tenant or organization context' },
+        { error: 'Missing tenant context' },
         { status: 400 }
       )
     }
@@ -60,7 +66,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const hasPermission = await rbacService.userHasAllFeatures(
       auth.sub,
       ['workflows.instances.view'],
-      { tenantId, organizationId }
+      { tenantId, organizationId: scope?.selectedId ?? auth.orgId }
     )
 
     if (!hasPermission) {
@@ -70,31 +76,16 @@ export async function GET(request: NextRequest, context: RouteContext) {
       )
     }
 
-    // Find the event - first try without org filter to debug
-    const eventAny = await em.findOne(WorkflowEvent, {
-      id: params.id,
-    })
-
     // Find the event with proper filters
     const event = await em.findOne(WorkflowEvent, {
       id: params.id,
       tenantId,
-      organizationId,
+      ...(organizationIds ? { organizationId: { $in: organizationIds } } : {}),
     })
 
     if (!event) {
       return NextResponse.json(
-        {
-          error: 'Workflow event not found',
-          debug: process.env.NODE_ENV === 'development' ? {
-            requestedId: params.id,
-            requestedTenantId: tenantId,
-            requestedOrganizationId: organizationId,
-            eventExists: !!eventAny,
-            eventTenantId: eventAny?.tenantId,
-            eventOrganizationId: eventAny?.organizationId,
-          } : undefined
-        },
+        { error: 'Workflow event not found' },
         { status: 404 }
       )
     }
@@ -103,7 +94,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const instance = await em.findOne(WorkflowInstance, {
       id: event.workflowInstanceId,
       tenantId,
-      organizationId,
+      ...(organizationIds ? { organizationId: { $in: organizationIds } } : {}),
     })
 
     // Build response
