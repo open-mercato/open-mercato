@@ -197,7 +197,7 @@
   "workflows.edgeEditor.confirmDelete": "Möchten Sie diesen Übergang wirklich löschen?",
   "workflows.edgeEditor.confirmRemoveActivity": "Möchten Sie diese Aktivität wirklich entfernen?",
   "workflows.edgeEditor.continueOnActivityFailure": "Bei Aktivitätsfehler fortfahren",
-  "workflows.edgeEditor.continueOnActivityFailureHint": "Wenn deaktiviert, schlägt der Übergang fehl, wenn eine Aktivität fehlschlägt (Standard: aktiviert)",
+  "workflows.edgeEditor.continueOnActivityFailureHint": "Wenn deaktiviert, schlägt der Übergang fehl, wenn eine Aktivität fehlschlägt (Standard: deaktiviert)",
   "workflows.edgeEditor.deleteTransition": "Übergang löschen",
   "workflows.edgeEditor.description": "Übergangseigenschaften, Bedingungen und Aktivitäten konfigurieren",
   "workflows.edgeEditor.entityType": "Entitätstyp",

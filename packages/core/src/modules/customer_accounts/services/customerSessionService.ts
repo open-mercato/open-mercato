@@ -81,10 +81,16 @@ export class CustomerSessionService {
   }
 
   async revokeAllUserSessions(userId: string): Promise<void> {
+    const now = new Date()
     await this.em.nativeUpdate(
       CustomerUserSession,
       { user: userId as any, deletedAt: null },
-      { deletedAt: new Date() },
+      { deletedAt: now },
+    )
+    await this.em.nativeUpdate(
+      CustomerUser,
+      { id: userId },
+      { sessionsRevokedAt: now },
     )
   }
 }

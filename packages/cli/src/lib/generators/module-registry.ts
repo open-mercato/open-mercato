@@ -253,6 +253,94 @@ function extractNamedObjectLiteralSource(sourceFile: string, exportName: string)
   return null
 }
 
+function resolveLocalStringConstants(parsed: ts.SourceFile): Map<string, string> {
+  const constants = new Map<string, string>()
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name)) continue
+      if (!declaration.initializer) continue
+      if (ts.isStringLiteral(declaration.initializer) || ts.isNoSubstitutionTemplateLiteral(declaration.initializer)) {
+        constants.set(declaration.name.text, declaration.initializer.text)
+      }
+    }
+  }
+  return constants
+}
+
+function extractObjectPropertiesFromAst(sourceFile: string, exportName: string): Record<string, unknown> | null {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return null
+  }
+
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) {
+        exportedNames.add(element.name.text)
+      }
+    }
+  }
+
+  let objectLiteral: ts.ObjectLiteralExpression | undefined
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const statementExportsNameDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier: ts.Modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue
+      if (!statementExportsNameDirectly && !exportedNames.has(exportName)) continue
+      objectLiteral = unwrapObjectLiteralExpression(declaration.initializer)
+      break
+    }
+    if (objectLiteral) break
+  }
+
+  if (!objectLiteral) return null
+
+  const localConstants = resolveLocalStringConstants(parsed)
+  const result: Record<string, unknown> = {}
+
+  for (const property of objectLiteral.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const key = ts.isIdentifier(property.name) ? property.name.text
+      : ts.isStringLiteral(property.name) ? property.name.text
+      : null
+    if (!key) continue
+
+    const initializer = property.initializer
+    if (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) {
+      result[key] = initializer.text
+    } else if (ts.isNumericLiteral(initializer)) {
+      result[key] = Number(initializer.text)
+    } else if (initializer.kind === ts.SyntaxKind.TrueKeyword) {
+      result[key] = true
+    } else if (initializer.kind === ts.SyntaxKind.FalseKeyword) {
+      result[key] = false
+    } else if (ts.isIdentifier(initializer) && localConstants.has(initializer.text)) {
+      result[key] = localConstants.get(initializer.text)
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : null
+}
+
 function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
   const literal = extractNamedObjectLiteralSource(sourceFile, exportName)
   if (!literal) return null
@@ -260,7 +348,7 @@ function extractNamedObjectLiteralExport(sourceFile: string, exportName: string)
     const extracted = Function(`"use strict"; return (${literal});`)()
     return extracted && typeof extracted === 'object' ? extracted as Record<string, unknown> : null
   } catch {
-    return null
+    return extractObjectPropertiesFromAst(sourceFile, exportName)
   }
 }
 
@@ -1896,6 +1984,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     let customFieldSetsExpr: string = '[]'
     const dashboardWidgets: string[] = []
     let setupImportName: string | null = null
+    let encryptionImportName: string | null = null
     let integrationImportName: string | null = null
 
     // === Processing order MUST match original import ID sequence ===
@@ -2009,6 +2098,12 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports, runtimeImports)
       if (setup) setupImportName = setup.importName
+    }
+
+    // 11a. Encryption defaults: encryption.ts
+    {
+      const encryption = resolveConventionFile(roots, imps, 'encryption.ts', 'ENCRYPTION', modId, importIdRef, imports, runtimeImports)
+      if (encryption) encryptionImportName = encryption.importName
     }
 
     // 11b. Integration manifest: integration.ts
@@ -2147,6 +2242,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
+      ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
       ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
       ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
@@ -2164,6 +2260,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
       ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
       ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
+      ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
       ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
       ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
     }`)
@@ -2463,6 +2560,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     let customEntitiesImportName: string | null = null
     let dashboardWidgetsValue: WriterFunction = emptyArray()
     let setupImportName: string | null = null
+    let encryptionImportName: string | null = null
     let integrationImportName: string | null = null
 
     const indexResolved = resolveModuleFile(roots, imps, 'index.ts')
@@ -2482,6 +2580,11 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
+    }
+
+    {
+      const encryption = resolveConventionFile(roots, imps, 'encryption.ts', 'ENCRYPTION', modId, importIdRef, imports)
+      if (encryption) encryptionImportName = encryption.importName
     }
 
     {
@@ -2657,6 +2760,17 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
         }),
       })
     }
+    if (encryptionImportName) {
+      moduleEntries.push({
+        name: 'defaultEncryptionMaps',
+        value: namespaceFallback({
+          importName: encryptionImportName,
+          members: ['default', 'defaultEncryptionMaps'],
+          fallback: emptyArray(),
+          castType: "Module['defaultEncryptionMaps']",
+        }),
+      })
+    }
     if (integrationImportName) {
       moduleEntries.push({
         name: 'integrations',
@@ -2774,6 +2888,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     let vectorImportName: string | null = null
     let dashboardWidgetsValue: WriterFunction = emptyArray()
     let setupImportName: string | null = null
+    let encryptionImportName: string | null = null
     let integrationImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
@@ -2795,6 +2910,12 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
+    }
+
+    // Module encryption defaults: encryption.ts
+    {
+      const encryption = resolveConventionFile(roots, imps, 'encryption.ts', 'ENCRYPTION', modId, importIdRef, imports)
+      if (encryption) encryptionImportName = encryption.importName
     }
 
     // Integration manifest: integration.ts
@@ -2960,6 +3081,17 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
           importName: setupImportName,
           members: ['default', 'setup'],
           fallback: identifier('undefined'),
+        }),
+      })
+    }
+    if (encryptionImportName) {
+      moduleEntries.push({
+        name: 'defaultEncryptionMaps',
+        value: namespaceFallback({
+          importName: encryptionImportName,
+          members: ['default', 'defaultEncryptionMaps'],
+          fallback: emptyArray(),
+          castType: "Module['defaultEncryptionMaps']",
         }),
       })
     }

@@ -23,9 +23,20 @@ import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { emitCrudSideEffects, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { attachmentCrudEvents, attachmentCrudIndexer } from '../lib/crud'
 import { E } from '#generated/entities.ids.generated'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
+import {
+  detectAttachmentMimeType,
+  isActiveContentAttachment,
+  sanitizeUploadedFileName,
+} from '../lib/security'
+import {
+  isMultipartRequestWithinUploadLimit,
+  resolveAttachmentMaxBytes,
+  willExceedAttachmentTenantQuota,
+} from '../lib/upload-limits'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -201,6 +212,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const tenantId = auth.tenantId
@@ -209,6 +221,9 @@ export async function POST(req: Request) {
   const contentType = req.headers.get('content-type') || ''
   if (!contentType.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
+  }
+  if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
+    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
   }
 
   const form = await req.formData()
@@ -233,6 +248,7 @@ export async function POST(req: Request) {
   await ensureDefaultPartitions(em)
   // Optional per-field validations
   let partitionFromField: string | null = null
+  let fieldMaxAttachmentSizeMb: number | null = null
   if (fieldKey) {
     try {
       const { CustomFieldDef } = await import('@open-mercato/core/modules/entities/data/entities')
@@ -251,18 +267,33 @@ export async function POST(req: Request) {
         if (!allowed.has(ext)) return NextResponse.json({ error: 'File type not allowed' }, { status: 400 })
       }
       if (typeof cfg.maxAttachmentSizeMb === 'number' && cfg.maxAttachmentSizeMb > 0) {
-        const maxBytes = Math.floor(cfg.maxAttachmentSizeMb * 1024 * 1024)
-        const size = (await file.arrayBuffer()).byteLength
-        if (size > maxBytes) return NextResponse.json({ error: `File exceeds ${cfg.maxAttachmentSizeMb} MB limit` }, { status: 400 })
+        fieldMaxAttachmentSizeMb = cfg.maxAttachmentSizeMb
       }
       if (typeof cfg.partitionCode === 'string' && cfg.partitionCode.trim().length > 0) {
         partitionFromField = sanitizePartitionCode(cfg.partitionCode)
       }
     } catch {}
   }
+  const effectiveMaxBytes = resolveAttachmentMaxBytes(fieldMaxAttachmentSizeMb)
+  if (file.size > effectiveMaxBytes) {
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
+  }
+  const tenantUsageBytes = await readTenantAttachmentUsageBytes(em, tenantId)
+  if (willExceedAttachmentTenantQuota(tenantUsageBytes, file.size)) {
+    return NextResponse.json({
+      error: t('attachments.errors.quotaExceeded', 'Attachment storage quota exceeded for this tenant.'),
+    }, { status: 413 })
+  }
   const buf = Buffer.from(await file.arrayBuffer())
-  const safeName = String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
-  const resolvedPartitionCode = partitionOverride ?? partitionFromField ?? resolveDefaultPartitionCode(entityId)
+  const safeName = sanitizeUploadedFileName(file.name)
+  const fileMimeType = detectAttachmentMimeType(buf, safeName, (file as any).type)
+  if (isActiveContentAttachment(buf, safeName, fileMimeType)) {
+    return NextResponse.json({ error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
+  }
+  const defaultPartitionCode = resolveDefaultPartitionCode(entityId)
+  const resolvedPartitionCode = partitionOverride ?? partitionFromField ?? defaultPartitionCode
   const partitionCodeCandidates = Array.from(
     new Set(
       [partitionOverride, partitionFromField, resolvedPartitionCode].filter(
@@ -279,10 +310,20 @@ export async function POST(req: Request) {
     }
   }
   if (!partition) {
-    partition = await em.findOne(AttachmentPartition, { code: resolveDefaultPartitionCode(entityId) })
+    partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
   }
   if (!partition) {
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
+  }
+  const requestedPublicOverride =
+    typeof partitionOverride === 'string' &&
+    partitionOverride.length > 0 &&
+    partition.code === partitionOverride &&
+    partition.isPublic === true &&
+    partition.code !== defaultPartitionCode &&
+    partition.code !== partitionFromField
+  if (requestedPublicOverride) {
+    return NextResponse.json({ error: t('attachments.errors.publicPartitionBlocked', 'Public storage partitions cannot be selected explicitly for this upload.') }, { status: 403 })
   }
   let stored
   try {
@@ -303,8 +344,9 @@ export async function POST(req: Request) {
       ? Boolean((partition as any).requiresOcr)
       : resolveDefaultAttachmentOcrEnabled()
   let extractedContent: string | null = null
-  const fileMimeType = (file as any).type || 'application/octet-stream'
-  const useLlmOcr = requiresOcr && shouldUseLlmOcr(fileMimeType, safeName)
+  const wantsLlmOcr = requiresOcr && shouldUseLlmOcr(fileMimeType, safeName)
+  const ocrService = wantsLlmOcr ? new OcrService() : null
+  const useLlmOcr = Boolean(wantsLlmOcr && ocrService?.available)
 
   if (requiresOcr && !useLlmOcr) {
     try {
@@ -330,7 +372,7 @@ export async function POST(req: Request) {
     organizationId: auth.orgId!,
     tenantId: auth.tenantId!,
     fileName: safeName,
-    mimeType: (file as any).type || 'application/octet-stream',
+    mimeType: fileMimeType,
     fileSize: buf.length,
     partitionCode: partition.code,
     storageDriver: partition.storageDriver || 'local',
@@ -342,14 +384,11 @@ export async function POST(req: Request) {
   await em.persistAndFlush(att)
 
   if (useLlmOcr) {
-    const ocrService = new OcrService()
-    if (ocrService.available) {
-      requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
-        console.error('[attachments] failed to queue OCR processing', error)
-      })
-    } else {
-      console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured')
-    }
+    requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
+      console.error('[attachments] failed to queue OCR processing', error)
+    })
+  } else if (wantsLlmOcr) {
+    console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
   }
 
   if (dataEngine) {
@@ -400,6 +439,25 @@ export async function POST(req: Request) {
       customFields: Object.keys(customFieldValues).length ? customFieldValues : undefined,
     },
   })
+}
+
+async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: string): Promise<number> {
+  try {
+    const knex = (em as any).getConnection().getKnex()
+    const row = await knex('attachments')
+      .where({ tenant_id: tenantId })
+      .sum({ totalSize: 'file_size' })
+      .first()
+    const total = row?.totalSize
+    if (typeof total === 'number') return Number.isFinite(total) ? total : 0
+    if (typeof total === 'string') {
+      const parsed = Number(total)
+      return Number.isFinite(parsed) ? parsed : 0
+    }
+    return 0
+  } catch {
+    return 0
+  }
 }
 
 export async function DELETE(req: Request) {

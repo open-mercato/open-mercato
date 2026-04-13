@@ -1,9 +1,13 @@
+import { createHmac } from 'node:crypto'
 import { expect, type APIRequestContext, type APIResponse, type Page } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   readJsonSafe,
 } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import type { PublicSubmitInput } from '../../data/validators'
+
+const MOCK_GATEWAY_DEV_WEBHOOK_SECRET = 'open-mercato-mock-dev-webhook-secret'
+const MOCK_GATEWAY_SIGNATURE_HEADER = 'x-mock-signature'
 
 type JsonRecord = Record<string, unknown>
 
@@ -433,17 +437,29 @@ export async function sendMockGatewayWebhook(
   amount: number,
   options?: { providerKey?: string },
 ): Promise<APIResponse> {
-  return apiRequest(request, 'POST', `/api/payment_gateways/webhook/${encodeURIComponent(options?.providerKey ?? 'mock')}`, {
-    token,
+  const provider = encodeURIComponent(options?.providerKey ?? 'mock')
+  const payload = {
+    type: `payment.${status}`,
+    id: uniqueLabel(`mock-${status}`),
     data: {
-      type: `payment.${status}`,
-      id: uniqueLabel(`mock-${status}`),
-      data: {
-        id: providerSessionId,
-        status,
-        amount,
-      },
+      id: providerSessionId,
+      status,
+      amount,
     },
+  }
+  const rawBody = JSON.stringify(payload)
+  const signature = createHmac('sha256', MOCK_GATEWAY_DEV_WEBHOOK_SECRET)
+    .update(rawBody, 'utf-8')
+    .digest('hex')
+  const BASE_URL = process.env.BASE_URL?.trim() || ''
+  return request.fetch(`${BASE_URL}/api/payment_gateways/webhook/${provider}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      [MOCK_GATEWAY_SIGNATURE_HEADER]: signature,
+      Authorization: `Bearer ${token}`,
+    },
+    data: rawBody,
   })
 }
 
