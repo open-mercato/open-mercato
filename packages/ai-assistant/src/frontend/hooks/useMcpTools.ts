@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ToolInfo, ToolExecutionResult } from '../types'
 
 export function useMcpTools() {
@@ -12,16 +13,14 @@ export function useMcpTools() {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await fetch('/api/ai_assistant/tools', {
-        headers: {
-          'x-om-forbidden-redirect': '0',
-        },
-      })
-      if (!response.ok) {
-        throw new Error(`Failed to fetch tools: ${response.status}`)
+      const { ok, result, status } = await apiCall<{ tools: ToolInfo[] }>(
+        '/api/ai_assistant/tools',
+        { headers: { 'x-om-forbidden-redirect': '0' } }
+      )
+      if (!ok) {
+        throw new Error(`Failed to fetch tools: ${status}`)
       }
-      const data = await response.json()
-      setTools(data.tools || [])
+      setTools(result?.tools || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load tools')
       setTools([])
@@ -33,27 +32,28 @@ export function useMcpTools() {
   const executeTool = useCallback(
     async (toolName: string, args: Record<string, unknown> = {}): Promise<ToolExecutionResult> => {
       try {
-        const response = await fetch('/api/ai_assistant/tools/execute', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-om-forbidden-redirect': '0',
-          },
-          body: JSON.stringify({ toolName, args }),
-        })
+        const { ok, result, status } = await apiCall<{ result: unknown; error?: string }>(
+          '/api/ai_assistant/tools/execute',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-om-forbidden-redirect': '0',
+            },
+            body: JSON.stringify({ toolName, args }),
+          }
+        )
 
-        const data = await response.json()
-
-        if (!response.ok) {
+        if (!ok) {
           return {
             success: false,
-            error: data.error || `Tool execution failed: ${response.status}`,
+            error: result?.error || `Tool execution failed: ${status}`,
           }
         }
 
         return {
           success: true,
-          result: data.result,
+          result: result?.result,
         }
       } catch (err) {
         return {

@@ -10,12 +10,12 @@ The last piece is a create/edit workflow that reuses the same validators and API
 ## 1. Create form definitions
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory/backend/inventory/create
-touch packages/inventory/src/modules/inventory/backend/inventory/create/page.tsx
-touch packages/inventory/src/modules/inventory/backend/inventory/create/page.meta.ts
+mkdir -p apps/mercato/src/modules/inventory/backend/inventory/create
+touch apps/mercato/src/modules/inventory/backend/inventory/create/page.tsx
+touch apps/mercato/src/modules/inventory/backend/inventory/create/page.meta.ts
 ```
 
-```tsx title="backend/inventory/create/page.tsx"
+```tsx title="apps/mercato/src/modules/inventory/backend/inventory/create/page.tsx"
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm';
 import type { CrudFormSchema } from '@open-mercato/ui/backend/CrudForm/types';
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
@@ -45,7 +45,7 @@ const InventoryCreatePage = () => {
 export default InventoryCreatePage;
 ```
 
-```ts title="backend/inventory/create/page.meta.ts"
+```ts title="apps/mercato/src/modules/inventory/backend/inventory/create/page.meta.ts"
 import type { PageMetadata } from '@open-mercato/shared/modules/registry';
 
 export const metadata: PageMetadata = {
@@ -62,12 +62,12 @@ export const metadata: PageMetadata = {
 Create an edit route that fetches row data and submits via `PATCH`:
 
 ```bash
-mkdir -p packages/inventory/src/modules/inventory/backend/inventory/[id]/edit
-touch packages/inventory/src/modules/inventory/backend/inventory/[id]/edit/page.tsx
-touch packages/inventory/src/modules/inventory/backend/inventory/[id]/edit/page.meta.ts
+mkdir -p apps/mercato/src/modules/inventory/backend/inventory/[id]/edit
+touch apps/mercato/src/modules/inventory/backend/inventory/[id]/edit/page.tsx
+touch apps/mercato/src/modules/inventory/backend/inventory/[id]/edit/page.meta.ts
 ```
 
-```tsx title="[id]/edit/page.tsx"
+```tsx title="apps/mercato/src/modules/inventory/backend/inventory/[id]/edit/page.tsx"
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm';
 import type { CrudFormSchema } from '@open-mercato/ui/backend/CrudForm/types';
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall';
@@ -111,7 +111,7 @@ const InventoryEditPage = async ({ params }: Props) => {
 export default InventoryEditPage;
 ```
 
-```ts title="[id]/edit/page.meta.ts"
+```ts title="apps/mercato/src/modules/inventory/backend/inventory/[id]/edit/page.meta.ts"
 import type { PageMetadata } from '@open-mercato/shared/modules/registry';
 
 export const metadata: PageMetadata = {
@@ -125,6 +125,31 @@ export const metadata: PageMetadata = {
 
 ## 3. Link actions from the grid
 
-Update the list page to surface “Create” and “Edit” buttons—either via `DataGrid` toolbar actions or links in your JSX. Users with the correct features can now manage inventory end to end.
+Update the list page to surface "Create" and "Edit" buttons -- either via `DataTable` row actions or links in your JSX. Users with the correct features can now manage inventory end to end.
 
-That completes the tutorial sequence. In the rest of the documentation you will dive deeper into the framework primitives that power these steps.
+After adding the new pages, regenerate:
+
+```bash
+yarn generate
+yarn mercato configs cache structural --all-tenants
+```
+
+That completes the tutorial sequence. You now have a fully working inventory module with:
+
+- Module metadata, RBAC features, and default role assignments (`index.ts`, `acl.ts`, `setup.ts`)
+- A MikroORM entity with multi-tenant scoping and soft deletes (`data/entities.ts`)
+- Input validation with zod (`data/validators.ts`)
+- A REST API powered by the CRUD factory (`api/items/route.ts`)
+- A data table list page (`backend/inventory/list/page.tsx`)
+- Create and edit forms (`backend/inventory/create/page.tsx`, `backend/inventory/[id]/edit/page.tsx`)
+
+## Next steps
+
+In the rest of the documentation you will dive deeper into the framework primitives that power these steps:
+
+- [Custom fields](./custom-fields-overview) -- extend your entity with admin-configurable attributes
+- [CRUD Factory reference](../framework/api/crud-factory) -- advanced filters, search integration, caching, and event emission
+- [DataTable reference](../framework/admin-ui/data-grids) -- row actions, bulk actions, export, and custom-field filters
+- [CrudForm reference](../framework/admin-ui/crud-form) -- field types, custom renderers, and validation
+- [Events and subscribers](../framework/events/overview) -- react to CRUD lifecycle events
+- [Widget injection](../framework/widget-injection) -- inject UI into other modules without coupling

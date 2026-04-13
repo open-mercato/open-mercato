@@ -82,4 +82,44 @@ describe('opencode provider helpers', () => {
       }),
     ).toThrow('does not match configured provider')
   })
+
+  it('resolves API key from OPENCODE_ANTHROPIC_API_KEY fallback', () => {
+    const provider = resolveFirstConfiguredOpenCodeProvider({
+      env: {
+        ANTHROPIC_API_KEY: '',
+        OPENCODE_ANTHROPIC_API_KEY: 'opencode-anthropic-key',
+      },
+    })
+    expect(provider).toBe('anthropic')
+  })
+
+  it('primary key takes precedence over OPENCODE_* fallback', () => {
+    const provider = resolveFirstConfiguredOpenCodeProvider({
+      env: {
+        ANTHROPIC_API_KEY: 'primary-key',
+        OPENCODE_ANTHROPIC_API_KEY: 'opencode-anthropic-key',
+      },
+    })
+    expect(provider).toBe('anthropic')
+  })
+
+  it('OPENCODE_* fallback works for openai provider', () => {
+    const provider = resolveFirstConfiguredOpenCodeProvider({
+      env: {
+        OPENAI_API_KEY: '',
+        OPENCODE_OPENAI_API_KEY: 'opencode-openai-key',
+      },
+    })
+    expect(provider).toBe('openai')
+  })
+
+  it('OPENCODE_* fallback works for google provider', () => {
+    const provider = resolveFirstConfiguredOpenCodeProvider({
+      env: {
+        GOOGLE_GENERATIVE_AI_API_KEY: '',
+        OPENCODE_GOOGLE_API_KEY: 'opencode-google-key',
+      },
+    })
+    expect(provider).toBe('google')
+  })
 })

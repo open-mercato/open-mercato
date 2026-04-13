@@ -7,6 +7,7 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 
 const mockCommandBus = { execute: jest.fn() }
+const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
 const mockEm = {
   fork: jest.fn(),
   findOne: jest.fn(),
@@ -28,6 +29,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
       return null
     },
   })),
+}))
+
+jest.mock('@open-mercato/core/bootstrap', () => ({
+  getCachedRateLimiterService: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -53,11 +58,24 @@ function makeRequest(body: unknown) {
   })
 }
 
+function makeAcceptRequest(body: unknown) {
+  return new Request('http://localhost/api/sales/quotes/accept', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost',
+    },
+    body: JSON.stringify(body),
+  })
+}
+
 describe('quote send + accept flow', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
+    mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getCachedRateLimiterService } = await import('@open-mercato/core/bootstrap')
     const { resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',
@@ -65,6 +83,7 @@ describe('quote send + accept flow', () => {
       orgId: '11111111-1111-4111-8111-111111111111',
       roles: ['admin'],
     })
+    ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
     ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
       selectedId: '11111111-1111-4111-8111-111111111111',
       filterIds: ['11111111-1111-4111-8111-111111111111'],
@@ -150,7 +169,7 @@ describe('quote send + accept flow', () => {
     })
     mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-1' }, logEntry: null })
 
-    const res = await acceptQuote(makeRequest({ token: '00000000-0000-4000-8000-000000000000' }))
+    const res = await acceptQuote(makeAcceptRequest({ token: '00000000-0000-4000-8000-000000000000' }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.orderId).toBe('order-1')
@@ -159,6 +178,45 @@ describe('quote send + accept flow', () => {
       'sales.quotes.convert_to_order',
       expect.objectContaining({ input: { quoteId: quote.id } })
     )
+  })
+
+  test('accept rejects cross-site browser POSTs', async () => {
+    const res = await acceptQuote(
+      new Request('http://localhost/api/sales/quotes/accept', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'http://evil.example',
+        },
+        body: JSON.stringify({ token: '00000000-0000-4000-8000-000000000000' }),
+      })
+    )
+
+    expect(res.status).toBe(403)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  test('accept returns 429 when public endpoint rate limit is exceeded', async () => {
+    mockRateLimiterService.consume.mockResolvedValueOnce({
+      allowed: false,
+      remainingPoints: 0,
+      msBeforeNext: 60_000,
+    })
+
+    const res = await acceptQuote(
+      new Request('http://localhost/api/sales/quotes/accept', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'http://localhost',
+          'x-forwarded-for': '203.0.113.10',
+        },
+        body: JSON.stringify({ token: '00000000-0000-4000-8000-000000000000' }),
+      })
+    )
+
+    expect(res.status).toBe(429)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 })
 
@@ -235,11 +293,7 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
   let quote: Record<string, unknown>
 
   function makeAcceptReq() {
-    return new Request('http://localhost/api/sales/quotes/accept', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: ACCEPTANCE_TOKEN }),
-    })
+    return makeAcceptRequest({ token: ACCEPTANCE_TOKEN })
   }
 
   beforeEach(async () => {
@@ -364,5 +418,3 @@ describe('quote editing invalidates sent token', () => {
     expect(quote.status).toBe('draft')
   })
 })
-
-

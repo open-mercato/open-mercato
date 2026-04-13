@@ -151,15 +151,18 @@ export async function POST(req: Request) {
   })
   void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
   const rememberMeDays = Number(process.env.REMEMBER_ME_DAYS || '30')
+  const accessTokenMaxAgeSeconds = 60 * 60 * 8
+  const sessionExpiresAt = remember
+    ? new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
+    : new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
+  const loginSession = await auth.createSession(user, sessionExpiresAt)
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
     redirect: '/backend',
   }
   if (remember) {
-    const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
-    const sess = await auth.createSession(user, expiresAt)
-    responseData.refreshToken = sess.token
+    responseData.refreshToken = loginSession.token
   }
   const em = container.resolve('em')
   const interceptedResponse = await runCustomRouteAfterInterceptors({
@@ -199,10 +202,12 @@ export async function POST(req: Request) {
     : undefined
 
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
-  res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
+  res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   if (remember && refreshTokenForCookie) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
+  } else if (!remember && authTokenForCookie === token) {
+    res.cookies.set('session_token', loginSession.token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   }
   return res
 }

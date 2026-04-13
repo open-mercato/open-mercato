@@ -12,6 +12,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
+import { workflowInstanceResponseSchema, workflowExecutionResultSchema } from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -150,8 +151,8 @@ export const openApi = {
           description: 'Workflow retry initiated successfully',
           schema: z.object({
             data: z.object({
-              instance: z.any(),
-              execution: z.any(),
+              instance: workflowInstanceResponseSchema,
+              execution: workflowExecutionResultSchema,
             }),
             message: z.string(),
           }),
