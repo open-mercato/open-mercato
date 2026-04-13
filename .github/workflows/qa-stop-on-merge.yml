@@ -17,7 +17,7 @@ jobs:
     steps:
       - name: Detect QA slot label
         id: slot
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request.number;
@@ -64,7 +64,7 @@ jobs:
       - name: Get expected image from PR comments
         if: ${{ steps.slot.outputs.slot != '' }}
         id: expected
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = context.payload.pull_request.number;

@@ -159,7 +159,7 @@ jobs:
 
       - name: Add QA label to PR
         if: ${{ github.event.inputs.pr_number != '' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = Number("${{ github.event.inputs.pr_number }}");
@@ -175,7 +175,7 @@ jobs:
 
       - name: Comment on PR with QA marker
         if: ${{ github.event.inputs.pr_number != '' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = Number("${{ github.event.inputs.pr_number }}");

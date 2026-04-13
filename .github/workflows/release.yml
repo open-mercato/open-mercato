@@ -90,7 +90,7 @@ jobs:
           git push origin "v${{ steps.release.outputs.version }}"
 
       - name: Create GitHub Release
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const packages = ${{ steps.release.outputs.packages_json }};
