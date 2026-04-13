@@ -1,7 +1,9 @@
 "use client"
 import * as React from 'react'
 import { ArrowLeft, Plus } from 'lucide-react'
+import { Alert } from '../primitives/alert'
 import { Button } from '../primitives/button'
+import { Checkbox } from '../primitives/checkbox'
 import { Spinner } from '../primitives/spinner'
 import { useConfirmDialog } from './confirm-dialog'
 import { flash } from './FlashMessages'
@@ -14,7 +16,7 @@ import type {
 import { ViewChip } from './views/ViewChip'
 import { NewViewForm } from './views/NewViewForm'
 import { ShareForm } from './views/ShareForm'
-import { type SidebarMode, perspectivesCheckboxClassName } from './views/types'
+import { type SidebarMode } from './views/types'
 import { ColumnChooserSection, type ColumnChooserField } from './columns/ColumnChooserPanel'
 
 export type { ColumnChooserField } from './columns/ColumnChooserPanel'
@@ -196,8 +198,8 @@ export function PerspectiveSidebar({
     try {
       await onSave({ name: name.trim(), isDefault, applyToRoles: [], setRoleDefault: false, perspectiveId: null })
       resetMode()
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to save view')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save view')
     }
   }
 
@@ -234,8 +236,8 @@ export function PerspectiveSidebar({
         perspectiveId: p.id,
       })
       setRenamingId(null)
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to rename view')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to rename view')
     }
   }
 
@@ -262,7 +264,7 @@ export function PerspectiveSidebar({
     }
     const clonedSettings = structuredClone(p.settings)
     const MAX_ATTEMPTS = 50
-    let lastErr: any = null
+    let lastErr: unknown = null
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
       try {
         await onSave({
@@ -275,18 +277,19 @@ export function PerspectiveSidebar({
         })
         setPendingCloneBaselineIds(baseline)
         return
-      } catch (err: any) {
-        const msg = String(err?.message ?? '').toLowerCase()
+      } catch (err: unknown) {
+        const errMessage = err instanceof Error ? err.message : ''
+        const msg = errMessage.toLowerCase()
         const isDuplicate = msg.includes('duplicate key') || msg.includes('unique constraint')
         if (!isDuplicate) {
-          setError(err?.message ?? 'Failed to clone view')
+          setError(errMessage || 'Failed to clone view')
           return
         }
         lastErr = err
         counter += 1
       }
     }
-    setError(lastErr?.message ?? 'Failed to clone view')
+    setError(lastErr instanceof Error ? lastErr.message : 'Failed to clone view')
   }
 
   React.useEffect(() => {
@@ -329,8 +332,8 @@ export function PerspectiveSidebar({
       await onSave({ name: mode.perspectiveName, isDefault: mode.perspectiveIsDefault, applyToRoles: shareRoles, setRoleDefault: shareSetDefault, perspectiveId: mode.perspectiveId })
       setSharedIds((prev) => new Set([...prev, mode.perspectiveId]))
       resetMode()
-    } catch (err: any) {
-      setError(err?.message ?? 'Failed to share view')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to share view')
     }
   }
 
@@ -466,22 +469,18 @@ export function PerspectiveSidebar({
             ) : null}
 
             {apiWarning ? (
-              <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                {apiWarning}
-              </div>
+              <Alert variant="warning" className="text-xs">{apiWarning}</Alert>
             ) : null}
-            {error ? <div className="text-sm text-red-600">{error}</div> : null}
+            {error ? <div className="text-sm text-status-error-text">{error}</div> : null}
           </section>
 
           {/* Set as default — separated from chips (border-t) and from columns (ColumnList owns border-t) */}
           <div className="flex items-center px-4 mt-2 pt-2 pb-2">
             <label className="inline-flex items-center gap-2 text-sm leading-none">
-              <input
-                type="checkbox"
-                className={perspectivesCheckboxClassName}
+              <Checkbox
                 checked={isDefault}
-                onChange={(e) => {
-                  setIsDefault(e.target.checked)
+                onCheckedChange={(checked) => {
+                  setIsDefault(checked === true)
                   if (isDefaultUserChangeRef.current) {
                     scheduleAutosave()
                   }

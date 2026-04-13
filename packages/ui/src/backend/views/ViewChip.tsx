@@ -95,7 +95,7 @@ export function ViewChip({
       key={id}
       className={`inline-flex items-center gap-0.5 rounded-md border h-8 text-sm ${
         isActive
-          ? 'bg-[oklch(0.95_0.05_293)] border-[oklch(0.8_0.1_293)] font-medium text-[oklch(0.4_0.2_293)]'
+          ? 'bg-brand-violet/10 border-brand-violet/30 font-medium text-brand-violet'
           : 'border-border'
       }`}
     >
