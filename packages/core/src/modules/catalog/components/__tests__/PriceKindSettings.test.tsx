@@ -146,6 +146,21 @@ const sampleItems = [
   },
 ]
 
+async function openCreateDialog() {
+  await act(async () => {
+    fireEvent.click(screen.getByText('Add price kind'))
+  })
+  await screen.findByTestId('dialog')
+}
+
+async function openEditDialog(index = 0) {
+  const editButtons = screen.getAllByTestId('action-edit')
+  await act(async () => {
+    fireEvent.click(editButtons[index])
+  })
+  await screen.findByTestId('dialog')
+}
+
 describe('PriceKindSettings', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -194,9 +209,7 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
-    await act(async () => {
-      fireEvent.click(screen.getByText('Add price kind'))
-    })
+    await openCreateDialog()
     expect(screen.getByTestId('dialog')).toBeInTheDocument()
     expect(screen.getByTestId('dialog-title')).toHaveTextContent('Create price kind')
   })
@@ -206,10 +219,7 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
-    const editButtons = screen.getAllByTestId('action-edit')
-    await act(async () => {
-      fireEvent.click(editButtons[0])
-    })
+    await openEditDialog()
     expect(screen.getByTestId('dialog')).toBeInTheDocument()
     expect(screen.getByTestId('dialog-title')).toHaveTextContent('Edit price kind')
   })
@@ -219,11 +229,8 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
-    const editButtons = screen.getAllByTestId('action-edit')
-    await act(async () => {
-      fireEvent.click(editButtons[0])
-    })
-    const codeInput = screen.getByPlaceholderText('e.g. regular')
+    await openEditDialog()
+    const codeInput = await screen.findByPlaceholderText('e.g. regular')
     expect(codeInput).toBeDisabled()
   })
 
@@ -232,12 +239,9 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
-    const editButtons = screen.getAllByTestId('action-edit')
-    await act(async () => {
-      fireEvent.click(editButtons[0])
-    })
-    expect((screen.getByPlaceholderText('e.g. regular') as HTMLInputElement).value).toBe('retail')
-    expect((screen.getByPlaceholderText('e.g. Regular price') as HTMLInputElement).value).toBe('Retail Price')
+    await openEditDialog()
+    expect((await screen.findByPlaceholderText('e.g. regular') as HTMLInputElement).value).toBe('retail')
+    expect((await screen.findByPlaceholderText('e.g. Regular price') as HTMLInputElement).value).toBe('Retail Price')
   })
 
   it('shows validation error when code or title is empty on submit', async () => {
@@ -245,8 +249,8 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
+    await openCreateDialog()
     await act(async () => {
-      fireEvent.click(screen.getByText('Add price kind'))
       fireEvent.click(screen.getByText('Create'))
     })
     await waitFor(() => {
@@ -260,8 +264,8 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
+    await openCreateDialog()
     await act(async () => {
-      fireEvent.click(screen.getByText('Add price kind'))
       fireEvent.change(screen.getByPlaceholderText('e.g. regular'), { target: { value: 'wholesale' } })
       fireEvent.change(screen.getByPlaceholderText('e.g. Regular price'), { target: { value: 'Wholesale Price' } })
       fireEvent.click(screen.getByText('Create'))
@@ -283,9 +287,8 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
-    const editButtons = screen.getAllByTestId('action-edit')
+    await openEditDialog()
     await act(async () => {
-      fireEvent.click(editButtons[0])
       fireEvent.change(screen.getByPlaceholderText('e.g. Regular price'), { target: { value: 'Updated Title' } })
       fireEvent.click(screen.getByText('Save changes'))
     })
@@ -352,8 +355,8 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
+    await openCreateDialog()
     await act(async () => {
-      fireEvent.click(screen.getByText('Add price kind'))
       fireEvent.change(screen.getByPlaceholderText('e.g. regular'), { target: { value: 'special' } })
       fireEvent.change(screen.getByPlaceholderText('e.g. Regular price'), { target: { value: 'Special Price' } })
     })
@@ -374,9 +377,7 @@ describe('PriceKindSettings', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-count')).toHaveTextContent('2')
     })
-    await act(async () => {
-      fireEvent.click(screen.getByText('Add price kind'))
-    })
+    await openCreateDialog()
     expect(screen.getByText('Excluding tax')).toBeInTheDocument()
     expect(screen.getByText('Including tax')).toBeInTheDocument()
   })

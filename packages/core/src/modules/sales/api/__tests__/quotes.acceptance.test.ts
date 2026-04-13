@@ -58,6 +58,17 @@ function makeRequest(body: unknown) {
   })
 }
 
+function makeAcceptRequest(body: unknown) {
+  return new Request('http://localhost/api/sales/quotes/accept', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: 'http://localhost',
+    },
+    body: JSON.stringify(body),
+  })
+}
+
 describe('quote send + accept flow', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
@@ -158,7 +169,7 @@ describe('quote send + accept flow', () => {
     })
     mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-1' }, logEntry: null })
 
-    const res = await acceptQuote(makeRequest({ token: '00000000-0000-4000-8000-000000000000' }))
+    const res = await acceptQuote(makeAcceptRequest({ token: '00000000-0000-4000-8000-000000000000' }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.orderId).toBe('order-1')
@@ -197,6 +208,7 @@ describe('quote send + accept flow', () => {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
+          origin: 'http://localhost',
           'x-forwarded-for': '203.0.113.10',
         },
         body: JSON.stringify({ token: '00000000-0000-4000-8000-000000000000' }),
@@ -281,11 +293,7 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
   let quote: Record<string, unknown>
 
   function makeAcceptReq() {
-    return new Request('http://localhost/api/sales/quotes/accept', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token: ACCEPTANCE_TOKEN }),
-    })
+    return makeAcceptRequest({ token: ACCEPTANCE_TOKEN })
   }
 
   beforeEach(async () => {
@@ -410,4 +418,3 @@ describe('quote editing invalidates sent token', () => {
     expect(quote.status).toBe('draft')
   })
 })
-

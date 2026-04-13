@@ -302,8 +302,8 @@ describe('executeCallApi', () => {
     await expect(executeCallApi(mockEm, config, mockContext, mockContainer))
       .rejects.toThrow('Network error')
 
-    // Verify API key was still deleted
-    expect(mockEm.removeAndFlush).toHaveBeenCalledWith(createdApiKeys[0])
+    expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    expect(mockEm.persistAndFlush).toHaveBeenLastCalledWith(createdApiKeys[0])
   })
 
   it('should parse non-JSON response as text', async () => {
