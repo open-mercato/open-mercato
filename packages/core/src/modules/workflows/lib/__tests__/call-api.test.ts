@@ -110,8 +110,9 @@ describe('executeCallApi', () => {
     expect(createdApiKeys[0].tenantId).toBe('tenant-456')
     expect(createdApiKeys[0].organizationId).toBe('org-789')
 
-    // Verify API key was deleted
-    expect(mockEm.removeAndFlush).toHaveBeenCalledWith(createdApiKeys[0])
+    // Verify API key was soft-deleted
+    expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
+    expect(mockEm.persistAndFlush).toHaveBeenCalled()
   })
 
   it('should interpolate workflow variables in request body', async () => {
