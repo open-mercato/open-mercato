@@ -271,7 +271,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     })
 
     try {
-      const diff = await orm.migrator.createMigration()
+      const diff = await orm.migrator.create()
       if (diff && diff.fileName) {
         try {
           const orig = diff.fileName
