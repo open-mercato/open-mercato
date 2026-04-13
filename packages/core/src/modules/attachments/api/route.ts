@@ -28,6 +28,11 @@ import { attachmentCrudEvents, attachmentCrudIndexer } from '../lib/crud'
 import { E } from '#generated/entities.ids.generated'
 import { resolveDefaultAttachmentOcrEnabled } from '../lib/ocrConfig'
 import {
+  detectAttachmentMimeType,
+  isActiveContentAttachment,
+  sanitizeUploadedFileName,
+} from '../lib/security'
+import {
   isMultipartRequestWithinUploadLimit,
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
@@ -282,8 +287,13 @@ export async function POST(req: Request) {
     }, { status: 413 })
   }
   const buf = Buffer.from(await file.arrayBuffer())
-  const safeName = String(file.name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_')
-  const resolvedPartitionCode = partitionOverride ?? partitionFromField ?? resolveDefaultPartitionCode(entityId)
+  const safeName = sanitizeUploadedFileName(file.name)
+  const fileMimeType = detectAttachmentMimeType(buf, safeName, (file as any).type)
+  if (isActiveContentAttachment(buf, safeName, fileMimeType)) {
+    return NextResponse.json({ error: t('attachments.errors.activeContentBlocked', 'Active content uploads are not allowed.') }, { status: 400 })
+  }
+  const defaultPartitionCode = resolveDefaultPartitionCode(entityId)
+  const resolvedPartitionCode = partitionOverride ?? partitionFromField ?? defaultPartitionCode
   const partitionCodeCandidates = Array.from(
     new Set(
       [partitionOverride, partitionFromField, resolvedPartitionCode].filter(
@@ -300,10 +310,20 @@ export async function POST(req: Request) {
     }
   }
   if (!partition) {
-    partition = await em.findOne(AttachmentPartition, { code: resolveDefaultPartitionCode(entityId) })
+    partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
   }
   if (!partition) {
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
+  }
+  const requestedPublicOverride =
+    typeof partitionOverride === 'string' &&
+    partitionOverride.length > 0 &&
+    partition.code === partitionOverride &&
+    partition.isPublic === true &&
+    partition.code !== defaultPartitionCode &&
+    partition.code !== partitionFromField
+  if (requestedPublicOverride) {
+    return NextResponse.json({ error: t('attachments.errors.publicPartitionBlocked', 'Public storage partitions cannot be selected explicitly for this upload.') }, { status: 403 })
   }
   let stored
   try {
@@ -324,7 +344,6 @@ export async function POST(req: Request) {
       ? Boolean((partition as any).requiresOcr)
       : resolveDefaultAttachmentOcrEnabled()
   let extractedContent: string | null = null
-  const fileMimeType = (file as any).type || 'application/octet-stream'
   const wantsLlmOcr = requiresOcr && shouldUseLlmOcr(fileMimeType, safeName)
   const ocrService = wantsLlmOcr ? new OcrService() : null
   const useLlmOcr = Boolean(wantsLlmOcr && ocrService?.available)
@@ -353,7 +372,7 @@ export async function POST(req: Request) {
     organizationId: auth.orgId!,
     tenantId: auth.tenantId!,
     fileName: safeName,
-    mimeType: (file as any).type || 'application/octet-stream',
+    mimeType: fileMimeType,
     fileSize: buf.length,
     partitionCode: partition.code,
     storageDriver: partition.storageDriver || 'local',
