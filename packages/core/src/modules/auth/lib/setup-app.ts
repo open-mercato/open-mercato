@@ -5,10 +5,9 @@ import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { normalizeTenantId } from './tenantAccess'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
-import type { Module } from '@open-mercato/shared/modules/registry'
+import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
-import { DEFAULT_ENCRYPTION_MAPS } from '@open-mercato/core/modules/entities/lib/encryptionDefaults'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -132,6 +131,8 @@ export async function setupInitialTenant(
     ? defaultRoleNames
     : defaultRoleNames.filter((role) => role !== 'superadmin')
   const roleNames = Array.from(new Set([...resolvedRoleNames, ...primaryRoles]))
+  const resolvedModules = options.modules ?? tryGetModules()
+  const defaultEncryptionMaps = getDefaultEncryptionMaps(resolvedModules)
 
   const mainEmail = primaryUser.email
   const existingUser = await em.findOne(User, { email: mainEmail })
@@ -254,7 +255,7 @@ export async function setupInitialTenant(
       await tem.flush()
 
       if (isTenantDataEncryptionEnabled()) {
-        for (const spec of DEFAULT_ENCRYPTION_MAPS) {
+        for (const spec of defaultEncryptionMaps) {
           const existing = await tem.findOne(EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null })
           if (!existing) {
             tem.persist(tem.create(EncryptionMap, {
@@ -338,7 +339,6 @@ export async function setupInitialTenant(
     await rebuildHierarchyForTenant(em, tenantId)
   }
 
-  const resolvedModules = options.modules ?? tryGetModules()
   await ensureDefaultRoleAcls(em, tenantId, resolvedModules, { includeSuperadminRole })
   await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
 

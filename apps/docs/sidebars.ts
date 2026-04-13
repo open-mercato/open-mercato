@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "user-guide/overview",
         "user-guide/login",
+        "user-guide/self-service-onboarding",
         "user-guide/users-and-roles",
         "user-guide/api-keys",
         "user-guide/feature-toggles",

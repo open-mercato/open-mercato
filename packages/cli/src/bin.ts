@@ -16,6 +16,7 @@ const BOOTSTRAP_FREE_COMMANDS = [
   'module',
   'db',
   'init',
+  'agentic:init',
   'eject',
   'test',
   'test:integration',

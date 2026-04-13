@@ -37,6 +37,9 @@ export class CustomerUser {
   @Property({ name: 'last_login_at', type: Date, nullable: true })
   lastLoginAt?: Date | null
 
+  @Property({ name: 'sessions_revoked_at', type: Date, nullable: true })
+  sessionsRevokedAt?: Date | null
+
   @Property({ name: 'person_entity_id', type: 'uuid', nullable: true })
   @Index({ name: 'customer_users_person_entity_idx' })
   personEntityId?: string | null

@@ -11,6 +11,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { WorkflowInstance, WorkflowEvent } from '../../../../data/entities'
+import { workflowEventRowSchema, paginationSchema } from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -130,13 +131,8 @@ export const openApi = {
           status: 200,
           description: 'List of workflow events',
           schema: z.object({
-            data: z.array(z.any()),
-            pagination: z.object({
-              total: z.number(),
-              limit: z.number(),
-              offset: z.number(),
-              hasMore: z.boolean(),
-            }),
+            data: z.array(workflowEventRowSchema),
+            pagination: paginationSchema,
           }),
         },
         {

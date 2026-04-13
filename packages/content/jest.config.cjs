@@ -5,6 +5,10 @@ module.exports = {
   watchman: false,
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
+  moduleNameMapper: {
+    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+    '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',
+  },
   transform: {
     '^.+\\.(t|j)sx?$': [
       'ts-jest',
@@ -15,6 +19,7 @@ module.exports = {
       },
     ],
   },
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,
 }
