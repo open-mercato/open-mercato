@@ -58,6 +58,16 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Applies to**: `packages/create-app/template/src/modules.ts`, `packages/create-app/template/package.json.template`, template lockfiles, and standalone app smoke tests.
 
+## Package builds that publish `dist/` must clear stale artifacts first
+
+**Context**: Standalone parity started failing during `yarn initialize` because `@open-mercato/core` published a deleted migration file that still existed only in `dist/`.
+
+**Problem**: Package build scripts that only overwrite current entry points leave removed files behind. Standalone/Verdaccio installs consume `dist/`, so stale migrations, routes, or generated outputs can execute even after the source file was deleted.
+
+**Rule**: Any package build that publishes from `dist/` must remove existing `dist/*` contents before rebuilding. Do not rely on esbuild output to implicitly prune deleted files.
+
+**Applies to**: Package `build.mjs` scripts, especially packages consumed by standalone apps through npm/Verdaccio.
+
 ## Fresh standalone Yarn scaffolds must ship a runnable root workspace lockfile entry
 
 **Context**: `create-mercato-app` advertised `yarn setup` as the first command, but the scaffold only shipped an empty `yarn.lock`.
