@@ -3,6 +3,7 @@ import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/a
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { hashOpaqueToken } from '@open-mercato/shared/lib/security/token'
 import { Message, MessageAccessToken, MessageObject, MessageRecipient } from '../../../data/entities'
 import { MAX_TOKEN_USE_COUNT } from '../../../commands/tokens'
 import { messageTokenResponseSchema } from '../../openapi'
@@ -34,7 +35,8 @@ function responseForTokenError(error: unknown): Response | null {
 }
 
 async function resolveTokenAccess(em: EntityManager, token: string): Promise<TokenAccess> {
-  const accessToken = await em.findOne(MessageAccessToken, { token })
+  const tokenHash = hashOpaqueToken(token)
+  const accessToken = await em.findOne(MessageAccessToken, { tokenHash }) ?? await em.findOne(MessageAccessToken, { token })
   if (!accessToken) {
     throw new Error('Invalid or expired link')
   }
