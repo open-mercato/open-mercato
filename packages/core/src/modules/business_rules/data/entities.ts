@@ -23,7 +23,7 @@ export type ExecutionResult = 'SUCCESS' | 'FAILURE' | 'ERROR'
 @Index({ name: 'business_rules_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'business_rules_type_enabled_idx', properties: ['ruleType', 'enabled', 'priority'] })
 export class BusinessRule {
-  [OptionalProps]?: 'enabled' | 'priority' | 'version' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'conditionExpression' | 'enabled' | 'priority' | 'version' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -49,8 +49,8 @@ export class BusinessRule {
   @Property({ name: 'event_type', type: 'varchar', length: 50, nullable: true })
   eventType?: string | null
 
-  @Property({ name: 'condition_expression', type: 'jsonb' })
-  conditionExpression!: any
+  @Property({ name: 'condition_expression', type: 'jsonb', nullable: true })
+  conditionExpression?: any | null
 
   @Property({ name: 'success_actions', type: 'jsonb', nullable: true })
   successActions?: any | null
