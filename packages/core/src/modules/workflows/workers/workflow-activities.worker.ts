@@ -114,6 +114,9 @@ export default async function handle(
           return await executeCallWebhook(payload.activityConfig, activityContext, { signal })
         case 'EXECUTE_FUNCTION':
           return await executeFunction(payload.activityConfig, activityContext, container)
+        case 'WAIT':
+          // Delay already handled by queue's delayMs — return success immediately
+          return { waited: true }
         default:
           throw new Error(`Unsupported activity type: ${payload.activityType}`)
       }

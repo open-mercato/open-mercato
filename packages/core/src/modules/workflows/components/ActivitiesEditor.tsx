@@ -263,6 +263,45 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                 </div>
               </div>
 
+              {activity.activityType === 'WAIT' && (
+                <div className="space-y-3">
+                  <div>
+                    <Label htmlFor={`activity-${index}-duration`} className="text-xs">
+                      {t('workflows.activities.waitDuration')}
+                    </Label>
+                    <Input
+                      id={`activity-${index}-duration`}
+                      value={activity.config?.duration || ''}
+                      onChange={(e) => updateActivity(index, 'config', { ...activity.config, duration: e.target.value, until: undefined })}
+                      placeholder={t('workflows.activities.waitDurationPlaceholder')}
+                      disabled={!!activity.config?.until}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('workflows.activities.waitDurationDescription')}
+                    </p>
+                  </div>
+                  <div className="text-xs text-center text-muted-foreground">{t('common.or')}</div>
+                  <div>
+                    <Label htmlFor={`activity-${index}-until`} className="text-xs">
+                      {t('workflows.activities.waitUntil')}
+                    </Label>
+                    <Input
+                      id={`activity-${index}-until`}
+                      type="datetime-local"
+                      value={activity.config?.until ? activity.config.until.slice(0, 16) : ''}
+                      onChange={(e) => updateActivity(index, 'config', { ...activity.config, until: e.target.value ? new Date(e.target.value).toISOString() : undefined, duration: undefined })}
+                      disabled={!!activity.config?.duration}
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {t('workflows.activities.waitUntilDescription')}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {activity.activityType !== 'WAIT' && (
               <div>
                 <Label htmlFor={`activity-${index}-config`} className="text-xs">
                   {t('workflows.activities.config')} (JSON)
@@ -283,6 +322,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                   className="mt-1 font-mono text-xs"
                 />
               </div>
+              )}
             </div>
           </div>
         ))}
