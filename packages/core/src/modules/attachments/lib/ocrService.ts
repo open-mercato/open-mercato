@@ -2,7 +2,6 @@ import { generateText } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 import fs from 'fs/promises'
 import path from 'path'
-import { preparePdfPagesForOcr } from './pdfProcessing'
 
 export type OcrServiceOptions = {
   apiKey?: string
@@ -189,6 +188,7 @@ export class OcrService {
     const startTime = Date.now()
     const { filePath, model } = input
     const resolvedModel = model ?? this.defaultModel
+    const { preparePdfPagesForOcr } = await import('./pdfProcessing')
     const preparedPdf = await preparePdfPagesForOcr(filePath)
 
     if (preparedPdf.pageCount === 0) {

@@ -63,6 +63,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    t: (_key: string, fallback: string) => fallback,
+    translate: (_key: string, fallback: string) => fallback,
+  })),
+}))
+
 // Avoid touching disk
 import { promises as fsp } from 'fs'
 jest.spyOn(fsp, 'mkdir').mockResolvedValue(undefined as any)
@@ -177,6 +184,7 @@ describe('attachments API', () => {
   })
 
   it('rejects files that exceed the default global upload limit without field config', async () => {
+    const { POST: upload } = await loadHandlers()
     process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '0.0005'
     const file = new File([new Uint8Array(1024)], 'doc.pdf', { type: 'application/pdf' })
     const fd = new FormData()
@@ -191,6 +199,7 @@ describe('attachments API', () => {
   })
 
   it('rejects uploads that exceed the tenant storage quota', async () => {
+    const { POST: upload } = await loadHandlers()
     process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
     mockEm.getConnection.mockReturnValue({
       getKnex: () => {
