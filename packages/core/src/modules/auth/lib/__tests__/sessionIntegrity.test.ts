@@ -195,12 +195,20 @@ describe('isAuthContextValid', () => {
     ).resolves.toBe(true)
   })
 
-  it('rejects legacy tokens without an sid claim so clients must re-authenticate', async () => {
+  it('rejects tokens without sid that are not flagged as legacy', async () => {
     await expect(
       isAuthContextValid(em, { sub: userId, tenantId, orgId: organizationId, roles: [] }),
     ).resolves.toBe(false)
 
     expect(findOneWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('accepts legacy tokens without sid when _legacyToken flag is set (grace period)', async () => {
+    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+
+    await expect(
+      isAuthContextValid(em, { sub: userId, tenantId, orgId: organizationId, roles: [], _legacyToken: true }),
+    ).resolves.toBe(true)
   })
 
   it('rejects tokens whose referenced session has been deleted (logout/password reset)', async () => {

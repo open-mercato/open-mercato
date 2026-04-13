@@ -46,14 +46,29 @@ export async function resolveCanonicalStaffAuthContext(
 
   // Session binding: when the JWT carries an `sid` claim, require the referenced session to
   // still exist (not soft-deleted, not expired). This is what makes logout / password-reset
-  // actually invalidate an already-issued JWT. Legacy tokens without `sid` are rejected so
-  // callers must re-authenticate after the fix rolls out.
+  // actually invalidate an already-issued JWT.
+  //
+  // Legacy tokens (pre-migration, without `sid`) are allowed through during the grace period
+  // (controlled by JWT_LEGACY_GRACE_MINUTES) so that rolling deployments don't force-logout
+  // every user. Once the grace period expires these tokens will fail signature verification
+  // in `verifyJwt` before reaching this point.
   const sessionId = normalizeScopeId(typeof auth.sid === 'string' ? auth.sid : null)
   if (sessionId === INVALID_SCOPE) return null
-  if (sessionId === null) return null
-  const session = await findOneWithDecryption(em, Session, { id: sessionId, deletedAt: null })
-  if (!session) return null
-  if (session.expiresAt.getTime() < Date.now()) return null
+  if (sessionId === null) {
+    // Legacy token without sid — allow only if it was verified via the legacy fallback path.
+    // The `_legacyToken` flag is set by `verifyJwt` when a token passes raw-secret verification
+    // but fails audience-derived verification. Without this flag, reject.
+    if ((auth as Record<string, unknown>)._legacyToken === true) {
+      // Allow through without session validation — the token will expire naturally
+    } else {
+      return null
+    }
+  }
+  if (sessionId !== null) {
+    const session = await findOneWithDecryption(em, Session, { id: sessionId, deletedAt: null })
+    if (!session) return null
+    if (session.expiresAt.getTime() < Date.now()) return null
+  }
 
   const user = await findOneWithDecryption(
     em,

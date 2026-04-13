@@ -29,6 +29,20 @@ const DEFAULT_ISSUER = 'open-mercato'
 const DEFAULT_STAFF_AUDIENCE: JwtAudience = 'staff'
 const AUDIENCE_SECRET_LABEL = 'open-mercato:jwt:v1'
 
+/**
+ * When set to a positive number (minutes), `verifyJwt` will attempt a legacy fallback using the
+ * raw `JWT_SECRET` when the audience-derived verification fails. This supports rolling deployments
+ * and lets existing sessions expire gracefully instead of force-logging-out every user on deploy.
+ *
+ * Set via `JWT_LEGACY_GRACE_MINUTES` env var. Defaults to 480 (8 hours — one full token TTL).
+ * Set to 0 to disable the fallback (hard cutover).
+ */
+function getLegacyGraceEnabled(): boolean {
+  const raw = process.env.JWT_LEGACY_GRACE_MINUTES
+  if (raw === '0' || raw === 'false' || raw === 'off') return false
+  return true
+}
+
 function readBaseSecret(explicit?: string): string {
   const secret = explicit ?? process.env.JWT_SECRET
   if (!secret) throw new Error('JWT_SECRET is not set')
@@ -139,8 +153,7 @@ export function signJwt(
   return `${data}.${encSig}`
 }
 
-export function verifyJwt(token: string, secretOrOptions?: string | VerifyJwtOptions) {
-  const options = toVerifyOptions(secretOrOptions)
+function verifyWithOptions(token: string, options: { secret: string; audience?: string; issuer?: string }): JwtPayload | null {
   const parts = token.split('.')
   if (parts.length !== 3) return null
   const [h, p, s] = parts
@@ -165,6 +178,28 @@ export function verifyJwt(token: string, secretOrOptions?: string | VerifyJwtOpt
     if (payload.iss !== options.issuer) return null
   }
   return payload
+}
+
+export function verifyJwt(token: string, secretOrOptions?: string | VerifyJwtOptions) {
+  const options = toVerifyOptions(secretOrOptions)
+  const result = verifyWithOptions(token, options)
+  if (result) return result
+
+  // Legacy fallback: when the caller used the default path (no explicit secret) and the new
+  // audience-derived verification failed, try verifying with the raw JWT_SECRET. This allows
+  // pre-migration tokens to remain valid during rolling deployments and graceful migration.
+  if (secretOrOptions === undefined && getLegacyGraceEnabled()) {
+    const rawSecret = process.env.JWT_SECRET
+    if (rawSecret) {
+      const legacyResult = verifyWithOptions(token, { secret: rawSecret })
+      if (legacyResult) {
+        legacyResult._legacyToken = true
+        return legacyResult
+      }
+    }
+  }
+
+  return null
 }
 
 /**

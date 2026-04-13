@@ -209,4 +209,52 @@ describe('jwt helpers', () => {
       expect(verifyJwt(token)).not.toBeNull()
     })
   })
+
+  describe('legacy grace period fallback', () => {
+    const baseSecret = 'test-secret'
+    const originalJwtSecret = process.env.JWT_SECRET
+    const originalGrace = process.env.JWT_LEGACY_GRACE_MINUTES
+
+    beforeEach(() => {
+      process.env.JWT_SECRET = baseSecret
+      delete process.env.JWT_LEGACY_GRACE_MINUTES
+    })
+
+    afterEach(() => {
+      process.env.JWT_SECRET = originalJwtSecret
+      if (originalGrace === undefined) delete process.env.JWT_LEGACY_GRACE_MINUTES
+      else process.env.JWT_LEGACY_GRACE_MINUTES = originalGrace
+    })
+
+    it('verifies a pre-migration token signed with raw JWT_SECRET via legacy fallback', () => {
+      // Simulate a pre-migration token: signed with raw secret, no aud/iss
+      const legacyToken = signJwt({ sub: 'legacy-user', roles: ['admin'] }, baseSecret, 3600)
+      // Default verifyJwt (audience-derived) should fail, but legacy fallback should succeed
+      const payload = verifyJwt(legacyToken)
+      expect(payload).not.toBeNull()
+      expect(payload).toMatchObject({ sub: 'legacy-user', roles: ['admin'] })
+      expect((payload as Record<string, unknown>)._legacyToken).toBe(true)
+    })
+
+    it('does not use legacy fallback when grace period is disabled', () => {
+      process.env.JWT_LEGACY_GRACE_MINUTES = '0'
+      const legacyToken = signJwt({ sub: 'legacy-user' }, baseSecret, 3600)
+      expect(verifyJwt(legacyToken)).toBeNull()
+    })
+
+    it('does not use legacy fallback when an explicit secret is provided', () => {
+      const wrongSecret = 'wrong-secret'
+      const token = signJwt({ sub: 'user-1' }, baseSecret, 3600)
+      // Explicit secret that doesn't match — should fail, no fallback
+      expect(verifyJwt(token, wrongSecret)).toBeNull()
+    })
+
+    it('new audience tokens still verify directly without needing fallback', () => {
+      const newToken = signJwt({ sub: 'new-user' })
+      const payload = verifyJwt(newToken)
+      expect(payload).not.toBeNull()
+      expect(payload).toMatchObject({ sub: 'new-user', aud: 'staff', iss: 'open-mercato' })
+      expect((payload as Record<string, unknown>)._legacyToken).toBeUndefined()
+    })
+  })
 })

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { verifyAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -82,12 +82,17 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
   if (!token) return null
 
   try {
-    const payload = verifyAudienceJwt(CUSTOMER_JWT_AUDIENCE, token) as Record<string, unknown> | null
+    let payload = verifyAudienceJwt(CUSTOMER_JWT_AUDIENCE, token) as Record<string, unknown> | null
+    // Legacy fallback: try raw JWT_SECRET for pre-migration customer tokens
+    if (!payload) {
+      payload = verifyJwt(token) as Record<string, unknown> | null
+      if (payload) payload._legacyToken = true
+    }
     if (!payload) return null
     if (payload.type !== 'customer') return null
     const sid = typeof payload.sid === 'string' ? payload.sid : ''
-    if (!sid) return null
-    const stillActive = await assertSessionStillActive(sid)
+    if (!sid && payload._legacyToken !== true) return null
+    const stillActive = sid ? await assertSessionStillActive(sid) : true
     if (!stillActive) return null
 
     try {
