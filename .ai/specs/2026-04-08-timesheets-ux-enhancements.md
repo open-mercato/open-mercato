@@ -449,10 +449,19 @@ WHERE EXISTS (
 - Color dots in grid rows, "+ Add row" dropdown, timer project selector
 
 **Step 9**: Integration tests
+Status: **Deferred** (as of 2026-04-13).
+
+Rationale: the staff module is scheduled to be extracted to a dedicated
+repository. Integration tests will be authored after the extraction so
+that Playwright fixtures, selectors, and paths are stable in their final
+location. Unit coverage for `colors.ts` is included in this PR.
+
+Original test scenarios (to be implemented post-extraction):
 - Update existing TC-STAFF-020 (grid) for weekly view
 - New test: timer bar start/stop flow
 - New test: "+ Add row" and project creation from grid
 - New test: list view rendering
+- New test: color picker selection and persistence
 
 ### File Manifest
 
@@ -560,9 +569,23 @@ WHERE EXISTS (
 
 **Fully compliant** — ready for implementation.
 
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Weekly View & Navigation | Done | 2026-04-10 | Steps 1-3 complete |
+| Phase 2 — Timer Bar & Project Management | Done | 2026-04-13 | Steps 4-6.5 complete (6.5 = show_in_grid + remove row) |
+| Phase 3 — Project Colors & Polish | Done | 2026-04-13 | Steps 7-8 complete. Step 9 (integration tests) deferred to post-module-extraction |
+
+### Phase 3 — Detailed Progress
+- [x] Step 7: Color field migration + entity update + validators + command snapshots
+- [x] Step 8: ColorPicker + ProjectColorDot components; color dots in grid, AddRowDropdown, TimerBar, ListView; color field in projectFormConfig; i18n (4 langs)
+- [ ] Step 9: Integration tests (deferred — staff module extraction pending)
+
 ## Changelog
 
 ### 2026-04-13
+- **Phase 3 (Steps 7-8)**: Added `color` varchar(20) nullable to `staff_time_projects`. Created `PROJECT_COLORS` 12-color palette with `autoColorFromName` hash fallback. `ColorPicker` component (12 dots + Auto reset). `ProjectColorDot` helper rendered in grid rows, AddRowDropdown, TimerBar project selector/active tag, and ListView entries. Color field added to project create/edit `CrudForm` via custom field type. i18n keys for 4 languages. Unit tests for colors.ts (13 tests). Step 9 integration tests deferred to post-module-extraction.
 - Added `show_in_grid` boolean to `staff_time_project_members` (additive migration + backfill) to persist per-user grid membership. This closed a gap in the original spec: the design decision "projects don't auto-appear in grid — user controls which projects are visible" did not define a persistence mechanism, so "+ Add row" was only updating local React state.
 - Added new self-service endpoint `PATCH /api/staff/timesheets/my-projects/{projectId}` (guarded by `staff.timesheets.manage_own`) so the same user who owns the assignment can toggle visibility without needing the admin-only `staff.timesheets.projects.manage` feature.
 - Added X remove button on grid rows with a confirm dialog; new i18n keys for remove/add errors. Remove preserves all existing time entries (only flips visibility).

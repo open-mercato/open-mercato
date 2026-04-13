@@ -17,10 +17,11 @@ import { ListView } from '../../../lib/timesheets-ui/ListView'
 import { TimerBar } from '../../../lib/timesheets-ui/TimerBar'
 import { AddRowDropdown } from '../../../lib/timesheets-ui/AddRowDropdown'
 import { CreateProjectDialog } from '../../../lib/timesheets-ui/CreateProjectDialog'
+import { ProjectColorDot } from '../../../lib/timesheets-ui/ProjectColorDot'
 
 // --- Types ---
 
-type ProjectRow = { id: string; name: string; code: string | null }
+type ProjectRow = { id: string; name: string; code: string | null; color?: string | null }
 type CellEntry = { id?: string; minutes: number }
 type EntryMap = Record<string, Record<string, CellEntry[]>>
 type DirtyMap = Record<string, Record<string, CellEntry>>
@@ -293,6 +294,7 @@ export default function MyTimesheetsPage() {
         id: String(item.id ?? ''),
         name: String(item.name ?? ''),
         code: typeof item.code === 'string' ? item.code : null,
+        color: typeof item.color === 'string' ? item.color : null,
       }))
       setAllAssignedProjects(mappedProjects)
       const visibleProjects = mappedProjects.filter((p) => visibleProjectIdSet.has(p.id))
@@ -474,6 +476,7 @@ export default function MyTimesheetsPage() {
       projectId: String(item.time_project_id ?? item.timeProjectId ?? ''),
       projectName: projects.find((p) => p.id === String(item.time_project_id ?? item.timeProjectId ?? ''))?.name ?? '',
       projectCode: projects.find((p) => p.id === String(item.time_project_id ?? item.timeProjectId ?? ''))?.code ?? null,
+      projectColor: projects.find((p) => p.id === String(item.time_project_id ?? item.timeProjectId ?? ''))?.color ?? null,
       notes: typeof item.notes === 'string' ? item.notes : null,
       source: typeof item.source === 'string' ? item.source : 'manual',
       startedAt: typeof item.started_at === 'string' ? item.started_at : typeof item.startedAt === 'string' ? item.startedAt : null,
@@ -699,7 +702,7 @@ export default function MyTimesheetsPage() {
             </div>
           </div>
         ) : viewType === 'list' ? (
-          <ListView entries={listViewEntries} />
+          <ListView entries={listViewEntries} onEntryUpdated={loadData} />
         ) : (
           <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm table-fixed">
@@ -739,8 +742,9 @@ export default function MyTimesheetsPage() {
                     <td className="sticky left-0 z-10 bg-background px-3 py-1.5 font-medium">
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="truncate" title={project.name}>
-                            {project.name}
+                          <div className="flex items-center gap-1.5 truncate" title={project.name}>
+                            <ProjectColorDot colorKey={project.color} projectName={project.name} size="sm" />
+                            <span className="truncate">{project.name}</span>
                           </div>
                           {project.code && (
                             <div className="text-[10px] text-muted-foreground">{project.code}</div>

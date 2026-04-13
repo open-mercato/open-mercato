@@ -1,4 +1,12 @@
 import { z } from 'zod'
+import { PROJECT_COLOR_KEYS } from '../lib/timesheets-ui/colors'
+
+const projectColorSchema = z
+  .string()
+  .refine(
+    (value) => (PROJECT_COLOR_KEYS as readonly string[]).includes(value),
+    { message: 'Invalid project color key.' },
+  )
 
 const tagsSchema = z.array(z.string().min(1)).optional().default([])
 
@@ -311,6 +319,7 @@ export const staffTimeProjectCreateSchema = z.object({
   code: projectCodeSchema,
   description: z.string().max(2000).optional().nullable(),
   projectType: z.string().max(100).optional().nullable(),
+  color: projectColorSchema.optional().nullable(),
   status: timeProjectStatusSchema.optional().default('active'),
   ownerUserId: z.string().uuid().optional().nullable(),
   costCenter: z.string().max(100).optional().nullable(),
@@ -324,6 +333,7 @@ export const staffTimeProjectUpdateSchema = z.object({
   code: projectCodeSchema.optional(),
   description: z.string().max(2000).optional().nullable(),
   projectType: z.string().max(100).optional().nullable(),
+  color: projectColorSchema.optional().nullable(),
   status: timeProjectStatusSchema.optional(),
   ownerUserId: z.string().uuid().optional().nullable(),
   costCenter: z.string().max(100).optional().nullable(),

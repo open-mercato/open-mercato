@@ -1861,6 +1861,16 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "color": {
+          "name": "color",
+          "type": "varchar(20)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 20,
+          "mappedType": "string"
+        },
         "status": {
           "name": "status",
           "type": "text",

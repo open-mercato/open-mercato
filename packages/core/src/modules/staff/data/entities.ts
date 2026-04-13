@@ -490,6 +490,9 @@ export class StaffTimeProject {
   @Property({ name: 'project_type', type: 'text', nullable: true })
   projectType?: string | null
 
+  @Property({ type: 'varchar', length: 20, nullable: true })
+  color?: string | null
+
   @Enum({ items: ['active', 'on_hold', 'completed'], type: 'text', name: 'status', default: 'active' })
   status: StaffTimeProjectStatus = 'active'
 

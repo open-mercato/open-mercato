@@ -28,6 +28,7 @@ type TimeProjectSnapshot = {
   code: string
   description: string | null
   projectType: string | null
+  color: string | null
   status: string
   ownerUserId: string | null
   costCenter: string | null
@@ -71,6 +72,7 @@ async function loadTimeProjectSnapshot(em: EntityManager, id: string): Promise<T
     code: project.code,
     description: project.description ?? null,
     projectType: project.projectType ?? null,
+    color: project.color ?? null,
     status: project.status,
     ownerUserId: project.ownerUserId ?? null,
     costCenter: project.costCenter ?? null,
@@ -114,6 +116,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
       code: parsed.code,
       description: parsed.description ?? null,
       projectType: parsed.projectType ?? null,
+      color: parsed.color ?? null,
       status: parsed.status ?? 'active',
       ownerUserId: parsed.ownerUserId ?? null,
       costCenter: parsed.costCenter ?? null,
@@ -217,6 +220,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     if (parsed.code !== undefined) project.code = parsed.code
     if (parsed.description !== undefined) project.description = parsed.description ?? null
     if (parsed.projectType !== undefined) project.projectType = parsed.projectType ?? null
+    if (parsed.color !== undefined) project.color = parsed.color ?? null
     if (parsed.status !== undefined) project.status = parsed.status
     if (parsed.ownerUserId !== undefined) project.ownerUserId = parsed.ownerUserId ?? null
     if (parsed.costCenter !== undefined) project.costCenter = parsed.costCenter ?? null
@@ -250,6 +254,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
       'code',
       'description',
       'projectType',
+      'color',
       'status',
       'ownerUserId',
       'costCenter',
@@ -286,6 +291,7 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
     project.code = before.code
     project.description = before.description ?? null
     project.projectType = before.projectType ?? null
+    project.color = before.color ?? null
     project.status = (before.status ?? 'active') as StaffTimeProjectStatus
     project.ownerUserId = before.ownerUserId ?? null
     project.costCenter = before.costCenter ?? null

@@ -7,11 +7,13 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ProjectColorDot } from './ProjectColorDot'
 
 type ProjectOption = {
   id: string
   name: string
   code: string | null
+  color?: string | null
 }
 
 type TimerBarProps = {
@@ -231,7 +233,8 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
       <div className="relative" ref={dropdownRef}>
         {isRunning ? (
           activeProject ? (
-            <span className="text-xs font-medium px-2 py-1 rounded border bg-muted">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded border bg-muted">
+              <ProjectColorDot colorKey={activeProject.color} projectName={activeProject.name} size="xs" />
               {activeProject.name}
             </span>
           ) : null
@@ -248,7 +251,7 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
               className="text-xs font-medium"
             >
               {selectedProject
-                ? selectedProject.name
+                ? (<><ProjectColorDot colorKey={selectedProject.color} projectName={selectedProject.name} size="xs" /><span className="ml-1">{selectedProject.name}</span></>)
                 : t('staff.timesheets.my.timer.selectProject', 'Project')}
             </Button>
 
@@ -287,7 +290,8 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
                           setProjectFilter('')
                         }}
                       >
-                        {project.name}
+                        <ProjectColorDot colorKey={project.color} projectName={project.name} size="xs" />
+                        <span className="ml-1">{project.name}</span>
                         {project.code ? (
                           <span className="ml-1 text-muted-foreground">
                             ({project.code})

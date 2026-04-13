@@ -5,11 +5,13 @@ import { createPortal } from 'react-dom'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Plus, Search } from 'lucide-react'
+import { ProjectColorDot } from './ProjectColorDot'
 
 type ProjectOption = {
   id: string
   name: string
   code: string | null
+  color?: string | null
 }
 
 type AddRowDropdownProps = {
@@ -145,7 +147,8 @@ export function AddRowDropdown({
               className="w-full justify-start rounded-none px-3 py-2 text-sm cursor-pointer hover:bg-muted transition-colors"
               onClick={() => handleSelectProject(project)}
             >
-              {project.name}
+              <ProjectColorDot colorKey={project.color} projectName={project.name} size="sm" />
+              <span className="ml-1.5">{project.name}</span>
             </Button>
           ))
         )}

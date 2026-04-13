@@ -1,6 +1,9 @@
+import * as React from 'react'
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { ColorPicker } from '../../../../lib/timesheets-ui/ColorPicker'
+import { PROJECT_COLOR_KEYS } from '../../../../lib/timesheets-ui/colors'
 
 export type ProjectFormValues = {
   id?: string
@@ -8,6 +11,7 @@ export type ProjectFormValues = {
   code: string
   description?: string | null
   projectType?: string | null
+  color?: string | null
   startDate?: string | null
   costCenter?: string | null
   status?: string
@@ -19,6 +23,14 @@ export function createProjectFormSchema() {
     code: z.string().min(1).max(50).regex(/^[a-zA-Z0-9-]+$/),
     description: z.string().max(2000).optional().nullable(),
     projectType: z.string().max(100).optional().nullable(),
+    color: z
+      .string()
+      .refine(
+        (value) => (PROJECT_COLOR_KEYS as readonly string[]).includes(value),
+        { message: 'Invalid project color key.' },
+      )
+      .optional()
+      .nullable(),
     startDate: z.string().optional().nullable(),
     costCenter: z.string().max(100).optional().nullable(),
     status: z.enum(['active', 'on_hold', 'completed']).optional(),
@@ -64,6 +76,19 @@ export function createProjectFormFields(t: TranslateFn): CrudField[] {
       placeholder: t('staff.timesheets.projects.form.projectTypePlaceholder', 'e.g. Internal, Client, R&D'),
     },
     {
+      id: 'color',
+      type: 'custom',
+      label: t('staff.timesheets.projects.form.color', 'Project color'),
+      component: ({ value, setValue }) => {
+        const current = typeof value === 'string' ? value : null
+        return React.createElement(ColorPicker, {
+          value: current,
+          onChange: (next: string | null) => setValue(next),
+          resetLabel: t('staff.timesheets.projects.form.colorAuto', 'Auto'),
+        })
+      },
+    },
+    {
       id: 'startDate',
       type: 'date',
       label: t('staff.timesheets.projects.form.startDate', 'Start date'),
@@ -82,7 +107,7 @@ export function createProjectFormGroups(t: TranslateFn): CrudFormGroup[] {
     {
       id: 'main',
       title: t('staff.timesheets.projects.form.groupMain', 'Project Details'),
-      fields: ['name', 'code', 'status', 'projectType', 'startDate'],
+      fields: ['name', 'code', 'status', 'color', 'projectType', 'startDate'],
     },
     {
       id: 'details',
@@ -102,6 +127,8 @@ export function buildProjectPayload(values: ProjectFormValues): Record<string, u
   else payload.description = null
   if (values.projectType?.trim()) payload.projectType = values.projectType.trim()
   else payload.projectType = null
+  if (values.color?.trim()) payload.color = values.color.trim()
+  else payload.color = null
   if (values.startDate) payload.startDate = values.startDate
   else payload.startDate = null
   if (values.costCenter?.trim()) payload.costCenter = values.costCenter.trim()
