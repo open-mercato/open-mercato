@@ -4,6 +4,11 @@ import type { AwilixContainer } from 'awilix'
 import { executeCallApi } from '../activity-executor'
 import type { WorkflowInstance } from '../../data/entities'
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(async (em: any, Entity: any, query: any) => em.findOne(Entity, query)),
+  findWithDecryption: jest.fn(async (em: any, Entity: any, query: any, opts: any) => em.find(Entity, query, opts)),
+}))
+
 jest.setTimeout(20000)
 
 // Mock fetch globally
@@ -38,15 +43,36 @@ describe('executeCallApi', () => {
       persistAndFlush: jest.fn(),
       removeAndFlush: jest.fn(),
       findOne: jest.fn((Entity: any, query: any) => {
-        // Mock Role lookup for admin role
-        if (Entity.name === 'Role' || query.name?.$in) {
+        const entityName = Entity?.name ?? ''
+        if (entityName === 'WorkflowDefinition') {
           return Promise.resolve({
-            id: 'admin-role-uuid-123',
-            name: 'superadmin',
+            id: 'def-123',
             tenantId: query.tenantId || 'tenant-456',
+            createdBy: 'author-user-789',
+          })
+        }
+        if (entityName === 'User') {
+          return Promise.resolve({
+            id: 'author-user-789',
+            tenantId: query.tenantId || 'tenant-456',
+            deletedAt: null,
           })
         }
         return Promise.resolve(null)
+      }),
+      find: jest.fn((Entity: any, query: any) => {
+        const entityName = Entity?.name ?? ''
+        if (entityName === 'UserRole') {
+          return Promise.resolve([
+            { id: 'ur-1', user: 'author-user-789', role: { id: 'role-author-uuid' } },
+          ])
+        }
+        if (entityName === 'Role') {
+          return Promise.resolve([
+            { id: 'role-author-uuid', name: 'author-role', tenantId: query.tenantId || 'tenant-456' },
+          ])
+        }
+        return Promise.resolve([])
       }),
     } as any
 
@@ -61,6 +87,7 @@ describe('executeCallApi', () => {
     // Mock workflow context
     const workflowInstance: Partial<WorkflowInstance> = {
       id: 'wf-instance-123',
+      definitionId: 'def-123',
       workflowId: 'checkout-demo',
       tenantId: 'tenant-456',
       organizationId: 'org-789',
@@ -420,5 +447,98 @@ describe('executeCallApi', () => {
     // Verify other fields are still strings (single variable interpolations)
     expect(typeof sentBody.customerEntityId).toBe('string')
     expect(typeof sentBody.currencyCode).toBe('string')
+  })
+
+  describe('privilege escalation regression (no auto-admin)', () => {
+    it('uses the workflow author roles, not an admin-by-name lookup', async () => {
+      mockFetch.mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Map([['content-type', 'application/json']]),
+        json: async () => ({}),
+      } as any)
+
+      await executeCallApi(
+        mockEm,
+        { endpoint: '/api/sales/orders', method: 'GET' },
+        mockContext,
+        mockContainer,
+      )
+
+      expect(createdApiKeys.length).toBe(1)
+      expect(createdApiKeys[0].rolesJson).toEqual(['role-author-uuid'])
+
+      const findOneMock = mockEm.findOne as unknown as jest.Mock
+      const roleLookups = findOneMock.mock.calls.filter(([Entity, query]: any[]) => {
+        const name = (Entity as { name?: string } | undefined)?.name
+        if (name !== 'Role') return false
+        return typeof query === 'object' && query !== null && 'name' in (query as Record<string, unknown>)
+      })
+      expect(roleLookups).toHaveLength(0)
+    })
+
+    it('refuses to run when the workflow definition has no createdBy', async () => {
+      ;(mockEm.findOne as unknown as jest.Mock).mockImplementation((Entity: any, query: any) => {
+        const entityName = Entity?.name ?? ''
+        if (entityName === 'WorkflowDefinition') {
+          return Promise.resolve({
+            id: 'def-123',
+            tenantId: query.tenantId || 'tenant-456',
+            createdBy: null,
+          })
+        }
+        return Promise.resolve(null)
+      })
+
+      await expect(
+        executeCallApi(
+          mockEm,
+          { endpoint: '/api/sales/orders', method: 'GET' },
+          mockContext,
+          mockContainer,
+        ),
+      ).rejects.toThrow(/Refusing to execute CALL_API/)
+
+      expect(createdApiKeys.length).toBe(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('refuses to run when the author user has no active roles', async () => {
+      ;(mockEm.find as unknown as jest.Mock).mockImplementation((Entity: any) => {
+        const entityName = Entity?.name ?? ''
+        if (entityName === 'UserRole') return Promise.resolve([])
+        if (entityName === 'Role') return Promise.resolve([])
+        return Promise.resolve([])
+      })
+
+      await expect(
+        executeCallApi(
+          mockEm,
+          { endpoint: '/api/sales/orders', method: 'GET' },
+          mockContext,
+          mockContainer,
+        ),
+      ).rejects.toThrow(/Refusing to execute CALL_API/)
+
+      expect(createdApiKeys.length).toBe(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('refuses to run when the workflow instance has no definitionId', async () => {
+      mockContext.workflowInstance.definitionId = undefined
+
+      await expect(
+        executeCallApi(
+          mockEm,
+          { endpoint: '/api/sales/orders', method: 'GET' },
+          mockContext,
+          mockContainer,
+        ),
+      ).rejects.toThrow(/Refusing to execute CALL_API/)
+
+      expect(createdApiKeys.length).toBe(0)
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
   })
 })
