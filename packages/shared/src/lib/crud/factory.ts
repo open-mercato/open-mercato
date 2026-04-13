@@ -74,6 +74,45 @@ function resolveSortParams(queryParams: Record<string, unknown>) {
   const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
   return { sortField, sortDir }
 }
+/**
+ * Translates column-name filter keys to MikroORM property names so the ORM
+ * fallback path can apply buildFilters correctly.  Without this, filters like
+ * `{ entity_id: { $eq: uuid } }` are silently ignored by MikroORM when the
+ * underlying property is a @ManyToOne relation named `entity`.
+ *
+ * Uses em.getMetadata() to build a fieldName -> propertyName map at runtime.
+ */
+function translateFiltersForOrm(
+  filters: Record<string, unknown>,
+  em: any,
+  entityClass: any,
+): Record<string, unknown> {
+  if (!filters || typeof filters !== 'object') return filters
+  try {
+    const metadata = em?.getMetadata?.()
+    if (!metadata) return filters
+    const meta = metadata.find?.(entityClass.name ?? entityClass)
+    if (!meta?.properties) return filters
+    const columnToProperty = new Map<string, string>()
+    for (const [propName, propMeta] of Object.entries<any>(meta.properties)) {
+      const fieldNames: string[] = propMeta.fieldNames ?? []
+      for (const fn of fieldNames) {
+        if (fn !== propName) {
+          columnToProperty.set(fn, propName)
+        }
+      }
+    }
+    if (columnToProperty.size === 0) return filters
+    const translated: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(filters)) {
+      const mappedKey = columnToProperty.get(key) ?? key
+      translated[mappedKey] = value
+    }
+    return translated
+  } catch {
+    return filters
+  }
+}
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
   beforeList?: (q: TList, ctx: CrudCtx) => Promise<void> | void
@@ -1626,8 +1665,13 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const mergedFallbackFilters = exportFullRequested
         ? fallbackFilters
         : mergeIdFilter(fallbackFilters, parsedIds)
-      const where: any = buildScopedWhere(
+      const ormFilters = translateFiltersForOrm(
         mergedFallbackFilters as Record<string, any>,
+        em,
+        ormCfg.entity,
+      )
+      const where: any = buildScopedWhere(
+        ormFilters as Record<string, any>,
         {
           organizationId: ormCfg.orgField ? (ctx.selectedOrganizationId ?? ctx.auth.orgId ?? null) : undefined,
           organizationIds: ormCfg.orgField ? ctx.organizationIds ?? undefined : undefined,
