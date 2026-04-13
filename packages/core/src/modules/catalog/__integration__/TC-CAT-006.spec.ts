@@ -40,7 +40,7 @@ test.describe('TC-CAT-006: Edit Product Variant', () => {
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(updatedSku);
       await page.getByRole('button', { name: 'Save changes' }).last().click();
 
-      await expect(page.getByText(updatedSku, { exact: true })).toBeVisible();
+      await expect(page.locator(`[title="${updatedSku}"]`)).toBeVisible();
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);
     }
