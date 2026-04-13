@@ -79,19 +79,27 @@ If the issue is ambiguous, try to infer the intended behavior from code, tests, 
 
 ### 4. Create an isolated issue-fix worktree
 
-Never implement the fix in the user’s active worktree.
+Never implement the fix in the repository’s primary worktree.
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
 WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/fix-github-issue"
-WORKTREE_DIR="$WORKTREE_PARENT/issue-{issueId}-$(date +%Y%m%d-%H%M%S)"
+CREATED_WORKTREE=0
 
-mkdir -p "$WORKTREE_PARENT"
-git fetch origin {defaultBranch}
-git worktree add --detach "$WORKTREE_DIR" "origin/{defaultBranch}"
+if [ "$GIT_DIR" != "$GIT_COMMON_DIR" ]; then
+  WORKTREE_DIR="$PWD"
+else
+  WORKTREE_DIR="$WORKTREE_PARENT/issue-{issueId}-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$WORKTREE_PARENT"
+  git fetch origin {defaultBranch}
+  git worktree add --detach "$WORKTREE_DIR" "origin/{defaultBranch}"
+  CREATED_WORKTREE=1
+fi
 
 cd "$WORKTREE_DIR"
-git switch -c "codex/issue-{issueId}-{slug}"
+git checkout -B "codex/issue-{issueId}-{slug}" "origin/{defaultBranch}"
 yarn install --mode=skip-build
 ```
 
@@ -99,9 +107,19 @@ If `--mode=skip-build` is unavailable, run plain `yarn install`.
 
 Rules:
 
-- The main worktree must remain untouched.
+- If you are already in a linked worktree, reuse it instead of creating a nested worktree.
+- The repository’s main worktree must remain untouched.
 - All debugging, code changes, testing, and PR prep happen inside the isolated worktree.
-- Always clean up the temporary worktree at the end.
+- Always clean up the temporary worktree at the end, but only if you created it in this run.
+
+Cleanup sequence:
+
+```bash
+cd "$REPO_ROOT"
+if [ "$CREATED_WORKTREE" = "1" ]; then
+  git worktree remove --force "$WORKTREE_DIR"
+fi
+```
 
 ### 5. Reproduce or anchor the bug
 
@@ -269,6 +287,7 @@ If you stopped because a fix already exists, report the existing PR or commit in
 
 - Always check whether the issue is already solved before writing code
 - Always use an isolated worktree
+- Reuse the current linked worktree when already inside one; do not create nested worktrees
 - Keep the fix scope minimal
 - Every fix must include regression tests, at minimum unit tests
 - Run targeted tests and typecheck while iterating
@@ -276,4 +295,4 @@ If you stopped because a fix already exists, report the existing PR or commit in
 - Run the full code-review skill and BC check before publishing
 - Do not open a PR with known failing required checks unless a real blocker prevents completion and you explain that blocker explicitly
 - Link the issue in the PR and explain what changed and why
-- Always clean up the temporary worktree when finished
+- Always clean up any temporary worktree created by the current run

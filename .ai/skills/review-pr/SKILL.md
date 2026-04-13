@@ -101,30 +101,49 @@ If any required check is failing, do not continue with checkout or review execut
 
 ### 4. Create an isolated worktree for the PR
 
-Never review directly in the user’s current worktree.
+Never review directly in the repository’s primary worktree.
 
-Use the GitHub pull ref so the checkout works for both same-repo PRs and fork PRs:
+First detect whether you are already inside a linked worktree:
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
+GIT_DIR=$(git rev-parse --git-dir)
+GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
 WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/review-pr"
-WORKTREE_DIR="$WORKTREE_PARENT/pr-{prNumber}-$(date +%Y%m%d-%H%M%S)"
+CREATED_WORKTREE=0
 
-mkdir -p "$WORKTREE_PARENT"
-git fetch origin "pull/{prNumber}/head"
-PR_HEAD_SHA=$(git rev-parse FETCH_HEAD)
-git worktree add --detach "$WORKTREE_DIR" "$PR_HEAD_SHA"
+if [ "$GIT_DIR" != "$GIT_COMMON_DIR" ]; then
+  WORKTREE_DIR="$PWD"
+else
+  WORKTREE_DIR="$WORKTREE_PARENT/pr-{prNumber}-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$WORKTREE_PARENT"
+  git fetch origin "pull/{prNumber}/head"
+  PR_HEAD_SHA=$(git rev-parse FETCH_HEAD)
+  git worktree add --detach "$WORKTREE_DIR" "$PR_HEAD_SHA"
+  CREATED_WORKTREE=1
 
+  cd "$WORKTREE_DIR"
+  git switch -c "review/pr-{prNumber}"
+fi
+```
+
+If you reused an existing linked worktree, repoint it deliberately to the PR branch or a fresh local branch for that PR before continuing. If you created a new worktree, use the GitHub pull ref so the checkout works for both same-repo PRs and fork PRs.
+
+After selecting the worktree, ensure you are on the correct PR branch context:
+
+```bash
 cd "$WORKTREE_DIR"
-git switch -c "review/pr-{prNumber}"
+git fetch origin "pull/{prNumber}/head"
+git checkout -B "review/pr-{prNumber}" FETCH_HEAD
 git fetch origin "{baseRefName}"
 ```
 
 Rules:
 
-- The main worktree must remain untouched.
+- If you are already in a linked worktree, reuse it instead of creating a nested worktree.
+- The repository’s main worktree must remain untouched.
 - Review, testing, and any optional follow-up fixes must happen inside the isolated worktree.
-- Always clean up the temporary worktree at the end, even on failure.
+- Always clean up the temporary worktree at the end, even on failure, but only if you created it in this run.
 
 Before running any Yarn-based validation in the new worktree, restore the package-manager install state:
 
@@ -138,8 +157,9 @@ Cleanup sequence:
 
 ```bash
 cd "$REPO_ROOT"
-git worktree remove --force "$WORKTREE_DIR"
-git branch -D "review/pr-{prNumber}" 2>/dev/null || true
+if [ "$CREATED_WORKTREE" = "1" ]; then
+  git worktree remove --force "$WORKTREE_DIR"
+fi
 ```
 
 ### 5. Diff-level automated checks
@@ -356,7 +376,8 @@ If blockers remain, the summary must end by asking whether to implement the fixe
 
 - Always fetch the specific PR from GitHub before acting
 - Always use an isolated worktree for checkout, review, validation, and optional fixes
-- The main worktree must remain unchanged
+- Reuse the current linked worktree when already inside one; do not create nested worktrees
+- The repository’s main worktree must remain unchanged
 - Always restore Yarn install state inside the isolated worktree before running build, test, or typecheck commands
 - On the first review pass, conflicts are an early-stop review outcome
 - In autofix mode, conflicts must be resolved as part of the second run instead of being left as a permanent blocker
@@ -372,4 +393,4 @@ If blockers remain, the summary must end by asking whether to implement the fixe
 - Never force-push unless the user explicitly approved it
 - For fork PRs, prefer a replacement PR in the main repository over waiting for the original author
 - Never close the original PR until the replacement PR is created successfully
-- Always clean up the temporary worktree at the end
+- Always clean up any temporary worktree created by the current run
