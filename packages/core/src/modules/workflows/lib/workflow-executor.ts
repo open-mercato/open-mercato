@@ -394,7 +394,7 @@ export async function executeWorkflow(
             errors.push(transitionResult.error || 'Transition failed')
 
             return {
-              status: 'RUNNING',
+              status: 'FAILED',
               currentStep: currentInstance.currentStepId,
               context: currentInstance.context,
               events,
