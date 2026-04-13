@@ -20,7 +20,7 @@ For the recommended Windows monorepo workflow, run:
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-dev-setup.ps1
 ```
 
-from the repository root. It installs or repairs the Windows-native prerequisites, enables Corepack/Yarn, configures Git line endings, and adds the repository path to Microsoft Defender exclusions.
+from the repository root. The script is intentionally narrow: it runs `corepack enable`, `corepack prepare yarn@stable --activate`, and `git config --global core.autocrlf false`, installs or repairs Visual Studio 2022 Build Tools plus the Microsoft Visual C++ Redistributable, and adds the repository path to Microsoft Defender exclusions. It does not install Git, Node.js, or Docker Desktop.
 :::
 
 - **Node.js 24+** - aligns with the runtime requirements. Use `nvm`/`fnm` to switch versions if needed.
@@ -29,8 +29,8 @@ from the repository root. It installs or repairs the Windows-native prerequisite
   corepack enable
   corepack prepare yarn@stable --activate
   ```
-- **Visual Studio 2022 Build Tools** - required for the recommended native Windows monorepo workflow. Some Node.js dependencies include native modules and can fail on a clean machine without the Visual C++ toolchain. See [Windows native local development](./setup#windows-native-local-development) for the `winget` install command.
-- **Microsoft Visual C++ Redistributable 2015+ x64** - required on Windows for native binaries used by the toolchain in the recommended native local workflow. See [Windows native local development](./setup#windows-native-local-development) for the `winget` install command.
+- **Visual Studio 2022 Build Tools** - required for the recommended native Windows monorepo workflow. Some Node.js dependencies include native modules and can fail on a clean machine without the Visual C++ toolchain. The Windows bootstrap script can install or repair this component for you.
+- **Microsoft Visual C++ Redistributable 2015+ x64** - required on Windows for native binaries used by the toolchain in the recommended native local workflow. The Windows bootstrap script can install or repair this component for you.
 - **Docker & Docker Compose** - required for running PostgreSQL with pgvector and Redis.
 - **OpenSSL** - handy for generating random secrets while configuring `.env`.
 - **GraphicsMagick, Ghostscript, and Poppler** (optional) - required for LLM-based OCR on PDFs:

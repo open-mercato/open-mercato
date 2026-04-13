@@ -4,9 +4,6 @@
 param(
   [string]$ProjectPath = (Get-Location).Path,
   [switch]$SkipDefenderExclusion,
-  [switch]$SkipDockerDesktop,
-  [switch]$SkipGit,
-  [switch]$SkipNode,
   [switch]$SkipBuildTools,
   [switch]$SkipVcRedist
 )
@@ -54,9 +51,6 @@ function Get-ScriptRelaunchArguments {
 
   foreach ($flag in @(
     'SkipDefenderExclusion',
-    'SkipDockerDesktop',
-    'SkipGit',
-    'SkipNode',
     'SkipBuildTools',
     'SkipVcRedist'
   )) {
@@ -138,72 +132,33 @@ function Invoke-WingetInstall {
   & winget @arguments
 }
 
-function Ensure-Git {
-  if ($SkipGit) {
-    return
-  }
-
+function Ensure-BaseCommands {
   if (-not (Test-CommandAvailable -Name 'git')) {
-    Invoke-WingetInstall -Id 'Git.Git' -DisplayName 'Git'
-  } else {
-    Write-Step 'Git already installed'
-  }
-
-  Write-Step 'Configuring Git line endings'
-  & git config --global core.autocrlf false
-}
-
-function Ensure-NodeAndCorepack {
-  if ($SkipNode) {
-    return
+    throw 'git is required but not available on this machine. Install Git manually, reopen PowerShell, and rerun the script.'
   }
 
   $nodeMajor = Get-NodeMajorVersion
   if ($null -eq $nodeMajor -or $nodeMajor -lt 24) {
-    Invoke-WingetInstall -Id 'OpenJS.NodeJS' -DisplayName 'Node.js'
-    $machinePath = [System.Environment]::GetEnvironmentVariable('Path', 'Machine')
-    $userPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    $env:Path = "$machinePath;$userPath"
-  } else {
-    Write-Step "Node.js $nodeMajor detected"
+    throw 'Node.js 24+ is required but not available on this machine. Install Node.js manually, reopen PowerShell, and rerun the script.'
   }
 
   if (-not (Test-CommandAvailable -Name 'corepack')) {
-    throw 'corepack is not available after Node.js installation. Reopen PowerShell and rerun the script.'
+    throw 'corepack is required but not available on this machine. Install Node.js 24+, reopen PowerShell, and rerun the script.'
   }
+
+  Write-Step 'Configuring Git line endings'
+  & git config --global core.autocrlf false
 
   $yarnVersion = Get-YarnVersion
   if ($null -eq $yarnVersion) {
     Write-Step 'Enabling Corepack'
-    try {
-      & corepack enable
-    } catch {
-      $yarnVersion = Get-YarnVersion
-      if ($null -eq $yarnVersion) {
-        throw
-      }
-
-      Write-Warning "corepack enable failed but yarn $yarnVersion is already available. Continuing."
-    }
+    & corepack enable
   } else {
     Write-Step "Yarn $yarnVersion already available"
   }
 
   Write-Step 'Activating stable Yarn via Corepack'
   & corepack prepare yarn@stable --activate
-}
-
-function Ensure-DockerDesktop {
-  if ($SkipDockerDesktop) {
-    return
-  }
-
-  if (Test-Path 'C:\Program Files\Docker\Docker\Docker Desktop.exe') {
-    Write-Step 'Docker Desktop already installed'
-    return
-  }
-
-  Invoke-WingetInstall -Id 'Docker.DockerDesktop' -DisplayName 'Docker Desktop'
 }
 
 function Ensure-BuildTools {
@@ -274,9 +229,7 @@ if (-not (Test-CommandAvailable -Name 'winget')) {
 }
 
 Write-Step 'Preparing Windows prerequisites for Open Mercato'
-Ensure-Git
-Ensure-NodeAndCorepack
-Ensure-DockerDesktop
+Ensure-BaseCommands
 Ensure-BuildTools
 Ensure-VcRedist
 Ensure-DefenderExclusion
@@ -284,7 +237,7 @@ Ensure-DefenderExclusion
 Write-Host ''
 Write-Host 'Windows development prerequisites are ready.' -ForegroundColor Green
 Write-Host 'Next steps:' -ForegroundColor Green
-Write-Host '  1. Reopen your terminal if Node.js or Build Tools were installed or updated.'
+Write-Host '  1. Reopen your terminal if Build Tools or VC++ Redistributable were installed or updated.'
 Write-Host '  2. Start Docker Desktop and wait until it is ready.'
 Write-Host '  3. Run: docker compose up -d'
 Write-Host '  4. Run: yarn install'

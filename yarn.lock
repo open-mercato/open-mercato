@@ -5915,6 +5915,7 @@ __metadata:
     "@mikro-orm/core": "npm:^6.6.10"
     "@mikro-orm/migrations": "npm:^6.6.10"
     "@mikro-orm/postgresql": "npm:^6.6.10"
+    "@open-mercato/queue": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     jest: "npm:^30.2.0"

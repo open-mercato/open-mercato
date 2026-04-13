@@ -39,6 +39,8 @@ DB_POOL_ACQUIRE_TIMEOUT=30000
 
 The native monorepo dev runtime starts multiple PostgreSQL-backed processes at once: the Next.js app server, `queue:worker --all`, and `scheduler:start`. Size `DB_POOL_MAX` for the aggregate footprint, not for a single process. For example, `DB_POOL_MAX=20` can translate to roughly 60 potential connections before you count psql, migrations, or other local tools.
 
+`DB_POOL_MAX=20` is now the conservative default for local and general development. If your deployment previously relied on the older implicit default of `50`, set `DB_POOL_MAX` explicitly based on your real concurrency and PostgreSQL `max_connections` budget.
+
 If you continue to hit connection limits, verify that background workers and migrations use the same pool settings, and confirm that your database `max_connections` value comfortably exceeds the aggregate pool size across all applications connecting to it.
 
 ## PostgreSQL auth errors on local setup

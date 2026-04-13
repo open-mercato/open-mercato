@@ -259,7 +259,7 @@ One-time bootstrap from the repository root:
 powershell -ExecutionPolicy Bypass -File .\scripts\windows-dev-setup.ps1
 ```
 
-The script installs or repairs Git, Node.js, Docker Desktop, Visual Studio 2022 Build Tools, the Microsoft Visual C++ Redistributable, enables Corepack/Yarn, sets `git config --global core.autocrlf false`, and adds a Microsoft Defender exclusion for the current repository path. It relaunches itself as Administrator when needed.
+The script is intentionally narrow. It does not install Git, Node.js, or Docker Desktop. It only runs the three local environment commands below, installs or repairs Visual Studio 2022 Build Tools and the Microsoft Visual C++ Redistributable, and adds a Microsoft Defender exclusion for the current repository path. It relaunches itself as Administrator when needed for the Defender step.
 
 Prerequisites:
 
@@ -270,7 +270,7 @@ Prerequisites:
 - **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
 - **Microsoft Visual C++ Redistributable 2015+ x64** for native binaries used by the toolchain
 
-If you prefer to run the machine setup manually instead of using the bootstrap script:
+The three environment commands handled by the script are:
 
 ```powershell
 corepack enable
@@ -278,14 +278,14 @@ corepack prepare yarn@stable --activate
 git config --global core.autocrlf false
 ```
 
-On a fresh Windows machine, install these required Windows components before `yarn install`:
+If you prefer to skip the script entirely, run the three commands above yourself and install these Windows-native components before `yarn install`:
 
 ```powershell
 winget install Microsoft.VisualStudio.2022.BuildTools
 winget install Microsoft.VCRedist.2015+.x64
 ```
 
-If you install Build Tools through the UI, make sure the C++ build tools workload is included. After both installs finish, open a new terminal and continue with the monorepo setup.
+If you install Build Tools through the UI, make sure the C++ build tools workload is included. Git, Node.js 24+, and Docker Desktop must be installed separately before running the script or the manual flow. After the Windows-native installs finish, open a new terminal and continue with the monorepo setup.
 
 From the monorepo root, start only infrastructure services:
 

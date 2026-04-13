@@ -57,6 +57,9 @@ Switched the OpenCode container base image to Debian for better compatibility. *
 ### Change Service Port (#434)
 Updated the default service port configuration. *(@MStaniaszek1998)*
 
+### Database Pool Default Reduced
+Lowered the implicit `DB_POOL_MAX` default from `50` to `20` to keep local and Windows development within a safer PostgreSQL connection budget. Deployments that relied on the old default should set `DB_POOL_MAX` explicitly.
+
 ### Create Dockerfile for Docs (#425)
 Added a dedicated Dockerfile for building and serving the documentation site. *(@MStaniaszek1998)*
 

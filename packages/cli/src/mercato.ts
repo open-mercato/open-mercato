@@ -107,54 +107,66 @@ function getDatabaseTargetLabel(): string {
   }
 }
 
-function formatCliFailureMessage(modName: string, cmdName: string, error: unknown): string {
+function getFallbackErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const nestedErrors = collectNestedErrors(error)
-  const fallbackMessage =
-    nestedErrors
-      .map((item) => item.message?.trim() ?? '')
-      .find((item) => item.length > 0)
+
+  return nestedErrors
+    .map((item) => item.message?.trim() ?? '')
+    .find((item) => item.length > 0)
     ?? (typeof message === 'string' && message.trim().length > 0 ? message : 'Unknown error')
+}
+
+function detectDatabaseConnectionIssue(
+  error: unknown,
+): { target: string; reason: 'refused the connection' | 'could not be resolved' } | null {
+  const nestedErrors = collectNestedErrors(error)
+  const hasConnectionRefused = nestedErrors.some((item) =>
+    item.code === 'ECONNREFUSED' || /ECONNREFUSED|Connection refused|connect ECONNREFUSED/i.test(item.message || ''),
+  )
+  const hasDnsFailure = nestedErrors.some((item) =>
+    item.code === 'ENOTFOUND'
+      || item.code === 'EAI_AGAIN'
+      || /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(item.message || ''),
+  )
+
+  if (!hasConnectionRefused && !hasDnsFailure) {
+    return null
+  }
+
+  return {
+    target: getDatabaseTargetLabel(),
+    reason: hasConnectionRefused ? 'refused the connection' : 'could not be resolved',
+  }
+}
+
+function formatCliFailureMessage(modName: string, cmdName: string, error: unknown): string {
+  const fallbackMessage = getFallbackErrorMessage(error)
+  const databaseIssue = detectDatabaseConnectionIssue(error)
 
   const isDatabaseCommand = modName === 'db' && ['migrate', 'generate', 'greenfield'].includes(cmdName)
   const isDatabaseBackedRuntimeCommand =
     (modName === 'queue' && ['worker', 'status', 'clear'].includes(cmdName)) ||
     (modName === 'scheduler' && ['start'].includes(cmdName)) ||
     (modName === 'configs' && ['cache'].includes(cmdName))
-  const hasConnectionRefused = nestedErrors.some((item) => item.code === 'ECONNREFUSED' || /ECONNREFUSED|Connection refused|connect ECONNREFUSED/i.test(item.message || ''))
-  const hasDnsFailure = nestedErrors.some((item) => item.code === 'ENOTFOUND' || item.code === 'EAI_AGAIN' || /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(item.message || ''))
 
-  if (isDatabaseCommand && (hasConnectionRefused || hasDnsFailure)) {
-    const target = getDatabaseTargetLabel()
-    const reason = hasConnectionRefused ? 'refused the connection' : 'could not be resolved'
-    return `${target} is not reachable: it ${reason}. Start the database service or fix DATABASE_URL in .env, then retry \`yarn db:${cmdName}\`.`
+  if (isDatabaseCommand && databaseIssue) {
+    return `${databaseIssue.target} is not reachable: it ${databaseIssue.reason}. Start the database service or fix DATABASE_URL in .env, then retry \`yarn db:${cmdName}\`.`
   }
 
-  if (isDatabaseBackedRuntimeCommand && (hasConnectionRefused || hasDnsFailure)) {
-    const target = getDatabaseTargetLabel()
-    const reason = hasConnectionRefused ? 'refused the connection' : 'could not be resolved'
-    return `${target} is not reachable: it ${reason}. This command needs PostgreSQL. Start the database service or fix DATABASE_URL in .env, then retry \`yarn mercato ${modName} ${cmdName}\`.`
+  if (isDatabaseBackedRuntimeCommand && databaseIssue) {
+    return `${databaseIssue.target} is not reachable: it ${databaseIssue.reason}. This command needs PostgreSQL. Start the database service or fix DATABASE_URL in .env, then retry \`yarn mercato ${modName} ${cmdName}\`.`
   }
 
   return fallbackMessage
 }
 
 function formatInitFailureMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  const nestedErrors = collectNestedErrors(error)
-  const fallbackMessage =
-    nestedErrors
-      .map((item) => item.message?.trim() ?? '')
-      .find((item) => item.length > 0)
-    ?? (typeof message === 'string' && message.trim().length > 0 ? message : 'Unknown error')
+  const fallbackMessage = getFallbackErrorMessage(error)
+  const databaseIssue = detectDatabaseConnectionIssue(error)
 
-  const hasConnectionRefused = nestedErrors.some((item) => item.code === 'ECONNREFUSED' || /ECONNREFUSED|Connection refused|connect ECONNREFUSED/i.test(item.message || ''))
-  const hasDnsFailure = nestedErrors.some((item) => item.code === 'ENOTFOUND' || item.code === 'EAI_AGAIN' || /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(item.message || ''))
-
-  if (hasConnectionRefused || hasDnsFailure) {
-    const target = getDatabaseTargetLabel()
-    const reason = hasConnectionRefused ? 'refused the connection' : 'could not be resolved'
-    return `${target} is not reachable: it ${reason}. Start PostgreSQL or fix DATABASE_URL in .env, then retry \`yarn initialize\`.`
+  if (databaseIssue) {
+    return `${databaseIssue.target} is not reachable: it ${databaseIssue.reason}. Start PostgreSQL or fix DATABASE_URL in .env, then retry \`yarn initialize\`.`
   }
 
   return fallbackMessage
