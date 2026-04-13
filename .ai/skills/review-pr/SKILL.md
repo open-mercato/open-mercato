@@ -1,248 +1,325 @@
 ---
 name: review-pr
-description: Review a GitHub pull request by number. Checks out the PR branch, runs the full code-review skill, then submits a GitHub review (approve or request changes) and applies the appropriate label ('merge-queue' or 'changes-requested'). Usage - /review-pr <PR-number>
+description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional fix-and-forward flow that can replace fork PRs with a merge-ready follow-up PR. Usage - /review-pr <PR-number>
 ---
 
 # Review PR
 
-Checkout a pull request by number, run the full code-review skill, and submit a GitHub review with a label.
+Review a GitHub pull request by number without touching the current worktree. Always fetch the exact PR from GitHub, review it in an isolated worktree, submit the verdict, and if the PR still has blockers offer an explicit follow-up fix flow.
 
 ## Arguments
 
-- `{prNumber}` (required) — the PR number to review (e.g., `1234`)
+- `{prNumber}` (required) — the PR number to review or re-review (for example `1234`)
 
 ## Workflow
 
-### 1. Fetch PR metadata
+### 1. Fetch PR metadata and reviewer context
+
+Use GitHub as the source of truth. Collect enough data to decide whether this is a first review or a re-review and whether the PR comes from a fork.
 
 ```bash
-gh pr view {prNumber} --json title,headRefName,baseRefName,url,body,files
+gh pr view {prNumber} --json number,title,url,author,baseRefName,baseRefOid,headRefName,headRefOid,headRepository,headRepositoryOwner,isCrossRepository,maintainerCanModify,mergeable,mergeStateStatus,reviewDecision,labels,latestReviews,reviews,commits,files
+gh api user --jq '.login'
 ```
 
-Save the PR title for the review report header.
+Capture at least:
 
-### 2. Early-exit checks (conflicts & CI)
+- PR title, URL, base branch, head branch, head SHA
+- author login
+- whether the PR is cross-repository (`isCrossRepository`)
+- whether maintainers can modify it (`maintainerCanModify`)
+- existing labels
+- existing reviews by the current reviewer
 
-Before checking out the branch, run these checks. If either fails, skip the full code review and go straight to the changes-requested flow.
+### 2. Decide whether this is a review or a re-review
 
-#### 2a. Check for merge conflicts
+Treat the run as a **re-review** when the current reviewer has already submitted a review on the PR. Use `reviews` first and `latestReviews` as a fallback.
+
+Rules:
+
+- If there is no prior review from the current reviewer, this is a normal review.
+- If there is a prior review from the current reviewer and the PR head SHA changed after that review, this is a re-review of updated code.
+- If there is a prior review from the current reviewer and the head SHA did not change, only continue when the user explicitly asked for a re-review. Otherwise, stop and report that there are no new commits to review.
+
+When re-reviewing:
+
+- Title the report `Re-review: {PR title}` instead of `Code Review: {PR title}`.
+- Re-check all previous blocker areas before approving.
+- Replace labels idempotently just like a first review.
+- Submit a fresh review rather than assuming the previous review still applies.
+
+### 3. Early-exit checks
+
+Run these checks before the worktree is created. If either fails, skip the full code review and go straight to the changes-requested flow.
+
+#### 3a. Check for merge conflicts
 
 ```bash
-gh pr view {prNumber} --json mergeable,mergeStateStatus
+gh pr view {prNumber} --json mergeable,mergeStateStatus,baseRefName
 ```
 
-If `mergeable` is `"CONFLICTING"` or `mergeStateStatus` is `"DIRTY"`, **do NOT checkout or run the code review**. Instead, immediately submit a changes-requested review.
+If `mergeable` is `CONFLICTING` or `mergeStateStatus` is `DIRTY`, do not continue with checkout or review execution.
 
-**Review body template for conflicts** (this is text to include in the `--body` argument — NOT commands to execute):
+Submit a changes-requested review with a conflict-focused body, apply the `changes-requested` label, remove `merge-queue`, and stop.
 
-> **Merge conflicts** must be resolved before a code review can proceed.
->
-> Steps for the PR author:
-> 1. Fetch the latest base branch: `git fetch origin {baseRefName}`
-> 2. Rebase or merge: `git rebase origin/{baseRefName}`
-> 3. Resolve all conflicts, then push: `git push --force-with-lease`
->
-> Once conflicts are resolved, request a new review!
->
-> Hey, merge conflicts happen to the best of us! Resolve these and ping me again — I know the code underneath is great work.
+#### 3b. Check CI status
 
-Apply `changes-requested` label and skip to step 7.
-
-#### 2b. Check CI status
-
-First, query the branch protection rules for the base branch to discover which checks are **required**:
+Discover required checks first:
 
 ```bash
 gh api repos/{owner}/{repo}/branches/{baseRefName}/protection/required_status_checks --jq '.contexts[]' 2>/dev/null
 ```
 
-If the branch protection API returns required check names, use that list as the filter. If the API returns 404 (no branch protection configured), fall back to treating **all** checks as required.
+If the branch protection API returns 404, treat all reported PR checks as required.
 
-Then fetch the actual check results:
-
-```bash
-gh pr checks {prNumber} --json name,state,conclusion
-```
-
-Only consider checks that are in the required list (or all checks if no branch protection exists). If any of those have `conclusion` of `"FAILURE"` or `"STARTUP_FAILURE"`, or `state` is `"FAILURE"`, **do NOT checkout or run the code review**. Ignore checks with `state` `"PENDING"` or conclusion `"SKIPPED"` / `"NEUTRAL"`.
-
-Submit a changes-requested review listing only the failing required checks.
-
-**Review body template for CI failures** (this is text to include in the `--body` argument — NOT commands to execute):
-
-> **Failing CI checks** must be fixed before a code review can proceed.
->
-> | Check | Status |
-> |-------|--------|
-> | {checkName1} | FAILED |
-> | {checkName2} | FAILED |
->
-> Steps for the PR author:
-> 1. Click on the failing check(s) in the PR's "Checks" tab to see the logs
-> 2. Fix the underlying issue in your branch
-> 3. Push the fix — CI will re-run automatically
->
-> CI hiccups are just part of the process — fix these up and I'll give your code the thorough review it deserves. You've got this!
-
-Apply `changes-requested` label and skip to step 7.
-
-If both checks pass (no conflicts, no required CI failures), proceed to checkout.
-
-### 3. Checkout the PR branch
+Fetch the actual PR check results:
 
 ```bash
-gh pr checkout {prNumber}
+gh pr checks {prNumber} --json name,state,link
 ```
 
-### 4. Diff-level automated checks
+Treat these states as failing:
 
-Before running the full code-review skill, scan the diff (`gh pr diff {prNumber}`) for **automatic violation patterns**. These are hard rules — any match is a finding at the listed severity, no judgement call needed.
+- `FAILURE`
+- `ERROR`
+- `CANCELLED`
+- `TIMED_OUT`
+
+Ignore these as non-failing:
+
+- `PENDING`
+- `SUCCESS`
+- `SKIPPED`
+- `NEUTRAL`
+
+If any required check is failing, do not continue with checkout or review execution. Submit a changes-requested review listing only the failing required checks, apply `changes-requested`, remove `merge-queue`, and stop.
+
+### 4. Create an isolated worktree for the PR
+
+Never review directly in the user’s current worktree.
+
+Use the GitHub pull ref so the checkout works for both same-repo PRs and fork PRs:
+
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/review-pr"
+WORKTREE_DIR="$WORKTREE_PARENT/pr-{prNumber}-$(date +%Y%m%d-%H%M%S)"
+
+mkdir -p "$WORKTREE_PARENT"
+git fetch origin "pull/{prNumber}/head"
+PR_HEAD_SHA=$(git rev-parse FETCH_HEAD)
+git worktree add --detach "$WORKTREE_DIR" "$PR_HEAD_SHA"
+
+cd "$WORKTREE_DIR"
+git switch -c "review/pr-{prNumber}"
+git fetch origin "{baseRefName}"
+```
+
+Rules:
+
+- The main worktree must remain untouched.
+- Review, testing, and any optional follow-up fixes must happen inside the isolated worktree.
+- Always clean up the temporary worktree at the end, even on failure.
+
+Before running any Yarn-based validation in the new worktree, restore the package-manager install state:
+
+```bash
+yarn install --mode=skip-build
+```
+
+If `--mode=skip-build` is unavailable in the current Yarn version, run plain `yarn install`.
+
+Cleanup sequence:
+
+```bash
+cd "$REPO_ROOT"
+git worktree remove --force "$WORKTREE_DIR"
+git branch -D "review/pr-{prNumber}" 2>/dev/null || true
+```
+
+### 5. Diff-level automated checks
+
+Before running the full code-review skill, scan the PR diff for hard-rule violations. Use:
+
+```bash
+gh pr diff {prNumber}
+gh pr diff {prNumber} --name-only
+```
+
+Record findings from the patterns below. These are mandatory findings, not optional heuristics.
 
 #### Critical auto-detections
 
 | Pattern in diff | Finding |
 |-----------------|---------|
-| Removed/renamed event ID in any `events.ts` | Critical: event ID is a frozen contract surface |
-| Removed/renamed widget spot ID in `injection-table.ts` | Critical: spot ID is a frozen contract surface |
+| Removed or renamed event ID in any `events.ts` | Critical: event ID is a frozen contract surface |
+| Removed or renamed widget spot ID in `injection-table.ts` | Critical: spot ID is a frozen contract surface |
 | Removed field from an API response schema or zod response type | Critical: response fields are additive-only |
-| Renamed or removed a database column/table in a migration | Critical: DB schema is additive-only |
+| Renamed or removed a database column or table in a migration | Critical: DB schema is additive-only |
 | Removed a public import path without re-export bridge | Critical: import paths require deprecation protocol |
-| Missing `organization_id`/`tenant_id` filter on a tenant-scoped query | Critical: tenant isolation breach |
+| Missing `organization_id` or `tenant_id` filter on a tenant-scoped query | Critical: tenant isolation breach |
 
 #### High auto-detections
 
 | Pattern in diff | Finding |
 |-----------------|---------|
-| `findWithDecryption` or `findOneWithDecryption` replaced with raw `em.find` or `em.findOne` | High: encryption helpers MUST NOT be downgraded — even if the entity has no encrypted fields today, tenant data encryption may activate later. Revert to `findWithDecryption`. |
+| `findWithDecryption` or `findOneWithDecryption` replaced with raw `em.find` or `em.findOne` | High: encryption helpers must not be downgraded |
 | New API route file missing `export const openApi` or `export const metadata` | High: required exports for auto-discovery |
-| New subscriber/worker file missing `export const metadata` | High: required exports for auto-discovery |
-| Raw `fetch(` call in UI/backend page code (not in a test) | High: must use `apiCall`/`apiCallOrThrow` |
-| Behavior change (new branch, modified condition, changed return) with no corresponding test file in the diff | High: behavior changes MUST include test coverage |
+| New subscriber or worker file missing `export const metadata` | High: required exports for auto-discovery |
+| Raw `fetch(` call in UI or backend page code, outside tests | High: must use `apiCall` or `apiCallOrThrow` |
+| Behavior change with no corresponding test file in the diff | High: behavior changes must include tests |
 
 #### Medium auto-detections
 
 | Pattern in diff | Finding |
 |-----------------|---------|
-| Hardcoded user-facing string in a `NextResponse.json` error, UI label, or button text (not using `translate()`/`useT()`) | Medium: must use i18n |
-| New `any` type annotation added (not in a test file) | Medium: use zod + `z.infer` |
-| `alert(` or custom toast instead of `flash()` | Medium: use flash() for user feedback |
-| Hand-written migration SQL file (not generated by `yarn db:generate`) | Medium: never hand-write migrations |
+| Hardcoded user-facing string in API errors or UI labels | Medium: must use i18n |
+| New `any` type annotation outside tests | Medium: use zod plus `z.infer` |
+| `alert(` or custom toast instead of `flash()` | Medium: use `flash()` |
+| Hand-written migration SQL file | Medium: never hand-write migrations |
 | Entity schema changed but no migration file in the diff | Medium: run `yarn db:generate` |
-| `em.find`/`em.findOne` used in new code instead of `findWithDecryption` | Medium: use encryption helpers for new queries |
-| Missing `organizationId`/`tenantId` in sub-entity queries where parent was scope-checked | Medium: defense-in-depth, prefer explicit scoping |
+| New raw `em.find` or `em.findOne` usage | Medium: use encryption helpers |
+| Missing explicit tenant scoping in sub-entity queries | Medium: defense in depth |
 
 #### Low auto-detections
 
 | Pattern in diff | Finding |
 |-----------------|---------|
-| One-letter variable name (outside loop counters `i`, `j`, `k`) | Low: use descriptive names |
+| One-letter variable name outside loop counters `i`, `j`, `k` | Low: use descriptive names |
 | Inline comment on self-explanatory code | Low: remove comment |
-| Added docstring/comment on unchanged function | Low: don't annotate unchanged code |
+| Added docstring or comment on unchanged function | Low: do not annotate unchanged code |
 
-Record all findings from this step. These carry into the review report.
+### 6. Run the full code-review skill inside the worktree
 
-### 5. Run the code-review skill
+Execute `.ai/skills/code-review/SKILL.md` in the isolated worktree.
 
-Execute the full code review following `.ai/skills/code-review/SKILL.md`:
+Mandatory scope and gates:
 
-- Scope changed files (use `gh pr diff {prNumber} --name-only` for the file list)
-- Gather context from AGENTS.md, specs, lessons
-- Run CI/CD verification gate (all 8 steps)
-- Template parity gate
-- Backward compatibility gate
-- Review checklist (full reference: `.ai/skills/code-review/references/review-checklist.md`)
-- Test coverage check
-- Cross-module impact check
-- Produce the review report
+- Scope changed files with `gh pr diff {prNumber} --name-only`
+- Gather context from all matching `AGENTS.md` files, related specs, and `.ai/lessons.md`
+- Run the full CI/CD verification gate
+- Run `yarn template:sync`
+- Check `BACKWARD_COMPATIBILITY.md`
+- Apply the full review checklist
+- Verify test coverage and cross-module impact
 
-Merge the findings from step 4 into the review report. Do not duplicate — if step 4 already flagged something, don't flag it again.
+Merge findings from step 5 into the final review report. Do not duplicate the same issue twice.
 
-### 6. Classify the result
+### 7. Classify the result
 
-Based on the review findings, determine the outcome:
+Use the same severity rules as the `code-review` skill:
 
 | Condition | Decision |
 |-----------|----------|
-| Any **Critical**, **High**, or **Medium** findings | `changes_requested` |
-| Only **Low** findings | `approved` |
-| No findings at all | `approved` |
+| Any Critical, High, or Medium finding | `changes_requested` |
+| Only Low findings | `approved` |
+| No findings | `approved` |
 
-### 7. Submit the GitHub review
+### 8. Submit the verdict and labels
 
-#### If approved (only Low findings or no findings):
+If approved, submit an approval review. If there are Critical, High, or Medium findings, submit a changes-requested review.
 
-```bash
-gh pr review {prNumber} --approve --body "$(cat <<'EOF'
-{review report}
+The review body must contain the full structured report from the code-review skill. For re-reviews, explicitly note that it is a re-review in the title or summary.
 
----
+Use the GraphQL label mutation flow, not `gh pr edit --add-label`.
 
-You're doing amazing work — this PR is solid and ready to ship! Keep up the great momentum, your contributions make the whole team better.
-EOF
-)"
+Label rules:
+
+- `merge-queue`: `#0E8A16` — PR approved and ready to merge
+- `changes-requested`: `#BA6609` — changes requested during review
+- Always add the correct label and remove the opposite label
+
+### 9. If blockers remain, ask the user whether to implement fixes
+
+After posting a `changes_requested` review, stop and ask the user:
+
+`This PR still has blockers. Do you want me to implement the fixes, commit them, and push the result?`
+
+Do not modify code until the user answers yes.
+
+### 10. Fix-and-forward flow after user approval
+
+If the user approves implementation, continue inside the isolated worktree.
+
+#### 10a. Same-repo PRs
+
+If the PR head branch is in the main repository and you have push access, implement the fixes on the checked-out PR branch, run validation, commit, and push to that branch.
+
+Rules:
+
+- Never force-push unless the user explicitly asked for it.
+- Prefer a normal follow-up commit.
+- Re-run the relevant validation before pushing.
+
+#### 10b. Fork PRs
+
+For fork PRs, do not wait on the original author and do not push to the contributor’s branch by default.
+
+Instead:
+
+1. Keep the current worktree based on the fetched PR head SHA so the original commits and authorship are preserved.
+2. Create a new branch in the main repository, for example `carry/pr-{prNumber}-ready`.
+3. Implement the fixes there.
+4. Run validation.
+5. Commit and push the new branch to `origin`.
+6. Open a replacement PR against `{baseRefName}`.
+7. Close the original PR only after the replacement PR exists successfully.
+
+Replacement PR requirements:
+
+- Include the original PR link
+- Credit the original PR author explicitly
+- State that the new PR carries forward the original work plus the requested fixes
+
+Suggested replacement PR body:
+
+```markdown
+Supersedes #{prNumber}: {originalUrl}
+
+Credit: original implementation by @{originalAuthor}. This follow-up PR carries that work forward with the requested fixes so it can merge without waiting on the original branch.
+
+## Included work
+- Original changes from #{prNumber}
+- Follow-up fixes applied during re-review
 ```
 
-#### If changes requested (any Critical, High, or Medium findings):
+Suggested original PR closing comment:
 
-```bash
-gh pr review {prNumber} --request-changes --body "$(cat <<'EOF'
-{review report}
+```markdown
+Closing in favor of #{newPrNumber} ({newPrUrl}).
 
----
-
-Great effort on this PR! There are a few things that need attention before we can merge, but the direction is spot-on. I believe in your ability to knock these out quickly — you've got this!
-EOF
-)"
+Credit to @{originalAuthor} for the original implementation. The replacement PR carries the same work forward with the requested fixes so it can merge without waiting on the fork branch.
 ```
 
-#### Apply labels via GraphQL API
+### 11. Report back
 
-`gh pr edit --add-label` can fail silently due to GitHub API issues. Always use the GraphQL mutation instead:
+Print a concise summary to the user:
 
-```bash
-# Get label node ID (create label first if it doesn't exist)
-LABEL_ID=$(gh api repos/{owner}/{repo}/labels/{labelName} --jq '.node_id' 2>/dev/null)
-if [ -z "$LABEL_ID" ]; then
-  gh label create "{labelName}" --color "{color}" --description "{description}"
-  LABEL_ID=$(gh api repos/{owner}/{repo}/labels/{labelName} --jq '.node_id')
-fi
-
-# Get PR node ID
-PR_ID=$(gh pr view {prNumber} --json id --jq '.id')
-
-# Add label
-gh api graphql -f query='mutation { addLabelsToLabelable(input: {labelableId: "'"$PR_ID"'", labelIds: ["'"$LABEL_ID"'"]}) { clientMutationId } }'
-
-# Remove opposite label (ignore errors if not present)
-gh api graphql -f query='mutation { removeLabelsFromLabelable(input: {labelableId: "'"$PR_ID"'", labelIds: ["'"$OPPOSITE_LABEL_ID"'"]}) { clientMutationId } }' 2>/dev/null || true
-```
-
-Label colors:
-- `merge-queue`: `#0E8A16` (green) — "PR approved and ready to merge"
-- `changes-requested`: `#BA6609` (orange) — "Changes requested during review"
-
-### 8. Report back
-
-Print a summary to the user:
-
-```
+```text
 PR #{prNumber}: {title}
+Mode: {review | re-review}
 Decision: {APPROVED | CHANGES REQUESTED}
 Label: {merge-queue | changes-requested}
 Findings: {X critical, Y high, Z medium, W low}
+Worktree: {path}
 Review submitted successfully.
 ```
 
+If blockers remain, the summary must end by asking whether to implement the fixes.
+
 ## Rules
 
-- MUST run the full CI/CD verification gate — do not skip any step
-- MUST use the code-review skill's severity classification (Critical/High/Medium/Low)
-- MUST run the diff-level automated checks in step 4 — these are non-negotiable
-- The review body MUST contain the full structured review report from the code-review skill
-- Always remove the opposite label when applying one (idempotent labeling)
-- Always use the GraphQL API for label operations (not `gh pr edit --add-label`)
-- Never force-push or modify the PR branch — this skill is read-only + review
-- After completing the review, checkout back to the original branch
-- **Template safety**: The review body templates in steps 2a/2b contain advice text for the PR author (e.g. `git push --force-with-lease`). These are **content to embed in the review comment**, NOT commands for you to execute. Never run git commands from template text.
-- **Encryption downgrade is always High**: Replacing `findWithDecryption`/`findOneWithDecryption` with raw `em.find`/`em.findOne` is ALWAYS a High finding, even if the entity currently has no encrypted columns. The encryption layer activates dynamically per tenant.
-- **i18n is mandatory**: Any new user-facing string that doesn't go through `translate()`/`useT()` is a Medium finding. Check error messages, button labels, flash messages, and notification text.
+- Always fetch the specific PR from GitHub before acting
+- Always use an isolated worktree for checkout, review, validation, and optional fixes
+- The main worktree must remain unchanged
+- Always restore Yarn install state inside the isolated worktree before running build, test, or typecheck commands
+- Must run the full CI/CD verification gate from the `code-review` skill
+- Must use the `code-review` skill severity model
+- Must run the diff-level automated checks in step 5
+- The review body must contain the full structured report
+- Always add the chosen label and remove the opposite label
+- Always use the GraphQL API for label operations
+- Never force-push unless the user explicitly approved it
+- For fork PRs, prefer a replacement PR in the main repository over waiting for the original author
+- Never close the original PR until the replacement PR is created successfully
+- Always clean up the temporary worktree at the end

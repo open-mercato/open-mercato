@@ -176,7 +176,7 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | `implement-spec` | Implementing a spec (or specific phases) using coordinated subagents with unit tests, integration tests, docs, progress tracking, and code-review compliance gates. Asks whether to build as an external extension (UMES) or core modification |
 | `integration-tests` | Running existing integration tests and generating new QA tests (Playwright TypeScript, with optional markdown scenarios) from specs or feature descriptions |
 | `pre-implement-spec` | Analyzing a spec before implementation: backward compatibility audit, risk assessment, gap analysis, and readiness report |
-| `review-pr` | Reviewing a GitHub PR by number: checks out the branch, runs the full code-review skill, submits a GitHub review (approve/request-changes), and applies `merge-queue` or `changes-requested` label |
+| `review-pr` | Reviewing or re-reviewing a GitHub PR by number in an isolated worktree: fetches the exact PR from GitHub, runs the full code-review skill, submits a GitHub review, manages labels, and can offer a fix-forward replacement PR flow for forked contributions |
 | `skill-creator` | Creating a new skill or updating an existing skill |
 
 ---
