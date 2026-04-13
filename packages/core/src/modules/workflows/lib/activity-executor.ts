@@ -438,7 +438,10 @@ export async function executeEmitEvent(
     },
   }
 
-  await eventBus.emitEvent(eventName, enrichedPayload)
+  await eventBus.emitEvent(eventName, enrichedPayload, {
+    tenantId: context.workflowInstance.tenantId,
+    organizationId: context.workflowInstance.organizationId,
+  })
 
   return { emitted: true, eventName, payload: enrichedPayload }
 }
