@@ -947,6 +947,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     <option value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</option>
                                     <option value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</option>
                                     <option value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</option>
+                                    <option value="WAIT">{t('workflows.activities.types.WAIT')}</option>
                                   </select>
                                 </div>
 
@@ -1054,7 +1055,50 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                   </label>
                                 </div>
 
-                                {/* Activity Config JSON */}
+                                {/* WAIT Activity: Duration / Until fields */}
+                                {activity.activityType === 'WAIT' && (
+                                  <div className="space-y-3">
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        {t('workflows.activities.waitDuration')}
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={activity.config?.duration || ''}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          updated[index].config = { ...updated[index].config, duration: e.target.value, until: undefined }
+                                          setStepActivities(updated)
+                                        }}
+                                        disabled={!!activity.config?.until}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                        placeholder={t('workflows.activities.waitDurationPlaceholder')}
+                                      />
+                                      <p className="text-xs text-gray-500 mt-1">{t('workflows.activities.waitDurationDescription')}</p>
+                                    </div>
+                                    <div className="text-xs text-center text-gray-400">{t('workflows.activities.waitOr')}</div>
+                                    <div>
+                                      <label className="block text-xs font-medium text-gray-700 mb-1">
+                                        {t('workflows.activities.waitUntil')}
+                                      </label>
+                                      <input
+                                        type="datetime-local"
+                                        value={activity.config?.until ? activity.config.until.slice(0, 16) : ''}
+                                        onChange={(e) => {
+                                          const updated = [...stepActivities]
+                                          updated[index].config = { ...updated[index].config, until: e.target.value ? new Date(e.target.value).toISOString() : undefined, duration: undefined }
+                                          setStepActivities(updated)
+                                        }}
+                                        disabled={!!activity.config?.duration}
+                                        className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                                      />
+                                      <p className="text-xs text-gray-500 mt-1">{t('workflows.activities.waitUntilDescription')}</p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Activity Config JSON (hidden for WAIT) */}
+                                {activity.activityType !== 'WAIT' && (
                                 <div>
                                   <label className="block text-xs font-medium text-gray-700 mb-1">
                                     {t('workflows.form.configuration')}
@@ -1071,6 +1115,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                     {t('workflows.form.descriptions.activityConfig')}
                                   </p>
                                 </div>
+                                )}
 
                                 {/* Delete Button */}
                                 <div className="pt-3 border-t border-gray-100">

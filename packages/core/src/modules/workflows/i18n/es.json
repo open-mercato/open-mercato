@@ -94,6 +94,7 @@
   "workflows.activities.waitDuration": "Duración",
   "workflows.activities.waitDurationDescription": "Duración ISO 8601 (ej. PT5M para 5 minutos, PT1H para 1 hora, P1D para 1 día) o formato simple (5m, 1h, 3d)",
   "workflows.activities.waitDurationPlaceholder": "PT5M",
+  "workflows.activities.waitOr": "o",
   "workflows.activities.waitUntil": "Esperar hasta",
   "workflows.activities.waitUntilDescription": "Fecha y hora específica hasta la cual esperar",
   "workflows.backToList": "Volver a flujos de trabajo",

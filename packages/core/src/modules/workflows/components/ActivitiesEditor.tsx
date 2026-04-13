@@ -281,7 +281,7 @@ export function ActivitiesEditor({ value = [], onChange, error }: ActivitiesEdit
                       {t('workflows.activities.waitDurationDescription')}
                     </p>
                   </div>
-                  <div className="text-xs text-center text-muted-foreground">{t('common.or')}</div>
+                  <div className="text-xs text-center text-muted-foreground">{t('workflows.activities.waitOr')}</div>
                   <div>
                     <Label htmlFor={`activity-${index}-until`} className="text-xs">
                       {t('workflows.activities.waitUntil')}
