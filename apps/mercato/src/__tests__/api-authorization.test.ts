@@ -75,14 +75,43 @@ const mockedRouteModule = {
   },
 }
 
+const publicRouteModule = {
+  GET: createResponseHandler('PUBLIC GET'),
+  metadata: {
+    GET: {
+      requireAuth: false,
+    },
+  },
+}
+
+const missingMetadataRouteModule = {
+  GET: createResponseHandler('MISSING METADATA GET'),
+}
+
 function getMockedApiRoutes(): ApiRouteManifestEntry[] {
-  return [{
-    moduleId: 'example',
-    kind: 'route-file',
-    path: '/example/test',
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    load: async () => mockedRouteModule,
-  }]
+  return [
+    {
+      moduleId: 'example',
+      kind: 'route-file',
+      path: '/example/test',
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+      load: async () => mockedRouteModule,
+    },
+    {
+      moduleId: 'example',
+      kind: 'route-file',
+      path: '/example/public',
+      methods: ['GET'],
+      load: async () => publicRouteModule,
+    },
+    {
+      moduleId: 'example',
+      kind: 'route-file',
+      path: '/example/missing-metadata',
+      methods: ['GET'],
+      load: async () => missingMetadataRouteModule,
+    },
+  ]
 }
 
 // Mock manifest-based API routing
@@ -212,6 +241,32 @@ describe('API Route Authorization', () => {
       expect(response.status).toBe(403)
       await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
     })
+
+    it('should enforce top-level metadata for route files when method metadata is absent', async () => {
+      const originalMetadata = mockedRouteModule.metadata
+      mockedRouteModule.metadata = {
+        requireAuth: true,
+        requireFeatures: ['example.todos.view'],
+      } as RouteMetadata & typeof mockedRouteModule.metadata
+
+      try {
+        mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin'], 'admin@test.com'))
+        mockRbac.userHasAllFeatures.mockResolvedValueOnce(false)
+
+        const request = new NextRequest('http://localhost:3001/api/example/test')
+        const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+        expect(response.status).toBe(403)
+        await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+        expect(mockRbac.userHasAllFeatures).toHaveBeenCalledWith(
+          'user1',
+          ['example.todos.view'],
+          expect.objectContaining({ tenantId: 'tenant1' }),
+        )
+      } finally {
+        mockedRouteModule.metadata = originalMetadata
+      }
+    })
   })
 
   describe('POST /example/test', () => {
@@ -270,6 +325,40 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(200)
       expect(await response.text()).toBe('PUT success')
+    })
+  })
+
+  describe('GET /example/public', () => {
+    it('should allow anonymous access only when requireAuth is explicitly false', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
+
+      const request = new NextRequest('http://localhost:3001/api/example/public')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'public'] }) })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('PUBLIC GET success')
+    })
+  })
+
+  describe('GET /example/missing-metadata', () => {
+    it('should allow anonymous access when route metadata is missing (route handles auth internally)', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
+
+      const request = new NextRequest('http://localhost:3001/api/example/missing-metadata')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'missing-metadata'] }) })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('MISSING METADATA GET success')
+    })
+
+    it('should allow authenticated access when route metadata is missing', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['user']))
+
+      const request = new NextRequest('http://localhost:3001/api/example/missing-metadata')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'missing-metadata'] }) })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('MISSING METADATA GET success')
     })
   })
 

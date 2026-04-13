@@ -36,6 +36,19 @@ type EditorVariant = 'default' | 'muted' | 'plain'
 
 export type InlineFieldType = 'text' | 'email' | 'tel' | 'url'
 
+const ALLOWED_INLINE_URL_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+export function resolveSafeInlineUrlHref(value: string): string | null {
+  const trimmed = value.trim()
+  if (!trimmed.length) return null
+  try {
+    const parsed = new URL(trimmed)
+    return ALLOWED_INLINE_URL_PROTOCOLS.has(parsed.protocol) ? trimmed : null
+  } catch {
+    return null
+  }
+}
+
 export type InlineTextEditorProps = {
   label: string
   value: string | null | undefined
@@ -256,8 +269,12 @@ export function InlineTextEditor({
       )
     }
     if (resolvedType === 'url') {
+      const safeHref = resolveSafeInlineUrlHref(baseValue)
+      if (!safeHref) {
+        return <p className={textClass}>{baseValue}</p>
+      }
       return (
-        <a className={textClass} href={baseValue} target="_blank" rel="noreferrer">
+        <a className={textClass} href={safeHref} target="_blank" rel="noopener noreferrer">
           {baseValue}
         </a>
       )

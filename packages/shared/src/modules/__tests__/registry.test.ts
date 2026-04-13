@@ -4,6 +4,7 @@ import {
   createLazyModuleWorker,
   registerCliModules,
   getCliModules,
+  getDefaultEncryptionMaps,
   hasCliModules,
   findFrontendMatch,
   findBackendMatch,
@@ -77,6 +78,43 @@ describe('CLI Modules Registry', () => {
     it('should return true when modules are registered', () => {
       registerCliModules([{ id: 'some-module' }])
       expect(hasCliModules()).toBe(true)
+    })
+  })
+
+  describe('getDefaultEncryptionMaps', () => {
+    it('collects per-module encryption maps', () => {
+      const maps = getDefaultEncryptionMaps([
+        {
+          id: 'auth',
+          defaultEncryptionMaps: [
+            { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
+          ],
+        },
+        {
+          id: 'customers',
+          defaultEncryptionMaps: [
+            { entityId: 'customers:customer_comment', fields: [{ field: 'body' }] },
+          ],
+        },
+      ])
+
+      expect(maps).toEqual([
+        { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
+        { entityId: 'customers:customer_comment', fields: [{ field: 'body', hashField: null }] },
+      ])
+    })
+
+    it('throws on duplicate entity registrations', () => {
+      expect(() => getDefaultEncryptionMaps([
+        {
+          id: 'module-a',
+          defaultEncryptionMaps: [{ entityId: 'auth:user', fields: [{ field: 'email' }] }],
+        },
+        {
+          id: 'module-b',
+          defaultEncryptionMaps: [{ entityId: 'auth:user', fields: [{ field: 'email_hash' }] }],
+        },
+      ])).toThrow('Duplicate default encryption map')
     })
   })
 

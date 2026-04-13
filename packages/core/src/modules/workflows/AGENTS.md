@@ -100,7 +100,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 4. Register the node in the visual editor's node type map
 5. Add i18n labels in `i18n/en.json` under `workflows.stepTypes`
 6. Add icon mapping in `lib/node-type-icons.ts`
-7. Run `npm run modules:prepare`
+7. Run `yarn generate`
 
 ## Event Triggers
 
