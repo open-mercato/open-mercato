@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { OnboardingRequest } from '../modules/onboarding/data/entities'
 import { OnboardingService } from '../modules/onboarding/lib/service'
 
 jest.mock('bcryptjs', () => ({
@@ -10,7 +12,7 @@ function hashToken(token: string) {
 }
 
 function makeRequest(overrides: Record<string, unknown> = {}) {
-  return {
+  return Object.assign(new OnboardingRequest(), {
     id: 'req-1',
     email: 'user@example.com',
     tokenHash: hashToken('some-token'),
@@ -35,7 +37,7 @@ function makeRequest(overrides: Record<string, unknown> = {}) {
     updatedAt: new Date(),
     deletedAt: null,
     ...overrides,
-  }
+  })
 }
 
 function makeStartInput(overrides: Record<string, unknown> = {}) {
@@ -59,7 +61,7 @@ function createMockEm(overrides: Record<string, unknown> = {}) {
     persistAndFlush: jest.fn().mockResolvedValue(undefined),
     flush: jest.fn().mockResolvedValue(undefined),
     ...overrides,
-  } as any
+  } as unknown as EntityManager
 }
 
 describe('OnboardingService', () => {
@@ -106,7 +108,7 @@ describe('OnboardingService', () => {
       const request = makeRequest({ passwordHash: 'secret' })
       const em = createMockEm()
       const service = new OnboardingService(em)
-      await service.markCompleted(request as any, { tenantId: 't', organizationId: 'o', userId: 'u' })
+      await service.markCompleted(request, { tenantId: 't', organizationId: 'o', userId: 'u' })
       expect(request.status).toBe('completed')
       expect(request.passwordHash).toBeNull()
       expect(em.flush).toHaveBeenCalled()
