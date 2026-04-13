@@ -40,8 +40,11 @@ describe('url-safety — isPrivateIpAddress', () => {
     '169.254.169.254',
     '172.16.0.1',
     '172.31.255.254',
+    '192.0.0.1',
+    '192.0.2.1',
     '192.168.1.1',
     '198.18.0.1',
+    '198.19.255.255',
     '198.51.100.1',
     '203.0.113.5',
     '224.0.0.1',
@@ -111,8 +114,18 @@ describe('url-safety — assertStaticallySafeWebhookUrl', () => {
   it('rejects well-known blocked hostnames', () => {
     expect(() => assertStaticallySafeWebhookUrl('http://localhost/')).toThrow(UnsafeWebhookUrlError)
     expect(() => assertStaticallySafeWebhookUrl('http://metadata.google.internal/')).toThrow(UnsafeWebhookUrlError)
+    expect(() => assertStaticallySafeWebhookUrl('http://localhost./')).toThrow(UnsafeWebhookUrlError)
     expect(() => assertStaticallySafeWebhookUrl('http://foo.local/')).toThrow(UnsafeWebhookUrlError)
     expect(() => assertStaticallySafeWebhookUrl('http://service.internal/')).toThrow(UnsafeWebhookUrlError)
+  })
+
+  it('bypasses private host checks when OM_WEBHOOKS_ALLOW_PRIVATE_URLS is enabled', () => {
+    expect(() => assertStaticallySafeWebhookUrl('http://localhost:3000/dev', { allowPrivate: true })).not.toThrow()
+    expect(() => assertStaticallySafeWebhookUrl('http://10.0.0.5/dev', { allowPrivate: true })).not.toThrow()
+  })
+
+  it('still rejects invalid protocols when the static private URL override is enabled', () => {
+    expect(() => assertStaticallySafeWebhookUrl('file:///etc/passwd', { allowPrivate: true })).toThrow(UnsafeWebhookUrlError)
   })
 })
 

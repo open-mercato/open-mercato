@@ -10,6 +10,16 @@ function baseInput(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe('webhookCreateSchema — URL safety', () => {
+  const originalAllowPrivateUrls = process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS
+
+  afterEach(() => {
+    if (originalAllowPrivateUrls === undefined) {
+      delete process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS
+    } else {
+      process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS = originalAllowPrivateUrls
+    }
+  })
+
   it('accepts safe public URLs', () => {
     const result = webhookCreateSchema.safeParse(baseInput())
     expect(result.success).toBe(true)
@@ -61,5 +71,19 @@ describe('webhookCreateSchema — URL safety', () => {
   it('rejects unsafe URLs on update', () => {
     const result = webhookUpdateSchema.safeParse({ url: 'http://[::ffff:127.0.0.1]/' })
     expect(result.success).toBe(false)
+  })
+
+  it('accepts private create and update URLs when the development override is enabled', () => {
+    process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS = '1'
+
+    expect(webhookCreateSchema.safeParse(baseInput({ url: 'http://localhost:3000/webhooks' })).success).toBe(true)
+    expect(webhookUpdateSchema.safeParse({ url: 'http://10.0.0.5:3000/webhooks' }).success).toBe(true)
+  })
+
+  it('still rejects forbidden protocols and embedded credentials when the development override is enabled', () => {
+    process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS = '1'
+
+    expect(webhookCreateSchema.safeParse(baseInput({ url: 'ftp://localhost/webhooks' })).success).toBe(false)
+    expect(webhookCreateSchema.safeParse(baseInput({ url: 'https://user:pass@localhost/webhooks' })).success).toBe(false)
   })
 })
