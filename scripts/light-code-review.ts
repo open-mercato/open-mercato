@@ -474,7 +474,7 @@ async function reviewWithLlm(addedLines: DiffLine[]) {
   const resolveKnownPath = createKnownPathResolver(addedLines)
   const findings = new Map<string, ReviewFinding>()
 
-  console.log(cyan(`Using ${provider.providerId}/${provider.modelId} via ${provider.apiKeyEnv}.`))
+  console.log(cyan(`Using ${provider.providerId}/${provider.modelId}.`))
   console.log(dim(`Reviewing ${chunks.length} chunk${chunks.length === 1 ? '' : 's'} with the LLM.`))
 
   for (const chunk of chunks) {
