@@ -127,6 +127,7 @@ export type CrudHooks<TCreate, TUpdate, TList> = {
 
 export type CrudMethodMetadata = {
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig

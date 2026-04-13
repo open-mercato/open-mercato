@@ -23,6 +23,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { normalizeProfilePayload } from './payload'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -315,7 +316,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base, custom } = splitCustomFieldPayload(scoped)
+        const normalized = normalizeProfilePayload(scoped, translate)
+        const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = personUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },

@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
+import { buildRequestOriginUrl } from '@open-mercato/core/modules/auth/lib/requestRedirect'
 
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   if (sessToken) {
     try { const c = await createRequestContainer(); const auth = c.resolve<AuthService>('authService'); await auth.deleteSessionByToken(sessToken) } catch {}
   }
-  const res = NextResponse.redirect(toAbsoluteUrl(req, '/login'))
+  const res = NextResponse.redirect(buildRequestOriginUrl(req, '/login'))
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
   return res

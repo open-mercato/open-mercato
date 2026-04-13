@@ -213,14 +213,14 @@ export default function WorkflowInstancesListPage() {
       header: t('workflows.instances.fields.workflowId'),
       accessorKey: 'workflowId',
       cell: ({ row }) => (
-        <div>
+        <Link href={`/backend/instances/${row.original.id}`} className="block hover:underline">
           <div className="font-mono text-sm font-medium">{row.original.workflowId}</div>
           {row.original.correlationKey && (
             <div className="text-xs text-muted-foreground">
               {t('workflows.instances.fields.correlationKey')}: {row.original.correlationKey}
             </div>
           )}
-        </div>
+        </Link>
       ),
     },
     {

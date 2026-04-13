@@ -2,6 +2,7 @@
 
 import { randomUUID } from 'crypto'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -360,16 +361,21 @@ async function validateShipmentItems(params: {
   order: SalesOrder
   items?: ShipmentCreateInput['items']
   excludeShipmentId?: string | null
+  lockOrderLines?: boolean
 }): Promise<{
   items: Array<{ orderLineId: string; quantity: number; metadata: Record<string, unknown> | null }>
   lineMap: Map<string, SalesOrderLine>
 }> {
-  const { em, order, items, excludeShipmentId } = params
+  const { em, order, items, excludeShipmentId, lockOrderLines } = params
   const { translate } = await resolveTranslations()
   if (!items || !items.length) {
     throw new CrudHttpError(400, { error: translate('sales.shipments.items_required', 'Add at least one line to ship.') })
   }
-  const orderLines = await em.find(SalesOrderLine, { order })
+  const orderLines = await em.find(
+    SalesOrderLine,
+    { order },
+    lockOrderLines ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined
+  )
   const lineMap = new Map(orderLines.map((line) => [line.id, line]))
   const shippedTotals = await loadShippedTotals(em, order, excludeShipmentId)
   const requestedTotals = new Map<string, number>()
@@ -421,98 +427,102 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const order = await loadOrder(em, input.orderId)
-    ensureSameScope(order, input.organizationId, input.tenantId)
     const { translate } = await resolveTranslations()
-    const { items: normalizedItems, lineMap } = await validateShipmentItems({
-      em,
-      order,
-      items: input.items,
-    })
-    const statusValue = await resolveDictionaryEntryValue(em, input.statusEntryId ?? null)
-    const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
-    const metadata =
-      mergeAddressSnapshot(
-        input.metadata ? cloneJson(input.metadata) : null,
-        input.shipmentAddressSnapshot ?? order.shippingAddressSnapshot ?? null
-      ) ?? null
+    const shipment = await em.transactional(async (tx) => {
+      const order = await loadOrder(tx, input.orderId)
+      ensureSameScope(order, input.organizationId, input.tenantId)
+      const { items: normalizedItems, lineMap } = await validateShipmentItems({
+        em: tx,
+        order,
+        items: input.items,
+        lockOrderLines: true,
+      })
+      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
+      const metadata =
+        mergeAddressSnapshot(
+          input.metadata ? cloneJson(input.metadata) : null,
+          input.shipmentAddressSnapshot ?? order.shippingAddressSnapshot ?? null
+        ) ?? null
 
-    const shipmentId = randomUUID()
-    const shipment = em.create(SalesShipment, {
-      id: shipmentId,
-      order,
-      organizationId: input.organizationId,
-      tenantId: input.tenantId,
-      shipmentNumber: input.shipmentNumber ?? null,
-      shippingMethodId: input.shippingMethodId ?? null,
-      statusEntryId: input.statusEntryId ?? null,
-      status: statusValue,
-      carrierName: input.carrierName ?? null,
-      trackingNumbers,
-      shippedAt: input.shippedAt ?? null,
-      deliveredAt: input.deliveredAt ?? null,
-      weightValue: input.weightValue !== undefined ? input.weightValue.toString() : null,
-      weightUnit: input.weightUnit ?? null,
-      declaredValueNet: input.declaredValueNet !== undefined ? input.declaredValueNet.toString() : null,
-      declaredValueGross: input.declaredValueGross !== undefined ? input.declaredValueGross.toString() : null,
-      currencyCode: input.currencyCode ?? order.currencyCode ?? null,
-      notesText: input.notes ?? null,
-      metadata,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    const createdItems: SalesShipmentItem[] = []
-    normalizedItems.forEach((item) => {
-      const lineRef = em.getReference(SalesOrderLine, item.orderLineId)
-      const shipmentItem = em.create(SalesShipmentItem, {
-        id: randomUUID(),
-        shipment,
-        orderLine: lineRef,
+      const shipmentId = randomUUID()
+      const entity = tx.create(SalesShipment, {
+        id: shipmentId,
+        order,
         organizationId: input.organizationId,
         tenantId: input.tenantId,
-        quantity: item.quantity.toString(),
-        metadata: item.metadata ? cloneJson(item.metadata) : null,
+        shipmentNumber: input.shipmentNumber ?? null,
+        shippingMethodId: input.shippingMethodId ?? null,
+        statusEntryId: input.statusEntryId ?? null,
+        status: statusValue,
+        carrierName: input.carrierName ?? null,
+        trackingNumbers,
+        shippedAt: input.shippedAt ?? null,
+        deliveredAt: input.deliveredAt ?? null,
+        weightValue: input.weightValue !== undefined ? input.weightValue.toString() : null,
+        weightUnit: input.weightUnit ?? null,
+        declaredValueNet: input.declaredValueNet !== undefined ? input.declaredValueNet.toString() : null,
+        declaredValueGross: input.declaredValueGross !== undefined ? input.declaredValueGross.toString() : null,
+        currencyCode: input.currencyCode ?? order.currencyCode ?? null,
+        notesText: input.notes ?? null,
+        metadata,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
-      createdItems.push(shipmentItem)
-      em.persist(shipmentItem)
+      const createdItems: SalesShipmentItem[] = []
+      normalizedItems.forEach((item) => {
+        const lineRef = tx.getReference(SalesOrderLine, item.orderLineId)
+        const shipmentItem = tx.create(SalesShipmentItem, {
+          id: randomUUID(),
+          shipment: entity,
+          orderLine: lineRef,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          quantity: item.quantity.toString(),
+          metadata: item.metadata ? cloneJson(item.metadata) : null,
+        })
+        createdItems.push(shipmentItem)
+        tx.persist(shipmentItem)
+      })
+      tx.persist(entity)
+      if (input.customFields !== undefined) {
+        await setRecordCustomFields(tx, {
+          entityId: E.sales.sales_shipment,
+          recordId: entity.id,
+          organizationId: input.organizationId,
+          tenantId: input.tenantId,
+          values: normalizeCustomFieldsInput(input.customFields),
+        })
+      }
+      if (input.documentStatusEntryId !== undefined) {
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        if (input.documentStatusEntryId && !orderStatus) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+        }
+        order.statusEntryId = input.documentStatusEntryId ?? null
+        order.status = orderStatus
+        order.updatedAt = new Date()
+      }
+      if (input.lineStatusEntryId !== undefined) {
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        if (input.lineStatusEntryId && !lineStatus) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+        }
+        const uniqueLineIds = Array.from(new Set(normalizedItems.map((item) => item.orderLineId)))
+        uniqueLineIds.forEach((lineId) => {
+          const line = lineMap.get(lineId)
+          if (!line) return
+          line.statusEntryId = input.lineStatusEntryId ?? null
+          line.status = lineStatus
+          line.updatedAt = new Date()
+        })
+      }
+      await refreshShipmentItemsSnapshot(tx, entity, { items: createdItems, lineMap })
+      await tx.flush()
+      await recomputeFulfilledQuantities(tx, order)
+      await tx.flush()
+      return entity
     })
-    em.persist(shipment)
-    if (input.customFields !== undefined) {
-      await setRecordCustomFields(em, {
-        entityId: E.sales.sales_shipment,
-        recordId: shipment.id,
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-        values: normalizeCustomFieldsInput(input.customFields),
-      })
-    }
-    if (input.documentStatusEntryId !== undefined) {
-      const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
-      if (input.documentStatusEntryId && !orderStatus) {
-        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
-      }
-      order.statusEntryId = input.documentStatusEntryId ?? null
-      order.status = orderStatus
-      order.updatedAt = new Date()
-    }
-    if (input.lineStatusEntryId !== undefined) {
-      const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
-      if (input.lineStatusEntryId && !lineStatus) {
-        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
-      }
-      const uniqueLineIds = Array.from(new Set(normalizedItems.map((item) => item.orderLineId)))
-      uniqueLineIds.forEach((lineId) => {
-        const line = lineMap.get(lineId)
-        if (!line) return
-        line.statusEntryId = input.lineStatusEntryId ?? null
-        line.status = lineStatus
-        line.updatedAt = new Date()
-      })
-    }
-    await refreshShipmentItemsSnapshot(em, shipment, { items: createdItems, lineMap })
-    await em.flush()
-    await recomputeFulfilledQuantities(em, order)
-    await em.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({

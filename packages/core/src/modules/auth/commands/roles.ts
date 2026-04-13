@@ -50,6 +50,17 @@ type RoleSnapshots = {
   undo: RoleUndoSnapshot
 }
 
+const RESERVED_ROLE_NAMES = new Set(['superadmin', 'admin'])
+
+function assertRoleNameAllowed(name: string | undefined | null) {
+  if (typeof name !== 'string') return
+  const normalized = name.trim().toLowerCase()
+  if (!normalized) return
+  if (RESERVED_ROLE_NAMES.has(normalized)) {
+    throw new CrudHttpError(400, { error: 'Role name is reserved' })
+  }
+}
+
 const createSchema = z.object({
   name: z.string().min(2).max(100),
   tenantId: z.string().uuid().nullable().optional(),
@@ -89,6 +100,7 @@ const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
+    assertRoleNameAllowed(parsed.name)
     const resolvedTenantId = parsed.tenantId === undefined ? ctx.auth?.tenantId ?? null : parsed.tenantId ?? null
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.createOrmEntity({
@@ -201,8 +213,10 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
     const { parsed, custom } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
     if (parsed.name !== undefined) {
+      assertRoleNameAllowed(parsed.name)
       const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
       if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
+      assertRoleNameAllowed(current.name)
       const nextName = parsed.name
       if (nextName !== current.name) {
         const assignments = await em.count(UserRole, { role: current, deletedAt: null })
@@ -210,6 +224,10 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
           throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
         }
       }
+    } else {
+      const current = await em.findOne(Role, { id: parsed.id, deletedAt: null })
+      if (!current) throw new CrudHttpError(404, { error: 'Role not found' })
+      assertRoleNameAllowed(current.name)
     }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.updateOrmEntity({

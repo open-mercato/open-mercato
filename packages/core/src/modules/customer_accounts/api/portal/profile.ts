@@ -63,8 +63,11 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
+  const container = await createRequestContainer()
+  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+
   try {
-    requireCustomerFeature(auth, ['portal.account.manage'])
+    await requireCustomerFeature(auth, ['portal.account.manage'], customerRbacService)
   } catch (response) {
     return response as NextResponse
   }
@@ -81,7 +84,6 @@ export async function PUT(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
 
   const user = await customerUserService.findById(auth.sub, auth.tenantId)
