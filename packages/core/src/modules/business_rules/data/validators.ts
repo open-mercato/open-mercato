@@ -148,13 +148,13 @@ export const createBusinessRuleSchema = z.object({
   failureActions: actionsArraySchema,
 })
 
-export type CreateBusinessRuleInput = z.infer<typeof createBusinessRuleSchema>
+export type CreateBusinessRuleInput = z.input<typeof createBusinessRuleSchema>
 
 export const updateBusinessRuleSchema = createBusinessRuleSchema.partial().extend({
   id: uuid,
 })
 
-export type UpdateBusinessRuleInput = z.infer<typeof updateBusinessRuleSchema>
+export type UpdateBusinessRuleInput = z.input<typeof updateBusinessRuleSchema>
 
 // Factory functions for i18n-aware schemas (used in API routes with resolveTranslations)
 export function createLocalizedBusinessRuleSchema(t: TranslatorFn) {
