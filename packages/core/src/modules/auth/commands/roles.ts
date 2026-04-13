@@ -25,7 +25,7 @@ import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 
 type SerializedRole = {
   name: string
-  tenantId: string | null
+  tenantId: string
   custom?: Record<string, unknown>
 }
 
@@ -40,7 +40,7 @@ type RoleAclSnapshot = {
 type RoleUndoSnapshot = {
   id: string
   name: string
-  tenantId: string | null
+  tenantId: string
   acls: RoleAclSnapshot[]
   custom?: Record<string, unknown>
 }
@@ -63,13 +63,13 @@ function assertRoleNameAllowed(name: string | undefined | null) {
 
 const createSchema = z.object({
   name: z.string().min(2).max(100),
-  tenantId: z.string().uuid().nullable().optional(),
+  tenantId: z.string().uuid().optional(),
 })
 
 const updateSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(2).max(100).optional(),
-  tenantId: z.string().uuid().nullable().optional(),
+  tenantId: z.string().uuid().optional(),
 })
 
 export const roleCrudEvents: CrudEventsConfig = {
@@ -99,9 +99,16 @@ export const roleCrudIndexer: CrudIndexerConfig = {
 const createRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
   id: 'auth.roles.create',
   async execute(rawInput, ctx) {
+    // Reject explicit null tenantId before schema parsing (global roles are not supported)
+    if (rawInput && typeof rawInput === 'object' && 'tenantId' in (rawInput as Record<string, unknown>) && (rawInput as Record<string, unknown>).tenantId === null) {
+      throw new CrudHttpError(400, { error: 'tenantId cannot be null — global roles are not supported' })
+    }
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
     assertRoleNameAllowed(parsed.name)
-    const resolvedTenantId = parsed.tenantId === undefined ? ctx.auth?.tenantId ?? null : parsed.tenantId ?? null
+    const resolvedTenantId = parsed.tenantId ?? ctx.auth?.tenantId ?? null
+    if (!resolvedTenantId) {
+      throw new CrudHttpError(400, { error: 'tenantId is required — global roles are not supported' })
+    }
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     const role = await de.createOrmEntity({
       entity: Role,
@@ -235,7 +242,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       where: { id: parsed.id, deletedAt: null } as FilterQuery<Role>,
       apply: (entity) => {
         if (parsed.name !== undefined) entity.name = parsed.name
-        if (parsed.tenantId !== undefined) entity.tenantId = parsed.tenantId ?? null
+        if (parsed.tenantId !== undefined) entity.tenantId = parsed.tenantId
       },
     })
     if (!role) throw new CrudHttpError(404, { error: 'Role not found' })
@@ -320,7 +327,7 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
       where: { id: before.id, deletedAt: null } as FilterQuery<Role>,
       apply: (entity) => {
         entity.name = before.name
-        entity.tenantId = before.tenantId ?? null
+        if (before.tenantId) entity.tenantId = before.tenantId
       },
     })
     if (updated) {
@@ -429,7 +436,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     if (role) {
       role.deletedAt = null
       role.name = before.name
-      role.tenantId = before.tenantId ?? null
+      if (before.tenantId) role.tenantId = before.tenantId
       await em.flush()
     } else {
       role = await de.createOrmEntity({
@@ -437,7 +444,7 @@ const deleteRoleCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         data: {
           id: before.id,
           name: before.name,
-          tenantId: before.tenantId ?? null,
+          tenantId: before.tenantId,
         },
       })
     }
@@ -476,7 +483,7 @@ registerCommand(deleteRoleCommand)
 function serializeRole(role: Role, custom?: Record<string, unknown> | null): SerializedRole {
   const payload: SerializedRole = {
     name: String(role.name ?? ''),
-    tenantId: role.tenantId ? String(role.tenantId) : null,
+    tenantId: String(role.tenantId),
   }
   if (custom && Object.keys(custom).length) payload.custom = custom
   return payload
@@ -492,7 +499,7 @@ function captureRoleSnapshots(
     undo: {
       id: String(role.id),
       name: String(role.name ?? ''),
-      tenantId: role.tenantId ? String(role.tenantId) : null,
+      tenantId: String(role.tenantId),
       acls,
       ...(custom && Object.keys(custom).length ? { custom } : {}),
     },

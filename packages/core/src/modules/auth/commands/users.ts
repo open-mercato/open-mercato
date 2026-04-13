@@ -751,15 +751,11 @@ async function resolveRole(
   if (UUID_RE.test(value)) {
     const where: Record<string, unknown> = { id: value }
     if (normalizedTenantId !== null) {
-      where.$or = [{ tenantId: normalizedTenantId }, { tenantId: null }]
+      where.tenantId = normalizedTenantId
     }
     return em.findOne(Role, where as any)
   }
-  let role = await em.findOne(Role, { name: value, tenantId: normalizedTenantId })
-  if (!role && normalizedTenantId !== null) {
-    role = await em.findOne(Role, { name: value, tenantId: null })
-  }
-  return role
+  return em.findOne(Role, { name: value, tenantId: normalizedTenantId })
 }
 
 async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string[], tenantId: string | null) {
