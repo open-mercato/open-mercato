@@ -3,7 +3,6 @@
 import * as React from 'react'
 import { Search, Check } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -15,6 +14,8 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
+import type { RoleAssignment } from './RoleAssignmentRow'
+import { fetchAssignableStaffMembersPage } from './assignableStaff'
 import { getInitials } from './utils'
 
 type StaffMember = {
@@ -31,6 +32,8 @@ interface AssignRoleDialogProps {
   roleTypes: DictionaryEntryOption[]
   entityName: string
   existingRoleTypes?: Set<string>
+  existingAssignments?: RoleAssignment[]
+  initialRoleType?: string | null
 }
 
 type StepId = 1 | 2 | 3
@@ -41,6 +44,8 @@ type TeamFilter = {
   count: number
 }
 
+const ASSIGNABLE_STAFF_PAGE_SIZE = 24
+
 export function AssignRoleDialog({
   open,
   onClose,
@@ -48,6 +53,8 @@ export function AssignRoleDialog({
   roleTypes,
   entityName,
   existingRoleTypes,
+  existingAssignments = [],
+  initialRoleType = null,
 }: AssignRoleDialogProps) {
   const t = useT()
   const [step, setStep] = React.useState<StepId>(1)
@@ -56,8 +63,14 @@ export function AssignRoleDialog({
   const [searchQuery, setSearchQuery] = React.useState('')
   const [users, setUsers] = React.useState<StaffMember[]>([])
   const [loading, setLoading] = React.useState(false)
+  const [loadingMore, setLoadingMore] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [activeTeam, setActiveTeam] = React.useState('all')
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [totalUsers, setTotalUsers] = React.useState(0)
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const deferredSearchQuery = React.useDeferredValue(searchQuery)
+  const requestSequenceRef = React.useRef(0)
 
   const availableRoleTypes = React.useMemo(
     () => roleTypes.filter((roleType) => !existingRoleTypes?.has(roleType.value)),
@@ -72,77 +85,145 @@ export function AssignRoleDialog({
       setSearchQuery('')
       setUsers([])
       setActiveTeam('all')
+      setLoadError(null)
+      setTotalUsers(0)
+      setCurrentPage(1)
+      requestSequenceRef.current = 0
+      return
     }
-  }, [open])
+    const resolvedInitialRoleType =
+      typeof initialRoleType === 'string' && initialRoleType.trim().length > 0
+        ? initialRoleType.trim()
+        : ''
+    setStep(resolvedInitialRoleType ? 2 : 1)
+    setSelectedRoleType(resolvedInitialRoleType)
+    setSelectedUser(null)
+    setSearchQuery('')
+    setUsers([])
+    setActiveTeam('all')
+    setLoadError(null)
+    setTotalUsers(0)
+    setCurrentPage(1)
+    requestSequenceRef.current = 0
+  }, [initialRoleType, open])
 
-  const searchUsers = React.useCallback(async (query: string) => {
-    setLoading(true)
-    try {
-      const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-        `/api/staff/team-members?search=${encodeURIComponent(query)}&pageSize=24&isActive=true`,
-      )
-      const rawItems = Array.isArray(data?.items) ? data.items : []
-      const mapped: StaffMember[] = []
-      const seen = new Set<string>()
-      for (const item of rawItems) {
-        const userId =
-          typeof item?.userId === 'string'
-            ? item.userId
-            : typeof item?.user_id === 'string'
-              ? item.user_id
-              : null
-        if (!userId || seen.has(userId)) continue
-        seen.add(userId)
-        const user =
-          item?.user && typeof item.user === 'object'
-            ? (item.user as Record<string, unknown>)
-            : null
-        const displayName =
-          typeof item?.displayName === 'string' && item.displayName.trim().length
-            ? item.displayName.trim()
-            : typeof item?.display_name === 'string' && item.display_name.trim().length
-              ? item.display_name.trim()
-              : null
-        const email =
-          user && typeof user.email === 'string' && user.email.trim().length
-            ? user.email.trim()
-            : null
-        const teamName =
-          typeof item?.teamName === 'string' && item.teamName.trim().length
-            ? item.teamName.trim()
-            : typeof item?.team_name === 'string' && item.team_name.trim().length
-              ? item.team_name.trim()
-              : null
-        mapped.push({
-          id: userId,
-          displayName: displayName ?? email ?? userId,
-          email,
-          teamName,
-        })
+  const searchUsers = React.useCallback(
+    async ({
+      query,
+      page,
+      append,
+    }: {
+      query: string
+      page: number
+      append: boolean
+    }) => {
+      const requestId = append ? requestSequenceRef.current : requestSequenceRef.current + 1
+      requestSequenceRef.current = requestId
+
+      if (append) {
+        setLoadingMore(true)
+      } else {
+        setLoading(true)
       }
-      setUsers(mapped)
-    } catch {
-      setUsers([])
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+
+      try {
+        const result = await fetchAssignableStaffMembersPage(query, {
+          page,
+          pageSize: ASSIGNABLE_STAFF_PAGE_SIZE,
+        })
+        if (requestSequenceRef.current !== requestId) return
+
+        const nextUsers = result.items.map((member) => ({
+          id: member.userId,
+          displayName: member.displayName,
+          email: member.email,
+          teamName: member.teamName,
+        }))
+
+        setUsers((current) => {
+          if (!append) return nextUsers
+          const merged = new Map(current.map((user) => [user.id, user]))
+          nextUsers.forEach((user) => merged.set(user.id, user))
+          return Array.from(merged.values())
+        })
+        setTotalUsers(result.total)
+        setCurrentPage(result.page)
+        setLoadError(null)
+      } catch {
+        if (requestSequenceRef.current !== requestId) return
+        if (!append) {
+          setUsers([])
+          setTotalUsers(0)
+          setCurrentPage(1)
+        }
+        setLoadError(
+          t(
+            'customers.assignableStaff.loadError',
+            'Unable to load team members. Check your permissions and try again.',
+          ),
+        )
+      } finally {
+        if (requestSequenceRef.current !== requestId) return
+        if (append) {
+          setLoadingMore(false)
+        } else {
+          setLoading(false)
+        }
+      }
+    },
+    [t],
+  )
 
   React.useEffect(() => {
     if (step >= 2) {
-      searchUsers(searchQuery).catch(() => {})
+      searchUsers({ query: deferredSearchQuery, page: 1, append: false }).catch(() => {})
     }
-  }, [searchQuery, searchUsers, step])
+  }, [deferredSearchQuery, searchUsers, step])
+
+  const handleLoadMore = React.useCallback(() => {
+    if (loading || loadingMore || users.length >= totalUsers) return
+    searchUsers({
+      query: deferredSearchQuery,
+      page: currentPage + 1,
+      append: true,
+    }).catch(() => {})
+  }, [currentPage, deferredSearchQuery, loading, loadingMore, searchUsers, totalUsers, users.length])
 
   const selectedRole = React.useMemo(
-    () => availableRoleTypes.find((roleType) => roleType.value === selectedRoleType) ?? null,
-    [availableRoleTypes, selectedRoleType],
+    () => roleTypes.find((roleType) => roleType.value === selectedRoleType) ?? null,
+    [roleTypes, selectedRoleType],
   )
+
+  const roleTypeLabelMap = React.useMemo(
+    () => new Map(roleTypes.map((roleType) => [roleType.value, roleType.label])),
+    [roleTypes],
+  )
+
+  const conflictsByUserId = React.useMemo(() => {
+    const next = new Map<string, string[]>()
+    existingAssignments.forEach((assignment) => {
+      if (!assignment.userId) return
+      if (assignment.roleType === selectedRoleType) return
+      const label = roleTypeLabelMap.get(assignment.roleType) ?? assignment.roleType
+      const current = next.get(assignment.userId) ?? []
+      if (!current.includes(label)) {
+        current.push(label)
+        next.set(assignment.userId, current)
+      }
+    })
+    return next
+  }, [existingAssignments, roleTypeLabelMap, selectedRoleType])
+
+  const selectedUserConflict = React.useMemo(() => {
+    if (!selectedUser) return null
+    return conflictsByUserId.get(selectedUser.id) ?? null
+  }, [conflictsByUserId, selectedUser])
 
   const teamFilters = React.useMemo<TeamFilter[]>(() => {
     const counts = new Map<string, number>()
     users.forEach((user) => {
-      const key = user.teamName?.trim() || t('customers.roles.dialog.team.unassigned', 'No team')
+      const key =
+        user.teamName?.trim() || t('customers.roles.dialog.team.unassigned', 'No team')
       counts.set(key, (counts.get(key) ?? 0) + 1)
     })
     return [
@@ -153,8 +234,26 @@ export function AssignRoleDialog({
 
   const filteredUsers = React.useMemo(() => {
     if (activeTeam === 'all') return users
-    return users.filter((user) => (user.teamName?.trim() || t('customers.roles.dialog.team.unassigned', 'No team')) === activeTeam)
+    return users.filter(
+      (user) =>
+        (user.teamName?.trim() || t('customers.roles.dialog.team.unassigned', 'No team')) ===
+        activeTeam,
+    )
   }, [activeTeam, t, users])
+
+  const visibleCountLabel = React.useMemo(() => {
+    if (totalUsers <= 0) return null
+    return t(
+      'customers.roles.dialog.visibleCount',
+      'Showing {{shown}} of {{total}} team members',
+      {
+        shown: String(users.length),
+        total: String(totalUsers),
+      },
+    )
+  }, [t, totalUsers, users.length])
+
+  const canLoadMore = users.length < totalUsers
 
   const handleAssign = React.useCallback(async () => {
     if (!selectedRoleType || !selectedUser) return
@@ -167,236 +266,338 @@ export function AssignRoleDialog({
     }
   }, [onAssign, onClose, selectedRoleType, selectedUser])
 
-  const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      if (step === 3 && !saving && selectedUser && selectedRoleType) {
-        handleAssign()
-      } else if (step === 1 && selectedRoleType && availableRoleTypes.length) {
-        setStep(2)
-      } else if (step === 2 && selectedUser) {
-        setStep(3)
+  const handleKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault()
+        if (step === 3 && !saving && selectedUser && selectedRoleType) {
+          handleAssign()
+        } else if (step === 1 && selectedRoleType && availableRoleTypes.length) {
+          setStep(2)
+        } else if (step === 2 && selectedUser) {
+          setStep(3)
+        }
       }
-    }
-  }, [availableRoleTypes.length, handleAssign, saving, selectedRoleType, selectedUser, step])
+    },
+    [availableRoleTypes.length, handleAssign, saving, selectedRoleType, selectedUser, step],
+  )
 
-  const previewCard = selectedUser && selectedRole ? (
-    <div className="rounded-[12px] border border-border/70 bg-muted/30 px-4 py-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {t('customers.roles.dialog.preview', 'Assignment preview')}
-      </p>
-      <div className="mt-3 flex items-center gap-3">
-        <div className="flex size-12 items-center justify-center rounded-full bg-background text-sm font-semibold text-foreground">
-          {getInitials(selectedUser.displayName)}
-        </div>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
-            <span>{selectedUser.displayName}</span>
-            <span className="text-muted-foreground">→</span>
-            <span>{selectedRole.label}</span>
+  const previewCard =
+    selectedUser && selectedRole ? (
+      <div className="rounded-[12px] border border-border/70 bg-muted/30 px-4 py-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          {t('customers.roles.dialog.preview', 'Assignment preview')}
+        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <div className="flex size-12 items-center justify-center rounded-full bg-background text-sm font-semibold text-foreground">
+            {getInitials(selectedUser.displayName)}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            {selectedUser.email ? <span>{selectedUser.email}</span> : null}
-            {selectedUser.teamName ? <span>{selectedUser.teamName}</span> : null}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-foreground">
+              <span>{selectedUser.displayName}</span>
+              <span className="text-muted-foreground">→</span>
+              <span>{selectedRole.label}</span>
+            </div>
+            <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              {selectedUser.email ? <span>{selectedUser.email}</span> : null}
+              {selectedUser.teamName ? <span>{selectedUser.teamName}</span> : null}
+            </div>
+            {selectedUserConflict?.length ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className="rounded-full border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                >
+                  {t('customers.roles.dialog.conflict', 'Conflict: {{roles}}', {
+                    roles: selectedUserConflict.join(', '),
+                  })}
+                </Badge>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
-    </div>
-  ) : null
+    ) : null
 
   return (
-    <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
-      <DialogContent className="sm:max-w-[580px] overflow-hidden p-0" onKeyDown={handleKeyDown}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) onClose()
+      }}
+    >
+      <DialogContent
+        className="min-h-0 max-h-[min(90vh,760px)] overflow-hidden p-0 sm:max-w-[580px]"
+        onKeyDown={handleKeyDown}
+      >
         <DialogHeader className="border-b border-border/70 px-6 py-5">
           <DialogTitle className="text-[28px] font-semibold leading-none">
             {t('customers.roles.dialog.title', 'Assign role')}
           </DialogTitle>
           <p className="mt-2 text-sm text-muted-foreground">
-            {t('customers.roles.dialog.subtitle', 'Multi-role assignment for {{name}}', { name: entityName })}
+            {t('customers.roles.dialog.subtitle', 'Multi-role assignment for {{name}}', {
+              name: entityName,
+            })}
           </p>
         </DialogHeader>
 
         <div className="border-b border-border/70 px-6 py-4">
           <div className="flex items-center justify-center gap-3 text-xs">
-            <StepBadge step={1} currentStep={step} label={t('customers.roles.dialog.step1', 'Role type')} />
+            <StepBadge
+              step={1}
+              currentStep={step}
+              label={t('customers.roles.dialog.step1', 'Role type')}
+            />
             <div className="h-px w-10 bg-border" />
-            <StepBadge step={2} currentStep={step} label={t('customers.roles.dialog.step2', 'Select person')} />
+            <StepBadge
+              step={2}
+              currentStep={step}
+              label={t('customers.roles.dialog.step2', 'Select person')}
+            />
             <div className="h-px w-10 bg-border" />
-            <StepBadge step={3} currentStep={step} label={t('customers.roles.dialog.step3', 'Confirm')} />
+            <StepBadge
+              step={3}
+              currentStep={step}
+              label={t('customers.roles.dialog.step3', 'Confirm')}
+            />
           </div>
         </div>
 
-        <div className="space-y-5 px-6 py-5">
-          {step === 1 ? (
-            <div className="space-y-4">
-              <div className="rounded-[12px] bg-muted/30 px-4 py-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  {t('customers.roles.dialog.roleTypeLabel', 'Role type')}
-                </p>
-                <div className="mt-2 flex items-center gap-2">
-                  <select
-                    value={selectedRoleType}
-                    onChange={(event) => setSelectedRoleType(event.target.value)}
-                    className="h-10 w-full rounded-[10px] border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
-                  >
-                    <option value="">
-                      {t('customers.roles.selectRoleType', 'Select role type...')}
-                    </option>
-                    {availableRoleTypes.map((roleType) => (
-                      <option key={roleType.id} value={roleType.value}>
-                        {roleType.label}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="space-y-5 px-6 py-5">
+            {step === 1 ? (
+              <div className="space-y-4">
+                <div className="rounded-[12px] bg-muted/30 px-4 py-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {t('customers.roles.dialog.roleTypeLabel', 'Role type')}
+                  </p>
+                  <div className="mt-2 flex items-center gap-2">
+                    <select
+                      value={selectedRoleType}
+                      onChange={(event) => setSelectedRoleType(event.target.value)}
+                      className="h-10 w-full rounded-[10px] border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+                    >
+                      <option value="">
+                        {t('customers.roles.selectRoleType', 'Select role type...')}
                       </option>
-                    ))}
-                  </select>
-                  {selectedRole ? (
-                    <Badge variant="outline" className="rounded-[6px] px-2 py-1 text-[10px]">
-                      dictionary
-                    </Badge>
-                  ) : null}
-                </div>
-              </div>
-
-              {!availableRoleTypes.length ? (
-                <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-6 text-sm text-muted-foreground">
-                  {t('customers.roles.dialog.noAvailableRoles', 'All available role types are already assigned.')}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {step === 2 ? (
-            <div className="space-y-4">
-              <div className="rounded-[12px] bg-muted/30 px-4 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      {t('customers.roles.dialog.roleTypeLabel', 'Role type')}
-                    </p>
-                    <div className="mt-1 flex items-center gap-2">
-                      <span className="text-lg font-semibold text-foreground">
-                        {selectedRole?.label ?? selectedRoleType}
-                      </span>
-                      <Badge variant="outline" className="rounded-[6px] px-2 py-1 text-[10px]">
+                      {availableRoleTypes.map((roleType) => (
+                        <option key={roleType.id} value={roleType.value}>
+                          {roleType.label}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedRole ? (
+                      <Badge
+                        variant="outline"
+                        className="rounded-[6px] px-2 py-1 text-[10px]"
+                      >
                         dictionary
                       </Badge>
+                    ) : null}
+                  </div>
+                </div>
+
+                {!availableRoleTypes.length ? (
+                  <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-6 text-sm text-muted-foreground">
+                    {t(
+                      'customers.roles.dialog.noAvailableRoles',
+                      'All available role types are already assigned.',
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {step === 2 ? (
+              <div className="space-y-4">
+                <div className="rounded-[12px] bg-muted/30 px-4 py-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                        {t('customers.roles.dialog.roleTypeLabel', 'Role type')}
+                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        <span className="text-lg font-semibold text-foreground">
+                          {selectedRole?.label ?? selectedRoleType}
+                        </span>
+                        <Badge
+                          variant="outline"
+                          className="rounded-[6px] px-2 py-1 text-[10px]"
+                        >
+                          dictionary
+                        </Badge>
+                      </div>
                     </div>
-                  </div>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setStep(1)}>
-                    {t('customers.roles.dialog.change', 'Change')}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                  {t('customers.roles.dialog.teamLabel', 'Select a team member')}
-                </p>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder={t('customers.roles.dialog.searchPlaceholder', 'Search by name, e-mail or team...')}
-                    className="h-10 rounded-[10px] border-border/80 pl-9 shadow-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {teamFilters.map((teamFilter) => {
-                  const isActive = activeTeam === teamFilter.id
-                  return (
                     <Button
-                      key={teamFilter.id}
                       type="button"
-                      variant={isActive ? 'default' : 'outline'}
+                      variant="outline"
                       size="sm"
-                      onClick={() => setActiveTeam(teamFilter.id)}
-                      className="h-7 rounded-[8px] px-2.5 text-[10px]"
+                      onClick={() => setStep(1)}
                     >
-                      {teamFilter.label}
-                      <span className="rounded-full bg-background/80 px-1 text-[9px] text-muted-foreground">
-                        {teamFilter.count}
-                      </span>
+                      {t('customers.roles.dialog.change', 'Change')}
                     </Button>
-                  )
-                })}
-              </div>
+                  </div>
+                </div>
 
-              <div className="space-y-2">
-                {loading ? (
-                  <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
-                    {t('customers.roles.loading', 'Loading...')}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {t('customers.roles.dialog.teamLabel', 'Select a team member')}
+                  </p>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder={t(
+                        'customers.roles.dialog.searchPlaceholder',
+                        'Search by name, e-mail or team...',
+                      )}
+                      className="h-10 rounded-[10px] border-border/80 pl-9 shadow-none"
+                    />
                   </div>
-                ) : filteredUsers.length === 0 ? (
-                  <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
-                    {t('customers.roles.dialog.noResults', 'No matching team members found.')}
-                  </div>
-                ) : (
-                  filteredUsers.map((user) => {
-                    const isSelected = selectedUser?.id === user.id
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {teamFilters.map((teamFilter) => {
+                    const isActive = activeTeam === teamFilter.id
                     return (
                       <Button
-                        key={user.id}
+                        key={teamFilter.id}
                         type="button"
-                        variant="ghost"
-                        onClick={() => setSelectedUser(user)}
-                        className={`h-auto flex w-full items-center gap-3 rounded-[12px] border px-4 py-3 text-left transition-colors ${
-                          isSelected
-                            ? 'border-foreground bg-background shadow-sm'
-                            : 'border-border/70 bg-background hover:bg-accent/40'
-                        }`}
+                        variant={isActive ? 'default' : 'outline'}
+                        size="sm"
+                        onClick={() => setActiveTeam(teamFilter.id)}
+                        className="h-7 rounded-[8px] px-2.5 text-[10px]"
                       >
-                        <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">
-                          {getInitials(user.displayName)}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">{user.displayName}</span>
-                            {user.teamName ? (
-                              <Badge variant="muted" className="rounded-[6px] px-2 py-0.5 text-[9px] font-medium">
-                                {user.teamName}
-                              </Badge>
-                            ) : null}
-                          </div>
-                          {user.email ? (
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              {user.email}
-                            </div>
-                          ) : null}
-                        </div>
-                        <span
-                          className={`flex size-6 shrink-0 items-center justify-center rounded-full border ${
-                            isSelected
-                              ? 'border-foreground bg-foreground text-background'
-                              : 'border-border/80 bg-background text-transparent'
-                          }`}
-                        >
-                          <Check className="size-3.5" />
+                        {teamFilter.label}
+                        <span className="rounded-full bg-background/80 px-1 text-[9px] text-muted-foreground">
+                          {teamFilter.count}
                         </span>
                       </Button>
                     )
-                  })
-                )}
+                  })}
+                </div>
+
+                <div className="space-y-2">
+                  {visibleCountLabel ? (
+                    <p className="text-xs text-muted-foreground">{visibleCountLabel}</p>
+                  ) : null}
+                  {loading ? (
+                    <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
+                      {t('customers.roles.loading', 'Loading...')}
+                    </div>
+                  ) : loadError ? (
+                    <div className="rounded-[12px] border border-dashed border-red-200 bg-red-50/70 px-4 py-8 text-center text-sm text-red-700">
+                      {loadError}
+                    </div>
+                  ) : filteredUsers.length === 0 ? (
+                    <div className="rounded-[12px] border border-dashed border-border/80 px-4 py-8 text-center text-sm text-muted-foreground">
+                      {t(
+                        'customers.roles.dialog.noResults',
+                        'No matching team members found.',
+                      )}
+                    </div>
+                  ) : (
+                    filteredUsers.map((user) => {
+                      const isSelected = selectedUser?.id === user.id
+                      const userConflicts = conflictsByUserId.get(user.id) ?? []
+                      return (
+                        <Button
+                          key={user.id}
+                          type="button"
+                          variant="ghost"
+                          onClick={() => setSelectedUser(user)}
+                          className={`h-auto flex w-full items-center gap-3 rounded-[12px] border px-4 py-3 text-left transition-colors ${
+                            isSelected
+                              ? 'border-foreground bg-background shadow-sm'
+                              : 'border-border/70 bg-background hover:bg-accent/40'
+                          }`}
+                        >
+                          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground">
+                            {getInitials(user.displayName)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-semibold text-foreground">
+                                {user.displayName}
+                              </span>
+                              {user.teamName ? (
+                                <Badge
+                                  variant="muted"
+                                  className="rounded-[6px] px-2 py-0.5 text-[9px] font-medium"
+                                >
+                                  {user.teamName}
+                                </Badge>
+                              ) : null}
+                              {userConflicts.length ? (
+                                <Badge
+                                  variant="outline"
+                                  className="rounded-full border-red-300 bg-red-50 px-2 py-0.5 text-[9px] font-semibold text-red-700"
+                                >
+                                  {t('customers.roles.dialog.conflict', 'Conflict: {{roles}}', {
+                                    roles: userConflicts.join(', '),
+                                  })}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            {user.email ? (
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {user.email}
+                              </div>
+                            ) : null}
+                          </div>
+                          <span
+                            className={`flex size-6 shrink-0 items-center justify-center rounded-full border ${
+                              isSelected
+                                ? 'border-foreground bg-foreground text-background'
+                                : 'border-border/80 bg-background text-transparent'
+                            }`}
+                          >
+                            <Check className="size-3.5" />
+                          </span>
+                        </Button>
+                      )
+                    })
+                  )}
+                  {canLoadMore && !loadError ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className="w-full"
+                    >
+                      {loadingMore
+                        ? t('customers.roles.dialog.loadingMore', 'Loading more...')
+                        : t('customers.roles.dialog.loadMore', 'Load more')}
+                    </Button>
+                  ) : null}
+                </div>
+
+                {previewCard}
               </div>
+            ) : null}
 
-              {previewCard}
-            </div>
-          ) : null}
-
-          {step === 3 ? (
-            <div className="space-y-4">
-              {previewCard}
-              <p className="text-sm text-muted-foreground">
-                {t('customers.roles.dialog.constraint', 'One person per role. The assignment can be changed at any time.')}
-              </p>
-            </div>
-          ) : null}
+            {step === 3 ? (
+              <div className="space-y-4">
+                {previewCard}
+                <p className="text-sm text-muted-foreground">
+                  {t(
+                    'customers.roles.dialog.constraint',
+                    'One person per role. The assignment can be changed at any time.',
+                  )}
+                </p>
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        <DialogFooter className="border-t border-border/70 px-6 py-4 sm:justify-between">
+        <DialogFooter className="shrink-0 border-t border-border/70 px-6 py-4 sm:justify-between">
           <p className="text-xs text-muted-foreground">
-            {t('customers.roles.dialog.footerNote', 'One person per role · can be changed at any time')}
+            {t(
+              'customers.roles.dialog.footerNote',
+              'One person per role · can be changed at any time',
+            )}
           </p>
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
@@ -417,7 +618,11 @@ export function AssignRoleDialog({
               </Button>
             ) : null}
             {step === 3 ? (
-              <Button type="button" onClick={handleAssign} disabled={saving || !selectedUser || !selectedRoleType}>
+              <Button
+                type="button"
+                onClick={handleAssign}
+                disabled={saving || !selectedUser || !selectedRoleType}
+              >
                 {saving
                   ? t('customers.roles.assigning', 'Assigning...')
                   : t('customers.roles.dialog.assign', 'Assign role')}

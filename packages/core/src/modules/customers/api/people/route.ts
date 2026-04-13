@@ -349,6 +349,27 @@ const crud = makeCrudRoute({
         .filter((id: string | null): id is string => typeof id === 'string' && id.length > 0)
       if (!ids.length) return
 
+      const em = ctx.container.resolve('em') as any
+      const decryptionScope = {
+        tenantId: ctx.auth?.tenantId ?? null,
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      }
+      const entities = await findWithDecryption(
+        em,
+        CustomerEntity,
+        {
+          id: { $in: ids },
+          deletedAt: null,
+          kind: 'person',
+        } as any,
+        undefined,
+        decryptionScope,
+      )
+      const entitiesById = new Map<string, CustomerEntity>()
+      for (const entity of entities) {
+        entitiesById.set(entity.id, entity)
+      }
+
       const where: Record<string, unknown> = {
         entity: { $in: ids },
         tenantId: ctx.auth?.tenantId ?? null,
@@ -358,14 +379,11 @@ const crud = makeCrudRoute({
       }
 
       const profiles = await findWithDecryption(
-        ctx.container.resolve('em') as any,
+        em,
         CustomerPersonProfile,
         where as any,
         { populate: ['entity', 'company'] } as any,
-        {
-          tenantId: ctx.auth?.tenantId ?? null,
-          organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-        },
+        decryptionScope,
       )
 
       const profilesByEntityId = new Map<string, CustomerPersonProfile>()
@@ -377,23 +395,37 @@ const crud = makeCrudRoute({
       payload.items = items.map((item: unknown) => {
         if (!item || typeof item !== 'object') return item
         const record = item as Record<string, unknown>
+        const entity = typeof record.id === 'string' ? entitiesById.get(record.id) : undefined
         const profile = typeof record.id === 'string' ? profilesByEntityId.get(record.id) : undefined
-        if (!profile) return item
+        if (!entity && !profile) return item
         return {
           ...record,
-          first_name: profile.firstName ?? null,
-          last_name: profile.lastName ?? null,
-          preferred_name: profile.preferredName ?? null,
-          job_title: profile.jobTitle ?? null,
-          department: profile.department ?? null,
-          seniority: profile.seniority ?? null,
-          timezone: profile.timezone ?? null,
-          linked_in_url: profile.linkedInUrl ?? null,
-          twitter_url: profile.twitterUrl ?? null,
+          display_name: entity?.displayName ?? record.display_name ?? null,
+          description: entity?.description ?? record.description ?? null,
+          owner_user_id: entity?.ownerUserId ?? record.owner_user_id ?? null,
+          primary_email: entity?.primaryEmail ?? record.primary_email ?? null,
+          primary_phone: entity?.primaryPhone ?? record.primary_phone ?? null,
+          status: entity?.status ?? record.status ?? null,
+          lifecycle_stage: entity?.lifecycleStage ?? record.lifecycle_stage ?? null,
+          source: entity?.source ?? record.source ?? null,
+          next_interaction_at: entity?.nextInteractionAt ? entity.nextInteractionAt.toISOString() : record.next_interaction_at ?? null,
+          next_interaction_name: entity?.nextInteractionName ?? record.next_interaction_name ?? null,
+          next_interaction_ref_id: entity?.nextInteractionRefId ?? record.next_interaction_ref_id ?? null,
+          next_interaction_icon: entity?.nextInteractionIcon ?? record.next_interaction_icon ?? null,
+          next_interaction_color: entity?.nextInteractionColor ?? record.next_interaction_color ?? null,
+          first_name: profile?.firstName ?? null,
+          last_name: profile?.lastName ?? null,
+          preferred_name: profile?.preferredName ?? null,
+          job_title: profile?.jobTitle ?? null,
+          department: profile?.department ?? null,
+          seniority: profile?.seniority ?? null,
+          timezone: profile?.timezone ?? null,
+          linked_in_url: profile?.linkedInUrl ?? null,
+          twitter_url: profile?.twitterUrl ?? null,
           company_entity_id:
-            profile.company && typeof profile.company === 'object'
+            profile?.company && typeof profile.company === 'object'
               ? profile.company.id
-              : profile.company ?? null,
+              : profile?.company ?? null,
         }
       })
     },

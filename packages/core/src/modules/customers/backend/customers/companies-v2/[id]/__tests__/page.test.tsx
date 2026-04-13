@@ -7,10 +7,11 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import CompanyDetailV2Page from '../page'
 
 const readApiResultOrThrowMock = jest.fn()
+let activeTabParam: string | null = 'activity-log'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn() }),
-  useSearchParams: () => ({ get: (key: string) => (key === 'tab' ? 'activity-log' : null) }),
+  useSearchParams: () => ({ get: (key: string) => (key === 'tab' ? activeTabParam : null) }),
 }))
 
 jest.mock('@open-mercato/ui/backend/Page', () => ({
@@ -19,6 +20,21 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
+  AttachmentsSection: ({
+    entityId,
+    recordId,
+    title,
+    description,
+  }: {
+    entityId: string
+    recordId: string | null
+    title?: string
+    description?: string
+  }) => (
+    <div data-testid="attachments-section">
+      {entityId}:{recordId}:{title}:{description}
+    </div>
+  ),
   ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
 }))
@@ -96,35 +112,32 @@ jest.mock('../../../../../components/detail/CompanyKpiBar', () => ({
 }))
 
 jest.mock('../../../../../components/detail/CompanyDetailTabs', () => ({
-  resolveLegacyTab: (tab?: string | null) => (tab === 'activity-log' ? 'activity-log' : 'people'),
+  resolveLegacyTab: (tab?: string | null) => {
+    if (tab === 'activity-log' || tab === 'files') {
+      return tab
+    }
+    return 'people'
+  },
   CompanyDetailTabs: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }))
 
-jest.mock('../../../../../components/detail/InlineActivityComposer', () => ({
-  InlineActivityComposer: ({ onScheduleRequested }: { onScheduleRequested: () => void }) => (
-    <button type="button" onClick={onScheduleRequested}>
-      schedule-new
-    </button>
-  ),
-}))
-
-jest.mock('../../../../../components/detail/PlannedActivitiesSection', () => ({
-  PlannedActivitiesSection: ({
-    onEdit,
-    onSchedule,
+jest.mock('../../../../../components/detail/ActivityLogTab', () => ({
+  ActivityLogTab: ({
+    onEditActivity,
+    onScheduleRequested,
   }: {
-    onEdit: (activity: Record<string, unknown>) => void
-    onSchedule: () => void
+    onEditActivity: (activity: Record<string, unknown>) => void
+    onScheduleRequested: () => void
   }) => (
     <div>
       <button
         type="button"
-        onClick={() => onEdit({ id: 'activity-1', interactionType: 'meeting', title: 'Existing meeting', scheduledAt: '2026-04-20T09:00:00.000Z' })}
+        onClick={() => onEditActivity({ id: 'activity-1', interactionType: 'meeting', title: 'Existing meeting', scheduledAt: '2026-04-20T09:00:00.000Z' })}
       >
         edit-activity
       </button>
-      <button type="button" onClick={onSchedule}>
-        schedule-from-planned
+      <button type="button" onClick={onScheduleRequested}>
+        schedule-new
       </button>
     </div>
   ),
@@ -150,10 +163,6 @@ jest.mock('../../../../../components/detail/ScheduleActivityDialog', () => ({
     ) : null,
 }))
 
-jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
-  ActivitiesSection: () => <div>activities</div>,
-}))
-
 jest.mock('../../../../../components/detail/DealsSection', () => ({
   DealsSection: () => <div>deals</div>,
 }))
@@ -172,6 +181,7 @@ jest.mock('../../../../../components/detail/ChangelogTab', () => ({
 
 describe('CompanyDetailV2Page schedule dialog state', () => {
   beforeEach(() => {
+    activeTabParam = 'activity-log'
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockResolvedValue({
       company: {
@@ -214,5 +224,17 @@ describe('CompanyDetailV2Page schedule dialog state', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'schedule-new' }))
     expect(screen.getByTestId('schedule-dialog-mode')).toHaveTextContent('create')
+  })
+
+  it('renders the shared attachments section on the files tab', async () => {
+    activeTabParam = 'files'
+
+    renderWithProviders(<CompanyDetailV2Page params={{ id: 'company-123' }} />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('attachments-section')).toHaveTextContent(
+        'e1:company-123:Files:Upload and manage files linked to this company.',
+      )
+    })
   })
 })

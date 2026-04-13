@@ -1,21 +1,21 @@
 "use client"
 
 import * as React from 'react'
-import { Phone, Mail, Clock, Trash2, Building2, Globe, MoreHorizontal, Settings, SquarePen, MapPin } from 'lucide-react'
-import { cn } from '@open-mercato/shared/lib/utils'
+import { Phone, Mail, Clock, Trash2, Building2, Globe, MoreHorizontal, Settings, MapPin } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
-import { ManageTagsDialog } from './ManageTagsDialog'
-import { useCustomerDictionary } from './hooks/useCustomerDictionary'
+import { CompanyTagsDialog } from './CompanyTagsDialog'
+import { invalidateCustomerDictionary, useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
 import type { TagSummary } from './types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import type { CompanyOverview } from '../formConfig'
 import type { CustomerDictionaryMap } from '@open-mercato/core/modules/customers/lib/dictionaries'
-import { getInitials, formatFallbackLabel } from './utils'
+import { formatFallbackLabel } from './utils'
 
 type CompanyDetailHeaderProps = {
   data: CompanyOverview
@@ -26,6 +26,7 @@ type CompanyDetailHeaderProps = {
   isDirty: boolean
   isSaving: boolean
   onFocusField?: (fieldName: string) => void
+  onDataReload?: () => void
 }
 
 function CompanyDictionaryBadge({ value, map }: { value: string; map: CustomerDictionaryMap | undefined }) {
@@ -53,8 +54,10 @@ export function CompanyDetailHeader({
   isDirty,
   isSaving,
   onFocusField,
+  onDataReload,
 }: CompanyDetailHeaderProps) {
   const t = useT()
+  const queryClient = useQueryClient()
   const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
   const company = data.company
   const profile = data.profile
@@ -100,38 +103,18 @@ export function CompanyDetailHeader({
             <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
           )}
 
-          {/* Contact row with inline edit pencils */}
+          {/* Contact row */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
             {company.primaryPhone && (
               <span className="inline-flex items-center gap-1.5">
                 <Phone className="size-3.5" />
                 <a href={`tel:${company.primaryPhone}`} className="hover:text-foreground">{company.primaryPhone}</a>
-                <IconButton
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="size-5 text-muted-foreground/50"
-                  aria-label={t('customers.companies.detail.actions.editPhone', 'Edit phone')}
-                  onClick={() => onFocusField?.('primaryPhone')}
-                >
-                  <SquarePen className="size-3" />
-                </IconButton>
               </span>
             )}
             {company.primaryEmail && (
               <span className="inline-flex items-center gap-1.5">
                 <Mail className="size-3.5" />
                 <a href={`mailto:${company.primaryEmail}`} className="hover:text-foreground">{company.primaryEmail}</a>
-                <IconButton
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="size-5 text-muted-foreground/50"
-                  aria-label={t('customers.companies.detail.actions.editEmail', 'Edit email')}
-                  onClick={() => onFocusField?.('primaryEmail')}
-                >
-                  <SquarePen className="size-3" />
-                </IconButton>
               </span>
             )}
             {profile?.websiteUrl && (
@@ -193,24 +176,9 @@ export function CompanyDetailHeader({
           </div>
         </div>
 
-        {/* Right side: Account manager + actions */}
+        {/* Right side: actions */}
         <div className="flex shrink-0 flex-col items-end gap-3">
-          {/* Account manager card */}
-          <div className="flex items-center gap-2.5 rounded-lg border px-3 py-2">
-            <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
-              {data.viewer?.name ? getInitials(data.viewer.name) : '?'}
-            </div>
-            <div className="text-right">
-              <p className="text-[11px] text-muted-foreground">
-                {t('customers.companies.detail.header.accountManager', 'Account Manager')}
-              </p>
-              <p className="text-sm font-medium text-foreground">
-                {data.viewer?.name || t('customers.companies.detail.header.notAssigned', 'Not assigned')}
-              </p>
-            </div>
-          </div>
-
-          {/* Action buttons — delete in three-dot menu */}
+          {/* Action buttons - delete in three-dot menu */}
           <div className="flex items-center gap-2">
             <IconButton variant="outline" size="sm" type="button" aria-label={t('customers.companies.detail.actions.history', 'History')}>
               <Clock className="size-4" />
@@ -246,7 +214,27 @@ export function CompanyDetailHeader({
         </div>
       </div>
 
-      <ManageTagsDialog open={manageTagsOpen} onClose={() => setManageTagsOpen(false)} />
+      <CompanyTagsDialog
+        open={manageTagsOpen}
+        onClose={() => setManageTagsOpen(false)}
+        entityId={company.id}
+        companyOrganizationId={company.organizationId ?? null}
+        companyData={{
+          status: company.status,
+          lifecycleStage: company.lifecycleStage,
+          source: company.source,
+          temperature: company.temperature,
+          renewalQuarter: company.renewalQuarter,
+        }}
+        onSaved={() => {
+          void invalidateCustomerDictionary(queryClient, 'statuses')
+          void invalidateCustomerDictionary(queryClient, 'lifecycle-stages')
+          void invalidateCustomerDictionary(queryClient, 'sources')
+          void invalidateCustomerDictionary(queryClient, 'temperature')
+          void invalidateCustomerDictionary(queryClient, 'renewal-quarters')
+          onDataReload?.()
+        }}
+      />
     </div>
   )
 }

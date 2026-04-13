@@ -9,7 +9,6 @@ import {
   Users,
   Handshake,
   Clock,
-  TrendingUp,
   History,
   Paperclip,
 } from 'lucide-react'
@@ -18,7 +17,6 @@ export type CompanyTabId =
   | 'people'
   | 'deals'
   | 'activity-log'
-  | 'analysis'
   | 'changelog'
   | 'files'
   | string
@@ -48,6 +46,7 @@ const LEGACY_TAB_MAP: Record<string, CompanyTabId> = {
   tasks: 'people',
   dashboard: 'people',
   'dane-firmy': 'people',
+  analysis: 'people',
 }
 
 export function resolveLegacyTab(tab: string | null | undefined): CompanyTabId {
@@ -104,12 +103,6 @@ export function CompanyDetailTabs({
         label: t('customers.companies.detail.tabs.activityLog', 'Activity log'),
         icon: <Clock className="size-4" />,
         badge: <CountBadge count={activitiesCount} />,
-      },
-      {
-        id: 'analysis',
-        label: t('customers.companies.detail.tabs.analysis', 'Analysis'),
-        icon: <TrendingUp className="size-4" />,
-        badge: <NewBadge />,
       },
       {
         id: 'changelog',

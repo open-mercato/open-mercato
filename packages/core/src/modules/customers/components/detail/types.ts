@@ -129,6 +129,7 @@ export type InteractionSummary = {
   appearanceIcon?: string | null
   appearanceColor?: string | null
   source?: string | null
+  location?: string | null
   entityId?: string | null
   dealId?: string | null
   organizationId?: string | null
@@ -137,6 +138,7 @@ export type InteractionSummary = {
   authorEmail?: string | null
   dealTitle?: string | null
   customValues?: Record<string, unknown> | null
+  participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
   customer?: {
     id: string | null
     displayName: string | null

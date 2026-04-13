@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { invalidateDictionaryCache } from '../api/dictionaries/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { loadRoleTypeUsage } from '../lib/roleTypeUsage'
 import {
   customerDictionaryEntryCreateSchema,
   customerDictionaryEntryDeleteSchema,
@@ -38,6 +39,16 @@ type CustomerDictionaryEntrySnapshot = {
 type CustomerDictionaryEntryUndoPayload = {
   before?: CustomerDictionaryEntrySnapshot | null
   after?: CustomerDictionaryEntrySnapshot | null
+}
+
+function buildRoleTypeInUseError(usageCount: number, ownerAssignments: number, relationshipAssignments: number) {
+  return new CrudHttpError(409, {
+    code: 'role_type_in_use',
+    error: 'Role type is in use',
+    usageCount,
+    ownerAssignments,
+    relationshipAssignments,
+  })
 }
 
 function normalizeValue(input: string): { value: string; normalized: string } {
@@ -311,6 +322,20 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     if (parsed.value !== undefined) {
       const value = normalizeValue(parsed.value)
       if (value.normalized !== entry.normalizedValue) {
+        if (entry.kind === 'person_company_role') {
+          const usage = await loadRoleTypeUsage(em, {
+            tenantId: parsed.tenantId,
+            organizationId: entry.organizationId,
+            value: entry.value,
+          })
+          if (usage.total > 0) {
+            throw buildRoleTypeInUseError(
+              usage.total,
+              usage.ownerAssignments,
+              usage.relationshipAssignments,
+            )
+          }
+        }
         const duplicate = await em.findOne(CustomerDictionaryEntry, {
           id: { $ne: entry.id },
           tenantId: parsed.tenantId,
@@ -441,6 +466,20 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     const entry = await em.findOne(CustomerDictionaryEntry, { id: parsed.id })
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+    }
+    if (entry.kind === 'person_company_role') {
+      const usage = await loadRoleTypeUsage(em, {
+        tenantId: entry.tenantId,
+        organizationId: entry.organizationId,
+        value: entry.value,
+      })
+      if (usage.total > 0) {
+        throw buildRoleTypeInUseError(
+          usage.total,
+          usage.ownerAssignments,
+          usage.relationshipAssignments,
+        )
+      }
     }
     em.remove(entry)
     await em.flush()

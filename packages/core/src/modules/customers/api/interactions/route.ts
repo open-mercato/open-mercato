@@ -31,6 +31,7 @@ const interactionSortFieldSchema = z.enum([
   'status',
   'priority',
   'interactionType',
+  'title',
 ])
 
 const listSchema = z
@@ -43,6 +44,7 @@ const listSchema = z
     interactionType: z.string().optional(),
     type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
+    search: z.string().trim().min(1).optional(),
     from: z.string().optional(),
     to: z.string().optional(),
     pinned: z.enum(['true', 'false']).optional(),
@@ -135,6 +137,9 @@ type InteractionListRow = {
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
+  duration_minutes: number | null
+  location: string | null
+  participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
   pinned: boolean
   organization_id: string
   tenant_id: string
@@ -165,6 +170,7 @@ const interactionSortConfig = {
   status: { column: 'status', type: 'text' as const, defaultDir: 'asc' as const },
   priority: { column: 'priority', type: 'number' as const, defaultDir: 'desc' as const },
   interactionType: { column: 'interaction_type', type: 'text' as const, defaultDir: 'asc' as const },
+  title: { column: 'title', type: 'text' as const, defaultDir: 'asc' as const },
 } as const
 
 function toIsoString(value: unknown): string | null {
@@ -331,6 +337,9 @@ export async function GET(req: Request) {
         'appearance_icon',
         'appearance_color',
         'source',
+        'duration_minutes',
+        'location',
+        'participants',
         'pinned',
         'organization_id',
         'tenant_id',
@@ -371,11 +380,23 @@ export async function GET(req: Request) {
     if (query.excludeInteractionType) {
       rowsQuery.andWhereNot('interaction_type', query.excludeInteractionType)
     }
+    if (query.search) {
+      const searchTerm = `%${query.search}%`
+      rowsQuery.andWhere(function applySearch() {
+        this.whereRaw("coalesce(title, '') ilike ?", [searchTerm]).orWhereRaw("coalesce(body, '') ilike ?", [searchTerm])
+      })
+    }
     if (query.from) {
-      rowsQuery.andWhere('scheduled_at', '>=', new Date(query.from))
+      rowsQuery.andWhereRaw(
+        "coalesce(occurred_at, scheduled_at, created_at) >= ?",
+        [new Date(query.from)],
+      )
     }
     if (query.to) {
-      rowsQuery.andWhere('scheduled_at', '<=', new Date(query.to))
+      rowsQuery.andWhereRaw(
+        "coalesce(occurred_at, scheduled_at, created_at) <= ?",
+        [new Date(query.to)],
+      )
     }
     if (cursor) {
       const op = sortDir === 'asc' ? '>' : '<'
@@ -453,6 +474,9 @@ export async function GET(req: Request) {
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
+      duration: row.duration_minutes ?? null,
+      location: row.location ?? null,
+      participants: row.participants ?? null,
       pinned: row.pinned ?? false,
       organizationId: row.organization_id,
       tenantId: row.tenant_id,
@@ -516,6 +540,16 @@ const interactionListItemSchema = z
     appearanceIcon: z.string().nullable().optional(),
     appearanceColor: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
+    duration: z.number().nullable().optional(),
+    location: z.string().nullable().optional(),
+    participants: z.array(
+      z.object({
+        userId: z.string().uuid(),
+        name: z.string().optional(),
+        email: z.string().optional(),
+        status: z.string().optional(),
+      }),
+    ).nullable().optional(),
     organizationId: z.string().uuid().nullable().optional(),
     tenantId: z.string().uuid().nullable().optional(),
     createdAt: z.string().nullable(),

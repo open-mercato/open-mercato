@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Phone, Mail, Building2, Clock, Trash2, MoreHorizontal, Settings, SquarePen, Plus } from 'lucide-react'
+import { Phone, Mail, Building2, Clock, Trash2, MoreHorizontal, Settings, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -142,38 +142,18 @@ export function PersonDetailHeader({
             </p>
           )}
 
-          {/* Contact row with edit icons */}
+          {/* Contact row */}
           <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
             {person.primaryPhone && (
               <span className="inline-flex items-center gap-1.5">
                 <Phone className="size-3.5" />
                 <a href={`tel:${person.primaryPhone}`} className="hover:text-foreground">{person.primaryPhone}</a>
-                <IconButton
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="size-5 text-muted-foreground/50"
-                  aria-label={t('customers.people.detail.actions.editPhone', 'Edit phone')}
-                  onClick={() => onFocusField?.('primaryPhone')}
-                >
-                  <SquarePen className="size-3" />
-                </IconButton>
               </span>
             )}
             {person.primaryEmail && (
               <span className="inline-flex items-center gap-1.5">
                 <Mail className="size-3.5" />
                 <a href={`mailto:${person.primaryEmail}`} className="hover:text-foreground">{person.primaryEmail}</a>
-                <IconButton
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="size-5 text-muted-foreground/50"
-                  aria-label={t('customers.people.detail.actions.editEmail', 'Edit email')}
-                  onClick={() => onFocusField?.('primaryEmail')}
-                >
-                  <SquarePen className="size-3" />
-                </IconButton>
               </span>
             )}
           </div>

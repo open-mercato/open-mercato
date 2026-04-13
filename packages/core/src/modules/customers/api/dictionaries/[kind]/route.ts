@@ -10,6 +10,7 @@ import { mapDictionaryKind, resolveDictionaryActorId, resolveDictionaryRouteCont
 import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { loadRoleTypeUsageMap, resolveRoleTypeUsageKey } from '../../../lib/roleTypeUsage'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -48,9 +49,10 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
     }
     const scopedOrganizationIds = readableOrganizationIds.length > 0 ? readableOrganizationIds : [organizationId]
+    const canUseCache = Boolean(cache) && mappedKind !== 'person_company_role'
 
     let cacheKey: string | null = null
-    if (cache) {
+    if (canUseCache && cache) {
       cacheKey = createDictionaryCacheKey({
         tenantId,
         organizationId,
@@ -111,8 +113,20 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       preferredEntries.set(normalizedValue, entry)
     }
 
+    const preferredEntryList = Array.from(preferredEntries.values())
+    const usageByEntryKey =
+      mappedKind === 'person_company_role'
+        ? await loadRoleTypeUsageMap(em, {
+            tenantId,
+            entries: preferredEntryList.map((entry) => ({
+              organizationId: entry.organizationId,
+              value: entry.value,
+            })),
+          })
+        : new Map()
+
     const items = [
-      ...Array.from(preferredEntries.values())
+      ...preferredEntryList
         .filter((entry) => entry.organizationId === organizationId)
         .sort(sortByLabel)
         .map((entry) => ({
@@ -123,8 +137,14 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           icon: entry.icon,
           organizationId: entry.organizationId,
           isInherited: false,
+          ...(mappedKind === 'person_company_role'
+            ? {
+                usageCount:
+                  usageByEntryKey.get(resolveRoleTypeUsageKey(entry.organizationId, entry.value))?.total ?? 0,
+              }
+            : {}),
         })),
-      ...Array.from(preferredEntries.values())
+      ...preferredEntryList
         .filter((entry) => entry.organizationId !== organizationId)
         .sort(sortByLabel)
         .map((entry) => ({
@@ -135,6 +155,12 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           icon: entry.icon,
           organizationId: entry.organizationId,
           isInherited: true,
+          ...(mappedKind === 'person_company_role'
+            ? {
+                usageCount:
+                  usageByEntryKey.get(resolveRoleTypeUsageKey(entry.organizationId, entry.value))?.total ?? 0,
+              }
+            : {}),
         })),
     ]
 
@@ -142,7 +168,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       items,
     }
 
-    if (cache && cacheKey) {
+    if (canUseCache && cache && cacheKey) {
       const tags = createDictionaryCacheTags({
         tenantId,
         mappedKind,

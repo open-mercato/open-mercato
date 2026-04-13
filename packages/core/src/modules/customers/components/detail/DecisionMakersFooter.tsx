@@ -18,7 +18,7 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
   if (names.length === 0) return null
 
   return (
-    <div className="sticky bottom-0 flex items-center justify-between rounded-lg border bg-card px-4 py-3 shadow-sm">
+    <div className="sticky bottom-0 flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div className="flex items-start gap-3 min-w-0">
         <Lightbulb className="size-4 text-muted-foreground shrink-0 mt-0.5" />
         <div className="min-w-0">
@@ -37,8 +37,8 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
       {onSendInvitation && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="shrink-0">
-              <Button type="button" size="sm" disabled className="pointer-events-none">
+            <span className="w-full shrink-0 sm:w-auto">
+              <Button type="button" size="sm" disabled className="pointer-events-none w-full sm:w-auto">
                 <Send className="mr-1.5 size-3.5" />
                 {t('customers.people.decisionMakers.sendInvitation', 'Send invitation')}
               </Button>

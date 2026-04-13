@@ -30,6 +30,10 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
 }
 
+function formatCountMessage(template: string, count: number) {
+  return template.replace('{{count}}', String(count))
+}
+
 export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: string } }) {
   try {
     const routeContext = await resolveDictionaryRouteContext(req)
@@ -61,6 +65,19 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
           throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
         }
         if (err.status === 409) {
+          if ((err.body as Record<string, unknown> | undefined)?.code === 'role_type_in_use') {
+            const usageCount = Number((err.body as Record<string, unknown> | undefined)?.usageCount ?? 0)
+            throw new CrudHttpError(409, {
+              ...(err.body as Record<string, unknown> | undefined),
+              error: formatCountMessage(
+                routeContext.translate(
+                  'customers.config.dictionaries.errors.roleTypeValueInUse',
+                  'This role type is assigned to {{count}} records. Remove or replace those assignments before changing its value.',
+                ),
+                usageCount,
+              ),
+            })
+          }
           throw new CrudHttpError(409, { error: routeContext.translate('customers.config.dictionaries.errors.duplicate', 'An entry with this value already exists') })
         }
         if (err.status === 400) {
@@ -141,6 +158,19 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
     } catch (err) {
       if (err instanceof CrudHttpError && err.status === 404) {
         throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
+      }
+      if (err instanceof CrudHttpError && err.status === 409 && (err.body as Record<string, unknown> | undefined)?.code === 'role_type_in_use') {
+        const usageCount = Number((err.body as Record<string, unknown> | undefined)?.usageCount ?? 0)
+        throw new CrudHttpError(409, {
+          ...(err.body as Record<string, unknown> | undefined),
+          error: formatCountMessage(
+            routeContext.translate(
+              'customers.config.dictionaries.errors.roleTypeDeleteInUse',
+              'This role type is assigned to {{count}} records. Remove or replace those assignments before deleting it.',
+            ),
+            usageCount,
+          ),
+        })
       }
       throw err
     }
@@ -226,6 +256,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
         { status: 404, description: 'Entry not found', schema: dictionaryErrorSchema },
+        { status: 409, description: 'Entry is in use and cannot be deleted', schema: dictionaryErrorSchema },
       ],
     },
   },

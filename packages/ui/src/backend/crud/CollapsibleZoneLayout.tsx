@@ -2,9 +2,12 @@
 import * as React from 'react'
 import { ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '../../primitives/button'
 import { useZoneCollapse } from './useZoneCollapse'
 import type { LucideIcon } from 'lucide-react'
+
+const SIDE_BY_SIDE_MIN_WIDTH = 1280
 
 export interface ZoneSectionDescriptor {
   id: string
@@ -44,31 +47,92 @@ export function CollapsibleZoneLayout({
   zone2,
   entityName,
   pageType,
+  zone1DefaultWidth,
   errorCount = 0,
   isDirty = false,
   sections,
 }: CollapsibleZoneLayoutProps) {
   const t = useT()
-  const { collapsed, toggle, setCollapsed } = useZoneCollapse(pageType)
+  const { collapsed, setCollapsed } = useZoneCollapse(pageType)
   const canCollapse = React.useSyncExternalStore(
     subscribeViewport,
     getViewportSnapshot,
     getViewportServerSnapshot,
   )
-  const effectiveCollapsed = canCollapse && collapsed
+  const layoutRef = React.useRef<HTMLDivElement>(null)
   const expandButtonRef = React.useRef<HTMLButtonElement>(null)
+  const [containerWidth, setContainerWidth] = React.useState(() => (typeof window === 'undefined' ? 0 : window.innerWidth))
+  const [expandedWhileConstrained, setExpandedWhileConstrained] = React.useState(false)
+
+  React.useEffect(() => {
+    const node = layoutRef.current
+    if (!node) return
+
+    const updateWidth = (nextWidth: number) => {
+      setContainerWidth((prev) => (Math.abs(prev - nextWidth) < 1 ? prev : nextWidth))
+    }
+
+    const measure = () => {
+      updateWidth(node.getBoundingClientRect().width || window.innerWidth)
+    }
+
+    measure()
+
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      updateWidth(entry.contentRect.width)
+    })
+
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  const canShowSideBySide = containerWidth >= SIDE_BY_SIDE_MIN_WIDTH
+
+  React.useEffect(() => {
+    if (canShowSideBySide) {
+      setExpandedWhileConstrained(false)
+    }
+  }, [canShowSideBySide])
+
+  const showCollapsedRail = canCollapse && (collapsed || (!canShowSideBySide && !expandedWhileConstrained))
+  const showStackedExpanded = !showCollapsedRail && !canShowSideBySide
+  const layoutMode = showCollapsedRail ? 'collapsed' : showStackedExpanded ? 'stacked' : 'side-by-side'
+  const zone1SideBySideStyle = zone1DefaultWidth
+    ? { width: zone1DefaultWidth, flexBasis: zone1DefaultWidth }
+    : undefined
+
+  const handleExpand = React.useCallback(() => {
+    if (!canCollapse) return
+    setCollapsed(false)
+    setExpandedWhileConstrained(!canShowSideBySide)
+  }, [canCollapse, canShowSideBySide, setCollapsed])
 
   const handleCollapse = React.useCallback(() => {
     if (!canCollapse) return
-    toggle()
+    setExpandedWhileConstrained(false)
+    setCollapsed(true)
     requestAnimationFrame(() => {
       expandButtonRef.current?.focus()
     })
-  }, [canCollapse, toggle])
+  }, [canCollapse, setCollapsed])
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4">
-      {effectiveCollapsed ? (
+    <div
+      ref={layoutRef}
+      data-zone-layout-mode={layoutMode}
+      className={cn(
+        'flex gap-4',
+        showStackedExpanded ? 'flex-col' : 'flex-col lg:flex-row',
+      )}
+    >
+      {showCollapsedRail ? (
         <>
           <div className="hidden lg:flex shrink-0 flex-col items-center gap-3">
             <Button
@@ -76,7 +140,7 @@ export function CollapsibleZoneLayout({
               type="button"
               variant="default"
               size="sm"
-              onClick={toggle}
+              onClick={handleExpand}
               className="h-auto rounded-[10px] px-1.5 py-2 shadow-sm"
               aria-label={t('ui.zone.expand', 'Expand form panel')}
             >
@@ -108,10 +172,39 @@ export function CollapsibleZoneLayout({
             {zone2}
           </div>
         </>
+      ) : showStackedExpanded ? (
+        <>
+          <div className="w-full space-y-2">
+            {canCollapse ? (
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCollapse}
+                  className="h-auto rounded-[6px] border bg-card px-1.5 py-2"
+                  aria-label={t('ui.zone.collapse', 'Collapse form panel')}
+                >
+                  <ChevronsLeft className="size-4" />
+                </Button>
+              </div>
+            ) : null}
+            <div className="w-full">
+              {zone1}
+            </div>
+          </div>
+
+          <div className="min-w-0 w-full">
+            {zone2}
+          </div>
+        </>
       ) : (
         <>
           {/* Zone 1 — CrudForm area */}
-          <div className="w-full lg:w-[40%] lg:shrink-0">
+          <div
+            className={cn('w-full lg:shrink-0', zone1DefaultWidth ? undefined : 'lg:w-[40%]')}
+            style={zone1SideBySideStyle}
+          >
             {zone1}
           </div>
 

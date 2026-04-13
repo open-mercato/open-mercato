@@ -14,6 +14,7 @@ import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
+import { fetchAssignableStaffMembers } from './assignableStaff'
 
 type ActivityType = 'meeting' | 'call' | 'task' | 'email'
 
@@ -57,33 +58,35 @@ function ParticipantSearchPopover({
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ userId: string; name: string; email: string }>>([])
   const [loading, setLoading] = React.useState(false)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
-    const searchParam = query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''
-    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-      `/api/staff/team-members?pageSize=10&isActive=true${searchParam}`,
-      { signal: controller.signal },
-    )
-      .then((data) => {
-        const items = Array.isArray(data?.items) ? data.items : []
-        const mapped: Array<{ userId: string; name: string; email: string }> = []
-        for (const item of items) {
-          const userId = typeof item?.userId === 'string' ? item.userId : typeof item?.user_id === 'string' ? item.user_id : null
-          if (!userId) continue
-          const user = item?.user && typeof item.user === 'object' ? (item.user as Record<string, unknown>) : null
-          const name = typeof item?.displayName === 'string' ? item.displayName : typeof item?.display_name === 'string' ? item.display_name : (user && typeof user.email === 'string' ? user.email : userId)
-          const email = user && typeof user.email === 'string' ? user.email : ''
-          mapped.push({ userId, name, email })
-        }
-        setResults(mapped)
+    fetchAssignableStaffMembers(query, { pageSize: 10, signal: controller.signal })
+      .then((members) => {
+        setResults(
+          members.map((member) => ({
+            userId: member.userId,
+            name: member.displayName,
+            email: member.email ?? '',
+          })),
+        )
+        setLoadError(null)
       })
-      .catch(() => setResults([]))
+      .catch(() => {
+        setResults([])
+        setLoadError(
+          t(
+            'customers.assignableStaff.loadError',
+            'Unable to load team members. Check your permissions and try again.',
+          ),
+        )
+      })
       .finally(() => setLoading(false))
     return () => controller.abort()
-  }, [open, query])
+  }, [open, query, t])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -107,7 +110,8 @@ function ParticipantSearchPopover({
         </div>
         <div className="max-h-48 overflow-y-auto space-y-0.5">
           {loading && <p className="px-2 py-3 text-xs text-muted-foreground text-center">{t('customers.schedule.searching', 'Searching...')}</p>}
-          {!loading && results.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground text-center">{t('customers.schedule.noResults', 'No results')}</p>}
+          {!loading && loadError && <p className="px-2 py-3 text-xs text-red-700 text-center">{loadError}</p>}
+          {!loading && !loadError && results.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground text-center">{t('customers.schedule.noResults', 'No results')}</p>}
           {results.map((r) => {
             const alreadyAdded = existingIds.has(r.userId)
             return (

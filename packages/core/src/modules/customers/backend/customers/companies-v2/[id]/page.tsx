@@ -4,13 +4,13 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { Building2, Hash, Users, BarChart3 } from 'lucide-react'
+import { Building2, Hash, Users, BarChart3, StickyNote } from 'lucide-react'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -19,18 +19,15 @@ import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { ActivitiesSection } from '../../../../components/detail/ActivitiesSection'
 import { DealsSection } from '../../../../components/detail/DealsSection'
+import { ActivityLogTab } from '../../../../components/detail/ActivityLogTab'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../../../../components/detail/CompanyPeopleSection'
-import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
 import type { TagSummary } from '../../../../components/detail/types'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
-import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
-import { ComingSoonPlaceholder } from '../../../../components/detail/ComingSoonPlaceholder'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import {
   buildCompanyEditPayload,
@@ -77,7 +74,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     { id: 'identity', icon: Building2, label: t('customers.companies.form.sections.identity', 'Identity') },
     { id: 'contact', icon: Hash, label: t('customers.companies.form.sections.contact', 'Contact') },
     { id: 'classification', icon: Users, label: t('customers.companies.form.sections.classification', 'Classification') },
-    { id: 'profile', icon: BarChart3, label: t('customers.companies.form.sections.businessProfile', 'Business profile') },
+    { id: 'businessProfile', icon: BarChart3, label: t('customers.companies.form.sections.businessProfile', 'Business profile') },
+    { id: 'notes', icon: StickyNote, label: t('customers.companies.form.groups.notes', 'Notes') },
+    { id: 'customFields', icon: Hash, label: t('customers.companies.form.groups.customAttributes', 'Custom attributes') },
   ], [t])
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
@@ -376,6 +375,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
+            onDataReload={() => { loadData().catch(() => {}) }}
           />
 
           {/* KPI bar — always visible above zones */}
@@ -451,42 +451,18 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 )}
 
                 {activeTab === 'activity-log' && (
-                  <div className="space-y-4">
-                    <InlineActivityComposer
-                      entityType="company"
-                      entityId={companyId}
-                      onActivityCreated={handleActivityCreated}
-                      runGuardedMutation={runMutationWithContext}
-                      onScheduleRequested={openNewScheduleDialog}
-                      useCanonicalInteractions={useCanonicalInteractions}
-                    />
-                    <PlannedActivitiesSection
-                      activities={plannedActivities}
-                      onComplete={handleMarkDone}
-                      onSchedule={openNewScheduleDialog}
-                      onEdit={handleEditActivity}
-                      onCancel={handleCancelActivity}
-                    />
-                    <ActivitiesSection
-                      entityId={companyId}
-                      entityName={companyName}
-                      useCanonicalInteractions={useCanonicalInteractions}
-                      runGuardedMutation={runMutationWithContext}
-                      onDataRefresh={handleActivityCreated}
-                      refreshKey={activityRefreshKey}
-                      addActionLabel={t('customers.companies.detail.activities.add', 'Log activity')}
-                      emptyState={{
-                        title: t('customers.companies.detail.emptyState.activities.title', 'No activities logged yet'),
-                        actionLabel: t('customers.companies.detail.emptyState.activities.action', 'Log activity'),
-                      }}
-                      onActionChange={handleSectionActionChange}
-                      onEditActivity={handleEditActivity}
-                    />
-                  </div>
-                )}
-
-                {activeTab === 'analysis' && (
-                  <ComingSoonPlaceholder label={t('customers.companies.detail.tabs.analysis', 'Analysis')} />
+                  <ActivityLogTab
+                    entityId={companyId}
+                    plannedActivities={plannedActivities}
+                    onActivityCreated={handleActivityCreated}
+                    onScheduleRequested={openNewScheduleDialog}
+                    onMarkDone={handleMarkDone}
+                    onEditActivity={handleEditActivity}
+                    onCancelActivity={handleCancelActivity}
+                    runGuardedMutation={runMutationWithContext}
+                    refreshKey={activityRefreshKey}
+                    useCanonicalInteractions={useCanonicalInteractions}
+                  />
                 )}
 
                 {activeTab === 'changelog' && companyId && (
@@ -494,7 +470,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 )}
 
                 {activeTab === 'files' && (
-                  <ComingSoonPlaceholder label={t('customers.companies.detail.tabs.files', 'Files')} />
+                  <AttachmentsSection
+                    entityId={E.customers.customer_entity}
+                    recordId={companyId}
+                    title={t('customers.companies.detail.tabs.files', 'Files')}
+                    description={t('customers.companies.detail.files.subtitle', 'Upload and manage files linked to this company.')}
+                  />
                 )}
 
                 {/* Injected tabs from UMES */}

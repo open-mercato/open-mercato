@@ -1,13 +1,14 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import { Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { loadDictionaryEntriesByKey, type DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
+import type { DictionaryEntryOption } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
 import { RoleAssignmentRow, type RoleAssignment } from './RoleAssignmentRow'
 import { AssignRoleDialog } from './AssignRoleDialog'
 
@@ -28,6 +29,8 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
   const [roleTypes, setRoleTypes] = React.useState<DictionaryEntryOption[]>([])
   const [loading, setLoading] = React.useState(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [initialRoleType, setInitialRoleType] = React.useState<string | null>(null)
+  const hasConfiguredRoleTypes = roleTypes.length > 0
 
   const basePath = entityType === 'company' ? 'companies' : 'people'
   const resourceKind = entityType === 'company' ? 'customers.company' : 'customers.person'
@@ -84,14 +87,42 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
   }, [loadRoles])
 
   React.useEffect(() => {
-    loadDictionaryEntriesByKey('customer-role-types')
-      .then((entries) => {
+    let active = true
+
+    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+      '/api/customers/dictionaries/person-company-roles',
+    )
+      .then((payload) => {
+        if (!active) return
+        const entries = (Array.isArray(payload?.items) ? payload.items : [])
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : null
+            const value = typeof item.value === 'string' ? item.value.trim() : ''
+            if (!id || value.length === 0) return null
+            return {
+              id,
+              value,
+              label:
+                typeof item.label === 'string' && item.label.trim().length > 0
+                  ? item.label.trim()
+                  : value,
+              color: typeof item.color === 'string' ? item.color : null,
+              icon: typeof item.icon === 'string' ? item.icon : null,
+            } satisfies DictionaryEntryOption
+          })
+          .filter((entry): entry is DictionaryEntryOption => entry !== null)
+
         setRoleTypes(entries)
       })
       .catch((error) => {
+        if (!active) return
         console.error('customers.roles.roleTypes failed', error)
         setRoleTypes([])
       })
+
+    return () => {
+      active = false
+    }
   }, [])
 
   const assignedRoleTypes = React.useMemo(
@@ -118,6 +149,31 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
     [roleTypes],
   )
 
+  const cards = React.useMemo(() => {
+    const roleByType = new Map(roles.map((role) => [role.roleType, role]))
+    const configuredCards = roleTypes.map((roleType) => ({
+      roleType: roleType.value,
+      roleTypeLabel: roleType.label,
+      role: roleByType.get(roleType.value) ?? null,
+    }))
+    const configuredRoleTypes = new Set(roleTypes.map((roleType) => roleType.value))
+    const extraAssignedCards = roles
+      .filter((role) => !configuredRoleTypes.has(role.roleType))
+      .map((role) => ({
+        roleType: role.roleType,
+        roleTypeLabel: getRoleTypeLabel(role.roleType),
+        role,
+      }))
+
+    return [...configuredCards, ...extraAssignedCards]
+  }, [getRoleTypeLabel, roleTypes, roles])
+
+  const openDialog = React.useCallback((roleType?: string | null) => {
+    if (!hasConfiguredRoleTypes) return
+    setInitialRoleType(roleType ?? null)
+    setDialogOpen(true)
+  }, [hasConfiguredRoleTypes])
+
   if (loading) {
     return (
       <div className="py-2 text-sm text-muted-foreground">
@@ -127,8 +183,55 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
   }
 
   return (
-    <div className="space-y-3">
-      {roles.length === 0 && (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <div className="text-sm font-semibold">{t('customers.roles.groupTitle', 'Roles')}</div>
+        <p className="text-xs text-muted-foreground">
+          {entityType === 'company'
+            ? t('customers.roles.subtitle.company', 'Who is responsible for this company on your side')
+            : t('customers.roles.subtitle.person', 'Who owns the relationship on your side')}
+        </p>
+      </div>
+
+      {cards.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {cards.map((entry) =>
+            entry.role ? (
+              <RoleAssignmentRow
+                key={entry.role.id}
+                role={entry.role}
+                roleTypeLabel={entry.roleTypeLabel}
+                runMutationWithContext={runMutationWithContext}
+                entityType={entityType}
+                entityId={entityId}
+                onRemoved={loadRoles}
+                onUpdated={loadRoles}
+              />
+            ) : (
+              <div key={entry.roleType} className="flex h-full flex-col rounded-xl border border-dashed bg-muted/20 p-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  {entry.roleTypeLabel}
+                </div>
+                <div className="mt-4 text-sm font-medium text-foreground">
+                  {t('customers.roles.emptySlot', 'Not assigned')}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-4 self-start"
+                  onClick={() => openDialog(entry.roleType)}
+                >
+                  {t('customers.roles.choosePerson', 'Choose person')}
+                </Button>
+              </div>
+            ),
+          )}
+        </div>
+      ) : hasConfiguredRoleTypes ? (
         <div className="rounded-lg border border-dashed p-4 text-center">
           <p className="text-xs text-muted-foreground">
             {t('customers.roles.emptyState', 'No roles assigned yet. Click below to assign a person.')}
@@ -138,38 +241,54 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
             variant="outline"
             size="sm"
             className="mt-2"
-            onClick={() => setDialogOpen(true)}
+            onClick={() => openDialog(null)}
           >
             {t('customers.roles.choosePerson', 'Choose person')}
           </Button>
         </div>
+      ) : (
+        <div className="rounded-lg border border-dashed p-4 text-center">
+          <div className="text-sm font-medium text-foreground">
+            {t('customers.roles.noRoleTypesTitle', 'No role types configured')}
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {t(
+              'customers.roles.noRoleTypesDescription',
+              'Create role types in Customers config before assigning owners here.',
+            )}
+          </p>
+          <Button asChild type="button" variant="outline" size="sm" className="mt-3">
+            <Link href="/backend/config/customers">
+              {t('customers.roles.configureRoleTypes', 'Configure role types')}
+            </Link>
+          </Button>
+        </div>
       )}
-      {roles.map((role) => (
-        <RoleAssignmentRow
-          key={role.id}
-          role={role}
-          roleTypeLabel={getRoleTypeLabel(role.roleType)}
-          runMutationWithContext={runMutationWithContext}
-          entityType={entityType}
-          entityId={entityId}
-          onRemoved={loadRoles}
-          onUpdated={loadRoles}
-        />
-      ))}
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={() => setDialogOpen(true)}
-      >
-        <Plus className="mr-1 size-3.5" />
-        {t('customers.roles.addRole', 'Add role')}
-      </Button>
+      {hasConfiguredRoleTypes ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => openDialog(null)}
+        >
+          <Plus className="mr-1 size-3.5" />
+          {t('customers.roles.addRole', 'Add role')}
+        </Button>
+      ) : (
+        <Button asChild type="button" variant="ghost" size="sm">
+          <Link href="/backend/config/customers">
+            {t('customers.roles.configureRoleTypes', 'Configure role types')}
+          </Link>
+        </Button>
+      )}
 
       <AssignRoleDialog
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
+        onClose={() => {
+          setDialogOpen(false)
+          setInitialRoleType(null)
+        }}
         onAssign={handleDialogAssign}
         roleTypes={roleTypes}
         entityName={
@@ -180,6 +299,8 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
               : t('customers.roles.dialog.defaultEntity.person', 'this person')
         }
         existingRoleTypes={assignedRoleTypes}
+        existingAssignments={roles}
+        initialRoleType={initialRoleType}
       />
     </div>
   )

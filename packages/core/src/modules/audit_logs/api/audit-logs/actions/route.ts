@@ -9,20 +9,41 @@ import { loadAuditLogDisplayMaps } from '../display'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { ACTION_LOG_FILTER_TYPES } from '@open-mercato/core/modules/audit_logs/lib/projections'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
 }
 
+const ACTION_TYPE_TOKENS = ACTION_LOG_FILTER_TYPES
+const SORT_FIELDS = ['createdAt', 'user', 'action', 'field', 'source'] as const
+const SORT_DIRECTIONS = ['asc', 'desc'] as const
+
 const auditActionQuerySchema = z.object({
   organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
-  actorUserId: z.string().uuid().describe('Filter logs created by a specific actor (tenant administrators only)').optional(),
+  actorUserId: z
+    .string()
+    .describe('Filter logs created by specific actor IDs (tenant administrators only). Accepts a single UUID or a comma-separated UUID list.')
+    .optional(),
   resourceKind: z.string().describe('Filter by resource kind (e.g., "order", "product")').optional(),
   resourceId: z.string().describe('Filter by resource ID (UUID of the specific record)').optional(),
+  actionType: z
+    .string()
+    .describe('Filter by action type (`create`, `edit`, `delete`, `assign`). Accepts a single value or a comma-separated list.')
+    .optional(),
+  fieldName: z
+    .string()
+    .describe('Filter to entries where the given field changed. Accepts a single field name or a comma-separated list.')
+    .optional(),
   includeRelated: z
     .enum(['true', 'false'])
     .default('false')
     .describe('When `true`, also returns changes to child entities linked via parentResourceKind/parentResourceId')
+    .optional(),
+  includeTotal: z
+    .enum(['true', 'false'])
+    .default('false')
+    .describe('When `true`, the response includes the filtered total count.')
     .optional(),
   undoableOnly: z
     .enum(['true', 'false'])
@@ -30,6 +51,15 @@ const auditActionQuerySchema = z.object({
     .describe('When `true`, only undoable actions are returned')
     .optional(),
   limit: z.string().describe('Maximum number of records to return (default 50)').optional(),
+  offset: z.string().describe('Zero-based record offset for pagination').optional(),
+  sortField: z
+    .enum(SORT_FIELDS)
+    .describe('Sort field: `createdAt`, `user`, `action`, `field`, or `source`.')
+    .optional(),
+  sortDir: z
+    .enum(SORT_DIRECTIONS)
+    .describe('Sort direction: `asc` or `desc`.')
+    .optional(),
   before: z.string().describe('Return actions created before this ISO-8601 timestamp').optional(),
   after: z.string().describe('Return actions created after this ISO-8601 timestamp').optional(),
 })
@@ -61,6 +91,7 @@ const auditActionItemSchema = z.object({
 const auditActionResponseSchema = z.object({
   items: z.array(auditActionItemSchema),
   canViewTenant: z.boolean(),
+  total: z.number().int().nonnegative().optional(),
 })
 
 const errorSchema = z.object({
@@ -78,7 +109,28 @@ function parseLimit(param: string | null): number {
   if (!param) return 50
   const value = Number(param)
   if (!Number.isFinite(value)) return 50
-  return Math.min(Math.max(Math.trunc(value), 1), 200)
+  return Math.min(Math.max(Math.trunc(value), 1), 1000)
+}
+
+function parseOffset(param: string | null): number {
+  if (!param) return 0
+  const value = Number(param)
+  if (!Number.isFinite(value)) return 0
+  return Math.max(Math.trunc(value), 0)
+}
+
+function splitCsv(value: string | null): string[] {
+  if (!value) return []
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function parseActionTypes(param: string | null) {
+  return splitCsv(param).filter((value): value is (typeof ACTION_TYPE_TOKENS)[number] =>
+    ACTION_TYPE_TOKENS.includes(value as (typeof ACTION_TYPE_TOKENS)[number]),
+  )
 }
 
 export async function GET(req: Request) {
@@ -103,9 +155,15 @@ export async function GET(req: Request) {
   const actorQuery = url.searchParams.get('actorUserId')
   const resourceKind = url.searchParams.get('resourceKind') ?? undefined
   const resourceId = url.searchParams.get('resourceId') ?? undefined
+  const actionTypes = parseActionTypes(url.searchParams.get('actionType'))
+  const fieldNames = splitCsv(url.searchParams.get('fieldName'))
   const includeRelated = parseBooleanToken(url.searchParams.get('includeRelated')) === true
+  const includeTotal = parseBooleanToken(url.searchParams.get('includeTotal')) === true
   const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
   const limit = parseLimit(url.searchParams.get('limit'))
+  const offset = parseOffset(url.searchParams.get('offset'))
+  const sortField = SORT_FIELDS.find((value) => value === url.searchParams.get('sortField')) ?? 'createdAt'
+  const sortDir = SORT_DIRECTIONS.find((value) => value === url.searchParams.get('sortDir')) ?? 'desc'
   const before = parseDate(url.searchParams.get('before'))
   const after = parseDate(url.searchParams.get('after'))
 
@@ -117,22 +175,40 @@ export async function GET(req: Request) {
   }
 
   let actorUserId: string | undefined = canViewTenant ? undefined : auth.sub
+  let actorUserIds: string[] | undefined
   if (canViewTenant && actorQuery) {
-    actorUserId = actorQuery
+    const parsedActorUserIds = splitCsv(actorQuery)
+    if (parsedActorUserIds.length === 1) {
+      actorUserId = parsedActorUserIds[0]
+    } else if (parsedActorUserIds.length > 1) {
+      actorUserId = undefined
+      actorUserIds = parsedActorUserIds
+    }
   }
 
-  const list = await actionLogs.list({
+  const listQuery = {
     tenantId: auth.tenantId ?? undefined,
     organizationId: organizationId ?? undefined,
     actorUserId,
+    actorUserIds,
     resourceKind,
     resourceId,
+    actionTypes,
+    fieldNames,
     includeRelated,
     undoableOnly,
+    sortField,
+    sortDir,
     limit,
+    offset,
     before,
     after,
-  })
+  }
+
+  const [list, total] = await Promise.all([
+    actionLogs.list(listQuery),
+    includeTotal ? actionLogs.count(listQuery) : Promise.resolve(undefined),
+  ])
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
@@ -164,7 +240,11 @@ export async function GET(req: Request) {
     context: entry.contextJson,
   }))
 
-  return NextResponse.json({ items, canViewTenant })
+  return NextResponse.json({
+    items,
+    canViewTenant,
+    ...(typeof total === 'number' ? { total } : {}),
+  })
 }
 
 export const openApi: OpenApiRouteDoc = {

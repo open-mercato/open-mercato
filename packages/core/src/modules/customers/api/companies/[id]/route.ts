@@ -2,10 +2,6 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-
-export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
-}
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -460,10 +456,22 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       .filter((deal): deal is CustomerDeal => !!deal && typeof deal !== 'string')
   }
 
-  let relatedPeople: Array<{ entity: CustomerEntity; profile: CustomerPersonProfile | null }> = []
+  let relatedPeople: Array<{
+    entity: CustomerEntity
+    profile: CustomerPersonProfile | null
+    linkedAt: string | null
+  }> = []
   if (includePeople) {
-    const relatedPeopleById = new Map<string, { entity: CustomerEntity; profile: CustomerPersonProfile | null }>()
-    const companyLinks = await em.find(
+    const peopleDecryptionScope = {
+      tenantId: company.tenantId ?? auth.tenantId ?? null,
+      organizationId: company.organizationId ?? auth.orgId ?? null,
+    }
+    const relatedPeopleById = new Map<
+      string,
+      { entity: CustomerEntity; profile: CustomerPersonProfile | null; linkedAt: string | null }
+    >()
+    const companyLinks = await findWithDecryption(
+      em,
       CustomerPersonCompanyLink,
       {
         company: company.id,
@@ -474,6 +482,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         populate: ['person', 'person.personProfile'],
         orderBy: { isPrimary: 'desc', createdAt: 'asc' },
       },
+      peopleDecryptionScope,
     )
     companyLinks.forEach((link) => {
       const entity = typeof link.person === 'string' ? null : link.person
@@ -482,19 +491,29 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         entity.personProfile && typeof entity.personProfile !== 'string'
           ? entity.personProfile
           : null
-      relatedPeopleById.set(entity.id, { entity, profile: personProfile })
+      relatedPeopleById.set(entity.id, {
+        entity,
+        profile: personProfile,
+        linkedAt: link.createdAt instanceof Date ? link.createdAt.toISOString() : null,
+      })
     })
 
-    const profiles = await em.find(
+    const profiles = await findWithDecryption(
+      em,
       CustomerPersonProfile,
       { company: company.id, entity: { deletedAt: null } },
       { populate: ['entity'] },
+      peopleDecryptionScope,
     )
     profiles.forEach((entry) => {
       const entity = entry.entity as CustomerEntity | null
       if (!entity || entity.kind !== 'person' || entity.deletedAt) return
       if (!relatedPeopleById.has(entity.id)) {
-        relatedPeopleById.set(entity.id, { entity, profile: entry ?? null })
+        relatedPeopleById.set(entity.id, {
+          entity,
+          profile: entry ?? null,
+          linkedAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
+        })
       }
     })
     relatedPeople = Array.from(relatedPeopleById.values())
@@ -704,7 +723,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         )
       : [],
     people: includePeople
-      ? relatedPeople.map(({ entity, profile: personProfile }) => ({
+      ? relatedPeople.map(({ entity, profile: personProfile, linkedAt }) => ({
           id: entity.id,
           displayName: entity.displayName,
           primaryEmail: entity.primaryEmail ?? null,
@@ -715,6 +734,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           department: personProfile?.department ?? null,
           createdAt: entity.createdAt.toISOString(),
           organizationId: entity.organizationId,
+          source: entity.source ?? null,
+          temperature: entity.temperature ?? null,
+          linkedAt,
         }))
       : [],
     viewer: {
@@ -896,6 +918,9 @@ const companyDetailResponseSchema = z.object({
       department: z.string().nullable().optional(),
       createdAt: z.string(),
       organizationId: z.string().uuid().nullable().optional(),
+      source: z.string().nullable().optional(),
+      temperature: z.string().nullable().optional(),
+      linkedAt: z.string().nullable().optional(),
     }),
   ),
   viewer: z.object({

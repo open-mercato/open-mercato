@@ -97,6 +97,11 @@ type DictionarySelectFieldProps = {
   onChange: (value: string | undefined) => void
   labels: DictionarySelectLabels
   selectClassName?: string
+  manageHref?: string
+  allowInlineCreate?: boolean
+  allowAppearance?: boolean
+  showManage?: boolean
+  showLabelInput?: boolean
 }
 
 const emailValidationSchema = z.string().email()
@@ -120,6 +125,11 @@ export function DictionarySelectField({
   onChange,
   labels,
   selectClassName,
+  manageHref,
+  allowInlineCreate = false,
+  allowAppearance = false,
+  showManage = false,
+  showLabelInput = true,
 }: DictionarySelectFieldProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -210,11 +220,12 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
+      manageHref={manageHref}
       selectClassName={selectClassName}
-      allowInlineCreate={false}
-      allowAppearance={false}
-      showManage={false}
-      showLabelInput
+      allowInlineCreate={allowInlineCreate}
+      allowAppearance={allowAppearance}
+      showManage={showManage}
+      showLabelInput={showLabelInput}
     />
   )
 }
@@ -786,17 +797,20 @@ export const createDisplayNameSection = (t: Translator) =>
 export const createPersonFormFields = (t: Translator): CrudField[] => {
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
-const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
-  id: definition.id,
-  label: t(definition.labelKey),
-  type: 'custom',
-  layout: definition.layout ?? 'third',
-  component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
-    <DictionarySelectField
-      kind={definition.kind}
-      value={typeof value === 'string' ? value : undefined}
-      onChange={(next) => setValue(next)}
+  const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
+    id: definition.id,
+    label: t(definition.labelKey),
+    type: 'custom',
+    layout: definition.layout ?? 'third',
+    component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+      <DictionarySelectField
+        kind={definition.kind}
+        value={typeof value === 'string' ? value : undefined}
+        onChange={(next) => setValue(next)}
         labels={buildDictionaryLabels(t, definition)}
+        allowInlineCreate
+        allowAppearance
+        showManage
       />
     ),
   }))
@@ -805,7 +819,40 @@ const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition
     { id: 'displayName', label: t('customers.people.form.displayName.label'), type: 'text', required: true },
     { id: 'firstName', label: t('customers.people.form.firstName'), type: 'text', required: true, layout: 'half' },
     { id: 'lastName', label: t('customers.people.form.lastName'), type: 'text', required: true, layout: 'half' },
-    { id: 'jobTitle', label: t('customers.people.form.jobTitle', 'Job title'), type: 'text', placeholder: t('customers.people.form.jobTitle.placeholder', 'Job title') },
+    {
+      id: 'jobTitle',
+      label: t('customers.people.form.jobTitle', 'Job title'),
+      type: 'custom',
+      layout: 'half',
+      component: ({ value, setValue }: CrudCustomFieldRenderProps) => (
+        <DictionarySelectField
+          kind="job-titles"
+          value={typeof value === 'string' ? value : undefined}
+          onChange={(next) => setValue(next)}
+          labels={{
+            placeholder: t('customers.people.form.jobTitle.placeholder', 'Select a job title'),
+            addLabel: t('customers.people.form.dictionary.addJobTitle', 'Add job title'),
+            addPrompt: t('customers.people.form.dictionary.promptJobTitle', 'Enter a new job title'),
+            dialogTitle: t('customers.people.form.dictionary.dialogTitleJobTitle', 'Add job title'),
+            valueLabel: t('customers.people.form.dictionary.valueLabel', 'Value'),
+            valuePlaceholder: t('customers.people.form.dictionary.valuePlaceholder', 'Value'),
+            labelLabel: t('customers.config.dictionaries.dialog.labelLabel', 'Label'),
+            labelPlaceholder: t('customers.people.form.dictionary.labelPlaceholder', 'Display name shown in UI'),
+            emptyError: t('customers.people.form.dictionary.errorRequired'),
+            cancelLabel: t('customers.people.form.dictionary.cancel'),
+            saveLabel: t('customers.people.form.dictionary.save'),
+            successCreateLabel: undefined,
+            errorLoad: t('customers.people.form.dictionary.errorLoad'),
+            errorSave: t('customers.people.form.dictionary.error'),
+            loadingLabel: t('customers.people.form.dictionary.loading'),
+            manageTitle: t('customers.people.form.dictionary.manage'),
+          }}
+          allowInlineCreate
+          allowAppearance
+          showManage
+        />
+      ),
+    },
     contactSection,
     createPrimaryEmailField(t),
     createPrimaryPhoneField(t),
@@ -918,12 +965,15 @@ export const createPersonFormGroups = (t: Translator): CrudFormGroup[] => [
     id: 'details',
     title: t('customers.people.form.groups.details'),
     column: 1,
+    component: createDisplayNameSection(t),
     fields: [
       'firstName',
       'lastName',
-      'jobTitle',
+      '__contactInformationSection',
       'primaryEmail',
       'primaryPhone',
+      '__companyInformationSection',
+      'jobTitle',
       'companyEntityId',
       'status',
       'lifecycleStage',
@@ -1528,7 +1578,8 @@ export const createCompanyEditGroups = (t: Translator): CrudFormGroup[] => [
 
 /**
  * Groups for the "Dane firmy" tab layout (Figma SPEC-048 mockup).
- * Reorganises fields into 4 logical sections on column 1, with notes + custom fields on column 2.
+ * All zone-1 groups stay in a single vertical stack so drag-and-drop ordering
+ * applies consistently across every section and persists per page type.
  */
 export const createCompanyDaneFiremyGroups = (t: Translator): CrudFormGroup[] => [
   {
@@ -1558,13 +1609,13 @@ export const createCompanyDaneFiremyGroups = (t: Translator): CrudFormGroup[] =>
   {
     id: 'notes',
     title: t('customers.companies.form.groups.notes', 'Notatki'),
-    column: 2,
+    column: 1,
     fields: ['description'],
   },
   {
     id: 'customFields',
     title: t('customers.companies.form.groups.customAttributes', 'Atrybuty niestandardowe'),
-    column: 2,
+    column: 1,
     kind: 'customFields',
   },
 ]
@@ -1701,7 +1752,16 @@ export type CompanyPersonSummary = {
   id: string
   displayName: string
   primaryEmail?: string | null
+  primaryPhone?: string | null
+  status?: string | null
+  lifecycleStage?: string | null
   jobTitle?: string | null
+  department?: string | null
+  createdAt?: string | null
+  organizationId?: string | null
+  source?: string | null
+  temperature?: string | null
+  linkedAt?: string | null
 }
 
 export type CompanyOverview = {

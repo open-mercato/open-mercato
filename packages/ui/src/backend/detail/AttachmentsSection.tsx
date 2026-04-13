@@ -197,6 +197,16 @@ function AttachmentsSectionImpl({
   const sectionTitle = title ?? t('attachments.library.title', 'Attachments')
   const sectionDescription =
     description ?? t('attachments.library.description', 'Browse, tag, and manage every file stored in this workspace.')
+  const handleCardKeyDown = React.useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>, item: AttachmentItem) => {
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return
+      }
+      event.preventDefault()
+      openMetadataDialog(item)
+    },
+    [openMetadataDialog],
+  )
 
   return (
     <div className={cn('space-y-4', className)}>
@@ -250,11 +260,13 @@ function AttachmentsSectionImpl({
         )}>
           {items.map((item) => {
             return (
-              <button
+              <div
                 key={item.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => openMetadataDialog(item)}
-                className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left cursor-pointer transition-shadow hover:shadow-sm"
+                onKeyDown={(event) => handleCardKeyDown(event, item)}
+                className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left cursor-pointer transition-shadow hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <AttachmentVisualPreview
                   fileName={item.fileName}
@@ -284,7 +296,7 @@ function AttachmentsSectionImpl({
                     {formatAttachmentFileSize(item.fileSize)}
                   </div>
                 </div>
-              </button>
+              </div>
             )
           })}
         </div>

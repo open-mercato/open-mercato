@@ -1,21 +1,26 @@
 'use client'
 
 import * as React from 'react'
-import { MoreHorizontal } from 'lucide-react'
+import { Mail, Phone, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { fetchAssignableStaffMembers } from './assignableStaff'
+import { getInitials } from './utils'
 
-interface RoleAssignment {
+export interface RoleAssignment {
   id: string
   roleType: string
   userId: string
-  userName?: string
-  userEmail?: string
+  userName?: string | null
+  userEmail?: string | null
+  userPhone?: string | null
+  createdAt?: string
+  updatedAt?: string
 }
 
 interface RoleAssignmentRowProps {
@@ -29,6 +34,17 @@ interface RoleAssignmentRowProps {
   entityId: string
   onRemoved: () => void
   onUpdated: () => void
+}
+
+function formatAssignedAt(value: string | undefined, t: ReturnType<typeof useT>): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  const diffMs = Date.now() - date.getTime()
+  const diffDays = Math.floor(diffMs / 86_400_000)
+  if (diffDays <= 0) return t('customers.roles.assignedToday', 'Assigned today')
+  if (diffDays === 1) return t('customers.roles.assignedYesterday', 'Assigned yesterday')
+  return t('customers.roles.assignedDaysAgo', 'Assigned {{count}} days ago', { count: diffDays })
 }
 
 export function RoleAssignmentRow({
@@ -47,40 +63,12 @@ export function RoleAssignmentRow({
 
   const searchUsers = React.useCallback(async (query: string): Promise<LookupSelectItem[]> => {
     try {
-      const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-        `/api/staff/team-members?search=${encodeURIComponent(query)}&pageSize=20&isActive=true`,
-      )
-      const rawItems = Array.isArray(data?.items) ? data.items : []
-      const deduped = new Map<string, LookupSelectItem>()
-      for (const item of rawItems) {
-        const userId =
-          typeof item?.userId === 'string'
-            ? item.userId
-            : typeof item?.user_id === 'string'
-              ? item.user_id
-              : null
-        if (!userId || deduped.has(userId)) continue
-        const displayName =
-          typeof item?.displayName === 'string' && item.displayName.trim().length
-            ? item.displayName
-            : typeof item?.display_name === 'string' && item.display_name.trim().length
-              ? item.display_name
-              : null
-        const user =
-          item?.user && typeof item.user === 'object'
-            ? (item.user as Record<string, unknown>)
-            : null
-        const email =
-          user && typeof user.email === 'string' && user.email.trim().length
-            ? user.email
-            : null
-        deduped.set(userId, {
-          id: userId,
-          title: displayName ?? email ?? userId,
-          subtitle: displayName && email ? email : null,
-        })
-      }
-      return Array.from(deduped.values())
+      const members = await fetchAssignableStaffMembers(query, { pageSize: 20 })
+      return members.map((member) => ({
+        id: member.userId,
+        title: member.displayName,
+        subtitle: member.displayName && member.email ? member.email : null,
+      }))
     } catch (error) {
       console.error('customers.roles.searchUsers failed', error)
       return []
@@ -100,6 +88,7 @@ export function RoleAssignmentRow({
           }),
         { roleId: role.id, userId },
       )
+      setChangingUser(false)
       onUpdated()
     } catch (error) {
       console.error('customers.roles.update failed', error)
@@ -126,8 +115,9 @@ export function RoleAssignmentRow({
       onRemoved()
     } catch (error) {
       console.error('customers.roles.remove failed', error)
+    } finally {
+      setRemoving(false)
     }
-    setRemoving(false)
   }, [confirm, entityId, entityType, onRemoved, role.id, runMutationWithContext, t])
 
   const currentUserOptions = React.useMemo<LookupSelectItem[]>(
@@ -144,85 +134,109 @@ export function RoleAssignmentRow({
 
   const initials = React.useMemo(() => {
     const name = role.userName ?? role.userEmail ?? ''
-    const words = name.trim().split(/\s+/)
-    if (words.length === 0 || !words[0]) return '?'
-    if (words.length === 1) return words[0].charAt(0).toUpperCase()
-    return (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase()
-  }, [role.userName, role.userEmail])
+    return getInitials(name || '?')
+  }, [role.userEmail, role.userName])
 
   const displayName = role.userName ?? role.userEmail ?? role.userId
+  const assignedLabel = formatAssignedAt(role.createdAt, t)
 
   return (
     <>
       {ConfirmDialogElement}
-      <div className="flex items-center gap-3 rounded-md px-1 py-1.5">
-        {/* Avatar circle */}
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-          {initials}
+      <div className="flex h-full flex-col rounded-xl border bg-card p-4 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-semibold">
+            {roleTypeLabel}
+          </Badge>
+          <IconButton
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={handleRemove}
+            disabled={removing}
+            aria-label={t('customers.roles.remove', 'Remove role')}
+          >
+            <X className="size-4" />
+          </IconButton>
         </div>
 
-        {/* Role info */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground">{roleTypeLabel}</span>
+        <div className="mt-4 flex items-start gap-3">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">
+            {initials}
           </div>
-          {changingUser ? (
-            <div className="mt-0.5 text-xs">
-              <LookupSelect
-                value={role.userId}
-                onChange={async (userId) => {
-                  await handleUserChange(userId)
-                  setChangingUser(false)
-                }}
-                fetchItems={searchUsers}
-                options={currentUserOptions}
-                placeholder={t('customers.roles.searchPlaceholder', 'Search team member...')}
-              />
-            </div>
-          ) : (
-            <span className="block truncate text-sm font-medium">{displayName}</span>
-          )}
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-foreground">{displayName}</div>
+            {role.userEmail ? (
+              <div className="mt-1 truncate text-xs text-muted-foreground">{role.userEmail}</div>
+            ) : null}
+            {assignedLabel ? (
+              <div className="mt-2 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                {assignedLabel}
+              </div>
+            ) : null}
+          </div>
         </div>
 
-        {/* Three-dot menu */}
-        <Popover>
-          <PopoverTrigger asChild>
+        <div className="mt-4 flex items-center gap-2">
+          {role.userEmail ? (
+            <IconButton asChild variant="outline" size="sm">
+              <a href={`mailto:${role.userEmail}`} aria-label={t('customers.roles.email', 'Send email')}>
+                <Mail className="size-4" />
+              </a>
+            </IconButton>
+          ) : (
             <IconButton
               type="button"
-              variant="ghost"
-              size="xs"
-              aria-label={t('customers.roles.moreActions', 'More actions')}
+              variant="outline"
+              size="sm"
+              disabled
+              aria-label={t('customers.roles.emailUnavailable', 'Email unavailable')}
             >
-              <MoreHorizontal className="size-3.5" />
+              <Mail className="size-4" />
             </IconButton>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-40 p-1">
-            <Button
+          )}
+          {role.userPhone ? (
+            <IconButton asChild variant="outline" size="sm">
+              <a href={`tel:${role.userPhone}`} aria-label={t('customers.roles.call', 'Call')}>
+                <Phone className="size-4" />
+              </a>
+            </IconButton>
+          ) : (
+            <IconButton
               type="button"
-              variant="ghost"
+              variant="outline"
               size="sm"
-              className="w-full justify-start text-xs"
-              onClick={() => {
-                setChangingUser(true)
+              disabled
+              aria-label={t('customers.roles.phoneUnavailable', 'Phone unavailable')}
+            >
+              <Phone className="size-4" />
+            </IconButton>
+          )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-auto px-2 py-1 text-xs"
+            onClick={() => setChangingUser((current) => !current)}
+          >
+            {t('customers.roles.changeUser', 'Change user')}
+          </Button>
+        </div>
+
+        {changingUser ? (
+          <div className="mt-4 border-t pt-4">
+            <LookupSelect
+              value={role.userId}
+              onChange={async (userId) => {
+                await handleUserChange(userId)
               }}
-            >
-              {t('customers.roles.changeUser', 'Change user')}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start text-xs text-destructive hover:text-destructive"
-              onClick={handleRemove}
-              disabled={removing}
-            >
-              {t('customers.roles.remove', 'Remove role')}
-            </Button>
-          </PopoverContent>
-        </Popover>
+              fetchItems={searchUsers}
+              options={currentUserOptions}
+              placeholder={t('customers.roles.searchPlaceholder', 'Search team member...')}
+            />
+          </div>
+        ) : null}
       </div>
     </>
   )
 }
-
-export type { RoleAssignment }
