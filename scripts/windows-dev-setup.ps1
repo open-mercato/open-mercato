@@ -236,13 +236,3 @@ Ensure-DefenderExclusion
 
 Write-Host ''
 Write-Host 'Windows development prerequisites are ready.' -ForegroundColor Green
-Write-Host 'Next steps:' -ForegroundColor Green
-Write-Host '  1. Reopen your terminal if Build Tools or VC++ Redistributable were installed or updated.'
-Write-Host '  2. Start Docker Desktop and wait until it is ready.'
-Write-Host '  3. Run: docker compose up -d'
-Write-Host '  4. Run: yarn install'
-Write-Host '  5. Run: yarn build:packages'
-Write-Host '  6. Run: yarn generate'
-Write-Host '  7. Run: yarn build:packages'
-Write-Host '  8. Run: yarn initialize'
-Write-Host '  9. Run: yarn dev'
