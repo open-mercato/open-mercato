@@ -12,6 +12,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowEvent, WorkflowInstance } from '../../../data/entities'
+import { workflowEventDetailSchema } from '../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -152,26 +153,7 @@ export const openApi = {
         {
           status: 200,
           description: 'Workflow event details',
-          schema: z.object({
-            id: z.string(),
-            workflowInstanceId: z.string(),
-            stepInstanceId: z.string().nullable(),
-            eventType: z.string(),
-            eventData: z.any(),
-            occurredAt: z.string(),
-            userId: z.string().nullable(),
-            workflowInstance: z.object({
-              id: z.string(),
-              workflowId: z.string(),
-              version: z.number(),
-              status: z.string(),
-              currentStepId: z.string(),
-              correlationKey: z.string().nullable(),
-              startedAt: z.string().nullable(),
-              completedAt: z.string().nullable(),
-              context: z.any(),
-            }).nullable(),
-          }),
+          schema: workflowEventDetailSchema,
         },
         {
           status: 401,

@@ -24,7 +24,7 @@ Use `@open-mercato/onboarding` for setup wizards and guided flows during new ten
 4. Create frontend component in `frontend/<step-name>/page.tsx`
 5. Add translations to `i18n/<locale>.json`
 6. Register the step in the wizard step ordering configuration
-7. Run `npm run modules:prepare`
+7. Run `yarn generate`
 
 ## Module Setup Integration
 

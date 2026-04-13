@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import type {
   GatewayAdapter,
   CreateSessionInput,
@@ -14,6 +15,46 @@ import type {
   WebhookEvent,
   UnifiedPaymentStatus,
 } from '@open-mercato/shared/modules/payment_gateways/types'
+
+/**
+ * Deterministic dev-only secret used when no `credentials.webhookSecret` is configured
+ * and `MOCK_GATEWAY_WEBHOOK_SECRET` is not set. Exported so integration tests can sign
+ * mock webhook payloads. MUST NOT be used in production: the mock adapter refuses to
+ * fall back to this constant when `NODE_ENV === 'production'`.
+ */
+export const MOCK_GATEWAY_DEV_WEBHOOK_SECRET = 'open-mercato-mock-dev-webhook-secret'
+
+export const MOCK_GATEWAY_SIGNATURE_HEADER = 'x-mock-signature'
+
+function resolveMockWebhookSecret(credentials: Record<string, unknown> | undefined): string {
+  const fromCredentials = typeof credentials?.webhookSecret === 'string'
+    ? credentials.webhookSecret.trim()
+    : ''
+  if (fromCredentials) return fromCredentials
+
+  const fromEnv = (process.env.MOCK_GATEWAY_WEBHOOK_SECRET ?? '').trim()
+  if (fromEnv) return fromEnv
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'Mock gateway webhook secret is not configured. Set credentials.webhookSecret or MOCK_GATEWAY_WEBHOOK_SECRET.',
+    )
+  }
+
+  return MOCK_GATEWAY_DEV_WEBHOOK_SECRET
+}
+
+export function computeMockWebhookSignature(rawBody: string, secret: string): string {
+  return createHmac('sha256', secret).update(rawBody, 'utf-8').digest('hex')
+}
+
+function readSignatureHeader(headers: Record<string, string | string[] | undefined>): string {
+  const direct = headers[MOCK_GATEWAY_SIGNATURE_HEADER]
+    ?? headers[MOCK_GATEWAY_SIGNATURE_HEADER.toUpperCase()]
+    ?? headers[MOCK_GATEWAY_SIGNATURE_HEADER.replace(/-/g, '_')]
+  if (Array.isArray(direct)) return typeof direct[0] === 'string' ? direct[0] : ''
+  return typeof direct === 'string' ? direct : ''
+}
 
 const sessionStore = new Map<string, { status: UnifiedPaymentStatus; amount: number; capturedAmount: number; refundedAmount: number; currencyCode: string }>()
 
@@ -91,7 +132,27 @@ export const mockGatewayAdapter: GatewayAdapter = {
   },
 
   async verifyWebhook(input: VerifyWebhookInput): Promise<WebhookEvent> {
-    const body = typeof input.rawBody === 'string' ? JSON.parse(input.rawBody) : JSON.parse(input.rawBody.toString('utf-8'))
+    const rawBodyString = typeof input.rawBody === 'string'
+      ? input.rawBody
+      : input.rawBody.toString('utf-8')
+
+    const providedSignature = readSignatureHeader(input.headers)
+    if (!providedSignature) {
+      throw new Error(`Missing ${MOCK_GATEWAY_SIGNATURE_HEADER} header`)
+    }
+
+    const secret = resolveMockWebhookSecret(input.credentials)
+    const expectedSignature = computeMockWebhookSignature(rawBodyString, secret)
+    const providedBuffer = Buffer.from(providedSignature, 'utf-8')
+    const expectedBuffer = Buffer.from(expectedSignature, 'utf-8')
+    if (
+      providedBuffer.length !== expectedBuffer.length
+      || !timingSafeEqual(providedBuffer, expectedBuffer)
+    ) {
+      throw new Error('Invalid mock webhook signature')
+    }
+
+    const body = JSON.parse(rawBodyString)
     const sessionId = typeof body?.data?.id === 'string' ? body.data.id : null
     const nextStatus = typeof body?.data?.status === 'string' ? body.data.status : null
     const amount = typeof body?.data?.amount === 'number' ? body.data.amount : null
