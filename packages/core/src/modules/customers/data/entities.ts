@@ -1,15 +1,5 @@
-import {
-  Entity,
-  PrimaryKey,
-  Property,
-  Index,
-  Unique,
-  OneToOne,
-  OneToMany,
-  ManyToOne,
-  Collection,
-  OptionalProps,
-} from '@mikro-orm/core'
+import { Collection, OptionalProps } from '@mikro-orm/core'
+import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
