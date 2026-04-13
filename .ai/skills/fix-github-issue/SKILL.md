@@ -145,9 +145,9 @@ Rules:
 - Preserve existing contracts unless the issue explicitly requires a compatibility-managed change.
 - Prefer modifying the narrowest module or function that owns the bug.
 
-### 7. Add regression tests
+### 7. Add regression tests (mandatory, autonomous)
 
-Every issue fix must include coverage.
+Every issue fix MUST include test coverage. This is non-negotiable and must be done autonomously — never skip tests or ask the user whether to add them.
 
 Minimum requirement:
 
@@ -162,6 +162,7 @@ Test requirements:
 - tests must prove the issue is fixed
 - tests must be self-contained
 - tests should target the smallest meaningful scope
+- tests must pass before the fix is pushed — iterate until they do
 
 ### 8. Run the fix-validation loop
 
@@ -302,10 +303,10 @@ If you stopped because a fix already exists, report the existing PR or commit in
 - Always use an isolated worktree
 - Reuse the current linked worktree when already inside one; do not create nested worktrees
 - Keep the fix scope minimal
-- Every fix must include regression tests, at minimum unit tests
-- Run targeted tests and typecheck while iterating
-- Run i18n checks when user-facing strings or locale files changed
-- Run the full code-review skill and BC check before publishing
+- Every fix MUST include regression tests — this is non-negotiable; never push without tests, never ask whether to add them
+- Run targeted tests and typecheck while iterating — all tests must pass before pushing
+- Run i18n checks when user-facing strings or locale files changed; auto-fix with `--fix` if issues are found
+- Run the full code-review skill and BC check before publishing; auto-fix any actionable findings from the self-review
 - Do not open a PR with known failing required checks unless a real blocker prevents completion and you explain that blocker explicitly
 - Link the issue in the PR and explain what changed and why
 - Always clean up any temporary worktree created by the current run
