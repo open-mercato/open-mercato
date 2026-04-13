@@ -14,7 +14,7 @@ function getRegisteredEntities(): any[] | null {
 }
 
 function setRegisteredEntities(entities: any[]): void {
-  ;(globalThis as Record<string, unknown>)[GLOBAL_ENTITIES_KEY] = entities
+  (globalThis as Record<string, unknown>)[GLOBAL_ENTITIES_KEY] = entities
 }
 
 export function registerOrmEntities(entities: any[]) {
@@ -39,7 +39,7 @@ export async function getOrm() {
   const entities = getOrmEntities()
   const clientUrl = process.env.DATABASE_URL
   if (!clientUrl) throw new Error('DATABASE_URL is not set')
-  
+
   // Parse connection pool settings from environment
   const poolMin = parseInt(process.env.DB_POOL_MIN || '2')
   const poolMax = parseInt(process.env.DB_POOL_MAX || '50')
@@ -92,8 +92,8 @@ export async function getOrm() {
         acquireTimeoutMillis: poolAcquireTimeout,
         idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
         options: connectionOptions,
-        ssl: sslConfig,
       },
+      ssl: sslConfig,
     },
   })
   return ormInstance
