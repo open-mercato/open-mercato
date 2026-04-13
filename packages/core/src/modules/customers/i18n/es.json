@@ -495,6 +495,8 @@
   "customers.errors.organization_forbidden": "Organización no accesible",
   "customers.errors.organization_required": "Se requiere contexto de organización",
   "customers.errors.person_required": "Se requiere el ID de la persona",
+  "customers.errors.profile_must_be_object": "el perfil debe ser un objeto",
+  "customers.errors.profile_unsupported_field": "Campo de perfil no soportado: {{field}}",
   "customers.errors.save_failed": "Error al guardar el registro del cliente.",
   "customers.errors.tag_required": "Se requiere el ID de la etiqueta",
   "customers.errors.tenant_required": "Se requiere contexto de inquilino",
