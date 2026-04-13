@@ -10,7 +10,7 @@ export class AuthService {
 
   async findUserByEmail(email: string) {
     const emailHash = computeEmailHash(email)
-    return this.em.findOne(User, {
+    return findOneWithDecryption(this.em, User, {
       deletedAt: null,
       $or: [
         { email },
@@ -107,7 +107,7 @@ export class AuthService {
     const now = new Date()
     const row = await this.em.findOne(PasswordReset, { token })
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
-    const user = await this.em.findOne(User, { id: row.user.id, deletedAt: null })
+    const user = await findOneWithDecryption(this.em, User, { id: row.user.id, deletedAt: null })
     if (!user) return null
     user.passwordHash = await hash(newPassword, 10)
     row.usedAt = new Date()
