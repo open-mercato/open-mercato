@@ -26,8 +26,9 @@ import {
 import {
   ensureOrganizationScope,
   ensureTenantScope,
-  requireCustomerEntity,
+  requireTimelineParentEntity,
   extractUndoPayload,
+  emitQueryIndexUpsertEvents,
   requireDealInScope,
   resolveParentResourceKind,
 } from './shared'
@@ -233,6 +234,12 @@ async function emitNextInteractionUpdatedEvent(
   projection: InteractionProjectionMutation,
   identifiers: InteractionIdentifiers,
 ): Promise<void> {
+  await emitQueryIndexUpsertEvents(ctx, [{
+    entityType: 'customers:customer_entity',
+    recordId: projection.entityId,
+    organizationId: identifiers.organizationId,
+    tenantId: identifiers.tenantId,
+  }])
   await emitLifecycleEvent(ctx, 'customers.next_interaction.updated', {
     id: projection.entityId,
     entityId: projection.entityId,
@@ -252,7 +259,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
     const { interaction, entityId } = await runInTransaction(em, async (trx) => {
-      const entity = await requireCustomerEntity(trx, parsed.entityId, undefined, 'Customer not found')
+      const entity = await requireTimelineParentEntity(trx, parsed.entityId)
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
 
@@ -484,7 +491,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
       let interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
-      const entity = await requireCustomerEntity(trx, before.interaction.entityId, undefined, 'Customer not found')
+      const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
 
       if (!interaction) {
         interaction = trx.create(CustomerInteraction, {
@@ -911,7 +918,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
-        const entity = await requireCustomerEntity(trx, before.interaction.entityId, undefined, 'Customer not found')
+        const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
         let interaction = await trx.findOne(CustomerInteraction, { id: before.interaction.id })
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
@@ -1011,7 +1018,7 @@ const recomputeNextCommand: CommandHandler<{ entityId: string }, { entityId: str
     const parsed = recomputeNextSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const projection = await recomputeNextInteraction(em, parsed.entityId)
-    const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
+    const entity = await requireTimelineParentEntity(em, parsed.entityId)
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: parsed.entityId,
       nextInteractionId: projection.nextInteractionId,

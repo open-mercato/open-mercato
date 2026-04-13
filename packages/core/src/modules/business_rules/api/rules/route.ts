@@ -203,14 +203,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `Validation failed: ${errors.join(', ')}` }, { status: 400 })
   }
 
-  try {
-    const rule = em.create(BusinessRule, parsed.data)
-    await em.persistAndFlush(rule)
-    return NextResponse.json({ id: rule.id }, { status: 201 })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to create rule'
-    return NextResponse.json({ error: message }, { status: 500 })
+  const data = {
+    ...parsed.data,
+    conditionExpression: parsed.data.conditionExpression ?? null,
   }
+
+  const rule = em.create(BusinessRule, data)
+
+  try {
+    await em.persistAndFlush(rule)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json({ error: `Failed to create rule: ${message}` }, { status: 500 })
+  }
+
+  return NextResponse.json({ id: rule.id }, { status: 201 })
 }
 
 export async function PUT(req: Request) {
@@ -257,14 +264,16 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
   }
 
+  em.assign(rule, parsed.data)
+
   try {
-    em.assign(rule, parsed.data)
     await em.persistAndFlush(rule)
-    return NextResponse.json({ ok: true })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to update rule'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return NextResponse.json({ error: `Failed to update rule: ${message}` }, { status: 500 })
   }
+
+  return NextResponse.json({ ok: true })
 }
 
 export async function DELETE(req: Request) {

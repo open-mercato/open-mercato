@@ -145,7 +145,7 @@ type PlaywrightRunOptions = Pick<InteractiveIntegrationOptions, 'verbose' | 'cap
 const DEFAULT_APP_READY_TIMEOUT_MS = 90_000
 const APP_READY_INTERVAL_MS = 1_000
 const DEFAULT_EPHEMERAL_APP_PORT = 5001
-const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 60_000
+const EPHEMERAL_ENV_LOCK_TIMEOUT_MS = 5 * 60_000
 const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
@@ -168,6 +168,7 @@ const projectRootDirectory = env.rootDir
 const appDirectory = env.appDir
 const corePackageRootDirectory = env.packageRoot('@open-mercato/core')
 const uiPackageRootDirectory = env.packageRoot('@open-mercato/ui')
+const EPHEMERAL_RUNTIME_LOCK_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-runtime.lock')
 
 function resolveFirstExistingPath(...candidates: string[]): string | null {
   for (const candidate of candidates) {
@@ -214,12 +215,17 @@ const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 
 const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
-const APP_BUILD_ARTIFACTS = [
+const NEXT_BUILD_OUTPUT_DIRECTORIES = [
+  path.join(appDirectory, '.mercato', 'next'),
+  path.join(appDirectory, '.next'),
+]
+const APP_BUILD_ARTIFACTS = collectExistingPaths([
   path.join(appDirectory, '.mercato', 'next', 'BUILD_ID'),
+  path.join(appDirectory, '.next', 'BUILD_ID'),
   path.join(appDirectory, '.mercato', 'generated', 'modules.generated.ts'),
   path.join(corePackageRootDirectory, 'dist', 'index.js'),
   path.join(uiPackageRootDirectory, 'dist', 'index.js'),
-]
+])
 const APP_BUILD_INPUT_PATHS = collectExistingPaths([
   path.join(appDirectory, 'src'),
   path.join(appDirectory, 'package.json'),
@@ -331,6 +337,16 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
     ...process.env,
     ...overrides,
+  }
+}
+
+async function resetNextBuildOutputDirectories(logPrefix: string): Promise<void> {
+  for (const outputDirectory of NEXT_BUILD_OUTPUT_DIRECTORIES) {
+    if (!existsSync(outputDirectory)) {
+      continue
+    }
+    await rm(outputDirectory, { recursive: true, force: true })
+    console.log(`[${logPrefix}] Reset Next build output directory at ${outputDirectory}.`)
   }
 }
 
@@ -1354,7 +1370,122 @@ async function clearStaleEphemeralEnvironmentLock(logPrefix: string): Promise<bo
   return true
 }
 
+type EphemeralRuntimeLockOptions = {
+  lockPath?: string
+  isProcessRunning?: (processId: number) => boolean
+}
+
+type EphemeralRuntimeLockOwner = {
+  pid: number
+  source?: string
+  acquiredAt?: string
+}
+
+async function readEphemeralRuntimeLockOwner(lockPath: string): Promise<EphemeralRuntimeLockOwner | null> {
+  const ownerPath = path.join(lockPath, 'owner.json')
+  let ownerSource = ''
+  try {
+    ownerSource = await readFile(ownerPath, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null
+    }
+    throw error
+  }
+
+  let parsed: unknown = null
+  try {
+    parsed = JSON.parse(ownerSource)
+  } catch {
+    return null
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return null
+  }
+
+  const record = parsed as Partial<EphemeralRuntimeLockOwner>
+  if (typeof record.pid !== 'number' || !Number.isInteger(record.pid) || record.pid < 1) {
+    return null
+  }
+
+  return {
+    pid: record.pid,
+    source: typeof record.source === 'string' ? record.source : undefined,
+    acquiredAt: typeof record.acquiredAt === 'string' ? record.acquiredAt : undefined,
+  }
+}
+
+async function clearStaleEphemeralRuntimeLock(
+  logPrefix: string,
+  options: Required<EphemeralRuntimeLockOptions>,
+): Promise<boolean> {
+  const owner = await readEphemeralRuntimeLockOwner(options.lockPath)
+  const lockAge = await getPathAgeMilliseconds(options.lockPath)
+  if (!owner) {
+    if (lockAge !== null && lockAge > EPHEMERAL_ENV_LOCK_TIMEOUT_MS) {
+      await rm(options.lockPath, { recursive: true, force: true })
+      console.log(`[${logPrefix}] Removed stale ephemeral runtime lock with invalid owner metadata.`)
+      return true
+    }
+    return false
+  }
+
+  if (options.isProcessRunning(owner.pid)) {
+    return false
+  }
+
+  await rm(options.lockPath, { recursive: true, force: true })
+  console.log(`[${logPrefix}] Removed stale ephemeral runtime lock from exited process ${owner.pid}.`)
+  return true
+}
+
+export async function acquireEphemeralRuntimeLock(
+  logPrefix: string,
+  options: EphemeralRuntimeLockOptions = {},
+): Promise<{ release: () => Promise<void> }> {
+  const resolvedOptions: Required<EphemeralRuntimeLockOptions> = {
+    lockPath: options.lockPath ?? EPHEMERAL_RUNTIME_LOCK_PATH,
+    isProcessRunning: options.isProcessRunning ?? isProcessRunning,
+  }
+
+  await mkdir(path.dirname(resolvedOptions.lockPath), { recursive: true })
+
+  try {
+    await mkdir(resolvedOptions.lockPath)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      throw error
+    }
+
+    if (await clearStaleEphemeralRuntimeLock(logPrefix, resolvedOptions)) {
+      return acquireEphemeralRuntimeLock(logPrefix, resolvedOptions)
+    }
+
+    const owner = await readEphemeralRuntimeLockOwner(resolvedOptions.lockPath)
+    const ownerSource = owner?.source ? ` started by "${owner.source}"` : ''
+    const ownerPid = owner?.pid ? ` (pid ${owner.pid})` : ''
+    throw new Error(
+      `[${logPrefix}] Another ephemeral environment is already active${ownerSource}${ownerPid}. Reuse the running environment or stop it before starting a fresh ephemeral run, because a second build/generate pipeline would overwrite shared workspace artifacts.`,
+    )
+  }
+
+  const ownerPath = path.join(resolvedOptions.lockPath, 'owner.json')
+  await writeFile(
+    ownerPath,
+    `${JSON.stringify({ pid: process.pid, source: logPrefix, acquiredAt: new Date().toISOString() }, null, 2)}\n`,
+    'utf8',
+  )
+
+  return {
+    release: async () => {
+      await rm(resolvedOptions.lockPath, { recursive: true, force: true })
+    },
+  }
+}
+
 function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean): NodeJS.ProcessEnv {
+  const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   return buildEnvironment({
     BASE_URL: baseUrl,
     APP_URL: baseUrl,
@@ -1362,11 +1493,13 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
-    OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
-    OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
-    OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? 'false',
+    OM_INTEGRATION_TEST: 'true',
+    OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
+    OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
+    OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
     ENABLE_CRUD_API_CACHE: 'true',
+    MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
@@ -2514,7 +2647,6 @@ async function promptAfterRun(
 
 export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle> {
   assertNode24Runtime()
-  await assertContainerRuntimeAvailable()
 
   // Auto-detect Docker socket from active context for non-standard setups (e.g., Colima)
   const dockerConfig = await resolveDockerHostFromContext(options.logPrefix)
@@ -2522,6 +2654,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     process.env.DOCKER_HOST = dockerConfig.dockerHost
     process.env.TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE = dockerConfig.socketOverride
   }
+
+  await assertContainerRuntimeAvailable()
 
   const setupLock = await acquireEphemeralEnvironmentLock(options.logPrefix)
   try {
@@ -2571,6 +2705,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseHost = databaseContainer.getHost()
     const databasePort = databaseContainer.getMappedPort(5432)
     const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
+    const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
     const commandEnvironment = buildEnvironment({
       DATABASE_URL: databaseUrl,
       BASE_URL: applicationBaseUrl,
@@ -2585,13 +2720,15 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       DB_POOL_ACQUIRE_TIMEOUT: '10000',
       DB_IDLE_SESSION_TIMEOUT_MS: '30000',
       DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: '30000',
-      OM_ENABLE_ENTERPRISE_MODULES: process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false',
-      OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? 'false',
-      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? 'false',
+      OM_INTEGRATION_TEST: 'true',
+      OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
+      OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
+      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
       ENABLE_CRUD_API_CACHE: 'true',
+      MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
@@ -2606,16 +2743,21 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       ...(options.environmentOverrides ?? {}),
     })
 
+    const runtimeLock = await acquireEphemeralRuntimeLock(options.logPrefix)
     let applicationProcess: ChildProcess | null = null
     let isStopped = false
     const stop = async (): Promise<void> => {
       if (isStopped) return
       isStopped = true
-      if (applicationProcess && !applicationProcess.killed) {
-        applicationProcess.kill('SIGTERM')
+      try {
+        if (applicationProcess && !applicationProcess.killed) {
+          applicationProcess.kill('SIGTERM')
+        }
+        await databaseContainer.stop()
+        await clearEphemeralEnvironmentState()
+      } finally {
+        await runtimeLock.release()
       }
-      await databaseContainer.stop()
-      await clearEphemeralEnvironmentState()
     }
 
     try {
@@ -2687,6 +2829,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         }
 
         console.log(`[${options.logPrefix}] Building application...`)
+        await resetNextBuildOutputDirectories(options.logPrefix)
         await runTimedStep(options.logPrefix, 'Building application', { expectedSeconds: 76 }, async () =>
           runYarnCommand(['build'], commandEnvironment, {
             silent: !options.verbose,

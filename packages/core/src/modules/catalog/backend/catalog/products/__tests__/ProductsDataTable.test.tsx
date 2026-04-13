@@ -28,6 +28,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     <div data-testid="data-table-mock">
       <div data-testid="data-table-title">{props.title}</div>
       <div data-testid="data-table-cache-status">{props.pagination?.cacheStatus ?? ''}</div>
+      <div data-testid="data-table-sticky-actions">{String(Boolean(props.stickyActionsColumn))}</div>
       <button data-testid="search-trigger" onClick={() => props.onSearchChange?.('widgets')}>
         trigger-search
       </button>
@@ -153,6 +154,7 @@ describe('ProductsDataTable', () => {
       expect(screen.getByTestId('data-table-cache-status')).toHaveTextContent('hit')
     })
     expect(screen.getByTestId('data-table-title')).toHaveTextContent('Products & services')
+    expect(screen.getByTestId('data-table-sticky-actions')).toHaveTextContent('true')
     expect((apiCall as jest.Mock).mock.calls[0][0]).toContain('/api/catalog/products?page=1&pageSize=25')
     expect(applyCustomFieldVisibility).toHaveBeenCalled()
   })

@@ -1,4 +1,4 @@
-# SPEC-{number} — {Title}
+# {Title}
 
 **Date**: {YYYY-MM-DD}
 **Status**: Draft

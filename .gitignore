@@ -13,9 +13,9 @@
 .turbo
 
 # testing
-/coverage
-/test-results
-/playwright-report
+coverage/
+test-results/
+playwright-report/
 published-app/
 
 # next.js
@@ -104,6 +104,8 @@ newrelic_agent.log
 
 # Dev Container auto-generated compose volumes
 .devcontainer/docker-compose.volumes.yml
+# Dev Container personal overrides (local bind mounts, env vars, etc.)
+.devcontainer/docker-compose.local.yml
 
 # OpenCode local config (generated at runtime, may contain secrets)
 docker/opencode/opencode.jsonc

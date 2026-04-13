@@ -105,6 +105,10 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/module-scaffold/references/naming-conventions.md',
     join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'naming-conventions.md'),
   )
+  copyFile(
+    'ai/skills/module-scaffold/references/navigation-patterns.md',
+    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'navigation-patterns.md'),
+  )
 
   // troubleshooter skill
   copyFile(
@@ -131,6 +135,21 @@ export function generateShared(config: AgenticConfig): void {
     'ai/skills/data-model-design/references/mikro-orm-cheatsheet.md',
     join(targetDir, '.ai', 'skills', 'data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
   )
+
+  // implement-spec skill
+  copyFile(
+    'ai/skills/implement-spec/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'implement-spec', 'SKILL.md'),
+  )
+
+  // integration-tests skill
+  copyFile(
+    'ai/skills/integration-tests/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
+  )
+
+  // .ai/qa/tests/ — Playwright config for integration tests
+  copyFile('ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
   // Package guides — auto-discovered from sibling packages during build
   if (existsSync(GUIDES_DIR)) {

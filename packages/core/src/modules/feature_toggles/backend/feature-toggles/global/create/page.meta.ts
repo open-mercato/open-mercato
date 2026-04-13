@@ -10,7 +10,7 @@ const createIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  requireRoles: ['superadmin'],
+  requireFeatures: ['feature_toggles.manage'],
   pageTitle: 'Create Feature Toggle',
   pageTitleKey: 'feature_toggles.nav.global.create',
   pageGroup: 'Feature Toggles',

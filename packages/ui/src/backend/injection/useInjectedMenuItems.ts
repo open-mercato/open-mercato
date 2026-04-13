@@ -4,7 +4,7 @@ import * as React from 'react'
 import type { InjectionMenuItem } from '@open-mercato/shared/modules/widgets/injection'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { useInjectionDataWidgets } from './useInjectionDataWidgets'
-import { apiCall } from '../utils/apiCall'
+import { useBackendChrome } from '../BackendChromeProvider'
 
 export type MenuSurfaceId =
   | 'menu:sidebar:main'
@@ -16,53 +16,20 @@ export type MenuSurfaceId =
   | `menu:sidebar:main:${string}`
   | `menu:${string}`
 
-type FeatureCheckResponse = {
-  ok: boolean
-  granted?: string[]
-}
-
-type ProfileResponse = {
-  email?: string
-  roles?: string[]
-}
-
-function collectRequiredFeatures(items: InjectionMenuItem[]): string[] {
-  const set = new Set<string>()
-  for (const item of items) {
-    for (const feature of item.features ?? []) {
-      if (!feature || feature.trim().length === 0) continue
-      set.add(feature)
-    }
-  }
-  return Array.from(set)
-}
-
-async function readGrantedFeatures(features: string[]): Promise<Set<string>> {
-  if (features.length === 0) return new Set()
-  const call = await apiCall<FeatureCheckResponse>('/api/auth/feature-check', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ features }),
-  })
-  if (!call.ok) return new Set()
-  return new Set(call.result?.granted ?? [])
-}
-
-async function readUserRoles(): Promise<Set<string>> {
-  const call = await apiCall<ProfileResponse>('/api/auth/profile')
-  if (!call.ok) return new Set()
-  const roles = Array.isArray(call.result?.roles) ? call.result.roles : []
-  return new Set(roles.filter((role): role is string => typeof role === 'string' && role.trim().length > 0))
-}
-
 export function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
   items: InjectionMenuItem[]
   isLoading: boolean
 } {
   const { widgets, isLoading } = useInjectionDataWidgets(surfaceId)
-  const [grantedFeatures, setGrantedFeatures] = React.useState<Set<string>>(new Set())
-  const [userRoles, setUserRoles] = React.useState<Set<string>>(new Set())
-  const grantedFeatureList = React.useMemo(() => Array.from(grantedFeatures), [grantedFeatures])
+  const { payload, isReady } = useBackendChrome()
+  const grantedFeatureList = React.useMemo(
+    () => payload?.grantedFeatures ?? [],
+    [payload?.grantedFeatures],
+  )
+  const userRoles = React.useMemo(
+    () => new Set(payload?.roles ?? []),
+    [payload?.roles],
+  )
 
   const rawItems = React.useMemo(() => {
     const entries: InjectionMenuItem[] = []
@@ -84,33 +51,6 @@ export function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
     return entries
   }, [widgets])
 
-  React.useEffect(() => {
-    let mounted = true
-    const run = async () => {
-      const features = collectRequiredFeatures(rawItems)
-      const next = await readGrantedFeatures(features)
-      if (!mounted) return
-      setGrantedFeatures(next)
-    }
-    void run()
-    return () => {
-      mounted = false
-    }
-  }, [rawItems])
-
-  React.useEffect(() => {
-    let mounted = true
-    const run = async () => {
-      const roles = await readUserRoles()
-      if (!mounted) return
-      setUserRoles(roles)
-    }
-    void run()
-    return () => {
-      mounted = false
-    }
-  }, [])
-
   const items = React.useMemo(
     () =>
       rawItems.filter((item) => {
@@ -123,5 +63,5 @@ export function useInjectedMenuItems(surfaceId: MenuSurfaceId): {
     [rawItems, grantedFeatureList, userRoles],
   )
 
-  return { items, isLoading }
+  return { items, isLoading: isLoading || !isReady }
 }

@@ -235,6 +235,7 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.hasSearchTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
+    const joinSearchAvailability = new Map<string, boolean>()
     const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => filter.op === 'like' || filter.op === 'ilike')
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
@@ -322,7 +323,41 @@ export class BasicQueryEngine implements QueryEngine {
       return builder
     }
 
-    for (const filter of baseFilters) {
+    const applyJoinFilterOp = async (
+      builder: any,
+      filter: { column: string; op: string; value?: unknown },
+      _qualified: string,
+      join: ResolvedJoin,
+    ): Promise<boolean> => {
+      if (!searchEnabled || !join.entityId) return false
+      if (!['like', 'ilike'].includes(filter.op)) return false
+      if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return false
+
+      let searchAvailable = joinSearchAvailability.get(join.entityId)
+      if (searchAvailable === undefined) {
+        searchAvailable = await this.hasSearchTokens(join.entityId, opts.tenantId ?? null, orgScope)
+        joinSearchAvailability.set(join.entityId, searchAvailable)
+      }
+      if (!searchAvailable) return false
+
+      const tokens = tokenizeText(String(filter.value), searchConfig)
+      if (!tokens.hashes.length) return false
+
+      return this.applySearchTokens(builder, {
+        entity: join.entityId,
+        field: filter.column,
+        hashes: tokens.hashes,
+        recordIdColumn: `${join.alias}.id`,
+        tenantId: opts.tenantId ?? null,
+        organizationScope: orgScope,
+        tokens: tokens.tokens,
+      })
+    }
+
+    const regularBaseFilters = baseFilters.filter((f) => !f.orGroup)
+    const orGroupFilters = baseFilters.filter((f) => f.orGroup)
+
+    for (const filter of regularBaseFilters) {
       const fieldName = String(filter.field)
       let qualified = filter.qualified ?? null
       if (!qualified) {
@@ -347,6 +382,44 @@ export class BasicQueryEngine implements QueryEngine {
       applyFilterOp(q, qualified, filter.op, filter.value, fieldName)
     }
 
+    // Apply OR-grouped filters as a single WHERE (... OR ... OR ...)
+    if (orGroupFilters.length > 0) {
+      const groups = new Map<string, typeof orGroupFilters>()
+      for (const f of orGroupFilters) {
+        const group = groups.get(f.orGroup!) ?? []
+        group.push(f)
+        groups.set(f.orGroup!, group)
+      }
+      for (const [, groupFilters] of groups) {
+        const resolvedOrFilters: Array<{ qualified: string; op: string; value: unknown; fieldName: string }> = []
+        for (const filter of groupFilters) {
+          const column = await this.resolveBaseColumn(table, String(filter.field))
+          if (column) {
+            resolvedOrFilters.push({
+              qualified: qualify(column),
+              op: filter.op,
+              value: filter.value,
+              fieldName: String(filter.field),
+            })
+          }
+        }
+        if (resolvedOrFilters.length > 0) {
+          q = q.where(function (this: any) {
+            for (let i = 0; i < resolvedOrFilters.length; i++) {
+              const rf = resolvedOrFilters[i]
+              if (i === 0) {
+                applyFilterOp(this, rf.qualified, rf.op, rf.value, rf.fieldName)
+                continue
+              }
+              this.orWhere(function (this: any) {
+                applyFilterOp(this, rf.qualified, rf.op, rf.value, rf.fieldName)
+              })
+            }
+          })
+        }
+      }
+    }
+
     const applyAliasScopes = async (builder: any, aliasName: string) => {
       const targetTable = aliasTables.get(aliasName)
       if (!targetTable) return
@@ -367,6 +440,7 @@ export class BasicQueryEngine implements QueryEngine {
       qualifyBase: (column) => qualify(column),
       applyAliasScope: (builder, alias) => applyAliasScopes(builder, alias),
       applyFilterOp,
+      applyJoinFilterOp,
       columnExists: (tbl, column) => this.columnExists(tbl, column),
     })
     // Selection (base columns only here; cf:* handled later)

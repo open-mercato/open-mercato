@@ -217,8 +217,10 @@ type ConvertedSectionNavItem = {
   children?: ConvertedSectionNavItem[]
 }
 
+type BuildAdminNavModule = Pick<Module, 'id'> & { backendRoutes?: (ModuleRoute | Omit<ModuleRoute, 'Component'>)[] }
+
 export async function buildAdminNav(
-  modules: Pick<Module, 'id' | 'backendRoutes'>[],
+  modules: BuildAdminNavModule[],
   ctx: { auth?: { roles?: string[]; sub?: string; orgId?: string | null; tenantId?: string | null }; path?: string },
   userEntities?: Array<{ entityId: string; label: string; href: string }>,
   translate?: (key: string | undefined, fallback: string) => string,

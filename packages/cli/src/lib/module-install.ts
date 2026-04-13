@@ -97,12 +97,14 @@ export async function runModuleGenerators(
     generateModuleEntities,
     generateModulePackageSources,
     generateModuleRegistry,
+    generateModuleRegistryApp,
     generateModuleRegistryCli,
     generateOpenApi,
   } = await import('./generators')
 
   await generateEntityIds({ resolver, quiet })
   await generateModuleRegistry({ resolver, quiet })
+  await generateModuleRegistryApp({ resolver, quiet })
   await generateModuleRegistryCli({ resolver, quiet })
   await generateModuleEntities({ resolver, quiet })
   await generateModuleDi({ resolver, quiet })

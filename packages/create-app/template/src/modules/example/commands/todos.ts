@@ -12,7 +12,7 @@ import {
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityData, EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import { Todo } from '../data/entities'
@@ -205,19 +205,13 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
     const { parsed, custom } = parseWithCustomFields(todoUpdateSchema, rawInput)
     const scope = ensureScope(ctx)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-
-    const todo = await de.updateOrmEntity({
-      entity: Todo,
-      where: {
-        id: parsed.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      } as FilterQuery<Todo>,
-      apply: (entity) => {
-        if (parsed.title !== undefined) entity.title = parsed.title
-        if (parsed.is_done !== undefined) entity.isDone = parsed.is_done
-      },
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const todo = await updateTodoWithoutFlushingRequestScope(em, {
+      id: parsed.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      title: parsed.title,
+      isDone: parsed.is_done,
     })
     if (!todo) throw new CrudHttpError(404, { error: 'Todo not found' })
 
@@ -494,6 +488,41 @@ function ensureScope(ctx: CommandRuntimeContext): { tenantId: string; organizati
   const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
   if (!organizationId) throw new CrudHttpError(400, { error: 'Organization context is required' })
   return { tenantId, organizationId }
+}
+
+// Uses nativeUpdate on a forked EntityManager to avoid flushing unrelated
+// pending changes from the request-scoped EM. This is required when the
+// sync bridge calls update inside a worker context where the shared EM may
+// carry state from prior operations within the same job batch.
+async function updateTodoWithoutFlushingRequestScope(
+  em: EntityManager,
+  input: {
+    id: string
+    tenantId: string
+    organizationId: string
+    title?: string
+    isDone?: boolean
+  },
+): Promise<Todo | null> {
+  const isolatedEm = em.fork({ clear: true, freshEventManager: true })
+  const where = {
+    id: input.id,
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+    deletedAt: null,
+  } as FilterQuery<Todo>
+  const patch: EntityData<Todo> = {}
+
+  if (input.title !== undefined) patch.title = input.title
+  if (input.isDone !== undefined) patch.isDone = input.isDone
+
+  if (Object.keys(patch).length > 0) {
+    patch.updatedAt = new Date()
+    const updatedRows = await isolatedEm.nativeUpdate(Todo, where, patch)
+    if (updatedRows === 0) return null
+  }
+
+  return await isolatedEm.findOne(Todo, where)
 }
 
 async function loadTodoCustomSnapshot(

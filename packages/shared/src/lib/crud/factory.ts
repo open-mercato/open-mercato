@@ -59,10 +59,20 @@ import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 import { mergeIdFilter, parseIdsParam } from './ids'
+import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
+}
+
+function resolveSortParams(queryParams: Record<string, unknown>) {
+  const rawSortField = queryParams.sortField ?? queryParams.sort ?? 'id'
+  const rawSortDir = queryParams.sortDir ?? queryParams.order ?? 'asc'
+  const sortField = typeof rawSortField === 'string' && rawSortField.trim().length > 0 ? rawSortField.trim() : 'id'
+  const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : 'asc'
+  const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
+  return { sortField, sortDir }
 }
 
 export type CrudHooks<TCreate, TUpdate, TList> = {
@@ -78,6 +88,7 @@ export type CrudHooks<TCreate, TUpdate, TList> = {
 
 export type CrudMethodMetadata = {
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
@@ -1330,16 +1341,18 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('query_engine_prepare')
         const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
-        const sortFieldRaw = (queryParams as any).sortField || 'id'
-        const sortDirRaw = ((queryParams as any).sortDir || 'asc').toLowerCase() === 'desc' ? SortDir.Desc : SortDir.Asc
+        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(queryParams as Record<string, unknown>)
         const sortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         const page: Page = exportRequested
           ? { page: 1, pageSize: exportPageSize }
           : { page: requestedPage, pageSize: requestedPageSize }
-        const filters = exportFullRequested
+        const baseFilters = exportFullRequested
           ? ({} as Where<any>)
           : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+        const filters = exportFullRequested
+          ? baseFilters
+          : mergeAdvancedFilters(baseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
         const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
@@ -1604,9 +1617,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         })
         return response
       }
-      const fallbackFilters = exportFullRequested
+      const fallbackBaseFilters = exportFullRequested
         ? ({} as Where<any>)
         : (opts.list.buildFilters ? await opts.list.buildFilters(validated as any, ctx) : ({} as Where<any>))
+      const fallbackFilters = exportFullRequested
+        ? fallbackBaseFilters
+        : mergeAdvancedFilters(fallbackBaseFilters as Record<string, unknown>, validated as Record<string, unknown>) as Where<any>
       const mergedFallbackFilters = exportFullRequested
         ? fallbackFilters
         : mergeIdFilter(fallbackFilters, parsedIds)
