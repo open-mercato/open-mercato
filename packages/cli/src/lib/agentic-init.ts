@@ -91,8 +91,11 @@ export async function runAgenticInit(args: string[]): Promise<number> {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const ask = (q: string) => new Promise<string>((res) => rl.question(q, (a) => res(a.trim())))
 
-  await runAgenticSetup(targetDir, ask, { tool: options.tool, force: options.force })
-  rl.close()
+  try {
+    await runAgenticSetup(targetDir, ask, { tool: options.tool, force: options.force })
+  } finally {
+    rl.close()
+  }
 
   return 0
 }

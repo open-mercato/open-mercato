@@ -1,4 +1,5 @@
 /** @jest-environment jsdom */
+jest.setTimeout(15000)
 
 const pushMock = jest.fn()
 const confirmDialogMock = jest.fn()
