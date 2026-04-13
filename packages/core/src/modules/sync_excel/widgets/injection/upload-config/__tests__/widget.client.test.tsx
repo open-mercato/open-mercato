@@ -311,4 +311,27 @@ describe('SyncExcelUploadConfigWidget', () => {
 
     await waitFor(() => expect(screen.getByText('Ready to import')).toBeTruthy())
   })
+
+  it('restores the persisted session even when uploadId disappeared from the URL after tab navigation', async () => {
+    currentSearchParams = new URLSearchParams('tab=sync_excel.injection.upload-config')
+
+    render(
+      <SyncExcelUploadConfigWidget
+        context={{
+          integrationId: 'sync_excel',
+          state: { isEnabled: true },
+          refreshLogs: mockRefreshLogs,
+          refreshHealthSnapshot: mockRefreshHealthSnapshot,
+        }}
+        data={{ state: { isEnabled: true } }}
+      />,
+    )
+
+    await waitFor(() => expect(screen.getByText('Preview and mapping')).toBeTruthy())
+    expect(screen.getByText('Import run status')).toBeTruthy()
+    expect(mockReplace).toHaveBeenCalledWith(
+      '/backend/integrations/sync_excel?tab=sync_excel.injection.upload-config&uploadId=upload-restore-1&runId=run-restore-1',
+    )
+    expect(screen.getByLabelText('How to match existing people')).toHaveValue('email')
+  })
 })

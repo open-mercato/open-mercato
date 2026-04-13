@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { extractPhoneDigits, validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import type {
   DataMapping,
   DataSyncAdapter,
@@ -107,6 +108,95 @@ function normalizeEmail(value: unknown): string | null {
   return normalized ? normalized.toLowerCase() : null
 }
 
+const COUNTRY_DIAL_CODES: Record<string, string> = {
+  canada: '1',
+  england: '44',
+  greatbritain: '44',
+  poland: '48',
+  scotland: '44',
+  uk: '44',
+  unitedkingdom: '44',
+  unitedstates: '1',
+  unitedstatesofamerica: '1',
+  usa: '1',
+  wales: '44',
+}
+
+function normalizeCountryKey(value: unknown): string | null {
+  const normalized = normalizeOptionalString(value)
+  if (!normalized) return null
+  return normalized.toLowerCase().replace(/[^a-z]/g, '')
+}
+
+function resolveCountryDialCode(row: CsvPreviewRow): string | null {
+  const countryCandidates = [
+    row.Country,
+    row.country,
+    row['Country/Region'],
+    row['country/region'],
+  ]
+
+  for (const candidate of countryCandidates) {
+    const countryKey = normalizeCountryKey(candidate)
+    if (!countryKey) continue
+    const dialCode = COUNTRY_DIAL_CODES[countryKey]
+    if (dialCode) return dialCode
+  }
+
+  return null
+}
+
+function stripPhoneExtension(value: string): string {
+  return value
+    .replace(/\s*(ext\.?|extension|x)\s*\d+$/i, '')
+    .replace(/^\+\s+/, '+')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeImportedPhone(value: unknown, row: CsvPreviewRow): string | null {
+  const normalized = normalizeOptionalString(value)
+  if (!normalized) return null
+
+  const directValidation = validatePhoneNumber(normalized)
+  if (directValidation.valid) {
+    return directValidation.normalized
+  }
+
+  const sanitized = stripPhoneExtension(normalized)
+  const sanitizedValidation = validatePhoneNumber(sanitized)
+  if (sanitizedValidation.valid) {
+    return sanitizedValidation.normalized
+  }
+
+  const digits = extractPhoneDigits(sanitized)
+  if (!digits) return null
+
+  if (digits.length >= 9 && digits.length <= 15 && sanitized.startsWith('00')) {
+    const internationalCandidate = `+${digits.slice(2)}`
+    const internationalValidation = validatePhoneNumber(internationalCandidate)
+    if (internationalValidation.valid) {
+      return internationalValidation.normalized
+    }
+  }
+
+  const dialCode = resolveCountryDialCode(row)
+  if (!dialCode) return null
+
+  let nationalDigits = digits
+  if (nationalDigits.startsWith(dialCode)) {
+    nationalDigits = nationalDigits.slice(dialCode.length)
+  } else {
+    nationalDigits = nationalDigits.replace(/^0+/, '')
+  }
+
+  if (!nationalDigits) return null
+
+  const localizedCandidate = `+${dialCode}${nationalDigits}`
+  const localizedValidation = validatePhoneNumber(localizedCandidate)
+  return localizedValidation.valid ? localizedValidation.normalized : null
+}
+
 function normalizeOptionalNumber(value: unknown): number | null {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null
@@ -198,7 +288,7 @@ function mapRowValues(row: CsvPreviewRow, fields: FieldMapping[]): PersonRowValu
       continue
     }
     if (field.localField === 'person.primaryPhone') {
-      values.primaryPhone = normalizeOptionalString(rawValue)
+      values.primaryPhone = normalizeImportedPhone(rawValue, row)
       continue
     }
     if (field.localField === 'person.jobTitle') {

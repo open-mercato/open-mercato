@@ -151,6 +151,69 @@ describe('sync_excel customers adapter', () => {
     })
   })
 
+  it('normalizes import phone numbers with a known country before building payloads', () => {
+    const payload = buildPersonPayload(
+      {
+        'Record Id': 'ext-2',
+        'Lead Name': 'Paul Sullivan',
+        Email: 'psullivan@revenueml.com',
+        Mobile: '416-893-2731',
+        Country: 'Canada',
+      },
+      {
+        entityType: 'customers.person',
+        matchStrategy: 'email',
+        matchField: 'person.primaryEmail',
+        fields: [
+          { externalField: 'Record Id', localField: 'person.externalId', mappingKind: 'external_id', dedupeRole: 'primary' },
+          { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+          { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+          { externalField: 'Mobile', localField: 'person.primaryPhone', mappingKind: 'core' },
+        ],
+      } as any,
+      {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+    )
+
+    expect(payload.values.primaryPhone).toBe('+14168932731')
+    expect(payload.createInput).toMatchObject({
+      primaryPhone: '+14168932731',
+    })
+  })
+
+  it('drops invalid optional phones instead of failing the row payload', () => {
+    const payload = buildPersonPayload(
+      {
+        'Record Id': 'ext-3',
+        'Lead Name': 'Ben Example',
+        Email: 'ben@example.com',
+        Mobile: '98.50197.00',
+      },
+      {
+        entityType: 'customers.person',
+        matchStrategy: 'email',
+        matchField: 'person.primaryEmail',
+        fields: [
+          { externalField: 'Record Id', localField: 'person.externalId', mappingKind: 'external_id', dedupeRole: 'primary' },
+          { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+          { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+          { externalField: 'Mobile', localField: 'person.primaryPhone', mappingKind: 'core' },
+        ],
+      } as any,
+      {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+    )
+
+    expect(payload.values.primaryPhone).toBeNull()
+    expect(payload.createInput).toEqual(expect.not.objectContaining({
+      primaryPhone: expect.anything(),
+    }))
+  })
+
   it('imports rows and creates people with external-id mappings', async () => {
     const batches = []
     for await (const batch of syncExcelCustomersAdapter.streamImport!({

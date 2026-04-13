@@ -495,22 +495,33 @@ export default function SyncExcelUploadConfigWidget({
   }, [mappingRows, matchStrategy, persistCurrentSession, preview?.uploadId, progressJobId, runId])
 
   React.useEffect(() => {
-    if (!uploadIdFromUrl) {
+    const persistedSnapshot = readPersistedSessionSnapshot(context.integrationId)
+    const resolvedUploadId = uploadIdFromUrl ?? persistedSnapshot?.uploadId ?? null
+    const resolvedRunId = runIdFromUrl ?? persistedSnapshot?.runId ?? null
+
+    if (!resolvedUploadId) {
       restoringSnapshotRef.current = null
       lastRestoreRequestKeyRef.current = null
       setIsRestoringSession(false)
       return
     }
 
-    if (preview?.uploadId === uploadIdFromUrl && mappingRows.length > 0) {
-      if (runIdFromUrl && runId !== runIdFromUrl) {
-        setRunId(runIdFromUrl)
+    if (!uploadIdFromUrl && persistedSnapshot?.uploadId === resolvedUploadId) {
+      replaceQueryParams({
+        uploadId: resolvedUploadId,
+        runId: resolvedRunId,
+      })
+    }
+
+    if (preview?.uploadId === resolvedUploadId && mappingRows.length > 0) {
+      if (resolvedRunId && runId !== resolvedRunId) {
+        setRunId(resolvedRunId)
       }
       setIsRestoringSession(false)
       return
     }
 
-    const restoreRequestKey = `${uploadIdFromUrl}:${runIdFromUrl ?? ''}`
+    const restoreRequestKey = `${resolvedUploadId}:${resolvedRunId ?? ''}`
     if (lastRestoreRequestKeyRef.current === restoreRequestKey) {
       setIsRestoringSession(false)
       return
@@ -519,8 +530,8 @@ export default function SyncExcelUploadConfigWidget({
     lastRestoreRequestKeyRef.current = restoreRequestKey
 
     let cancelled = false
-    restoringSnapshotRef.current = readPersistedSessionSnapshot(context.integrationId)
-    const persistedPreview = restoringSnapshotRef.current?.preview?.uploadId === uploadIdFromUrl
+    restoringSnapshotRef.current = persistedSnapshot
+    const persistedPreview = restoringSnapshotRef.current?.preview?.uploadId === resolvedUploadId
       ? restoringSnapshotRef.current.preview
       : null
 
@@ -535,7 +546,7 @@ export default function SyncExcelUploadConfigWidget({
 
     const restoreSession = async () => {
       const call = await apiCall<UploadResponse>(
-        `/api/sync_excel/preview?uploadId=${encodeURIComponent(uploadIdFromUrl)}&entityType=${encodeURIComponent(ENTITY_TYPE)}`,
+        `/api/sync_excel/preview?uploadId=${encodeURIComponent(resolvedUploadId)}&entityType=${encodeURIComponent(ENTITY_TYPE)}`,
         undefined,
         { fallback: null },
       )
@@ -559,8 +570,8 @@ export default function SyncExcelUploadConfigWidget({
         restoredSnapshot: restoringSnapshotRef.current,
       })
 
-      if (runIdFromUrl && !(restoringSnapshotRef.current?.runId)) {
-        setRunId(runIdFromUrl)
+      if (resolvedRunId && !(restoringSnapshotRef.current?.runId)) {
+        setRunId(resolvedRunId)
       }
 
       setIsRestoringSession(false)
@@ -571,7 +582,7 @@ export default function SyncExcelUploadConfigWidget({
     return () => {
       cancelled = true
     }
-  }, [clearPersistedSession, context.integrationId, mappingRows.length, preview?.uploadId, runId, runIdFromUrl, syncPreviewState, uploadIdFromUrl])
+  }, [clearPersistedSession, context.integrationId, mappingRows.length, preview?.uploadId, replaceQueryParams, runId, runIdFromUrl, syncPreviewState, uploadIdFromUrl])
 
   React.useEffect(() => {
     if (!runId) return
