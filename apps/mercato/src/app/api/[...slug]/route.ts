@@ -24,6 +24,7 @@ import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@o
 
 type MethodMetadata = {
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
@@ -86,9 +87,11 @@ async function emitLifecycleEvent(eventId: ApplicationLifecycleEventId, payload:
 
 function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMetadata | null {
   if (!metadata || typeof metadata !== 'object') return null
-  const entry = (metadata as Partial<Record<HttpMethod, unknown>>)[method]
-  if (!entry || typeof entry !== 'object') return null
-  const source = entry as Record<string, unknown>
+  const metadataRecord = metadata as Partial<Record<HttpMethod, unknown>>
+  const entry = metadataRecord[method]
+  const source = entry && typeof entry === 'object'
+    ? entry as Record<string, unknown>
+    : metadata as Record<string, unknown>
   const normalized: MethodMetadata = {}
   if (typeof source.requireAuth === 'boolean') normalized.requireAuth = source.requireAuth
   if (Array.isArray(source.requireRoles)) {
@@ -108,7 +111,7 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
       }
     }
   }
-  return normalized
+  return Object.keys(normalized).length > 0 ? normalized : null
 }
 
 function normalizeLoadedMetadata(
@@ -131,7 +134,8 @@ async function checkAuthorization(
   req: NextRequest
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
-  if (methodMetadata?.requireAuth && !auth) {
+  const requiresAuthentication = methodMetadata !== null && methodMetadata?.requireAuth !== false
+  if (requiresAuthentication && !auth) {
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
@@ -151,7 +155,7 @@ async function checkAuthorization(
     return container
   }
 
-  if (auth && methodMetadata?.requireAuth !== false) {
+  if (auth && requiresAuthentication) {
     const rawTenantCandidate = await extractTenantCandidate(req)
     if (rawTenantCandidate !== undefined) {
       const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
