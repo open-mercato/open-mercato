@@ -10,7 +10,7 @@ type ConnectionOptions = {
   username?: string
   password?: string
   db?: number
-  tls?: Record<string, never>
+  tls?: Record<string, unknown>
 }
 
 interface BullQueueInterface<T> {

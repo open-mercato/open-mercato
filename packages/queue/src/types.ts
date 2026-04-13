@@ -80,7 +80,7 @@ export type RedisConnectionOptions = {
   /** Redis database number */
   db?: number
   /** TLS configuration for rediss / encrypted Redis */
-  tls?: Record<string, never>
+  tls?: Record<string, unknown>
 }
 
 /**
