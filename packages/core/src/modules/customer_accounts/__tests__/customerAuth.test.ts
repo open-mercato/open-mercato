@@ -5,6 +5,8 @@ import {
 } from '@open-mercato/shared/lib/auth/jwt'
 
 const findActiveSessionById = jest.fn()
+const findOneWithDecryption = jest.fn()
+const mockEm = {}
 const containerResolve = jest.fn()
 const createRequestContainer = jest.fn(async () => ({
   resolve: (name: string) => containerResolve(name),
@@ -12,6 +14,10 @@ const createRequestContainer = jest.fn(async () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => findOneWithDecryption(...args),
 }))
 
 // Import after mocks are set up.
@@ -49,8 +55,10 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
       if (name === 'customerSessionService') {
         return { findActiveSessionById }
       }
+      if (name === 'em') return mockEm
       return null
     })
+    findOneWithDecryption.mockResolvedValue({ id: userId, sessionsRevokedAt: null })
     findActiveSessionById.mockResolvedValue({
       id: sessionId,
       deletedAt: null,

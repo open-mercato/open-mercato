@@ -1,4 +1,3 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
 import { RoleAcl, Session, User, UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 import { isAuthContextValid, resolveCanonicalStaffAuthContext } from '@open-mercato/core/modules/auth/lib/sessionIntegrity'
 
@@ -25,9 +24,10 @@ type MockStore = {
   roleAcl?: unknown
 }
 
-function mockFindOneByEntity(store: MockStore) {
+function mockFindOneByEntity(store: MockStore & { session?: SessionLookupResult }) {
   findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
     const entity = args[1]
+    if (entity === Session) return store.session ?? null
     if (entity === User) return store.user ?? null
     if (entity === UserAcl) return store.userAcl ?? null
     if (entity === RoleAcl) return store.roleAcl ?? null
@@ -37,31 +37,23 @@ function mockFindOneByEntity(store: MockStore) {
 
 type SessionLookupResult = { id: string; deletedAt: Date | null; expiresAt: Date } | null
 
+const validSession: SessionLookupResult = {
+  id: sessionId,
+  deletedAt: null,
+  expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+}
+
 describe('isAuthContextValid', () => {
-  let sessionLookup: SessionLookupResult
-  const em = {
-    findOne: jest.fn(async (entity: unknown, filter: Record<string, unknown>) => {
-      if (entity === Session) {
-        if (!sessionLookup) return null
-        if (filter.id !== sessionLookup.id) return null
-        return sessionLookup
-      }
-      return null
-    }),
-  } as unknown as EntityManager
+  const em = {} as import('@mikro-orm/postgresql').EntityManager
 
   beforeEach(() => {
     jest.clearAllMocks()
     findWithDecryption.mockResolvedValue([])
-    sessionLookup = {
-      id: sessionId,
-      deletedAt: null,
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-    }
+    findOneWithDecryption.mockResolvedValue(null)
   })
 
   it('accepts a user that still exists in the same tenant and organization', async () => {
-    mockFindOneByEntity({ user: { id: userId, tenantId, organizationId } })
+    mockFindOneByEntity({ session: validSession, user: { id: userId, tenantId, organizationId } })
 
     await expect(
       isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
@@ -78,6 +70,7 @@ describe('isAuthContextValid', () => {
 
   it('returns canonical auth with roles refreshed from the database', async () => {
     mockFindOneByEntity({
+      session: validSession,
       user: { id: userId, tenantId, organizationId },
       roleAcl: { isSuperAdmin: true },
     })
@@ -106,6 +99,7 @@ describe('isAuthContextValid', () => {
 
   it('does not elevate a user whose role is merely named "superadmin" without a RoleAcl flag', async () => {
     mockFindOneByEntity({
+      session: validSession,
       user: { id: userId, tenantId, organizationId },
     })
     findWithDecryption.mockResolvedValue([
@@ -115,12 +109,14 @@ describe('isAuthContextValid', () => {
     await expect(
       resolveCanonicalStaffAuthContext(em, {
         sub: userId,
+        sid: sessionId,
         tenantId,
         orgId: organizationId,
         roles: ['Superadmin'],
       }),
     ).resolves.toEqual({
       sub: userId,
+      sid: sessionId,
       tenantId,
       orgId: organizationId,
       roles: ['Superadmin'],
@@ -130,6 +126,7 @@ describe('isAuthContextValid', () => {
 
   it('elevates a user whose role has UserAcl.isSuperAdmin flag set', async () => {
     mockFindOneByEntity({
+      session: validSession,
       user: { id: userId, tenantId, organizationId },
       userAcl: { isSuperAdmin: true },
     })
@@ -140,12 +137,14 @@ describe('isAuthContextValid', () => {
     await expect(
       resolveCanonicalStaffAuthContext(em, {
         sub: userId,
+        sid: sessionId,
         tenantId,
         orgId: organizationId,
         roles: ['admin'],
       }),
     ).resolves.toEqual({
       sub: userId,
+      sid: sessionId,
       tenantId,
       orgId: organizationId,
       roles: ['admin'],
@@ -154,7 +153,7 @@ describe('isAuthContextValid', () => {
   })
 
   it('rejects an auth context when the user no longer exists', async () => {
-    mockFindOneByEntity({ user: null })
+    mockFindOneByEntity({ session: validSession, user: null })
 
     await expect(
       isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
@@ -163,6 +162,7 @@ describe('isAuthContextValid', () => {
 
   it('rejects an auth context when the persisted tenant or organization changed', async () => {
     mockFindOneByEntity({
+      session: validSession,
       user: { id: userId, tenantId, organizationId: scopedOrganizationId },
     })
 
@@ -173,6 +173,7 @@ describe('isAuthContextValid', () => {
 
   it('validates superadmin scoped sessions against actor scope, not selected scope', async () => {
     mockFindOneByEntity({
+      session: validSession,
       user: { id: userId, tenantId, organizationId },
       roleAcl: { isSuperAdmin: true },
     })
@@ -195,45 +196,31 @@ describe('isAuthContextValid', () => {
   })
 
   it('rejects legacy tokens without an sid claim so clients must re-authenticate', async () => {
-    findOneWithDecryption.mockResolvedValue({
-      id: userId,
-      tenantId,
-      organizationId,
-    })
-
     await expect(
       isAuthContextValid(em, { sub: userId, tenantId, orgId: organizationId, roles: [] }),
     ).resolves.toBe(false)
 
-    expect(em.findOne).not.toHaveBeenCalled()
     expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 
   it('rejects tokens whose referenced session has been deleted (logout/password reset)', async () => {
-    sessionLookup = null
-    findOneWithDecryption.mockResolvedValue({
-      id: userId,
-      tenantId,
-      organizationId,
-    })
+    findOneWithDecryption.mockResolvedValue(null)
 
     await expect(
       isAuthContextValid(em, { sub: userId, sid: sessionId, tenantId, orgId: organizationId, roles: [] }),
     ).resolves.toBe(false)
-
-    expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 
   it('rejects tokens whose session row exists but has already expired', async () => {
-    sessionLookup = {
+    const expiredSession: SessionLookupResult = {
       id: sessionId,
       deletedAt: null,
       expiresAt: new Date(Date.now() - 1000),
     }
-    findOneWithDecryption.mockResolvedValue({
-      id: userId,
-      tenantId,
-      organizationId,
+    findOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
+      const entity = args[1]
+      if (entity === Session) return expiredSession
+      return null
     })
 
     await expect(
@@ -246,7 +233,7 @@ describe('isAuthContextValid', () => {
       isAuthContextValid(em, { sub: userId, sid: 'not-a-uuid', tenantId, orgId: organizationId, roles: [] }),
     ).resolves.toBe(false)
 
-    expect(em.findOne).not.toHaveBeenCalled()
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
   })
 
   it('skips user integrity lookup for api key auth', async () => {
@@ -260,6 +247,5 @@ describe('isAuthContextValid', () => {
     ).resolves.toBe(true)
 
     expect(findOneWithDecryption).not.toHaveBeenCalled()
-    expect(em.findOne).not.toHaveBeenCalled()
   })
 })
