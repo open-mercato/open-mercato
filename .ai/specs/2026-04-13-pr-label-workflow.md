@@ -157,7 +157,126 @@ Current behavior already uses `merge-queue` and `changes-requested`. Changes nee
 
 No changes needed — operates before PR creation.
 
-### New: QA helper commands
+### New skill: `merge-buddy`
+
+A triage skill invoked via `/merge-buddy`. Scans **all open PRs** and produces a merge-readiness report — a table of PRs that can be merged right now (zero blockers) plus a secondary table of PRs that are close but have specific remaining issues.
+
+#### Workflow
+
+1. **Fetch all open PRs** with metadata:
+   ```bash
+   gh pr list --state open --json number,title,url,author,labels,reviewDecision,mergeable,mergeStateStatus,headRefName,baseRefName,updatedAt,isDraft --limit 100
+   ```
+
+2. **For each PR, collect gate status**:
+   - **CI status**: `gh pr checks <number> --json name,state` — all required checks must be `SUCCESS`
+   - **Review decision**: must be `APPROVED` (from `reviewDecision`)
+   - **Mergeable**: `mergeable` must be `MERGEABLE`, `mergeStateStatus` must not be `DIRTY` or `BLOCKED`
+   - **Not draft**: `isDraft` must be `false`
+   - **No blocking labels**: must not have `changes-requested`, `qa-failed`, `blocked`, `do-not-merge`
+   - **QA gate**: if `needs-qa` is present, must also have `merge-queue` label (meaning QA passed)
+   - **No merge conflicts**: `mergeable !== 'CONFLICTING'`
+
+3. **Classify each PR** into one of:
+   - **Ready to merge** — all gates pass
+   - **Almost ready** — only 1-2 minor blockers (e.g., CI pending, awaiting review but no changes requested)
+   - **Blocked** — has hard blockers (conflicts, `do-not-merge`, failing CI, changes requested)
+
+4. **Output a formatted report**:
+
+   ```
+   ## Merge Buddy Report — {date}
+
+   ### Ready to Merge (X PRs)
+
+   | # | Title | Author | Labels | Age |
+   |---|-------|--------|--------|-----|
+   | [#123](url) | Fix auth flow | @alice | `bug` | 2d |
+
+   ### Almost Ready (Y PRs)
+
+   | # | Title | Author | Blocker | Action needed |
+   |---|-------|--------|---------|---------------|
+   | [#456](url) | Add catalog search | @bob | CI pending | Wait ~5min or re-run |
+
+   ### Blocked (Z PRs)
+
+   | # | Title | Blocker(s) |
+   |---|-------|------------|
+   | [#789](url) | Refactor events | Merge conflicts, changes-requested |
+   ```
+
+5. **For "Ready to Merge" PRs**, offer to merge them (ask user for confirmation before each merge or offer a "merge all" option).
+
+#### Rules
+
+- Never merge without explicit user confirmation
+- Sort "Ready to Merge" by age (oldest first — clear the backlog)
+- Sort "Almost Ready" by how close they are (fewest blockers first)
+- Skip draft PRs entirely from the report
+- The report must be concise — no PR descriptions, just the table
+- If zero PRs are ready, say so clearly and highlight the top "Almost Ready" candidates
+
+### New skill: `review-prs`
+
+A **day-start triage skill** invoked via `/review-prs`. Finds all open PRs that have not been reviewed yet and reviews them one by one, starting from the most recent. Designed as a morning routine — run it at the start of your day to clear the review backlog.
+
+#### Workflow
+
+1. **Fetch open PRs needing review**:
+   ```bash
+   gh pr list --state open --json number,title,url,author,labels,reviewDecision,createdAt,updatedAt,isDraft --limit 50
+   ```
+
+2. **Filter to unreviewed PRs**:
+   - `reviewDecision` is `null` or empty (no review submitted yet)
+   - Not a draft (`isDraft === false`)
+   - Does not have `do-not-merge` or `blocked` labels (skip held PRs)
+   - Author is not the current user (don't self-review)
+
+3. **Sort by recency** — most recently created first (clear fresh PRs before stale ones).
+
+4. **Present the queue**:
+   ```
+   ## Review Queue — {date}
+
+   Found {N} unreviewed PRs (newest first):
+
+   | # | Title | Author | Created | Labels |
+   |---|-------|--------|---------|--------|
+   | [#456](url) | Add catalog search | @bob | 2h ago | `feature` |
+   | [#445](url) | Fix auth redirect | @alice | 1d ago | `bug` |
+   ```
+
+5. **Sequential review loop** — for each PR in the queue:
+   a. Show: `Reviewing PR #{number}: {title} ({N} of {total})`
+   b. Invoke the full `review-pr` skill (including autofix flow)
+   c. After review completes, show the verdict and move to the next PR
+   d. Between reviews, briefly report progress: `Reviewed {done}/{total}. Next: #{number}`
+
+6. **Final summary** after all reviews:
+   ```
+   ## Review Session Complete
+
+   | # | Title | Verdict | Label |
+   |---|-------|---------|-------|
+   | #456 | Add catalog search | APPROVED | merge-queue |
+   | #445 | Fix auth redirect | CHANGES REQUESTED (auto-fixed → APPROVED) | merge-queue |
+
+   Reviewed: {N} PRs
+   Approved: {X}
+   Changes requested: {Y} ({Z} auto-fixed)
+   ```
+
+#### Rules
+
+- Always start from the most recent unreviewed PR
+- Never skip a PR silently — if a PR can't be reviewed (e.g., CI not finished), note it and move on
+- Use the full `review-pr` skill for each PR (with autofix)
+- After the review session, optionally invoke `merge-buddy` to show what's now ready to merge
+- If there are zero unreviewed PRs, say so and suggest running `/merge-buddy` instead
+
+### QA helper commands
 
 Add convenience commands to `AGENTS.md` or a lightweight skill:
 
@@ -263,6 +382,8 @@ for-core-contributors
 1. Update `review-pr` SKILL.md — add QA gate logic and `review` label handling
 2. Update `fix-github-issue` SKILL.md — apply `review` + optional `skip-qa` on PR creation
 3. Extract `setPipelineLabel` helper into a shared skill utility or inline in both skills
+4. Create `merge-buddy` skill — `.ai/skills/merge-buddy/SKILL.md` — scan all open PRs, classify merge-readiness, output actionable table
+5. Create `review-prs` skill — `.ai/skills/review-prs/SKILL.md` — day-start triage that reviews all unreviewed PRs (newest first) using the `review-pr` skill, then optionally runs `merge-buddy`
 
 ### Phase 3: AGENTS.md Updates
 
