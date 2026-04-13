@@ -241,6 +241,7 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | Entity schema changed but no migration file in the diff | Medium: run `yarn db:generate` |
 | New raw `em.find` or `em.findOne` usage | Medium: use encryption helpers |
 | Missing explicit tenant scoping in sub-entity queries | Medium: defense in depth |
+| New or modified i18n locale JSON keys not in alphabetical order | Medium: CI i18n-check-sync requires sorted keys — run `yarn i18n:check-sync --fix` or sort manually |
 
 #### Low auto-detections
 
@@ -310,6 +311,7 @@ Do not stop after the first patch. Treat autofix as an iterative loop:
 4. Run validation for the updated code:
    - Run relevant unit tests for every changed package or module.
    - Run relevant typecheck commands for every changed package or module.
+   - If i18n locale files were added or modified, verify keys are alphabetically sorted (CI runs `yarn i18n:check-sync` which enforces this).
    - If the review findings touched shared contracts or multiple packages, expand validation to the affected workspace scope.
 5. Re-run the code review on the updated diff in the same worktree.
 6. If new or remaining actionable findings exist, repeat from step 1.
