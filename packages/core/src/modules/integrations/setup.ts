@@ -2,17 +2,12 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import crypto from 'node:crypto'
 
 function stableUuidFromString(input: string): string {
-  const hex = crypto.createHash('sha256').update(input).digest('hex').slice(0, 32)
-  // UUID format 8-4-4-4-12; set version=5-ish and RFC variant for UUID validity
-  const timeHi = `5${hex.slice(13, 16)}`
-  const clockSeqHi = (parseInt(hex.slice(16, 18), 16) & 0x3f | 0x80).toString(16).padStart(2, '0')
-  return [
-    hex.slice(0, 8),
-    hex.slice(8, 12),
-    hex.slice(12, 13) + timeHi,
-    clockSeqHi + hex.slice(18, 20),
-    hex.slice(20, 32),
-  ].join('-')
+  const bytes = crypto.createHash('sha256').update(input).digest().subarray(0, 16)
+  // RFC4122: set version (5) and variant (10xx)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = Buffer.from(bytes).toString('hex') // 32 hex chars
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
 
 type SchedulerServiceLike = {
