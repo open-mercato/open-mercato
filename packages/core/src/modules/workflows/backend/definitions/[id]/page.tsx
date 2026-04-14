@@ -7,8 +7,11 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   workflowDefinitionFormSchema,
   createFormGroups,
@@ -64,6 +67,12 @@ export default function EditWorkflowDefinitionPage() {
     setTriggers(initialValues?.triggers ?? [])
   }, [initialValues])
 
+  const source = definition?.source as 'code' | 'code_override' | 'user' | undefined
+  const isCodeOnly = source === 'code'
+  const isCodeOverride = source === 'code_override'
+
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
     const payload = buildWorkflowPayload({ ...values, triggers })
 
@@ -78,8 +87,40 @@ export default function EditWorkflowDefinitionPage() {
       throw new Error(error.error || t('workflows.errors.updateFailed'))
     }
 
+    const result = await response.json()
+    // If we just customized a code def, redirect to the new DB row
+    if (isCodeOnly && result.data?.id) {
+      router.push(`/backend/definitions/${result.data.id}`)
+      router.refresh()
+      return
+    }
+
     router.push('/backend/definitions')
     router.refresh()
+  }
+
+  const handleResetToCode = async () => {
+    const confirmed = await confirm({
+      title: t('workflows.actions.resetToCode'),
+      description: t('workflows.actions.resetConfirm'),
+      confirmText: t('workflows.actions.resetToCode'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+
+    const response = await apiFetch(`/api/workflows/definitions/${definitionId}/reset-to-code`, {
+      method: 'POST',
+    })
+
+    if (response.ok) {
+      const result = await response.json()
+      flash(t('workflows.messages.updated'), 'success')
+      const codeId = result.data?.id || `code:${definition?.workflowId}`
+      router.push(`/backend/definitions/${codeId}`)
+      router.refresh()
+    } else {
+      flash(t('workflows.messages.updateFailed'), 'error')
+    }
   }
 
   const fields = React.useMemo(() => createFieldDefinitions(t), [t])
@@ -128,6 +169,26 @@ export default function EditWorkflowDefinitionPage() {
   return (
     <Page>
       <PageBody>
+        {isCodeOnly && (
+          <Alert variant="info" className="mb-4">
+            <AlertDescription className="flex items-center justify-between">
+              <span>{t('workflows.source.code.readonlyBanner')}</span>
+              <Button variant="outline" size="sm" onClick={() => handleSubmit(initialValues!)}>
+                {t('workflows.actions.customize')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
+        {isCodeOverride && (
+          <Alert variant="warning" className="mb-4">
+            <AlertDescription className="flex items-center justify-between">
+              <span>{t('workflows.source.code_override.banner')}</span>
+              <Button variant="outline" size="sm" onClick={handleResetToCode}>
+                {t('workflows.actions.resetToCode')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        )}
         <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800 rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
             <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,7 +211,7 @@ export default function EditWorkflowDefinitionPage() {
         </div>
         <CrudForm
           key={definitionId}
-          title={t('workflows.edit.title')}
+          title={isCodeOnly ? definition?.workflowName || t('workflows.edit.title') : t('workflows.edit.title')}
           backHref="/backend/definitions"
           schema={workflowDefinitionFormSchema}
           fields={fields}
@@ -158,7 +219,8 @@ export default function EditWorkflowDefinitionPage() {
           onSubmit={handleSubmit}
           cancelHref="/backend/definitions"
           groups={formGroups}
-          submitLabel={t('workflows.form.update')}
+          submitLabel={isCodeOnly ? t('workflows.actions.customize') : t('workflows.form.update')}
+          {...(isCodeOnly ? { readOnly: true } : {})}
         />
 
         {/* Mobile Steps & Transitions View */}
@@ -184,6 +246,7 @@ export default function EditWorkflowDefinitionPage() {
           />
         </div>
       </PageBody>
+      {ConfirmDialogElement}
     </Page>
   )
 }

@@ -18,8 +18,9 @@ import {
   updateWorkflowDefinitionInputSchema,
   type UpdateWorkflowDefinitionApiInput,
 } from '../../../data/validators'
-import { serializeWorkflowDefinition } from '../serialize'
+import { serializeWorkflowDefinition, serializeCodeWorkflowDefinition } from '../serialize'
 import { invalidateTriggerCache } from '../../../lib/event-trigger-service'
+import { getCodeWorkflow } from '../../../lib/code-registry'
 
 export const metadata = {
   requireAuth: true,
@@ -54,6 +55,21 @@ export async function GET(
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
     const orgFilter = resolveOrganizationScopeFilter(scope, auth)
+
+    // Handle code-based workflow definitions (code:<workflowId>)
+    if (params.id.startsWith('code:')) {
+      const workflowId = params.id.slice(5)
+      const codeDef = getCodeWorkflow(workflowId)
+      if (!codeDef) {
+        return NextResponse.json(
+          { error: 'Workflow definition not found' },
+          { status: 404 }
+        )
+      }
+      return NextResponse.json({
+        data: serializeCodeWorkflowDefinition(codeDef, params.id),
+      })
+    }
 
     const definition = await em.findOne(WorkflowDefinition, {
       id: params.id,
@@ -135,6 +151,43 @@ export async function PUT(
     }
 
     const input: UpdateWorkflowDefinitionApiInput = validation.data
+
+    // Handle customizing a code-based workflow definition
+    if (params.id.startsWith('code:')) {
+      const workflowId = params.id.slice(5)
+      const codeDef = getCodeWorkflow(workflowId)
+      if (!codeDef) {
+        return NextResponse.json(
+          { error: 'Workflow definition not found' },
+          { status: 404 }
+        )
+      }
+
+      // Create DB override row from code definition + user changes
+      const override = em.create(WorkflowDefinition, {
+        workflowId: codeDef.workflowId,
+        workflowName: codeDef.workflowName,
+        description: codeDef.description,
+        version: codeDef.version,
+        definition: input.definition ?? codeDef.definition,
+        metadata: codeDef.metadata,
+        enabled: input.enabled ?? codeDef.enabled,
+        codeWorkflowId: codeDef.workflowId,
+        tenantId,
+        organizationId,
+        createdBy: auth.sub,
+        updatedBy: auth.sub,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+
+      await em.persistAndFlush(override)
+
+      return NextResponse.json({
+        data: serializeWorkflowDefinition(override),
+        message: 'Workflow definition customized successfully',
+      })
+    }
 
     // Find existing definition
     const definition = await em.findOne(WorkflowDefinition, {
@@ -295,7 +348,7 @@ export const openApi = {
       description: 'Get a single workflow definition by ID. Returns the complete workflow structure including steps and transitions (with embedded activities).',
       tags: ['Workflows'],
       pathParams: z.object({
-        id: z.string().uuid(),
+        id: z.string().describe('UUID for DB definitions, or "code:<workflowId>" for code-based definitions'),
       }),
       responses: [
         {
