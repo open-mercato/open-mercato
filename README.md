@@ -293,7 +293,6 @@ What it does not do:
 - it does **not** run `yarn install`, `yarn generate`, `yarn initialize`, or any app bootstrap commands
 
 If you are not running as Administrator, the script exits immediately with a message telling you to reopen PowerShell as Administrator. After the prerequisite pass completes, continue with Docker/infrastructure startup and the normal monorepo bootstrap commands shown below.
-
 Recommended PowerShell commands on a clean Windows machine before `yarn install`:
 
 ```powershell
