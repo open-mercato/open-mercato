@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type WorkflowEvent = {
   id: string
@@ -125,11 +126,11 @@ export default function WorkflowEventsPage() {
   ]
 
   const getEventTypeBadgeClass = (eventType: string) => {
-    if (eventType.includes('STARTED')) return 'bg-blue-100 text-blue-800'
-    if (eventType.includes('COMPLETED')) return 'bg-green-100 text-green-800'
-    if (eventType.includes('FAILED') || eventType.includes('REJECTED')) return 'bg-red-100 text-red-800'
+    if (eventType.includes('STARTED')) return 'bg-status-info-bg text-status-info-text'
+    if (eventType.includes('COMPLETED')) return 'bg-status-success-bg text-status-success-text'
+    if (eventType.includes('FAILED') || eventType.includes('REJECTED')) return 'bg-status-error-bg text-status-error-text'
     if (eventType.includes('CANCELLED')) return 'bg-muted text-foreground'
-    if (eventType.includes('ENTERED') || eventType.includes('EXITED')) return 'bg-purple-100 text-purple-800'
+    if (eventType.includes('ENTERED') || eventType.includes('EXITED')) return 'bg-status-neutral-bg text-status-neutral-text'
     return 'bg-muted text-foreground'
   }
 
@@ -167,7 +168,7 @@ export default function WorkflowEventsPage() {
             <>
               <Link
                 href={`/backend/instances/${row.original.workflowInstance.id}`}
-                className="text-blue-600 hover:text-blue-800 hover:underline font-medium"
+                className="text-primary hover:text-primary/80 hover:underline font-medium"
               >
                 {row.original.workflowInstance.workflowName}
               </Link>
@@ -190,7 +191,7 @@ export default function WorkflowEventsPage() {
         <div className="text-sm">
           <Link
             href={`/backend/instances/${row.original.workflowInstanceId}`}
-            className="text-blue-600 hover:text-blue-800 hover:underline font-mono text-xs"
+            className="text-primary hover:text-primary/80 hover:underline font-mono text-xs"
           >
             {row.original.workflowInstanceId.substring(0, 8)}...
           </Link>
@@ -206,11 +207,11 @@ export default function WorkflowEventsPage() {
             <span
               className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
                 row.original.workflowInstance.status === 'COMPLETED'
-                  ? 'bg-green-100 text-green-800'
+                  ? 'bg-status-success-bg text-status-success-text'
                   : row.original.workflowInstance.status === 'RUNNING'
-                  ? 'bg-blue-100 text-blue-800'
+                  ? 'bg-status-info-bg text-status-info-text'
                   : row.original.workflowInstance.status === 'FAILED'
-                  ? 'bg-red-100 text-red-800'
+                  ? 'bg-status-error-bg text-status-error-text'
                   : 'bg-muted text-foreground'
               }`}
             >
@@ -245,13 +246,31 @@ export default function WorkflowEventsPage() {
       cell: ({ row }) => (
         <Link
           href={`/backend/events/${row.original.id}`}
-          className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
+          className="text-sm text-primary hover:text-primary/80 hover:underline"
         >
           {t('common.details')}
         </Link>
       ),
     },
   ]
+
+  if (error) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage
+            label={t('workflows.events.messages.loadFailed')}
+            description={error.message}
+            action={(
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                {t('common.retry', 'Retry')}
+              </Button>
+            )}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
 
   return (
     <Page>
@@ -265,7 +284,6 @@ export default function WorkflowEventsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
-          error={error ? t('workflows.events.messages.loadFailed') : undefined}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
           actions={
             <Button
