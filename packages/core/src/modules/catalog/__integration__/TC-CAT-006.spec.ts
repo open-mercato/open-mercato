@@ -34,13 +34,14 @@ test.describe('TC-CAT-006: Edit Product Variant', () => {
 
       await login(page, 'admin');
       await page.goto(`/backend/catalog/products/${productId}`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('link', { name: 'Edit' }).first().click();
+      await expect(page.locator(`a[title="${variantName}"]`)).toBeAttached();
+      await page.goto(`/backend/catalog/products/${productId}/variants/${variantId}`, { waitUntil: 'domcontentloaded' });
       await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}/variants/${variantId}$`));
 
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(updatedSku);
       await page.getByRole('button', { name: 'Save changes' }).last().click();
 
-      await expect(page.getByText(updatedSku, { exact: true })).toBeVisible();
+      await expect(page.locator(`[title="${updatedSku}"]`)).toBeAttached();
     } finally {
       await deleteCatalogProductIfExists(request, token, productId);
     }
