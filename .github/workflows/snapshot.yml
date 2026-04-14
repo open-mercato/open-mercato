@@ -67,11 +67,13 @@ jobs:
             --tag "${{ steps.channel.outputs.publish_tag }}"
 
           # Extract published version for downstream jobs
-          echo "version=$(jq -r '.version' packages/shared/package.json)" >> $GITHUB_OUTPUT
+          VERSION=$(jq -r '.version' packages/shared/package.json)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
           # Build packages list for PR comment
           PACKAGES_JSON=$(find packages -name package.json -not -path "*/node_modules/*" -exec cat {} \; | \
-            jq -s '[.[] | select(.private != true) | {name: .name, version: .version}]')
+            jq -s --arg version "$VERSION" \
+              '[.[] | select(.private != true and .version == $version) | {name: .name, version: .version}]')
 
           echo "packages_json<<EOF" >> $GITHUB_OUTPUT
           echo "$PACKAGES_JSON" >> $GITHUB_OUTPUT
