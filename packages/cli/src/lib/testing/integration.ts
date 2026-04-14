@@ -320,10 +320,18 @@ type BackendLoginProbeResult = {
   detail: string
 }
 
+type AuthenticatedApiProbeResult = {
+  loginStatus: number | null
+  apiStatus: number | null
+  healthy: boolean
+  detail: string
+}
+
 type ApplicationReadinessProbeResult = {
   ready: boolean
   frontend: LoginPageProbeResult
   backend: BackendLoginProbeResult
+  authenticated: AuthenticatedApiProbeResult
 }
 
 type PlaywrightFailureHealthCheckOptions = {
@@ -1300,16 +1308,80 @@ async function probeBackendLoginEndpoint(baseUrl: string): Promise<BackendLoginP
   }
 }
 
+async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiProbeResult> {
+  try {
+    const form = new URLSearchParams()
+    form.set('email', 'admin@acme.com')
+    form.set('password', 'secret')
+    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    })
+
+    const rawBody = await loginResponse.text().catch(() => '')
+    let token: string | null = null
+    if (rawBody) {
+      try {
+        const parsed = JSON.parse(rawBody) as { token?: unknown }
+        token = typeof parsed.token === 'string' && parsed.token.length > 0 ? parsed.token : null
+      } catch {
+        token = null
+      }
+    }
+
+    if (!loginResponse.ok || !token) {
+      return {
+        loginStatus: loginResponse.status,
+        apiStatus: null,
+        healthy: false,
+        detail: loginResponse.ok
+          ? 'POST /api/auth/login did not return an auth token'
+          : `POST /api/auth/login returned ${loginResponse.status}`,
+      }
+    }
+
+    const apiResponse = await fetch(`${baseUrl}/api/customers/people?pageSize=1`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+
+    const healthy = apiResponse.status === 200
+    return {
+      loginStatus: loginResponse.status,
+      apiStatus: apiResponse.status,
+      healthy,
+      detail: healthy
+        ? 'Authenticated GET /api/customers/people returned 200'
+        : `Authenticated GET /api/customers/people returned ${apiResponse.status}`,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      loginStatus: null,
+      apiStatus: null,
+      healthy: false,
+      detail: `Authenticated readiness probe failed: ${message}`,
+    }
+  }
+}
+
 async function probeApplicationReadiness(baseUrl: string): Promise<ApplicationReadinessProbeResult> {
-  const [frontend, backend] = await Promise.all([
+  const [frontend, backend, authenticated] = await Promise.all([
     probeLoginPage(baseUrl),
     probeBackendLoginEndpoint(baseUrl),
+    probeAuthenticatedApi(baseUrl),
   ])
 
   return {
-    ready: frontend.healthy && backend.healthy,
+    ready: frontend.healthy && backend.healthy && authenticated.healthy,
     frontend,
     backend,
+    authenticated,
   }
 }
 
@@ -1542,6 +1614,7 @@ function buildReusableEnvironment(baseUrl: string, captureScreenshots: boolean):
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
+    OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
@@ -1650,8 +1723,10 @@ async function waitForApplicationReadiness(
 
   const lastFrontendDetail = lastProbe?.frontend.detail ?? 'GET /login was never observed'
   const lastBackendDetail = lastProbe?.backend.detail ?? 'POST /api/auth/login was never observed'
+  const lastAuthenticatedDetail = lastProbe?.authenticated.detail ?? 'Authenticated API probe was never observed'
   throw new Error(
-    `Application did not become ready within ${options.timeoutMs / 1000} seconds. Last probe: ${lastFrontendDetail}; ${lastBackendDetail}`,
+    `Application did not become ready within ${options.timeoutMs / 1000} seconds. ` +
+    `Last probe: ${lastFrontendDetail}; ${lastBackendDetail}; ${lastAuthenticatedDetail}`,
   )
 }
 
@@ -2771,6 +2846,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_TEST_MODE: '1',
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
       OM_DISABLE_EMAIL_DELIVERY: '1',
+      OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
       ENABLE_CRUD_API_CACHE: 'true',
       MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
