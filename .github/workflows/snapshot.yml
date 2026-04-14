@@ -277,14 +277,10 @@ jobs:
 
       - name: Install standalone app dependencies
         working-directory: /tmp/standalone-app
-        env:
-          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app
-        env:
-          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
       - name: Generate standalone app modules
