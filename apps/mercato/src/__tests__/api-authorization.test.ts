@@ -93,6 +93,11 @@ const emptyMetadataRouteModule = {
   metadata: {},
 }
 
+const topLevelPublicRouteModule = {
+  POST: createResponseHandler('TOP LEVEL PUBLIC POST'),
+  metadata: { requireAuth: false },
+}
+
 function getMockedApiRoutes(): ApiRouteManifestEntry[] {
   return [
     {
@@ -122,6 +127,13 @@ function getMockedApiRoutes(): ApiRouteManifestEntry[] {
       path: '/example/empty-metadata',
       methods: ['GET'],
       load: async () => emptyMetadataRouteModule,
+    },
+    {
+      moduleId: 'example',
+      kind: 'route-file',
+      path: '/example/top-level-public',
+      methods: ['POST'],
+      load: async () => topLevelPublicRouteModule,
     },
   ]
 }
@@ -393,6 +405,18 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(200)
       expect(await response.text()).toBe('EMPTY METADATA GET success')
+    })
+  })
+
+  describe('POST /example/top-level-public', () => {
+    it('should allow anonymous access when top-level requireAuth is false (login/signup pattern)', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
+
+      const request = new NextRequest('http://localhost:3001/api/example/top-level-public', { method: 'POST' })
+      const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'top-level-public'] }) })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('TOP LEVEL PUBLIC POST success')
     })
   })
 

@@ -21,7 +21,7 @@ const loginIpRateLimitConfig = readEndpointRateLimitConfig('LOGIN_IP', {
   points: 20, duration: 60, blockDuration: 60, keyPrefix: 'login-ip',
 })
 
-export const metadata = {}
+export const metadata = { requireAuth: false }
 
 // validation comes from userLoginSchema
 
