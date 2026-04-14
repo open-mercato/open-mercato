@@ -50,6 +50,30 @@ function Write-Fail {
     throw $Message
 }
 
+function Read-YesNo {
+    param(
+        [Parameter(Mandatory = $true)][string]$Prompt,
+        [bool]$DefaultYes = $true
+    )
+
+    $suffix = if ($DefaultYes) { "[Y/n]" } else { "[y/N]" }
+
+    while ($true) {
+        $response = Read-Host "$Prompt $suffix"
+        if ([string]::IsNullOrWhiteSpace($response)) {
+            return $DefaultYes
+        }
+
+        switch ($response.Trim().ToLowerInvariant()) {
+            "y" { return $true }
+            "yes" { return $true }
+            "n" { return $false }
+            "no" { return $false }
+            default { Write-Warn "Please answer y or n." }
+        }
+    }
+}
+
 function Initialize-Logging {
     if ([string]::IsNullOrWhiteSpace($LogPath)) {
         $logDirectory = Join-Path $env:TEMP "open-mercato-setup"
@@ -360,6 +384,14 @@ function Ensure-VcRedist {
 
 function Ensure-DockerDesktop {
     Write-Section "Docker Desktop"
+
+    if (-not (Get-InstalledPackageMatch -Id "Docker.DockerDesktop")) {
+        $shouldInstallDocker = Read-YesNo -Prompt "Docker Desktop is not installed. Install it now?" -DefaultYes $false
+        if (-not $shouldInstallDocker) {
+            Write-Warn "Skipping Docker Desktop installation at user request"
+            return
+        }
+    }
 
     Ensure-WingetPackage -Id "Docker.DockerDesktop" -Label "Docker Desktop"
 
