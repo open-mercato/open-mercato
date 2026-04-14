@@ -2,7 +2,7 @@
 
 **Author:** Piotr (CTO)
 **Date:** 2026-04-14
-**App Spec:** `apps/mercato/app-spec/inbox-ops-lead-intake.md`
+**App Spec:** `2026-04-14-inbox-ops-lead-intake-app-spec.md`
 
 ---
 
@@ -10,11 +10,11 @@
 
 | # | Spec file | Feature | Depends on | Technical approach | Complexity | Commits |
 |---|-----------|---------|-----------|-------------------|------------|---------|
-| 1 | `SPEC-2026-04-14-inbox-ops-crm-actions.md` | CRM Action Handlers + Foundation | — | Extend `InboxActionDefinition` in customers module. Additive enum changes. Custom fields via `ce.ts`. | Medium | ~10 |
-| 2 | `SPEC-2026-04-14-inbox-ops-knowledge-base.md` | Knowledge Base | #1 | New entity `InboxKnowledgePage`. CRUD API + backend page. Prompt composition in `buildExtractionSystemPrompt`. Token budget heuristic. | Large | ~9 |
-| 3 | `SPEC-2026-04-14-inbox-ops-enrichment.md` | Enrichment Matching | #1 | New `enrichmentMatcher.ts` pipeline stage. Deterministic match outcomes. Separate from existing `contactMatcher.ts`. | Medium | ~3 |
-| 4 | `SPEC-2026-04-14-inbox-ops-auto-approval.md` | Auto-Approval Engine | #2 | Extended structured output from extraction LLM. `autoApproved` + `decisionTrace` on `InboxProposalAction`. Wiki-governed, no hardcoded thresholds. | Medium | ~5 |
-| 5 | `SPEC-2026-04-14-inbox-ops-wiki-agent.md` | Wiki Agent | #2 | Register subagent in `ai-tools.ts` (Vercel AI SDK). 7 tools for KB read/write + proposal inspection. System prompt from `agent_prompt` KB page. Chat component on proposal detail. | Medium | ~7 |
+| 1 | `2026-04-14-inbox-ops-crm-actions.md` | CRM Action Handlers + Foundation | — | Extend `InboxActionDefinition` in customers module. Additive enum changes. Custom fields via `ce.ts`. | Medium | ~9 |
+| 2 | `2026-04-14-inbox-ops-knowledge-base.md` | Knowledge Base | #1 | New entity `InboxKnowledgePage`. CRUD API + backend page. Prompt composition in `buildExtractionSystemPrompt`. Token budget heuristic. | Large | ~10 |
+| 3 | `2026-04-14-inbox-ops-enrichment.md` | Enrichment Matching | #1 | New `enrichmentMatcher.ts` pipeline stage. Deterministic match outcomes. Separate from existing `contactMatcher.ts`. | Medium | ~3 |
+| 4 | `2026-04-14-inbox-ops-auto-approval.md` | Auto-Approval Engine | #2 | Extended structured output from extraction LLM. `autoApproved` + `decisionTrace` on `InboxProposalAction`. Wiki-governed, no hardcoded thresholds. | Medium | ~5 |
+| 5 | `2026-04-14-inbox-ops-wiki-agent.md` | Wiki Agent | #2 | Register subagent in `ai-tools.ts` (Vercel AI SDK). 7 tools for KB read/write + proposal inspection. System prompt from `agent_prompt` KB page. Chat component on proposal detail. | Medium | ~7 |
 
 ## Key Technical Decisions
 

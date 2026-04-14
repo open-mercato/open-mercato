@@ -4,7 +4,7 @@
 |-------|-------|
 | **Status** | Approved |
 | **Created** | 2026-04-14 |
-| **App Spec** | `apps/mercato/app-spec/inbox-ops-lead-intake.md` |
+| **App Spec** | `2026-04-14-inbox-ops-lead-intake-app-spec.md` |
 | **Related Specs** | `2026-04-14-inbox-ops-knowledge-base.md` (Spec 2 — provides KB pages), `2026-04-14-inbox-ops-crm-actions.md` (Spec 1 — action types) |
 | **Depends On** | Spec 2 (Knowledge Base entity must exist for `auto_approval` + `lessons` pages) |
 | **Blocked By** | — |

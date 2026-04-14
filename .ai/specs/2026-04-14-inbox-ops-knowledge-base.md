@@ -4,7 +4,7 @@
 |-------|-------|
 | **Status** | Approved |
 | **Created** | 2026-04-14 |
-| **App Spec** | `apps/mercato/app-spec/inbox-ops-lead-intake.md` |
+| **App Spec** | `2026-04-14-inbox-ops-lead-intake-app-spec.md` |
 | **Related Specs** | `2026-04-14-inbox-ops-crm-actions.md` (Spec 1), `2026-04-14-inbox-ops-auto-approval.md` (Spec 4), `2026-04-14-inbox-ops-wiki-agent.md` (Spec 5) |
 | **Depends On** | Spec 1 (adds new proposal categories `lead_intake`, `lead_enrichment`, `lead_followup` to the enum; KB pages referencing those categories require the enum to exist) |
 | **Blocked By** | -- |
