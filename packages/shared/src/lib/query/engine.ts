@@ -1,6 +1,10 @@
 import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
+// TODO(mikro-orm v7): BasicQueryEngine still uses knex runtime via `(em as any).getConnection().getKnex()`.
+// Rewriting to Kysely is tracked by audit stage 3 (see mikroorm_audit.md). For stage 1 the knex type
+// surface is stubbed in `src/lib/query/knex-compat.d.ts` so typecheck passes; runtime calls remain
+// broken until the full conversion lands.
 import type { Knex } from 'knex'
 import {
   applyJoinFilters,

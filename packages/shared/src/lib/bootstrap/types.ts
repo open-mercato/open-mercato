@@ -5,9 +5,9 @@ import type { Module, ModuleDashboardWidgetEntry, ModuleInjectionWidgetEntry } f
 import type { ModuleInjectionTable } from '../../modules/widgets/injection'
 import type { SearchModuleConfig } from '../../modules/search'
 import type { AnalyticsModuleConfig } from '../../modules/analytics'
-import type { EntityClass, EntityClassGroup } from '@mikro-orm/core'
+import type { EntityClass, EntitySchema } from '@mikro-orm/core'
 
-export type OrmEntity = EntityClass<unknown> | EntityClassGroup<unknown>
+export type OrmEntity = EntityClass<unknown> | EntitySchema<unknown>
 
 export interface InjectionTableEntry {
   moduleId: string

@@ -1,6 +1,7 @@
 import type { EntityData, EntityName, FilterQuery, RequiredEntityData } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { type Kysely, sql } from 'kysely'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
 import { sanitizeCustomFieldHtmlRichTextValuesServer } from '@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer'
@@ -182,11 +183,17 @@ export class DefaultDataEngine implements DataEngine {
     } catch { return false }
   }
 
+  private getKysely(): Kysely<any> {
+    return this.em.getKysely<any>()
+  }
+
   private async ensureStorageTableExists(): Promise<void> {
-    const knex = this.em.getConnection().getKnex()
-    const exists = await knex('information_schema.tables')
-      .where({ table_name: 'custom_entities_storage' })
-      .first()
+    const db = this.getKysely()
+    const exists = await db
+      .selectFrom('information_schema.tables' as any)
+      .select(sql`1`.as('present'))
+      .where('table_name' as any, '=', 'custom_entities_storage')
+      .executeTakeFirst()
     if (!exists) {
       throw new Error('custom_entities_storage table is missing. Run migrations (yarn db:migrate).')
     }
@@ -227,7 +234,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async createCustomEntityRecord(opts: Parameters<DataEngine['createCustomEntityRecord']>[0]): Promise<{ id: string }> {
-    const knex = this.em.getConnection().getKnex()
+    const db = this.getKysely()
     await this.ensureStorageTableExists()
     const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
       entityId: opts.entityId,
@@ -254,31 +261,47 @@ export class DefaultDataEngine implements DataEngine {
     const tenantId = opts.tenantId ?? null
     const doc: Record<string, unknown> = { id, ...this.normalizeDocValues(sanitizedValues || {}) }
 
+    const now = sql`now()`
     const payload = {
       entity_type: opts.entityId,
       entity_id: id,
       organization_id: orgId,
       tenant_id: tenantId,
-      doc,
-      updated_at: knex.fn.now(),
-      created_at: knex.fn.now(),
+      doc: sql`${JSON.stringify(doc)}::jsonb`,
+      updated_at: now,
+      created_at: now,
       deleted_at: null,
     }
 
     // Upsert by scoped uniqueness
     try {
-      await knex('custom_entities_storage')
-        .insert(payload)
-        .onConflict(['entity_type', 'entity_id', 'organization_id'])
-        .merge({ doc: payload.doc, updated_at: knex.fn.now(), deleted_at: null })
+      await db
+        .insertInto('custom_entities_storage' as any)
+        .values(payload as any)
+        .onConflict((oc) => oc
+          .columns(['entity_type', 'entity_id', 'organization_id'])
+          .doUpdateSet({
+            doc: sql`${JSON.stringify(doc)}::jsonb`,
+            updated_at: sql`now()`,
+            deleted_at: null,
+          } as any))
+        .execute()
     } catch {
       // Fallback for global scope uniqueness
       try {
-        const updated = await knex('custom_entities_storage')
-          .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
-          .update({ doc: payload.doc, updated_at: knex.fn.now(), deleted_at: null })
-        if (!updated) {
-          await knex('custom_entities_storage').insert(payload)
+        const updated = await db
+          .updateTable('custom_entities_storage' as any)
+          .set({
+            doc: sql`${JSON.stringify(doc)}::jsonb`,
+            updated_at: sql`now()`,
+            deleted_at: null,
+          } as any)
+          .where('entity_type' as any, '=', opts.entityId)
+          .where('entity_id' as any, '=', id)
+          .where('organization_id' as any, orgId === null ? 'is' : '=', orgId as any)
+          .executeTakeFirst()
+        if (!updated || Number(updated.numUpdatedRows ?? 0) === 0) {
+          await db.insertInto('custom_entities_storage' as any).values(payload as any).execute()
         }
       } catch (err) {
         // Surface a clear error so it doesn't silently fall back only to EAV
@@ -302,7 +325,7 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async updateCustomEntityRecord(opts: Parameters<DataEngine['updateCustomEntityRecord']>[0]): Promise<void> {
-    const knex = this.em.getConnection().getKnex()
+    const db = this.getKysely()
     const sanitizedValues = await sanitizeCustomFieldHtmlRichTextValuesServer(this.em, {
       entityId: opts.entityId,
       organizationId: opts.organizationId ?? null,
@@ -316,26 +339,38 @@ export class DefaultDataEngine implements DataEngine {
 
     // Merge doc shallowly: load existing doc and overlay
     await this.ensureStorageTableExists()
-    const row = await knex('custom_entities_storage')
-      .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
-      .first()
-    const prevDoc: Record<string, unknown> = row?.doc || { id }
+    const applyScope = <T extends { where: (col: any, op: any, val?: any) => T }>(q: T) => {
+      let chain = q.where('entity_type' as any, '=', opts.entityId)
+      chain = chain.where('entity_id' as any, '=', id)
+      chain = orgId === null
+        ? chain.where('organization_id' as any, 'is', null as any)
+        : chain.where('organization_id' as any, '=', orgId)
+      return chain
+    }
+    const row = await applyScope(
+      db.selectFrom('custom_entities_storage' as any).select(['doc' as any])
+    ).executeTakeFirst()
+    const prevDoc: Record<string, unknown> = (row as any)?.doc || { id }
     const nextDoc: Record<string, unknown> = { ...prevDoc, ...this.normalizeDocValues(sanitizedValues || {}), id }
     try {
-      const updated = await knex('custom_entities_storage')
-        .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
-        .update({ doc: nextDoc, updated_at: knex.fn.now(), deleted_at: null })
-      if (!updated) {
-        await knex('custom_entities_storage').insert({
+      const updated = await applyScope(
+        db.updateTable('custom_entities_storage' as any).set({
+          doc: sql`${JSON.stringify(nextDoc)}::jsonb`,
+          updated_at: sql`now()`,
+          deleted_at: null,
+        } as any) as any
+      ).executeTakeFirst()
+      if (!updated || Number((updated as any).numUpdatedRows ?? 0) === 0) {
+        await db.insertInto('custom_entities_storage' as any).values({
           entity_type: opts.entityId,
           entity_id: id,
           organization_id: orgId,
           tenant_id: tenantId,
-          doc: nextDoc,
-          created_at: knex.fn.now(),
-          updated_at: knex.fn.now(),
+          doc: sql`${JSON.stringify(nextDoc)}::jsonb`,
+          created_at: sql`now()`,
+          updated_at: sql`now()`,
           deleted_at: null,
-        })
+        } as any).execute()
       }
     } catch (err) {
       throw err
@@ -355,19 +390,29 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   async deleteCustomEntityRecord(opts: Parameters<DataEngine['deleteCustomEntityRecord']>[0]): Promise<void> {
-    const knex = this.em.getConnection().getKnex()
+    const db = this.getKysely()
     const id = String(opts.recordId)
     const orgId = opts.organizationId ?? null
     const soft = opts.soft !== false
 
+    const applyScope = <T extends { where: (col: any, op: any, val?: any) => T }>(q: T) => {
+      let chain = q.where('entity_type' as any, '=', opts.entityId)
+      chain = chain.where('entity_id' as any, '=', id)
+      chain = orgId === null
+        ? chain.where('organization_id' as any, 'is', null as any)
+        : chain.where('organization_id' as any, '=', orgId)
+      return chain
+    }
+
     if (soft) {
-      await knex('custom_entities_storage')
-        .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
-        .update({ deleted_at: knex.fn.now(), updated_at: knex.fn.now() })
+      await applyScope(
+        db.updateTable('custom_entities_storage' as any).set({
+          deleted_at: sql`now()`,
+          updated_at: sql`now()`,
+        } as any) as any
+      ).execute()
     } else {
-      await knex('custom_entities_storage')
-        .where({ entity_type: opts.entityId, entity_id: id, organization_id: orgId })
-        .delete()
+      await applyScope(db.deleteFrom('custom_entities_storage' as any) as any).execute()
     }
 
     // Soft-delete EAV values to preserve current behavior
@@ -385,16 +430,19 @@ export class DefaultDataEngine implements DataEngine {
         record.deletedAt = now
         return true
       })
-      if (mutated.length) await this.em.persistAndFlush(values)
+      if (mutated.length) {
+        for (const record of values) this.em.persist(record)
+        await this.em.flush()
+      }
     } catch { /* non-blocking */ }
   }
 
   async createOrmEntity<T extends object>(opts: { entity: EntityName<T>; data: EntityData<T> }): Promise<T> {
     const entity = this.em.create(
-      opts.entity,
-      opts.data as RequiredEntityData<T, never, true>
+      opts.entity as EntityName<T>,
+      opts.data as unknown as RequiredEntityData<T>
     )
-    await this.em.persistAndFlush(entity)
+    await this.em.persist(entity).flush()
     return entity
   }
 
@@ -403,10 +451,10 @@ export class DefaultDataEngine implements DataEngine {
     where: FilterQuery<T>
     apply: (current: T) => Promise<void> | void
   }): Promise<T | null> {
-    const current = await this.em.findOne(opts.entity, opts.where)
+    const current = await this.em.findOne(opts.entity as EntityName<T>, opts.where as FilterQuery<NoInfer<T>>)
     if (!current) return null
     await opts.apply(current)
-    await this.em.persistAndFlush(current)
+    await this.em.persist(current).flush()
     return current
   }
 
@@ -416,16 +464,16 @@ export class DefaultDataEngine implements DataEngine {
     soft?: boolean
     softDeleteField?: keyof T & string
   }): Promise<T | null> {
-    const current = await this.em.findOne(opts.entity, opts.where)
+    const current = await this.em.findOne(opts.entity as EntityName<T>, opts.where as FilterQuery<NoInfer<T>>)
     if (!current) return null
     if (opts.soft !== false) {
       const field = opts.softDeleteField || ('deletedAt' as keyof T & string)
       if (typeof current === 'object' && current !== null) {
         ;(current as Record<string, unknown>)[field] = new Date()
-        await this.em.persistAndFlush(current)
+        await this.em.persist(current).flush()
       }
     } else {
-      await this.em.removeAndFlush(current)
+      await this.em.remove(current).flush()
     }
     return current
   }

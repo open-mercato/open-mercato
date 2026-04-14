@@ -1,10 +1,12 @@
 import 'dotenv/config'
 import 'reflect-metadata'
 import { MikroORM } from '@mikro-orm/core'
-import { PostgreSqlDriver } from '@mikro-orm/postgresql'
+import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { getSslConfig } from './ssl'
 
-let ormInstance: MikroORM<PostgreSqlDriver> | null = null
+export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
+
+let ormInstance: AppMikroORM | null = null
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
 const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
@@ -67,22 +69,22 @@ export async function getOrm() {
 
   const sslConfig = getSslConfig()
 
-  ormInstance = await MikroORM.init<PostgreSqlDriver>({
+  ormInstance = await MikroORM.init<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>({
     driver: PostgreSqlDriver,
     clientUrl,
     entities,
     debug: false,
-    // Connection pooling configuration
+    // MikroORM v7 pool shape (min/max/idleTimeoutMillis). Knex-era `acquireTimeoutMillis` /
+    // `destroyTimeoutMillis` were removed; acquire wait maps to pg `connectionTimeoutMillis`
+    // below under `driverOptions`.
     pool: {
       min: poolMin,
       max: poolMax,
       idleTimeoutMillis: poolIdleTimeout,
-      acquireTimeoutMillis: poolAcquireTimeout,
-      // Close idle connections after 30 seconds
-      destroyTimeoutMillis: process.env.NODE_ENV === 'production' ? 30000 : 3000,
     },
-    // Connection options (passed directly to pg.Pool in MikroORM v7/Kysely)
+    // Driver options are merged into pg.PoolConfig (ClientConfig + pg-pool).
     driverOptions: {
+      connectionTimeoutMillis: poolAcquireTimeout,
       idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
       options: connectionOptions,
       ssl: sslConfig,
