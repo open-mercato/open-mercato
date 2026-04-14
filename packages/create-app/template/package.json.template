@@ -69,6 +69,7 @@
     "@tanstack/react-table": "^8.20.5",
     "@tanstack/react-virtual": "^3.13.23",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/html-to-text": "^9.0.4",
     "@types/qrcode": "^1.5.5",
     "@types/sanitize-html": "^2.16.1",
     "@types/semver": "^7.7.1",
