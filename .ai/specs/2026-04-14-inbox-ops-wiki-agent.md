@@ -4,7 +4,7 @@
 |-------|-------|
 | **Status** | Approved |
 | **Created** | 2026-04-14 |
-| **App Spec** | `apps/mercato/app-spec/inbox-ops-lead-intake.md` |
+| **App Spec** | `2026-04-14-inbox-ops-lead-intake-app-spec.md` |
 | **Related Specs** | `2026-04-14-inbox-ops-knowledge-base.md` (Spec 2 — KB entity + CRUD API), `2026-04-14-inbox-ops-auto-approval.md` (Spec 4 — Decision Trace) |
 | **Depends On** | Spec 2 (Knowledge Base entity + CRUD API must exist) |
 | **Blocked By** | — |

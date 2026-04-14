@@ -4,7 +4,7 @@
 |-------|-------|
 | **Status** | Approved |
 | **Created** | 2026-04-14 |
-| **App Spec** | `apps/mercato/app-spec/inbox-ops-lead-intake.md` |
+| **App Spec** | `2026-04-14-inbox-ops-lead-intake-app-spec.md` |
 | **Related Specs** | `2026-04-14-inbox-ops-crm-actions.md` (Spec 1), `2026-04-14-inbox-ops-knowledge-base.md` (Spec 2) |
 | **Depends On** | Spec 1 (new discrepancy types added to `InboxDiscrepancyType` enum) |
 | **Blocked By** | — |
