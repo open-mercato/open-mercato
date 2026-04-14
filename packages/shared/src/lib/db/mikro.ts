@@ -36,9 +36,12 @@ export async function getOrm() {
   if (ormInstance) {
     return ormInstance
   }
+
   const entities = getOrmEntities()
   const clientUrl = process.env.DATABASE_URL
-  if (!clientUrl) throw new Error('DATABASE_URL is not set')
+  if (!clientUrl) {
+    throw new Error('DATABASE_URL is not set')
+  }
 
   // Parse connection pool settings from environment
   const poolMin = parseInt(process.env.DB_POOL_MIN || '2')
@@ -78,24 +81,14 @@ export async function getOrm() {
       // Close idle connections after 30 seconds
       destroyTimeoutMillis: process.env.NODE_ENV === 'production' ? 30000 : 3000,
     },
-    // Connection options
+    // Connection options (passed directly to pg.Pool in MikroORM v7/Kysely)
     driverOptions: {
-      // Enable connection pooling
-      connection: {
-        // Maximum number of connections in the pool
-        max: poolMax,
-        // Minimum number of connections in the pool
-        min: poolMin,
-        // Close connections after this many milliseconds of inactivity
-        idleTimeoutMillis: poolIdleTimeout,
-        // Maximum time to wait for a connection from the pool
-        acquireTimeoutMillis: poolAcquireTimeout,
-        idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
-        options: connectionOptions,
-      },
+      idle_in_transaction_session_timeout: idleInTransactionTimeoutMs,
+      options: connectionOptions,
       ssl: sslConfig,
     },
   })
+
   return ormInstance
 }
 
