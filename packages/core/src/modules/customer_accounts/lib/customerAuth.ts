@@ -46,11 +46,11 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
   return undefined
 }
 
-type UserValidationResult =
+export type UserValidationResult =
   | { valid: false }
   | { valid: true; resolvedFeatures: string[] }
 
-async function validateUserState(
+export async function validateUserState(
   sub: string,
   tenantId: string,
   orgId: string,
