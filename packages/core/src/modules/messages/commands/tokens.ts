@@ -5,7 +5,7 @@ import { Message, MessageAccessToken, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import { hashAuthToken } from '../../auth/lib/tokenHash'
 
-const MAX_TOKEN_USE_COUNT = 25
+export const MAX_TOKEN_USE_COUNT = 25
 
 const consumeTokenSchema = z.object({
   token: z.string().min(1),
