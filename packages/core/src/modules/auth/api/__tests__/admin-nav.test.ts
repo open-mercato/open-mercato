@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { GET, metadata } from '@open-mercato/core/modules/auth/api/admin/nav'
+import { GET } from '@open-mercato/core/modules/auth/api/admin/nav'
 import * as backendChrome from '@open-mercato/core/modules/auth/lib/backendChrome'
 
 type AuthContext = {
@@ -372,11 +372,6 @@ describe('GET /api/auth/admin/nav', () => {
     const response = await GET(makeRequest())
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' })
-  })
-
-  it('requires auth.view feature in GET metadata (Finding 2 — CWE-284)', () => {
-    expect(metadata.GET.requireAuth).toBe(true)
-    expect(metadata.GET.requireFeatures).toContain('auth.view')
   })
 
   describe('security: scope fallback when resolveFeatureCheckContext throws', () => {

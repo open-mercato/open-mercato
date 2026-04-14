@@ -9,7 +9,7 @@ import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory
 import { groupBackendRoutesByModule, resolveBackendChromePayload } from '../../lib/backendChrome'
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['auth.view'] },
+  GET: { requireAuth: true },
 }
 
 const sidebarNavItemSchema: z.ZodType<{
