@@ -252,7 +252,13 @@ const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   api: 'API',
   integration: 'INT',
 }
-const BUILD_CACHE_STATE_VERSION = 1
+const BUILD_CACHE_STATE_VERSION = 2
+const BUILD_CACHE_ENV_KEYS = [
+  'NODE_ENV',
+  'OM_ENABLE_ENTERPRISE_MODULES',
+  'OM_ENABLE_ENTERPRISE_MODULES_SSO',
+  'OM_ENABLE_ENTERPRISE_MODULES_SECURITY',
+] as const
 const IGNORED_EPHEMERAL_BUILD_CACHE_DIRS = new Set([
   'node_modules',
   '.next',
@@ -271,6 +277,7 @@ type BuildCacheState = {
   version: number
   builtAt: number
   sourceFingerprint: string
+  environmentFingerprint: string
   artifactPaths: string[]
   projectRoot: string
 }
@@ -281,6 +288,7 @@ type BuildCacheOptions = {
   cacheStatePath?: string
   projectRoot?: string
   precomputedSourceFingerprint?: string
+  environmentFingerprint?: string
 }
 
 type CommandOutputMonitoringResult = {
@@ -339,6 +347,15 @@ function buildEnvironment(overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     ...process.env,
     ...overrides,
   }
+}
+
+function buildEnvironmentFingerprint(environment: NodeJS.ProcessEnv): string {
+  const publicKeys = Object.keys(environment)
+    .filter((key) => key.startsWith('NEXT_PUBLIC_'))
+    .sort((left, right) => left.localeCompare(right))
+  const keys = Array.from(new Set([...BUILD_CACHE_ENV_KEYS, ...publicKeys]))
+  const fingerprintParts = keys.map((key) => `${key}=${environment[key] ?? ''}`)
+  return createHash('sha256').update(fingerprintParts.join('\n'), 'utf8').digest('hex')
 }
 
 async function resetNextBuildOutputDirectories(logPrefix: string): Promise<void> {
@@ -930,6 +947,9 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
   if (typeof maybeState.sourceFingerprint !== 'string' || maybeState.sourceFingerprint.length === 0) {
     return null
   }
+  if (typeof maybeState.environmentFingerprint !== 'string' || maybeState.environmentFingerprint.length === 0) {
+    return null
+  }
   if (!Array.isArray(maybeState.artifactPaths) || maybeState.artifactPaths.length === 0) {
     return null
   }
@@ -941,6 +961,7 @@ async function readBuildCacheState(cacheStatePath: string): Promise<BuildCacheSt
     version: BUILD_CACHE_STATE_VERSION,
     builtAt: maybeState.builtAt,
     sourceFingerprint: maybeState.sourceFingerprint,
+    environmentFingerprint: maybeState.environmentFingerprint,
     artifactPaths: maybeState.artifactPaths.filter((entry): entry is string => typeof entry === 'string'),
     projectRoot: maybeState.projectRoot,
   }
@@ -951,6 +972,10 @@ async function writeBuildCacheState(
   options: BuildCacheOptions = {},
 ): Promise<void> {
   const defaults = buildCacheDefaults(options)
+  const environmentFingerprint = options.environmentFingerprint ?? ''
+  if (!environmentFingerprint) {
+    throw new Error('Build cache state requires an environment fingerprint.')
+  }
   await mkdir(path.dirname(defaults.cacheStatePath), { recursive: true })
   await writeFile(
     defaults.cacheStatePath,
@@ -959,6 +984,7 @@ async function writeBuildCacheState(
         version: BUILD_CACHE_STATE_VERSION,
         builtAt: Date.now(),
         sourceFingerprint,
+        environmentFingerprint,
         artifactPaths: defaults.artifactPaths,
         projectRoot: defaults.projectRoot,
       },
@@ -993,10 +1019,15 @@ export async function shouldReuseBuildArtifacts(
 
   const defaults = buildCacheDefaults(options)
   const currentSourceFingerprint = options.precomputedSourceFingerprint ?? (await buildSourceFingerprint(defaults))
+  const currentEnvironmentFingerprint = options.environmentFingerprint ?? ''
   if (!currentSourceFingerprint) {
     console.log(
       `[${logPrefix}] Build cache disabled: unable to collect source fingerprints from tracked sources.`,
     )
+    return false
+  }
+  if (!currentEnvironmentFingerprint) {
+    console.log(`[${logPrefix}] Build cache disabled: missing environment fingerprint for cache validation.`)
     return false
   }
 
@@ -1021,6 +1052,10 @@ export async function shouldReuseBuildArtifacts(
 
   if (state.sourceFingerprint !== currentSourceFingerprint) {
     console.log(`[${logPrefix}] Build cache disabled: source files changed since last build.`)
+    return false
+  }
+  if (state.environmentFingerprint !== currentEnvironmentFingerprint) {
+    console.log(`[${logPrefix}] Build cache disabled: build-shaping environment changed since last build.`)
     return false
   }
 
@@ -2772,6 +2807,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     try {
       const appReadyTimeoutMs = resolveAppReadyTimeoutMs(options.logPrefix)
       const buildCacheTtlSeconds = resolveBuildCacheTtlSeconds(options.logPrefix)
+      const environmentFingerprint = buildEnvironmentFingerprint(commandEnvironment)
       let sourceFingerprintValue: string | null = null
       let needsBuild = true
       let shouldPersistBuildCache = true
@@ -2781,6 +2817,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         needsBuild = options.forceRebuild
           ? true
           : await shouldRebuildBuildArtifacts(buildCacheTtlSeconds, options.logPrefix, {
+              environmentFingerprint,
               precomputedSourceFingerprint: sourceFingerprintValue ?? undefined,
             })
       } catch (error) {
@@ -2846,7 +2883,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       }
 
       if (shouldPersistBuildCache && sourceFingerprintValue) {
-        await writeBuildCacheState(sourceFingerprintValue)
+        await writeBuildCacheState(sourceFingerprintValue, { environmentFingerprint })
       }
 
       console.log(`[${options.logPrefix}] Starting application on ${applicationBaseUrl}...`)

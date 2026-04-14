@@ -396,9 +396,10 @@ describe('integration cache and options', () => {
       await writeFile(
         cacheStatePath,
         `${JSON.stringify({
-          version: 1,
+          version: 2,
           builtAt: Date.now(),
           sourceFingerprint: initialFingerprint,
+          environmentFingerprint: 'enterprise=off',
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,
@@ -410,6 +411,7 @@ describe('integration cache and options', () => {
           inputPaths: [sourceFile],
           artifactPaths: [artifactPath],
           cacheStatePath,
+          environmentFingerprint: 'enterprise=off',
           projectRoot: tempRoot,
         }),
       ).resolves.toBe(true)
@@ -420,6 +422,7 @@ describe('integration cache and options', () => {
           inputPaths: [sourceFile],
           artifactPaths: [artifactPath],
           cacheStatePath,
+          environmentFingerprint: 'enterprise=off',
           projectRoot: tempRoot,
         }),
       ).resolves.toBe(false)
@@ -429,9 +432,10 @@ describe('integration cache and options', () => {
       await writeFile(
         cacheStatePath,
         `${JSON.stringify({
-          version: 1,
+          version: 2,
           builtAt: Date.now() - 240_000,
           sourceFingerprint: refreshedFingerprint,
+          environmentFingerprint: 'enterprise=off',
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,
@@ -442,6 +446,29 @@ describe('integration cache and options', () => {
           inputPaths: [sourceFile],
           artifactPaths: [artifactPath],
           cacheStatePath,
+          environmentFingerprint: 'enterprise=off',
+          projectRoot: tempRoot,
+        }),
+      ).resolves.toBe(false)
+
+      await writeFile(
+        cacheStatePath,
+        `${JSON.stringify({
+          version: 2,
+          builtAt: Date.now(),
+          sourceFingerprint: refreshedFingerprint,
+          environmentFingerprint: 'enterprise=off',
+          artifactPaths: [artifactPath],
+          projectRoot: tempRoot,
+        }, null, 2)}\n`,
+        'utf8',
+      )
+      await expect(
+        shouldReuseBuildArtifacts(120, 'integration', {
+          inputPaths: [sourceFile],
+          artifactPaths: [artifactPath],
+          cacheStatePath,
+          environmentFingerprint: 'enterprise=on',
           projectRoot: tempRoot,
         }),
       ).resolves.toBe(false)
