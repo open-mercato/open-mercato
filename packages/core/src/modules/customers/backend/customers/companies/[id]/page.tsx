@@ -848,6 +848,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                     onActionChange={handleSectionActionChange}
                     onLoadingChange={handleDealsLoadingChange}
                     translator={detailTranslator}
+                    runGuardedMutation={runMutationWithContext}
                   />
                 )
               }
