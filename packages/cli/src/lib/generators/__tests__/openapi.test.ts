@@ -10,7 +10,8 @@ describe('resolveOpenApiGeneratorProjectRoot', () => {
 
     expect(
       resolveOpenApiGeneratorProjectRoot(
-        'file:///Users/test/open-mercato/packages/cli/src/lib/generators/openapi.ts'
+        'file:///Users/test/open-mercato/packages/cli/src/lib/generators/openapi.ts',
+        { windows: false },
       )
     ).toBe('/Users/test/open-mercato')
   })

@@ -416,7 +416,11 @@ export function AclEditor({
                               >
                                 {formatWildcardLabel(group.moduleId, wildcard)}{' '}
                                 <span className="text-muted-foreground text-xs font-mono">({wildcard})</span>
-                                {wildcardRestricted ? <span className="ml-2 text-xs font-medium text-muted-foreground">Restricted</span> : null}
+                                {wildcardRestricted ? (
+                                  <span className="ml-2 text-xs font-medium text-muted-foreground">
+                                    {t('auth.acl.restricted', 'Restricted')}
+                                  </span>
+                                ) : null}
                               </label>
                             </div>
                             {wildcardFeatures.length > 0 && (
@@ -465,7 +469,11 @@ export function AclEditor({
                             className={`text-sm ${disabled ? 'text-muted-foreground' : ''}`}
                           >
                             {f.title} <span className="text-muted-foreground text-xs">({f.id})</span>
-                            {restricted ? <span className="ml-2 text-xs font-medium text-muted-foreground">Restricted</span> : null}
+                            {restricted ? (
+                              <span className="ml-2 text-xs font-medium text-muted-foreground">
+                                {t('auth.acl.restricted', 'Restricted')}
+                              </span>
+                            ) : null}
                           </label>
                         </div>
                       )
@@ -479,7 +487,9 @@ export function AclEditor({
           )}
           {canEditOrganizations && (
             <div className="rounded border p-3">
-              <div className="text-sm font-medium mb-2">Organizations scope</div>
+              <div className="text-sm font-medium mb-2">
+                {t('auth.acl.organizationsScope', 'Organizations scope')}
+              </div>
               <div className="text-xs text-muted-foreground mb-2">Empty = all organizations. Select one or more to restrict.</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {orgOptions.map((o) => {

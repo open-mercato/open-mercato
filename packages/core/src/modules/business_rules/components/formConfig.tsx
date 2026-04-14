@@ -32,8 +32,8 @@ export type BusinessRuleFormValues = {
   enabled: boolean
   priority: number
   version: number
-  effectiveFrom?: Date | null
-  effectiveTo?: Date | null
+  effectiveFrom?: string | null
+  effectiveTo?: string | null
 }
 
 /**
@@ -54,8 +54,8 @@ export const businessRuleFormSchema = z.object({
   enabled: z.boolean(),
   priority: z.number().int().min(0).max(9999),
   version: z.number().int().min(1),
-  effectiveFrom: z.date().optional().nullable(),
-  effectiveTo: z.date().optional().nullable(),
+  effectiveFrom: z.string().optional().nullable(),
+  effectiveTo: z.string().optional().nullable(),
 })
 
 /**

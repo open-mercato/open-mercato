@@ -1,7 +1,10 @@
 import { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerUser, CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { signAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
+
+export const CUSTOMER_JWT_AUDIENCE = 'customer'
+const CUSTOMER_JWT_TTL_SECONDS = 60 * 60 * 8
 
 const DEFAULT_SESSION_TTL_DAYS = 30
 
@@ -30,23 +33,28 @@ export class CustomerSessionService {
     } as any) as CustomerUserSession
     await this.em.persist(session).flush()
 
-    const jwt = this.signCustomerJwt(user, resolvedFeatures)
+    const jwt = this.signCustomerJwt(user, resolvedFeatures, session.id)
 
     return { rawToken, jwt, session }
   }
 
-  signCustomerJwt(user: CustomerUser, resolvedFeatures: string[]): string {
-    return signJwt({
-      sub: user.id,
-      type: 'customer',
-      tenantId: user.tenantId,
-      orgId: user.organizationId,
-      email: user.email,
-      displayName: user.displayName || '',
-      customerEntityId: user.customerEntityId || null,
-      personEntityId: user.personEntityId || null,
-      resolvedFeatures,
-    })
+  signCustomerJwt(user: CustomerUser, resolvedFeatures: string[], sessionId: string): string {
+    return signAudienceJwt(
+      CUSTOMER_JWT_AUDIENCE,
+      {
+        sub: user.id,
+        sid: sessionId,
+        type: 'customer',
+        tenantId: user.tenantId,
+        orgId: user.organizationId,
+        email: user.email,
+        displayName: user.displayName || '',
+        customerEntityId: user.customerEntityId || null,
+        personEntityId: user.personEntityId || null,
+        resolvedFeatures,
+      },
+      CUSTOMER_JWT_TTL_SECONDS,
+    )
   }
 
   async findByToken(rawToken: string, tenantId?: string): Promise<CustomerUserSession | null> {
@@ -72,8 +80,18 @@ export class CustomerSessionService {
     if (!user || user.deletedAt || !user.isActive) return null
 
     await this.em.nativeUpdate(CustomerUserSession, { id: session.id }, { lastUsedAt: new Date() })
-    const jwt = this.signCustomerJwt(user, resolvedFeatures)
+    const jwt = this.signCustomerJwt(user, resolvedFeatures, session.id)
     return { jwt, user }
+  }
+
+  async findActiveSessionById(sessionId: string): Promise<CustomerUserSession | null> {
+    const session = await this.em.findOne(CustomerUserSession, {
+      id: sessionId,
+      deletedAt: null,
+    })
+    if (!session) return null
+    if (session.expiresAt.getTime() < Date.now()) return null
+    return session
   }
 
   async revokeSession(sessionId: string): Promise<void> {

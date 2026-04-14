@@ -355,34 +355,14 @@
         padding: 16px 18px;
         border-radius: 18px;
         border: 1px solid var(--panel-border);
-        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
-        box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
-        width: min(760px, calc(100vw - 40px));
-        max-height: min(82vh, 720px);
-        overflow: auto;
+        background: var(--surface);
       }
-      .git-repo-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 40;
-        display: grid;
-        place-items: center;
-        padding: 20px;
-        background: rgba(9, 9, 11, 0.72);
-        backdrop-filter: blur(16px);
-      }
-      .git-repo-overlay[hidden] {
+      .git-repo-shell[hidden] {
         display: none;
       }
       .git-repo-header {
         display: grid;
         gap: 6px;
-      }
-      .git-repo-frame {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 16px;
       }
       .git-repo-heading {
         font-size: 12px;
@@ -390,20 +370,6 @@
         letter-spacing: 0.11em;
         text-transform: uppercase;
         color: var(--muted);
-      }
-      .git-repo-close {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 42px;
-        min-width: 42px;
-        height: 42px;
-        border-radius: 999px;
-        border: 1px solid var(--panel-border);
-        background: rgba(255, 255, 255, 0.06);
-        color: var(--text);
-        font: inherit;
-        cursor: pointer;
       }
       .git-repo-message {
         color: var(--text);
@@ -548,13 +514,6 @@
         opacity: 0.55;
         pointer-events: none;
       }
-      .button:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
-      }
-      .git-repo-launcher {
-        min-width: min(280px, 100%);
-      }
       .terminal-hint {
         display: inline-flex;
         align-items: center;
@@ -685,9 +644,6 @@
         .actions {
           align-items: stretch;
         }
-        .git-repo-launcher {
-          width: 100%;
-        }
         .coding-shell,
         .coding-menu,
         .coding-summary {
@@ -702,12 +658,6 @@
           max-width: none;
           width: 100%;
           margin-top: 10px;
-        }
-        .git-repo-frame {
-          flex-direction: column;
-        }
-        .git-repo-close {
-          align-self: flex-end;
         }
       }
     </style>
@@ -760,9 +710,36 @@
             </details>
             <div class="coding-status" id="coding-status" hidden></div>
           </div>
-          <button class="button secondary git-repo-launcher" id="git-repo-launcher" type="button" hidden>🐙 GitHub repository</button>
           <div class="terminal-hint" id="terminal-hint">🖥 Keep terminal visible</div>
         </div>
+        <section class="git-repo-shell" id="git-repo-shell" hidden>
+          <div class="git-repo-header">
+            <div class="git-repo-heading" id="git-repo-heading">GitHub repository</div>
+            <div class="git-repo-message" id="git-repo-message"></div>
+          </div>
+          <div class="git-repo-grid" id="git-repo-grid" hidden>
+            <label class="git-repo-field" id="git-repo-owner-field" hidden>
+              <span class="git-repo-label" id="git-repo-owner-label">Owner</span>
+              <select class="git-repo-select" id="git-repo-owner"></select>
+            </label>
+            <label class="git-repo-field">
+              <span class="git-repo-label" id="git-repo-name-label">Repository</span>
+              <input class="git-repo-input" id="git-repo-name" type="text" autocomplete="off" />
+            </label>
+            <label class="git-repo-field">
+              <span class="git-repo-label" id="git-repo-visibility-label">Visibility</span>
+              <select class="git-repo-select" id="git-repo-visibility">
+                <option value="private">Private</option>
+                <option value="public">Public</option>
+              </select>
+            </label>
+          </div>
+          <div class="git-repo-actions">
+            <button class="button secondary" id="git-repo-action" type="button" hidden></button>
+            <a class="button secondary" id="git-repo-link" href="#" hidden target="_blank" rel="noreferrer">Open GitHub repository</a>
+          </div>
+          <div class="git-repo-secondary" id="git-repo-secondary" hidden></div>
+        </section>
         <section class="failure-box" id="failure-box" hidden>
           <div class="failure-heading" id="failure-heading">Recent failure output</div>
           <div class="failure-command" id="failure-command"></div>
@@ -770,39 +747,6 @@
         </section>
       </aside>
     </main>
-    <div class="git-repo-overlay" id="git-repo-overlay" hidden>
-      <section class="git-repo-shell" id="git-repo-shell" role="dialog" aria-modal="true" aria-labelledby="git-repo-heading">
-        <div class="git-repo-frame">
-          <div class="git-repo-header">
-            <div class="git-repo-heading" id="git-repo-heading">GitHub repository</div>
-            <div class="git-repo-message" id="git-repo-message"></div>
-          </div>
-          <button class="git-repo-close" id="git-repo-close" type="button" aria-label="Close GitHub repository">✕</button>
-        </div>
-        <div class="git-repo-grid" id="git-repo-grid" hidden>
-          <label class="git-repo-field" id="git-repo-owner-field" hidden>
-            <span class="git-repo-label" id="git-repo-owner-label">Owner</span>
-            <select class="git-repo-select" id="git-repo-owner"></select>
-          </label>
-          <label class="git-repo-field">
-            <span class="git-repo-label" id="git-repo-name-label">Repository</span>
-            <input class="git-repo-input" id="git-repo-name" type="text" autocomplete="off" />
-          </label>
-          <label class="git-repo-field">
-            <span class="git-repo-label" id="git-repo-visibility-label">Visibility</span>
-            <select class="git-repo-select" id="git-repo-visibility">
-              <option value="private">Private</option>
-              <option value="public">Public</option>
-            </select>
-          </label>
-        </div>
-        <div class="git-repo-actions">
-          <button class="button primary" id="git-repo-action" type="button" hidden></button>
-          <a class="button secondary" id="git-repo-link" href="#" hidden target="_blank" rel="noreferrer">Open GitHub repository</a>
-        </div>
-        <div class="git-repo-secondary" id="git-repo-secondary" hidden></div>
-      </section>
-    </div>
     <script>
       const splashBootstrap = __SPLASH_BOOTSTRAP__
       const modeLine = document.getElementById('mode-line')
@@ -823,9 +767,7 @@
       const codingSummary = document.getElementById('coding-summary')
       const codingMenuPanel = document.getElementById('coding-menu-panel')
       const codingStatus = document.getElementById('coding-status')
-      const gitRepoLauncher = document.getElementById('git-repo-launcher')
-      const gitRepoOverlay = document.getElementById('git-repo-overlay')
-      const gitRepoClose = document.getElementById('git-repo-close')
+      const gitRepoShell = document.getElementById('git-repo-shell')
       const gitRepoHeading = document.getElementById('git-repo-heading')
       const gitRepoMessage = document.getElementById('git-repo-message')
       const gitRepoGrid = document.getElementById('git-repo-grid')
@@ -858,7 +800,6 @@
       const activitySeenAt = new Map()
       let codingActionInFlight = false
       let gitRepoActionInFlight = false
-      let gitRepoModalOpen = false
       let codingMenuLayoutRaf = 0
       const translations = {
         en: {
@@ -884,19 +825,18 @@
           modeSetup: 'Project setup flow',
           codingButtonLabel: '🤖 Start coding with AI',
           codingNoTools: 'No supported coding tools were detected on this machine.',
-          gitRepoLauncher: '🐙 GitHub repository',
           gitRepoHeading: 'GitHub repository',
           gitRepoOwner: 'Owner',
           gitRepoName: 'Repository',
           gitRepoVisibility: 'Visibility',
           gitRepoVisibilityPrivate: 'Private',
           gitRepoVisibilityPublic: 'Public',
-          gitRepoCreate: '✨ Create new GitHub repository',
-          gitRepoPublish: '🚀 Publish to GitHub',
-          gitRepoBusyAuth: '🔐 Authenticating with GitHub…',
-          gitRepoBusyLocal: '🧱 Preparing local repository…',
-          gitRepoBusyRemote: '☁️ Publishing to GitHub…',
-          gitRepoOpen: '🔗 Open GitHub repository',
+          gitRepoCreate: 'Create new GitHub repository',
+          gitRepoPublish: 'Publish to GitHub',
+          gitRepoBusyAuth: 'Authenticating with GitHub…',
+          gitRepoBusyLocal: 'Preparing local repository…',
+          gitRepoBusyRemote: 'Publishing to GitHub…',
+          gitRepoOpen: 'Open GitHub repository',
           gitRepoRestartHint: 'Install GitHub CLI, then restart `yarn dev`.',
         },
         pl: {
@@ -922,19 +862,18 @@
           modeSetup: 'Tryb konfiguracji projektu',
           codingButtonLabel: '🤖 Zacznij kodowac z AI',
           codingNoTools: 'Na tej maszynie nie wykryto obslugiwanych narzedzi do kodowania.',
-          gitRepoLauncher: '🐙 Repozytorium GitHub',
           gitRepoHeading: 'Repozytorium GitHub',
           gitRepoOwner: 'Wlasciciel',
           gitRepoName: 'Repozytorium',
           gitRepoVisibility: 'Widocznosc',
           gitRepoVisibilityPrivate: 'Prywatne',
           gitRepoVisibilityPublic: 'Publiczne',
-          gitRepoCreate: '✨ Utworz nowe repozytorium GitHub',
-          gitRepoPublish: '🚀 Opublikuj na GitHub',
-          gitRepoBusyAuth: '🔐 Trwa uwierzytelnianie w GitHub…',
-          gitRepoBusyLocal: '🧱 Przygotowywanie lokalnego repozytorium…',
-          gitRepoBusyRemote: '☁️ Publikowanie na GitHub…',
-          gitRepoOpen: '🔗 Otworz repozytorium GitHub',
+          gitRepoCreate: 'Utworz nowe repozytorium GitHub',
+          gitRepoPublish: 'Opublikuj na GitHub',
+          gitRepoBusyAuth: 'Trwa uwierzytelnianie w GitHub…',
+          gitRepoBusyLocal: 'Przygotowywanie lokalnego repozytorium…',
+          gitRepoBusyRemote: 'Publikowanie na GitHub…',
+          gitRepoOpen: 'Otworz repozytorium GitHub',
           gitRepoRestartHint: 'Zainstaluj GitHub CLI, a potem uruchom ponownie `yarn dev`.',
         },
         es: {
@@ -960,19 +899,18 @@
           modeSetup: 'Flujo de configuración del proyecto',
           codingButtonLabel: '🤖 Empezar a programar con IA',
           codingNoTools: 'No se detectaron herramientas de programacion compatibles en esta maquina.',
-          gitRepoLauncher: '🐙 Repositorio de GitHub',
           gitRepoHeading: 'Repositorio de GitHub',
           gitRepoOwner: 'Propietario',
           gitRepoName: 'Repositorio',
           gitRepoVisibility: 'Visibilidad',
           gitRepoVisibilityPrivate: 'Privado',
           gitRepoVisibilityPublic: 'Publico',
-          gitRepoCreate: '✨ Crear nuevo repositorio de GitHub',
-          gitRepoPublish: '🚀 Publicar en GitHub',
-          gitRepoBusyAuth: '🔐 Autenticando con GitHub…',
-          gitRepoBusyLocal: '🧱 Preparando el repositorio local…',
-          gitRepoBusyRemote: '☁️ Publicando en GitHub…',
-          gitRepoOpen: '🔗 Abrir repositorio de GitHub',
+          gitRepoCreate: 'Crear nuevo repositorio de GitHub',
+          gitRepoPublish: 'Publicar en GitHub',
+          gitRepoBusyAuth: 'Autenticando con GitHub…',
+          gitRepoBusyLocal: 'Preparando el repositorio local…',
+          gitRepoBusyRemote: 'Publicando en GitHub…',
+          gitRepoOpen: 'Abrir repositorio de GitHub',
           gitRepoRestartHint: 'Instala GitHub CLI y luego reinicia `yarn dev`.',
         },
         de: {
@@ -998,19 +936,18 @@
           modeSetup: 'Projekt-Setup-Ablauf',
           codingButtonLabel: '🤖 Mit KI programmieren',
           codingNoTools: 'Auf diesem Rechner wurden keine unterstuetzten Coding-Tools erkannt.',
-          gitRepoLauncher: '🐙 GitHub-Repository',
           gitRepoHeading: 'GitHub-Repository',
           gitRepoOwner: 'Besitzer',
           gitRepoName: 'Repository',
           gitRepoVisibility: 'Sichtbarkeit',
           gitRepoVisibilityPrivate: 'Privat',
           gitRepoVisibilityPublic: 'Oeffentlich',
-          gitRepoCreate: '✨ Neues GitHub-Repository erstellen',
-          gitRepoPublish: '🚀 Auf GitHub veroeffentlichen',
-          gitRepoBusyAuth: '🔐 GitHub-Anmeldung wird gestartet…',
-          gitRepoBusyLocal: '🧱 Lokales Repository wird vorbereitet…',
-          gitRepoBusyRemote: '☁️ Auf GitHub wird veroeffentlicht…',
-          gitRepoOpen: '🔗 GitHub-Repository oeffnen',
+          gitRepoCreate: 'Neues GitHub-Repository erstellen',
+          gitRepoPublish: 'Auf GitHub veroeffentlichen',
+          gitRepoBusyAuth: 'GitHub-Anmeldung wird gestartet…',
+          gitRepoBusyLocal: 'Lokales Repository wird vorbereitet…',
+          gitRepoBusyRemote: 'Auf GitHub wird veroeffentlicht…',
+          gitRepoOpen: 'GitHub-Repository oeffnen',
           gitRepoRestartHint: 'Installiere GitHub CLI und starte dann `yarn dev` neu.',
         },
       }
@@ -1030,8 +967,6 @@
           'Preparing dev environment…': 'Przygotowywanie środowiska developerskiego…',
           'Waiting for app package manifest…': 'Oczekiwanie na manifest pakietów aplikacji…',
           'Waiting for queue worker startup…': 'Oczekiwanie na start workerów kolejki…',
-          'This GitHub repository already exists. Open it below.': 'To repozytorium GitHub juz istnieje. Otworz je ponizej.',
-          'This project is already connected to GitHub.': 'Ten projekt jest juz polaczony z GitHub.',
           'pending': 'oczekiwanie',
           'scheduler · polling engine': 'scheduler · silnik odpytywania',
         },
@@ -1050,8 +985,6 @@
           'Preparing dev environment…': 'Preparando el entorno de desarrollo…',
           'Waiting for app package manifest…': 'Esperando el manifiesto de paquetes de la aplicación…',
           'Waiting for queue worker startup…': 'Esperando el arranque de los workers de cola…',
-          'This GitHub repository already exists. Open it below.': 'Este repositorio de GitHub ya existe. Abrelo abajo.',
-          'This project is already connected to GitHub.': 'Este proyecto ya esta conectado a GitHub.',
           'pending': 'pendiente',
           'scheduler · polling engine': 'scheduler · motor de sondeo',
         },
@@ -1070,8 +1003,6 @@
           'Preparing dev environment…': 'Entwicklungsumgebung wird vorbereitet…',
           'Waiting for app package manifest…': 'Warte auf das Paketmanifest der App…',
           'Waiting for queue worker startup…': 'Warte auf den Start der Queue-Worker…',
-          'This GitHub repository already exists. Open it below.': 'Dieses GitHub-Repository existiert bereits. Oeffne es unten.',
-          'This project is already connected to GitHub.': 'Dieses Projekt ist bereits mit GitHub verbunden.',
           'pending': 'ausstehend',
           'scheduler · polling engine': 'scheduler · Polling-Engine',
         },
@@ -1097,27 +1028,6 @@
       document.addEventListener('click', (event) => {
         if (!codingMenu.contains(event.target)) {
           codingMenu.open = false
-        }
-      })
-      gitRepoLauncher.addEventListener('click', () => {
-        if (gitRepoLauncher.disabled || gitRepoLauncher.getAttribute('aria-disabled') === 'true') {
-          return
-        }
-        setGitRepoModalOpen(true)
-      })
-      gitRepoClose.addEventListener('click', () => {
-        if (!gitRepoActionInFlight) {
-          setGitRepoModalOpen(false)
-        }
-      })
-      gitRepoOverlay.addEventListener('click', (event) => {
-        if (event.target === gitRepoOverlay && !gitRepoActionInFlight) {
-          setGitRepoModalOpen(false)
-        }
-      })
-      document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && gitRepoModalOpen && !gitRepoActionInFlight) {
-          setGitRepoModalOpen(false)
         }
       })
       codingMenu.addEventListener('toggle', () => {
@@ -1217,15 +1127,8 @@
         terminalHint.textContent = t('terminalHint')
         localeToggle.textContent = '🌐 ' + getLocaleLabel(currentLocale)
         themeToggle.textContent = currentTheme === 'dark' ? t('themeDark') : t('themeLight')
-        gitRepoLauncher.textContent = t('gitRepoLauncher')
         renderCodingFlow(lastState)
         renderGitRepoFlow(lastState)
-      }
-
-      function setGitRepoModalOpen(open) {
-        gitRepoModalOpen = open === true
-        gitRepoOverlay.hidden = !gitRepoModalOpen
-        document.body.style.overflow = gitRepoModalOpen ? 'hidden' : ''
       }
 
       function formatActivityTimestamp(value) {
@@ -1448,7 +1351,6 @@
         if (gitRepoFlow?.ghStatus !== 'available') return
 
         gitRepoActionInFlight = true
-        setGitRepoModalOpen(true)
         renderGitRepoFlow(lastState)
 
         try {
@@ -1513,20 +1415,8 @@
         const ready = state?.ready === true
         const enabled = gitRepoFlow?.enabled === true && splashBootstrap?.gitRepoFlow?.enabled === true
 
-        gitRepoLauncher.hidden = !enabled
-        gitRepoLauncher.disabled = !ready
-        gitRepoLauncher.setAttribute('aria-disabled', ready ? 'false' : 'true')
-        if (gitRepoLauncher.hidden) {
-          setGitRepoModalOpen(false)
-          gitRepoGrid.hidden = true
-          gitRepoAction.hidden = true
-          gitRepoLink.hidden = true
-          gitRepoSecondary.hidden = true
-          return
-        }
-
-        if (!ready) {
-          setGitRepoModalOpen(false)
+        gitRepoShell.hidden = !enabled || !ready
+        if (gitRepoShell.hidden) {
           gitRepoGrid.hidden = true
           gitRepoAction.hidden = true
           gitRepoLink.hidden = true
@@ -1557,12 +1447,11 @@
           || gitRepoFlow?.remoteRepoExists === true
           || gitRepoFlow?.actionState === 'done'
         )
-        const repositoryResolved = canOpenRepository
-          || gitRepoFlow?.remoteRepoExists === true
-          || gitRepoFlow?.repoState === 'github_remote'
         const showForm = gitRepoFlow?.ghStatus === 'available'
-          && !repositoryResolved
+          && gitRepoFlow?.repoState !== 'github_remote'
           && gitRepoFlow?.repoState !== 'other_remote'
+          && gitRepoFlow?.remoteRepoExists !== true
+          && !canOpenRepository
 
         gitRepoGrid.hidden = !showForm
         gitRepoOwnerField.hidden = !showOwnerField
@@ -1588,8 +1477,7 @@
           || gitRepoFlow?.actionState === 'authenticating'
           || gitRepoFlow?.actionState === 'creating_local_repo'
           || gitRepoFlow?.actionState === 'creating_remote_repo'
-        const canStart = !repositoryResolved
-          && showForm
+        const canStart = showForm
           && gitRepoFlow?.ghStatus === 'available'
           && (gitRepoFlow?.repoState === 'missing' || gitRepoFlow?.repoState === 'local_only')
 
@@ -1604,13 +1492,11 @@
         gitRepoVisibility.disabled = busy || !showForm
         gitRepoOwner.disabled = busy || !showOwnerField
 
-        gitRepoLink.hidden = !canOpenRepository
+        gitRepoLink.hidden = false
         gitRepoLink.textContent = t('gitRepoOpen')
         gitRepoLink.href = canOpenRepository ? gitRepoFlow.repoUrl : '#'
         gitRepoLink.setAttribute('aria-disabled', canOpenRepository ? 'false' : 'true')
         gitRepoLink.tabIndex = canOpenRepository ? 0 : -1
-        gitRepoClose.disabled = busy
-        gitRepoOverlay.hidden = !gitRepoModalOpen
       }
 
       function escapeHtml(value) {

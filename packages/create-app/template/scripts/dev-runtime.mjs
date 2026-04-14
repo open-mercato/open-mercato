@@ -6,6 +6,7 @@ import {
   createRuntimeNoiseFilter,
   isStatelessRuntimeNoiseLine,
 } from './dev-runtime-log-policy.mjs'
+import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 
 function resolveSplashHelpersImport() {
   const candidates = [
@@ -363,13 +364,15 @@ function looksLikeFailure(line) {
 }
 
 function spawnMercato(args) {
-  const child = spawn(command, args, {
+  const resolvedSpawn = resolveSpawnCommand(command, args)
+  const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
       ...process.env,
       OM_CLI_QUIET: rawPassthrough ? process.env.OM_CLI_QUIET : '1',
       DOTENV_CONFIG_QUIET: rawPassthrough ? process.env.DOTENV_CONFIG_QUIET : 'true',
     },
+    ...resolvedSpawn.spawnOptions,
   })
 
   children.add(child)

@@ -3,8 +3,9 @@ import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { Message, MessageAccessToken, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
+import { hashAuthToken } from '../../auth/lib/tokenHash'
 
-const MAX_TOKEN_USE_COUNT = 25
+export const MAX_TOKEN_USE_COUNT = 25
 
 const consumeTokenSchema = z.object({
   token: z.string().min(1),
@@ -18,7 +19,10 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
     const input = consumeTokenSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
-    const accessToken = await em.findOne(MessageAccessToken, { token: input.token })
+    const hashedToken = hashAuthToken(input.token)
+    const accessToken =
+      (await em.findOne(MessageAccessToken, { token: hashedToken })) ??
+      (await em.findOne(MessageAccessToken, { token: input.token }))
     if (!accessToken) {
       throw new Error('Invalid or expired link')
     }

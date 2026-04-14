@@ -74,6 +74,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
 | Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` |
 | Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/review-pr/SKILL.md` |
+| Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
+| Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
 
 ## Core Principles
 
@@ -92,6 +94,31 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
 5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
 6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
+
+## PR Workflow
+
+- Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
+- Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
+- Meta labels are additive: `needs-qa`, `skip-qa`, `in-progress`.
+- A ready non-draft PR should carry `review` unless it is already in another pipeline state.
+- `review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
+- `review-pr` MUST move review failures to `changes-requested`.
+- `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing behavior that needs manual exercise.
+- `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly low-risk non-customer-facing changes.
+- Auto-skills that mutate PRs or issues MUST claim them first with all three signals: assignee, `in-progress` label, and a claim comment. They MUST release the `in-progress` label when finished, even on failure.
+- When an auto-skill adds or changes a PR pipeline/meta label, it MUST also leave a short PR comment explaining why that label was applied.
+- Use `gh` for manual QA transitions:
+
+```bash
+# QA pass
+gh pr edit <number> --remove-label "qa" --add-label "merge-queue"
+
+# QA fail
+gh pr edit <number> --remove-label "qa" --add-label "qa-failed"
+
+# Re-request QA after a fix
+gh pr edit <number> --remove-label "qa-failed" --add-label "qa"
+```
 
 ### Documentation and Specifications
 

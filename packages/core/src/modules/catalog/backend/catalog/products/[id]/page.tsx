@@ -2219,23 +2219,23 @@ function ProductVariantsSection({
         </div>
         {variants.length ? (
           <div className="overflow-x-auto rounded-md border">
-            <table className="w-full table-auto text-sm">
+            <table className="w-full min-w-[720px] table-fixed text-sm">
               <thead className="bg-muted/40 text-left text-xs uppercase text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2 font-normal">
                     {t("catalog.products.form.variants", "Variant")}
                   </th>
-                  <th className="px-3 py-2 font-normal">SKU</th>
-                  <th className="px-3 py-2 font-normal">
+                  <th className="w-40 px-3 py-2 font-normal">SKU</th>
+                  <th className="w-48 px-3 py-2 font-normal">
                     {t(
                       "catalog.products.edit.variantList.pricesHeading",
                       "Prices",
                     )}
                   </th>
-                  <th className="px-3 py-2 font-normal">
+                  <th className="w-24 px-3 py-2 font-normal">
                     {t("catalog.products.edit.variants.default", "Default")}
                   </th>
-                  <th className="px-3 py-2 font-normal text-right">
+                  <th className="w-40 px-3 py-2 font-normal text-right">
                     {t("catalog.products.edit.variantList.actions", "Actions")}
                   </th>
                 </tr>
@@ -2246,13 +2246,16 @@ function ProductVariantsSection({
                     <td className="px-3 py-2">
                       <Link
                         href={`/backend/catalog/products/${productId}/variants/${variant.id}`}
-                        className="text-sm font-medium hover:underline"
+                        className="block truncate text-sm font-medium hover:underline"
+                        title={variant.name || variant.id}
                       >
                         {variant.name || variant.id}
                       </Link>
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">
-                      {variant.sku || "—"}
+                      <span className="block truncate" title={variant.sku || "—"}>
+                        {variant.sku || "—"}
+                      </span>
                     </td>
                     <td className="px-3 py-2">
                       {variant.prices.length ? (
@@ -2282,7 +2285,7 @@ function ProductVariantsSection({
                       {variant.isDefault ? t("common.yes", "Yes") : "—"}
                     </td>
                     <td className="px-3 py-2">
-                      <div className="flex flex-wrap justify-end gap-2">
+                      <div className="flex justify-end gap-2 whitespace-nowrap">
                         <Button asChild size="sm" variant="outline">
                           <Link
                             href={`/backend/catalog/products/${productId}/variants/${variant.id}`}

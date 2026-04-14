@@ -10,7 +10,7 @@ import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-m
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
@@ -19,32 +19,27 @@ const DEFAULT_DERIVED_EMAIL_DOMAIN = DEMO_SUPERADMIN_EMAIL.split('@')[1] ?? 'acm
 
 export type EnsureRolesOptions = {
   roleNames?: string[]
-  tenantId?: string | null
+  tenantId?: string
 }
 
 async function ensureRolesInContext(
   em: EntityManager,
   roleNames: string[],
-  tenantId: string | null,
+  tenantId: string,
 ) {
   for (const name of roleNames) {
-    const existing = await em.findOne(Role, { name, tenantId })
+    const existing = await findOneWithDecryption(em, Role, { name, tenantId }, {}, { tenantId, organizationId: null })
     if (existing) continue
-    if (tenantId !== null) {
-      const globalRole = await em.findOne(Role, { name, tenantId: null })
-      if (globalRole) {
-        globalRole.tenantId = tenantId
-        em.persist(globalRole)
-        continue
-      }
-    }
     em.persist(em.create(Role, { name, tenantId, createdAt: new Date() }))
   }
 }
 
 export async function ensureRoles(em: EntityManager, options: EnsureRolesOptions = {}) {
   const roleNames = options.roleNames ?? [...DEFAULT_ROLE_NAMES]
-  const tenantId = normalizeTenantId(options.tenantId ?? null) ?? null
+  const tenantId = normalizeTenantId(options.tenantId ?? null)
+  if (!tenantId) {
+    throw new Error('ensureRoles requires a tenantId — global roles are not supported')
+  }
   await em.transactional(async (tem) => {
     await ensureRolesInContext(tem, roleNames, tenantId)
     await tem.flush()
@@ -57,11 +52,7 @@ async function findRoleByName(
   tenantId: string | null,
 ): Promise<Role | null> {
   const normalizedTenant = normalizeTenantId(tenantId ?? null) ?? null
-  let role = await em.findOne(Role, { name, tenantId: normalizedTenant })
-  if (!role && normalizedTenant !== null) {
-    role = await em.findOne(Role, { name, tenantId: null })
-  }
-  return role
+  return findOneWithDecryption(em, Role, { name, tenantId: normalizedTenant }, {}, { tenantId: normalizedTenant, organizationId: null })
 }
 
 async function findRoleByNameOrFail(
@@ -135,7 +126,7 @@ export async function setupInitialTenant(
   const defaultEncryptionMaps = getDefaultEncryptionMaps(resolvedModules)
 
   const mainEmail = primaryUser.email
-  const existingUser = await em.findOne(User, { email: mainEmail })
+  const existingUser = await findOneWithDecryption(em, User, { email: mainEmail }, {}, { tenantId: null, organizationId: null })
   if (existingUser && failIfUserExists) {
     throw new Error('USER_EXISTS')
   }
@@ -151,6 +142,9 @@ export async function setupInitialTenant(
     tenantId = existingUser.tenantId ? String(existingUser.tenantId) : undefined
     organizationId = existingUser.organizationId ? String(existingUser.organizationId) : undefined
     const roleTenantId = normalizeTenantId(existingUser.tenantId ?? null) ?? null
+    if (!roleTenantId) {
+      throw new Error('Cannot reuse a user without a tenantId — global roles are not supported')
+    }
 
     await ensureRolesInContext(tem, roleNames, roleTenantId)
     await tem.flush()
@@ -256,7 +250,7 @@ export async function setupInitialTenant(
 
       if (isTenantDataEncryptionEnabled()) {
         for (const spec of defaultEncryptionMaps) {
-          const existing = await tem.findOne(EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null })
+          const existing = await findOneWithDecryption(tem, EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null }, {}, { tenantId: String(tenant.id), organizationId: String(organization.id) })
           if (!existing) {
             tem.persist(tem.create(EncryptionMap, {
               entityId: spec.entityId,
@@ -289,7 +283,7 @@ export async function setupInitialTenant(
 
       for (const base of baseUsers) {
         const resolvedPasswordHash = base.passwordHash ?? passwordHash
-        let user = await tem.findOne(User, { email: base.email })
+        let user = await findOneWithDecryption(tem, User, { email: base.email }, {}, { tenantId: tenantId ?? null, organizationId: organizationId ?? null })
         const confirm = primaryUser.confirm ?? true
         const encryptedPayload = encryptionService
           ? await encryptionService.encryptEntityPayload('auth:user', { email: base.email }, tenantId, organizationId)
@@ -323,7 +317,7 @@ export async function setupInitialTenant(
         await tem.flush()
         for (const roleName of base.roles) {
           const role = await findRoleByNameOrFail(tem, roleName, roleTenantId)
-          const existingLink = await tem.findOne(UserRole, { user, role })
+          const existingLink = await findOneWithDecryption(tem, UserRole, { user, role }, {}, { tenantId: tenantId ?? null, organizationId: null })
           if (!existingLink) tem.persist(tem.create(UserRole, { user, role, createdAt: new Date() }))
         }
         await tem.flush()
@@ -514,7 +508,7 @@ async function ensureRoleAclFor(
   features: string[],
   options: { isSuperAdmin?: boolean } = {},
 ) {
-  const existing = await em.findOne(RoleAcl, { role, tenantId })
+  const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
   if (!existing) {
     const acl = em.create(RoleAcl, {
       role,
@@ -544,7 +538,7 @@ async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager
   if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') return
   if (shouldKeepDemoSuperadminDuringInit()) return
   try {
-    const user = await em.findOne(User, { email: DEMO_SUPERADMIN_EMAIL })
+    const user = await findOneWithDecryption(em, User, { email: DEMO_SUPERADMIN_EMAIL }, {}, { tenantId: null, organizationId: null })
     if (!user) return
     let dirty = false
     if (user.passwordHash) {

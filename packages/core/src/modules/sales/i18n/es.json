@@ -1204,6 +1204,7 @@
   "sales.quotes.accept.adminSubject": "Cotización {quoteNumber} aceptada → Pedido {orderNumber}",
   "sales.quotes.accept.expired": "Esta cotización ha expirado.",
   "sales.quotes.accept.failed": "No se pudo aceptar la cotización.",
+  "sales.quotes.accept.forbidden": "No se permite aceptar cotizaciones desde sitios externos.",
   "sales.quotes.accept.invalidStatus": "Esta cotización no puede aceptarse en su estado actual.",
   "sales.quotes.accept.notFound": "Cotización no encontrada.",
   "sales.quotes.adjustments.delete": "Eliminar ajuste de cotización",

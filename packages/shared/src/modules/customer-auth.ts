@@ -11,6 +11,7 @@
 
 export interface CustomerAuthContext {
   sub: string
+  sid: string
   type: 'customer'
   tenantId: string
   orgId: string

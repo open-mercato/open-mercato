@@ -158,14 +158,10 @@ const schema = z.object({
   companyIds: z.array(z.string().trim().min(1)).optional(),
 }).passthrough()
 
+import { toDateInputValue as toDateInputValueOrNull } from '@open-mercato/shared/lib/date/format'
+
 function toDateInputValue(value: string | null | undefined): string {
-  if (!value) return ''
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return ''
-  const year = parsed.getUTCFullYear()
-  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(parsed.getUTCDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return toDateInputValueOrNull(value) ?? ''
 }
 
 function normalizeCurrency(value: string | null | undefined): string {

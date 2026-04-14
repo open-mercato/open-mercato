@@ -211,7 +211,7 @@ This is the quickest way to get Open Mercato up and running on your localhost / 
   nvm use 24
   ```
   
-**Windows:** Use [Docker Setup](#docker-setup) for native setup.
+**Windows:** prefer [Windows local development](#windows-local-development). Use the full Docker dev stack only when you explicitly want a container-only workflow and accept slower file watching and builds.
 
 ### Quickstart: (Monorepo, core development / contributing)
 
@@ -234,9 +234,12 @@ cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your s
 
 yarn build:packages
 yarn generate
+yarn build:packages
 yarn initialize # or yarn reinstall
 yarn dev
 ```
+
+Important: on a fresh local setup, run `yarn build:packages`, then `yarn generate`, then `yarn build:packages` again before `yarn initialize`. The second package build makes sure generated scripts are available, otherwise `yarn initialize` may not detect them, fail to execute correctly, and block the local bootstrap flow.
 
 After upgrading to a newer version, apply any new module migrations:
 
@@ -245,6 +248,63 @@ yarn db:migrate
 ```
 
 Note: `yarn initialize` seeds demo data and may abort if users already exist. For upgrades on an existing database, use `yarn db:migrate` instead.
+
+### Windows local development
+
+On Windows, the recommended workflow for day-to-day monorepo development is **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains available when you explicitly want an isolated, fully containerized environment, but for this repository it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy file watching across the Windows/WSL filesystem boundary.
+
+Prerequisites:
+
+- **Node.js 24+**
+- **Yarn via Corepack**
+- **Git**
+- **Docker Desktop with WSL 2 backend enabled**
+- **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
+- **Microsoft Visual C++ Redistributable 2015+ x64** for native binaries used by the toolchain
+
+Recommended PowerShell commands on a clean Windows machine before `yarn install`:
+
+```powershell
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Microsoft.VCRedist.2015+.x64
+```
+
+If you install Build Tools through the UI, make sure the C++ build tools workload is included. Git, Node.js 24+, Yarn/Corepack, and Docker Desktop must be installed and configured separately before continuing with the monorepo setup.
+
+From the monorepo root, start only infrastructure services:
+
+```powershell
+docker compose up -d
+```
+
+The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+
+Microsoft Defender exclusion is optional, but strongly recommended on Windows because without it repository operations and local development can be noticeably slower. Run it manually in PowerShell if you want the recommended setup:
+
+```powershell
+Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
+```
+
+Then continue with the monorepo setup:
+
+```powershell
+yarn install
+yarn build:packages
+yarn generate
+yarn build:packages
+yarn initialize
+yarn dev
+```
+
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps created by `create-mercato-app`. On a fresh local setup, run it both before and after `yarn generate` so `yarn initialize` can see the generated scripts.
+
+For an existing database where you only need to apply new migrations:
+
+```powershell
+yarn db:migrate
+yarn generate
+yarn dev
+```
 
 For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
 
@@ -342,7 +402,7 @@ npx create-mercato-app@develop my-app
 
 ## Docker Setup
 
-Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
+Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. On Windows, prefer the native local workflow above for regular monorepo work; use the dev Docker stack when you specifically need a container-only environment.
 
 ### Dev mode (hot reload)
 
@@ -571,3 +631,4 @@ What’s included:
 Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
+

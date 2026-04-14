@@ -1276,17 +1276,22 @@ async function loadQuoteSnapshot(
   em: EntityManager,
   id: string,
 ): Promise<QuoteGraphSnapshot | null> {
-  const quote = await em.findOne(SalesQuote, { id, deletedAt: null });
+  const quote = await findOneWithDecryption(em, SalesQuote, { id, deletedAt: null });
   if (!quote) return null;
-  const lines = await em.find(
+  const decryptionScope = { tenantId: quote.tenantId, organizationId: quote.organizationId };
+  const lines = await findWithDecryption(
+    em,
     SalesQuoteLine,
-    { quote: quote },
+    { quote },
     { orderBy: { lineNumber: "asc" } },
+    decryptionScope,
   );
-  const adjustments = await em.find(
+  const adjustments = await findWithDecryption(
+    em,
     SalesQuoteAdjustment,
-    { quote: quote },
+    { quote },
     { orderBy: { position: "asc" } },
+    decryptionScope,
   );
   const [
     addresses,
@@ -1542,17 +1547,22 @@ async function loadOrderSnapshot(
   em: EntityManager,
   id: string,
 ): Promise<OrderGraphSnapshot | null> {
-  const order = await em.findOne(SalesOrder, { id, deletedAt: null });
+  const order = await findOneWithDecryption(em, SalesOrder, { id, deletedAt: null });
   if (!order) return null;
-  const lines = await em.find(
+  const decryptionScope = { tenantId: order.tenantId, organizationId: order.organizationId };
+  const lines = await findWithDecryption(
+    em,
     SalesOrderLine,
-    { order: order },
+    { order },
     { orderBy: { lineNumber: "asc" } },
+    decryptionScope,
   );
-  const adjustments = await em.find(
+  const adjustments = await findWithDecryption(
+    em,
     SalesOrderAdjustment,
-    { order: order },
+    { order },
     { orderBy: { position: "asc" } },
+    decryptionScope,
   );
   const [
     addresses,
@@ -5862,7 +5872,8 @@ const convertQuoteToOrderCommand: CommandHandler<
       ) => Promise<TResult>;
     };
     const runConversion = async (em: EntityManager) => {
-      const quote = await em.findOne(
+      const quote = await findOneWithDecryption(
+        em,
         SalesQuote,
         {
           id: payload.quoteId,
@@ -5888,10 +5899,10 @@ const convertQuoteToOrderCommand: CommandHandler<
           ),
         });
       const orderId = payload.orderId ?? quote.id;
-      const existingOrder = await em.findOne(SalesOrder, {
+      const existingOrder = await findOneWithDecryption(em, SalesOrder, {
         id: orderId,
         deletedAt: null,
-      });
+      }, undefined, { tenantId: quote.tenantId, organizationId: quote.organizationId });
       if (existingOrder) {
         throw new CrudHttpError(409, {
           error: translate(
@@ -6225,7 +6236,7 @@ const convertQuoteToOrderCommand: CommandHandler<
     if (orderSnapshot) {
       const orderId = orderSnapshot.order.id;
       const orderLineIds = orderSnapshot.lines.map((line) => line.id);
-      const existingOrder = await em.findOne(SalesOrder, { id: orderId });
+      const existingOrder = await findOneWithDecryption(em, SalesOrder, { id: orderId }, undefined, { tenantId: quoteSnapshot.quote.tenantId, organizationId: quoteSnapshot.quote.organizationId });
       if (existingOrder) {
         const shipments = await em.find(SalesShipment, { order: orderId });
         const shipmentIds = shipments.map((entry) => entry.id);
