@@ -143,9 +143,9 @@ export function RoleAssignmentRow({
   return (
     <>
       {ConfirmDialogElement}
-      <div className="flex h-full flex-col rounded-xl border bg-card p-4 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <Badge variant="outline" className="rounded-full px-2 py-0 text-[10px] font-semibold">
+      <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <Badge variant="outline" className="max-w-full break-words rounded-full px-2 py-0 text-left text-[10px] font-semibold">
             {roleTypeLabel}
           </Badge>
           <IconButton
@@ -160,14 +160,14 @@ export function RoleAssignmentRow({
           </IconButton>
         </div>
 
-        <div className="mt-4 flex items-start gap-3">
+        <div className="mt-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold text-foreground">{displayName}</div>
+            <div className="break-all text-sm font-semibold leading-5 text-foreground">{displayName}</div>
             {role.userEmail ? (
-              <div className="mt-1 truncate text-xs text-muted-foreground">{role.userEmail}</div>
+              <div className="mt-1 break-all text-xs text-muted-foreground">{role.userEmail}</div>
             ) : null}
             {assignedLabel ? (
               <div className="mt-2 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
@@ -177,9 +177,9 @@ export function RoleAssignmentRow({
           </div>
         </div>
 
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           {role.userEmail ? (
-            <IconButton asChild variant="outline" size="sm">
+            <IconButton asChild variant="outline" size="sm" className="shrink-0">
               <a href={`mailto:${role.userEmail}`} aria-label={t('customers.roles.email', 'Send email')}>
                 <Mail className="size-4" />
               </a>
@@ -189,6 +189,7 @@ export function RoleAssignmentRow({
               type="button"
               variant="outline"
               size="sm"
+              className="shrink-0"
               disabled
               aria-label={t('customers.roles.emailUnavailable', 'Email unavailable')}
             >
@@ -196,7 +197,7 @@ export function RoleAssignmentRow({
             </IconButton>
           )}
           {role.userPhone ? (
-            <IconButton asChild variant="outline" size="sm">
+            <IconButton asChild variant="outline" size="sm" className="shrink-0">
               <a href={`tel:${role.userPhone}`} aria-label={t('customers.roles.call', 'Call')}>
                 <Phone className="size-4" />
               </a>
@@ -206,6 +207,7 @@ export function RoleAssignmentRow({
               type="button"
               variant="outline"
               size="sm"
+              className="shrink-0"
               disabled
               aria-label={t('customers.roles.phoneUnavailable', 'Phone unavailable')}
             >
@@ -216,7 +218,7 @@ export function RoleAssignmentRow({
             type="button"
             variant="ghost"
             size="sm"
-            className="ml-auto h-auto px-2 py-1 text-xs"
+            className="h-auto w-full justify-start px-2 py-1 text-xs sm:ml-auto sm:w-auto"
             onClick={() => setChangingUser((current) => !current)}
           >
             {t('customers.roles.changeUser', 'Change user')}

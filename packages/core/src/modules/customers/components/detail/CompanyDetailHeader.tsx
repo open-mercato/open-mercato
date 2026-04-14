@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Phone, Mail, Clock, Trash2, Building2, Globe, MoreHorizontal, Settings, MapPin } from 'lucide-react'
+import { Phone, Mail, Trash2, Building2, Globe, MoreHorizontal, Settings, MapPin } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -90,7 +90,7 @@ export function CompanyDetailHeader({
   return (
     <div className="rounded-lg border bg-card">
       {/* Top row: avatar + company info + account manager + actions */}
-      <div className="flex items-start gap-5 px-6 pt-6 pb-3">
+      <div className="flex flex-col gap-4 px-6 pt-6 pb-3 sm:flex-row sm:items-start sm:gap-5">
         {/* Avatar */}
         <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-muted">
           <Building2 className="size-7 text-muted-foreground" />
@@ -177,12 +177,9 @@ export function CompanyDetailHeader({
         </div>
 
         {/* Right side: actions */}
-        <div className="flex shrink-0 flex-col items-end gap-3">
+        <div className="flex w-full shrink-0 flex-col items-start gap-3 sm:w-auto sm:items-end">
           {/* Action buttons - delete in three-dot menu */}
-          <div className="flex items-center gap-2">
-            <IconButton variant="outline" size="sm" type="button" aria-label={t('customers.companies.detail.actions.history', 'History')}>
-              <Clock className="size-4" />
-            </IconButton>
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <Popover>
               <PopoverTrigger asChild>
                 <IconButton variant="outline" size="sm" type="button" aria-label={t('customers.companies.detail.actions.more', 'More')}>

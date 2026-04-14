@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Phone, Mail, Building2, Clock, Trash2, MoreHorizontal, Settings, Plus } from 'lucide-react'
+import { Phone, Mail, Building2, Trash2, MoreHorizontal, Settings, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -111,7 +111,7 @@ export function PersonDetailHeader({
 
   return (
     <div className="rounded-lg border bg-card px-6 py-5">
-      <div className="flex items-start gap-5">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
         {/* Avatar */}
         <div className="flex size-[72px] shrink-0 items-center justify-center rounded-full bg-muted text-xl font-bold text-muted-foreground">
           {getInitials(displayName)}
@@ -236,10 +236,7 @@ export function PersonDetailHeader({
         </div>
 
         {/* Right side: actions — Delete hidden in ⋯ menu (annotation 1b) */}
-        <div className="flex shrink-0 items-center gap-2">
-          <IconButton variant="outline" size="sm" type="button" aria-label={t('customers.people.detail.actions.history', 'History')}>
-            <Clock className="size-4" />
-          </IconButton>
+        <div className="flex w-full shrink-0 items-center justify-start gap-2 sm:w-auto sm:justify-end">
           <Popover>
             <PopoverTrigger asChild>
               <IconButton variant="outline" size="sm" type="button" aria-label={t('customers.people.detail.actions.more', 'More')}>

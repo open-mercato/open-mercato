@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Check, Plus, Search, Tag, X } from 'lucide-react'
+import { Check, Plus, Search, SlidersHorizontal, Tag, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
+import { ManageTagsDialog } from './ManageTagsDialog'
 
 type DictEntry = { id: string; value: string; label: string; color?: string | null }
 
@@ -168,6 +169,7 @@ export function EntityTagsDialog({
   const [originalLabelIds, setOriginalLabelIds] = React.useState<Set<string>>(new Set())
   const [newLabelInput, setNewLabelInput] = React.useState<string | null>(null)
   const [isCreatingLabel, setIsCreatingLabel] = React.useState(false)
+  const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
   const labelCreationInFlightRef = React.useRef(false)
 
   const loadData = React.useCallback(async () => {
@@ -287,6 +289,11 @@ export function EntityTagsDialog({
     setNewLabelInput(null)
     loadData().catch(() => {})
   }, [loadData, open])
+
+  React.useEffect(() => {
+    if (open) return
+    setManageTagsOpen(false)
+  }, [open])
 
   const activeCount = React.useMemo(() => {
     let count = 0
@@ -535,15 +542,27 @@ export function EntityTagsDialog({
               {t('customers.personTags.title', 'Manage tags')}
             </span>
           </div>
-          <IconButton
-            type="button"
-            variant="outline"
-            size="xs"
-            className="size-[28px] rounded-[5px] border-border bg-background"
-            onClick={onClose}
-          >
-            <X className="size-[14px]" />
-          </IconButton>
+          <div className="flex items-center gap-[8px]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto gap-[8px] rounded-[12px] px-[14px] py-[8px] text-[13px] font-medium"
+              onClick={() => setManageTagsOpen(true)}
+            >
+              <SlidersHorizontal className="size-[14px]" />
+              {t('customers.personTags.settingsButton', 'Tag settings')}
+            </Button>
+            <IconButton
+              type="button"
+              variant="outline"
+              size="xs"
+              className="size-[28px] rounded-[5px] border-border bg-background"
+              onClick={onClose}
+            >
+              <X className="size-[14px]" />
+            </IconButton>
+          </div>
         </div>
 
         <div className="shrink-0 px-[20px] py-[8px]">
@@ -686,6 +705,14 @@ export function EntityTagsDialog({
           </div>
         </div>
       </DialogContent>
+
+      <ManageTagsDialog
+        open={manageTagsOpen}
+        onClose={() => {
+          setManageTagsOpen(false)
+          void loadData()
+        }}
+      />
     </Dialog>
   )
 }

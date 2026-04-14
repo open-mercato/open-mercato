@@ -262,7 +262,7 @@ function SortableEntryRow({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-center gap-[10px] rounded-[6px] border border-border bg-white px-[10px] py-[8px]"
+      className="flex items-center gap-[10px] rounded-[6px] border border-border bg-card px-[10px] py-[8px]"
     >
       {/* Grip handle */}
       <div
@@ -279,7 +279,7 @@ function SortableEntryRow({
           type="text"
           value={entry.label}
           onChange={(e) => onLabelChange(e.target.value)}
-          className="w-full rounded-[5px] border border-input bg-white px-[12px] py-[7px] text-[13px] font-medium text-foreground outline-none focus:border-foreground"
+          className="w-full rounded-[5px] border border-input bg-background px-[12px] py-[7px] text-[13px] font-medium text-foreground outline-none focus:border-foreground"
         />
         {isDefault && (
           <div className="flex items-center gap-[5px]">
@@ -743,7 +743,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                         value={searchValue}
                         onChange={(e) => setSearchValue(e.target.value)}
                         placeholder={t('customers.tags.manage.search', 'Search values...')}
-                        className="w-full rounded-[6px] border border-input bg-white py-[8px] pl-[36px] pr-[12px] text-[11px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
+                        className="w-full rounded-[6px] border border-input bg-background py-[8px] pl-[36px] pr-[12px] text-[11px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
                       />
                     </div>
                   </div>
@@ -829,7 +829,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     type="button"
                     variant="ghost"
                     onClick={handleAddEntry}
-                    className="flex h-auto w-full items-center justify-center gap-[8px] rounded-[6px] border border-dashed border-border bg-white p-[12px] text-[12px] font-semibold text-foreground hover:bg-muted"
+                    className="flex h-auto w-full items-center justify-center gap-[8px] rounded-[6px] border border-dashed border-border bg-background p-[12px] text-[12px] font-semibold text-foreground hover:bg-muted"
                   >
                     <Plus className="size-[14px]" />
                     {t('customers.tags.manage.addValue', 'Add new value')}

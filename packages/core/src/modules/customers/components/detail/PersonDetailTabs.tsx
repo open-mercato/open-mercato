@@ -9,6 +9,7 @@ import {
   Briefcase,
   Building2,
   Check,
+  History,
   Paperclip,
 } from 'lucide-react'
 
@@ -17,6 +18,7 @@ export type PersonTabId =
   | 'deals'
   | 'companies'
   | 'tasks'
+  | 'changelog'
   | 'files'
   | string
 
@@ -39,11 +41,26 @@ type PersonDetailTabsProps = {
   children: React.ReactNode
 }
 
+const SUPPORTED_TAB_IDS = new Set<PersonTabId>(['activities', 'deals', 'companies', 'tasks', 'changelog', 'files'])
+
+export function resolveLegacyTab(tab: string | null | undefined): PersonTabId {
+  if (!tab) return 'activities'
+  return SUPPORTED_TAB_IDS.has(tab as PersonTabId) ? (tab as PersonTabId) : 'activities'
+}
+
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
     <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground">
       {count > 999 ? '999+' : count}
+    </span>
+  )
+}
+
+function NewBadge() {
+  return (
+    <span className="ml-1.5 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-semibold leading-none text-background">
+      NEW
     </span>
   )
 }
@@ -86,6 +103,12 @@ export function PersonDetailTabs({
         label: t('customers.people.detail.tabs.tasks', 'Tasks'),
         icon: <Check className="size-4" />,
         badge: <CountBadge count={tasksCount} />,
+      },
+      {
+        id: 'changelog',
+        label: t('customers.people.detail.tabs.changelog', 'Change log'),
+        icon: <History className="size-4" />,
+        badge: <NewBadge />,
       },
       {
         id: 'files',

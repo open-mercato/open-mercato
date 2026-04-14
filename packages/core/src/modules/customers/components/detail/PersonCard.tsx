@@ -67,15 +67,15 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
   const linkedDate = React.useMemo(() => formatDate(person.linkedAt ?? person.createdAt), [person.createdAt, person.linkedAt])
 
   return (
-    <div className="overflow-hidden rounded-[10px] border bg-card p-4">
+    <div className="min-w-0 overflow-hidden rounded-[10px] border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-[13px] font-bold text-muted-foreground">
             {getInitials(person.displayName)}
           </div>
           <div className="min-w-0 flex-1 space-y-1">
-            <div className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate text-[15px] font-bold text-foreground">{person.displayName}</span>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="min-w-0 break-words text-[15px] font-bold leading-5 text-foreground">{person.displayName}</span>
               {onToggleStar && (
                 <IconButton
                   type="button"
@@ -137,13 +137,13 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
         {person.primaryEmail && (
           <div className="flex min-w-0 items-center gap-1.5">
             <Mail className="size-3 shrink-0 text-muted-foreground" />
-            <span className="truncate">{person.primaryEmail}</span>
+            <span className="break-all">{person.primaryEmail}</span>
           </div>
         )}
         {person.primaryPhone && (
           <div className="flex min-w-0 items-center gap-1.5">
             <Phone className="size-3 shrink-0 text-muted-foreground" />
-            <span className="truncate">{person.primaryPhone}</span>
+            <span className="break-all">{person.primaryPhone}</span>
           </div>
         )}
         {(person.lifecycleStage || linkedDate) && (
@@ -160,7 +160,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
       </div>
 
       {(temperature || sourceTags.length > 0) && (
-        <div className="mt-3 flex flex-wrap items-start justify-between gap-3 border-t pt-3">
+        <div className="mt-3 flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1 space-y-1">
             {sourceTags.length > 0 ? (
               <>
@@ -188,7 +188,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
             ) : null}
           </div>
           {temperature ? (
-            <div className="space-y-1 sm:text-right">
+            <div className="space-y-1 sm:ml-auto sm:text-right">
               <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground sm:justify-end">
                 <span>{t(temperature.labelKey, temperature.fallback)}</span>
               </div>
@@ -208,13 +208,13 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap gap-2 border-t pt-3">
+      <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:flex-wrap">
         <Button
           asChild
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 min-w-[9rem] flex-1 text-[11px] font-semibold"
+          className="h-8 w-full text-[11px] font-semibold sm:min-w-[9rem] sm:flex-1"
         >
           <Link href={`/backend/customers/people-v2/${person.id}`}>
             <ArrowUpRight className="mr-1 size-3" />
@@ -226,7 +226,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 min-w-[7rem] flex-1 border-destructive/30 text-[11px] font-semibold text-destructive hover:bg-destructive/10 sm:flex-none"
+            className="h-8 w-full border-destructive/30 text-[11px] font-semibold text-destructive hover:bg-destructive/10 sm:min-w-[7rem] sm:flex-none"
             onClick={() => onUnlink(person.id)}
           >
             {t('customers.people.card.unlink', 'Unlink')}

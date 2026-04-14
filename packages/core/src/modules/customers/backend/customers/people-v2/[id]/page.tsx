@@ -29,7 +29,8 @@ import { InlineActivityComposer } from '../../../../components/detail/InlineActi
 import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
-import { PersonDetailTabs, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
+import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
+import { PersonDetailTabs, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
 import { PersonCompaniesSection } from '../../../../components/detail/PersonCompaniesSection'
 import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import {
@@ -66,11 +67,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const formWrapperRef = React.useRef<HTMLDivElement>(null)
 
   const initialTab = React.useMemo(() => {
-    const raw = searchParams?.get('tab')
-    if (raw === 'activities' || raw === 'deals' || raw === 'companies' || raw === 'tasks' || raw === 'files') {
-      return raw as PersonTabId
-    }
-    return 'activities' as PersonTabId
+    return resolveLegacyTab(searchParams?.get('tab'))
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<PersonTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
@@ -527,6 +524,10 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         description={t('customers.people.detail.files.subtitle', 'Upload and manage files linked to this person.')}
                       />
                     )
+                  }
+
+                  if (activeTab === 'changelog') {
+                    return <ChangelogTab entityId={personId} entityType="person" />
                   }
 
                   return null

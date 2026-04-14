@@ -194,7 +194,10 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
       </div>
 
       {cards.length > 0 ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div
+          className="grid items-start gap-4"
+          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 18rem), 1fr))' }}
+        >
           {cards.map((entry) =>
             entry.role ? (
               <RoleAssignmentRow
@@ -208,8 +211,8 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
                 onUpdated={loadRoles}
               />
             ) : (
-              <div key={entry.roleType} className="flex h-full flex-col rounded-xl border border-dashed bg-muted/20 p-4">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+              <div key={entry.roleType} className="flex h-full min-w-0 flex-col rounded-xl border border-dashed bg-muted/20 p-4">
+                <div className="break-words text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                   {entry.roleTypeLabel}
                 </div>
                 <div className="mt-4 text-sm font-medium text-foreground">

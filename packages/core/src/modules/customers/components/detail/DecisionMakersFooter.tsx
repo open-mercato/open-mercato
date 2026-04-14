@@ -19,13 +19,13 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
 
   return (
     <div className="sticky bottom-0 flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex items-start gap-3 min-w-0">
-        <Lightbulb className="size-4 text-muted-foreground shrink-0 mt-0.5" />
+      <div className="flex min-w-0 items-start gap-3">
+        <Lightbulb className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
           <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             {t('customers.people.decisionMakers.label', 'Decision Makers')}
           </p>
-          <p className="text-sm font-medium truncate">
+          <p className="break-words text-sm font-medium">
             {t('customers.people.decisionMakers.count', '{count} key people', { count: names.length })}:
             {' '}{names.join(' \u00b7 ')}
           </p>

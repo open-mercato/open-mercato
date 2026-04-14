@@ -179,11 +179,11 @@ function BillingRow({
   t: ReturnType<typeof useT>
 }) {
   return (
-    <div className="flex items-center gap-1.5 min-h-[22px]">
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 min-h-[22px]">
       <Icon className="size-[11px] shrink-0 text-muted-foreground" />
       <span className="text-[11px] text-muted-foreground font-medium shrink-0">{label}:</span>
-      {showDottedLine && <div className="flex-1 border-b border-dotted border-border/50 mx-1" />}
-      <span className="text-[12px] text-foreground font-medium shrink-0">{value}</span>
+      {showDottedLine && <div className="mx-1 hidden flex-1 border-b border-dotted border-border/50 sm:block" />}
+      <span className="min-w-0 break-words text-[12px] font-medium text-foreground">{value}</span>
       {showCopy && (
         <IconButton
           type="button"
@@ -225,30 +225,34 @@ export function CompanyCard({
       : null
 
   return (
-    <div className="rounded-[18px] border border-border/60 bg-card overflow-hidden">
+    <div className="min-w-0 overflow-hidden rounded-[18px] border border-border/60 bg-card">
       {/* Header */}
-      <div className="py-5 px-[22px] flex items-center gap-3">
-        <div className="size-12 rounded-[14px] bg-muted flex items-center justify-center shrink-0">
-          <Building2 className="size-5 text-muted-foreground" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-base font-bold truncate">{data.displayName}</span>
-            {data.isPrimary && (
-              <Badge variant="default" className="rounded-[4px] text-[10px] font-bold uppercase tracking-wider px-1.5 py-0">
-                PRIMARY
-              </Badge>
+      <div className="flex flex-col gap-3 px-[22px] py-5 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className="flex size-12 shrink-0 items-center justify-center rounded-[14px] bg-muted">
+            <Building2 className="size-5 text-muted-foreground" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="break-words text-base font-bold">{data.displayName}</span>
+              {data.isPrimary && (
+                <Badge variant="default" className="rounded-[4px] px-1.5 py-0 text-[10px] font-bold uppercase tracking-wider">
+                  PRIMARY
+                </Badge>
+              )}
+            </div>
+            {data.subtitle && (
+              <p className="break-words text-sm text-muted-foreground">{data.subtitle}</p>
             )}
           </div>
-          {data.subtitle && (
-            <p className="text-sm text-muted-foreground truncate">{data.subtitle}</p>
-          )}
         </div>
-        <Link href={`/backend/customers/companies-v2/${data.companyId}`}>
-          <IconButton variant="ghost" size="sm">
-            <ExternalLink className="size-4" />
-          </IconButton>
-        </Link>
+        <div className="self-start sm:self-auto">
+          <Link href={`/backend/customers/companies-v2/${data.companyId}`}>
+            <IconButton variant="ghost" size="sm" type="button">
+              <ExternalLink className="size-4" />
+            </IconButton>
+          </Link>
+        </div>
       </div>
 
       {/* Divider */}
@@ -309,16 +313,16 @@ export function CompanyCard({
         <div className="border-t border-border/60" />
 
         {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3">
-          <div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="min-w-0">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
               {t('customers.companies.detail.activeDeal', 'ACTIVE DEAL')}
             </span>
-            <span className="text-[12px] text-foreground font-medium flex items-center gap-1">
+            <span className="flex min-w-0 items-center gap-1 text-[12px] font-medium text-foreground">
               {data.activeDeal ? (
                 <>
                   <Building2 className="size-3 shrink-0" />
-                  <span className="truncate">
+                  <span className="min-w-0 break-words">
                     {data.activeDeal.title}
                     {dealValue ? ` · ${dealValue}` : ''}
                   </span>
@@ -328,11 +332,11 @@ export function CompanyCard({
               )}
             </span>
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
               {t('customers.companies.detail.lastContact', 'LAST CONTACT')}
             </span>
-            <span className="text-[12px] text-foreground font-medium flex items-center gap-1">
+            <span className="flex min-w-0 items-center gap-1 break-words text-[12px] font-medium text-foreground">
               {data.lastContactAt ? (
                 <>
                   <Clock className="size-3 shrink-0" />
@@ -343,11 +347,11 @@ export function CompanyCard({
               )}
             </span>
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
               CLV
             </span>
-            <span className="text-[12px] text-foreground font-medium flex items-center gap-1">
+            <span className="flex min-w-0 items-center gap-1 break-words text-[12px] font-medium text-foreground">
               {data.clv ? (
                 <>
                   <TrendingUp className="size-3 shrink-0" />
