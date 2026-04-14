@@ -24,7 +24,7 @@ describe('CompanyDetailHeader', () => {
     invalidateCustomerDictionaryMock.mockReset()
   })
 
-  it('opens the company record tags dialog from the manage tags action', () => {
+  it('opens the company record tags dialog from the edit tags action', () => {
     renderWithProviders(
       <CompanyDetailHeader
         data={{
@@ -58,7 +58,7 @@ describe('CompanyDetailHeader', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Manage tags' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit tags' }))
 
     expect(screen.getByText('company-tags-dialog')).toBeInTheDocument()
   })

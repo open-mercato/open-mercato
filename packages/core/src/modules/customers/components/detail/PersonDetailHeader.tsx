@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Phone, Mail, Building2, Trash2, MoreHorizontal, Settings, Plus } from 'lucide-react'
+import { Phone, Mail, Building2, Trash2, MoreHorizontal, Pencil, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -229,8 +229,8 @@ export function PersonDetailHeader({
               className="h-auto rounded-[4px] px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
-              <Settings className="mr-1 size-3" />
-              {t('customers.people.detail.actions.manageTags', 'Manage tags')}
+              <Pencil className="mr-1 size-3" />
+              {t('customers.people.detail.actions.manageTags', 'Edit tags')}
             </Button>
           </div>
         </div>
@@ -277,6 +277,8 @@ export function PersonDetailHeader({
           source: person.source,
           temperature: person.temperature,
           renewalQuarter: person.renewalQuarter,
+          jobTitle: data.profile?.jobTitle ?? null,
+          tags: data.tags,
         }}
         onSaved={() => {
           // Invalidate dictionary caches so header badges pick up fresh colors

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Phone, Mail, Trash2, Building2, Globe, MoreHorizontal, Settings, MapPin } from 'lucide-react'
+import { Phone, Mail, Trash2, Building2, Globe, MoreHorizontal, Pencil, MapPin } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -170,8 +170,8 @@ export function CompanyDetailHeader({
               className="h-auto rounded-[4px] px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
-              <Settings className="mr-1 size-3" />
-              {t('customers.companies.detail.actions.manageTags', 'Manage tags')}
+              <Pencil className="mr-1 size-3" />
+              {t('customers.companies.detail.actions.manageTags', 'Edit tags')}
             </Button>
           </div>
         </div>
@@ -222,6 +222,8 @@ export function CompanyDetailHeader({
           source: company.source,
           temperature: company.temperature,
           renewalQuarter: company.renewalQuarter,
+          industry: profile?.industry ?? null,
+          tags: data.tags,
         }}
         onSaved={() => {
           void invalidateCustomerDictionary(queryClient, 'statuses')

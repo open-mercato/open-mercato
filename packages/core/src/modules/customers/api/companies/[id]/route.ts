@@ -12,6 +12,8 @@ import {
   CustomerActivity,
   CustomerTagAssignment,
   CustomerTag,
+  CustomerLabelAssignment,
+  CustomerLabel,
   CustomerDealCompanyLink,
   CustomerDeal,
   CustomerTodoLink,
@@ -347,6 +349,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     { populate: ['tag'] },
     { tenantId: company.tenantId ?? auth.tenantId ?? null, organizationId: company.organizationId ?? auth.orgId ?? null },
   )
+  const labelAssignments = await em.find(
+    CustomerLabelAssignment,
+    { entity: company.id },
+    { populate: ['label'] },
+  )
 
   const comments = includeComments
     ? await em.find(CustomerComment, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
@@ -587,7 +594,16 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         }
       : null,
     customFields,
-    tags: serializeTags(tagAssignments),
+    tags: [
+      ...serializeTags(tagAssignments),
+      ...labelAssignments
+        .map((assignment) => {
+          const label = assignment.label as CustomerLabel | string | null
+          if (!label || typeof label === 'string') return null
+          return { id: label.id, label: label.label, color: null }
+        })
+        .filter((tag): tag is { id: string; label: string; color: null } => tag !== null),
+    ],
     addresses: includeAddresses
       ? addresses.map((address) => ({
           id: address.id,
