@@ -1,9 +1,20 @@
 /** @jest-environment node */
 
+import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesQuote, SalesOrder } from '@open-mercato/core/modules/sales/data/entities'
+
+type ConvertToOrderInput = { quoteId: string; orderId?: string; orderNumber?: string }
+type ConvertToOrderResult = { orderId: string }
+type QuoteStub = {
+  id: string
+  organizationId: string
+  tenantId: string
+  quoteNumber: string
+  [key: string]: unknown
+}
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -39,9 +50,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn().mockResolvedValue(null),
 }))
 
-const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockedFindOneWithDecryption = jest.mocked(findOneWithDecryption)
 
-function buildQuote(overrides?: Partial<Record<string, unknown>>) {
+function buildQuote(overrides?: Partial<Record<string, unknown>>): QuoteStub {
   return {
     id: '22222222-2222-4222-8222-222222222222',
     organizationId: '11111111-1111-4111-8111-111111111111',
@@ -135,24 +146,23 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
     }
   })
 
-  function setupQuoteMocks(quote: ReturnType<typeof buildQuote>) {
+  function setupQuoteMocks(quote: QuoteStub) {
     mockedFindOneWithDecryption.mockImplementation(async (_em, entity) => {
-      if (entity === SalesQuote) return quote as unknown as SalesQuote
+      if (entity === SalesQuote) return quote
       if (entity === SalesOrder) return null
       return null
     })
   }
 
-  function buildCtx() {
+  function buildCtx(): CommandRuntimeContext {
+    const container = createContainer({ injectionMode: InjectionMode.PROXY })
+    container.register({
+      em: asValue(mockEm),
+      salesDocumentNumberGenerator: asValue(mockGenerator),
+      eventBus: asValue({ emit: jest.fn() }),
+    })
     return {
-      container: {
-        resolve: (token: string) => {
-          if (token === 'em') return mockEm
-          if (token === 'salesDocumentNumberGenerator') return mockGenerator
-          if (token === 'eventBus') return { emit: jest.fn() }
-          return null
-        },
-      },
+      container,
       auth: {
         sub: 'user-1',
         tenantId: '00000000-0000-4000-8000-000000000000',
@@ -165,7 +175,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
   }
 
   it('generates a new ORDER-prefixed number instead of copying the quote number', async () => {
-    const handler = commandRegistry.get<any, any>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')
     expect(handler).toBeTruthy()
 
     const quote = buildQuote()
@@ -173,7 +183,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
 
     const result = await handler!.execute(
       { quoteId: quote.id },
-      buildCtx() as unknown as CommandRuntimeContext,
+      buildCtx(),
     )
 
     expect(result).toEqual({ orderId: quote.id })
@@ -193,7 +203,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
   })
 
   it('does not use the quote number as the order number', async () => {
-    const handler = commandRegistry.get<any, any>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')
     expect(handler).toBeTruthy()
 
     const quote = buildQuote({ quoteNumber: 'QUOTE-20260101-99999' })
@@ -205,7 +215,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
       sequence: 42,
     })
 
-    await handler!.execute({ quoteId: quote.id }, buildCtx() as unknown as CommandRuntimeContext)
+    await handler!.execute({ quoteId: quote.id }, buildCtx())
 
     const orderEntity = createdEntities.find(
       (entity) => 'orderNumber' in entity,
@@ -216,7 +226,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
   })
 
   it('allows explicit orderNumber override from the caller', async () => {
-    const handler = commandRegistry.get<any, any>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>('sales.quotes.convert_to_order')
     expect(handler).toBeTruthy()
 
     const quote = buildQuote()
@@ -224,7 +234,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
 
     await handler!.execute(
       { quoteId: quote.id, orderNumber: 'CUSTOM-001' },
-      buildCtx() as unknown as CommandRuntimeContext,
+      buildCtx(),
     )
 
     const orderEntity = createdEntities.find(

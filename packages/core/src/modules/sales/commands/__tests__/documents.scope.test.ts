@@ -40,9 +40,13 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+type EmWithFindOne = {
+  findOne: (entityClass: unknown, where: unknown) => Promise<unknown>
+}
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
-  findOneWithDecryption: jest.fn(async (em: any, entityClass: unknown, where: unknown) => {
+  findOneWithDecryption: jest.fn(async (em: EmWithFindOne, entityClass: unknown, where: unknown) => {
     return em.findOne(entityClass, where)
   }),
 }))
@@ -239,8 +243,8 @@ describe('SalesDocumentAddress query scoping', () => {
   })
 
   beforeEach(() => {
-    (findWithDecryption as jest.Mock).mockClear()
-    ;(findOneWithDecryption as jest.Mock).mockClear()
+    jest.mocked(findWithDecryption).mockClear()
+    jest.mocked(findOneWithDecryption).mockClear()
   })
 
   describe('deleteQuoteCommand.execute — scopes SalesDocumentAddress by quote tenant', () => {

@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { LockMode } from '@mikro-orm/core'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -14,6 +15,23 @@ import {
   SalesQuoteAdjustment,
   SalesQuoteLine,
 } from '@open-mercato/core/modules/sales/data/entities'
+
+type ConvertToOrderInput = { quoteId: string; orderId?: string; orderNumber?: string }
+type ConvertToOrderResult = { orderId: string }
+
+function readWhereId(where: unknown): unknown {
+  if (where && typeof where === 'object' && 'id' in where) {
+    return where.id
+  }
+  return undefined
+}
+
+function readLockOption(options: unknown): { lockMode?: unknown } | null {
+  if (options && typeof options === 'object' && 'lockMode' in options) {
+    return { lockMode: options.lockMode }
+  }
+  return null
+}
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
@@ -46,8 +64,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
-const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
-const mockedFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
+const mockedFindOneWithDecryption = jest.mocked(findOneWithDecryption)
+const mockedFindWithDecryption = jest.mocked(findWithDecryption)
 
 describe('sales.quotes.convert_to_order', () => {
   beforeAll(async () => {
@@ -56,7 +74,9 @@ describe('sales.quotes.convert_to_order', () => {
   })
 
   test('serializes concurrent conversions on the same quote with a pessimistic lock', async () => {
-    const handler = commandRegistry.get<any, any>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>(
+      'sales.quotes.convert_to_order',
+    )
     expect(handler).toBeTruthy()
 
     const quote = {
@@ -171,21 +191,24 @@ describe('sales.quotes.convert_to_order', () => {
     }
     em.fork.mockReturnValue(em)
 
-    mockedFindOneWithDecryption.mockImplementation(async (_em, entity, where: any, options?: any) => {
+    mockedFindOneWithDecryption.mockImplementation(async (_em, entity, where, options) => {
+      const id = readWhereId(where)
       if (entity === SalesQuote) {
-        lockOptions.push(options ?? null)
-        return where.id === quote.id && quoteExists ? quote as unknown as SalesQuote : null
+        lockOptions.push(readLockOption(options))
+        if (id === quote.id && quoteExists) return quote
+        return null
       }
       if (entity === SalesOrder) {
-        return createdOrderIds.includes(where.id as string)
-          ? ({ id: where.id, deletedAt: null } as unknown as SalesOrder)
-          : null
+        if (typeof id === 'string' && createdOrderIds.includes(id)) {
+          return { id, deletedAt: null }
+        }
+        return null
       }
       return null
     })
 
     mockedFindWithDecryption.mockImplementation(async (_em, entity) => {
-      if (entity === SalesQuoteLine) return quoteExists ? ([quoteLine] as unknown as SalesQuoteLine[]) : []
+      if (entity === SalesQuoteLine) return quoteExists ? [quoteLine] : []
       if (entity === SalesQuoteAdjustment) return []
       if (entity === SalesDocumentAddress) return []
       if (entity === SalesNote) return []
@@ -193,23 +216,20 @@ describe('sales.quotes.convert_to_order', () => {
       return []
     })
 
-    const ctx = {
-      container: {
-        resolve: (token: string) => {
-          if (token === 'em') return em
-          if (token === 'salesDocumentNumberGenerator') {
-            return {
-              generate: jest.fn(async () => ({ number: `SO-${createdOrderIds.length + 1}` })),
-            }
-          }
-          return null
-        },
-      },
+    const container = createContainer({ injectionMode: InjectionMode.PROXY })
+    container.register({
+      em: asValue(em),
+      salesDocumentNumberGenerator: asValue({
+        generate: jest.fn(async () => ({ number: `SO-${createdOrderIds.length + 1}` })),
+      }),
+    })
+
+    const ctx: CommandRuntimeContext = {
+      container,
       auth: null,
       organizationScope: null,
       selectedOrganizationId: quote.organizationId,
       organizationIds: [quote.organizationId],
-      request: null,
     }
 
     const first = handler!.execute(
@@ -217,14 +237,14 @@ describe('sales.quotes.convert_to_order', () => {
         quoteId: quote.id,
         orderId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       },
-      ctx as unknown as CommandRuntimeContext,
+      ctx,
     )
     const second = handler!.execute(
       {
         quoteId: quote.id,
         orderId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       },
-      ctx as unknown as CommandRuntimeContext,
+      ctx,
     )
 
     const results = await Promise.allSettled([first, second])
