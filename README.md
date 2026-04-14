@@ -262,6 +262,38 @@ Prerequisites:
 - **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
 - **Microsoft Visual C++ Redistributable 2015+ x64** for native binaries used by the toolchain
 
+To prepare the Windows machine quickly after cloning the repository or downloading the source archive, use the PowerShell helper from an **Administrator PowerShell** window:
+
+```powershell
+.\scripts\setup-windows-dev.ps1
+```
+
+If the repository was downloaded as a ZIP or extracted from an archive that Windows marked as downloaded from the internet, unblock the script first:
+
+```powershell
+Unblock-File .\scripts\setup-windows-dev.ps1
+```
+
+What it does:
+
+- verifies/admin-checks the shell before continuing
+- verifies WSL 2 support and sets the default WSL version to `2`
+- verifies Node.js `24.x`
+- verifies Yarn `4.12.0` via Corepack
+- verifies Git and fixes the current-session `PATH` when Git is installed but not yet visible
+- verifies Visual Studio 2022 Build Tools with the C++ workload
+- verifies Microsoft Visual C++ Redistributable 2015+ x64
+- optionally adds a Microsoft Defender exclusion for the target repo directory
+- writes a transcript log under `%TEMP%\open-mercato-setup\`
+
+What it does not do:
+
+- it does **not** install or start Docker Desktop
+- it does **not** clone the repository
+- it does **not** run `yarn install`, `yarn generate`, `yarn initialize`, or any app bootstrap commands
+
+If you are not running as Administrator, the script exits immediately with a message telling you to reopen PowerShell as Administrator. After the prerequisite pass completes, continue with Docker/infrastructure startup and the normal monorepo bootstrap commands shown below.
+
 Recommended PowerShell commands on a clean Windows machine before `yarn install`:
 
 ```powershell

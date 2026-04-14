@@ -397,11 +397,6 @@ function Show-Summary {
         }
     }
 
-    Write-Host ""
-    Write-Host "Next step:" -ForegroundColor Cyan
-    $repoPath = Join-Path $CloneRoot $RepoName
-    Write-Host "  git clone https://github.com/open-mercato/open-mercato.git `"$repoPath`"" -ForegroundColor White
-
     if ($script:RestartRequired) {
         Write-Host ""
         Write-Host "A system restart is required before continuing with Docker/WSL setup." -ForegroundColor Yellow
