@@ -628,21 +628,25 @@ export default function WebhookDetailPage() {
             columns={deliveryColumns}
             data={deliveries}
             onRowClick={(row) => { void handleDeliveryOpen(row.id) }}
-            rowActions={(row) => (
-              access.canManage && (row.status === 'failed' || row.status === 'expired')
-                ? (
-                  <RowActions
-                    items={[
-                      {
-                        id: 'retry',
-                        label: t('webhooks.deliveries.actions.retry'),
-                        onSelect: () => { void handleRetryDelivery(row.id) },
-                      },
-                    ]}
-                  />
-                )
-                : null
-            )}
+            rowActions={(row) => {
+              const items: Array<{ id: string; label: string; onSelect: () => void }> = [
+                {
+                  id: 'view-details',
+                  label: t('webhooks.deliveries.actions.viewDetails'),
+                  onSelect: () => { void handleDeliveryOpen(row.id) },
+                },
+              ]
+
+              if (access.canManage && (row.status === 'failed' || row.status === 'expired')) {
+                items.push({
+                  id: 'retry',
+                  label: t('webhooks.deliveries.actions.retry'),
+                  onSelect: () => { void handleRetryDelivery(row.id) },
+                })
+              }
+
+              return <RowActions items={items} />
+            }}
             perspective={{ tableId: 'webhooks.deliveries' }}
             pagination={{
               page: deliveryPage,

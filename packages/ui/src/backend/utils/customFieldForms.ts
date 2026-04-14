@@ -68,22 +68,27 @@ export function buildFormFieldFromCustomFieldDef(
   const required = Array.isArray((def as any).validation)
     ? ((def as any).validation as any[]).some((rule) => rule && rule.rule === 'required')
     : false
+  const baseProps = {
+    description: def.description,
+    required,
+    ...(def.defaultValue !== undefined && def.defaultValue !== null ? { defaultValue: def.defaultValue } : {}),
+  }
 
   switch (def.kind) {
     case 'boolean':
-      return { id, label, type: 'checkbox', description: def.description, required }
+      return { id, label, type: 'checkbox', ...baseProps }
     case 'integer':
     case 'float':
-      return { id, label, type: 'number', description: def.description, required }
+      return { id, label, type: 'number', ...baseProps }
     case 'date':
-      return { id, label, type: 'datepicker', description: def.description, required }
+      return { id, label, type: 'datepicker', ...baseProps }
     case 'datetime':
-      return { id, label, type: 'datetime', description: def.description, required }
+      return { id, label, type: 'datetime', ...baseProps }
     case 'multiline': {
       let editor: 'simple' | 'uiw' | 'html' = 'uiw'
       if (def.editor === 'simpleMarkdown') editor = 'simple'
       else if (def.editor === 'htmlRichText') editor = 'html'
-      return { id, label, type: 'richtext', description: def.description, editor, required }
+      return { id, label, type: 'richtext', ...baseProps, editor }
     }
     case 'select':
     case 'currency':
@@ -92,13 +97,12 @@ export function buildFormFieldFromCustomFieldDef(
         id,
         label,
         type: 'select',
-        description: def.description,
+        ...baseProps,
         options: normalizeCustomFieldOptions(def.options || []).map((option) => ({
           value: option.value,
           label: option.label,
         })),
         multiple: !!def.multi,
-        required,
         ...(def.kind === 'currency'
           ? {
               loadOptions: async (query?: string) => {
@@ -118,7 +122,7 @@ export function buildFormFieldFromCustomFieldDef(
       }
     default: {
       if (def.kind === 'text' && def.multi) {
-        const base: any = { id, label, type: 'tags', description: def.description, required }
+        const base: any = { id, label, type: 'tags', ...baseProps }
         const resolvedOptions = normalizeCustomFieldOptions(def.options || [])
         if (resolvedOptions.length > 0) {
           base.options = resolvedOptions.map((option) => ({ value: option.value, label: option.label }))
@@ -135,7 +139,7 @@ export function buildFormFieldFromCustomFieldDef(
         let editor: 'simple' | 'uiw' | 'html' = 'uiw'
         if (def.editor === 'simpleMarkdown') editor = 'simple'
         else if (def.editor === 'htmlRichText') editor = 'html'
-        return { id, label, type: 'richtext', description: def.description, editor, required }
+        return { id, label, type: 'richtext', ...baseProps, editor }
       }
       const input = FieldRegistry.getInput(def.kind)
       if (input) {
@@ -143,12 +147,11 @@ export function buildFormFieldFromCustomFieldDef(
           id,
           label,
           type: 'custom',
-          required,
-          description: def.description,
+          ...baseProps,
           component: (props) => input({ ...props, def }),
         }
       }
-      return { id, label, type: 'text', description: def.description, required }
+      return { id, label, type: 'text', ...baseProps }
     }
   }
 }
