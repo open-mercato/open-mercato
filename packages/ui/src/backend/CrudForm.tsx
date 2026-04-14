@@ -76,6 +76,7 @@ import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { sanitizeHtmlRichText, sanitizeRichTextHref, sanitizeRichTextPasteContent } from './utils/richTextSanitizer'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -3213,9 +3214,10 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
     const el = ref.current
     if (!el) return
     const current = el.innerHTML
-    if (!typingRef.current && current !== value) {
+    const sanitizedValue = sanitizeHtmlRichText(value)
+    if (!typingRef.current && current !== sanitizedValue) {
       applyingExternal.current = true
-      el.innerHTML = value || ''
+      el.innerHTML = sanitizedValue
       requestAnimationFrame(() => { applyingExternal.current = false })
     }
   }, [value])
@@ -3240,6 +3242,16 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
     if (k === 'u') { e.preventDefault(); exec('underline') }
   }
 
+  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const html = e.clipboardData.getData('text/html')
+    const text = e.clipboardData.getData('text/plain')
+    const sanitizedPaste = sanitizeRichTextPasteContent(html, text)
+    if (!sanitizedPaste) return
+
+    e.preventDefault()
+    exec(sanitizedPaste.command, sanitizedPaste.value)
+  }
+
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
@@ -3255,7 +3267,7 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
           className="h-auto px-2 py-0.5 text-xs"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            const url = window.prompt(linkUrlPrompt)?.trim()
+            const url = sanitizeRichTextHref(window.prompt(linkUrlPrompt))
             if (url) exec('createLink', url)
           }}
         >{linkLabel}</Button>
@@ -3266,12 +3278,19 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
         contentEditable
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
         onBlur={() => {
           const el = ref.current
           if (!el) return
           typingRef.current = false
-          onChange(el.innerHTML)
+          const sanitizedValue = sanitizeHtmlRichText(el.innerHTML)
+          if (el.innerHTML !== sanitizedValue) {
+            applyingExternal.current = true
+            el.innerHTML = sanitizedValue
+            requestAnimationFrame(() => { applyingExternal.current = false })
+          }
+          onChange(sanitizedValue)
         }}
       />
     </div>
