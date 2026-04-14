@@ -11,6 +11,7 @@ export type RouteVisibilityContext = { path?: string; auth?: any }
 // Metadata you can export from page.meta.ts or directly from a server page
 export type PageMetadata = {
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: readonly string[]
   // Optional fine-grained feature requirements
   requireFeatures?: readonly string[]
@@ -66,6 +67,7 @@ export type ModuleRoute = {
   pattern?: string
   path?: string
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   // Optional fine-grained feature requirements
   requireFeatures?: string[]
@@ -106,6 +108,7 @@ export type ModuleApiRouteFile = {
   path: string
   handlers: Partial<Record<HttpMethod, ApiHandler>>
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   // Optional fine-grained feature requirements for the entire route file
   // Note: per-method feature requirements should be expressed inside metadata

@@ -35,7 +35,7 @@ import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolic
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
-import crypto from 'node:crypto'
+import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
 type SerializedUser = {
   email: string
@@ -336,13 +336,14 @@ async function sendInviteToUser(
   em: EntityManager,
   user: User,
 ): Promise<{ emailSent: boolean }> {
-  const token = crypto.randomBytes(32).toString('hex')
+  const rawToken = generateAuthToken()
+  const tokenHash = hashAuthToken(rawToken)
   const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
-  const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
+  const row = em.create(PasswordReset, { user, token: tokenHash, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
   const base = resolveInviteBaseUrl()
-  const inviteUrl = `${base}/reset/${token}`
+  const inviteUrl = `${base}/reset/${rawToken}`
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.invite.subject', 'You have been invited')

@@ -85,6 +85,14 @@ packages/events/src/
 
 Workers in `modules/events/workers/` handle async event processing. Follow the standard worker contract: export default handler + `metadata` with `{ queue, id?, concurrency? }`.
 
+## Testing
+
+- Tests inside `packages/events` SHOULD import the public `@open-mercato/events/...` API when validating package behavior
+- `tenantId` and `organizationId` in subscriber context are trusted scope inputs from `emit(..., options)` or queued job `options`, not from arbitrary payload fields
+- Add regression tests for both paths:
+  - trusted scope is forwarded when explicitly provided
+  - payload-provided scope is ignored when trusted scope is omitted
+
 ## Cross-Reference
 
 - **Declaring events in a module**: `packages/core/AGENTS.md` → Events

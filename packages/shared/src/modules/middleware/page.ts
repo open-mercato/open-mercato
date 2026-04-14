@@ -4,6 +4,7 @@ export type PageMiddlewareMode = 'frontend' | 'backend'
 
 export type PageRouteMeta = {
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   requireFeatures?: string[]
 }
