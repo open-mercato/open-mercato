@@ -13,6 +13,7 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkRateLimit, getClientIp, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { validateSameOriginMutationRequest } from './originGuard'
+import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -67,18 +68,23 @@ export async function POST(req: Request) {
       transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
     }
 
+    const hashedToken = hashAuthToken(token)
+    const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
+
     const acceptQuote = async (trx: EntityManager) => {
-      const quote = await findOneWithDecryption(
-        trx,
-        SalesQuote,
-        {
-          acceptanceToken: token,
-          ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
-          deletedAt: null,
-        } as any,
-        { lockMode: LockMode.PESSIMISTIC_WRITE },
-        auth?.tenantId ? { tenantId: auth.tenantId } : undefined,
-      )
+      const findQuoteByToken = (acceptanceToken: string) =>
+        findOneWithDecryption(
+          trx,
+          SalesQuote,
+          {
+            acceptanceToken,
+            ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
+            deletedAt: null,
+          },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          tenantScope,
+        )
+      const quote = (await findQuoteByToken(hashedToken)) ?? (await findQuoteByToken(token))
       if (!quote) {
         throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
       }

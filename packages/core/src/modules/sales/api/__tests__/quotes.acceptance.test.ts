@@ -4,6 +4,7 @@ import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quot
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 
@@ -121,8 +122,45 @@ describe('quote send + accept flow', () => {
     expect(res.status).toBe(200)
     expect(quote.status).toBe('sent')
     expect(quote.acceptanceToken).toBeTruthy()
+    // Stored token must be a hash, not a UUID
+    expect(quote.acceptanceToken).toHaveLength(64)
+    expect(quote.acceptanceToken).toMatch(/^[0-9a-f]{64}$/)
     expect(quote.validUntil).toBeInstanceOf(Date)
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  test('accept falls back to raw token lookup for quotes sent before hashing rollout', async () => {
+    const LEGACY_RAW_TOKEN = '77777777-7777-4777-8777-777777777777'
+    const legacyQuote = {
+      id: '66666666-6666-4666-8666-666666666666',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-LEGACY',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+      acceptanceToken: LEGACY_RAW_TOKEN,
+    }
+
+    const seenWhereTokens: Array<string | undefined> = []
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) {
+        seenWhereTokens.push(where?.acceptanceToken)
+        return where?.acceptanceToken === LEGACY_RAW_TOKEN ? legacyQuote : null
+      }
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: 'order-legacy', orderNumber: 'SO-LEGACY', deletedAt: null }
+      return null
+    })
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-legacy' } })
+
+    const res = await acceptQuote(makeAcceptRequest({ token: LEGACY_RAW_TOKEN }))
+    expect(res.status).toBe(200)
+    expect(seenWhereTokens[0]).toBe(hashAuthToken(LEGACY_RAW_TOKEN))
+    expect(seenWhereTokens[1]).toBe(LEGACY_RAW_TOKEN)
+    expect(legacyQuote.status).toBe('confirmed')
   })
 
   test('public view returns expired flag', async () => {

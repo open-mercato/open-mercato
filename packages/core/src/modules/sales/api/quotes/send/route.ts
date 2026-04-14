@@ -16,6 +16,7 @@ import {
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
 import { withScopedPayload } from '../../utils'
+import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { SalesQuote } from '../../../data/entities'
 import { quoteSendSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -164,8 +165,9 @@ export async function POST(req: Request) {
     const validUntil = new Date(now)
     validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
 
+    const rawAcceptanceToken = crypto.randomUUID()
     quote.validUntil = validUntil
-    quote.acceptanceToken = crypto.randomUUID()
+    quote.acceptanceToken = hashAuthToken(rawAcceptanceToken)
     quote.sentAt = now
     quote.status = 'sent'
     quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
@@ -178,7 +180,7 @@ export async function POST(req: Request) {
     await em.flush()
 
     const appUrl = process.env.APP_URL || ''
-    const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${quote.acceptanceToken}` : `/quote/${quote.acceptanceToken}`
+    const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${rawAcceptanceToken}` : `/quote/${rawAcceptanceToken}`
 
     const locale = await detectLocale()
     const validUntilFormatted = validUntil.toLocaleDateString(locale, {
