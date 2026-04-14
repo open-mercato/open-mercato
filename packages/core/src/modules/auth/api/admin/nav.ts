@@ -123,6 +123,8 @@ export async function GET(req: Request) {
   } catch {
     cacheScopeOrganizationId = auth.orgId ?? null
     cacheScopeTenantId = auth.tenantId ?? null
+    selectedOrganizationId = auth.orgId ?? null
+    selectedTenantId = auth.tenantId ?? null
   }
 
   const cacheKey = `nav:sidebar:${locale}:${auth.sub}:${cacheScopeTenantId || 'null'}:${cacheScopeOrganizationId || 'null'}`
