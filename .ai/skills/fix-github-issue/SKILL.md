@@ -11,8 +11,48 @@ Fix a GitHub issue end to end without disturbing the user’s active worktree. S
 
 - `{issueId}` (required) — the GitHub issue number, for example `1234`
 - `{repo}` (optional) — `owner/name`; if omitted, infer from the current git remote
+- `--force` (optional) — bypass the in-progress concurrency check; use when intentionally taking over an issue that another auto-skill or human contributor already claimed
 
 ## Workflow
+
+### 0. In-progress concurrency check (claim the issue)
+
+Auto-skills MUST NOT clobber each other. Before doing anything else, decide whether you may claim this issue.
+
+```bash
+CURRENT_USER=$(gh api user --jq '.login')
+gh issue view {issueId} --repo {owner}/{repo} --json assignees,labels,number,title,comments
+```
+
+An issue is considered **already in progress** when ANY of the following is true:
+
+- It carries the `in-progress` label
+- It has at least one assignee whose login is not `$CURRENT_USER` (a human contributor or another bot has already taken it)
+- A claim comment newer than 30 minutes exists from another actor (look for the `🤖` start marker)
+- An open PR already references it via `Fixes #{issueId}` / `Closes #{issueId}` (handled in step 2 below — but the lock check still applies)
+
+Decision tree:
+
+| State | `--force` set? | Action |
+|-------|---------------|--------|
+| Not in progress | — | Claim and proceed |
+| In progress, current user owns the lock | — | Treat as re-entry; proceed without re-claiming |
+| In progress, someone else owns the lock | no | **STOP**. Ask the user via `AskUserQuestion`: "Issue #{issueId} is in progress (owner: {owner}, signal: {label/assignee/comment}). Override and continue?" Only continue when the user explicitly says yes. |
+| In progress, someone else owns the lock | yes | Post a force-override comment naming the previous owner, then claim and proceed |
+
+Stale lock recovery:
+
+- If the `in-progress` label is older than 60 minutes and the assignee did not push or comment in that window, treat it as expired. Still ask the user before overriding unless `--force` was set.
+
+#### Claim the issue (only after the check above passes)
+
+```bash
+gh issue edit {issueId} --repo {owner}/{repo} --add-assignee "$CURRENT_USER"
+gh issue edit {issueId} --repo {owner}/{repo} --add-label "in-progress"
+gh issue comment {issueId} --repo {owner}/{repo} --body "🤖 \`fix-github-issue\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this issue until the lock is released."
+```
+
+The release step happens at the end of step 11 — the lock MUST be released even on failure. Use a `trap` or finally-block so a crash still clears the label and posts a completion comment.
 
 ### 1. Resolve repository and fetch the issue
 
@@ -181,6 +221,7 @@ Per iteration:
    - `yarn db:generate` when entity schema changed
    - `yarn template:sync` when template-covered files changed
 5. Re-read the diff and remove any accidental scope creep.
+6. Grep changed non-test files for raw `em.findOne(`/`em.find(` — replace with `findOneWithDecryption`/`findWithDecryption`. This is a hard rule from AGENTS.md.
 
 Before publishing, run the full CI/CD verification gate from the `code-review` skill:
 
@@ -206,7 +247,7 @@ You must explicitly verify:
 - no frozen or stable contract surface was broken without the deprecation protocol
 - no API response fields were removed
 - no event IDs, widget spot IDs, ACL IDs, import paths, or DI names were broken
-- no tenant isolation or encryption rules were violated
+- no tenant isolation or encryption rules were violated — grep changed files for raw `em.findOne(`/`em.find(` in production code; every hit must use `findOneWithDecryption`/`findWithDecryption` instead
 - the fix remains minimal and does not introduce unrelated churn
 
 If your self-review finds new issues, fix them and repeat the validation loop.
@@ -245,7 +286,7 @@ Push with tracking:
 git push -u origin "$(git branch --show-current)"
 ```
 
-### 11. Open the PR
+### 11. Open the PR and release the issue lock
 
 Open a PR against `develop` using the current repository.
 
@@ -283,6 +324,21 @@ Fixes #{issueId}
 
 If the issue is in another repository or should not auto-close, replace `Fixes #{issueId}` with a plain issue link.
 
+#### Release the in-progress lock on the issue
+
+Always run this as a finally-block — even if the PR open failed or the run was aborted earlier:
+
+```bash
+gh issue edit {issueId} --repo {owner}/{repo} --remove-label "in-progress"
+gh issue comment {issueId} --repo {owner}/{repo} --body "🤖 \`fix-github-issue\` completed: opened ${PR_URL:-(no PR — fix aborted)}. Lock released."
+```
+
+Rules:
+
+- Keep the issue assignee as the current user — it shows who owns the resulting PR
+- Remove the `in-progress` label so other auto-skills can act on the issue (e.g., a follow-up reviewer)
+- Post a completion comment that links the PR (or notes the abort) so the timeline stays auditable
+
 ### 12. Report back
 
 Summarize:
@@ -299,6 +355,8 @@ If you stopped because a fix already exists, report the existing PR or commit in
 
 ## Rules
 
+- Always run the step 0 in-progress check before any other action; never silently override another actor's claim
+- Always release the `in-progress` lock on the issue at the end of step 11, even if the run fails or is aborted (use a trap/finally)
 - Always check whether the issue is already solved before writing code
 - Always use an isolated worktree
 - Reuse the current linked worktree when already inside one; do not create nested worktrees

@@ -1204,6 +1204,7 @@
   "sales.quotes.accept.adminSubject": "Quote {quoteNumber} accepted → Order {orderNumber}",
   "sales.quotes.accept.expired": "This quote has expired.",
   "sales.quotes.accept.failed": "Failed to accept quote.",
+  "sales.quotes.accept.forbidden": "Cross-site quote acceptance is not allowed.",
   "sales.quotes.accept.invalidStatus": "This quote cannot be accepted in its current status.",
   "sales.quotes.accept.notFound": "Quote not found.",
   "sales.quotes.adjustments.delete": "Delete quote adjustment",

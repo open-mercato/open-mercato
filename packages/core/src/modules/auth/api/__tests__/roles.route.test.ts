@@ -113,7 +113,7 @@ describe('GET /api/auth/roles', () => {
     expect(where.$and).toEqual(expect.arrayContaining([
       { deletedAt: null },
       { name: { $ilike: '%manager%' } },
-      { $or: [{ tenantId: actorTenantId }, { tenantId: null }] },
+      { tenantId: actorTenantId },
       { name: { $ne: 'superadmin' } },
       { id: { $nin: ['323e4567-e89b-12d3-a456-426614174050'] } },
     ]))
@@ -129,7 +129,7 @@ describe('GET /api/auth/roles', () => {
     const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
     expect(where.$and).toEqual(expect.arrayContaining([
       { deletedAt: null },
-      { $or: [{ tenantId: requestedTenantId }, { tenantId: null }] },
+      { tenantId: requestedTenantId },
     ]))
     expect(where.$and).not.toEqual(expect.arrayContaining([{ name: { $ne: 'superadmin' } }]))
     expect(body.isSuperAdmin).toBe(true)

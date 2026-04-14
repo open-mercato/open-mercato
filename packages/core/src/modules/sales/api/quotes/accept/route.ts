@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
@@ -63,56 +64,58 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
 
+    const transactionalEm = em as EntityManager & {
+      transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+    }
+
     const hashedToken = hashAuthToken(token)
     const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
-    const quote =
-      (await findOneWithDecryption(
-        em,
-        SalesQuote,
-        {
-          acceptanceToken: hashedToken,
-          ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
-          deletedAt: null,
-        } as any,
-        undefined,
-        tenantScope,
-      )) ??
-      (await findOneWithDecryption(
-        em,
-        SalesQuote,
-        {
-          acceptanceToken: token,
-          ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
-          deletedAt: null,
-        } as any,
-        undefined,
-        tenantScope,
-      ))
-    if (!quote) {
-      throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
-    }
 
-    const now = new Date()
-    if (quote.validUntil && quote.validUntil.getTime() < now.getTime()) {
-      throw new CrudHttpError(400, { error: translate('sales.quotes.accept.expired', 'This quote has expired.') })
-    }
+    const acceptQuote = async (trx: EntityManager) => {
+      const findQuoteByToken = (acceptanceToken: string) =>
+        findOneWithDecryption(
+          trx,
+          SalesQuote,
+          {
+            acceptanceToken,
+            ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
+            deletedAt: null,
+          },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          tenantScope,
+        )
+      const quote = (await findQuoteByToken(hashedToken)) ?? (await findQuoteByToken(token))
+      if (!quote) {
+        throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
+      }
 
-    if ((quote.status ?? null) !== 'sent') {
-      throw new CrudHttpError(400, {
-        error: translate('sales.quotes.accept.invalidStatus', 'This quote cannot be accepted in its current status.'),
+      const now = new Date()
+      if (quote.validUntil && quote.validUntil.getTime() < now.getTime()) {
+        throw new CrudHttpError(400, { error: translate('sales.quotes.accept.expired', 'This quote has expired.') })
+      }
+
+      if ((quote.status ?? null) !== 'sent') {
+        throw new CrudHttpError(400, {
+          error: translate('sales.quotes.accept.invalidStatus', 'This quote cannot be accepted in its current status.'),
+        })
+      }
+
+      quote.status = 'confirmed'
+      quote.statusEntryId = await resolveStatusEntryIdByValue(trx, {
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        value: 'confirmed',
       })
+      quote.updatedAt = now
+      trx.persist(quote)
+      await trx.flush()
+
+      return quote
     }
 
-    // Mark accepted before conversion so the created order inherits the confirmed status.
-    quote.status = 'confirmed'
-    quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      value: 'confirmed',
-    })
-    quote.updatedAt = now
-    em.persist(quote)
-    await em.flush()
+    const quote = typeof transactionalEm.transactional === 'function'
+      ? await transactionalEm.transactional((trx) => acceptQuote(trx))
+      : await acceptQuote(em)
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx: CommandRuntimeContext = {

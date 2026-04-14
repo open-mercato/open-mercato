@@ -10,8 +10,50 @@ Review a GitHub pull request by number without touching the current worktree. Al
 ## Arguments
 
 - `{prNumber}` (required) — the PR number to review or re-review (for example `1234`)
+- `--force` (optional) — bypass the in-progress concurrency check; use when intentionally taking over a PR that another auto-skill or human already claimed
 
 ## Workflow
+
+### 0. In-progress concurrency check (claim the PR)
+
+Auto-skills MUST NOT clobber each other. Before doing anything else, decide whether you may claim this PR.
+
+```bash
+CURRENT_USER=$(gh api user --jq '.login')
+gh pr view {prNumber} --json assignees,labels,number,title,comments
+```
+
+A PR is considered **already in progress** when ANY of the following is true:
+
+- It carries the `in-progress` label
+- It has at least one assignee whose login is not `$CURRENT_USER`
+- A claim comment newer than 30 minutes exists from another actor (look for the `🤖` start marker)
+
+Decision tree:
+
+| State | `--force` set? | Action |
+|-------|---------------|--------|
+| Not in progress | — | Claim and proceed |
+| In progress, current user owns the lock | — | Treat as re-entry; proceed without re-claiming |
+| In progress, someone else owns the lock | no | **STOP**. Ask the user via `AskUserQuestion`: "PR #{prNumber} is in progress (owner: {owner}, signal: {label/assignee/comment}). Override and continue?" Only continue when the user explicitly says yes. |
+| In progress, someone else owns the lock | yes | Post a force-override comment naming the previous owner, then claim and proceed |
+
+Stale lock recovery:
+
+- If the `in-progress` label is older than 60 minutes and the assignee did not push or comment in that window, treat it as expired. Still ask the user before overriding unless `--force` was set.
+
+#### Claim the PR (only after the check above passes)
+
+```bash
+gh pr edit {prNumber} --add-assignee "$CURRENT_USER"
+
+# Apply the in-progress label via the same GraphQL flow used for pipeline labels
+# (kept atomic with the pipeline label transitions in step 8)
+
+gh pr comment {prNumber} --body "🤖 \`review-pr\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this PR until the lock is released."
+```
+
+The release step happens in step 11 — the lock MUST be released even on failure.
 
 ### 1. Fetch PR metadata and reviewer context
 
@@ -228,6 +270,7 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | New API route file missing `export const openApi` or `export const metadata` | High: required exports for auto-discovery |
 | New subscriber or worker file missing `export const metadata` | High: required exports for auto-discovery |
 | Raw `fetch(` call in UI or backend page code, outside tests | High: must use `apiCall` or `apiCallOrThrow` |
+| New raw `em.findOne(` or `em.find(` in non-test production code (grep the diff: `gh pr diff {prNumber} \| grep "^+" \| grep -v "test\." \| grep -v "__tests__" \| grep "em\.find"`) | High: must use `findOneWithDecryption`/`findWithDecryption` from `@open-mercato/shared/lib/encryption/find` |
 | Behavior change with no corresponding test file in the diff | High: behavior changes must include tests |
 
 #### Medium auto-detections
@@ -239,7 +282,6 @@ Record findings from the patterns below. These are mandatory findings, not optio
 | `alert(` or custom toast instead of `flash()` | Medium: use `flash()` |
 | Hand-written migration SQL file | Medium: never hand-write migrations |
 | Entity schema changed but no migration file in the diff | Medium: run `yarn db:generate` |
-| New raw `em.find` or `em.findOne` usage | Medium: use encryption helpers |
 | Missing explicit tenant scoping in sub-entity queries | Medium: defense in depth |
 | New or modified i18n locale JSON keys not in alphabetical order | Medium: CI i18n-check-sync requires sorted keys — run `yarn i18n:check-sync --fix` or sort manually |
 
@@ -402,7 +444,24 @@ Closing in favor of #{newPrNumber} ({newPrUrl}).
 Credit to @{originalAuthor} for the original implementation. The replacement PR carries the same work forward with the requested fixes so it can merge without waiting on the fork branch.
 ```
 
-### 11. Report back
+### 11. Release the in-progress lock
+
+Always release before the skill exits — even on failure. Use a `trap` or equivalent finally-block so a crash or early stop still clears the lock.
+
+```bash
+# Remove the in-progress label (use the same GraphQL label flow used elsewhere)
+
+gh pr comment {prNumber} --body "🤖 \`review-pr\` completed: ${VERDICT}. Lock released."
+```
+
+Rules:
+
+- Keep the assignee — it shows the human who is responsible for next steps
+- Remove the `in-progress` label
+- Post a completion comment with the verdict (`APPROVED` or `CHANGES REQUESTED`) and a short summary
+- If autofix mode ran, mention how many fix iterations completed
+
+### 12. Report back
 
 Print a concise summary to the user:
 
@@ -422,6 +481,8 @@ If a critical blocker remains that requires human judgment, the summary must des
 
 ## Rules
 
+- Always run the step 0 in-progress check before any other action; never silently override another actor's claim
+- Always release the `in-progress` lock in step 11, even if the run fails or is aborted (use a trap/finally)
 - Always fetch the specific PR from GitHub before acting
 - After posting a changes-requested review, immediately proceed to auto-fix all actionable findings without asking the user — only stop for critical architectural decisions, missing credentials, or BC-breaking scope changes
 - Always use an isolated worktree for checkout, review, validation, and optional fixes

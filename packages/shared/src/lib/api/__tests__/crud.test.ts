@@ -29,11 +29,11 @@ describe('buildScopedWhere', () => {
     expect(base).toEqual({ id: 'entity-1' })
   })
 
-  it('prefers organizationIds and collapses them to scalar or $in filters after sanitizing empty values', () => {
+  it('prefers organizationIds and collapses them to scalar or $in filters after trimming and sanitizing empty values', () => {
     expect(
       buildScopedWhere(
         { id: 'entity-1' },
-        { organizationId: 'org-ignored', organizationIds: ['org-1'], tenantId: 'tenant-1' }
+        { organizationId: 'org-ignored', organizationIds: [' org-1 '], tenantId: 'tenant-1' }
       )
     ).toEqual({
       id: 'entity-1',
@@ -45,7 +45,7 @@ describe('buildScopedWhere', () => {
     expect(
       buildScopedWhere(
         { id: 'entity-1' },
-        { organizationIds: ['org-1', '', 'org-2'], tenantId: 'tenant-1' }
+        { organizationIds: [' org-1 ', '   ', '', 'org-2  '], tenantId: 'tenant-1' }
       )
     ).toEqual({
       id: 'entity-1',

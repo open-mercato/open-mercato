@@ -1,9 +1,9 @@
 "use client"
 import * as React from 'react'
-import { Search, GripVertical, X, ChevronDown } from 'lucide-react'
+import { Search, GripVertical, X, ChevronRight } from 'lucide-react'
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
-import { Checkbox } from '../../primitives/checkbox'
+import { Switch } from '../../primitives/switch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   DndContext,
@@ -30,15 +30,18 @@ export type ColumnChooserField = {
   alwaysVisible?: boolean
 }
 
-export type ColumnChooserPanelProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+export type ColumnChooserSectionProps = {
   availableColumns: ColumnChooserField[]
   visibleColumnKeys: string[]
   columnOrder: string[]
   onToggleColumn: (key: string) => void
   onReorderColumns: (newOrder: string[]) => void
   dndContextId?: string
+}
+
+export type ColumnChooserPanelProps = ColumnChooserSectionProps & {
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }
 
 function SortableColumnItem({
@@ -72,29 +75,28 @@ function SortableColumnItem({
       <span className="cursor-grab text-muted-foreground" {...attributes} {...listeners}>
         <GripVertical className="size-4" />
       </span>
-      <Checkbox
+      <span className="truncate flex-1 min-w-0">{column.label}</span>
+      <Switch
         checked
         disabled={column.alwaysVisible}
         onCheckedChange={() => onToggle(column.key)}
+        className="shrink-0 scale-90"
       />
-      <span className="truncate">{column.label}</span>
     </div>
   )
 }
 
-export function ColumnChooserPanel({
-  open,
-  onOpenChange,
+export function ColumnChooserSection({
   availableColumns,
   visibleColumnKeys,
   columnOrder,
   onToggleColumn,
   onReorderColumns,
   dndContextId = 'column-chooser',
-}: ColumnChooserPanelProps) {
+}: ColumnChooserSectionProps) {
   const t = useT()
   const [searchQuery, setSearchQuery] = React.useState('')
-  const [collapsedGroups, setCollapsedGroups] = React.useState<Set<string>>(new Set())
+  const [expandedGroups, setExpandedGroups] = React.useState<Set<string>>(new Set())
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -114,8 +116,10 @@ export function ColumnChooserPanel({
         ordered.push(col)
       }
     }
-    return ordered
-  }, [availableColumns, visibleSet, columnOrder])
+    if (!searchQuery) return ordered
+    const lowerQuery = searchQuery.toLowerCase()
+    return ordered.filter((c) => c.label.toLowerCase().includes(lowerQuery))
+  }, [availableColumns, visibleSet, columnOrder, searchQuery])
 
   const groupedAvailable = React.useMemo(() => {
     const lowerQuery = searchQuery.toLowerCase()
@@ -134,7 +138,7 @@ export function ColumnChooserPanel({
   }, [availableColumns, searchQuery, visibleSet, t])
 
   const toggleGroup = React.useCallback((group: string) => {
-    setCollapsedGroups((prev) => {
+    setExpandedGroups((prev) => {
       const next = new Set(prev)
       if (next.has(group)) next.delete(group)
       else next.add(group)
@@ -154,8 +158,123 @@ export function ColumnChooserPanel({
     onReorderColumns(reordered.map((c) => c.key))
   }, [selectedColumns, onReorderColumns])
 
-  if (!open) return null
+  const handleHideAll = React.useCallback(() => {
+    for (const col of selectedColumns) {
+      if (!col.alwaysVisible) onToggleColumn(col.key)
+    }
+  }, [selectedColumns, onToggleColumn])
 
+  return (
+    <div className="flex flex-col">
+      <div className="px-4 py-3 border-t">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <input
+            type="text"
+            className="w-full rounded border bg-background pl-8 pr-2 py-2 text-sm"
+            placeholder={t('ui.columnChooser.search', 'Search columns...')}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div>
+        {selectedColumns.length > 0 ? (
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-baseline gap-2">
+                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {t('ui.columnChooser.shown', 'Shown')}
+                </div>
+                <span className="text-xs text-muted-foreground">
+                  {selectedColumns.length}/{availableColumns.length}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto px-0 text-sm text-muted-foreground hover:text-foreground"
+                onClick={handleHideAll}
+              >
+                {t('ui.columnChooser.hideAll', 'Hide all')}
+              </Button>
+            </div>
+            <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={selectedColumns.map((c) => c.key)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {selectedColumns.map((col) => (
+                    <SortableColumnItem key={col.key} column={col} onToggle={onToggleColumn} />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
+        ) : null}
+
+        <div className="border-t px-4 py-3 mt-4 mb-4">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-3">
+            {t('ui.columnChooser.available', 'Available columns')}
+          </div>
+          {Array.from(groupedAvailable.entries()).map(([group, columns]) => {
+            const isCollapsed = !searchQuery && !expandedGroups.has(group)
+            return (
+              <div key={group} className="mb-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start gap-2 h-auto px-1 py-2 text-xs font-medium uppercase text-muted-foreground"
+                  onClick={() => toggleGroup(group)}
+                >
+                  <ChevronRight className={`size-4 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} />
+                  <span>{group}</span>
+                </Button>
+                {!isCollapsed ? (
+                  <div className="space-y-2 mt-2">
+                    {columns.map((col) => (
+                      <div
+                        key={col.key}
+                        className="flex items-center gap-2 rounded pl-7 pr-2 py-1.5 text-sm hover:bg-muted/50 cursor-pointer"
+                        onClick={() => { if (!col.alwaysVisible) onToggleColumn(col.key) }}
+                      >
+                        <span className="truncate flex-1 min-w-0">{col.label}</span>
+                        <Switch
+                          checked={false}
+                          disabled={col.alwaysVisible}
+                          onCheckedChange={() => onToggleColumn(col.key)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="shrink-0 scale-90"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function ColumnChooserPanel({
+  open,
+  onOpenChange,
+  ...sectionProps
+}: ColumnChooserPanelProps) {
+  const t = useT()
+  React.useEffect(() => {
+    if (!open) return
+    if (typeof document === 'undefined') return
+    document.body.dataset.columnChooserOpen = 'true'
+    return () => {
+      delete document.body.dataset.columnChooserOpen
+    }
+  }, [open])
+  if (!open) return null
   return (
     <div className="fixed inset-y-0 right-0 z-50 w-80 border-l bg-background shadow-lg flex flex-col">
       <div className="flex items-center justify-between border-b px-4 py-3">
@@ -166,75 +285,8 @@ export function ColumnChooserPanel({
           <X className="size-4" />
         </IconButton>
       </div>
-
-      <div className="px-4 py-2 border-b">
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            type="text"
-            className="w-full rounded border bg-background pl-8 pr-2 py-1.5 text-sm"
-            placeholder={t('ui.columnChooser.search', 'Search columns...')}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
-        </div>
-      </div>
-
       <div className="flex-1 overflow-auto">
-        {selectedColumns.length > 0 ? (
-          <div className="border-b px-4 py-2">
-            <div className="text-xs font-medium uppercase text-muted-foreground mb-2">
-              {t('ui.columnChooser.selected', 'Selected columns')}
-            </div>
-            <DndContext id={dndContextId} sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={selectedColumns.map((c) => c.key)} strategy={verticalListSortingStrategy}>
-                {selectedColumns.map((col) => (
-                  <SortableColumnItem key={col.key} column={col} onToggle={onToggleColumn} />
-                ))}
-              </SortableContext>
-            </DndContext>
-          </div>
-        ) : null}
-
-        <div className="px-4 py-2">
-          <div className="text-xs font-medium uppercase text-muted-foreground mb-2">
-            {t('ui.columnChooser.available', 'Available columns')}
-          </div>
-          {Array.from(groupedAvailable.entries()).map(([group, columns]) => {
-            const isCollapsed = collapsedGroups.has(group)
-            return (
-              <div key={group} className="mb-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-between h-auto px-1 py-1 text-xs font-medium"
-                  onClick={() => toggleGroup(group)}
-                >
-                  <span>{group}</span>
-                  <ChevronDown className={`size-3 transition-transform ${isCollapsed ? '' : 'rotate-180'}`} />
-                </Button>
-                {!isCollapsed ? (
-                  <div className="space-y-0.5 mt-1">
-                    {columns.map((col) => (
-                      <label
-                        key={col.key}
-                        className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-muted/50 cursor-pointer"
-                      >
-                        <Checkbox
-                          checked={visibleSet.has(col.key)}
-                          disabled={col.alwaysVisible}
-                          onCheckedChange={() => onToggleColumn(col.key)}
-                        />
-                        <span className="truncate">{col.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            )
-          })}
-        </div>
+        <ColumnChooserSection {...sectionProps} />
       </div>
     </div>
   )
