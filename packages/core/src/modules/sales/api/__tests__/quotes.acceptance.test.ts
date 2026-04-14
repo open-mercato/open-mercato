@@ -10,12 +10,13 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
-const mockEm = {
+const mockEm: Record<string, jest.Mock> = {
   fork: jest.fn(),
   findOne: jest.fn(),
   find: jest.fn(),
   persist: jest.fn(),
   flush: jest.fn(),
+  transactional: jest.fn().mockImplementation(async (callback: (trx: any) => Promise<unknown>) => callback(mockEm)),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -535,5 +536,60 @@ describe('quote editing invalidates sent token', () => {
     expect(quote.acceptanceToken).toBeNull()
     expect(quote.sentAt).toBeNull()
     expect(quote.status).toBe('draft')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Regression: quote double-acceptance prevention — no non-transactional fallback (issue #1414)
+// ---------------------------------------------------------------------------
+
+describe('accept - always uses em.transactional (no fallback)', () => {
+  const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-0000000014a0'
+
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    mockEm.fork.mockReturnValue(mockEm)
+    mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getCachedRateLimiterService } = await import('@open-mercato/core/bootstrap')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
+    ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
+  })
+
+  test('accept calls em.transactional unconditionally — no non-transactional fallback path', async () => {
+    const quote = {
+      id: '99999999-9999-4999-8999-999999999999',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-TX-1',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+
+    let transactionalUsed = false
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+      transactionalUsed = true
+      return callback(mockEm)
+    }) as any
+
+    mockEm.findOne.mockImplementation(async (cls: any) => {
+      if (cls === SalesQuote) return quote
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: 'order-tx-1', orderNumber: 'SO-TX-1', deletedAt: null }
+      return null
+    })
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-tx-1' } })
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(200)
+    expect(transactionalUsed).toBe(true)
+    expect(mockEm.findOne).not.toHaveBeenCalledWith(
+      SalesQuote,
+      expect.anything(),
+      expect.not.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE })
+    )
   })
 })
