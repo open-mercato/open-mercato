@@ -79,6 +79,7 @@
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
     "test:create-app": "tsx scripts/test-create-app.ts",
     "test:create-app:integration": "tsx scripts/test-create-app-integration.ts",
+    "test:scripts": "node --test scripts/__tests__/*.test.mjs",
     "test:integration": "cross-env ENABLE_CRUD_API_CACHE=true npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "test:integration:report": "npx playwright show-report .ai/qa/test-results/html",
     "test:integration:coverage": "yarn mercato test:integration:coverage",

@@ -58,6 +58,9 @@ jobs:
       - name: Test
         run: yarn test
 
+      - name: Test scripts
+        run: yarn test:scripts
+
       - name: Build
         run: yarn build:app
 

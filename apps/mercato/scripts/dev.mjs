@@ -22,6 +22,21 @@ function resolveSplashHelpersImport() {
   throw new Error('Unable to resolve dev splash helpers module')
 }
 
+function resolveSpawnUtilsImport() {
+  const candidates = [
+    new URL('./dev-spawn-utils.mjs', import.meta.url),
+    new URL('../../../scripts/dev-spawn-utils.mjs', import.meta.url),
+  ]
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(fileURLToPath(candidate))) {
+      return candidate.href
+    }
+  }
+
+  throw new Error('Unable to resolve dev spawn utils module')
+}
+
 function isEnabledEnvFlag(value) {
   if (typeof value !== 'string') return false
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase())
@@ -40,6 +55,7 @@ const {
   stripAnsi,
   wrapListLines,
 } = await import(resolveSplashHelpersImport())
+const { resolveSpawnCommand } = await import(resolveSpawnUtilsImport())
 
 const command = process.platform === 'win32' ? 'mercato.cmd' : 'mercato'
 const classic = process.argv.includes('--classic') || isEnabledEnvFlag(process.env.OM_DEV_CLASSIC)
@@ -363,13 +379,15 @@ function looksLikeFailure(line) {
 }
 
 function spawnMercato(args) {
-  const child = spawn(command, args, {
+  const resolvedSpawn = resolveSpawnCommand(command, args)
+  const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     stdio: rawPassthrough ? 'inherit' : 'pipe',
     env: {
       ...process.env,
       OM_CLI_QUIET: rawPassthrough ? process.env.OM_CLI_QUIET : '1',
       DOTENV_CONFIG_QUIET: rawPassthrough ? process.env.DOTENV_CONFIG_QUIET : 'true',
     },
+    ...resolvedSpawn.spawnOptions,
   })
 
   children.add(child)
