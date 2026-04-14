@@ -12,6 +12,10 @@ import {
   DELETE as deleteDefinition,
 } from '../definitions/[id]/route'
 import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import {
+  expectListHandlerOmitsOrganizationForWildcardScope,
+  expectListHandlerScopesToFilterIds,
+} from './helpers/orgScopeAssertions'
 
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -224,40 +228,26 @@ describe('Workflow Definitions API', () => {
 
     test('should scope across all permitted orgs when filterIds has multiple entries', async () => {
       const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
-      resolveOrganizationScopeForRequest.mockResolvedValue({
-        selectedId: null,
-        filterIds: ['org-a', 'org-b'],
+      await expectListHandlerScopesToFilterIds({
+        Entity: WorkflowDefinition,
+        findAndCount: mockEm.findAndCount,
+        resolveScope: resolveOrganizationScopeForRequest,
+        runHandler: () => listDefinitions(new NextRequest('http://localhost/api/workflows/definitions')),
+        tenantId: testTenantId,
+        extraWhere: { deletedAt: null },
       })
-      mockEm.findAndCount.mockResolvedValue([[], 0])
-
-      const request = new NextRequest('http://localhost/api/workflows/definitions')
-      await listDefinitions(request)
-
-      expect(mockEm.findAndCount).toHaveBeenCalledWith(
-        WorkflowDefinition,
-        expect.objectContaining({
-          tenantId: testTenantId,
-          organizationId: { $in: ['org-a', 'org-b'] },
-          deletedAt: null,
-        }),
-        expect.any(Object)
-      )
     })
 
     test('should omit organization filter when scope resolves to wildcard (filterIds null)', async () => {
       const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
-      resolveOrganizationScopeForRequest.mockResolvedValue({
-        selectedId: null,
-        filterIds: null,
+      await expectListHandlerOmitsOrganizationForWildcardScope({
+        Entity: WorkflowDefinition,
+        findAndCount: mockEm.findAndCount,
+        resolveScope: resolveOrganizationScopeForRequest,
+        runHandler: () => listDefinitions(new NextRequest('http://localhost/api/workflows/definitions')),
+        tenantId: testTenantId,
+        extraWhere: { deletedAt: null },
       })
-      mockEm.findAndCount.mockResolvedValue([[], 0])
-
-      const request = new NextRequest('http://localhost/api/workflows/definitions')
-      await listDefinitions(request)
-
-      const callArgs = mockEm.findAndCount.mock.calls[0][1]
-      expect(callArgs).not.toHaveProperty('organizationId')
-      expect(callArgs).toMatchObject({ tenantId: testTenantId, deletedAt: null })
     })
   })
 
