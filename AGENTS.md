@@ -74,6 +74,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
 | Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` |
 | Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/review-pr/SKILL.md` |
+| Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
+| Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
 
 ## Core Principles
 

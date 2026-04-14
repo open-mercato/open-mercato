@@ -89,10 +89,12 @@
     }
   },
   "dependencies": {
-    "rate-limiter-flexible": "^9.0.0"
+    "rate-limiter-flexible": "^9.0.0",
+    "sanitize-html": "^2.17.2"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
+    "@types/sanitize-html": "^2.16.1",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.6"
   },

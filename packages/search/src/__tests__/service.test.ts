@@ -231,6 +231,50 @@ describe('SearchService', () => {
       expect(results).toHaveLength(1)
       expect(results[0].source).toBe('fallback')
     })
+
+    it('should enrich results when navigation metadata is missing even if presenter title exists', async () => {
+      const strategy = createMockStrategy({
+        id: 'test',
+        search: jest.fn().mockResolvedValue([
+          createMockResult({
+            presenter: { title: 'Needs Link' },
+            url: undefined,
+            links: [],
+          }),
+        ]),
+      })
+      const presenterEnricher = jest.fn().mockResolvedValue([
+        createMockResult({
+          presenter: { title: 'Needs Link' },
+          url: '/backend/test/rec-123',
+          links: [{ href: '/backend/test/rec-123/edit', label: 'Edit', kind: 'secondary' }],
+        }),
+      ])
+      const service = new SearchService({
+        strategies: [strategy],
+        defaultStrategies: ['test'],
+        presenterEnricher,
+      })
+
+      const results = await service.search('test', { tenantId: 'tenant-123' })
+
+      expect(presenterEnricher).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            recordId: 'rec-123',
+            presenter: { title: 'Needs Link' },
+            url: undefined,
+            links: [],
+          }),
+        ]),
+        'tenant-123',
+        undefined,
+      )
+      expect(results[0].url).toBe('/backend/test/rec-123')
+      expect(results[0].links).toEqual([
+        { href: '/backend/test/rec-123/edit', label: 'Edit', kind: 'secondary' },
+      ])
+    })
   })
 
   describe('index', () => {
