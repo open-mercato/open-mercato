@@ -6,6 +6,7 @@ import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { findOneWithDecryption, findWithDecryption } from "@open-mercato/shared/lib/encryption/find";
+import { hashAuthToken } from "../../../../../auth/lib/tokenHash";
 import {
   SalesQuote,
   SalesQuoteLine,
@@ -27,10 +28,16 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
     const { token } = paramsSchema.parse(ctx.params ?? {});
     const container = await createRequestContainer();
     const em = container.resolve("em") as EntityManager;
-    const quote = await findOneWithDecryption(em, SalesQuote, {
-      acceptanceToken: token,
-      deletedAt: null,
-    });
+    const hashedToken = hashAuthToken(token);
+    const quote =
+      (await findOneWithDecryption(em, SalesQuote, {
+        acceptanceToken: hashedToken,
+        deletedAt: null,
+      })) ??
+      (await findOneWithDecryption(em, SalesQuote, {
+        acceptanceToken: token,
+        deletedAt: null,
+      }));
     const { translate } = await resolveTranslations();
     if (!quote) {
       throw new CrudHttpError(404, {
