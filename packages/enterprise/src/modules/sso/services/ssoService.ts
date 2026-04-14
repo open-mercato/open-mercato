@@ -128,7 +128,7 @@ export class SsoService {
 
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const sessionExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    const session = await this.authService.createSession(user, sessionExpiresAt)
+    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt)
 
     const token = signJwt({
       sub: String(user.id),
@@ -147,7 +147,7 @@ export class SsoService {
 
     return {
       token,
-      sessionToken: session.token,
+      sessionToken: sessionRefreshToken,
       sessionExpiresAt,
       redirectUrl: flowState.returnUrl || '/backend',
       tenantId: config.tenantId ?? null,
