@@ -75,5 +75,17 @@ describe('LocalLockStrategy', () => {
       expect(result).toEqual({ acquired: false })
       expect(fn).not.toHaveBeenCalled()
     })
+
+    it('should rethrow callback errors after acquiring lock', async () => {
+      ;(mockConnection.execute as any).mockResolvedValue([{ acquired: true }])
+
+      const fnError = new Error('Callback failed')
+      const fn = jest.fn(async () => {
+        throw fnError
+      })
+
+      await expect(strategy.runWithLock('test-key', fn)).rejects.toThrow(fnError)
+      expect(fn).toHaveBeenCalledTimes(1)
+    })
   })
 })

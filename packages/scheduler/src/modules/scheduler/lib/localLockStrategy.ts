@@ -16,6 +16,7 @@ export class LocalLockStrategy {
   async runWithLock<T>(key: string, fn: () => Promise<T>): Promise<{ acquired: boolean; result?: T }> {
     const em = this.em().fork()
     const hash = this.hashString(key)
+    let lockAcquired = false
 
     try {
       return await em.transactional(async (txEm) => {
@@ -26,12 +27,17 @@ export class LocalLockStrategy {
 
         const acquired = result[0]?.acquired === true
         if (!acquired) return { acquired: false }
+        lockAcquired = true
 
         const fnResult = await fn()
         return { acquired: true, result: fnResult }
       })
     } catch (error) {
-      console.error('[scheduler:local] Failed to run with lock:', error)
+      if (lockAcquired) {
+        throw error
+      }
+
+      console.error('[scheduler:local] Failed to acquire lock:', error)
       return { acquired: false }
     }
   }
