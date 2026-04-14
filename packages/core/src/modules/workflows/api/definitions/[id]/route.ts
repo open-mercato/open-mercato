@@ -163,6 +163,33 @@ export async function PUT(
         )
       }
 
+      // Check if an override already exists (including soft-deleted, due to unique constraint on workflowId+tenantId)
+      const existingOverride = await em.findOne(WorkflowDefinition, {
+        workflowId: codeDef.workflowId,
+        tenantId,
+      })
+
+      if (existingOverride) {
+        // Revive if soft-deleted, then apply updates
+        existingOverride.deletedAt = null
+        existingOverride.workflowName = codeDef.workflowName
+        existingOverride.description = codeDef.description
+        existingOverride.version = codeDef.version
+        existingOverride.definition = input.definition ?? codeDef.definition
+        existingOverride.metadata = codeDef.metadata ?? null
+        existingOverride.enabled = input.enabled ?? codeDef.enabled
+        existingOverride.codeWorkflowId = codeDef.workflowId
+        existingOverride.organizationId = organizationId
+        existingOverride.updatedBy = auth.sub
+        existingOverride.updatedAt = new Date()
+        await em.flush()
+
+        return NextResponse.json({
+          data: serializeWorkflowDefinition(existingOverride),
+          message: 'Workflow definition customized successfully',
+        })
+      }
+
       // Create DB override row from code definition + user changes
       const override = em.create(WorkflowDefinition, {
         workflowId: codeDef.workflowId,
