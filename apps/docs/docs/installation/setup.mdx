@@ -105,15 +105,16 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
 
 This is the recommended Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but on Windows it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy watched file reads across the Windows/Linux filesystem boundary.
 
-### One-time bootstrap
+### One-time manual setup
 
-From the repository root, run:
+From PowerShell, run the recommended Windows prerequisite commands manually:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\windows-dev-setup.ps1
+corepack enable
+corepack prepare yarn@stable --activate
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Microsoft.VCRedist.2015+.x64
 ```
-
-This script is intentionally narrow. It does not install Git, Node.js, or Docker Desktop. It only installs or repairs Visual Studio 2022 Build Tools and the Microsoft Visual C++ Redistributable, and adds a Microsoft Defender exclusion for the current repository path. It relaunches itself as Administrator when needed for the Defender step.
 
 ### Prerequisites
 
@@ -127,13 +128,6 @@ This script is intentionally narrow. It does not install Git, Node.js, or Docker
 - **Microsoft Visual C++ Redistributable 2015+ x64** - required for native binaries used by the toolchain.
 - **Docker Desktop with WSL 2 backend** - for PostgreSQL, Redis, and Meilisearch.
 
-If you prefer to do the machine setup manually instead of using the bootstrap script, install these required Windows components before `yarn install`:
-
-```powershell
-winget install Microsoft.VisualStudio.2022.BuildTools
-winget install Microsoft.VCRedist.2015+.x64
-```
-
 If you install Build Tools through the UI, make sure the C++ build tools workload is included. Git, Node.js 24+, Yarn/Corepack, and Docker Desktop must be installed and configured separately before continuing with the monorepo setup.
 
 ### Monorepo flow
@@ -146,7 +140,7 @@ docker compose up -d
 
 The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
 
-The bootstrap script already applies the recommended Microsoft Defender exclusion for the current repository path. If you prefer to do it manually, use:
+Microsoft Defender exclusion is optional, but strongly recommended on Windows because without it repository operations and local development can be noticeably slower. Run it manually in PowerShell if you want the recommended setup:
 
 ```powershell
 Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""

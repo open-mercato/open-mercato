@@ -253,14 +253,6 @@ Note: `yarn initialize` seeds demo data and may abort if users already exist. Fo
 
 On Windows, the recommended workflow for day-to-day monorepo development is **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains available when you explicitly want an isolated, fully containerized environment, but for this repository it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy file watching across the Windows/WSL filesystem boundary.
 
-One-time bootstrap from the repository root:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\windows-dev-setup.ps1
-```
-
-The script is intentionally narrow. It does not install Git, Node.js, or Docker Desktop. It only installs or repairs Visual Studio 2022 Build Tools and the Microsoft Visual C++ Redistributable, and adds a Microsoft Defender exclusion for the current repository path. It relaunches itself as Administrator when needed for the Defender step.
-
 Prerequisites:
 
 - **Node.js 24+**
@@ -270,7 +262,7 @@ Prerequisites:
 - **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
 - **Microsoft Visual C++ Redistributable 2015+ x64** for native binaries used by the toolchain
 
-If you prefer to skip the script entirely, install these Windows-native components before `yarn install`:
+Recommended PowerShell commands on a clean Windows machine before `yarn install`:
 
 ```powershell
 winget install Microsoft.VisualStudio.2022.BuildTools
@@ -287,7 +279,7 @@ docker compose up -d
 
 The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
 
-The bootstrap script already applies the recommended Microsoft Defender exclusion for the current repository path. If you prefer to do it manually, use:
+Microsoft Defender exclusion is optional, but strongly recommended on Windows because without it repository operations and local development can be noticeably slower. Run it manually in PowerShell if you want the recommended setup:
 
 ```powershell
 Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
