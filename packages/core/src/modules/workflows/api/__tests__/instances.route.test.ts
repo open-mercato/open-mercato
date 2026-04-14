@@ -137,7 +137,7 @@ describe('Workflow Instances API', () => {
         WorkflowInstance,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         }),
         expect.any(Object)
       )
@@ -239,6 +239,43 @@ describe('Workflow Instances API', () => {
       const response = await listInstances(request)
 
       expect(response.status).toBe(500)
+    })
+
+    test('should scope across all permitted orgs when filterIds has multiple entries', async () => {
+      const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+      resolveOrganizationScopeForRequest.mockResolvedValue({
+        selectedId: null,
+        filterIds: ['org-a', 'org-b'],
+      })
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances')
+      await listInstances(request)
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowInstance,
+        expect.objectContaining({
+          tenantId: testTenantId,
+          organizationId: { $in: ['org-a', 'org-b'] },
+        }),
+        expect.any(Object)
+      )
+    })
+
+    test('should omit organization filter when scope resolves to wildcard (filterIds null)', async () => {
+      const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+      resolveOrganizationScopeForRequest.mockResolvedValue({
+        selectedId: null,
+        filterIds: null,
+      })
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/instances')
+      await listInstances(request)
+
+      const callArgs = mockEm.findAndCount.mock.calls[0][1]
+      expect(callArgs).not.toHaveProperty('organizationId')
+      expect(callArgs).toMatchObject({ tenantId: testTenantId })
     })
   })
 
@@ -477,7 +514,7 @@ describe('Workflow Instances API', () => {
         expect.objectContaining({
           id: testInstanceId,
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         })
       )
     })
@@ -501,7 +538,7 @@ describe('Workflow Instances API', () => {
         WorkflowInstance,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         })
       )
     })
@@ -790,7 +827,7 @@ describe('Workflow Instances API', () => {
         expect.objectContaining({
           workflowInstanceId: testInstanceId,
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         }),
         expect.objectContaining({
           orderBy: { occurredAt: 'DESC' },
@@ -851,7 +888,7 @@ describe('Workflow Instances API', () => {
         WorkflowInstance,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         })
       )
 
@@ -860,7 +897,7 @@ describe('Workflow Instances API', () => {
         WorkflowEvent,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         }),
         expect.any(Object)
       )

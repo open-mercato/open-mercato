@@ -130,7 +130,7 @@ describe('Workflow Definitions API', () => {
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
           deletedAt: null,
         }),
         expect.any(Object)
@@ -220,6 +220,44 @@ describe('Workflow Definitions API', () => {
       expect(response.status).toBe(500)
       const data = await response.json()
       expect(data.error).toBeDefined()
+    })
+
+    test('should scope across all permitted orgs when filterIds has multiple entries', async () => {
+      const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+      resolveOrganizationScopeForRequest.mockResolvedValue({
+        selectedId: null,
+        filterIds: ['org-a', 'org-b'],
+      })
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions')
+      await listDefinitions(request)
+
+      expect(mockEm.findAndCount).toHaveBeenCalledWith(
+        WorkflowDefinition,
+        expect.objectContaining({
+          tenantId: testTenantId,
+          organizationId: { $in: ['org-a', 'org-b'] },
+          deletedAt: null,
+        }),
+        expect.any(Object)
+      )
+    })
+
+    test('should omit organization filter when scope resolves to wildcard (filterIds null)', async () => {
+      const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+      resolveOrganizationScopeForRequest.mockResolvedValue({
+        selectedId: null,
+        filterIds: null,
+      })
+      mockEm.findAndCount.mockResolvedValue([[], 0])
+
+      const request = new NextRequest('http://localhost/api/workflows/definitions')
+      await listDefinitions(request)
+
+      const callArgs = mockEm.findAndCount.mock.calls[0][1]
+      expect(callArgs).not.toHaveProperty('organizationId')
+      expect(callArgs).toMatchObject({ tenantId: testTenantId, deletedAt: null })
     })
   })
 
@@ -460,7 +498,7 @@ describe('Workflow Definitions API', () => {
         expect.objectContaining({
           id: 'def-1',
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
           deletedAt: null,
         })
       )
@@ -486,7 +524,7 @@ describe('Workflow Definitions API', () => {
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         })
       )
     })
@@ -783,7 +821,7 @@ describe('Workflow Definitions API', () => {
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         }),
         expect.any(Object)
       )
