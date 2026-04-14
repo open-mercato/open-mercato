@@ -3,7 +3,6 @@ param(
     [string]$CloneRoot = "C:\Development\Hackaton\testspeed",
     [string]$RepoName = "open-mercato",
     [switch]$SkipDefenderExclusion,
-    [switch]$SkipDockerStart,
     [switch]$SkipPackageInstalls,
     [string]$LogPath = ""
 )
@@ -48,30 +47,6 @@ function Write-Fail {
     param([string]$Message)
     Write-Host "[FAIL] $Message" -ForegroundColor Red
     throw $Message
-}
-
-function Read-YesNo {
-    param(
-        [Parameter(Mandatory = $true)][string]$Prompt,
-        [bool]$DefaultYes = $true
-    )
-
-    $suffix = if ($DefaultYes) { "[Y/n]" } else { "[y/N]" }
-
-    while ($true) {
-        $response = Read-Host "$Prompt $suffix"
-        if ([string]::IsNullOrWhiteSpace($response)) {
-            return $DefaultYes
-        }
-
-        switch ($response.Trim().ToLowerInvariant()) {
-            "y" { return $true }
-            "yes" { return $true }
-            "n" { return $false }
-            "no" { return $false }
-            default { Write-Warn "Please answer y or n." }
-        }
-    }
 }
 
 function Initialize-Logging {
@@ -382,69 +357,6 @@ function Ensure-VcRedist {
     Ensure-WingetPackage -Id "Microsoft.VCRedist.2015+.x64" -Label "Microsoft Visual C++ Redistributable 2015+ x64"
 }
 
-function Ensure-DockerDesktop {
-    Write-Section "Docker Desktop"
-
-    if (-not (Get-InstalledPackageMatch -Id "Docker.DockerDesktop")) {
-        $shouldInstallDocker = Read-YesNo -Prompt "Docker Desktop is not installed. Install it now?" -DefaultYes $false
-        if (-not $shouldInstallDocker) {
-            Write-Warn "Skipping Docker Desktop installation at user request"
-            return
-        }
-    }
-
-    Ensure-WingetPackage -Id "Docker.DockerDesktop" -Label "Docker Desktop"
-
-    $dockerExe = Join-Path ${env:ProgramFiles} "Docker\Docker\Docker Desktop.exe"
-    if (-not (Test-Path $dockerExe)) {
-        Write-Warn "Docker Desktop was installed, but the executable was not found in the standard location"
-        return
-    }
-
-    if ($SkipDockerStart) {
-        Write-Warn "Skipping Docker Desktop auto-start (-SkipDockerStart)"
-        return
-    }
-
-    Write-Step "Starting Docker Desktop"
-    Start-Process -FilePath $dockerExe | Out-Null
-
-    if (-not (Test-CommandAvailable "docker")) {
-        $cliPath = Join-Path ${env:ProgramFiles} "Docker\Docker\resources\bin"
-        if (Test-Path $cliPath) {
-            $env:Path = $cliPath + ";" + [Environment]::GetEnvironmentVariable("Path", "Process")
-        }
-    }
-
-    if (-not (Test-CommandAvailable "docker")) {
-        Write-Warn "Docker CLI is not in PATH for this session yet. It should be available after opening a new terminal."
-        return
-    }
-
-    $timeout = [TimeSpan]::FromMinutes(5)
-    $deadline = (Get-Date).Add($timeout)
-    $isReady = $false
-
-    Write-Step "Waiting for Docker Engine to become ready"
-    while ((Get-Date) -lt $deadline) {
-        & docker info *> $null
-        if ($LASTEXITCODE -eq 0) {
-            $isReady = $true
-            break
-        }
-
-        Start-Sleep -Seconds 5
-        Write-Host "." -NoNewline -ForegroundColor DarkGray
-    }
-    Write-Host ""
-
-    if ($isReady) {
-        Write-Ok "Docker Desktop is running and docker info responds"
-    } else {
-        Write-Warn "Docker Desktop did not become ready within 5 minutes. If this is the first start, finish the Docker Desktop onboarding manually."
-    }
-}
-
 function Ensure-DefenderExclusion {
     Write-Section "Microsoft Defender"
 
@@ -506,7 +418,6 @@ try {
     Ensure-Git
     Ensure-BuildTools
     Ensure-VcRedist
-    Ensure-DockerDesktop
     Ensure-DefenderExclusion
     Show-Summary
 }
