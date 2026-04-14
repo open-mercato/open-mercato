@@ -123,6 +123,23 @@ function Test-CommandAvailable {
     return $null -ne (Get-Command $CommandName -ErrorAction SilentlyContinue)
 }
 
+function Add-DirectoryToProcessPath {
+    param([Parameter(Mandatory = $true)][string]$DirectoryPath)
+
+    if (-not (Test-Path $DirectoryPath)) {
+        return $false
+    }
+
+    $currentPath = [Environment]::GetEnvironmentVariable("Path", "Process")
+    $pathEntries = $currentPath -split ";"
+    if ($pathEntries -contains $DirectoryPath) {
+        return $true
+    }
+
+    $env:Path = "$DirectoryPath;$currentPath"
+    return $true
+}
+
 function Ensure-Winget {
     Write-Section "Winget"
     if (Test-CommandAvailable "winget") {
@@ -281,6 +298,22 @@ function Ensure-Git {
 
     if (-not (Test-CommandAvailable "git")) {
         Ensure-WingetPackage -Id "Git.Git" -Label "Git"
+    }
+
+    if (-not (Test-CommandAvailable "git")) {
+        $candidateGitPaths = @(
+            (Join-Path ${env:ProgramFiles} "Git\cmd"),
+            (Join-Path ${env:ProgramFiles} "Git\bin"),
+            (Join-Path ${env:ProgramFiles(x86)} "Git\cmd"),
+            (Join-Path ${env:ProgramFiles(x86)} "Git\bin")
+        )
+
+        foreach ($candidatePath in $candidateGitPaths) {
+            if (Add-DirectoryToProcessPath -DirectoryPath $candidatePath -and (Test-CommandAvailable "git")) {
+                Write-Ok "Git added to PATH for the current session from $candidatePath"
+                break
+            }
+        }
     }
 
     if (-not (Test-CommandAvailable "git")) {
