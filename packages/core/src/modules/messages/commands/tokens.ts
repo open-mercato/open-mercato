@@ -4,14 +4,13 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { Message, MessageAccessToken, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
 import { hashAuthToken } from '../../auth/lib/tokenHash'
+import { MAX_TOKEN_USE_COUNT, consumeMessageAccessToken } from '../lib/tokenConsumption'
 
-export const MAX_TOKEN_USE_COUNT = 25
+export { MAX_TOKEN_USE_COUNT }
 
 const consumeTokenSchema = z.object({
   token: z.string().min(1),
 })
-
-type ConsumeTokenInput = z.infer<typeof consumeTokenSchema>
 
 const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipientUserId: string }> = {
   id: 'messages.tokens.consume',
@@ -27,22 +26,9 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
       throw new Error('Invalid or expired link')
     }
 
-    const knex = em.getKnex()
-    const now = new Date()
-    const consumed = await knex('message_access_tokens')
-      .where('id', accessToken.id)
-      .where('use_count', '<', MAX_TOKEN_USE_COUNT)
-      .where('expires_at', '>', now)
-      .update({
-        use_count: knex.raw('use_count + 1'),
-        used_at: now,
-      })
-    if (consumed === 0) {
-      em.clear()
-      const fresh = await em.findOne(MessageAccessToken, { id: accessToken.id })
-      if (fresh && fresh.expiresAt < now) {
-        throw new Error('This link has expired')
-      }
+    const result = await consumeMessageAccessToken(em, accessToken.id)
+    if (!result.ok) {
+      if (result.reason === 'expired') throw new Error('This link has expired')
       throw new Error('This link can no longer be used')
     }
     em.clear()
