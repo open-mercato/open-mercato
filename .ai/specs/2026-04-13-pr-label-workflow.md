@@ -63,8 +63,9 @@ These classify what the PR is about. Applied once, never removed.
 |-------|-------|---------|
 | `needs-qa` | `#d876e3` purple | PR requires manual QA before merge (set by author or reviewer) |
 | `skip-qa` | `#c5def5` light blue | Explicitly mark that QA is not needed (docs, deps, CI-only) |
+| `in-progress` | `#fbca04` amber | An auto-skill (or human) is actively working on this PR/issue right now — concurrency lock |
 
-**Total: 15 labels** (down from 50+)
+**Total: 16 labels** (down from 50+)
 
 ---
 
@@ -132,26 +133,139 @@ These classify what the PR is about. Applied once, never removed.
 
 ---
 
+## Concurrency Control — In-Progress Markers
+
+Auto-skills (`review-pr`, `code-review`, `fix-github-issue`, `review-prs`, `merge-buddy`, plus any future automation) MUST claim a PR or issue before mutating it, and MUST refuse to claim something that is already in progress unless the user explicitly forces the run. This prevents two parallel skill invocations (or a skill and a human) from stomping on each other.
+
+### Three signals (used together)
+
+| Signal | Owner | Role |
+|--------|-------|------|
+| **Assignee** (GitHub native) | The actor doing the work | Strongest "owned right now" signal; visible in PR/issue list filters |
+| **`in-progress` label** | The actor doing the work | Quick programmatic filter; cleared on completion |
+| **Comment** | The actor doing the work | Auditable timeline trail with skill name + timestamp |
+
+The assignee is the source of truth for *who* owns it. The label is the source of truth for *whether* a skill currently owns it. The comment is the audit trail.
+
+### Claim protocol (every auto-skill MUST follow)
+
+#### Before doing any work — pre-claim check
+
+1. Fetch current state:
+   ```bash
+   gh pr view {number} --json assignees,labels,number,title
+   # or for issues:
+   gh issue view {number} --json assignees,labels,number,title
+   ```
+
+2. Determine if it is already in progress:
+   - Has the `in-progress` label, OR
+   - Has any assignee that is **not** the current GitHub user (`gh api user --jq '.login'`), OR
+   - Has a "claim comment" within the last 30 minutes from another actor
+
+3. If already in progress AND `--force` was NOT passed:
+   - **STOP**. Do not claim. Do not start work.
+   - Ask the user (via `AskUserQuestion` or equivalent prompt) whether to override and force the run.
+   - Only continue if the user explicitly says yes (which is treated as the same as `--force`).
+
+4. If already in progress AND `--force` was passed (or user just confirmed):
+   - Post a comment noting that the previous claim was overridden and continue.
+
+#### Claim — when starting work
+
+Once cleared, mark the resource as in-progress:
+
+```bash
+CURRENT_USER=$(gh api user --jq '.login')
+
+# Assign to current user (idempotent — adds without removing other assignees)
+gh pr edit {number} --add-assignee "$CURRENT_USER"
+# or for issues:
+gh issue edit {number} --add-assignee "$CURRENT_USER"
+
+# Apply the in-progress label (and remove the inverse pipeline label if applicable)
+# Use the existing GraphQL label flow from review-pr
+
+# Post a claim comment
+gh pr comment {number} --body "🤖 \`{skill-name}\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this {PR|issue} until the lock is released."
+```
+
+#### Release — when finishing work
+
+Always release the lock, even on failure:
+
+```bash
+# Remove the in-progress label
+# (use GraphQL to atomically remove)
+
+# Post a completion comment with the verdict
+gh pr comment {number} --body "🤖 \`{skill-name}\` completed: {verdict-summary}"
+
+# For review-pr: keep the assignee so the human reviewer / next-step owner is visible
+# For fix-github-issue: keep the assignee (the user owns the resulting PR)
+```
+
+If the skill exits abnormally (process killed, exception unhandled), the next invocation MUST treat a stale `in-progress` label older than 60 minutes as expired and offer to take over (still with `--force` if a different user holds the assignee).
+
+### `--force` flag
+
+Every auto-skill that mutates a PR or issue MUST accept a `--force` flag (or equivalent positional argument). When set:
+
+- Skip the in-progress check
+- Post a "force override" comment naming the previous assignee/label state
+- Continue with the claim
+
+When the flag is **not** set and the resource is in progress, the skill MUST ask the user before proceeding. Silent override is forbidden — a parallel auto-run could be doing legitimate work.
+
+### Examples
+
+| Scenario | Behavior |
+|----------|----------|
+| User runs `/review-pr 1234` and PR has no `in-progress` label and no assignee | Claim and proceed |
+| User runs `/review-pr 1234` and PR is assigned to another user | Stop, ask "Override @other-user's claim?" |
+| User runs `/review-pr 1234 --force` on a PR locked by another skill | Force, post override comment, proceed |
+| Background `/review-prs` triage hits a PR already locked by `/review-pr` | Skip silently, log "skipped: in progress" in summary |
+| `/fix-github-issue 999` and issue is assigned to a human contributor | Stop, ask "Override @contributor's claim?" |
+| `/fix-github-issue 999 --force` overrides a stale (>60min) lock | Force, post override comment, continue |
+
+### Skip-when-in-progress in batch skills
+
+`review-prs` and `merge-buddy` operate over many PRs at once. They MUST:
+
+- Skip any PR with the `in-progress` label or with an assignee that is not the current user
+- Report the skipped PRs in the final summary table with reason "in progress"
+- Never auto-force inside a batch — forcing is an explicit, per-PR user decision
+
+---
+
 ## Skill Integration Changes
 
 ### `review-pr` skill changes
 
 Current behavior already uses `merge-queue` and `changes-requested`. Changes needed:
 
-1. **Add `review` label awareness** — when starting a review, verify PR has `review` label (or apply it)
-2. **QA gate logic** — after approving:
+1. **Pre-claim check** (see Concurrency Control above) — at the very start, before fetching metadata or creating a worktree, run the in-progress check; stop and ask the user (or honor `--force`) if locked
+2. **Claim on start** — assign the PR to the current GitHub user, apply `in-progress` label, post a claim comment
+3. **Release on finish** — remove `in-progress`, post a completion comment with the verdict; keep the assignee
+4. **Add `review` label awareness** — when starting a review, verify PR has `review` label (or apply it)
+5. **QA gate logic** — after approving:
    - If `needs-qa` label is present → set `qa` label (not `merge-queue`)
    - If `needs-qa` absent → set `merge-queue` label (current behavior)
-3. **Remove old label names** — stop referencing `approved`, `merge queue` (space), `changes requested` (space)
-4. **Label transition helper** — extract a shared `setPipelineLabel(prNumber, newLabel)` function that:
+6. **Remove old label names** — stop referencing `approved`, `merge queue` (space), `changes requested` (space)
+7. **Label transition helper** — extract a shared `setPipelineLabel(prNumber, newLabel)` function that:
    - Adds the new pipeline label
    - Removes all other pipeline labels
    - Uses GraphQL (current approach) for atomicity
+8. **`--force` flag** — accept `--force` (or trailing `force` argument) to bypass the in-progress check; document it in the skill's argument list
 
 ### `fix-github-issue` skill changes
 
-1. When opening a PR, apply `review` label
-2. Apply `skip-qa` for small/trivial fixes (single-file, test-only, etc.)
+1. **Pre-claim check** (see Concurrency Control above) — at the very start, before fetching the issue body or creating a worktree, run the in-progress check on the issue; stop and ask the user (or honor `--force`) if locked
+2. **Claim on start** — assign the **issue** to the current GitHub user, apply `in-progress` label on the issue, post a claim comment on the issue
+3. **Release on finish** — when the PR is opened, remove the `in-progress` label from the issue and post a completion comment linking the new PR; keep the issue assignee so it remains visible who owns the work
+4. When opening a PR, apply `review` label on the PR (and run the same claim protocol on the new PR if any auto-review will follow)
+5. Apply `skip-qa` for small/trivial fixes (single-file, test-only, etc.)
+6. **`--force` flag** — accept `--force` (or trailing `force` argument) to bypass the in-progress check and override existing assignees/labels
 
 ### `check-and-commit` skill changes
 
@@ -174,6 +288,7 @@ A triage skill invoked via `/merge-buddy`. Scans **all open PRs** and produces a
    - **Mergeable**: `mergeable` must be `MERGEABLE`, `mergeStateStatus` must not be `DIRTY` or `BLOCKED`
    - **Not draft**: `isDraft` must be `false`
    - **No blocking labels**: must not have `changes-requested`, `qa-failed`, `blocked`, `do-not-merge`
+   - **Not in progress**: must not have `in-progress` label (another auto-skill is mid-run); skip silently with reason "in progress"
    - **QA gate**: if `needs-qa` is present, must also have `merge-queue` label (meaning QA passed)
    - **No merge conflicts**: `mergeable !== 'CONFLICTING'`
 
@@ -232,6 +347,7 @@ A **day-start triage skill** invoked via `/review-prs`. Finds all open PRs that 
    - `reviewDecision` is `null` or empty (no review submitted yet)
    - Not a draft (`isDraft === false`)
    - Does not have `do-not-merge` or `blocked` labels (skip held PRs)
+   - Does not have `in-progress` label and has no assignee other than the current user (concurrency lock — see Concurrency Control above)
    - Author is not the current user (don't self-review)
 
 3. **Sort by recency** — most recently created first (clear fresh PRs before stale ones).
@@ -316,7 +432,6 @@ invalid
 wontfix
 duplicate
 question
-in-progress
 resolved
 needs-info
 needs-response
@@ -359,6 +474,7 @@ for-core-contributors
 | `qa-failed` | `#bfb420` | QA found issues |
 | `needs-qa` | `#d876e3` | Requires manual QA before merge |
 | `skip-qa` | `#c5def5` | QA not required |
+| `in-progress` | `#fbca04` | Auto-skill (or human) is actively working — concurrency lock |
 
 **Labels to KEEP** (already correct):
 
@@ -427,6 +543,7 @@ gh label create "qa" --color "12B0D1" --description "Waiting for QA testing" --f
 gh label create "qa-failed" --color "bfb420" --description "QA found issues" --force
 gh label create "needs-qa" --color "d876e3" --description "Requires manual QA before merge" --force
 gh label create "skip-qa" --color "c5def5" --description "QA not required" --force
+gh label create "in-progress" --color "fbca04" --description "Auto-skill (or human) is actively working — concurrency lock" --force
 
 # --- Update existing labels ---
 gh label edit "do not merge" --name "do-not-merge" --description "Held from merging" 2>/dev/null
@@ -438,7 +555,7 @@ gh label edit "blocked" --description "Blocked on external dependency" --force
 for label in \
   "merge queue" "changes requested" "PR review accepted" "approved" "PR review" \
   "good first issue" "help wanted" "invalid" "wontfix" "duplicate" "question" \
-  "in-progress" "resolved" "needs-info" "needs-response" "stale" "discussion" \
+  "resolved" "needs-info" "needs-response" "stale" "discussion" \
   "failing-ci" "changes-resolved" "CLA" "bounty-hunting" "preview-env" \
   "codex" "framework" "domain" "integration" "quality improvement" \
   "for-core-contributors" "QA in progress" "QA confirmed" "QA: Fixes required" \
@@ -453,7 +570,7 @@ echo "Done. Labels cleaned up."
 
 ---
 
-## Final Label Inventory (15 labels)
+## Final Label Inventory (16 labels)
 
 | # | Label | Type | Color |
 |---|-------|------|-------|
@@ -472,6 +589,7 @@ echo "Done. Labels cleaned up."
 | 13 | `enterprise` | Category | ⚪ grey |
 | 14 | `needs-qa` | Meta | 🟣 purple |
 | 15 | `skip-qa` | Meta | 🔵 light blue |
+| 16 | `in-progress` | Meta (lock) | 🟡 amber |
 
 ---
 
