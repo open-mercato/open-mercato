@@ -21,27 +21,29 @@ const defaultFindOneImpl = async (entity: any, where: any) => {
   return null
 }
 
+function buildUsageKysely(totalSize: number) {
+  const selectChain: any = {
+    select: jest.fn(() => selectChain),
+    where: jest.fn(() => selectChain),
+    executeTakeFirst: jest.fn(async () => ({ total_size: totalSize })),
+    execute: jest.fn(async () => []),
+  }
+  return {
+    selectFrom: jest.fn(() => selectChain),
+  }
+}
+
 const mockEm = {
   findOne: jest.fn(defaultFindOneImpl),
   create: jest.fn((_cls: any, data: any) => ({ ...data })),
-  persistAndFlush: jest.fn(async () => {}),
   getRepository: jest.fn(() => ({
     findAll: jest.fn(async () => partitions),
     create: jest.fn((data: any) => data),
   })),
-  persist: jest.fn(),
-  flush: jest.fn(),
+  persist: jest.fn(function persist(this: any) { return this }),
+  flush: jest.fn(async () => {}),
   find: jest.fn(),
-  getConnection: jest.fn(() => ({
-    getKnex: () => {
-      const query = {
-        where: jest.fn(() => query),
-        sum: jest.fn(() => query),
-        first: jest.fn(async () => ({ totalSize: 0 })),
-      }
-      return jest.fn(() => query)
-    },
-  })),
+  getKysely: jest.fn(() => buildUsageKysely(0)),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -122,16 +124,7 @@ describe('attachments API', () => {
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB
     delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
-    mockEm.getConnection.mockReturnValue({
-      getKnex: () => {
-        const query = {
-          where: jest.fn(() => query),
-          sum: jest.fn(() => query),
-          first: jest.fn(async () => ({ totalSize: 0 })),
-        }
-        return jest.fn(() => query)
-      },
-    })
+    mockEm.getKysely.mockReturnValue(buildUsageKysely(0))
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
@@ -214,16 +207,7 @@ describe('attachments API', () => {
   it('rejects uploads that exceed the tenant storage quota', async () => {
     const { POST: upload } = await loadHandlers()
     process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
-    mockEm.getConnection.mockReturnValue({
-      getKnex: () => {
-        const query = {
-          where: jest.fn(() => query),
-          sum: jest.fn(() => query),
-          first: jest.fn(async () => ({ totalSize: 1000 })),
-        }
-        return jest.fn(() => query)
-      },
-    })
+    mockEm.getKysely.mockReturnValue(buildUsageKysely(1000))
     const file = new File([new Uint8Array(200)], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
