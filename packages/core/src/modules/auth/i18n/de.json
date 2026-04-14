@@ -5,6 +5,8 @@
   "auth.accessDenied.title": "Zugriff verweigert",
   "auth.acl.allowAllOrganizations": "Alle Organisationen zulassen",
   "auth.acl.organizationWarning": "Organisationseinschränkungen werden nur gespeichert, wenn mindestens eine Berechtigungsüberschreibung ausgewählt ist. Füge eine Berechtigung hinzu oder aktiviere einen Modul-Wildcard vor dem Speichern.",
+  "auth.acl.organizationsScope": "Organisationsbereich",
+  "auth.acl.restricted": "Eingeschränkt",
   "auth.actions.contactSupport": "Support kontaktieren",
   "auth.actions.viewPermissions": "Berechtigungen anzeigen",
   "auth.actions.viewSessions": "Sitzungen anzeigen",

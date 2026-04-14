@@ -5,6 +5,8 @@
   "auth.accessDenied.title": "Brak dostępu",
   "auth.acl.allowAllOrganizations": "Zezwól na wszystkie organizacje",
   "auth.acl.organizationWarning": "Ograniczenia organizacyjne są zapisywane tylko wtedy, gdy wybrano co najmniej jedno nadpisanie uprawnień. Dodaj uprawnienie lub włącz wildcard modułu przed zapisaniem.",
+  "auth.acl.organizationsScope": "Zakres organizacji",
+  "auth.acl.restricted": "Ograniczone",
   "auth.actions.contactSupport": "Skontaktuj się z pomocą",
   "auth.actions.viewPermissions": "Zobacz uprawnienia",
   "auth.actions.viewSessions": "Zobacz sesje",
