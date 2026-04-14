@@ -26,7 +26,7 @@ export RECORD_ID="<entity record id you want to attach files to>"
 Open Mercato supports two text-extraction methods for attachments:
 
 1. **LLM-based OCR** (recommended) – uses OpenAI's GPT-4o vision capabilities for images and PDFs
-2. **markitdown** – fallback text extraction for PDFs and other non-image files (text, Office, Outlook) when LLM OCR is unavailable
+2. **Pure-JS extraction** – in-process fallback for plain text, PDFs, and DOCX files when LLM OCR is unavailable
 
 ### LLM-based OCR (images and PDFs)
 
@@ -60,23 +60,22 @@ Attachment env naming follows the standard `OM_*` prefix. Legacy `OPENMERCATO_*`
 - **Processing**: Asynchronous – uploads return immediately, content is populated in the background
 - **Model selection**: Per-partition model override available in partition settings UI
 - **Extracted text**: Stored in `Attachment.content` field and shown in the metadata dialog
-- **Security**: No `pdf2pic`, GraphicsMagick, or Ghostscript delegates are used in the PDF OCR path
-- **Fallback**: PDFs and other non-image files use `markitdown` when available on `PATH` and LLM OCR is not available
+- **Security**: No `pdf2pic`, GraphicsMagick, Ghostscript, or external binaries are used in any extraction path
+- **Fallback**: when LLM OCR is unavailable, plain text files are read directly, PDFs are parsed with `pdfjs-dist`, and DOCX files are parsed with `mammoth`
 
-### markitdown (PDF and other non-image files)
+### Pure-JS extraction (plain text, PDF, DOCX)
 
-Prerequisite: the `markitdown` CLI must be on `PATH`. Easiest install:
+No additional setup required — extraction runs in-process with no external binaries.
 
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh           # install uv
-uv tool install markitdown                               # install the CLI
-markitdown --help                                        # verify it works
-```
+Supported formats and their extractors:
 
-How it works:
+| Format | Extractor |
+|--------|-----------|
+| Plain text (`text/*`, `.txt`, `.md`, `.csv`, `.log`) | Direct UTF-8 read |
+| PDF (`.pdf`) | `pdfjs-dist` — text layer content |
+| Word document (`.docx`) | `mammoth` |
 
-- PDFs and other non-image files (text, Office, Outlook) are passed to `markitdown` after upload if the partition opts in and LLM OCR is unavailable.
-- The extracted text is stored on the attachment record and shown in the metadata dialog; empty output is ignored.
+Formats **not** extracted (returned as no content): `.doc` (legacy binary Word), `.xlsx`, `.xls`, `.pptx`, `.ppt`, `.msg`, and other Office/Outlook formats. LLM-based OCR remains available for these files where the partition is configured with an OCR model.
 
 ### Configuration
 
