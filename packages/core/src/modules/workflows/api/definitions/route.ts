@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { WorkflowDefinition } from '../../data/entities'
 import {
   createWorkflowDefinitionInputSchema,
@@ -64,13 +65,7 @@ export async function GET(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationIds = (() => {
-      if (scope?.selectedId) return [scope.selectedId]
-      if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
-      if (scope?.filterIds === null) return undefined
-      if (auth.orgId) return [auth.orgId]
-      return undefined
-    })()
+    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
 
     const { searchParams } = new URL(request.url)
     const enabled = searchParams.get('enabled')
@@ -82,7 +77,7 @@ export async function GET(request: NextRequest) {
     // Build where clause with tenant scoping
     const where: any = {
       tenantId,
-      ...(organizationIds ? { organizationId: { $in: organizationIds } } : {}),
+      ...orgFilter.where,
       deletedAt: null,
     }
 

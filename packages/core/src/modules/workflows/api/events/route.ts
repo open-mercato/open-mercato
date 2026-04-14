@@ -10,6 +10,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowEvent, WorkflowInstance } from '../../data/entities'
 import { workflowEventListItemSchema } from '../openapi'
@@ -36,13 +37,7 @@ export async function GET(request: NextRequest) {
 
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
     const tenantId = auth.tenantId
-    const organizationIds = (() => {
-      if (scope?.selectedId) return [scope.selectedId]
-      if (Array.isArray(scope?.filterIds) && scope.filterIds.length > 0) return scope.filterIds
-      if (scope?.filterIds === null) return undefined
-      if (auth.orgId) return [auth.orgId]
-      return undefined
-    })()
+    const orgFilter = resolveOrganizationScopeFilter(scope, auth)
 
     if (!tenantId) {
       return NextResponse.json(
@@ -56,7 +51,7 @@ export async function GET(request: NextRequest) {
     const hasPermission = await rbacService.userHasAllFeatures(
       auth.sub,
       ['workflows.instances.view'],
-      { tenantId, organizationId: scope?.selectedId ?? auth.orgId }
+      { tenantId, organizationId: orgFilter.rbacOrganizationId }
     )
 
     if (!hasPermission) {
@@ -87,7 +82,7 @@ export async function GET(request: NextRequest) {
     // Build where clause
     const where: any = {
       tenantId,
-      ...(organizationIds ? { organizationId: { $in: organizationIds } } : {}),
+      ...orgFilter.where,
     }
 
     if (eventType) {
@@ -128,7 +123,7 @@ export async function GET(request: NextRequest) {
     const instances = await em.find(WorkflowInstance, {
       id: { $in: instanceIds },
       tenantId,
-      ...(organizationIds ? { organizationId: { $in: organizationIds } } : {}),
+      ...orgFilter.where,
     })
 
     const instanceMap = new Map(instances.map(i => [i.id, i]))
