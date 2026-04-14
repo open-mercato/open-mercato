@@ -6,6 +6,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations, detectLocale } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { hashToken } from '@open-mercato/shared/lib/auth/tokenHash'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
   bridgeLegacyGuard,
@@ -165,7 +166,8 @@ export async function POST(req: Request) {
     validUntil.setUTCDate(validUntil.getUTCDate() + input.validForDays)
 
     quote.validUntil = validUntil
-    quote.acceptanceToken = crypto.randomUUID()
+    const acceptanceToken = crypto.randomUUID()
+    quote.acceptanceTokenHash = hashToken(acceptanceToken)
     quote.sentAt = now
     quote.status = 'sent'
     quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
@@ -178,7 +180,7 @@ export async function POST(req: Request) {
     await em.flush()
 
     const appUrl = process.env.APP_URL || ''
-    const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${quote.acceptanceToken}` : `/quote/${quote.acceptanceToken}`
+    const url = appUrl ? `${appUrl.replace(/\/$/, '')}/quote/${acceptanceToken}` : `/quote/${acceptanceToken}`
 
     const locale = await detectLocale()
     const validUntilFormatted = validUntil.toLocaleDateString(locale, {

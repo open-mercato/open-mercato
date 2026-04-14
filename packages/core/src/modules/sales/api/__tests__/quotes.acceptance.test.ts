@@ -5,6 +5,7 @@ import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { hashToken } from '@open-mercato/shared/lib/auth/tokenHash'
 
 const mockCommandBus = { execute: jest.fn() }
 const mockEm = {
@@ -87,7 +88,7 @@ describe('quote send + accept flow', () => {
       updatedAt: new Date(),
       validUntil: null,
       sentAt: null,
-      acceptanceToken: null,
+      acceptanceTokenHash: null,
     }
 
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
@@ -100,7 +101,7 @@ describe('quote send + accept flow', () => {
     const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
     expect(res.status).toBe(200)
     expect(quote.status).toBe('sent')
-    expect(quote.acceptanceToken).toBeTruthy()
+    expect(quote.acceptanceTokenHash).toBeTruthy()
     expect(quote.validUntil).toBeInstanceOf(Date)
     expect(mockEm.flush).toHaveBeenCalled()
   })
@@ -142,7 +143,7 @@ describe('quote send + accept flow', () => {
     }
 
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
-      if (cls === SalesQuote) return where?.acceptanceToken ? quote : null
+      if (cls === SalesQuote) return where?.acceptanceTokenHash ? quote : null
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
       if (cls === SalesOrder) return { id: 'order-1', orderNumber: 'SO-1', deletedAt: null }
@@ -261,7 +262,7 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
       if (cls === SalesQuote) {
         if (where?.tenantId && where.tenantId !== TENANT_ID) return null
-        return where?.acceptanceToken === ACCEPTANCE_TOKEN ? quote : null
+        return where?.acceptanceTokenHash === hashToken(ACCEPTANCE_TOKEN) ? quote : null
       }
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
@@ -307,7 +308,7 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
     mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
       if (cls === SalesQuote) {
         capturedWhere = where
-        return where?.acceptanceToken === ACCEPTANCE_TOKEN ? quote : null
+        return where?.acceptanceTokenHash === hashToken(ACCEPTANCE_TOKEN) ? quote : null
       }
       if (cls === Dictionary) return { id: 'dict-1' }
       if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
@@ -334,7 +335,7 @@ describe('quote editing invalidates sent token', () => {
       organizationId: '11111111-1111-4111-8111-111111111111',
       status: 'sent',
       statusEntryId: 'entry-sent',
-      acceptanceToken: '44444444-4444-4444-8444-444444444444',
+      acceptanceTokenHash: '44444444-4444-4444-8444-444444444444',
       sentAt: new Date(),
       currencyCode: 'USD',
       updatedAt: new Date(),
@@ -359,7 +360,7 @@ describe('quote editing invalidates sent token', () => {
 
     await handler!.execute({ id: quote.id, comment: 'updated' }, ctx)
 
-    expect(quote.acceptanceToken).toBeNull()
+    expect(quote.acceptanceTokenHash).toBeNull()
     expect(quote.sentAt).toBeNull()
     expect(quote.status).toBe('draft')
   })

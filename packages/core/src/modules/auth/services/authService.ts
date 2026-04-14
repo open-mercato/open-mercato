@@ -4,6 +4,7 @@ import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core
 import crypto from 'node:crypto'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashToken } from '@open-mercato/shared/lib/auth/tokenHash'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
@@ -67,15 +68,15 @@ export class AuthService {
   }
 
 
-  async createSession(user: User, expiresAt: Date): Promise<Session> {
+  async createSession(user: User, expiresAt: Date): Promise<{ session: Session; token: string }> {
     const token = crypto.randomBytes(32).toString('hex')
-    const sess = this.em.create(Session as any, { user, token, expiresAt, createdAt: new Date() } as any)
+    const sess = this.em.create(Session, { user, tokenHash: hashToken(token), expiresAt, createdAt: new Date() })
     await this.em.persistAndFlush(sess)
-    return sess as Session
+    return { session: sess, token }
   }
 
   async deleteSessionByToken(token: string) {
-    await this.em.nativeDelete(Session, { token })
+    await this.em.nativeDelete(Session, { tokenHash: hashToken(token) })
   }
 
   async deleteAllUserSessions(userId: string) {
@@ -84,7 +85,7 @@ export class AuthService {
 
   async refreshFromSessionToken(token: string) {
     const now = new Date()
-    const sess = await this.em.findOne(Session, { token })
+    const sess = await this.em.findOne(Session, { tokenHash: hashToken(token) })
     if (!sess || sess.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: sess.user.id })
     if (!user) return null
@@ -97,14 +98,14 @@ export class AuthService {
     if (!user) return null
     const token = crypto.randomBytes(32).toString('hex')
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000)
-    const row = this.em.create(PasswordReset as any, { user, token, expiresAt, createdAt: new Date() } as any)
+    const row = this.em.create(PasswordReset, { user, tokenHash: hashToken(token), expiresAt, createdAt: new Date() })
     await this.em.persistAndFlush(row)
     return { user, token }
   }
 
   async confirmPasswordReset(token: string, newPassword: string): Promise<User | null> {
     const now = new Date()
-    const row = await this.em.findOne(PasswordReset, { token })
+    const row = await this.em.findOne(PasswordReset, { tokenHash: hashToken(token) })
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
     const user = await this.em.findOne(User, { id: row.user.id })
     if (!user) return null

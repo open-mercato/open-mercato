@@ -2623,8 +2623,8 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "acceptance_token": {
-          "name": "acceptance_token",
+        "acceptance_token_hash": {
+          "name": "acceptance_token_hash",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -2683,9 +2683,9 @@
           "unique": false
         },
         {
-          "keyName": "sales_quotes_acceptance_token_unique",
+          "keyName": "sales_quotes_acceptance_token_hash_unique",
           "columnNames": [
-            "acceptance_token"
+            "acceptance_token_hash"
           ],
           "composite": false,
           "constraint": true,

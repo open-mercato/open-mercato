@@ -13,6 +13,7 @@ import {
 } from "../../../../data/entities";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
+import { hashToken } from "@open-mercato/shared/lib/auth/tokenHash";
 
 const paramsSchema = z.object({
   token: z.string().uuid(),
@@ -28,7 +29,7 @@ export async function GET(req: Request, ctx: { params: { token: string } }) {
     const container = await createRequestContainer();
     const em = container.resolve("em") as EntityManager;
     const quote = await findOneWithDecryption(em, SalesQuote, {
-      acceptanceToken: token,
+      acceptanceTokenHash: hashToken(token),
       deletedAt: null,
     });
     const { translate } = await resolveTranslations();

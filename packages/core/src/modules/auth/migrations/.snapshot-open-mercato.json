@@ -719,8 +719,8 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "token": {
-          "name": "token",
+        "token_hash": {
+          "name": "token_hash",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -805,10 +805,10 @@
       "indexes": [
         {
           "columnNames": [
-            "token"
+            "token_hash"
           ],
           "composite": false,
-          "keyName": "sessions_token_unique",
+          "keyName": "sessions_token_hash_unique",
           "constraint": true,
           "primary": false,
           "unique": true
@@ -875,8 +875,8 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
-        "token": {
-          "name": "token",
+        "token_hash": {
+          "name": "token_hash",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
@@ -961,10 +961,10 @@
       "indexes": [
         {
           "columnNames": [
-            "token"
+            "token_hash"
           ],
           "composite": false,
-          "keyName": "password_resets_token_unique",
+          "keyName": "password_resets_token_hash_unique",
           "constraint": true,
           "primary": false,
           "unique": true

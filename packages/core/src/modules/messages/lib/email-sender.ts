@@ -9,6 +9,7 @@ import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
 import type { Message, MessageObject } from '../data/entities'
 import { MessageAccessToken } from '../data/entities'
+import { hashToken } from '@open-mercato/shared/lib/auth/tokenHash'
 import MessageEmail from '../emails/MessageEmail'
 import { resolveAttachmentAbsolutePath } from '../../attachments/lib/storage'
 import type { MessageEmailAttachment } from './attachments'
@@ -154,7 +155,7 @@ export async function createMessageAccessToken(
   const record = em.create(MessageAccessToken, {
     messageId,
     recipientUserId,
-    token,
+    tokenHash: hashToken(token),
     expiresAt,
     useCount: 0,
   })

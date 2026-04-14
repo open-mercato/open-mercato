@@ -141,8 +141,8 @@ export class Session {
   @ManyToOne(() => User)
   user!: User
 
-  @Property({ type: 'text', unique: true })
-  token!: string
+  @Property({ name: 'token_hash', type: 'text', unique: true })
+  tokenHash!: string
 
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date
@@ -165,8 +165,8 @@ export class PasswordReset {
   @ManyToOne(() => User)
   user!: User
 
-  @Property({ type: 'text', unique: true })
-  token!: string
+  @Property({ name: 'token_hash', type: 'text', unique: true })
+  tokenHash!: string
 
   @Property({ name: 'expires_at', type: Date })
   expiresAt!: Date

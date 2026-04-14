@@ -4862,7 +4862,7 @@ const updateQuoteCommand: CommandHandler<
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
     if (shouldInvalidateSentToken) {
-      quote.acceptanceToken = null;
+      quote.acceptanceTokenHash = null;
       quote.sentAt = null;
     }
     const shouldRecalculateTotals =

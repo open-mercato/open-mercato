@@ -8,6 +8,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashToken } from '@open-mercato/shared/lib/auth/tokenHash'
 import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
       em,
       SalesQuote,
       {
-        acceptanceToken: token,
+        acceptanceTokenHash: hashToken(token),
         ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
         deletedAt: null,
       } as any,
