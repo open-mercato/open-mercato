@@ -293,6 +293,7 @@ describe('generateModuleRegistry with module subsets', () => {
             
             
             
+            
           }
       ]
       export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
@@ -318,6 +319,7 @@ describe('generateModuleRegistry with module subsets', () => {
             
             
             customFieldSets: [],
+            
             
             
             
