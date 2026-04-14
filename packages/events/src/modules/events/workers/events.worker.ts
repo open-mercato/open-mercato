@@ -95,13 +95,10 @@ export default async function handle(
     }
   }
 
-  // If all subscribers failed, throw to trigger retry
-  if (errors.length === subscribers.length) {
-    throw new Error(`All ${errors.length} subscriber(s) failed for event "${event}"`)
-  }
-
-  // Log partial failures but don't fail the job
   if (errors.length > 0) {
-    console.warn(`[events] ${errors.length}/${subscribers.length} subscriber(s) failed for event "${event}"`)
+    const failedIds = errors.map((e) => e.subscriberId).join(', ')
+    throw new Error(
+      `${errors.length}/${subscribers.length} subscriber(s) failed for event "${event}": ${failedIds}`
+    )
   }
 }
