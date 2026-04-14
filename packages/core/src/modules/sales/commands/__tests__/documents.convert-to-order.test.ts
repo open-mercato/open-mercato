@@ -2,6 +2,7 @@
 
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -173,16 +174,18 @@ describe('sales.quotes.convert_to_order', () => {
     mockedFindOneWithDecryption.mockImplementation(async (_em, entity, where: any, options?: any) => {
       if (entity === SalesQuote) {
         lockOptions.push(options ?? null)
-        return where.id === quote.id && quoteExists ? quote as any : null
+        return where.id === quote.id && quoteExists ? quote as unknown as SalesQuote : null
       }
       if (entity === SalesOrder) {
-        return createdOrderIds.includes(where.id as string) ? { id: where.id, deletedAt: null } as any : null
+        return createdOrderIds.includes(where.id as string)
+          ? ({ id: where.id, deletedAt: null } as unknown as SalesOrder)
+          : null
       }
       return null
     })
 
     mockedFindWithDecryption.mockImplementation(async (_em, entity) => {
-      if (entity === SalesQuoteLine) return quoteExists ? [quoteLine] as any : []
+      if (entity === SalesQuoteLine) return quoteExists ? ([quoteLine] as unknown as SalesQuoteLine[]) : []
       if (entity === SalesQuoteAdjustment) return []
       if (entity === SalesDocumentAddress) return []
       if (entity === SalesNote) return []
@@ -214,14 +217,14 @@ describe('sales.quotes.convert_to_order', () => {
         quoteId: quote.id,
         orderId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       },
-      ctx as any,
+      ctx as unknown as CommandRuntimeContext,
     )
     const second = handler!.execute(
       {
         quoteId: quote.id,
         orderId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       },
-      ctx as any,
+      ctx as unknown as CommandRuntimeContext,
     )
 
     const results = await Promise.allSettled([first, second])

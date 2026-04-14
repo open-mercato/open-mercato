@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesQuote, SalesOrder } from '@open-mercato/core/modules/sales/data/entities'
 
@@ -136,7 +137,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
 
   function setupQuoteMocks(quote: ReturnType<typeof buildQuote>) {
     mockedFindOneWithDecryption.mockImplementation(async (_em, entity) => {
-      if (entity === SalesQuote) return quote as any
+      if (entity === SalesQuote) return quote as unknown as SalesQuote
       if (entity === SalesOrder) return null
       return null
     })
@@ -172,7 +173,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
 
     const result = await handler!.execute(
       { quoteId: quote.id },
-      buildCtx() as any,
+      buildCtx() as unknown as CommandRuntimeContext,
     )
 
     expect(result).toEqual({ orderId: quote.id })
@@ -204,7 +205,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
       sequence: 42,
     })
 
-    await handler!.execute({ quoteId: quote.id }, buildCtx() as any)
+    await handler!.execute({ quoteId: quote.id }, buildCtx() as unknown as CommandRuntimeContext)
 
     const orderEntity = createdEntities.find(
       (entity) => 'orderNumber' in entity,
@@ -223,7 +224,7 @@ describe('sales.quotes.convert_to_order — document number generation (#919)', 
 
     await handler!.execute(
       { quoteId: quote.id, orderNumber: 'CUSTOM-001' },
-      buildCtx() as any,
+      buildCtx() as unknown as CommandRuntimeContext,
     )
 
     const orderEntity = createdEntities.find(
