@@ -55,5 +55,5 @@ export async function softDelete<T extends { deletedAt?: Date | null }>(
   entity: T
 ): Promise<void> {
   ;(entity as any).deletedAt = new Date()
-  await em.persistAndFlush(entity)
+  await em.persist(entity).flush()
 }

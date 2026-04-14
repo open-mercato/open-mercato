@@ -171,7 +171,7 @@ export async function POST(req: Request) {
   }
 
   const ruleSet = em.create(RuleSet, parsed.data)
-  await em.persistAndFlush(ruleSet)
+  await em.persist(ruleSet).flush()
 
   return NextResponse.json({ id: ruleSet.id }, { status: 201 })
 }
@@ -219,7 +219,7 @@ export async function PUT(req: Request) {
   }
 
   em.assign(ruleSet, parsed.data)
-  await em.persistAndFlush(ruleSet)
+  await em.persist(ruleSet).flush()
 
   return NextResponse.json({ ok: true })
 }
@@ -252,7 +252,7 @@ export async function DELETE(req: Request) {
   }
 
   ruleSet.deletedAt = new Date()
-  await em.persistAndFlush(ruleSet)
+  await em.persist(ruleSet).flush()
 
   return NextResponse.json({ ok: true })
 }

@@ -61,7 +61,7 @@ export default async function handle(
     const { recipientUserId, ...content } = input
     const notification = buildNotificationEntity(em, content, recipientUserId, { tenantId, organizationId })
 
-    await em.persistAndFlush(notification)
+    await em.persist(notification).flush()
 
     await emitNotificationCreated(eventBus, notification, { tenantId, organizationId })
   } else if (payload.type === 'create-role') {
@@ -82,7 +82,7 @@ export default async function handle(
       notifications.push(notification)
     }
 
-    await em.persistAndFlush(notifications)
+    await em.persist(notifications).flush()
 
     await emitNotificationCreatedBatch(eventBus, notifications, { tenantId, organizationId })
   } else if (payload.type === 'create-feature') {
@@ -104,7 +104,7 @@ export default async function handle(
       notifications.push(notification)
     }
 
-    await em.persistAndFlush(notifications)
+    await em.persist(notifications).flush()
 
     await emitNotificationCreatedBatch(eventBus, notifications, { tenantId, organizationId })
   } else if (payload.type === 'cleanup-expired') {

@@ -240,7 +240,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
       ensureOrganizationScope(ctx, after.organizationId)
       const entry = await em.findOne(CustomerDictionaryEntry, { id: after.id })
       if (entry) {
-        await em.removeAndFlush(entry)
+        await em.remove(entry).flush()
         await invalidateCache(ctx, after)
         return
       }

@@ -45,7 +45,7 @@ export class CustomerInvitationService {
       expiresAt,
       createdAt: new Date(),
     } as any) as CustomerUserInvitation
-    await this.em.persistAndFlush(invitation)
+    await this.em.persist(invitation).flush()
     return { invitation, rawToken: token }
   }
 

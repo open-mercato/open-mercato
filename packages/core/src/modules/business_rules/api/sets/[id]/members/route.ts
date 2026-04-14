@@ -124,7 +124,7 @@ export async function POST(req: Request, ctx: { params?: { id?: string } }) {
     rule: rule,
   })
 
-  await em.persistAndFlush(member)
+  await em.persist(member).flush()
 
   return NextResponse.json({ id: member.id }, { status: 201 })
 }
@@ -174,7 +174,7 @@ export async function PUT(req: Request, ctx: { params?: { id?: string } }) {
     member.enabled = parsed.data.enabled
   }
 
-  await em.persistAndFlush(member)
+  await em.persist(member).flush()
 
   return NextResponse.json({ ok: true })
 }
@@ -211,7 +211,7 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string } }) {
     return NextResponse.json({ error: 'Member not found' }, { status: 404 })
   }
 
-  await em.removeAndFlush(member)
+  await em.remove(member).flush()
 
   return NextResponse.json({ ok: true })
 }

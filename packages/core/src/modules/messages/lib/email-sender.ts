@@ -158,7 +158,7 @@ export async function createMessageAccessToken(
     expiresAt,
     useCount: 0,
   })
-  await em.persistAndFlush(record)
+  await em.persist(record).flush()
   logDebug('Created access token', {
     messageId,
     recipientUserId,

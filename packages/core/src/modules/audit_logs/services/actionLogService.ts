@@ -74,7 +74,7 @@ export class ActionLogService {
     const data = this.parseCreateInput(input)
     const fork = this.em.fork()
     const log = this.createLogEntity(fork, data)
-    await fork.persistAndFlush(log)
+    await fork.persist(log).flush()
     await this.decryptEntries(log)
     return log
   }

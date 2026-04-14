@@ -28,7 +28,7 @@ export class CustomerSessionService {
       lastUsedAt: new Date(),
       createdAt: new Date(),
     } as any) as CustomerUserSession
-    await this.em.persistAndFlush(session)
+    await this.em.persist(session).flush()
 
     const jwt = this.signCustomerJwt(user, resolvedFeatures)
 

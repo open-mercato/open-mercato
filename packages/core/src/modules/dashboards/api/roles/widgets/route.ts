@@ -111,7 +111,7 @@ export async function PUT(req: Request) {
 
   if (!widgetIds.length) {
     if (record) {
-      await em.removeAndFlush(record)
+      await em.remove(record).flush()
     }
     return NextResponse.json({ ok: true, widgetIds: [] })
   }

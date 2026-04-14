@@ -141,7 +141,7 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
 
     try {
       record.lastUsedAt = new Date()
-      await em.persistAndFlush(record)
+      await em.persist(record).flush()
     } catch {
       // best-effort update; ignore write failures
     }

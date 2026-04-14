@@ -381,7 +381,7 @@ export async function POST(req: Request) {
     content: extractedContent,
     storageMetadata: metadata,
   })
-  await em.persistAndFlush(att)
+  await em.persist(att).flush()
 
   if (useLlmOcr) {
     requestOcrProcessing(em, att, stored.absolutePath).catch((error) => {
@@ -472,7 +472,7 @@ export async function DELETE(req: Request) {
   const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId!, organizationId: auth.orgId }
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
-  await em.removeAndFlush(record)
+  await em.remove(record).flush()
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     console.error('[attachments] failed to cleanup cached thumbnails', error)
   })

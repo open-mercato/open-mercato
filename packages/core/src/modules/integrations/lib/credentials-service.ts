@@ -176,7 +176,7 @@ export function createCredentialsService(em: EntityManager) {
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       })
-      await em.persistAndFlush(created)
+      await em.persist(created).flush()
     },
 
     async saveField(

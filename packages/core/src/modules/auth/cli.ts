@@ -59,7 +59,7 @@ const addUser: ModuleCli = {
       organizationId: org.id,
       tenantId: org.tenant.id,
     })
-    await em.persistAndFlush(u)
+    await em.persist(u).flush()
     if (rolesCsv) {
       const names = rolesCsv.split(',').map(s => s.trim()).filter(Boolean)
       for (const name of names) {
@@ -69,13 +69,13 @@ const addUser: ModuleCli = {
         }
         if (!role) {
         role = em.create(Role, { name, tenantId: normalizedTenantId, createdAt: new Date() })
-          await em.persistAndFlush(role)
+          await em.persist(role).flush()
         } else if (normalizedTenantId !== null && role.tenantId !== normalizedTenantId) {
           role.tenantId = normalizedTenantId
-          await em.persistAndFlush(role)
+          await em.persist(role).flush()
         }
         const link = em.create(UserRole, { user: u, role })
-        await em.persistAndFlush(link)
+        await em.persist(link).flush()
       }
     }
     console.log('User created with id', u.id)
@@ -395,9 +395,9 @@ const addOrganization: ModuleCli = {
     const em = resolve('em') as any
     // Create tenant implicitly for simplicity
     const tenant = em.create(Tenant, { name: `${name} Tenant` })
-    await em.persistAndFlush(tenant)
+    await em.persist(tenant).flush()
     const org = em.create(Organization, { name, tenant })
-    await em.persistAndFlush(org)
+    await em.persist(org).flush()
     await rebuildHierarchyForTenant(em, String(tenant.id))
     console.log('Organization created with id', org.id, 'in tenant', tenant.id)
   },
@@ -636,7 +636,7 @@ const setPassword: ModuleCli = {
     }
     
     user.passwordHash = await hash(password, 10)
-    await em.persistAndFlush(user)
+    await em.persist(user).flush()
     
     console.log(`✅ Password updated successfully for user: ${email}`)
   },

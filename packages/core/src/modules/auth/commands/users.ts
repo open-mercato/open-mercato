@@ -340,7 +340,7 @@ async function sendInviteToUser(
   const tokenHash = hashAuthToken(rawToken)
   const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
   const row = em.create(PasswordReset, { user, token: tokenHash, expiresAt, createdAt: new Date() })
-  await em.persistAndFlush(row)
+  await em.persist(row).flush()
 
   const base = resolveInviteBaseUrl()
   const inviteUrl = `${base}/reset/${rawToken}`

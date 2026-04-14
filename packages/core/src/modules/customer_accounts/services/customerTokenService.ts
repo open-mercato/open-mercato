@@ -24,7 +24,7 @@ export class CustomerTokenService {
       expiresAt,
       createdAt: new Date(),
     } as any)
-    await this.em.persistAndFlush(record)
+    await this.em.persist(record).flush()
     return rawToken
   }
 
@@ -39,7 +39,7 @@ export class CustomerTokenService {
       expiresAt,
       createdAt: new Date(),
     } as any)
-    await this.em.persistAndFlush(record)
+    await this.em.persist(record).flush()
     return rawToken
   }
 
@@ -53,7 +53,7 @@ export class CustomerTokenService {
       expiresAt,
       createdAt: new Date(),
     } as any)
-    await this.em.persistAndFlush(record)
+    await this.em.persist(record).flush()
     return rawToken
   }
 

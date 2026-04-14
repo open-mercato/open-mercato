@@ -211,7 +211,7 @@ export async function POST(req: Request) {
   const rule = em.create(BusinessRule, data)
 
   try {
-    await em.persistAndFlush(rule)
+    await em.persist(rule).flush()
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: `Failed to create rule: ${message}` }, { status: 500 })
@@ -267,7 +267,7 @@ export async function PUT(req: Request) {
   em.assign(rule, parsed.data)
 
   try {
-    await em.persistAndFlush(rule)
+    await em.persist(rule).flush()
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return NextResponse.json({ error: `Failed to update rule: ${message}` }, { status: 500 })
@@ -304,7 +304,7 @@ export async function DELETE(req: Request) {
   }
 
   rule.deletedAt = new Date()
-  await em.persistAndFlush(rule)
+  await em.persist(rule).flush()
 
   return NextResponse.json({ ok: true })
 }

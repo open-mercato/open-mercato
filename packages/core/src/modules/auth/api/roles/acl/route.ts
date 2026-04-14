@@ -170,7 +170,7 @@ export async function PUT(req: Request) {
   if (parsed.data.organizations !== undefined) acl.organizationsJson = parsed.data.organizations
   acl.isSuperAdmin = effectiveIsSuperAdmin
   acl.featuresJson = effectiveFeatures
-  await em.persistAndFlush(acl)
+  await em.persist(acl).flush()
   
   // Invalidate cache for all users in this tenant since role ACL changed
   if (targetTenantId) {
