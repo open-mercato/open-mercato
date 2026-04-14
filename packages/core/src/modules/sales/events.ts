@@ -78,9 +78,6 @@ export const eventsConfig = createModuleEvents({
   events,
 })
 
-/** Type-safe event emitter for sales module */
-export const emitSalesEvent = eventsConfig.emit
-
 /** Event IDs that can be emitted by the sales module */
 export type SalesEventId = typeof events[number]['id']
 

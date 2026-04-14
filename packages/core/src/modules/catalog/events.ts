@@ -39,9 +39,6 @@ export const eventsConfig = createModuleEvents({
   events,
 })
 
-/** Type-safe event emitter for catalog module */
-export const emitCatalogEvent = eventsConfig.emit
-
 /** Event IDs that can be emitted by the catalog module */
 export type CatalogEventId = typeof events[number]['id']
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 interface CartItem {
   id: string // Product UUID
@@ -47,6 +48,7 @@ interface WorkflowEvent {
 
 export default function CheckoutDemoPage() {
   const queryClient = useQueryClient()
+  const t = useT()
   const [loading, setLoading] = useState(false)
   const [advancing, setAdvancing] = useState(false)
   const [result, setResult] = useState<WorkflowResult | null>(null)
@@ -901,9 +903,14 @@ export default function CheckoutDemoPage() {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Checkout Demo with Payment Webhooks</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            {t('workflows.checkoutDemo.title', 'Checkout Demo with Payment Webhooks')}
+          </h1>
           <p className="text-gray-600">
-            Interactive workflow demonstration featuring signal-based payment confirmation (WAIT_FOR_SIGNAL)
+            {t(
+              'workflows.checkoutDemo.subtitle',
+              'Interactive workflow demonstration featuring signal-based payment confirmation (WAIT_FOR_SIGNAL)',
+            )}
           </p>
         </div>
 
@@ -916,16 +923,17 @@ export default function CheckoutDemoPage() {
                 {/* Customer Selection */}
                 <div className="mb-6 pb-6 border-b border-gray-200">
                   <label htmlFor="customer-select" className="block text-sm font-medium text-gray-700 mb-2">
-                    Select Customer <span className="text-red-600">*</span>
+                    {t('workflows.checkoutDemo.customer.selectLabel', 'Select Customer')}{' '}
+                    <span className="text-red-600">*</span>
                   </label>
                   {customersLoading ? (
                     <div className="flex items-center justify-center py-3 text-sm text-gray-500">
                       <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Loading customers...
+                      {t('workflows.checkoutDemo.customer.loading', 'Loading customers...')}
                     </div>
                   ) : customers.length === 0 ? (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
-                      No customers found. Please create a customer first.
+                      {t('workflows.checkoutDemo.customer.noneFound', 'No customers found. Please create a customer first.')}
                     </div>
                   ) : (
                     <>
@@ -935,7 +943,7 @@ export default function CheckoutDemoPage() {
                         onChange={(e) => setSelectedCustomerId(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                       >
-                        <option value="">-- Select a customer --</option>
+                        <option value="">{t('workflows.checkoutDemo.customer.selectPlaceholder', '-- Select a customer --')}</option>
                         {customers.map((customer: any) => (
                           <option key={customer.id} value={customer.id}>
                             {customer.display_name || customer.id}
@@ -944,7 +952,7 @@ export default function CheckoutDemoPage() {
                       </select>
                       <div className="mt-2">
                         <label htmlFor="currency-select" className="block text-xs font-medium text-gray-600 mb-1">
-                          Currency
+                          {t('workflows.checkoutDemo.currency.label', 'Currency')}
                         </label>
                         <select
                           id="currency-select"
@@ -965,16 +973,16 @@ export default function CheckoutDemoPage() {
                 {/* Product Selection */}
                 <div className="mb-6 pb-6 border-b border-gray-200">
                   <label htmlFor="product-select" className="block text-sm font-medium text-gray-700 mb-2">
-                    Add Products to Cart
+                    {t('workflows.checkoutDemo.product.addLabel', 'Add Products to Cart')}
                   </label>
                   {productsLoading ? (
                     <div className="flex items-center justify-center py-3 text-sm text-gray-500">
                       <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Loading products...
+                      {t('workflows.checkoutDemo.product.loading', 'Loading products...')}
                     </div>
                   ) : products.length === 0 ? (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
-                      No products found. Please create products in the catalog first.
+                      {t('workflows.checkoutDemo.product.noneFound', 'No products found. Please create products in the catalog first.')}
                     </div>
                   ) : (
                     <div className="space-y-2">
@@ -994,7 +1002,7 @@ export default function CheckoutDemoPage() {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                         value=""
                       >
-                        <option value="">-- Select a product to add --</option>
+                        <option value="">{t('workflows.checkoutDemo.product.selectPlaceholder', '-- Select a product to add --')}</option>
                         {products.map((product: any) => {
                           const basePrice = product.pricing?.unit_price_gross || product.pricing?.unit_price_net || 99.99
                           const displayPrice = (basePrice * exchangeRate).toFixed(2)
@@ -1014,13 +1022,19 @@ export default function CheckoutDemoPage() {
                   )}
                 </div>
 
-                <h2 className="text-xl font-semibold text-gray-900 mb-4">Order Summary</h2>
+                <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                  {t('workflows.checkoutDemo.orderSummary.title', 'Order Summary')}
+                </h2>
 
                 {/* Cart Items */}
                 {cart.length === 0 ? (
                   <div className="bg-gray-50 border border-gray-200 rounded-lg p-6 text-center mb-6">
-                    <p className="text-gray-500 text-sm">Your cart is empty</p>
-                    <p className="text-gray-400 text-xs mt-1">Add products from the dropdown above</p>
+                    <p className="text-gray-500 text-sm">
+                      {t('workflows.checkoutDemo.cart.empty.title', 'Your cart is empty')}
+                    </p>
+                    <p className="text-gray-400 text-xs mt-1">
+                      {t('workflows.checkoutDemo.cart.empty.hint', 'Add products from the dropdown above')}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-4 mb-6">
