@@ -750,6 +750,69 @@ describe('Workflow Executor (Unit Tests)', () => {
   // Helper Functions Tests
   // ============================================================================
 
+  describe('resumeWorkflowAfterActivities', () => {
+    test('should use transaction and pessimistic write lock to prevent concurrent resume', async () => {
+      const mockInstance = {
+        id: testInstanceId,
+        definitionId: testDefinitionId,
+        workflowId: 'simple-workflow',
+        version: 1,
+        status: 'WAITING_FOR_ACTIVITIES',
+        currentStepId: 'step1',
+        context: { _pendingAsyncActivities: ['job-1'] },
+        pendingTransition: null,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as WorkflowInstance
+
+      const transitionHandler = jest.requireMock('../transition-handler') as {
+        findValidTransitions: jest.Mock
+        executeTransition: jest.Mock
+      }
+      transitionHandler.findValidTransitions.mockResolvedValue([])
+
+      let resumeFindOneCallCount = 0
+      const findOneOptions: Array<Record<string, unknown>> = []
+      mockEm.findOne.mockImplementation(async (_entity: unknown, where: unknown, opts?: any) => {
+        if (opts) findOneOptions.push(opts)
+        resumeFindOneCallCount++
+        if (resumeFindOneCallCount === 1) return mockInstance
+        if ((where as Record<string, unknown>)?.id === testInstanceId) {
+          mockInstance.status = 'RUNNING' as any
+          return mockInstance
+        }
+        if ((where as Record<string, unknown>)?.id === testDefinitionId) {
+          return mockDefinition as WorkflowDefinition
+        }
+        return mockInstance
+      })
+      ;(mockEm as any).count = jest.fn()
+        .mockResolvedValueOnce(1)  // completedActivities
+        .mockResolvedValueOnce(0)  // failedActivities
+      ;(mockEm as any).find = jest.fn().mockResolvedValue([])
+
+      await workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
+
+      expect(mockEm.transactional).toHaveBeenCalled()
+
+      const lockOption = findOneOptions.find(opt => opt.lockMode !== undefined)
+      expect(lockOption).toBeDefined()
+      expect(lockOption!.lockMode).toBe(LockMode.PESSIMISTIC_WRITE)
+    })
+
+    test('should reject resume when instance is no longer WAITING_FOR_ACTIVITIES under lock', async () => {
+      mockEm.findOne.mockResolvedValue(null)
+
+      await expect(
+        workflowExecutor.resumeWorkflowAfterActivities(mockEm, mockContainer, testInstanceId)
+      ).rejects.toThrow('Workflow instance not waiting for activities')
+    })
+  })
+
   describe('getWorkflowInstance', () => {
     test('should get workflow instance by ID', async () => {
       const mockInstance = {

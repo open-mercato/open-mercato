@@ -4,6 +4,8 @@ import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quot
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 
 const mockCommandBus = { execute: jest.fn() }
@@ -120,8 +122,45 @@ describe('quote send + accept flow', () => {
     expect(res.status).toBe(200)
     expect(quote.status).toBe('sent')
     expect(quote.acceptanceToken).toBeTruthy()
+    // Stored token must be a hash, not a UUID
+    expect(quote.acceptanceToken).toHaveLength(64)
+    expect(quote.acceptanceToken).toMatch(/^[0-9a-f]{64}$/)
     expect(quote.validUntil).toBeInstanceOf(Date)
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  test('accept falls back to raw token lookup for quotes sent before hashing rollout', async () => {
+    const LEGACY_RAW_TOKEN = '77777777-7777-4777-8777-777777777777'
+    const legacyQuote = {
+      id: '66666666-6666-4666-8666-666666666666',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-LEGACY',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+      acceptanceToken: LEGACY_RAW_TOKEN,
+    }
+
+    const seenWhereTokens: Array<string | undefined> = []
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) {
+        seenWhereTokens.push(where?.acceptanceToken)
+        return where?.acceptanceToken === LEGACY_RAW_TOKEN ? legacyQuote : null
+      }
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: 'order-legacy', orderNumber: 'SO-LEGACY', deletedAt: null }
+      return null
+    })
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-legacy' } })
+
+    const res = await acceptQuote(makeAcceptRequest({ token: LEGACY_RAW_TOKEN }))
+    expect(res.status).toBe(200)
+    expect(seenWhereTokens[0]).toBe(hashAuthToken(LEGACY_RAW_TOKEN))
+    expect(seenWhereTokens[1]).toBe(LEGACY_RAW_TOKEN)
+    expect(legacyQuote.status).toBe('confirmed')
   })
 
   test('public view returns expired flag', async () => {
@@ -371,6 +410,86 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
 
     await acceptQuote(makeAcceptReq())
     expect(capturedWhere?.tenantId).toBe(TENANT_ID)
+  })
+})
+
+describe('accept - TOCTOU concurrency guard', () => {
+  const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-000000000099'
+
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    mockEm.fork.mockReturnValue(mockEm)
+    mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getCachedRateLimiterService } = await import('@open-mercato/core/bootstrap')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
+    ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
+  })
+
+  test('accept uses pessimistic write lock and transaction to prevent TOCTOU', async () => {
+    const quote = {
+      id: '77777777-7777-4777-8777-777777777777',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-LOCK-1',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+
+    let transactionalCallbackExecuted = false
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+      transactionalCallbackExecuted = true
+      return callback(mockEm)
+    }) as any
+
+    const findOneOptions: Array<Record<string, unknown>> = []
+    mockEm.findOne.mockImplementation(async (cls: any, _where: any, opts?: any) => {
+      if (opts) findOneOptions.push(opts)
+      if (cls === SalesQuote) return quote
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      if (cls === SalesOrder) return { id: 'order-lock-1', orderNumber: 'SO-LOCK-1', deletedAt: null }
+      return null
+    })
+    mockCommandBus.execute.mockResolvedValue({ result: { orderId: 'order-lock-1' } })
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(200)
+
+    expect(transactionalCallbackExecuted).toBe(true)
+    expect(mockEm.transactional).toHaveBeenCalled()
+
+    const lockOption = findOneOptions.find(opt => opt.lockMode !== undefined)
+    expect(lockOption).toBeDefined()
+    expect(lockOption!.lockMode).toBe(LockMode.PESSIMISTIC_WRITE)
+  })
+
+  test('second concurrent accept is rejected by status check under lock', async () => {
+    const quote = {
+      id: '88888888-8888-4888-8888-888888888888',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-RACE-1',
+      status: 'confirmed',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+      return callback(mockEm)
+    }) as any
+
+    mockEm.findOne.mockImplementation(async (cls: any) => {
+      if (cls === SalesQuote) return quote
+      return null
+    })
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(400)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 })
 

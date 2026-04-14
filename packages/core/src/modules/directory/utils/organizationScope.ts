@@ -16,6 +16,12 @@ export type OrganizationScope = {
   tenantId: string | null
 }
 
+function normalizeOrganizationId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 export function getSelectedOrganizationFromRequest(req: Request | { cookies?: { get: (name: string) => { value: string } | undefined }; headers?: { get(name: string): string | null } }): string | null {
   const cookieContainer = (req as { cookies?: { get: (name: string) => { value: string } | undefined } }).cookies
   if (cookieContainer && typeof cookieContainer.get === 'function') {
@@ -43,7 +49,7 @@ export function getSelectedTenantFromRequest(
 async function collectWithDescendants(em: EntityManager, tenantId: string, ids: string[]): Promise<Set<string>> {
   if (!ids.length) return new Set()
   const unique = Array.from(new Set(
-    ids.filter((value): value is string => {
+    ids.map((value) => normalizeOrganizationId(value)).filter((value): value is string => {
       if (!value) return false
       if (isAllOrganizationsSelection(value)) return false
       return true
@@ -98,27 +104,30 @@ export async function resolveOrganizationScope({
   if (!tenantId) {
     return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
+  const normalizedRequestedSelection = normalizeOrganizationId(selectedId)
   const explicitAllOrgsChoice =
-    typeof selectedId === 'string' && isAllOrganizationsSelection(selectedId)
+    normalizedRequestedSelection !== null && isAllOrganizationsSelection(normalizedRequestedSelection)
   const normalizedSelectedId = explicitAllOrgsChoice
     ? null
-    : (selectedId ?? null)
-  const contextOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+    : normalizedRequestedSelection
+  const contextOrgId = actorTenantId && actorTenantId === tenantId ? normalizeOrganizationId(auth.orgId) : null
   const acl = await rbac.loadAcl(auth.sub, { tenantId, organizationId: contextOrgId })
   const aclIsSuperAdmin = acl?.isSuperAdmin === true
   const effectiveSuperAdmin = aclIsSuperAdmin || isSuperAdminActor
-  const rawAccessible = effectiveSuperAdmin
+  const normalizedAccessible = effectiveSuperAdmin
     ? null
     : Array.isArray(acl?.organizations)
-      ? acl.organizations.filter(Boolean)
+      ? acl.organizations
+        .map((value) => normalizeOrganizationId(value))
+        .filter((value): value is string => value !== null)
       : null
   const accessibleList = effectiveSuperAdmin
     ? null
-    : rawAccessible && rawAccessible.some((value) => typeof value === 'string' && isAllOrganizationsSelection(value))
+    : normalizedAccessible && normalizedAccessible.some((value) => isAllOrganizationsSelection(value))
       ? null
-      : rawAccessible?.filter((value): value is string => typeof value === 'string' && !isAllOrganizationsSelection(value)) ?? null
+      : normalizedAccessible?.filter((value) => !isAllOrganizationsSelection(value)) ?? null
 
-  const accountOrgId = actorTenantId && actorTenantId === tenantId ? auth.orgId ?? null : null
+  const accountOrgId = actorTenantId && actorTenantId === tenantId ? normalizeOrganizationId(auth.orgId) : null
   const fallbackOrgId = accountOrgId ?? null
   let fallbackSet: Set<string> | null = null
   const loadFallbackSet = async (): Promise<Set<string> | null> => {
@@ -146,7 +155,7 @@ export async function resolveOrganizationScope({
   }
 
   const hasUnrestrictedAccess = effectiveSuperAdmin || (accessibleList === null)
-  const noOrgSelection = selectedId == null
+  const noOrgSelection = normalizedSelectedId === null && !explicitAllOrgsChoice
   const widenToAllOrgs =
     (explicitAllOrgsChoice && hasUnrestrictedAccess)
     || (effectiveSuperAdmin && noOrgSelection)
@@ -210,19 +219,18 @@ export async function resolveOrganizationScopeForRequest({
   let rbac: RbacService | null = null
   try { em = container.resolve<EntityManager>('em') } catch { em = null }
   try { rbac = container.resolve<RbacService>('rbacService') } catch { rbac = null }
+  const normalizeString = (value: unknown): string | null => {
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+    return null
+  }
   if (!em || !rbac) {
-    const fallbackSelected = selectedId ?? auth.orgId ?? null
+    const fallbackSelected = normalizeOrganizationId(selectedId ?? auth.orgId ?? null)
     return {
       selectedId: fallbackSelected,
       filterIds: fallbackSelected ? [fallbackSelected] : null,
       allowedIds: fallbackSelected ? [fallbackSelected] : null,
-      tenantId: auth.tenantId ?? null,
+      tenantId: normalizeString(auth.tenantId),
     }
-  }
-
-  const normalizeString = (value: unknown): string | null => {
-    if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-    return null
   }
 
   const actorTenantField = (auth as { actorTenantId?: string | null }).actorTenantId

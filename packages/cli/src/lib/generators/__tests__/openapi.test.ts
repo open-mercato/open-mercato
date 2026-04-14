@@ -26,6 +26,17 @@ describe('resolveOpenApiGeneratorProjectRoot', () => {
       )
     ).toBe('C:\\open-mercato')
   })
+
+  it('resolves Windows module URLs with POSIX separators when windows is false', async () => {
+    const { resolveOpenApiGeneratorProjectRoot } = await import('../openapi-paths')
+
+    expect(
+      resolveOpenApiGeneratorProjectRoot(
+        'file:///C:/open-mercato/packages/cli/src/lib/generators/openapi.ts',
+        { windows: false }
+      )
+    ).toBe('/C:/open-mercato')
+  })
 })
 
 describe('generateOpenApi', () => {

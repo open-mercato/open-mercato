@@ -15,6 +15,7 @@ export type ParsedRedisConnection = {
   port: number
   password?: string
   db?: number
+  tls?: Record<string, unknown>
 }
 
 /**
@@ -33,6 +34,10 @@ export function getRedisUrl(prefix?: string): string {
 /**
  * Parse a redis:// URL into a {host, port, password, db} object
  * suitable for BullMQ / ioredis structured connection options.
+ *
+ * @deprecated Prefer passing the full URL via `{ url: getRedisUrl(...) }` to
+ * BullMQ/ioredis — this preserves rediss://, username, database, and query
+ * params that structured parsing may lose. Kept for backward compatibility.
  */
 export function parseRedisUrl(url: string): ParsedRedisConnection {
   try {
@@ -45,6 +50,7 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
       port: parseInt(parsed.port, 10) || 6379,
       password: parsed.password || undefined,
       db,
+      tls: parsed.protocol === 'rediss:' ? {} : undefined,
     }
   } catch {
     const safeUrl = url.replace(/\/\/[^:]*:[^@]*@/, '//<redacted>@')

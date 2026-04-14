@@ -108,7 +108,7 @@ Use this structure for every review:
 - [ ] Custom fields use `collectCustomFieldValues()`
 - [ ] `yarn generate` needed after file additions
 - [ ] No cross-module ORM relationships
-- [ ] Encryption helpers used instead of raw `em.find`
+- [ ] Encryption helpers used instead of raw `em.find`/`em.findOne` — grep diff for `em.findOne(` and `em.find(` in non-test files; every hit is a blocker
 - [ ] Forms use `CrudForm`, tables use `DataTable`
 - [ ] Non-`CrudForm` backend writes use `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in context
 - [ ] `apiCall` used instead of raw `fetch`
@@ -158,7 +158,7 @@ These are the highest-impact rules. For the full checklist, see `references/revi
 ### Security (Critical)
 
 - **Validate all inputs with zod** in `data/validators.ts` — never trust raw input
-- **Use `findWithDecryption`** instead of raw `em.find`/`em.findOne`
+- **Use `findOneWithDecryption`/`findWithDecryption`** instead of raw `em.findOne`/`em.find` for ALL tenant-scoped entity queries in production code (not tests). This is a HARD BLOCKER — grep the diff for `em.findOne(` and `em.find(` in non-test files. Import from `@open-mercato/shared/lib/encryption/find` or `@open-mercato/shared/lib/data/encryption`.
 - **Hash passwords with bcryptjs (cost >= 10)** — never log credentials
 - **Auth endpoints**: return minimal error messages — never reveal if email exists
 - **Every endpoint MUST declare guards** (`requireAuth`, `requireRoles`, `requireFeatures`)

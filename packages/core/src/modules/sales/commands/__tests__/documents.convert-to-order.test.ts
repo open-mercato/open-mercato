@@ -1,8 +1,11 @@
 /** @jest-environment node */
 
 import { LockMode } from '@mikro-orm/core'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesDocumentAddress,
   SalesDocumentTagAssignment,
@@ -12,6 +15,35 @@ import {
   SalesQuoteAdjustment,
   SalesQuoteLine,
 } from '@open-mercato/core/modules/sales/data/entities'
+
+type ConvertToOrderInput = { quoteId: string; orderId?: string; orderNumber?: string }
+type ConvertToOrderResult = { orderId: string }
+
+function readWhereId(where: unknown): unknown {
+  if (where && typeof where === 'object' && 'id' in where) {
+    return where.id
+  }
+  return undefined
+}
+
+function readLockOption(options: unknown): { lockMode?: unknown } | null {
+  if (options && typeof options === 'object' && 'lockMode' in options) {
+    return { lockMode: options.lockMode }
+  }
+  return null
+}
+
+jest.mock('#generated/entities.ids.generated', () => ({
+  E: {
+    sales: {
+      sales_order: 'sales.sales_order',
+      sales_order_line: 'sales.sales_order_line',
+      sales_quote: 'sales.sales_quote',
+      sales_quote_line: 'sales.sales_quote_line',
+      sales_quote_adjustment: 'sales.sales_quote_adjustment',
+    },
+  },
+}))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -32,6 +64,9 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+const mockedFindOneWithDecryption = jest.mocked(findOneWithDecryption)
+const mockedFindWithDecryption = jest.mocked(findWithDecryption)
+
 describe('sales.quotes.convert_to_order', () => {
   beforeAll(async () => {
     commandRegistry.clear?.()
@@ -39,7 +74,9 @@ describe('sales.quotes.convert_to_order', () => {
   })
 
   test('serializes concurrent conversions on the same quote with a pessimistic lock', async () => {
-    const handler = commandRegistry.get<any, any>('sales.quotes.convert_to_order')
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>(
+      'sales.quotes.convert_to_order',
+    )
     expect(handler).toBeTruthy()
 
     const quote = {
@@ -138,24 +175,8 @@ describe('sales.quotes.convert_to_order', () => {
           release?.()
         }
       }),
-      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>, options?: unknown) => {
-        if (entity === SalesQuote) {
-          lockOptions.push(options ?? null)
-          return where.id === quote.id && quoteExists ? quote : null
-        }
-        if (entity === SalesOrder) {
-          return createdOrderIds.includes(where.id as string) ? { id: where.id, deletedAt: null } : null
-        }
-        return null
-      }),
-      find: jest.fn(async (entity: unknown) => {
-        if (entity === SalesQuoteLine) return quoteExists ? [quoteLine] : []
-        if (entity === SalesQuoteAdjustment) return []
-        if (entity === SalesDocumentAddress) return []
-        if (entity === SalesNote) return []
-        if (entity === SalesDocumentTagAssignment) return []
-        return []
-      }),
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async () => []),
       create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
       persist: jest.fn((entity: Record<string, unknown>) => {
         if (typeof entity.orderNumber === 'string' && typeof entity.id === 'string') {
@@ -170,23 +191,45 @@ describe('sales.quotes.convert_to_order', () => {
     }
     em.fork.mockReturnValue(em)
 
-    const ctx = {
-      container: {
-        resolve: (token: string) => {
-          if (token === 'em') return em
-          if (token === 'salesDocumentNumberGenerator') {
-            return {
-              generate: jest.fn(async () => ({ number: `SO-${createdOrderIds.length + 1}` })),
-            }
-          }
-          return null
-        },
-      },
+    mockedFindOneWithDecryption.mockImplementation(async (_em, entity, where, options) => {
+      const id = readWhereId(where)
+      if (entity === SalesQuote) {
+        lockOptions.push(readLockOption(options))
+        if (id === quote.id && quoteExists) return quote
+        return null
+      }
+      if (entity === SalesOrder) {
+        if (typeof id === 'string' && createdOrderIds.includes(id)) {
+          return { id, deletedAt: null }
+        }
+        return null
+      }
+      return null
+    })
+
+    mockedFindWithDecryption.mockImplementation(async (_em, entity) => {
+      if (entity === SalesQuoteLine) return quoteExists ? [quoteLine] : []
+      if (entity === SalesQuoteAdjustment) return []
+      if (entity === SalesDocumentAddress) return []
+      if (entity === SalesNote) return []
+      if (entity === SalesDocumentTagAssignment) return []
+      return []
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.PROXY })
+    container.register({
+      em: asValue(em),
+      salesDocumentNumberGenerator: asValue({
+        generate: jest.fn(async () => ({ number: `SO-${createdOrderIds.length + 1}` })),
+      }),
+    })
+
+    const ctx: CommandRuntimeContext = {
+      container,
       auth: null,
       organizationScope: null,
       selectedOrganizationId: quote.organizationId,
       organizationIds: [quote.organizationId],
-      request: null,
     }
 
     const first = handler!.execute(
@@ -194,14 +237,14 @@ describe('sales.quotes.convert_to_order', () => {
         quoteId: quote.id,
         orderId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       },
-      ctx as any,
+      ctx,
     )
     const second = handler!.execute(
       {
         quoteId: quote.id,
         orderId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       },
-      ctx as any,
+      ctx,
     )
 
     const results = await Promise.allSettled([first, second])
