@@ -7,39 +7,32 @@ export class LocalLockStrategy {
   constructor(private em: () => EntityManager) {}
 
   /**
-   * Try to acquire a lock using PostgreSQL advisory locks
+   * Execute a function under a PostgreSQL advisory lock.
+   *
+   * IMPORTANT: Uses transaction-scoped advisory locks (`pg_try_advisory_xact_lock`)
+   * to avoid connection pool/session mismatch issues. The lock is automatically
+   * released when the transaction ends.
    */
-  async tryLock(key: string): Promise<boolean> {
-    const em = this.em()
+  async runWithLock<T>(key: string, fn: () => Promise<T>): Promise<{ acquired: boolean; result?: T }> {
+    const em = this.em().fork()
     const hash = this.hashString(key)
-    
-    try {
-      // Use MikroORM's execute with proper parameter binding
-      const result = await em.getConnection().execute<{ acquired: boolean }[]>(
-        `SELECT pg_try_advisory_lock(?) as acquired`,
-        [hash]
-      )
-      return result[0]?.acquired === true
-    } catch (error) {
-      console.error('[scheduler:local] Failed to acquire lock:', error)
-      return false
-    }
-  }
 
-  /**
-   * Release a lock
-   */
-  async unlock(key: string): Promise<void> {
-    const em = this.em()
-    const hash = this.hashString(key)
-    
     try {
-      await em.getConnection().execute(
-        `SELECT pg_advisory_unlock(?)`,
-        [hash]
-      )
+      return await em.transactional(async (txEm) => {
+        const result = await txEm.getConnection().execute<{ acquired: boolean }[]>(
+          `SELECT pg_try_advisory_xact_lock(?) as acquired`,
+          [hash],
+        )
+
+        const acquired = result[0]?.acquired === true
+        if (!acquired) return { acquired: false }
+
+        const fnResult = await fn()
+        return { acquired: true, result: fnResult }
+      })
     } catch (error) {
-      console.error('[scheduler:local] Failed to release lock:', error)
+      console.error('[scheduler:local] Failed to run with lock:', error)
+      return { acquired: false }
     }
   }
 
