@@ -115,7 +115,7 @@
     "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
     "newrelic": "^13.16.0",
-    "next": "16.1.7",
+    "next": "16.2.3",
     "pdfjs-dist": "^5.4.149",
     "pg": "8.20.0",
     "react": "19.2.1",
@@ -155,7 +155,7 @@
     "typescript": "^5.9.3"
   },
   "resolutions": {
-    "@hono/node-server": "1.19.10",
+    "@hono/node-server": "1.19.14",
     "hono": "4.12.12",
     "pg": "8.20.0",
     "zod": "4.1.13",
