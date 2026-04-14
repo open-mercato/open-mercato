@@ -13,8 +13,9 @@ import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
-import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+import { hashToken } from '@open-mercato/shared/lib/auth/tokenHash'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import crypto from 'node:crypto'
 
 const resendInviteRateLimitConfig = readEndpointRateLimitConfig('RESEND_INVITE', {
   points: 3, duration: 300, blockDuration: 300, keyPrefix: 'resend-invite',
@@ -112,10 +113,9 @@ export async function POST(req: Request) {
     { usedAt: new Date() },
   )
 
-  const rawToken = generateAuthToken()
-  const tokenHash = hashAuthToken(rawToken)
+  const rawToken = crypto.randomBytes(32).toString('hex')
   const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
-  const row = em.create(PasswordReset, { user, token: tokenHash, expiresAt, createdAt: new Date() })
+  const row = em.create(PasswordReset, { user, tokenHash: hashToken(rawToken), expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
   const base = resolveInviteBaseUrl(req.url)
