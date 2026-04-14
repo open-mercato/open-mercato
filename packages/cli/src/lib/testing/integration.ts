@@ -8,6 +8,7 @@ import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { resolveEnvironment } from '../resolver'
+import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
 import { resolveDockerHostFromContext, runCommandAndCapture } from './runtime-utils'
 
@@ -429,10 +430,12 @@ async function runCommandWithOutputMonitoring(
   opts: CommandMonitoringOptions = {},
 ): Promise<CommandOutputMonitoringResult> {
   return new Promise((resolve, reject) => {
-    const commandHandle = spawn(command, commandArgs, {
+    const resolvedSpawn = resolveSpawnCommand(command, commandArgs)
+    const commandHandle = spawn(resolvedSpawn.command, resolvedSpawn.args, {
       cwd: projectRootDirectory,
       env: environment,
       stdio: ['ignore', 'pipe', 'pipe'],
+      ...resolvedSpawn.spawnOptions,
     })
 
     let output = ''
@@ -607,10 +610,12 @@ function runYarnRawCommand(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
-    const command: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
+    const resolvedSpawn = resolveSpawnCommand(resolveYarnBinary(), commandArgs)
+    const command: ChildProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
       cwd,
       env: environment,
       stdio: outputMode,
+      ...resolvedSpawn.spawnOptions,
     })
     let bufferedOutput = ''
     if (opts.silent) {
@@ -638,10 +643,12 @@ function runYarnRawCommand(
 function runNpxCommand(args: string[], environment: NodeJS.ProcessEnv): Promise<void> {
   const binary = process.platform === 'win32' ? 'npx.cmd' : 'npx'
   return new Promise((resolve, reject) => {
-    const command = spawn(binary, args, {
+    const resolvedSpawn = resolveSpawnCommand(binary, args)
+    const command = spawn(resolvedSpawn.command, resolvedSpawn.args, {
       cwd: projectRootDirectory,
       env: environment,
       stdio: 'inherit',
+      ...resolvedSpawn.spawnOptions,
     })
     command.on('error', reject)
     command.on('exit', (code) => {
@@ -661,10 +668,12 @@ function startYarnRawCommand(
   cwd: string = projectRootDirectory,
 ): ChildProcess {
   const outputMode: StdioOptions = opts.silent ? ['ignore', 'pipe', 'pipe'] : 'inherit'
-  const processHandle: ChildProcess = spawn(resolveYarnBinary(), commandArgs, {
+  const resolvedSpawn = resolveSpawnCommand(resolveYarnBinary(), commandArgs)
+  const processHandle: ChildProcess = spawn(resolvedSpawn.command, resolvedSpawn.args, {
     cwd,
     env: environment,
     stdio: outputMode,
+    ...resolvedSpawn.spawnOptions,
   })
   if (opts.silent) {
     processHandle.stdout?.on('data', () => {})
