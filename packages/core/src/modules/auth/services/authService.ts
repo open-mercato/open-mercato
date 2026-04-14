@@ -3,14 +3,15 @@ import { compare, hash } from 'bcryptjs'
 import { User, Role, UserRole, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export class AuthService {
   constructor(private em: EntityManager) {}
 
   async findUserByEmail(email: string) {
     const emailHash = computeEmailHash(email)
-    return this.em.findOne(User, {
+    return findOneWithDecryption(this.em, User, {
+      deletedAt: null,
       $or: [
         { email },
         { emailHash },
@@ -95,7 +96,7 @@ export class AuthService {
       sess = await this.em.findOne(Session, { token })
     }
     if (!sess || sess.expiresAt <= now) return null
-    const user = await this.em.findOne(User, { id: sess.user.id })
+    const user = await findOneWithDecryption(this.em, User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
     return { user, roles }
@@ -120,7 +121,7 @@ export class AuthService {
       row = await this.em.findOne(PasswordReset, { token })
     }
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
-    const user = await this.em.findOne(User, { id: row.user.id })
+    const user = await findOneWithDecryption(this.em, User, { id: row.user.id, deletedAt: null })
     if (!user) return null
     user.passwordHash = await hash(newPassword, 10)
     row.usedAt = new Date()
