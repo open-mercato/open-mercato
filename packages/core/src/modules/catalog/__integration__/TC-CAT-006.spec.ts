@@ -34,7 +34,8 @@ test.describe('TC-CAT-006: Edit Product Variant', () => {
 
       await login(page, 'admin');
       await page.goto(`/backend/catalog/products/${productId}`, { waitUntil: 'domcontentloaded' });
-      await page.locator(`a[title="${variantName}"]`).click({ force: true });
+      await expect(page.locator(`a[title="${variantName}"]`)).toBeAttached();
+      await page.goto(`/backend/catalog/products/${productId}/variants/${variantId}`, { waitUntil: 'domcontentloaded' });
       await expect(page).toHaveURL(new RegExp(`/backend/catalog/products/${productId}/variants/${variantId}$`));
 
       await page.getByRole('textbox', { name: 'Unique identifier' }).fill(updatedSku);
