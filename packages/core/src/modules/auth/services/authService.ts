@@ -84,6 +84,17 @@ export class AuthService {
     }
   }
 
+  async deleteSessionById(sessionId: string) {
+    await this.em.nativeDelete(Session, { id: sessionId })
+  }
+
+  async findActiveSessionById(sessionId: string): Promise<Session | null> {
+    const session = await this.em.findOne(Session, { id: sessionId, deletedAt: null })
+    if (!session) return null
+    if (session.expiresAt.getTime() < Date.now()) return null
+    return session
+  }
+
   async deleteAllUserSessions(userId: string) {
     await this.em.nativeDelete(Session, { user: userId })
   }
@@ -99,7 +110,7 @@ export class AuthService {
     const user = await findOneWithDecryption(this.em, User, { id: sess.user.id, deletedAt: null })
     if (!user) return null
     const roles = await this.getUserRoles(user, user.tenantId ?? null)
-    return { user, roles }
+    return { user, roles, session: sess }
   }
 
   async requestPasswordReset(email: string) {
