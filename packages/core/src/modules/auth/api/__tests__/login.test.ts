@@ -12,7 +12,7 @@ const authServiceMock = {
   verifyPassword: jest.fn(async () => true),
   getUserRoles: jest.fn(async () => ['admin']),
   updateLastLoginAt: jest.fn(async () => undefined),
-  createSession: jest.fn(async () => ({ token: 'session-token' })),
+  createSession: jest.fn(async () => ({ session: { id: 'session-1' }, token: 'session-token' })),
 }
 
 const containerMock = {

@@ -147,7 +147,7 @@ export async function POST(req: Request) {
   const sessionExpiresAt = remember
     ? new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     : new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
-  const loginSession = await auth.createSession(user, sessionExpiresAt)
+  const { session: loginSession, token: sessionRefreshToken } = await auth.createSession(user, sessionExpiresAt)
   const token = signJwt({
     sub: String(user.id),
     sid: String(loginSession.id),
@@ -163,7 +163,7 @@ export async function POST(req: Request) {
     redirect: '/backend',
   }
   if (remember) {
-    responseData.refreshToken = loginSession.token
+    responseData.refreshToken = sessionRefreshToken
   }
   const em = container.resolve('em')
   const interceptedResponse = await runCustomRouteAfterInterceptors({
@@ -208,7 +208,7 @@ export async function POST(req: Request) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
   } else if (!remember && authTokenForCookie === token) {
-    res.cookies.set('session_token', loginSession.token, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
+    res.cookies.set('session_token', sessionRefreshToken, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
   }
   return res
 }

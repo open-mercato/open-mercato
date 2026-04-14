@@ -394,6 +394,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     }}
                     onActionChange={handleSectionActionChange}
                     translator={detailTranslator}
+                    runGuardedMutation={runMutationWithContext}
                   />
                 )
               }

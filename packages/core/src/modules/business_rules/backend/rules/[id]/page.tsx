@@ -81,7 +81,7 @@ export default function EditBusinessRulePage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.message || t('business_rules.errors.updateFailed'))
+      throw new Error(error.error || error.message || t('business_rules.errors.updateFailed'))
     }
 
     router.push('/backend/rules')

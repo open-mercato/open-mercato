@@ -224,6 +224,7 @@ test('CLI bare scaffold skips interactive agentic setup with --skip-agentic-setu
     assert.equal(existsSync(join(targetDir, '.claude')), false)
     assert.equal(existsSync(join(targetDir, '.cursor')), false)
     assert.equal(existsSync(join(targetDir, '.codex')), false)
+    assert.equal(existsSync(join(targetDir, 'src', 'modules', 'example', '__integration__')), false)
   } finally {
     rmSync(targetRoot, { recursive: true, force: true })
   }
