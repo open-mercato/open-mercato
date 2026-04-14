@@ -1,7 +1,7 @@
 # SPEC: PR Label Workflow — Streamlined Review & QA Pipeline
 
 **Date**: 2026-04-13
-**Status**: Draft
+**Status**: Partially Implemented
 **Author**: Piotr Karwatka + Claude
 
 ---
@@ -56,6 +56,7 @@ These classify what the PR is about. Applied once, never removed.
 | `security` | `#D93F0B` | Security fix or hardening |
 | `dependencies` | `#0366d6` | Dependency updates (Dependabot) |
 | `enterprise` | `#aaaaaa` | Enterprise-only change |
+| `documentation` | `#0075ca` | Documentation-only or documentation-heavy change |
 
 ### Meta Labels (additive — situational)
 
@@ -65,7 +66,7 @@ These classify what the PR is about. Applied once, never removed.
 | `skip-qa` | `#c5def5` light blue | Explicitly mark that QA is not needed (docs, deps, CI-only) |
 | `in-progress` | `#fbca04` amber | An auto-skill (or human) is actively working on this PR/issue right now — concurrency lock |
 
-**Total: 16 labels** (down from 50+)
+**Total: 17 labels** (down from 50+)
 
 ---
 
@@ -570,7 +571,7 @@ echo "Done. Labels cleaned up."
 
 ---
 
-## Final Label Inventory (16 labels)
+## Final Label Inventory (17 labels)
 
 | # | Label | Type | Color |
 |---|-------|------|-------|
@@ -587,15 +588,35 @@ echo "Done. Labels cleaned up."
 | 11 | `security` | Category | 🟠 orange |
 | 12 | `dependencies` | Category | 🔵 blue |
 | 13 | `enterprise` | Category | ⚪ grey |
-| 14 | `needs-qa` | Meta | 🟣 purple |
-| 15 | `skip-qa` | Meta | 🔵 light blue |
-| 16 | `in-progress` | Meta (lock) | 🟡 amber |
+| 14 | `documentation` | Category | 🔵 blue |
+| 15 | `needs-qa` | Meta | 🟣 purple |
+| 16 | `skip-qa` | Meta | 🔵 light blue |
+| 17 | `in-progress` | Meta (lock) | 🟡 amber |
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Label Cleanup | Done | 2026-04-14 | Repository labels normalized with `gh`; legacy labels removed or renamed; existing open PR pipeline labels were remapped to the new state machine |
+| Phase 2 — Skill Updates | Done | 2026-04-14 | `review-pr` and `fix-github-issue` updated; `merge-buddy` and `review-prs` skills added |
+| Phase 3 — AGENTS.md Updates | Done | 2026-04-14 | Root `AGENTS.md` documents the PR workflow, QA routing, and `gh` helper commands |
+| Phase 4 — Automation | Not Started | — | Optional GitHub Actions enforcement remains deferred |
+
+### Detailed Progress
+
+- [x] Create and normalize the target label set in GitHub
+- [x] Re-label existing open PRs to the new pipeline states
+- [x] Update `review-pr` with QA gate and `review` label handling
+- [x] Update `fix-github-issue` to open PRs in `review` and document `skip-qa`
+- [x] Add `merge-buddy` skill
+- [x] Add `review-prs` skill
+- [x] Add PR workflow guidance to root `AGENTS.md`
+- [ ] Add optional GitHub Actions enforcement
 
 ---
 
 ## Open Questions
 
 1. **Auto-merge on `merge-queue`?** — Should we add a GitHub Action that auto-merges when `merge-queue` is applied and CI is green?
-2. **`documentation` label** — Keep as a category label (#16) or drop it?
-3. **Who decides `needs-qa`?** — Author on PR creation, or reviewer during code review? (Spec assumes: either, but reviewer has final say)
+2. **Who decides `needs-qa`?** — Author on PR creation, or reviewer during code review? (Spec assumes: either, but reviewer has final say)
 4. **Dependabot PRs** — Auto-apply `skip-qa` + `review` on Dependabot PRs?

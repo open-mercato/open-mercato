@@ -324,6 +324,21 @@ Fixes #{issueId}
 
 If the issue is in another repository or should not auto-close, replace `Fixes #{issueId}` with a plain issue link.
 
+After creating the PR, normalize its labels immediately:
+
+- apply the `review` pipeline label
+- add `skip-qa` only for clearly low-risk changes such as docs-only, dependency-only, CI-only, test-only, or trivial typo/single-file maintenance fixes
+- do not add `needs-qa` automatically unless the fix clearly introduces customer-facing behavior that must be manually exercised
+- never add both `needs-qa` and `skip-qa`
+- after each added label, post a short PR comment explaining why it was applied
+
+If another auto-skill will immediately continue on the new PR, that follow-up skill must run the normal PR claim protocol (`assignee` + `in-progress` + claim comment) before mutating it.
+
+Suggested label comments:
+
+- `review`: `Label set to \`review\` because the fix PR is ready for code review.`
+- `skip-qa`: `Label set to \`skip-qa\` because this change is low-risk and does not need manual QA.`
+
 #### Release the in-progress lock on the issue
 
 Always run this as a finally-block — even if the PR open failed or the run was aborted earlier:
@@ -367,4 +382,7 @@ If you stopped because a fix already exists, report the existing PR or commit in
 - Run the full code-review skill and BC check before publishing; auto-fix any actionable findings from the self-review
 - Do not open a PR with known failing required checks unless a real blocker prevents completion and you explain that blocker explicitly
 - Link the issue in the PR and explain what changed and why
+- New PRs opened by this skill must start in the `review` pipeline state
+- Add `skip-qa` only for clearly low-risk non-customer-facing fixes; otherwise leave QA routing to the author/reviewer
+- When this skill adds PR labels, it must also add a short PR comment explaining why
 - Always clean up any temporary worktree created by the current run

@@ -327,11 +327,43 @@ The review body must contain the full structured report from the code-review ski
 
 Use the GraphQL label mutation flow, not `gh pr edit --add-label`.
 
+Pipeline labels:
+
+- `review`
+- `changes-requested`
+- `qa`
+- `qa-failed`
+- `merge-queue`
+- `blocked`
+- `do-not-merge`
+
+Keep `in-progress` separate from the pipeline-state helper. It is a lock, not a workflow state.
+
+Define and reuse a shared helper such as `setPipelineLabel(prNumber, newLabel)` that:
+
+- adds `newLabel`
+- removes every other pipeline label from the list above
+- preserves category labels (`bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`) and meta labels (`needs-qa`, `skip-qa`, `in-progress`)
+- uses the GraphQL API for atomicity
+
+After every pipeline-label change, post a short PR comment explaining why that label was chosen. Keep it to one short sentence.
+
 Label rules:
 
-- `merge-queue`: `#0E8A16` — PR approved and ready to merge
-- `changes-requested`: `#BA6609` — changes requested during review
-- Always add the correct label and remove the opposite label
+- If the PR has no pipeline label when review starts, set `review` before continuing so the state machine is explicit.
+- If the verdict is changes requested, set `changes-requested`.
+- If the verdict is approved and the PR has `needs-qa` but not `skip-qa`, set `qa`.
+- If the verdict is approved and the PR does not require QA, set `merge-queue`.
+- Never leave `review`, `changes-requested`, `qa`, `qa-failed`, and `merge-queue` on the same PR together.
+
+Suggested label comments:
+
+- `review`: `Label set to \`review\` because this PR is ready for code review.`
+- `changes-requested`: `Label set to \`changes-requested\` because review found actionable issues.`
+- `qa`: `Label set to \`qa\` because code review passed and manual QA is still required.`
+- `merge-queue`: `Label set to \`merge-queue\` because the required review gates passed.`
+- `blocked`: `Label set to \`blocked\` because progress depends on an external blocker.`
+- `do-not-merge`: `Label set to \`do-not-merge\` because this PR should not merge yet.`
 
 ### 9. Autonomous autofix flow
 
@@ -469,7 +501,7 @@ Print a concise summary to the user:
 PR #{prNumber}: {title}
 Mode: {review | re-review}
 Decision: {APPROVED | CHANGES REQUESTED}
-Label: {merge-queue | changes-requested}
+Label: {qa | merge-queue | changes-requested}
 Findings: {X critical, Y high, Z medium, W low}
 Worktree: {path}
 Review submitted successfully.
@@ -498,7 +530,11 @@ If a critical blocker remains that requires human judgment, the summary must des
 - Must use the `code-review` skill severity model
 - Must run the diff-level automated checks in step 5
 - The review body must contain the full structured report
-- Always add the chosen label and remove the opposite label
+- Always add the chosen pipeline label and remove every other pipeline label
+- Always add a short PR comment explaining why the chosen pipeline label was applied
+- Approved PRs with `needs-qa` and without `skip-qa` must land in `qa`, not `merge-queue`
+- Approved PRs without a QA requirement must land in `merge-queue`
+- When a review starts on an unlabeled PR, apply `review` before continuing
 - Always use the GraphQL API for label operations
 - Never force-push unless the user explicitly approved it
 - For fork PRs, prefer a replacement PR in the main repository over waiting for the original author
