@@ -306,6 +306,36 @@ describe('SearchService', () => {
       expect(strategy.bulkIndex).not.toHaveBeenCalled()
       expect(strategy.index).not.toHaveBeenCalled()
     })
+
+    it('should throw error when strategy bulkIndex fails', async () => {
+      const strategy = createMockStrategy({
+        id: 'failing-strategy',
+        bulkIndex: jest.fn().mockRejectedValue(new Error('Index strategy failed')),
+      })
+      const service = new SearchService({ strategies: [strategy] })
+      const records = [createMockRecord({ recordId: 'rec-1' })]
+
+      await expect(service.bulkIndex(records)).rejects.toThrow(
+        'Bulk indexing failed for 1 strategy(ies): failing-strategy (Index strategy failed)'
+      )
+    })
+
+    it('should throw error when multiple strategies fail', async () => {
+      const strategy1 = createMockStrategy({
+        id: 'failing1',
+        bulkIndex: jest.fn().mockRejectedValue(new Error('First failure')),
+      })
+      const strategy2 = createMockStrategy({
+        id: 'failing2',
+        bulkIndex: jest.fn().mockRejectedValue(new Error('Second failure')),
+      })
+      const service = new SearchService({ strategies: [strategy1, strategy2] })
+      const records = [createMockRecord({ recordId: 'rec-1' })]
+
+      await expect(service.bulkIndex(records)).rejects.toThrow(
+        'Bulk indexing failed for 2 strategy(ies): failing1 (First failure), failing2 (Second failure)'
+      )
+    })
   })
 
   describe('delete', () => {
