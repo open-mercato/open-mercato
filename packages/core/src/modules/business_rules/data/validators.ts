@@ -143,7 +143,7 @@ const businessRuleBaseFields = {
 // Static schemas (without i18n — used for OpenAPI docs and non-route contexts)
 export const createBusinessRuleSchema = z.object({
   ...businessRuleBaseFields,
-  conditionExpression: conditionExpressionSchema,
+  conditionExpression: conditionExpressionSchema.optional().nullable(),
   successActions: actionsArraySchema,
   failureActions: actionsArraySchema,
 })
@@ -162,7 +162,7 @@ export function createLocalizedBusinessRuleSchema(t: TranslatorFn) {
   const actionsSchema = createActionsArraySchema(t)
   return z.object({
     ...businessRuleBaseFields,
-    conditionExpression: conditionSchema,
+    conditionExpression: conditionSchema.optional().nullable(),
     successActions: actionsSchema,
     failureActions: actionsSchema,
   })

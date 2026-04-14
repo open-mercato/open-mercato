@@ -106,7 +106,7 @@ describe('runCustomRouteAfterInterceptors', () => {
             methods: ['POST'],
             timeoutMs: 10,
             async after() {
-              await new Promise((resolve) => setTimeout(resolve, 200))
+              await new Promise((resolve) => setTimeout(resolve, 500))
               return {}
             },
           },

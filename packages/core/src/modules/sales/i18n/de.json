@@ -1204,6 +1204,7 @@
   "sales.quotes.accept.adminSubject": "Angebot {quoteNumber} angenommen → Auftrag {orderNumber}",
   "sales.quotes.accept.expired": "Dieses Angebot ist abgelaufen.",
   "sales.quotes.accept.failed": "Angebot konnte nicht angenommen werden.",
+  "sales.quotes.accept.forbidden": "Die Angebotsannahme von einer fremden Website ist nicht erlaubt.",
   "sales.quotes.accept.invalidStatus": "Dieses Angebot kann in seinem aktuellen Status nicht angenommen werden.",
   "sales.quotes.accept.notFound": "Angebot nicht gefunden.",
   "sales.quotes.adjustments.delete": "Angebotsanpassung löschen",
