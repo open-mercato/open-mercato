@@ -12,6 +12,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
 import { extractFallbackPresenter } from './fallback-presenter'
+import { needsSearchResultEnrichment } from './search-result-enrichment'
 
 /** Maximum number of record IDs per batch query to avoid hitting DB parameter limits */
 const BATCH_SIZE = 500
@@ -21,31 +22,6 @@ const logWarning = (message: string, context?: Record<string, unknown>) => {
   if (process.env.NODE_ENV === 'development' || process.env.DEBUG_SEARCH_ENRICHER) {
     console.warn(`[search:presenter-enricher] ${message}`, context ?? '')
   }
-}
-
-/**
- * Check if a string looks like an encrypted value.
- * Encrypted format: iv:ciphertext:authTag:v1
- */
-function looksEncrypted(value: unknown): boolean {
-  if (typeof value !== 'string') return false
-  if (!value.includes(':')) return false
-  const parts = value.split(':')
-  // Encrypted strings end with :v1 and have at least 3 colon-separated parts
-  return parts.length >= 3 && parts[parts.length - 1] === 'v1'
-}
-
-/**
- * Check if a result needs enrichment (missing presenter, encrypted values, or missing URL/links)
- */
-function needsEnrichment(result: SearchResult): boolean {
-  if (!result.presenter?.title) return true
-  // Also re-enrich if presenter looks encrypted
-  if (looksEncrypted(result.presenter.title)) return true
-  if (looksEncrypted(result.presenter.subtitle)) return true
-  // Also enrich if missing URL/links (needed for token search results)
-  if (!result.url && (!result.links || result.links.length === 0)) return true
-  return false
 }
 
 /**
@@ -227,7 +203,7 @@ export function createPresenterEnricher(
 ): PresenterEnricherFn {
   return async (results, tenantId, organizationId) => {
     // Find results missing presenter OR with encrypted presenter
-    const missingResults = results.filter(needsEnrichment)
+    const missingResults = results.filter(needsSearchResultEnrichment)
     if (missingResults.length === 0) return results
 
     // Group by entity type for config lookup
@@ -308,15 +284,16 @@ export function createPresenterEnricher(
 
     // Enrich results with computed presenter, URL, and links
     return results.map((result) => {
-      if (!needsEnrichment(result)) return result
+      if (!needsSearchResultEnrichment(result)) return result
       const key = `${result.entityId}:${result.recordId}`
       const enriched = enrichmentMap.get(key)
       if (!enriched) return result
+      const hasExistingLinks = Array.isArray(result.links) && result.links.length > 0
       return {
         ...result,
         presenter: enriched.presenter ?? result.presenter,
         url: result.url ?? enriched.url,
-        links: result.links ?? enriched.links,
+        links: hasExistingLinks ? result.links : (enriched.links ?? result.links),
       }
     })
   }

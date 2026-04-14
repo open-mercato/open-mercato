@@ -253,7 +253,11 @@ describe('Activity Executor (Unit Tests)', () => {
             workflowInstanceId: testInstanceId,
             tenantId: testTenantId,
           }),
-        })
+        }),
+        {
+          organizationId: testOrgId,
+          tenantId: testTenantId,
+        },
       )
     })
 

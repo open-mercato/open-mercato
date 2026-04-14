@@ -128,4 +128,59 @@ test.describe('TC-SALES-018: Shipment Cost Impact on Totals', () => {
       await deleteSalesEntityIfExists(request, cleanupToken, '/api/sales/orders', orderId);
     }
   });
+
+  test('should reject concurrent shipments that exceed the order line quantity', async ({ request }) => {
+    let orderId: string | null = null;
+
+    try {
+      const token = await getAuthToken(request, 'admin');
+      const shippingMethodId = await ensureShippingMethodId(request, token);
+      orderId = await createSalesOrderFixture(request, token, 'USD');
+      const orderLineId = await createOrderLineFixture(request, token, orderId, {
+        name: `QA TC-SALES-018 Race Item ${Date.now()}`,
+        quantity: 1,
+        unitPriceNet: 80,
+        unitPriceGross: 80,
+        currencyCode: 'USD',
+      });
+      const timestamp = Date.now();
+      const payload = {
+        orderId,
+        shippingMethodId,
+        shippedAt: new Date().toISOString(),
+        currencyCode: 'USD',
+        items: [
+          {
+            orderLineId,
+            quantity: '1',
+          },
+        ],
+      };
+
+      const responses = await Promise.all([
+        apiRequest(request, 'POST', '/api/sales/shipments', {
+          token,
+          data: {
+            ...payload,
+            shipmentNumber: `SHIP-RACE-A-${timestamp}`,
+            trackingNumbers: [`TRACK-RACE-A-${timestamp}`],
+          },
+        }),
+        apiRequest(request, 'POST', '/api/sales/shipments', {
+          token,
+          data: {
+            ...payload,
+            shipmentNumber: `SHIP-RACE-B-${timestamp}`,
+            trackingNumbers: [`TRACK-RACE-B-${timestamp}`],
+          },
+        }),
+      ]);
+      const statuses = responses.map((response) => response.status()).sort((left, right) => left - right);
+
+      expect(statuses).toEqual([201, 400]);
+    } finally {
+      const cleanupToken = await getAuthToken(request, 'admin').catch(() => null);
+      await deleteSalesEntityIfExists(request, cleanupToken, '/api/sales/orders', orderId);
+    }
+  });
 });

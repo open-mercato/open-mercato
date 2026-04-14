@@ -37,11 +37,19 @@ export const sidebarPreferencesInputSchema = z.object({
 // Optional helpers for CLI or admin forms
 export const userCreateSchema = z.object({
   email: z.string().email(),
-  password: passwordSchema,
+  password: passwordSchema.optional(),
+  sendInviteEmail: z.boolean().optional(),
   tenantId: z.string().uuid().optional(),
   organizationId: z.string().uuid(),
   rolesCsv: z.string().optional(),
-})
+}).refine(
+  (data) => data.password || data.sendInviteEmail,
+  { message: 'Either password or sendInviteEmail is required', path: ['password'] },
+)
+
+export const featureCheckRequestSchema = z.object({
+  features: z.array(z.string().max(128)).max(50).describe('Feature identifiers to check'),
+}).describe('Batch feature check payload')
 
 export type UserLoginInput = z.infer<typeof userLoginSchema>
 export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>
@@ -49,3 +57,4 @@ export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchem
 export type RefreshSessionRequestInput = z.infer<typeof refreshSessionRequestSchema>
 export type SidebarPreferencesInput = z.infer<typeof sidebarPreferencesInputSchema>
 export type UserCreateInput = z.infer<typeof userCreateSchema>
+export type FeatureCheckRequestInput = z.infer<typeof featureCheckRequestSchema>

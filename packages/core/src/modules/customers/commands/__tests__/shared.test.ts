@@ -1,7 +1,9 @@
 import * as shared from '../shared'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
+  CustomerDeal,
   CustomerDictionaryEntry,
+  CustomerEntity,
   CustomerTag,
   CustomerTagAssignment,
 } from '../../data/entities'
@@ -12,6 +14,7 @@ const {
   ensureSameScope,
   extractUndoPayload,
   assertFound,
+  requireTimelineParentEntity,
   ensureDictionaryEntry,
   loadEntityTagIds,
   syncEntityTags,
@@ -61,6 +64,58 @@ describe('customers commands shared utilities', () => {
       const record = { id: '123' }
       expect(assertFound(record, 'Missing')).toBe(record)
       expect(() => assertFound(null, 'Missing')).toThrow(CrudHttpError)
+    })
+  })
+
+  describe('requireTimelineParentEntity', () => {
+    const personEntity = Object.assign(new CustomerEntity(), { id: 'person-1', kind: 'person' as const })
+    const companyEntity = Object.assign(new CustomerEntity(), { id: 'company-1', kind: 'company' as const })
+    const invalidKindEntity = Object.assign(new CustomerEntity(), { id: 'weird-1', kind: 'lead' as any })
+    const dealRecord = Object.assign(new CustomerDeal(), { id: 'deal-1' })
+
+    function makeEm(lookups: { entity?: unknown; deal?: unknown }) {
+      return {
+        findOne: jest.fn(async (cls: unknown) => {
+          if (cls === CustomerEntity) return lookups.entity ?? null
+          if (cls === CustomerDeal) return lookups.deal ?? null
+          return null
+        }),
+      }
+    }
+
+    it('returns a person or company entity', async () => {
+      const personEm = makeEm({ entity: personEntity })
+      const companyEm = makeEm({ entity: companyEntity })
+
+      await expect(requireTimelineParentEntity(personEm as any, 'person-1')).resolves.toBe(personEntity)
+      await expect(requireTimelineParentEntity(companyEm as any, 'company-1')).resolves.toBe(companyEntity)
+    })
+
+    it('throws 422 when entityId belongs to a deal record', async () => {
+      const em = makeEm({ deal: dealRecord })
+
+      await expect(requireTimelineParentEntity(em as any, 'deal-1')).rejects.toMatchObject({
+        status: 422,
+        body: { error: 'entityId must reference a person or company, not a deal' },
+      })
+    })
+
+    it('throws 404 when neither a customer entity nor a deal exists', async () => {
+      const em = makeEm({})
+
+      await expect(requireTimelineParentEntity(em as any, 'missing-1')).rejects.toMatchObject({
+        status: 404,
+        body: { error: 'Customer not found' },
+      })
+    })
+
+    it('throws 422 when the customer entity exists with an unsupported kind', async () => {
+      const em = makeEm({ entity: invalidKindEntity })
+
+      await expect(requireTimelineParentEntity(em as any, 'weird-1')).rejects.toMatchObject({
+        status: 422,
+        body: { error: 'entityId must reference a person or company' },
+      })
     })
   })
 
@@ -260,4 +315,3 @@ describe('customers commands shared utilities', () => {
     })
   })
 })
-

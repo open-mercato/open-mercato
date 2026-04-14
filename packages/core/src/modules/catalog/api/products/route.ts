@@ -771,6 +771,33 @@ async function decorateProductsAfterList(
       error,
     );
   }
+
+  const searchTerm = ctx.query.search ? sanitizeSearchTerm(ctx.query.search) : null;
+  if (searchTerm && !ctx.query.sortField && Array.isArray(payload.items)) {
+    const needle = searchTerm.toLowerCase();
+    payload.items.sort((a, b) => {
+      const scoreA = scoreProductSearchRelevance(needle, a.title, a.sku);
+      const scoreB = scoreProductSearchRelevance(needle, b.title, b.sku);
+      if (scoreA !== scoreB) return scoreA - scoreB;
+      return (a.title ?? "").localeCompare(b.title ?? "");
+    });
+  }
+}
+
+export function scoreProductSearchRelevance(
+  needle: string,
+  title: string | null | undefined,
+  sku: string | null | undefined,
+): number {
+  const t = (title ?? "").toLowerCase();
+  const s = (sku ?? "").toLowerCase();
+  if (t === needle) return 0;
+  if (s === needle) return 1;
+  if (t.startsWith(needle)) return 2;
+  if (s.startsWith(needle)) return 3;
+  if (t.includes(needle)) return 4;
+  if (s.includes(needle)) return 5;
+  return 6;
 }
 
 const crud = makeCrudRoute({

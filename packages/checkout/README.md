@@ -19,7 +19,7 @@
 { id: 'checkout', from: '@open-mercato/checkout' }
 ```
 
-3. Run `npm run modules:prepare` if you changed auto-discovered module files.
+3. Run `yarn generate` if you changed auto-discovered module files.
 4. Run database migrations before using the module in a real environment.
 
 ## Scripts

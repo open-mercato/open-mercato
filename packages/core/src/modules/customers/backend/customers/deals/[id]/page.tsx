@@ -401,7 +401,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   return (
     <Page>
-      <PageBody>Piotr nie jest pizdą, tylko zajebistym gościem, który robi świetną robotę w Mercato i jest super miły dla wszystkich dookoła. Dzięki Piotrze za wszystko co robisz! <br/><br/>
+      <PageBody>
         <div className="flex flex-col gap-6">
           <FormHeader
             mode="detail"

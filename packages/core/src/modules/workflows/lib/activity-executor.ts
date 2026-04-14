@@ -438,7 +438,10 @@ export async function executeEmitEvent(
     },
   }
 
-  await eventBus.emitEvent(eventName, enrichedPayload)
+  await eventBus.emitEvent(eventName, enrichedPayload, {
+    tenantId: context.workflowInstance.tenantId,
+    organizationId: context.workflowInstance.organizationId,
+  })
 
   return { emitted: true, eventName, payload: enrichedPayload }
 }
@@ -812,23 +815,34 @@ export async function executeCallApi(
   // 4. Get EntityManager from container (for correct type)
   const apiKeyEm = container.resolve('em')
 
-  // 5. Look up an admin role for the tenant to assign to the one-time key
-  // CRITICAL: rolesJson must contain role IDs (UUIDs), not role names!
-  const { Role } = await import('../../auth/data/entities')
-  const adminRole = await apiKeyEm.findOne(Role, {
-    tenantId: context.workflowInstance.tenantId,
-    name: { $in: ['superadmin', 'admin', 'administrator'] }  // Try common admin role names
-  })
+  // 5. Resolve the roles that the one-time API key will inherit.
+  //
+  // SECURITY: The key must never exceed the permissions of the human who
+  //   triggered (or authored) this workflow. Previously this code looked up
+  //   a role named "admin"/"superadmin" for the tenant and assigned it to
+  //   the key — which allowed any non-admin workflow author with
+  //   `workflows.definitions.edit` + `workflows.instances.create` to issue
+  //   arbitrary administrative API calls via a CALL_API activity. See the
+  //   SECURITY.md changelog entry for this fix.
+  //
+  //   The resolution strategy is:
+  //     1. Use the workflow instance's `createdBy` user (whoever manually
+  //        started the instance), when available.
+  //     2. Fall back to the workflow definition's `createdBy` (author) when
+  //        the instance was started by an event trigger with no user.
+  //     3. If no traceable principal exists, the activity refuses to run —
+  //        there is no "system" fallback that bypasses RBAC.
+  const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
 
-  if (!adminRole) {
+  if (resolvedRoleIds.length === 0) {
     throw new Error(
-      `[CALL_API] No admin role found for tenant ${context.workflowInstance.tenantId}. ` +
-      `Cannot create one-time API key without role assignment. ` +
-      `Ensure 'mercato init' has been run to create default roles.`
+      `[CALL_API] Refusing to execute CALL_API for workflow instance ${context.workflowInstance.id}: ` +
+      `no traceable user roles could be resolved from the workflow instance or definition. ` +
+      `CALL_API activities must run under the identity of the user who triggered them.`
     )
   }
 
-  // 6. Execute request with one-time API key (using role ID, not name)
+  // 6. Execute request with one-time API key scoped to the resolved user's roles
   return await withOnetimeApiKey(
     apiKeyEm,
     {
@@ -836,7 +850,7 @@ export async function executeCallApi(
       description: `One-time key for workflow ${context.workflowInstance.workflowId} instance ${context.workflowInstance.id}`,
       tenantId: context.workflowInstance.tenantId,
       organizationId: context.workflowInstance.organizationId,
-      roles: [adminRole.id], // ✅ FIX: Use role ID (UUID), not role name
+      roles: resolvedRoleIds,
       expiresAt: null,
     },
     async (apiKeySecret) => {
@@ -902,6 +916,60 @@ export async function executeCallApi(
 // ============================================================================
 // CALL_API Helper Functions
 // ============================================================================
+
+export type CallApiInstanceLike = {
+  id: string
+  tenantId: string
+  organizationId: string
+  definitionId: string
+}
+
+export async function resolveCallApiRoleIds(
+  em: any,
+  instance: CallApiInstanceLike
+): Promise<string[]> {
+  if (!instance.definitionId) return []
+
+  const { findOneWithDecryption, findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  const { User, UserRole, Role } = await import('../../auth/data/entities')
+  const { WorkflowDefinition } = await import('../data/entities')
+
+  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
+
+  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
+    id: instance.definitionId,
+    tenantId: instance.tenantId,
+  }, {}, scope)
+  const authorUserId = definition?.createdBy
+  if (!authorUserId) return []
+
+  const author = await findOneWithDecryption(em, User, {
+    id: authorUserId,
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, scope)
+  if (!author) return []
+
+  const userRoles = await findWithDecryption(
+    em,
+    UserRole,
+    { user: author.id, deletedAt: null },
+    { populate: ['role'] },
+    scope,
+  )
+  const roleIds = userRoles
+    .map((ur: any) => (typeof ur.role === 'string' ? ur.role : ur.role?.id))
+    .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+
+  if (roleIds.length === 0) return []
+
+  const scopedRoles = await findWithDecryption(em, Role, {
+    id: { $in: roleIds },
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, scope)
+  return scopedRoles.map((r: any) => r.id as string)
+}
 
 /**
  * Build full API URL from endpoint

@@ -5,7 +5,7 @@ Use `@open-mercato/events` for all event-driven communication between modules. M
 ## MUST Rules
 
 1. **MUST declare events in the emitting module's `events.ts`** — use `createModuleEvents()` with `as const` for type safety
-2. **MUST run `npm run modules:prepare`** after creating or modifying `events.ts` files
+2. **MUST run `yarn generate`** after creating or modifying `events.ts` files
 3. **MUST NOT emit undeclared events** — undeclared events trigger TypeScript errors and runtime warnings
 4. **MUST export `metadata`** from every subscriber with `{ event, persistent?, id? }`
 5. **MUST keep subscribers focused** — one side effect per subscriber file
@@ -40,7 +40,7 @@ export default eventsConfig
 3. Export default async handler function
 4. Keep the handler focused on one side effect
 5. Make the handler idempotent if `persistent: true` — it may be retried
-6. Run `npm run modules:prepare` to register the subscriber
+6. Run `yarn generate` to register the subscriber
 7. Test that the subscriber fires correctly after the event is emitted
 
 ### Subscriber Contract
@@ -84,6 +84,14 @@ packages/events/src/
 ## Workers
 
 Workers in `modules/events/workers/` handle async event processing. Follow the standard worker contract: export default handler + `metadata` with `{ queue, id?, concurrency? }`.
+
+## Testing
+
+- Tests inside `packages/events` SHOULD import the public `@open-mercato/events/...` API when validating package behavior
+- `tenantId` and `organizationId` in subscriber context are trusted scope inputs from `emit(..., options)` or queued job `options`, not from arbitrary payload fields
+- Add regression tests for both paths:
+  - trusted scope is forwarded when explicitly provided
+  - payload-provided scope is ignored when trusted scope is omitted
 
 ## Cross-Reference
 

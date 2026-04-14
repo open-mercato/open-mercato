@@ -1576,9 +1576,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [injectionWidgets],
   )
 
+  const placedCustomFieldIds = React.useMemo(() => {
+    const placed = new Set<string>()
+    for (const other of (groups ?? [])) {
+      if (other.kind === 'customFields' || !other.fields) continue
+      for (const entry of other.fields) {
+        if (typeof entry === 'string') placed.add(entry)
+        else if (entry && typeof (entry as CrudField).id === 'string') placed.add((entry as CrudField).id)
+      }
+    }
+    return placed
+  }, [groups])
+
   const resolveGroupFields = React.useCallback((g: CrudFormGroup): CrudField[] => {
     if (g.kind === 'customFields') {
-      return cfFields
+      return cfFields.filter((f) => !placedCustomFieldIds.has(f.id))
     }
 
     const src = g.fields || []
@@ -1594,7 +1606,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     return result
-  }, [cfFields, fieldById])
+  }, [cfFields, fieldById, placedCustomFieldIds])
 
   const customFieldsManageHref = React.useMemo(() => buildCustomFieldsManageHref(primaryEntityId), [buildCustomFieldsManageHref, primaryEntityId])
 
@@ -2452,6 +2464,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               </div>
               {section.groups.map((group) => {
                 const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
+                const visibleFields = placedCustomFieldIds.size > 0
+                  ? group.fields.filter((f) => !placedCustomFieldIds.has(f.id))
+                  : group.fields
+                if (!visibleFields.length) return null
                 return (
                   <div key={groupKey} className="space-y-2">
                     {group.label ? (
@@ -2464,7 +2480,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                         ) : null}
                       </div>
                     ) : null}
-                    {renderFields(group.fields)}
+                    {renderFields(visibleFields)}
                   </div>
                 )
               })}
@@ -2494,6 +2510,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     handleFieldsetSelectionChange,
     handleOpenFieldsetEditor,
     manageFieldsetLabel,
+    placedCustomFieldIds,
     renderFields,
   ])
 

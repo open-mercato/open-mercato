@@ -17,6 +17,16 @@ import {
   type DictionaryMap,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { ensureDictionaryEntries } from '@open-mercato/core/modules/dictionaries/components/hooks/useDictionaryEntries'
+import {
+  type ResolvedValueDisplay,
+  collectRelationValueIds,
+  extractOptionLookupKey,
+  extractInlineOptionLabel,
+  parseRelationOptionsMetadata,
+  getRelationHrefContextFields,
+  buildRelationHref,
+  fetchRelationRecordDisplays,
+} from '@open-mercato/ui/backend/utils/customFieldRelationDisplay'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
@@ -102,6 +112,7 @@ function formatFieldValue(
   emptyLabel: string,
   dictionaryMap?: DictionaryMap,
   remarkPlugins: PluggableList = [],
+  resolvedDisplays?: Record<string, ResolvedValueDisplay>,
 ): React.ReactNode {
   if (dictionaryMap) {
     if (value === undefined || value === null || value === '') {
@@ -160,23 +171,35 @@ function formatFieldValue(
         }, new Map())
       : null
 
-  const resolveOptionLabel = (entry: unknown): string => {
-    if (entry && typeof entry === 'object') {
-      const record = entry as { label?: unknown; value?: unknown; name?: unknown }
-      const candidateLabel = record.label
-      if (typeof candidateLabel === 'string' && candidateLabel.trim().length) {
-        return candidateLabel.trim()
-      }
-      const candidateValue = record.value ?? record.name
-      if (typeof candidateValue === 'string' && candidateValue.trim().length) {
-        const normalized = candidateValue.trim()
-        return optionMap?.get(normalized) ?? normalized
+  const resolveOptionDisplay = (entry: unknown): ResolvedValueDisplay | null => {
+    const lookupKey = extractOptionLookupKey(entry)
+    if (lookupKey && resolvedDisplays?.[lookupKey]) {
+      return resolvedDisplays[lookupKey]
+    }
+    const inlineLabel = extractInlineOptionLabel(entry)
+    if (lookupKey) {
+      return {
+        label: inlineLabel ?? optionMap?.get(lookupKey) ?? lookupKey,
       }
     }
-    if (entry === undefined || entry === null) return ''
-    const normalized = String(entry)
-    if (!normalized.length) return ''
-    return optionMap?.get(normalized) ?? normalized
+    if (inlineLabel) {
+      return { label: inlineLabel }
+    }
+    return null
+  }
+
+  const renderResolvedDisplay = (display: ResolvedValueDisplay) => {
+    if (!display.href) return display.label
+    return (
+      <Link
+        href={display.href}
+        className="font-medium text-primary underline-offset-2 hover:underline focus-visible:underline"
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        {display.label}
+      </Link>
+    )
   }
 
   if (value === undefined || value === null || value === '') {
@@ -190,13 +213,24 @@ function formatFieldValue(
         key={`${field.id}-${index}`}
         className="mr-1 inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs"
       >
-        {resolveOptionLabel(entry) || emptyLabel}
+        {(() => {
+          const display = resolveOptionDisplay(entry)
+          if (!display) return emptyLabel
+          return renderResolvedDisplay(display)
+        })()}
       </span>
     ))
   }
 
   if (typeof value === 'boolean') {
     return value ? 'Yes' : 'No'
+  }
+
+  if (resolvedDisplays && Object.keys(resolvedDisplays).length > 0) {
+    const resolvedDisplay = resolveOptionDisplay(value)
+    if (resolvedDisplay) {
+      return renderResolvedDisplay(resolvedDisplay)
+    }
   }
 
   if (typeof value === 'object') {
@@ -207,7 +241,7 @@ function formatFieldValue(
     }
   }
 
-  const resolved = resolveOptionLabel(value)
+  const resolved = optionMap?.get(String(value)) ?? String(value)
   if (typeof value === 'string' && MARKDOWN_FIELD_TYPES.has(field.type)) {
     if (!resolved.trim().length) {
       return <span className="text-muted-foreground">{emptyLabel}</span>
@@ -237,6 +271,7 @@ function CustomDataSectionImpl({
     [scopeVersion],
   )
   const [dictionaryMapsByField, setDictionaryMapsByField] = React.useState<Record<string, DictionaryMap>>({})
+  const [resolvedDisplaysByField, setResolvedDisplaysByField] = React.useState<Record<string, Record<string, ResolvedValueDisplay>>>({})
   const [editing, setEditing] = React.useState(false)
   const sectionRef = React.useRef<HTMLDivElement | null>(null)
   const [markdownPlugins, setMarkdownPlugins] = React.useState<PluggableList>([])
@@ -285,7 +320,8 @@ function CustomDataSectionImpl({
     [customFieldFormsQuery.data],
   )
   const [dictionaryLoading, setDictionaryLoading] = React.useState(false)
-  const loading = customFieldFormsQuery.isLoading || dictionaryLoading
+  const [relationLoading, setRelationLoading] = React.useState(false)
+  const loading = customFieldFormsQuery.isLoading || dictionaryLoading || relationLoading
   const hasFields = fields.length > 0
   const definitionHref = explicitDefinitionHref ?? (primaryEntityId
     ? `/backend/entities/system/${encodeURIComponent(primaryEntityId)}`
@@ -427,6 +463,123 @@ function CustomDataSectionImpl({
     }
   }, [definitions, fields, queryClient, resolvedEntityIds, resolvedScopeVersion])
 
+  React.useEffect(() => {
+    if (!definitions.length || !fields.length) {
+      setRelationLoading((prev) => (prev ? false : prev))
+      setResolvedDisplaysByField((prev) => (Object.keys(prev).length ? {} : prev))
+      return
+    }
+
+    const definitionsByKey = definitions.reduce<Map<string, CustomFieldDefDto>>((acc, definition) => {
+      acc.set(definition.key.toLowerCase(), definition)
+      return acc
+    }, new Map())
+
+    const relationFields = fields
+      .map((field) => {
+        const normalizedKey = field.id.startsWith('cf_') ? field.id.slice(3) : field.id
+        const definition = definitionsByKey.get(normalizedKey.toLowerCase())
+        if (!definition || definition.kind !== 'relation') return null
+        const relationIds = collectRelationValueIds(values?.[field.id])
+        if (!relationIds.length) return null
+        return { field, definition, relationIds }
+      })
+      .filter((entry): entry is { field: CrudField; definition: CustomFieldDefDto; relationIds: string[] } => !!entry)
+
+    if (!relationFields.length) {
+      setRelationLoading((prev) => (prev ? false : prev))
+      setResolvedDisplaysByField((prev) => (Object.keys(prev).length ? {} : prev))
+      return
+    }
+
+    const abortController = new AbortController()
+
+    const load = async () => {
+      setRelationLoading(true)
+      try {
+        const nextDisplays: Record<string, Record<string, ResolvedValueDisplay>> = {}
+
+        await Promise.all(
+          relationFields.map(async ({ field, definition, relationIds }) => {
+            const displays: Record<string, ResolvedValueDisplay> = {}
+
+            if ('options' in field && Array.isArray(field.options)) {
+              field.options.forEach((option) => {
+                displays[option.value] = { label: option.label }
+              })
+            }
+
+            if ('loadOptions' in field && typeof field.loadOptions === 'function') {
+              try {
+                const remoteOptions = await field.loadOptions()
+                remoteOptions.forEach((option) => {
+                  const href = (() => {
+                    const relation = parseRelationOptionsMetadata(definition.optionsUrl)
+                    return relation ? buildRelationHref(relation.entityId, option.value) : undefined
+                  })()
+                  displays[option.value] = { label: option.label, href }
+                })
+              } catch (error) {
+                console.debug('[CustomDataSection] Failed to load remote options for field', field.id, error)
+              }
+            }
+
+            const relation = parseRelationOptionsMetadata(definition.optionsUrl)
+            const needsRouteContext = relation ? getRelationHrefContextFields(relation.entityId).length > 0 : false
+            const unresolvedIds = relationIds.filter((relationId) => {
+              const display = displays[relationId]
+              if (!display) return true
+              return needsRouteContext && !display.href
+            })
+            if (relation && unresolvedIds.length) {
+              try {
+                const fetchedDisplays = await fetchRelationRecordDisplays(definition.optionsUrl!, relation, unresolvedIds, abortController.signal)
+                Object.assign(displays, fetchedDisplays)
+              } catch (error) {
+                console.debug('[CustomDataSection] Failed to fetch relation record displays for field', field.id, error)
+                unresolvedIds.forEach((relationId) => {
+                  if (!displays[relationId]) {
+                    displays[relationId] = {
+                      label: relationId,
+                      href: buildRelationHref(relation.entityId, relationId),
+                    }
+                  }
+                })
+              }
+            }
+
+            if (Object.keys(displays).length > 0) {
+              nextDisplays[field.id] = displays
+            }
+          }),
+        )
+
+        if (!abortController.signal.aborted) {
+          setResolvedDisplaysByField((prev) => {
+            const previousKeys = Object.keys(prev)
+            const nextKeys = Object.keys(nextDisplays)
+            if (
+              previousKeys.length === nextKeys.length &&
+              previousKeys.every((key) => JSON.stringify(prev[key]) === JSON.stringify(nextDisplays[key]))
+            ) {
+              return prev
+            }
+            return nextDisplays
+          })
+        }
+      } finally {
+        if (!abortController.signal.aborted) {
+          setRelationLoading(false)
+        }
+      }
+    }
+
+    void load()
+    return () => {
+      abortController.abort()
+    }
+  }, [definitions, fields, values])
+
   const handleSubmit = React.useCallback(
     async (input: Record<string, unknown>) => {
       await onSubmit(input)
@@ -517,6 +670,7 @@ function CustomDataSectionImpl({
                       labels.emptyValue,
                       dictionaryMapsByField[field.id],
                       markdownPlugins,
+                      resolvedDisplaysByField[field.id],
                     )}
                   </div>
                 </div>

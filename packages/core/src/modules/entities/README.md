@@ -72,4 +72,4 @@ UI integration tips
 
 Migrations
 - Run `npm run db:migrate` after enabling modules or changing this module.
-- Generators and module registry are updated by `npm run modules:prepare`.
+- Generators and module registry are updated by `yarn generate`.

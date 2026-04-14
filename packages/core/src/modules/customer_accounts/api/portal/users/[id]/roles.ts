@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { assignRolesSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export const metadata: { path?: string } = {}
 
@@ -15,8 +16,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
+  const container = await createRequestContainer()
+  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+
   try {
-    requireCustomerFeature(auth, ['portal.users.roles.manage'])
+    await requireCustomerFeature(auth, ['portal.users.roles.manage'], customerRbacService)
   } catch (response) {
     return response as NextResponse
   }
@@ -37,43 +41,40 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     return NextResponse.json({ ok: false, error: 'Validation failed' }, { status: 400 })
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
-  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
 
   // Verify target user belongs to same company
-  const targetUser = await em.findOne(CustomerUser, {
+  const targetUser = await findOneWithDecryption(em, CustomerUser, {
     id: params.id,
     customerEntityId: auth.customerEntityId,
     tenantId: auth.tenantId,
     deletedAt: null,
-  })
+  }, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
   if (!targetUser) {
     return NextResponse.json({ ok: false, error: 'User not found' }, { status: 404 })
   }
 
-  // Validate all roles are customer_assignable
+  // Validate all roles are customer_assignable and collect for assignment
+  const validatedRoles: InstanceType<typeof CustomerRole>[] = []
   for (const roleId of parsed.data.roleIds) {
-    const role = await em.findOne(CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null })
+    const role = await findOneWithDecryption(em, CustomerRole, { id: roleId, tenantId: auth.tenantId, deletedAt: null }, undefined, { tenantId: auth.tenantId, organizationId: auth.orgId })
     if (!role || !role.customerAssignable) {
       return NextResponse.json({ ok: false, error: 'Role not found or not assignable' }, { status: 400 })
     }
+    validatedRoles.push(role)
   }
 
   // Remove existing roles
   await em.nativeDelete(CustomerUserRole, { user: targetUser.id as any })
 
   // Assign new roles
-  for (const roleId of parsed.data.roleIds) {
-    const role = await em.findOne(CustomerRole, { id: roleId })
-    if (role) {
-      const userRole = em.create(CustomerUserRole, {
-        user: targetUser,
-        role,
-        createdAt: new Date(),
-      } as any)
-      em.persist(userRole)
-    }
+  for (const role of validatedRoles) {
+    const userRole = em.create(CustomerUserRole, {
+      user: targetUser,
+      role,
+      createdAt: new Date(),
+    } as any)
+    em.persist(userRole)
   }
   await em.flush()
 
