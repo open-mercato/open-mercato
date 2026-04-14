@@ -14,7 +14,7 @@ const mockCheckAuthRateLimit = jest.fn()
 const mockEm = {
   findOne: mockFindOne,
   create: mockCreate,
-  persistAndFlush: mockPersistAndFlush,
+  flush: mockPersistAndFlush,
   nativeUpdate: mockNativeUpdate,
 }
 

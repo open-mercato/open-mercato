@@ -34,8 +34,11 @@ const testModules: Module[] = [
 registerModules(testModules)
 registerCliModules(testModules)
 
-// Mock DI container and EM
-const persistAndFlush = jest.fn()
+// Mock DI container and EM.
+// persistedEntities mirrors every entity passed through em.persist(x).flush()
+// so existing assertions keep working after the v7 API change
+// (em.persistAndFlush was removed).
+const persistedEntities: any[] = []
 const findOne = jest.fn()
 const findOneOrFail = jest.fn()
 const create = jest.fn((entity: any, data: any) => {
@@ -44,12 +47,15 @@ const create = jest.fn((entity: any, data: any) => {
   return { ...data }
 })
 const find = jest.fn(async () => [])
-const persist = jest.fn()
-const flush = jest.fn()
+const persist = jest.fn(function persist(this: any, entity: any) {
+  persistedEntities.push(entity)
+  return this
+})
+const flush = jest.fn(async () => {})
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (_: string) => {
-    const baseEm = { persistAndFlush, findOne, findOneOrFail, create, find, persist, flush }
+    const baseEm = { findOne, findOneOrFail, create, find, persist, flush }
     return {
       ...baseEm,
       transactional: async (cb: (tem: any) => any) => {
@@ -81,8 +87,8 @@ describe('auth CLI setup seeds ACLs', () => {
     // Act
     await setup.run(['--orgName', 'Acme', '--email', 'root@acme.com', '--password', 'secret', '--skip-password-policy'])
 
-    // Assert: persistAndFlush was called to create three RoleAcl rows with expected flags/features
-    const calls = persistAndFlush.mock.calls.map((c) => c[0])
+    // Assert: persist() was called to create three RoleAcl rows with expected flags/features
+    const calls = persistedEntities.slice()
     const roleAclCreates = calls.filter((row) => 'tenantId' in row && ('isSuperAdmin' in row || Array.isArray(row.featuresJson)))
     const superadminAcl = roleAclCreates.find((row) => row.isSuperAdmin === true)
     expect(superadminAcl).toBeDefined()

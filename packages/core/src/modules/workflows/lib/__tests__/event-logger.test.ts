@@ -23,7 +23,8 @@ describe('Event Logger (Unit Tests)', () => {
       find: jest.fn(),
       findOne: jest.fn(),
       count: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
     } as any
 
     // Reset mocks
@@ -68,7 +69,7 @@ describe('Event Logger (Unit Tests)', () => {
           organizationId: testOrgId,
         })
       )
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
       expect(result).toBe(mockEvent)
     })
 
@@ -186,7 +187,7 @@ describe('Event Logger (Unit Tests)', () => {
       const results = await eventLogger.logWorkflowEvents(mockEm, inputs)
 
       expect(mockEm.create).toHaveBeenCalledTimes(2)
-      expect(mockEm.persistAndFlush).toHaveBeenCalledWith(mockEvents)
+      expect(mockEm.flush).toHaveBeenCalledWith(mockEvents)
       expect(results).toEqual(mockEvents)
     })
   })

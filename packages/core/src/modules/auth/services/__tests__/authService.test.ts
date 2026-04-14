@@ -5,7 +5,7 @@ import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 function makeEm() {
   const calls: any[] = []
   const em: any = {
-    persistAndFlush: jest.fn(async (e: any) => calls.push(['persistAndFlush', e])),
+    flush: jest.fn(async (e: any) => calls.push(['flush', e])),
     create: jest.fn((_cls: any, data: any) => ({ ...data, id: 'generated-id' })),
     findOne: jest.fn(async () => null),
     nativeDelete: jest.fn(async () => 1),
@@ -31,7 +31,7 @@ describe('AuthService', () => {
     expect(typeof result.token).toBe('string')
     expect(result.token.length).toBeGreaterThan(0)
 
-    const persisted = (em.persistAndFlush as jest.Mock).mock.calls[0][0]
+    const persisted = (em.flush as jest.Mock).mock.calls[0][0]
     expect(persisted.token).toBe(hashAuthToken(result.token))
     expect(persisted.token).not.toBe(result.token)
   })
@@ -89,7 +89,7 @@ describe('AuthService', () => {
     expect(typeof rawToken).toBe('string')
     expect(rawToken.length).toBeGreaterThan(0)
 
-    const persisted = (em.persistAndFlush as jest.Mock).mock.calls[0][0]
+    const persisted = (em.flush as jest.Mock).mock.calls[0][0]
     expect(persisted.token).toBe(hashAuthToken(rawToken))
     expect(persisted.token).not.toBe(rawToken)
   })

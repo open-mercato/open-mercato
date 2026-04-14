@@ -48,7 +48,8 @@ describe('Rule Engine (Unit Tests)', () => {
       find: jest.fn(),
       findOne: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
       nativeDelete: jest.fn(),
     } as any
 
@@ -670,7 +671,7 @@ describe('Rule Engine (Unit Tests)', () => {
 
       mockEm.find.mockResolvedValue([mockRule as BusinessRule])
       mockEm.create.mockReturnValue({ id: 'log-1' } as any)
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       jest.mocked(ruleEvaluator.evaluateSingleRule).mockResolvedValue({
         rule: mockRule as BusinessRule,
@@ -734,7 +735,7 @@ describe('Rule Engine (Unit Tests)', () => {
       }
 
       mockEm.create.mockReturnValue(mockLog as any)
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const logId = await ruleEngine.logRuleExecution(mockEm, {
         rule: mockRule as BusinessRule,
@@ -752,7 +753,7 @@ describe('Rule Engine (Unit Tests)', () => {
           executionTimeMs: 42,
         })
       )
-      expect(mockEm.persistAndFlush).toHaveBeenCalled()
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should create execution log with error result', async () => {
@@ -781,7 +782,7 @@ describe('Rule Engine (Unit Tests)', () => {
       }
 
       mockEm.create.mockReturnValue(mockLog as any)
-      mockEm.persistAndFlush.mockResolvedValue(undefined)
+      mockEm.flush.mockResolvedValue(undefined)
 
       const logId = await ruleEngine.logRuleExecution(mockEm, {
         rule: mockRule as BusinessRule,

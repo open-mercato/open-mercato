@@ -56,7 +56,7 @@ function buildTestContext() {
     findOne: jest.fn(async () => null),
     find: jest.fn(async () => []),
     create: jest.fn((_entity: unknown, data: unknown) => data),
-    persistAndFlush: jest.fn(async () => undefined),
+    flush: jest.fn(async () => undefined),
     flush: jest.fn(async () => undefined),
     remove: jest.fn(),
     persist: jest.fn(),
@@ -142,7 +142,7 @@ describe('auth.users.create — invite flow', () => {
     }, ctx)
 
     expect(em.create).toHaveBeenCalled()
-    expect(em.persistAndFlush).toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 

@@ -62,7 +62,9 @@ describe('Workflow Executor (Unit Tests)', () => {
       findOne: jest.fn(),
       find: jest.fn(),
       create: jest.fn(),
-      persistAndFlush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
+      flush: jest.fn(),
+      persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       nativeDelete: jest.fn(),
       transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => callback(mockEm)),
@@ -115,7 +117,7 @@ describe('Workflow Executor (Unit Tests)', () => {
       expect(instance.status).toBe('RUNNING')
       expect(instance.currentStepId).toBe('start')
       expect(mockEm.create).toHaveBeenCalled()
-      expect(mockEm.persistAndFlush).toHaveBeenCalledWith(mockInstance)
+      expect(mockEm.flush).toHaveBeenCalledWith(mockInstance)
     })
 
     test('should throw error if definition not found', async () => {
