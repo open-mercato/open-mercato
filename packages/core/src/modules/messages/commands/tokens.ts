@@ -26,12 +26,26 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
     if (!accessToken) {
       throw new Error('Invalid or expired link')
     }
-    if (accessToken.expiresAt < new Date()) {
-      throw new Error('This link has expired')
-    }
-    if (accessToken.useCount >= MAX_TOKEN_USE_COUNT) {
+
+    const knex = em.getKnex()
+    const now = new Date()
+    const consumed = await knex('message_access_tokens')
+      .where('id', accessToken.id)
+      .where('use_count', '<', MAX_TOKEN_USE_COUNT)
+      .where('expires_at', '>', now)
+      .update({
+        use_count: knex.raw('use_count + 1'),
+        used_at: now,
+      })
+    if (consumed === 0) {
+      em.clear()
+      const fresh = await em.findOne(MessageAccessToken, { id: accessToken.id })
+      if (fresh && fresh.expiresAt < now) {
+        throw new Error('This link has expired')
+      }
       throw new Error('This link can no longer be used')
     }
+    em.clear()
 
     const message = await em.findOne(Message, {
       id: accessToken.messageId,
@@ -50,8 +64,6 @@ const consumeTokenCommand: CommandHandler<unknown, { messageId: string; recipien
       throw new Error('Invalid or expired link')
     }
 
-    accessToken.usedAt = new Date()
-    accessToken.useCount += 1
     let becameRead = false
     if (recipient.status === 'unread') {
       recipient.status = 'read'
