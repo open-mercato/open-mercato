@@ -15,7 +15,7 @@
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesQuote,
   SalesQuoteLine,
@@ -40,9 +40,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+type EmWithFindOne = {
+  findOne: (entityClass: unknown, where: unknown) => Promise<unknown>
+}
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
-  findOneWithDecryption: jest.fn(async () => null),
+  findOneWithDecryption: jest.fn(async (em: EmWithFindOne, entityClass: unknown, where: unknown) => {
+    return em.findOne(entityClass, where)
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
@@ -237,7 +243,8 @@ describe('SalesDocumentAddress query scoping', () => {
   })
 
   beforeEach(() => {
-    (findWithDecryption as jest.Mock).mockClear()
+    jest.mocked(findWithDecryption).mockClear()
+    jest.mocked(findOneWithDecryption).mockClear()
   })
 
   describe('deleteQuoteCommand.execute — scopes SalesDocumentAddress by quote tenant', () => {
