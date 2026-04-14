@@ -99,7 +99,7 @@ export async function GET(req: Request) {
     total,
     page,
     pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalPages: Math.max(1, Math.ceil(Number(total) / pageSize)),
   })
 }
 
