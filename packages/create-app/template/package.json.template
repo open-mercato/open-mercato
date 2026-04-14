@@ -71,6 +71,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/qrcode": "^1.5.5",
     "@types/sanitize-html": "^2.16.1",
+    "@types/semver": "^7.7.1",
     "@uiw/react-markdown-preview": "^5.1.5",
     "@uiw/react-md-editor": "^4.0.11",
     "@xyflow/react": "^12.6.0",
