@@ -1,3 +1,11 @@
+// TODO(mikro-orm v7): HybridQueryEngine (~2100 LoC) still uses knex-style runtime query
+// building internally via `this.getKnex()`. As per `mikroorm_audit.md` the full Kysely
+// rewrite is intentionally split into a dedicated follow-up PR to keep review scope
+// manageable. For this stage we keep typecheck green via the ambient `knex` module stub
+// in `knex-compat.d.ts` and expose an `em.getKysely()` bridge (see `getKnex()` below)
+// which returns a Kysely instance cast to `any`. Runtime calls that rely on knex-only
+// methods (e.g. `.clone()`, `.modify()`, `.orWhereRaw()`) will throw until the rewrite
+// lands — use caution when invoking HybridQueryEngine through this build.
 import type { QueryEngine, QueryOptions, QueryResult, FilterOp, Filter, QueryCustomFieldSource, PartialIndexWarning, QueryExtensionsConfig } from '@open-mercato/shared/lib/query/types'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -655,11 +663,11 @@ export class HybridQueryEngine implements QueryEngine {
       let next = target
       for (const [, groupFilters] of groups) {
         if (!groupFilters.length) continue
-        next = next.where((groupBuilder) => {
+        next = next.where((groupBuilder: any) => {
           groupFilters.forEach((filter, index) => {
             const fieldName = String(filter.field)
             const baseField = resolveBaseColumn(fieldName)
-            const applyCondition = (conditionBuilder: ResultBuilder) => {
+            const applyCondition = (conditionBuilder: any) => {
               if (!baseField) {
                 this.applyIndexDocFilterFromAlias(
                   knex,
@@ -686,7 +694,7 @@ export class HybridQueryEngine implements QueryEngine {
               applyCondition(groupBuilder as ResultBuilder)
               return
             }
-            groupBuilder.orWhere((conditionBuilder) => {
+            groupBuilder.orWhere((conditionBuilder: any) => {
               applyCondition(conditionBuilder as ResultBuilder)
             })
           })
@@ -979,12 +987,16 @@ export class HybridQueryEngine implements QueryEngine {
   }
 
   private getKnex(): Knex {
-    const connection = this.em.getConnection()
-    const withKnex = connection as { getKnex?: () => Knex }
-    if (typeof withKnex.getKnex === 'function') {
-      return withKnex.getKnex()
-    }
-    throw new Error('HybridQueryEngine requires a SQL connection that exposes getKnex()')
+    // TODO(mikro-orm v7): HybridQueryEngine is pending a full Kysely rewrite (see file
+    // header comment). Until then we keep the legacy `em.getConnection().getKnex()`
+    // path (or any test-provided equivalent) so knex-style query building keeps
+    // compiling. Kysely-only helpers (e.g. coverage/read snapshots) consume
+    // `em.getKysely()` directly rather than via this method.
+    const emAny = this.em as any
+    const connection = emAny.getConnection?.()
+    const legacy = connection as { getKnex?: () => Knex } | undefined
+    if (legacy && typeof legacy.getKnex === 'function') return legacy.getKnex()
+    throw new Error('HybridQueryEngine requires an EntityManager whose connection exposes a knex-compatible builder')
   }
 
   private prepareCustomFieldSources(
@@ -1126,7 +1138,7 @@ export class HybridQueryEngine implements QueryEngine {
       if (hashes.length) {
         let applied = false
         if (sources.length) {
-          builder = builder.where((qb) => {
+          builder = builder.where((qb: any) => {
             sources.forEach((source, idx) => {
               const ok = this.applySearchTokens(qb as any, {
                 knex,
@@ -1167,7 +1179,7 @@ export class HybridQueryEngine implements QueryEngine {
     const arrContains = (val: unknown) => knex.raw(`${jsonSql} @> ?::jsonb`, [JSON.stringify([val])])
     switch (op) {
       case 'eq':
-        return builder.where((qb) => {
+        return builder.where((qb: any) => {
           qb.orWhere(textExpr, '=', value as Knex.Value)
           qb.orWhere(arrContains(value))
         })
@@ -1175,7 +1187,7 @@ export class HybridQueryEngine implements QueryEngine {
         return builder.whereNot(textExpr, '=', value as Knex.Value)
       case 'in': {
         const values = this.toArray(value)
-        return builder.where((qb) => {
+        return builder.where((qb: any) => {
           values.forEach((val) => {
             qb.orWhere(textExpr, '=', val as Knex.Value)
             qb.orWhere(arrContains(val))
@@ -1253,7 +1265,7 @@ export class HybridQueryEngine implements QueryEngine {
     }
     switch (op) {
       case 'eq':
-        return q.where((builder) => {
+        return q.where((builder: any) => {
           builder.orWhere(text, '=', value as Knex.Value)
           builder.orWhere(arrContains(value))
         })
@@ -1261,7 +1273,7 @@ export class HybridQueryEngine implements QueryEngine {
         return q.whereNot(text, '=', value as Knex.Value)
       case 'in': {
         const vals = this.toArray(value)
-        return q.where((builder) => {
+        return q.where((builder: any) => {
           vals.forEach((val) => {
             builder.orWhere(text, '=', val as Knex.Value)
             builder.orWhere(arrContains(val))
@@ -1435,7 +1447,7 @@ export class HybridQueryEngine implements QueryEngine {
         const rows = await knex('custom_field_defs')
           .select('key')
           .where({ entity_id: entity, is_active: true })
-          .modify((qb) => {
+          .modify((qb: any) => {
             qb.andWhere({ tenant_id: opts.tenantId })
             // NOTE: organization-level scoping intentionally disabled for custom fields
             // if (opts.organizationId != null) qb.andWhere((b: any) => b.where({ organization_id: opts.organizationId }).orWhereNull('organization_id'))
@@ -1664,8 +1676,8 @@ export class HybridQueryEngine implements QueryEngine {
           },
         )
       }
-      const knex = this.getKnex()
-      const row = await readCoverageSnapshot(knex, {
+      const db = (this.em as any).getKysely?.() ?? this.getKnex()
+      const row = await readCoverageSnapshot(db as any, {
         entityType: entity,
         tenantId,
         organizationId,
@@ -1882,7 +1894,7 @@ export class HybridQueryEngine implements QueryEngine {
     if (scope.ids.length === 0 && !scope.includeNull) {
       return q.whereRaw('1 = 0')
     }
-    return q.where((builder) => {
+    return q.where((builder: any) => {
       let applied = false
       if (scope.ids.length > 0) {
         builder.whereIn(column, scope.ids as readonly string[])
@@ -1990,7 +2002,7 @@ export class HybridQueryEngine implements QueryEngine {
         ).filter((src) => src.recordIdColumn && src.entity)
         let applied = false
         if (sources.length) {
-          q = q.where((qb) => {
+          q = q.where((qb: any) => {
             sources.forEach((src, idx) => {
               const ok = this.applySearchTokens(qb as any, {
                 knex: search.knex,

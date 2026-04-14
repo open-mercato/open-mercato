@@ -132,7 +132,66 @@ function createFakeKnex(config: {
   fn.raw = raw
   fn.from = (t: any) => builderFor(t)
   fn._calls = calls
+  // Kysely-compatible stub exposed via `em.getKysely()` — used by helpers that were
+  // migrated to Kysely (e.g. `readCoverageSnapshot`). Keeps knex-style assertions intact
+  // because the primary fakeKnex remains the knex-shaped builder for HybridQueryEngine.
+  fn.__kysely = createFakeKysely({
+    hasIndexAny: config.hasIndexAny,
+    baseCount: config.baseCount,
+    indexCount: config.indexCount,
+  })
   return fn
+}
+
+// Minimal Kysely-shaped stub that the HybridQueryEngine obtains via
+// `em.getKysely()` when calling helpers (e.g. `readCoverageSnapshot`).
+// Tests retain knex-shaped assertions via the original fakeKnex; this stub
+// only needs to satisfy the limited surface used by coverage/status reads.
+function createFakeKysely(config: {
+  hasIndexAny: boolean
+  baseCount: number
+  indexCount: number
+}): any {
+  const makeSelect = (_table: string): any => {
+    const chain: any = {
+      select: () => chain,
+      selectAll: () => chain,
+      distinct: () => chain,
+      where: () => chain,
+      orderBy: () => chain,
+      limit: () => chain,
+      offset: () => chain,
+      groupBy: () => chain,
+      executeTakeFirst: async () => {
+        if (!config.hasIndexAny) return undefined
+        return {
+          base_count: String(config.baseCount),
+          indexed_count: String(config.indexCount),
+          vector_indexed_count: null,
+          refreshed_at: new Date(),
+          organization_id: null,
+        }
+      },
+      execute: async () => [],
+    }
+    return chain
+  }
+  const makeMutating = (): any => ({
+    values: () => makeMutating(),
+    set: () => makeMutating(),
+    where: () => makeMutating(),
+    onConflict: () => makeMutating(),
+    returning: () => makeMutating(),
+    execute: async () => [],
+    executeTakeFirst: async () => ({ numUpdatedRows: 0 }),
+  })
+  return {
+    selectFrom: (t: any) => makeSelect(String(t)),
+    insertInto: () => makeMutating(),
+    updateTable: () => makeMutating(),
+    deleteFrom: () => makeMutating(),
+    transaction: () => ({ execute: async (fn: any) => fn(this) }),
+  }
 }
 
 describe('HybridQueryEngine', () => {
@@ -154,7 +213,7 @@ describe('HybridQueryEngine', () => {
 
   test('falls back when wantsCf but no index rows exist', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -167,7 +226,7 @@ describe('HybridQueryEngine', () => {
   test('falls back and warns on partial coverage', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'false'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -194,7 +253,7 @@ describe('HybridQueryEngine', () => {
       indexCount: 2,
       customFieldKeys: {},
     })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -217,7 +276,7 @@ describe('HybridQueryEngine', () => {
   test('emits partial coverage metadata when forcing query index usage', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -233,7 +292,7 @@ describe('HybridQueryEngine', () => {
 
   test('does not fall back on partial coverage when only projecting all custom fields', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -254,7 +313,7 @@ describe('HybridQueryEngine', () => {
   test('emits partial coverage metadata when global scope is out of sync', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -279,7 +338,7 @@ describe('HybridQueryEngine', () => {
   test('propagates partial coverage metadata from custom field sources', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -316,7 +375,7 @@ describe('HybridQueryEngine', () => {
   test('detects mismatch when index count exceeds base count', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 12 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -332,7 +391,7 @@ describe('HybridQueryEngine', () => {
 
   test('uses hybrid path when coverage complete', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -344,7 +403,7 @@ describe('HybridQueryEngine', () => {
 
   test('joins entity index aliases for customFieldSources', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -406,7 +465,7 @@ describe('HybridQueryEngine', () => {
         { table_name: 'customer_people', column_name: 'tenant_id' },
       ],
     })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -453,7 +512,7 @@ describe('HybridQueryEngine', () => {
         { table_name: 'customer_people', column_name: 'tenant_id' },
       ],
     })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -493,7 +552,7 @@ describe('HybridQueryEngine', () => {
 
   test('uses search tokens for index document fields on base entities', async () => {
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 1, indexCount: 1 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -525,7 +584,7 @@ describe('HybridQueryEngine', () => {
   test('does not auto reindex when disabled via env', async () => {
     process.env.QUERY_INDEX_AUTO_REINDEX = 'false'
     const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }) }
+    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
