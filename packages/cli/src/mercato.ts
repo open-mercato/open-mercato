@@ -194,6 +194,13 @@ async function ensureEnvLoaded() {
 
     // Load .env from app directory if it exists
     const envPath = path.join(appDir, '.env')
+    if (!fs.existsSync(envPath) && process.env.NODE_ENV !== 'production') {
+      const examplePath = path.join(appDir, '.env.example')
+      if (fs.existsSync(examplePath)) {
+        fs.copyFileSync(examplePath, envPath)
+        console.log(`📋 Copied .env.example → .env (edit ${envPath} to customize)`)
+      }
+    }
     if (fs.existsSync(envPath)) {
       const dotenv = await import('dotenv')
       dotenv.config({ path: envPath, quiet: quietDotenv })
