@@ -18,6 +18,7 @@ import {
   customerSignupIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 
 export const metadata: { path?: string } = {}
 
@@ -26,8 +27,7 @@ type OrganizationLookupRow = {
 }
 
 function resolveBaseUrl(req: Request): string {
-  const url = new URL(req.url)
-  return process.env.APP_URL || `${url.protocol}//${url.host}`
+  return getAppBaseUrl(req)
 }
 
 function resolvePortalLoginUrl(baseUrl: string, organizationSlug?: string | null): string {
