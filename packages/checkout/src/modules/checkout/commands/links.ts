@@ -108,6 +108,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       sourceValues.title ?? sourceValues.name,
     )
     const link = em.create(CheckoutLink, {
+      ...sourceValues,
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
       completionCount: 0,
@@ -119,7 +120,6 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       customAmountMax: toMoneyString(sourceValues.customAmountMax),
       slug,
       passwordHash: await hashCheckoutPassword(sourceValues.password),
-      ...sourceValues,
     } as any)
     em.persist(link)
     await em.flush()
