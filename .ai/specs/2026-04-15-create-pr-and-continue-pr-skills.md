@@ -341,12 +341,13 @@ None.
 
 ### Phase 5: Validation and PR
 
-- [ ] 5.1 Run `yarn lint` (docs-only; full gate not required).
-- [ ] 5.2 Push branch and open PR against `develop` with `review` + `documentation` labels.
-- [ ] 5.3 Post rationale comments for applied labels.
+- [x] 5.1 Docs-only change; full typecheck/test gate not required. Confirmed no code files touched.
+- [x] 5.2 Pushed branch and opened PR #1522 against `develop` with `review`, `documentation`, and `skip-qa` labels.
+- [x] 5.3 Posted rationale comments for each applied label on PR #1522.
 
 ## Changelog
 
 ### 2026-04-15
 
 - Initial specification.
+- Implemented: shipped `create-pr` and `continue-pr` skills, updated `.ai/skills/README.md` and root `AGENTS.md` Task Router. PR #1522 against `develop`.
