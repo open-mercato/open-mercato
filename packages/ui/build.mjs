@@ -41,6 +41,7 @@ async function generateLucideRegistry() {
       '**/node_modules/**',
       '**/dist/**',
       '**/.mercato/**',
+      'packages/core/generated/**',
       '**/__tests__/**',
       '**/*.test.ts',
       '**/*.test.tsx',
@@ -73,10 +74,12 @@ async function generateLucideRegistry() {
 
   const lucide = await import('lucide-react')
   const exportKeys = new Set(Object.keys(lucide))
+  const excludedLucideExports = new Set(['Icon'])
 
   const resolved = []
   for (const name of iconStrings) {
     const exportName = kebabToLucideExportName(name)
+    if (excludedLucideExports.has(exportName)) continue
     if (exportKeys.has(exportName)) {
       resolved.push({ kebab: name, exportName })
     }
