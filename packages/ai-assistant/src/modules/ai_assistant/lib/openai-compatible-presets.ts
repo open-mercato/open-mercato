@@ -24,7 +24,7 @@ const OPENAI_PRESET: OpenAICompatiblePreset = {
   id: 'openai',
   name: 'OpenAI',
   baseURL: undefined,
-  envKeys: ['OPENAI_API_KEY'],
+  envKeys: ['OPENAI_API_KEY', 'OPENCODE_OPENAI_API_KEY'],
   defaultModel: 'gpt-5-mini',
   defaultModels: [
     {

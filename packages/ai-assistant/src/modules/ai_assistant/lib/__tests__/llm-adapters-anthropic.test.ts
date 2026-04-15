@@ -6,7 +6,7 @@ describe('AnthropicAdapter', () => {
   it('has expected id, name, envKeys and defaultModel', () => {
     expect(adapter.id).toBe('anthropic')
     expect(adapter.name).toBe('Anthropic')
-    expect(adapter.envKeys).toEqual(['ANTHROPIC_API_KEY'])
+    expect(adapter.envKeys).toEqual(['ANTHROPIC_API_KEY', 'OPENCODE_ANTHROPIC_API_KEY'])
     expect(adapter.defaultModel).toBe('claude-haiku-4-5-20251001')
     expect(adapter.defaultModels.length).toBeGreaterThan(0)
     expect(adapter.defaultModels[0].id).toBe('claude-haiku-4-5-20251001')
@@ -21,6 +21,15 @@ describe('AnthropicAdapter', () => {
     expect(adapter.isConfigured({})).toBe(false)
   })
 
+  it('detects configuration from OPENCODE_* fallback env', () => {
+    expect(
+      adapter.isConfigured({ OPENCODE_ANTHROPIC_API_KEY: 'sk-ant-key' }),
+    ).toBe(true)
+    expect(
+      adapter.isConfigured({ OPENCODE_ANTHROPIC_API_KEY: '' }),
+    ).toBe(false)
+  })
+
   it('resolves API key from env', () => {
     expect(
       adapter.resolveApiKey({ ANTHROPIC_API_KEY: 'sk-ant-key' }),
@@ -30,6 +39,18 @@ describe('AnthropicAdapter', () => {
     ).toBe('sk-ant-key')
     expect(adapter.resolveApiKey({ ANTHROPIC_API_KEY: '' })).toBeNull()
     expect(adapter.resolveApiKey({})).toBeNull()
+  })
+
+  it('resolves API key from OPENCODE_* fallback env', () => {
+    expect(
+      adapter.resolveApiKey({ OPENCODE_ANTHROPIC_API_KEY: 'opencode-key' }),
+    ).toBe('opencode-key')
+    expect(
+      adapter.resolveApiKey({
+        ANTHROPIC_API_KEY: 'primary',
+        OPENCODE_ANTHROPIC_API_KEY: 'fallback',
+      }),
+    ).toBe('primary')
   })
 
   it('returns the configured env key name for diagnostics', () => {

@@ -56,7 +56,7 @@ describe('llm-bootstrap — built-in provider registration', () => {
     const anthropic = llmProviderRegistry.get('anthropic')
     expect(anthropic).not.toBeNull()
     expect(anthropic?.name).toBe('Anthropic')
-    expect(anthropic?.envKeys).toEqual(['ANTHROPIC_API_KEY'])
+    expect(anthropic?.envKeys).toEqual(['ANTHROPIC_API_KEY', 'OPENCODE_ANTHROPIC_API_KEY'])
     expect(anthropic?.defaultModel).toBe('claude-haiku-4-5-20251001')
   })
 

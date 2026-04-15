@@ -45,7 +45,7 @@ const DEFAULT_MODELS: readonly LlmModelInfo[] = [
  * stateless — caller is free to reuse the returned object.
  */
 export function createAnthropicAdapter(): LlmProvider {
-  const envKeys = ['ANTHROPIC_API_KEY'] as const
+  const envKeys = ['ANTHROPIC_API_KEY', 'OPENCODE_ANTHROPIC_API_KEY'] as const
 
   function resolveApiKey(env?: EnvLookup): string | null {
     const lookup = env ?? process.env

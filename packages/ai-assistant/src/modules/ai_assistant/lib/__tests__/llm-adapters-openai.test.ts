@@ -100,6 +100,29 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
   })
 })
 
+describe('OpenAI preset OPENCODE_* fallback env keys', () => {
+  it('openai preset includes OPENCODE_OPENAI_API_KEY fallback', () => {
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'openai')
+    expect(openaiPreset).toBeDefined()
+    expect(openaiPreset!.envKeys).toContain('OPENAI_API_KEY')
+    expect(openaiPreset!.envKeys).toContain('OPENCODE_OPENAI_API_KEY')
+  })
+
+  it('resolves API key from OPENCODE_OPENAI_API_KEY fallback', () => {
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'openai')
+    const provider = createOpenAICompatibleProvider(openaiPreset!)
+    expect(
+      provider.resolveApiKey({ OPENCODE_OPENAI_API_KEY: 'opencode-key' }),
+    ).toBe('opencode-key')
+    expect(
+      provider.resolveApiKey({
+        OPENAI_API_KEY: 'primary',
+        OPENCODE_OPENAI_API_KEY: 'fallback',
+      }),
+    ).toBe('primary')
+  })
+})
+
 describe('OPENAI_COMPATIBLE_PRESETS built-in catalog', () => {
   it('ships at least 8 built-in presets including openai and deepinfra', () => {
     expect(OPENAI_COMPATIBLE_PRESETS.length).toBeGreaterThanOrEqual(8)

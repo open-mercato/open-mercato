@@ -11,11 +11,11 @@
 **Scope:**
 - New `packages/shared/src/lib/ai/llm-provider.ts` — `LlmProvider` port interface, `LlmModelInfo`, `LlmCreateModelOptions`.
 - New `packages/shared/src/lib/ai/llm-provider-registry.ts` — singleton registry.
-- New `packages/shared/src/lib/ai/adapters/anthropic.ts` — Anthropic protocol adapter.
-- New `packages/shared/src/lib/ai/adapters/google.ts` — Google Generative AI protocol adapter.
-- New `packages/shared/src/lib/ai/adapters/openai.ts` — OpenAI protocol adapter (baseURL aware).
-- New `packages/shared/src/lib/ai/openai-compatible-presets.ts` — preset registry (data) with OpenAI, DeepInfra, Groq, Together, Fireworks, Azure, LiteLLM, Ollama.
-- New `packages/shared/src/lib/ai/bootstrap.ts` — registers built-in adapters and presets on import.
+- New `packages/ai-assistant/src/modules/ai_assistant/lib/llm-adapters/anthropic.ts` — Anthropic protocol adapter.
+- New `packages/ai-assistant/src/modules/ai_assistant/lib/llm-adapters/google.ts` — Google Generative AI protocol adapter.
+- New `packages/ai-assistant/src/modules/ai_assistant/lib/llm-adapters/openai.ts` — OpenAI protocol adapter (baseURL aware).
+- New `packages/ai-assistant/src/modules/ai_assistant/lib/openai-compatible-presets.ts` — preset registry (data) with OpenAI, DeepInfra, Groq, Together, Fireworks, Azure, LiteLLM, Ollama.
+- New `packages/ai-assistant/src/modules/ai_assistant/lib/llm-bootstrap.ts` — registers built-in adapters and presets on import.
 - Refactor `packages/shared/src/lib/ai/opencode-provider.ts` into a thin backward-compatible facade derived from the registry.
 - Refactor `packages/ai-assistant/src/modules/ai_assistant/api/route/route.ts` `createRoutingModel()` — remove `switch`, call `registry.get(id).createModel(...)`.
 - Refactor `packages/ai-assistant/src/modules/ai_assistant/lib/chat-config.ts` — `CHAT_PROVIDERS` generated from registry.

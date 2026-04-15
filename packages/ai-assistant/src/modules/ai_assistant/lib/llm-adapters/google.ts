@@ -34,7 +34,7 @@ const DEFAULT_MODELS: readonly LlmModelInfo[] = [
 ] as const
 
 export function createGoogleAdapter(): LlmProvider {
-  const envKeys = ['GOOGLE_GENERATIVE_AI_API_KEY'] as const
+  const envKeys = ['GOOGLE_GENERATIVE_AI_API_KEY', 'OPENCODE_GOOGLE_API_KEY'] as const
 
   function resolveApiKey(env?: EnvLookup): string | null {
     const lookup = env ?? process.env

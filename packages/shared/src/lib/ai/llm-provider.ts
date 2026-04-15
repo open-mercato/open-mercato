@@ -70,7 +70,7 @@ export interface LlmCreateModelOptions {
  * per provider at bootstrap time and reuses it for the process lifetime.
  * Adapters MUST NOT hold mutable state between calls.
  *
- * Implementations live in `packages/shared/src/lib/ai/adapters/`.
+ * Implementations live in `packages/ai-assistant/src/modules/ai_assistant/lib/llm-adapters/`.
  */
 export interface LlmProvider {
   /**
