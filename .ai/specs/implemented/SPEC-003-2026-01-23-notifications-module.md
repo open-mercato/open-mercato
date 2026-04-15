@@ -2243,7 +2243,6 @@ function hasFeature(features: string[], requiredFeature: string): boolean {
 ```typescript
 async createForFeature(input, ctx) {
   const em = rootEm.fork()
-  // MikroORM v7: use em.getKysely() in place of legacy getKnex(em) helpers.
   const db = em.getKysely() as import('kysely').Kysely<any>
 
   const userIdsSet = new Set<string>()

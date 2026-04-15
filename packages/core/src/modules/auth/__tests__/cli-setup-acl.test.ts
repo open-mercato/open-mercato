@@ -36,8 +36,7 @@ registerCliModules(testModules)
 
 // Mock DI container and EM.
 // persistedEntities mirrors every entity passed through em.persist(x).flush()
-// so existing assertions keep working after the v7 API change
-// (em.persistAndFlush was removed).
+// so tests can assert against persisted payloads.
 const persistedEntities: any[] = []
 const findOne = jest.fn()
 const findOneOrFail = jest.fn()

@@ -1701,7 +1701,6 @@ const styles = {
 
 ```typescript
 // packages/core/src/modules/messages/api/route.ts
-// MikroORM v7: use em.getKysely() (returns Kysely<any>) instead of em.getKnex().
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Kysely } from 'kysely'
