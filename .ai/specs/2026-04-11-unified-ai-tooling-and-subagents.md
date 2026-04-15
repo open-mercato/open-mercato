@@ -151,6 +151,27 @@ Rules:
 - sub-agents may be exposed through the generalized MCP registry later as additive tools
 - raw tools continue to flow through the existing generalized MCP surface
 
+### D11. Community-Sourced Future Enhancements
+Several ideas from the community-contributed decentralized AI specs (PR #1222) are worth adopting in later phases. The high-value ideas have been integrated directly into this spec as optional, additive fields on `AiAgentDefinition`:
+
+Adopted into the type definition (available from Phase 0, used progressively):
+
+- **Page context resolver** (`resolvePageContext`): modules hydrate rich record-level context instead of relying on pass-through `pageContext`. Used at runtime from Phase 3+.
+- **Routing metadata** (`keywords`, `domain`, `dataCapabilities`): emitted in the generated registry from Phase 0, consumed by a future agent-suggestion feature in Phase 4+.
+- **Execution budget** (`maxSteps`): turn-level step limit passed to `streamText()`. Available from Phase 1, recommended for mutation-capable agents in Phase 4+.
+
+Deferred to Phase 3 implementation (not in the type definition yet):
+
+- **Shared model factory**: consolidate provider/model resolution from `inbox_ops/lib/llmProvider.ts` into a reusable utility in `@open-mercato/ai-assistant` when the second agent is built. Support `defaultModel` override plus optional env-based per-agent override (`<MODULE>_AI_MODEL`).
+
+Tracked for Phase 4+ (design only, no implementation commitment):
+
+- **Structured prompt composition**: replace raw `systemPrompt` string with a prompt-builder that concatenates named sections (`[ROLE]`, `[AUTH CONTEXT]`, `[MODULE]`, `[GUIDELINES]`). Useful when prompt complexity grows with multi-agent orchestration and richer context injection.
+- **Context dependencies**: modules declare higher-level affinities (`contextDependencies: ['customers', 'catalog']`) that auto-resolve to tool whitelists. Convenience layer over explicit `allowedTools`.
+- **Versioned manifest contract**: add `manifestVersion` and `platformRange` to `AiAgentDefinition` when external modules ship AI agents. Follow existing module versioning patterns from SPEC-061/064/065.
+
+Credit: ideas extracted from @rchrzanwlc's research in PR #1222. Full analysis in `.ai/specs/2026-04-13-pr-1222-decentralized-ai-analysis.md`.
+
 ## Proposed Solution
 
 ### 1. Additive Tool Builder
@@ -194,6 +215,21 @@ type AiAgentDefinition = {
   requiredFeatures?: string[]
   uiParts?: string[]
   readOnly?: boolean
+  maxSteps?: number
+  resolvePageContext?: (ctx: {
+    entityType: string
+    recordId: string
+    container: AwilixContainer
+    tenantId: string | null
+    organizationId: string | null
+  }) => Promise<string | null>
+  keywords?: string[]
+  domain?: string
+  dataCapabilities?: {
+    entities?: string[]
+    operations?: Array<'read' | 'search' | 'aggregate'>
+    searchableFields?: string[]
+  }
 }
 ```
 
@@ -204,6 +240,9 @@ Rules:
 - `readOnly` defaults to `true` in v1
 - if `readOnly` is `true`, tools marked `isMutation: true` are rejected at registration/runtime
 - focused agents may call other focused agents only in a later phase; v1 agents only call tools
+- `maxSteps` is optional; when set, limits the number of tool-call steps the runtime will execute per turn (passed to `streamText()`)
+- `resolvePageContext` is optional; when present, the runtime calls it before composing the system prompt, injecting the returned string as additional context about the record the user is currently viewing — this replaces generic `pageContext` pass-through with module-owned hydration
+- `keywords`, `domain`, and `dataCapabilities` are optional routing metadata; v1 ignores them at runtime but they are emitted in the generated registry for future agent-suggestion features
 
 ### 3. Standard Agent Runtime
 Add an internal focused-agent runtime that:
@@ -211,8 +250,10 @@ Add an internal focused-agent runtime that:
 - resolves the agent definition from the generated registry
 - authenticates with standard Open Mercato auth
 - creates a request-scoped execution context
+- if the agent declares `resolvePageContext` and the request includes `pageContext` with `entityType` and `recordId`, calls the resolver and injects the result into the system prompt before the first model call
 - resolves whitelisted tools from the shared tool registry
 - adapts those tools to AI SDK tool execution using the same handler/ACL contract
+- enforces `maxSteps` when declared on the agent definition
 - streams text and tagged UI parts back to the client
 
 Important constraint:
@@ -366,7 +407,7 @@ Rules:
 
 - `messages` are required
 - `attachmentIds` must belong to the authenticated tenant/org scope
-- client may send `pageContext`, but server treats it as advisory context only
+- client may send `pageContext`; if the agent declares `resolvePageContext`, the runtime calls it to hydrate rich record-level context into the system prompt — otherwise `pageContext` is treated as advisory context only
 
 Response:
 
@@ -507,8 +548,9 @@ Candidate:
 
 Deliverables:
 
-- one real `ai-agents.ts`
+- one real `ai-agents.ts` with `resolvePageContext` implementation
 - one whitelisted read-only tool set
+- shared model factory utility extracted from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant`, supporting `defaultModel` override and optional env-based per-agent override (`<MODULE>_AI_MODEL`)
 - integration coverage
 
 ### Phase 4 - Follow-up Scope
