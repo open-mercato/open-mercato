@@ -185,6 +185,7 @@ None.
 ## Changelog
 ### 2026-04-15
 - Initial specification for the post-hackathon manual QA report and PR delivery workflow.
+- Opened PR #1527 with the markdown report and rendered HTML artifacts.
 
 ## Progress
 
@@ -203,4 +204,4 @@ None.
 ### Phase 3: Validate And Publish
 
 - [x] 3.1 Run the docs-only validation and self-review the output for completeness, link quality, and scope discipline — 04dd3c9c2
-- [ ] 3.2 Push the branch, open the PR against `develop`, assign `alinadivante`, request her review, and apply the required labels/comments
+- [x] 3.2 Push the branch, open the PR against `develop`, assign `alinadivante`, request her review, and apply the required labels/comments — PR #1527
