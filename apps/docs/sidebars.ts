@@ -57,6 +57,7 @@ const sidebars: SidebarsConfig = {
             },
           ],
         },
+        "installation/wsl2",
         "installation/docker",
         "installation/vps",
         "installation/devcontainer",
