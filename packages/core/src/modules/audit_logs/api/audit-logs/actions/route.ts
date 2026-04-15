@@ -81,6 +81,15 @@ function parseLimit(param: string | null): number {
   return Math.min(Math.max(Math.trunc(value), 1), 200)
 }
 
+function parseNumber(param: string | null, { min, max, fallback }: { min: number; max: number; fallback: number }) {
+  if (!param) return fallback
+  const value = Number(param)
+  if (!Number.isFinite(value)) return fallback
+  const normalized = Math.trunc(value)
+  if (Number.isNaN(normalized)) return fallback
+  return Math.min(Math.max(normalized, min), max)
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -106,6 +115,8 @@ export async function GET(req: Request) {
   const includeRelated = parseBooleanToken(url.searchParams.get('includeRelated')) === true
   const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
   const limit = parseLimit(url.searchParams.get('limit'))
+  const page = parseNumber(url.searchParams.get('page'), { min: 1, max: 1000000, fallback: 1 })
+  const pageSize = parseNumber(url.searchParams.get('pageSize'), { min: 1, max: 200, fallback: 50 })
   const before = parseDate(url.searchParams.get('before'))
   const after = parseDate(url.searchParams.get('after'))
 
@@ -130,6 +141,8 @@ export async function GET(req: Request) {
     includeRelated,
     undoableOnly,
     limit,
+    page,
+    pageSize,
     before,
     after,
   })
