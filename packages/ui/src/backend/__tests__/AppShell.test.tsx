@@ -68,6 +68,14 @@ jest.mock('../FlashMessages', () => ({
   FlashMessages: () => <div data-testid="flash-messages" />,
 }))
 
+jest.mock('../AccessibilityProvider', () => ({
+  AccessibilityProvider: () => <div data-testid="accessibility-provider" />,
+}))
+
+jest.mock('../devtools/AxeDevBootstrap', () => ({
+  AxeDevBootstrap: () => <div data-testid="axe-dev-bootstrap" />,
+}))
+
 jest.mock('../../frontend/LanguageSwitcher', () => ({
   LanguageSwitcher: () => <div data-testid="language-switcher" />,
 }))
@@ -91,6 +99,7 @@ const dict = {
   'appShell.closeMenu': 'Close',
   'common.terms': 'Terms',
   'common.privacy': 'Privacy',
+  'common.skip_to_content': 'Skip to content',
   'dashboard.title': 'Dashboard',
   'custom.page.title': 'Custom Page',
   'custom.page.breadcrumb': 'Custom Trail',
@@ -165,7 +174,10 @@ describe('AppShell', () => {
 
     expect(screen.getByText('Users List')).toBeInTheDocument()
     expect(screen.getAllByText('Terms')[0]).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Skip to content' })).toHaveAttribute('href', '#main-content')
     expect(screen.getByTestId('flash-messages')).toBeInTheDocument()
+    expect(screen.getByTestId('accessibility-provider')).toBeInTheDocument()
+    expect(screen.getByTestId('axe-dev-bootstrap')).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:backend:layout:top')).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:backend:record:current')).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:backend:layout:footer')).toBeInTheDocument()
@@ -173,6 +185,7 @@ describe('AppShell', () => {
     expect(screen.getByTestId('injection-spot:backend:sidebar:footer')).toBeInTheDocument()
     expect(screen.getByTestId('injection-spot:backend-mutation:global')).toBeInTheDocument()
     expect(screen.getByText('Child content')).toBeInTheDocument()
+    expect(document.querySelector('main#main-content')).toHaveAttribute('tabindex', '-1')
     expect(mockInjectionSpot).toHaveBeenCalledWith(
       expect.objectContaining({
         spotId: 'backend-mutation:global',

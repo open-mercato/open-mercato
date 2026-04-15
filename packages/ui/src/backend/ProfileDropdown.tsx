@@ -1,7 +1,7 @@
 'use client'
 import * as React from 'react'
 import Link from 'next/link'
-import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check } from 'lucide-react'
+import { User, LogOut, Bell, Moon, Sun, Globe, Key, Check, Accessibility } from 'lucide-react'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
 import { useTheme } from '@open-mercato/ui/theme'
@@ -114,7 +114,7 @@ export function ProfileDropdown({
 
   const builtInMenuItems = React.useMemo(
     () => {
-      const items: Array<{ id: string; separator?: boolean }> = [{ id: 'change-password' }]
+      const items: Array<{ id: string; separator?: boolean }> = [{ id: 'change-password' }, { id: 'accessibility' }]
       if (notificationsHref) items.push({ id: 'notifications' })
       items.push({ id: 'theme-toggle', separator: true }, { id: 'language' }, { id: 'sign-out', separator: true })
       return items
@@ -189,6 +189,21 @@ export function ProfileDropdown({
           >
             <Key className="size-4" />
             <span>{t('ui.profileMenu.changePassword', 'Change Password')}</span>
+          </Link>
+        )
+      }
+
+      if (id === 'accessibility') {
+        return (
+          <Link
+            key={id}
+            href="/backend/profile/accessibility"
+            className={menuItemClass}
+            role="menuitem"
+            onClick={() => setOpen(false)}
+          >
+            <Accessibility className="size-4" />
+            <span>{t('auth.accessibility.section_title', 'Accessibility')}</span>
           </Link>
         )
       }
@@ -314,6 +329,7 @@ export function ProfileDropdown({
         aria-haspopup="menu"
         data-testid="profile-dropdown-trigger"
         title={email || t('ui.userMenu.userFallback', 'User')}
+        aria-label={email || t('ui.userMenu.userFallback', 'User')}
       >
         <User className="size-4" />
       </IconButton>

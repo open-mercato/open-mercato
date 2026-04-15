@@ -8,6 +8,7 @@ import { Button } from '../primitives/button'
 import { IconButton } from '../primitives/icon-button'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
+import { AccessibilityProvider } from './AccessibilityProvider'
 import { QueryProvider } from '../theme/QueryProvider'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { apiCall } from './utils/apiCall'
@@ -27,6 +28,7 @@ import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { useEventBridge } from './injection/eventBridge'
 import { StatusBadgeInjectionSpot } from './injection/StatusBadgeInjectionSpot'
 import { UmesDevToolsPanel } from './devtools'
+import { AxeDevBootstrap } from './devtools/AxeDevBootstrap'
 import { BackendChromeProvider, useBackendChrome } from './BackendChromeProvider'
 import {
   BACKEND_LAYOUT_FOOTER_INJECTION_SPOT_ID,
@@ -1415,6 +1417,20 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
       <aside className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block`} style={{ width: asideWidth }}>{renderSidebar(effectiveCollapsed)}</aside>
 
       <div className="flex min-h-svh flex-col min-w-0">
+        <a
+          href="#main-content"
+          onClick={(event) => {
+            const target = document.getElementById('main-content')
+            if (!target) return
+            event.preventDefault()
+            target.focus()
+            target.scrollIntoView({ block: 'start' })
+            window.history.replaceState(null, '', '#main-content')
+          }}
+          className="sr-only focus-visible:not-sr-only focus-visible:absolute focus-visible:left-2 focus-visible:top-2 focus-visible:z-[200] focus-visible:rounded focus-visible:bg-background focus-visible:px-4 focus-visible:py-2 focus-visible:shadow"
+        >
+          {t('common.skip_to_content', 'Skip to content')}
+        </a>
         <header className="border-b bg-background/60 px-3 lg:px-4 py-2 lg:py-3 flex items-center justify-between gap-2">
           <div
             data-testid="backend-chrome-ready"
@@ -1494,7 +1510,9 @@ function AppShellBody({ productName, email, groups, rightHeaderSlot, children, s
           </div>
         </header>
         <ProgressTopBar t={t} className="sticky top-0 z-10" />
-        <main className="flex-1 p-4 lg:p-6">
+        <AccessibilityProvider />
+        <AxeDevBootstrap />
+        <main id="main-content" tabIndex={-1} className="flex-1 p-4 lg:p-6">
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />

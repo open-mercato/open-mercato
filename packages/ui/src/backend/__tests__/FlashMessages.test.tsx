@@ -18,9 +18,12 @@ describe('FlashMessages', () => {
   it('auto-dismisses URL-based flashes after stripping query params', () => {
     window.history.replaceState({}, '', 'http://localhost/backend/checkout/pay-links?flash=Saved&type=success')
 
-    renderWithProviders(<FlashMessages />)
+    renderWithProviders(<FlashMessages />, {
+      dict: { 'notifications.actions.dismiss': 'Dismiss' },
+    })
 
     expect(screen.getByText('Saved')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
     expect(window.location.search).toBe('')
 
     act(() => {
@@ -31,7 +34,9 @@ describe('FlashMessages', () => {
   })
 
   it('auto-dismisses programmatic flashes', () => {
-    renderWithProviders(<FlashMessages />)
+    renderWithProviders(<FlashMessages />, {
+      dict: { 'notifications.actions.dismiss': 'Dismiss' },
+    })
 
     act(() => {
       flash('Pay link published', 'success')
@@ -44,5 +49,17 @@ describe('FlashMessages', () => {
     })
 
     expect(screen.queryByText('Pay link published')).not.toBeInTheDocument()
+  })
+
+  it('uses assertive alert semantics for error flashes', () => {
+    renderWithProviders(<FlashMessages />, {
+      dict: { 'notifications.actions.dismiss': 'Dismiss' },
+    })
+
+    act(() => {
+      flash('Something failed', 'error')
+    })
+
+    expect(screen.getByRole('alert')).toHaveAttribute('aria-live', 'assertive')
   })
 })

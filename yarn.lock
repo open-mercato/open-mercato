@@ -408,6 +408,16 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@axe-core/react@npm:^4.10.0":
+  version: 4.11.1
+  resolution: "@axe-core/react@npm:4.11.1"
+  dependencies:
+    axe-core: "npm:~4.11.1"
+    requestidlecallback: "npm:^0.3.0"
+  checksum: 10/dbbf71d2f47c054b675d00064a88fcb52e2c8d2ff45ab8ae02590ea01237ce73e1e31daafaa3329f5eaa9da4da528bc091a7dc93e4d70d8f5eb824c180e04d59
+  languageName: node
+  linkType: hard
+
 "@babel/code-frame@npm:^7.0.0, @babel/code-frame@npm:^7.10.4, @babel/code-frame@npm:^7.26.2, @babel/code-frame@npm:^7.27.1, @babel/code-frame@npm:^7.28.6":
   version: 7.28.6
   resolution: "@babel/code-frame@npm:7.28.6"
@@ -6153,6 +6163,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/ui@workspace:packages/ui"
   dependencies:
+    "@axe-core/react": "npm:^4.10.0"
     "@dnd-kit/core": "npm:^6.3.1"
     "@dnd-kit/sortable": "npm:^10.0.0"
     "@dnd-kit/utilities": "npm:^3.2.2"
@@ -10630,6 +10641,13 @@ __metadata:
   version: 4.11.1
   resolution: "axe-core@npm:4.11.1"
   checksum: 10/bbc8e8959258a229b92fbaa73437050825579815051cac7b0fdbb6752946fea226e403bfeeef3d60d712477bdd4c01afdc8455f27c3d85e4251df88b032b6250
+  languageName: node
+  linkType: hard
+
+"axe-core@npm:~4.11.1":
+  version: 4.11.3
+  resolution: "axe-core@npm:4.11.3"
+  checksum: 10/4ef64672117df20f040b245d78b5b38552497bd6a1a84222f8c6a07304e0a374a290504ccd76efc3d1ee3a17c8731a65b625a49bf6701c7bd16093a54fcd5b8d
   languageName: node
   linkType: hard
 
@@ -23853,6 +23871,13 @@ __metadata:
   version: 3.3.0
   resolution: "request-ip@npm:3.3.0"
   checksum: 10/9ca26f814201da19cb6f1a18da4f036803b770665ec0e7c556ea975ba553321922a5f04909f6dfc2371f695ca8aaa3c66f02c00a5e902c76435029804cdc4964
+  languageName: node
+  linkType: hard
+
+"requestidlecallback@npm:^0.3.0":
+  version: 0.3.0
+  resolution: "requestidlecallback@npm:0.3.0"
+  checksum: 10/a89c75f1eea347ccf30db1f1c48154df567ada16bc3b54c7ba969ae6cfb9a23d2c71121f8b05d9bc1303fcc3292aaaf7924f4fbd3cf33c8a4ed7c3095653e849
   languageName: node
   linkType: hard
 

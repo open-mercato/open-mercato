@@ -17,6 +17,7 @@ export function SettingsButton({ href = '/backend/settings' }: SettingsButtonPro
       variant="ghost"
       size="sm" 
       title={t('backend.nav.settings', 'Settings')}
+      aria-label={t('backend.nav.settings', 'Settings')}
     >
       <Link href={href}>
         <Settings className="size-4" />

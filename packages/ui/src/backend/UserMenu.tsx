@@ -81,6 +81,7 @@ export function UserMenu({ email }: { email?: string }) {
         aria-controls="user-menu-dropdown"
         id="user-menu-button"
         title={email || t('ui.userMenu.userFallback', 'User')}
+        aria-label={email || t('ui.userMenu.userFallback', 'User')}
       >
         <User className="size-4" />
       </IconButton>

@@ -1,6 +1,7 @@
 "use client"
 import * as React from 'react'
 import { X } from 'lucide-react'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { IconButton } from '../primitives/icon-button'
 
 export type FlashKind = 'success' | 'error' | 'warning' | 'info'
@@ -86,6 +87,7 @@ function useLocationKey() {
 }
 
 function FlashMessagesInner() {
+  const t = useT()
   const [msg, setMsg] = React.useState<string | null>(null)
   const [kind, setKind] = React.useState<FlashKind>('info')
   const locationKey = useLocationKey()
@@ -150,10 +152,17 @@ function FlashMessagesInner() {
     info: 'bg-status-info-icon',
   }
   const color = colorMap[kind]
+  const liveRole = kind === 'error' ? 'alert' : 'status'
+  const liveMode = kind === 'error' ? 'assertive' : 'polite'
 
   return (
     <div className="pointer-events-none fixed left-3 right-3 top-3 z-[1200] sm:left-auto sm:right-4 sm:w-[380px]">
-      <div className={`pointer-events-auto rounded px-3 py-2 text-white shadow-md ${color}`}>
+      <div
+        className={`pointer-events-auto rounded px-3 py-2 text-white shadow-md ${color}`}
+        role={liveRole}
+        aria-live={liveMode}
+        aria-atomic="true"
+      >
         <div className="flex items-center justify-between gap-2">
           <div className="text-sm">{msg}</div>
           <IconButton
@@ -162,7 +171,7 @@ function FlashMessagesInner() {
             size="sm"
             className="text-white/90 hover:text-white hover:bg-white/10"
             onClick={() => setMsg(null)}
-            aria-label="Dismiss"
+            aria-label={t('notifications.actions.dismiss', 'Dismiss')}
           >
             <X size={16} />
           </IconButton>

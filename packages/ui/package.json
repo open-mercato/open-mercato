@@ -137,6 +137,7 @@
     "react-dom": ">=18.0.0"
   },
   "devDependencies": {
+    "@axe-core/react": "^4.10.0",
     "@open-mercato/shared": "workspace:*",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
