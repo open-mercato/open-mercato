@@ -8,7 +8,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { assignRolesSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const auth = await getCustomerAuthFromRequest(req)
