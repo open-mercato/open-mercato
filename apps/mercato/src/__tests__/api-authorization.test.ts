@@ -88,6 +88,16 @@ const missingMetadataRouteModule = {
   GET: createResponseHandler('MISSING METADATA GET'),
 }
 
+const emptyMetadataRouteModule = {
+  GET: createResponseHandler('EMPTY METADATA GET'),
+  metadata: {},
+}
+
+const topLevelPublicRouteModule = {
+  POST: createResponseHandler('TOP LEVEL PUBLIC POST'),
+  metadata: { requireAuth: false },
+}
+
 function getMockedApiRoutes(): ApiRouteManifestEntry[] {
   return [
     {
@@ -110,6 +120,20 @@ function getMockedApiRoutes(): ApiRouteManifestEntry[] {
       path: '/example/missing-metadata',
       methods: ['GET'],
       load: async () => missingMetadataRouteModule,
+    },
+    {
+      moduleId: 'example',
+      kind: 'route-file',
+      path: '/example/empty-metadata',
+      methods: ['GET'],
+      load: async () => emptyMetadataRouteModule,
+    },
+    {
+      moduleId: 'example',
+      kind: 'route-file',
+      path: '/example/top-level-public',
+      methods: ['POST'],
+      load: async () => topLevelPublicRouteModule,
     },
   ]
 }
@@ -341,14 +365,14 @@ describe('API Route Authorization', () => {
   })
 
   describe('GET /example/missing-metadata', () => {
-    it('should allow anonymous access when route metadata is missing (route handles auth internally)', async () => {
+    it('should deny anonymous access when route metadata is missing (secure by default)', async () => {
       mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
 
       const request = new NextRequest('http://localhost:3001/api/example/missing-metadata')
       const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'missing-metadata'] }) })
 
-      expect(response.status).toBe(200)
-      expect(await response.text()).toBe('MISSING METADATA GET success')
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: 'Unauthorized' })
     })
 
     it('should allow authenticated access when route metadata is missing', async () => {
@@ -359,6 +383,40 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(200)
       expect(await response.text()).toBe('MISSING METADATA GET success')
+    })
+  })
+
+  describe('GET /example/empty-metadata', () => {
+    it('should deny anonymous access when metadata is an empty object (secure by default)', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
+
+      const request = new NextRequest('http://localhost:3001/api/example/empty-metadata')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'empty-metadata'] }) })
+
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ error: 'Unauthorized' })
+    })
+
+    it('should allow authenticated access when metadata is an empty object', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['user']))
+
+      const request = new NextRequest('http://localhost:3001/api/example/empty-metadata')
+      const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'empty-metadata'] }) })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('EMPTY METADATA GET success')
+    })
+  })
+
+  describe('POST /example/top-level-public', () => {
+    it('should allow anonymous access when top-level requireAuth is false (login/signup pattern)', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue({ auth: null, status: 'missing' })
+
+      const request = new NextRequest('http://localhost:3001/api/example/top-level-public', { method: 'POST' })
+      const response = await POST(request, { params: Promise.resolve({ slug: ['example', 'top-level-public'] }) })
+
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe('TOP LEVEL PUBLIC POST success')
     })
   })
 
