@@ -75,7 +75,7 @@ export async function GET(req: Request) {
     const actionLogService = container.resolve('actionLogService') as ActionLogService
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const [logs, notes] = await Promise.all([
+    const [actionLogList, notes] = await Promise.all([
       actionLogService.list({
         tenantId: auth.tenantId,
         organizationId,
@@ -85,7 +85,7 @@ export async function GET(req: Request) {
         limit: query.limit,
         before: query.before ? new Date(query.before) : undefined,
         after: query.after ? new Date(query.after) : undefined,
-      }) as Promise<ActionLog[]>,
+      }),
       findWithDecryption(
         em,
         SalesNote,
@@ -100,6 +100,7 @@ export async function GET(req: Request) {
         { tenantId: auth.tenantId, organizationId },
       ),
     ])
+    const logs = actionLogList.items as ActionLog[]
 
     const allUserIds = [
       ...logs.map((l) => l.actorUserId).filter((v): v is string => !!v),

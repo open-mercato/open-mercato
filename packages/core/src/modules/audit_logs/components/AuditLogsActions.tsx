@@ -41,6 +41,7 @@ export function AuditLogsActions({
   headerExtras,
   onUndoError,
   onRedoError,
+  pagination,
 }: {
   items: ActionLogItem[] | undefined
   onRefresh: () => Promise<void>
