@@ -50,6 +50,16 @@ describe('security email URL helpers', () => {
     expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
   })
 
+  test('allows loopback origin mismatches outside production', () => {
+    const env = {
+      APP_URL: 'http://localhost:3000',
+      NODE_ENV: 'test',
+    }
+    const request = new Request('http://127.0.0.1:5001/api/auth/reset')
+
+    expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
+  })
+
   test('requires APP_URL for security email links in production', () => {
     const env = {
       NODE_ENV: 'production',

@@ -103,6 +103,27 @@ function requestOrigins(input: RequestInput): Set<string> {
   return origins
 }
 
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(origin).hostname)
+  } catch {
+    return false
+  }
+}
+
+function shouldAllowLocalLoopbackOrigin(origin: string, allowedOrigins: Set<string>, env: EnvLike): boolean {
+  if (env.NODE_ENV === 'production') return false
+  if (!isLoopbackOrigin(origin)) return false
+  for (const allowedOrigin of allowedOrigins) {
+    if (isLoopbackOrigin(allowedOrigin)) return true
+  }
+  return false
+}
+
 export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = process.env): void {
   const allowedOrigins = readAllowedOrigins(env)
   if (allowedOrigins.size === 0) {
@@ -117,6 +138,7 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
 
   for (const origin of origins) {
     if (!allowedOrigins.has(origin)) {
+      if (shouldAllowLocalLoopbackOrigin(origin, allowedOrigins, env)) continue
       throw new AppOriginRejectedError('Request origin is not allowed')
     }
   }

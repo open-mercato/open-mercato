@@ -112,6 +112,24 @@ describe('POST /api/auth/reset', () => {
     )
   })
 
+  test('allows local loopback origin mismatches outside production', async () => {
+    process.env = {
+      ...process.env,
+      APP_URL: 'http://localhost:3000',
+      NODE_ENV: 'test',
+    }
+
+    const res = await POST(makeResetRequest('http://127.0.0.1:5001/api/auth/reset'))
+
+    expect(res.status).toBe(200)
+    expect(mockRequestPasswordReset).toHaveBeenCalledWith('staff@example.com')
+    expect(mockResetPasswordEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resetUrl: 'http://localhost:3000/reset/reset-token-1',
+      }),
+    )
+  })
+
   test('rejects a poisoned host before issuing a reset token', async () => {
     const res = await POST(makeResetRequest('https://evil.example/api/auth/reset'))
     const body = await res.json()

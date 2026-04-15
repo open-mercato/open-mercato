@@ -236,4 +236,19 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(mockPersistAndFlush).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
+
+  test('allows loopback origin mismatches outside production', async () => {
+    process.env = {
+      ...process.env,
+      APP_URL: 'http://localhost:3000',
+      NODE_ENV: 'test',
+    }
+
+    const res = await POST(makeRequest({ id: userId }, 'http://127.0.0.1:5001/api/auth/users/resend-invite'))
+
+    expect(res.status).toBe(200)
+    expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
+    expect(mockPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+  })
 })
