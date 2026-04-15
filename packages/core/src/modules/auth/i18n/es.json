@@ -78,7 +78,7 @@
   "auth.profile.form.errors.confirmPasswordRequired": "Confirma la nueva contraseña.",
   "auth.profile.form.errors.currentPasswordInvalid": "La contraseña actual es incorrecta.",
   "auth.profile.form.errors.currentPasswordRequired": "La contraseña actual es obligatoria.",
-  "auth.profile.form.errors.emailOrPasswordRequired": "Proporciona un correo electrónico o una contraseña.",
+  "auth.profile.form.errors.emailOrPasswordRequired": "Proporciona un correo electrónico, una contraseña o ajustes de accesibilidad.",
   "auth.profile.form.errors.emailRequired": "El correo electrónico es obligatorio.",
   "auth.profile.form.errors.invalid": "Actualización de perfil inválida.",
   "auth.profile.form.errors.load": "No se pudo cargar el perfil.",

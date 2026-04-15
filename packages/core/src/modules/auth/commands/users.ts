@@ -32,6 +32,10 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import {
+  AccessibilityPreferencesSchema,
+  type AccessibilityPreferences,
+} from '@open-mercato/core/modules/auth/data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
@@ -44,6 +48,7 @@ type SerializedUser = {
   roles: string[]
   name: string | null
   isConfirmed: boolean
+  accessibilityPreferences?: AccessibilityPreferences | null
   custom?: Record<string, unknown>
 }
 
@@ -62,6 +67,7 @@ type UserUndoSnapshot = {
   passwordHash: string | null
   name: string | null
   isConfirmed: boolean
+  accessibilityPreferences?: AccessibilityPreferences | null
   roles: string[]
   acls: UserAclSnapshot[]
   custom?: Record<string, unknown>
@@ -91,6 +97,7 @@ const updateSchema = z.object({
   password: passwordSchema.optional(),
   organizationId: z.string().uuid().optional(),
   roles: z.array(z.string()).optional(),
+  accessibilityPreferences: AccessibilityPreferencesSchema.optional(),
 })
 
 export const userCrudEvents: CrudEventsConfig = {
@@ -455,6 +462,12 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             entity.tenantId = tenantId ?? null
           }
           if (hashed) entity.passwordHash = hashed
+          if (parsed.accessibilityPreferences !== undefined) {
+            entity.accessibilityPreferences = {
+              ...(entity.accessibilityPreferences ?? {}),
+              ...parsed.accessibilityPreferences,
+            }
+          }
         },
       })
     } catch (error) {
@@ -533,7 +546,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     )
     const afterSnapshots = captureUserSnapshots(result, afterRoles, undefined, afterCustom)
     const after = afterSnapshots.view
-    const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['email', 'organizationId', 'tenantId', 'name', 'isConfirmed'])
+    const changes = buildChanges(before ?? null, after as Record<string, unknown>, ['email', 'organizationId', 'tenantId', 'name', 'isConfirmed', 'accessibilityPreferences'])
     if (before && !arrayEquals(before.roles, afterRoles)) {
       changes.roles = { from: before.roles, to: afterRoles }
     }
@@ -575,6 +588,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         entity.passwordHash = before.passwordHash ?? null
         entity.name = before.name ?? undefined
         entity.isConfirmed = before.isConfirmed
+        entity.accessibilityPreferences = before.accessibilityPreferences ?? null
       },
     })
 
@@ -701,6 +715,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       user.passwordHash = before.passwordHash ?? null
       user.name = before.name ?? undefined
       user.isConfirmed = before.isConfirmed
+      user.accessibilityPreferences = before.accessibilityPreferences ?? null
       await em.flush()
     } else {
       user = await de.createOrmEntity({
@@ -713,6 +728,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           passwordHash: before.passwordHash ?? null,
           name: before.name ?? null,
           isConfirmed: before.isConfirmed,
+          accessibilityPreferences: before.accessibilityPreferences ?? null,
         },
       })
     }
@@ -828,6 +844,7 @@ function serializeUser(user: User, roles: string[], custom?: Record<string, unkn
     roles,
     name: user.name ? String(user.name) : null,
     isConfirmed: Boolean(user.isConfirmed),
+    accessibilityPreferences: user.accessibilityPreferences ?? null,
   }
   if (custom && Object.keys(custom).length) payload.custom = custom
   return payload
@@ -849,6 +866,7 @@ function captureUserSnapshots(
       passwordHash: user.passwordHash ? String(user.passwordHash) : null,
       name: user.name ? String(user.name) : null,
       isConfirmed: Boolean(user.isConfirmed),
+      accessibilityPreferences: user.accessibilityPreferences ?? null,
       roles: [...roles],
       acls,
       ...(custom && Object.keys(custom).length ? { custom } : {}),

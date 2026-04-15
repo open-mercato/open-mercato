@@ -78,7 +78,7 @@
   "auth.profile.form.errors.confirmPasswordRequired": "Potwierdź nowe hasło.",
   "auth.profile.form.errors.currentPasswordInvalid": "Obecne hasło jest nieprawidłowe.",
   "auth.profile.form.errors.currentPasswordRequired": "Obecne hasło jest wymagane.",
-  "auth.profile.form.errors.emailOrPasswordRequired": "Podaj adres e-mail lub hasło.",
+  "auth.profile.form.errors.emailOrPasswordRequired": "Podaj adres e-mail, hasło lub ustawienia dostępności.",
   "auth.profile.form.errors.emailRequired": "Email jest wymagany.",
   "auth.profile.form.errors.invalid": "Nieprawidłowa aktualizacja profilu.",
   "auth.profile.form.errors.load": "Nie udało się wczytać profilu.",

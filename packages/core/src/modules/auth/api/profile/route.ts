@@ -9,6 +9,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import {
+  AccessibilityPreferencesSchema,
+  type AccessibilityPreferences,
+} from '@open-mercato/core/modules/auth/data/validators'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -16,6 +20,7 @@ import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolic
 const profileResponseSchema = z.object({
   email: z.string().email(),
   roles: z.array(z.string()),
+  accessibilityPreferences: AccessibilityPreferencesSchema.nullable(),
 })
 
 const passwordSchema = buildPasswordSchema()
@@ -24,16 +29,21 @@ const updateSchemaBase = z.object({
   email: z.string().email().optional(),
   currentPassword: z.string().trim().min(1).optional(),
   password: passwordSchema.optional(),
+  accessibilityPreferences: AccessibilityPreferencesSchema.optional(),
 })
 
 function buildUpdateSchema(translate: (key: string, fallback: string) => string) {
   return updateSchemaBase.superRefine((data, ctx) => {
-    if (!data.email && !data.password) {
+    if (
+      !data.email
+      && !data.password
+      && data.accessibilityPreferences === undefined
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: translate(
           'auth.profile.form.errors.emailOrPasswordRequired',
-          'Provide an email or password.',
+          'Provide an email, password, or accessibility settings.',
         ),
         path: ['email'],
       })
@@ -103,7 +113,11 @@ export async function GET(req: Request) {
     if (!user) {
       return NextResponse.json({ error: translate('auth.users.form.errors.notFound', 'User not found') }, { status: 404 })
     }
-    return NextResponse.json({ email: String(user.email), roles: auth.roles ?? [] })
+    return NextResponse.json({
+      email: String(user.email),
+      roles: auth.roles ?? [],
+      accessibilityPreferences: user.accessibilityPreferences ?? null,
+    })
   } catch (err) {
     console.error('auth.profile.load failed', err)
     return NextResponse.json({ error: translate('auth.profile.form.errors.load', 'Failed to load profile.') }, { status: 400 })
@@ -160,34 +174,42 @@ export async function PUT(req: Request) {
     }
     const commandBus = (container.resolve('commandBus') as CommandBus)
     const ctx = buildCommandContext(container, auth, req)
-    const { result } = await commandBus.execute<{ id: string; email?: string; password?: string }, User>(
+    const { result } = await commandBus.execute<{
+      id: string
+      email?: string
+      password?: string
+      accessibilityPreferences?: AccessibilityPreferences
+    }, User>(
       'auth.users.update',
       {
         input: {
           id: auth.sub,
           email: parsed.data.email,
           password: parsed.data.password,
+          accessibilityPreferences: parsed.data.accessibilityPreferences,
         },
         ctx,
       },
     )
-    const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
-    const jwt = signJwt({
-      sub: String(result.id),
-      sid: typeof auth.sid === 'string' ? auth.sid : undefined,
-      tenantId: result.tenantId ? String(result.tenantId) : null,
-      orgId: result.organizationId ? String(result.organizationId) : null,
-      email: result.email,
-      roles,
-    })
     const res = NextResponse.json({ ok: true, email: String(result.email) })
-    res.cookies.set('auth_token', jwt, {
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 8,
-    })
+    if (parsed.data.email !== undefined || parsed.data.password !== undefined) {
+      const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
+      const jwt = signJwt({
+        sub: String(result.id),
+        sid: typeof auth.sid === 'string' ? auth.sid : undefined,
+        tenantId: result.tenantId ? String(result.tenantId) : null,
+        orgId: result.organizationId ? String(result.organizationId) : null,
+        email: result.email,
+        roles,
+      })
+      res.cookies.set('auth_token', jwt, {
+        httpOnly: true,
+        path: '/',
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 8,
+      })
+    }
     return res
   } catch (err) {
     if (isCrudHttpError(err)) {
@@ -204,7 +226,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get current profile',
-      description: 'Returns the email address for the signed-in user.',
+      description: 'Returns the profile payload for the signed-in user.',
       responses: [
         { status: 200, description: 'Profile payload', schema: profileResponseSchema },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
@@ -213,7 +235,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update current profile',
-      description: 'Updates the email address or password for the signed-in user.',
+      description: 'Updates the email address, password, or accessibility settings for the signed-in user.',
       requestBody: {
         contentType: 'application/json',
         schema: updateSchema,
