@@ -1,0 +1,400 @@
+---
+title: Standalone App
+description: Create a standalone Open Mercato app without cloning the monorepo. Your modules live in your repo; the core stays untouched and upgradeable.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+Use this guide when you want to **build a product or service on top of Open Mercato** without modifying the platform core. A standalone app pulls Open Mercato packages from npm — your modules, overrides, and customisations live in your own repository.
+
+If you need to modify the core itself, use the [Monorepo](./monorepo) guide instead.
+
+<Tabs groupId="os" defaultValue="macos">
+
+<TabItem value="macos" label="🍎 macOS" default>
+
+## Prerequisites {#macos}
+
+### 1. Git
+
+```bash
+xcode-select --install
+# or via Homebrew after installing it (see below)
+```
+
+### 2. Homebrew
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+### 3. Node.js 24
+
+```bash
+# Via Homebrew
+brew install node@24
+echo 'export PATH="/opt/homebrew/opt/node@24/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# Or via nvm
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+# Reopen terminal, then:
+nvm install 24 && nvm use 24 && nvm alias default 24
+```
+
+Verify: `node --version` → `v24.x.x`
+
+### 4. Yarn 4.12.0
+
+```bash
+corepack enable
+corepack prepare yarn@4.12.0 --activate
+```
+
+Verify: `yarn --version` → `4.12.0`
+
+### 5. Infrastructure services — Docker Desktop (recommended)
+
+The standalone app template includes a `docker-compose.yml` that starts PostgreSQL, Redis, and Meilisearch. Install [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/) to use it.
+
+**Alternative — native PostgreSQL via Homebrew:**
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+createdb open-mercato
+```
+
+Then set `DATABASE_URL` manually (see below).
+
+---
+
+## Create and configure the app
+
+```bash
+npx create-mercato-app my-app
+cd my-app
+```
+
+This scaffolds a new standalone app. Before starting, configure the environment:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and set at minimum:
+
+```env
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
+JWT_SECRET=change-me-dev-secret
+REDIS_URL=redis://localhost:6379
+```
+
+Generate a strong `JWT_SECRET`:
+
+```bash
+openssl rand -hex 32
+```
+
+Start the infrastructure services:
+
+```bash
+docker compose up -d
+```
+
+---
+
+## Bootstrap and start
+
+```bash
+yarn setup
+```
+
+`yarn setup` installs dependencies, builds packages, generates registries, and runs `yarn initialize` (migrations + seeding). The admin credentials are printed at the end.
+
+Then start the app:
+
+```bash
+yarn dev
+```
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
+
+---
+
+## Add your own modules
+
+Drop modules into `src/modules/` and register them in `src/modules.ts` with `from: '@app'`. See the [customisation guide](/customization/build-first-app) for details.
+
+## Eject a core module for deep customisation
+
+When you need to modify the internals of a core module, eject it:
+
+```bash
+yarn mercato eject --list       # see which modules support ejection
+yarn mercato eject currencies   # copy a module into src/modules/
+yarn mercato generate all
+yarn dev
+```
+
+</TabItem>
+
+<TabItem value="linux" label="🐧 Linux">
+
+## Prerequisites {#linux}
+
+### 1. Git
+
+```bash
+# Debian / Ubuntu
+sudo apt update && sudo apt install -y git
+
+# Fedora / RHEL
+sudo dnf install -y git
+```
+
+### 2. Node.js 24 via nvm
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+# Close and reopen terminal, then:
+nvm install 24 && nvm use 24 && nvm alias default 24
+```
+
+Verify: `node --version` → `v24.x.x`
+
+### 3. Yarn 4.12.0
+
+```bash
+corepack enable
+corepack prepare yarn@4.12.0 --activate
+```
+
+Verify: `yarn --version` → `4.12.0`
+
+### 4. Infrastructure services — Docker (recommended)
+
+**Docker Desktop for Linux:** [download here](https://docs.docker.com/desktop/setup/install/linux/).
+
+Or install the Docker Engine:
+
+```bash
+# Debian / Ubuntu
+sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+**Alternative — native PostgreSQL:**
+
+```bash
+# Debian / Ubuntu
+sudo apt install -y postgresql postgresql-contrib
+sudo -u postgres createdb open-mercato
+```
+
+Then set `DATABASE_URL` manually (see below).
+
+---
+
+## Create and configure the app
+
+```bash
+npx create-mercato-app my-app
+cd my-app
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```env
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
+JWT_SECRET=change-me-dev-secret
+REDIS_URL=redis://localhost:6379
+```
+
+Start the infrastructure services:
+
+```bash
+docker compose up -d
+```
+
+---
+
+## Bootstrap and start
+
+```bash
+yarn setup
+```
+
+Then:
+
+```bash
+yarn dev
+```
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
+
+---
+
+## Add your own modules
+
+Drop modules into `src/modules/` and register them in `src/modules.ts`. See the [customisation guide](/customization/build-first-app).
+
+## Eject a core module for deep customisation
+
+```bash
+yarn mercato eject --list
+yarn mercato eject currencies
+yarn mercato generate all
+yarn dev
+```
+
+</TabItem>
+
+<TabItem value="windows" label="🪟 Windows">
+
+## Prerequisites {#windows}
+
+### 1. Git
+
+Download from [git-scm.com/download/win](https://git-scm.com/download/win). Choose **"Git from the command line and also from 3rd-party software"** when asked about PATH.
+
+Configure line endings:
+
+```powershell
+git config --global core.autocrlf input
+```
+
+### 2. Node.js 24
+
+Download the **Windows Installer (.msi)** from [nodejs.org/en/download](https://nodejs.org/en/download). After installation, **open a new PowerShell or Command Prompt window** so the updated PATH takes effect.
+
+Verify: `node --version` → `v24.x.x`
+
+### 3. Yarn 4.12.0
+
+```powershell
+corepack enable
+corepack prepare yarn@4.12.0 --activate
+```
+
+:::warning PowerShell execution policy error
+If you see:
+```
+yarn.ps1 cannot be loaded because running scripts is disabled on this system.
+```
+Fix it with a one-time user-scoped change:
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+Then retry `corepack prepare yarn@4.12.0 --activate`.
+
+**Alternative:** use **Git Bash** or **Command Prompt (cmd.exe)** — the execution policy restriction does not apply there.
+:::
+
+Verify: `yarn --version` → `4.12.0`
+
+### 4. Infrastructure services
+
+#### Option A — Native PostgreSQL + pgAdmin (recommended)
+
+The official Windows installer from **[postgresql.org/download/windows](https://www.postgresql.org/download/windows/)** bundles **pgAdmin 4**, a full-featured database GUI.
+
+1. Run the EDB installer. Note the **port** (default `5432`) and the **`postgres` superuser password** you set.
+2. Create the database in pgAdmin's Query Tool or PowerShell:
+
+   ```powershell
+   psql -U postgres -c "CREATE DATABASE \"open-mercato\";"
+   ```
+
+3. Set `DATABASE_URL` in `.env` (after scaffolding):
+
+   ```env
+   DATABASE_URL=postgres://postgres:<your-password>@localhost:5432/open-mercato
+   ```
+
+For **Redis** (optional but recommended), run only the Redis service via Docker:
+
+```powershell
+docker compose up -d redis
+```
+
+#### Option B — Docker Desktop (all infrastructure)
+
+Install [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) with the **WSL 2 backend** enabled (Settings → General → "Use the WSL 2 based engine").
+
+After scaffolding the app, start all services:
+
+```powershell
+docker compose up -d
+```
+
+---
+
+## Create and configure the app
+
+```powershell
+npx create-mercato-app my-app
+cd my-app
+Copy-Item .env.example .env
+```
+
+Edit `.env`:
+
+```env
+DATABASE_URL=postgres://postgres:<password>@localhost:5432/open-mercato
+JWT_SECRET=change-me-dev-secret
+REDIS_URL=redis://localhost:6379
+```
+
+---
+
+## Bootstrap and start
+
+```powershell
+yarn setup
+```
+
+Then:
+
+```powershell
+yarn dev
+```
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
+
+---
+
+## Add your own modules
+
+Drop modules into `src/modules/` and register them in `src/modules.ts`. See the [customisation guide](/customization/build-first-app).
+
+## Eject a core module for deep customisation
+
+```powershell
+yarn mercato eject --list
+yarn mercato eject currencies
+yarn mercato generate all
+yarn dev
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## Release channels
+
+```bash
+# Latest stable (default)
+npx create-mercato-app my-app
+
+# Latest prerelease from the develop branch
+npx create-mercato-app@develop my-app
+```
+
+For a specific version: `npx create-mercato-app@x.y.z my-app`
+
+Full guide: [customization/standalone-app](/customization/standalone-app)

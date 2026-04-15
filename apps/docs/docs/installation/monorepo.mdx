@@ -1,0 +1,526 @@
+---
+title: Monorepo — Core Development
+description: Set up the full Open Mercato monorepo for contributing to the core, building framework features, or running a complete local demo.
+---
+
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+
+Use this guide when you want to **contribute to the Open Mercato core**, work on platform features, or run a full demo of the platform. If you want to build a product app without touching the core, use the [Standalone App](./standalone) guide instead.
+
+<Tabs groupId="os" defaultValue="macos">
+
+<TabItem value="macos" label="🍎 macOS" default>
+
+## Prerequisites {#macos}
+
+Install the following tools before continuing. Each step includes a verification command.
+
+### 1. Git
+
+macOS may already have Git via Xcode Command Line Tools. Check with `git --version`. If it is missing, install the CLT:
+
+```bash
+xcode-select --install
+```
+
+Or install Git via Homebrew (see next step).
+
+### 2. Homebrew
+
+If Homebrew is not already installed:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Follow the post-install instructions printed by the script to add Homebrew to your shell PATH.
+
+### 3. Node.js 24
+
+```bash
+# Option A — Homebrew
+brew install node@24
+echo 'export PATH="/opt/homebrew/opt/node@24/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# Option B — nvm (manage multiple Node versions)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+# Close and reopen your terminal, then:
+nvm install 24
+nvm use 24
+nvm alias default 24
+```
+
+Verify: `node --version` → `v24.x.x`
+
+### 4. Yarn 4.12.0
+
+Corepack ships with Node.js. Enable it once per machine, then activate Yarn:
+
+```bash
+corepack enable
+corepack prepare yarn@4.12.0 --activate
+```
+
+Verify: `yarn --version` → `4.12.0`
+
+### 5. Docker Desktop
+
+Download and install [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/). Start it after installation.
+
+Verify:
+
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+## Infrastructure services
+
+Docker Desktop runs PostgreSQL, Redis, and Meilisearch. Start them from the repository root after cloning (step below):
+
+```bash
+docker compose up -d
+```
+
+This starts:
+- **PostgreSQL 17** with the pgvector extension — port `5432`
+- **Redis 7** — port `6379`
+- **Meilisearch** — port `7700`
+
+---
+
+## Clone and configure
+
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+git checkout develop
+```
+
+Copy the environment template:
+
+```bash
+cp apps/mercato/.env.example apps/mercato/.env
+```
+
+Edit `apps/mercato/.env` and set at least these three variables:
+
+```env
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
+JWT_SECRET=change-me-dev-secret
+REDIS_URL=redis://localhost:6379
+```
+
+Generate a strong `JWT_SECRET`:
+
+```bash
+openssl rand -hex 32
+```
+
+---
+
+## Install dependencies and bootstrap
+
+```bash
+yarn install
+
+yarn build:packages
+yarn generate
+yarn build:packages   # second run required — compiles generated scripts
+
+yarn initialize
+```
+
+`yarn initialize` runs migrations, seeds roles, provisions an admin user, and loads demo CRM data. Add `--no-examples` to skip demo content. The admin credentials are printed at the end.
+
+---
+
+## Start the app
+
+```bash
+yarn dev
+```
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed by `yarn initialize`.
+
+The compact runtime also serves a splash page at **http://localhost:4000** with live startup progress. Press `d` while `yarn dev` is running to toggle raw log output.
+
+---
+
+## Upgrading an existing checkout
+
+```bash
+git pull
+yarn install
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+</TabItem>
+
+<TabItem value="linux" label="🐧 Linux">
+
+## Prerequisites {#linux}
+
+### 1. Git
+
+```bash
+# Debian / Ubuntu
+sudo apt update && sudo apt install -y git
+
+# Fedora / RHEL
+sudo dnf install -y git
+```
+
+Verify: `git --version`
+
+### 2. Node.js 24
+
+Use **nvm** to manage Node versions:
+
+```bash
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+```
+
+Close and reopen your terminal, then:
+
+```bash
+nvm install 24
+nvm use 24
+nvm alias default 24
+```
+
+Verify: `node --version` → `v24.x.x`
+
+### 3. Yarn 4.12.0
+
+```bash
+corepack enable
+corepack prepare yarn@4.12.0 --activate
+```
+
+Verify: `yarn --version` → `4.12.0`
+
+### 4. Docker
+
+**Option A — Docker Desktop for Linux** (easiest, includes Compose): [download here](https://docs.docker.com/desktop/setup/install/linux/).
+
+**Option B — Docker Engine + Compose plugin:**
+
+```bash
+# Debian / Ubuntu
+sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER
+newgrp docker   # or log out and back in
+```
+
+Verify:
+
+```bash
+docker --version
+docker compose version
+```
+
+---
+
+## Infrastructure services
+
+```bash
+docker compose up -d
+```
+
+Starts PostgreSQL 17 (with pgvector), Redis 7, and Meilisearch.
+
+---
+
+## Clone and configure
+
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+git checkout develop
+```
+
+```bash
+cp apps/mercato/.env.example apps/mercato/.env
+```
+
+Edit `apps/mercato/.env`:
+
+```env
+DATABASE_URL=postgres://postgres:postgres@localhost:5432/open-mercato
+JWT_SECRET=change-me-dev-secret
+REDIS_URL=redis://localhost:6379
+```
+
+Generate a strong `JWT_SECRET`:
+
+```bash
+openssl rand -hex 32
+```
+
+---
+
+## Install dependencies and bootstrap
+
+```bash
+yarn install
+
+yarn build:packages
+yarn generate
+yarn build:packages
+
+yarn initialize
+```
+
+---
+
+## Start the app
+
+```bash
+yarn dev
+```
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed by `yarn initialize`.
+
+---
+
+## Upgrading an existing checkout
+
+```bash
+git pull
+yarn install
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+</TabItem>
+
+<TabItem value="windows" label="🪟 Windows">
+
+## Prerequisites {#windows}
+
+### 1. Git
+
+Download the installer from [git-scm.com/download/win](https://git-scm.com/download/win). During setup choose **"Git from the command line and also from 3rd-party software"** when asked about PATH.
+
+After installation, configure line endings to avoid CRLF issues in shell scripts:
+
+```powershell
+git config --global core.autocrlf input
+```
+
+Verify: `git --version`
+
+### 2. Node.js 24
+
+Download the **Windows Installer (.msi)** for Node.js 24 from [nodejs.org/en/download](https://nodejs.org/en/download). Run the installer with default settings.
+
+After installation, **open a new PowerShell or Command Prompt window** so the updated `PATH` takes effect.
+
+Verify: `node --version` → `v24.x.x`
+
+### 3. Yarn 4.12.0
+
+```powershell
+corepack enable
+corepack prepare yarn@4.12.0 --activate
+```
+
+:::warning PowerShell execution policy error
+If you see this error when running `yarn`:
+
+```
+yarn.ps1 cannot be loaded because running scripts is disabled on this system.
+```
+
+This is a Windows PowerShell execution policy restriction. Fix it with a one-time user-scoped change:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+Then retry `corepack prepare yarn@4.12.0 --activate`.
+
+**Alternative:** use **Git Bash** or **Command Prompt (cmd.exe)** instead of PowerShell — the execution policy restriction does not apply in those shells. All subsequent `yarn` commands in this guide work identically in cmd.exe or Git Bash.
+:::
+
+Verify: `yarn --version` → `4.12.0`
+
+### 4. Visual Studio 2022 Build Tools
+
+Required for native Node.js add-ons. Open **PowerShell as Administrator** and run:
+
+```powershell
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Microsoft.VCRedist.2015+.x64
+```
+
+If you prefer the graphical installer, make sure the **"Desktop development with C++"** workload is checked.
+
+### Automated one-time setup (optional)
+
+You can automate steps 3 and 4 by running the bundled helper script from an **Administrator PowerShell**:
+
+```powershell
+.\scripts\setup-windows-dev.ps1
+```
+
+If Windows blocks the script (e.g. downloaded as part of a ZIP archive), unblock it first:
+
+```powershell
+Unblock-File .\scripts\setup-windows-dev.ps1
+```
+
+The script validates and installs: WSL 2 defaults, Node.js 24, Yarn 4.12.0, Git PATH repair, VS 2022 Build Tools, and VC++ Redistributable. It does **not** install Docker Desktop, clone the repo, or run bootstrap commands.
+
+---
+
+## Infrastructure services
+
+PostgreSQL is the most critical dependency — the app runs with a native PostgreSQL instance even without the rest of the Docker stack. Choose one option:
+
+### Option A — Native PostgreSQL + pgAdmin (recommended)
+
+The official Windows installer from **[postgresql.org/download/windows](https://www.postgresql.org/download/windows/)** bundles **pgAdmin 4**, a full-featured database GUI — no extra installation needed.
+
+1. Download and run the EDB installer. Note the **port** (default `5432`) and the **`postgres` superuser password** you set.
+2. Open pgAdmin 4 from the Start menu to browse and manage your databases visually.
+3. Create the application database. In pgAdmin's Query Tool or PowerShell:
+
+   ```powershell
+   psql -U postgres -c "CREATE DATABASE \"open-mercato\";"
+   ```
+
+4. Set `DATABASE_URL` in `apps\mercato\.env` (after cloning):
+
+   ```env
+   DATABASE_URL=postgres://postgres:<your-password>@localhost:5432/open-mercato
+   ```
+
+For **Redis** and **Meilisearch**, start only those two services via Docker (requires Docker Desktop):
+
+```powershell
+docker compose up -d redis meilisearch
+```
+
+Most development features work without Meilisearch — you can skip it and add it later.
+
+### Option B — Docker Desktop (all infrastructure)
+
+Install [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) with the **WSL 2 backend** enabled (Settings → General → "Use the WSL 2 based engine").
+
+Start all infrastructure from the repository root:
+
+```powershell
+docker compose up -d
+```
+
+---
+
+## Microsoft Defender exclusion (recommended)
+
+Without a Defender exclusion, `yarn install` and file-watching can be significantly slower. Run once in an elevated PowerShell:
+
+```powershell
+Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
+```
+
+---
+
+## Clone and configure
+
+```powershell
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+git checkout develop
+```
+
+Copy the environment template:
+
+```powershell
+Copy-Item apps\mercato\.env.example apps\mercato\.env
+```
+
+Edit `apps\mercato\.env` and set at minimum:
+
+```env
+DATABASE_URL=postgres://postgres:<password>@localhost:5432/open-mercato
+JWT_SECRET=change-me-dev-secret
+REDIS_URL=redis://localhost:6379
+```
+
+---
+
+## Install dependencies and bootstrap
+
+```powershell
+yarn install
+
+yarn build:packages
+yarn generate
+yarn build:packages
+
+yarn initialize
+```
+
+:::tip
+`yarn build:packages` must run **twice** — once before `yarn generate` and once after — so the generated scripts are compiled before `yarn initialize` runs.
+:::
+
+The admin credentials are printed at the end of `yarn initialize`.
+
+---
+
+## Start the app
+
+```powershell
+yarn dev
+```
+
+Open **http://localhost:3000/backend** and sign in with the credentials printed by `yarn initialize`.
+
+---
+
+## Ephemeral environment (optional — requires Docker Desktop)
+
+`yarn dev:ephemeral` spins up a throwaway database on a random free port and starts the app. Docker Desktop must be running:
+
+```powershell
+yarn dev:ephemeral
+```
+
+---
+
+## Upgrading an existing checkout
+
+```powershell
+git pull
+yarn install
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## Development runtime reference
+
+| Command | Description |
+|---------|-------------|
+| `yarn dev` | Compact runtime — splash at `http://localhost:4000`, app at `http://localhost:3000/backend` |
+| `yarn dev:verbose` | Same runtime with raw passthrough logs |
+| `yarn dev:greenfield` | Full fresh boot: build → generate → reinstall → dev |
+| `yarn dev:ephemeral` | Throwaway database on a random port (requires Docker) |
+| `yarn dev:classic` | Legacy mode — disables splash, raw output |
+
+Press `d` while `yarn dev` is running to toggle raw log output. If a stage fails, the runner automatically expands and prints the raw error.

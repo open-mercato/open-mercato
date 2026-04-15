@@ -1,0 +1,178 @@
+---
+title: Docker Dev Setup
+description: Run the entire Open Mercato stack inside Docker with hot reload. No local Node.js or Yarn required.
+---
+
+Run the complete Open Mercato stack — app, PostgreSQL, Redis, and Meilisearch — inside Docker with hot reload. Every file change is picked up automatically. No local Node.js, Yarn, or native build tools are required.
+
+:::info When to use this
+This setup works on any OS. On **Windows**, it is slower than the [native monorepo flow](./monorepo#windows) because bind-mounted file watching crosses the Windows/WSL filesystem boundary. Prefer the native path for day-to-day Windows development.
+:::
+
+---
+
+## Prerequisites
+
+- **Docker Desktop** — [Windows](https://docs.docker.com/desktop/setup/install/windows-install/) · [macOS](https://docs.docker.com/desktop/setup/install/mac-install/) · [Linux](https://docs.docker.com/desktop/setup/install/linux/)
+- Docker Compose v2+ (bundled with Docker Desktop)
+- **Git** — [Windows](https://git-scm.com/download/win) · macOS: `xcode-select --install` · Linux: `sudo apt install git`
+- At least **4 GB RAM** allocated to Docker (Docker Desktop → Settings → Resources)
+
+:::info Windows-specific
+- Enable the **WSL 2 backend** in Docker Desktop (Settings → General → "Use the WSL 2 based engine").
+- Clone with CRLF handling disabled to avoid line-ending issues in shell scripts:
+  ```bash
+  git config --global core.autocrlf input
+  ```
+:::
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+git checkout develop
+
+# Optional: customise environment before first run
+cp apps/mercato/.env.example apps/mercato/.env
+
+# Build and start the full dev stack
+docker compose -f docker-compose.fullapp.dev.yml up --build
+```
+
+The first run takes several minutes — Docker builds the image, installs dependencies, builds packages, applies migrations, and seeds demo data. Subsequent starts are much faster because initialisation is cached in a named volume.
+
+Once the runtime is ready, open:
+
+- **Splash / startup progress:** `http://localhost:4000`
+- **Backend:** `http://localhost:3000/backend`
+
+Sign in with the default credentials printed during initialisation (typically `admin@example.com` / the password shown in the logs).
+
+---
+
+## How it works
+
+The `docker-compose.fullapp.dev.yml` stack runs five services:
+
+| Service | Image | Purpose |
+|---------|-------|---------|
+| **app** | Built from `Dockerfile` (dev stage) | Next.js app with hot reload |
+| **postgres** | `pgvector/pgvector:pg17-trixie` | PostgreSQL 17 with pgvector |
+| **redis** | `redis:7-alpine` | Caching and event persistence |
+| **meilisearch** | `getmeili/meilisearch:v1.11` | Full-text search |
+| **opencode** | Custom | Claude Code integration (optional) |
+
+The `app` container:
+- Mounts your source code from the host into `/app`
+- Uses named volumes for `node_modules`, `.next`, and package `dist/` so the container manages its own builds
+- Enables file-watching via polling (`CHOKIDAR_USEPOLLING`, `WATCHPACK_POLLING`) for reliable change detection on all platforms
+- On first run executes `yarn mercato init`; on subsequent runs applies pending migrations only
+
+---
+
+## Common operations
+
+```bash
+# Start in detached mode (background)
+docker compose -f docker-compose.fullapp.dev.yml up -d
+
+# View logs — all services
+docker compose -f docker-compose.fullapp.dev.yml logs -f
+
+# View logs — app only
+docker compose -f docker-compose.fullapp.dev.yml logs -f app
+
+# Rebuild after pulling new commits
+docker compose -f docker-compose.fullapp.dev.yml up --build
+
+# Stop all services
+docker compose -f docker-compose.fullapp.dev.yml down
+
+# Full reset — deletes all data and cached builds
+docker compose -f docker-compose.fullapp.dev.yml down -v
+docker compose -f docker-compose.fullapp.dev.yml up --build
+```
+
+---
+
+## Docker wrapper commands
+
+The repository exposes `yarn docker:*` commands that run the equivalent workflow inside the running `app` container — so you don't need to type `docker compose exec ...` manually.
+
+Start the dev stack first:
+
+```bash
+yarn docker:dev:up
+```
+
+Then run monorepo workflows from the host:
+
+```bash
+yarn docker:build:packages
+yarn docker:generate
+yarn docker:initialize
+yarn docker:initialize -- --reinstall
+yarn docker:db:migrate
+yarn docker:lint
+yarn docker:typecheck
+yarn docker:test
+```
+
+Restart the app service and tail logs:
+
+```bash
+yarn docker:dev
+
+# Skip the install/build/generate phase (faster restart):
+yarn docker:dev -- --skip-rebuilt
+```
+
+---
+
+## Environment variables
+
+All variables are pre-configured with sensible defaults in the compose file. Override them in `apps/mercato/.env` before starting.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `APP_PORT` | `3000` | Host port for the app |
+| `OM_DEV_SPLASH_PORT` | `4000` | Host port for the startup splash page |
+| `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open |
+| `POSTGRES_PASSWORD` | `postgres` | Database password |
+| `JWT_SECRET` | `JWT` | Auth token secret — change for production |
+| `OPENAI_API_KEY` | — | Required for vector search and AI features |
+| `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
+
+---
+
+## Troubleshooting
+
+**Container fails to start on Windows:**
+- Ensure WSL 2 backend is enabled in Docker Desktop.
+- Verify the repo was cloned with `core.autocrlf=input` to avoid CRLF issues in shell scripts.
+- Allocate at least 4 GB RAM to Docker (Docker Desktop → Settings → Resources).
+
+**File changes not detected:**
+The compose file sets polling by default. If changes are still not picked up:
+```bash
+docker compose -f docker-compose.fullapp.dev.yml restart app
+```
+
+**Port conflicts:**
+```bash
+# Change app port
+APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up
+
+# Change splash port
+OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up
+
+# Change Postgres port (when localhost:5432 is occupied)
+POSTGRES_PORT=55432 docker compose -f docker-compose.fullapp.dev.yml up
+# And update DATABASE_URL in .env to match
+```
+
+**Slow file watching on Windows/WSL 2:**
+Store the repository inside the WSL 2 filesystem (`\\wsl$\Ubuntu\home\...`) rather than on the Windows filesystem (`/mnt/c/...`) for significantly better I/O performance.

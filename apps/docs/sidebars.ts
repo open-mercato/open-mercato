@@ -11,15 +11,56 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Installation",
+      link: { type: "doc", id: "installation/index" },
       items: [
-        "installation/prerequisites",
-        "installation/setup",
-        "installation/railway",
         {
-          type: "link",
-          label: "Standalone App (create-mercato-app)",
-          href: "/customization/standalone-app",
+          type: "category",
+          label: "🔧 Monorepo — Core Development",
+          link: { type: "doc", id: "installation/monorepo" },
+          items: [
+            {
+              type: "link",
+              label: "🍎 macOS",
+              href: "/installation/monorepo#macos",
+            },
+            {
+              type: "link",
+              label: "🐧 Linux",
+              href: "/installation/monorepo#linux",
+            },
+            {
+              type: "link",
+              label: "🪟 Windows",
+              href: "/installation/monorepo#windows",
+            },
+          ],
         },
+        {
+          type: "category",
+          label: "📦 Standalone App",
+          link: { type: "doc", id: "installation/standalone" },
+          items: [
+            {
+              type: "link",
+              label: "🍎 macOS",
+              href: "/installation/standalone#macos",
+            },
+            {
+              type: "link",
+              label: "🐧 Linux",
+              href: "/installation/standalone#linux",
+            },
+            {
+              type: "link",
+              label: "🪟 Windows",
+              href: "/installation/standalone#windows",
+            },
+          ],
+        },
+        "installation/docker",
+        "installation/vps",
+        "installation/devcontainer",
+        "installation/railway",
       ],
     },
     {
