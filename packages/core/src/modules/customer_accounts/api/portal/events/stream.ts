@@ -135,6 +135,7 @@ export async function GET(req: Request): Promise<Response> {
   const encoder = new TextEncoder()
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
   let connection: PortalSseConnection | null = null
+  const onAbort = () => cleanup()
 
   const stream = new ReadableStream({
     start(controller) {
@@ -173,9 +174,12 @@ export async function GET(req: Request): Promise<Response> {
       portalConnections.delete(connection)
       connection = null
     }
+    // Detach from the request signal so reconnect churn does not accumulate
+    // listeners and closures on long-lived AbortSignals.
+    req.signal.removeEventListener('abort', onAbort)
   }
 
-  req.signal.addEventListener('abort', cleanup)
+  req.signal.addEventListener('abort', onAbort, { once: true })
 
   return new Response(stream, {
     status: 200,
