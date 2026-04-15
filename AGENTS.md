@@ -73,9 +73,11 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 | Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
 | Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` |
-| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/review-pr/SKILL.md` |
+| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/auto-review-pr/SKILL.md` |
 | Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
 | Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
+| Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop` (drafts a dated spec with a Progress checklist, commits it first, implements phase-by-phase with incremental commits, optionally honors external reference skills via `--skill-url`, runs the full validation gate, opens a PR with normalized pipeline labels) | `.ai/skills/auto-create-pr/SKILL.md` |
+| Resuming an in-progress PR created by `auto-create-pr`: claims the PR, re-enters an isolated worktree, reads the linked spec's Progress checklist, and continues from the first unchecked step | `.ai/skills/auto-continue-pr/SKILL.md` |
 
 ## Core Principles
 
@@ -101,8 +103,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
 - Meta labels are additive: `needs-qa`, `skip-qa`, `in-progress`.
 - A ready non-draft PR should carry `review` unless it is already in another pipeline state.
-- `review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
-- `review-pr` MUST move review failures to `changes-requested`.
+- `auto-review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
+- `auto-review-pr` MUST move review failures to `changes-requested`.
 - `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing behavior that needs manual exercise.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly low-risk non-customer-facing changes.
 - Auto-skills that mutate PRs or issues MUST claim them first with all three signals: assignee, `in-progress` label, and a claim comment. They MUST release the `in-progress` label when finished, even on failure.
