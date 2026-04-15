@@ -218,6 +218,11 @@ export async function executeActivity(
       lastError = error
       retryCount = attempt + 1
 
+      // Log activity retry attempt with context
+      if (attempt < retryPolicy.maxAttempts - 1) {
+        console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed on attempt ${attempt + 1}/${retryPolicy.maxAttempts} (instance: ${context.workflowInstance.id}):`, error instanceof Error ? error.message : error)
+      }
+
       // If not the last attempt, apply backoff and retry
       if (attempt < retryPolicy.maxAttempts - 1) {
         const backoff = calculateBackoff(
@@ -234,6 +239,10 @@ export async function executeActivity(
 
   // All retries exhausted
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
+  console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed after ${retryCount} attempts (instance: ${context.workflowInstance.id}): ${errorMessage}`)
+  if (lastError instanceof Error && lastError.stack) {
+    console.error('[WORKFLOW] Activity error stack:', lastError.stack)
+  }
 
   return {
     activityId: activity.activityId,

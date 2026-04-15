@@ -34,7 +34,7 @@ import { resolveDictionaryEntryValue } from '../lib/dictionaries'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const shipmentCrudEvents: CrudEventsConfig = {
   module: 'sales',
@@ -298,17 +298,19 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
 }
 
 async function deleteShipmentWithItems(em: EntityManager, shipment: SalesShipment): Promise<void> {
-  const items = await em.find(SalesShipmentItem, { shipment })
+  const scope = { tenantId: shipment.tenantId, organizationId: shipment.organizationId }
+  const items = await findWithDecryption(em, SalesShipmentItem, { shipment }, {}, scope)
   items.forEach((item) => em.remove(item))
   em.remove(shipment)
   await em.flush()
 }
 
 async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder): Promise<void> {
-  const shipments = await em.find(SalesShipment, { order, deletedAt: null })
+  const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  const shipments = await findWithDecryption(em, SalesShipment, { order, deletedAt: null }, {}, scope)
   const shipmentIds = shipments.map((entry) => entry.id)
   const shipmentItems = shipmentIds.length
-    ? await em.find(SalesShipmentItem, { shipment: { $in: shipmentIds } })
+    ? await findWithDecryption(em, SalesShipmentItem, { shipment: { $in: shipmentIds } }, {}, scope)
     : []
   const totals = shipmentItems.reduce<Map<string, number>>((acc, item) => {
     const lineId =
@@ -320,7 +322,7 @@ async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder
     acc.set(lineId, next)
     return acc
   }, new Map())
-  const lines = await em.find(SalesOrderLine, { order })
+  const lines = await findWithDecryption(em, SalesOrderLine, { order }, { lockMode: LockMode.PESSIMISTIC_WRITE }, scope)
   lines.forEach((line) => {
     const shipped = totals.get(line.id) ?? 0
     line.fulfilledQuantity = shipped.toString()
@@ -338,12 +340,13 @@ async function loadShippedTotals(
   order: SalesOrder,
   excludeShipmentId?: string | null
 ): Promise<Map<string, number>> {
-  const shipments = await em.find(SalesShipment, { order, deletedAt: null })
+  const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  const shipments = await findWithDecryption(em, SalesShipment, { order, deletedAt: null }, {}, scope)
   const shipmentIds = shipments
     .map((entry) => entry.id)
     .filter((id) => !excludeShipmentId || id !== excludeShipmentId)
   if (!shipmentIds.length) return new Map()
-  const items = await em.find(SalesShipmentItem, { shipment: { $in: shipmentIds } })
+  const items = await findWithDecryption(em, SalesShipmentItem, { shipment: { $in: shipmentIds } }, {}, scope)
   return items.reduce<Map<string, number>>((acc, item) => {
     const lineId =
       typeof item.orderLine === 'string'
@@ -371,10 +374,13 @@ async function validateShipmentItems(params: {
   if (!items || !items.length) {
     throw new CrudHttpError(400, { error: translate('sales.shipments.items_required', 'Add at least one line to ship.') })
   }
-  const orderLines = await em.find(
+  const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  const orderLines = await findWithDecryption(
+    em,
     SalesOrderLine,
     { order },
-    lockOrderLines ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined
+    lockOrderLines ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
+    scope,
   )
   const lineMap = new Map(orderLines.map((line) => [line.id, line]))
   const shippedTotals = await loadShippedTotals(em, order, excludeShipmentId)

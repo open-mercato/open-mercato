@@ -17,7 +17,13 @@ interface BullQueueInterface<T> {
   add: (
     name: string,
     data: T,
-    opts?: { removeOnComplete?: boolean; removeOnFail?: number; delay?: number },
+    opts?: {
+      removeOnComplete?: boolean
+      removeOnFail?: number
+      delay?: number
+      attempts?: number
+      backoff?: { type: string; delay: number }
+    },
   ) => Promise<{ id?: string }>
   obliterate: (opts?: { force?: boolean }) => Promise<void>
   close: () => Promise<void>
@@ -128,7 +134,9 @@ export function createAsyncQueue<T = unknown>(
     const job = await queue.add(jobData.id, jobData, {
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
-      removeOnFail: 1000, // Keep last 1000 failed jobs
+      removeOnFail: 1000,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 1000 },
     })
 
     return job.id ?? jobData.id
