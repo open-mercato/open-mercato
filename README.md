@@ -203,9 +203,8 @@ This is the quickest way to get Open Mercato up and running on your localhost / 
   # macOS (Homebrew)
   brew install node@24
 
-  # Windows (Chocolatey)
-  choco install nodejs --version=24.x
-
+  # Windows - https://nodejs.org/en/download (choco, native MSI installer are great for native development)
+  
   # Or use nvm (any platform)
   nvm install 24
   nvm use 24
@@ -253,7 +252,26 @@ Note: `yarn initialize` seeds demo data and may abort if users already exist. Fo
 
 On Windows, the recommended workflow for day-to-day monorepo development is **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains available when you explicitly want an isolated, fully containerized environment, but for this repository it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy file watching across the Windows/WSL filesystem boundary.
 
-Prerequisites:
+#### Automated prerequisites setup (recommended)
+
+On a clean Windows machine, you can install and configure all required prerequisites automatically using the bundled PowerShell script. Open **PowerShell as Administrator** and run:
+
+```powershell
+.\scripts\setup-windows-dev.ps1
+```
+
+The script validates and configures: WSL 2 default version, Node.js 24.x, Yarn 4.12.0 (via Corepack), Git (with current-session PATH repair), Visual Studio 2022 Build Tools with the C++ workload, and the Microsoft Visual C++ Redistributable 2015+ x64.
+
+> **Note:** If you cloned the repository from a ZIP archive rather than `git clone`, Windows may block the script. Unblock it first:
+> ```powershell
+> Unblock-File .\scripts\setup-windows-dev.ps1
+> ```
+
+After the script completes, Docker Desktop must still be installed and configured separately (WSL 2 backend enabled) before continuing with the monorepo setup.
+
+#### Manual prerequisites
+
+If you prefer to install prerequisites manually:
 
 - **Node.js 24+**
 - **Yarn via Corepack**
