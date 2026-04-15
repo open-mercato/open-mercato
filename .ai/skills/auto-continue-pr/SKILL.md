@@ -1,11 +1,11 @@
 ---
-name: continue-pr
-description: Resume an in-progress pull request that was started by the create-pr skill. Given a PR number, claim the PR under the in-progress lock protocol, check its branch out into an isolated git worktree, locate the spec linked from the PR body, read its Progress checklist, and continue execution from the first unchecked step with incremental commits and progress updates until the PR is complete. Runs the same validation gate (typecheck, unit tests, i18n, build) and label discipline as create-pr. Usage - /continue-pr <PR-number>
+name: auto-continue-pr
+description: Resume an in-progress pull request that was started by the auto-create-pr skill. Given a PR number, claim the PR under the in-progress lock protocol, check its branch out into an isolated git worktree, locate the spec linked from the PR body, read its Progress checklist, and continue execution from the first unchecked step with incremental commits and progress updates until the PR is complete. Runs the same validation gate (typecheck, unit tests, i18n, build) and label discipline as auto-create-pr. Usage - /auto-continue-pr <PR-number>
 ---
 
-# Continue PR
+# Auto Continue PR
 
-Resume a `create-pr` run that did not finish in one go. Given a PR number, you re-enter the same worktree discipline, pick up from the first unchecked Progress step in the linked spec, and drive the PR to `complete` status with the same validation and label rules as `create-pr`.
+Resume an `auto-create-pr` run that did not finish in one go. Given a PR number, you re-enter the same worktree discipline, pick up from the first unchecked Progress step in the linked spec, and drive the PR to `complete` status with the same validation and label rules as `auto-create-pr`.
 
 ## Arguments
 
@@ -48,14 +48,14 @@ Stale lock recovery:
 ```bash
 gh pr edit {prNumber} --add-assignee "$CURRENT_USER"
 gh pr edit {prNumber} --add-label "in-progress"
-gh pr comment {prNumber} --body "🤖 \`continue-pr\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this PR until the lock is released."
+gh pr comment {prNumber} --body "🤖 \`auto-continue-pr\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this PR until the lock is released."
 ```
 
 The release step happens at the end of step 7 — the lock MUST be released even on failure. Use a `trap`/finally so a crash still clears the label and posts a completion comment.
 
 ### 1. Locate the tracking spec
 
-Prefer the explicit `Tracking spec:` line in the PR body (written by `create-pr`):
+Prefer the explicit `Tracking spec:` line in the PR body (written by `auto-create-pr`):
 
 ```bash
 gh pr view {prNumber} --json body --jq '.body' | grep -E '^Tracking spec:' | head -n1
@@ -77,7 +77,7 @@ Never resume in the user's primary worktree.
 REPO_ROOT=$(git rev-parse --show-toplevel)
 GIT_DIR=$(git rev-parse --git-dir)
 GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
-WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/continue-pr"
+WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/auto-continue-pr"
 CREATED_WORKTREE=0
 
 HEAD_REF=$(gh pr view {prNumber} --json headRefName --jq '.headRefName')
@@ -120,7 +120,7 @@ git worktree prune
 
 ### 3. Parse the Progress checklist
 
-Open `$SPEC_PATH` and find the `## Progress` section. The expected format (written by `create-pr`):
+Open `$SPEC_PATH` and find the `## Progress` section. The expected format (written by `auto-create-pr`):
 
 ```markdown
 ## Progress
@@ -146,7 +146,7 @@ Rules:
 
 ### 4. Resume execution
 
-From the resume point forward, apply the **same phase-by-phase loop** documented in `.ai/skills/create-pr/SKILL.md`:
+From the resume point forward, apply the **same phase-by-phase loop** documented in `.ai/skills/auto-create-pr/SKILL.md`:
 
 1. Implement only the steps of the current Phase.
 2. Add or update tests for anything that changed behavior.
@@ -161,7 +161,7 @@ Do not alter work already completed in earlier commits. Do not reorder or rewrit
 
 ### 5. Full validation gate
 
-Before flipping the PR to complete, run the full gate (same as `create-pr` / `code-review` / `fix-github-issue`):
+Before flipping the PR to complete, run the full gate (same as `auto-create-pr` / `code-review` / `fix-github-issue`):
 
 - `yarn build:packages`
 - `yarn generate`
@@ -206,7 +206,7 @@ Release the in-progress lock — **always**, even on failure (use a trap/finally
 
 ```bash
 gh pr edit {prNumber} --remove-label "in-progress"
-gh pr comment {prNumber} --body "🤖 \`continue-pr\` completed. Status: ${STATUS}. Lock released."
+gh pr comment {prNumber} --body "🤖 \`auto-continue-pr\` completed. Status: ${STATUS}. Lock released."
 ```
 
 Cleanup:
@@ -224,11 +224,11 @@ git worktree prune
 Summarize to the user:
 
 ```text
-continue-pr #{prNumber}
+auto-continue-pr #{prNumber}
 Spec: {spec path}
 Resume point: {phase.step}
 Branch: {branch}
-Status: {complete | still in-progress — re-run /continue-pr {prNumber}}
+Status: {complete | still in-progress — re-run /auto-continue-pr {prNumber}}
 Tests: {summary}
 ```
 
