@@ -119,7 +119,10 @@ export async function POST(req: Request, ctx: { params?: { id?: string } }) {
   const validatedPayload = createRuleSetMemberSchema.parse(payload)
 
   const member = em.create(RuleSetMember, {
-    ...validatedPayload,
+    sequence: validatedPayload.sequence,
+    enabled: validatedPayload.enabled,
+    tenantId: validatedPayload.tenantId,
+    organizationId: validatedPayload.organizationId,
     ruleSet: ruleSet,
     rule: rule,
   })
