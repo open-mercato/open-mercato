@@ -14,6 +14,8 @@ import { ensureOrganizationScope, ensureTenantScope } from './shared'
 import type { PlannerAvailabilityKind, PlannerAvailabilitySubjectType } from '../data/entities'
 import { extractUndoPayload } from './shared'
 
+const AVAILABILITY_RULE_RESOURCE_KIND = 'planner.availability.rule'
+
 type AvailabilityRuleSnapshot = {
   id: string
   tenantId: string
@@ -131,7 +133,7 @@ const createAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleCreat
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('planner.audit.availability.create', 'Create availability rule'),
-      resourceKind: 'planner.availability',
+      resourceKind: AVAILABILITY_RULE_RESOURCE_KIND,
       resourceId: result?.ruleId ?? null,
       tenantId: input?.tenantId ?? ctx.auth?.tenantId ?? null,
       organizationId: input?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -201,7 +203,7 @@ const updateAvailabilityRuleCommand: CommandHandler<PlannerAvailabilityRuleUpdat
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('planner.audit.availability.update', 'Update availability rule'),
-      resourceKind: 'planner.availability',
+      resourceKind: AVAILABILITY_RULE_RESOURCE_KIND,
       resourceId: result?.ruleId ?? input?.id ?? null,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -251,7 +253,7 @@ const deleteAvailabilityRuleCommand: CommandHandler<{ id?: string }, { ruleId: s
     const { translate } = await resolveTranslations()
     return {
       actionLabel: translate('planner.audit.availability.delete', 'Delete availability rule'),
-      resourceKind: 'planner.availability',
+      resourceKind: AVAILABILITY_RULE_RESOURCE_KIND,
       resourceId: result?.ruleId ?? input?.id ?? null,
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,

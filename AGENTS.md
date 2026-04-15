@@ -50,7 +50,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Integration Marketplace foundation (registry/bundles, credentials, state, health checks, logs, admin UI, integration manifests) | `packages/core/src/modules/integrations/AGENTS.md` |
 | Data Sync hub (adapters, run lifecycle, workers, mapping APIs, scheduled sync, progress linkage, admin UI) | `packages/core/src/modules/data_sync/AGENTS.md` |
 | Building outbound/inbound webhooks, Standard Webhooks signing, delivery queues, webhook admin UI, marketplace webhook settings | `packages/webhooks/AGENTS.md` + `packages/queue/AGENTS.md` + `packages/events/AGENTS.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/ui/AGENTS.md` |
-| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/skills/integration-builder/SKILL.md` + `.ai/specs/SPEC-041-2026-02-24-universal-module-extension-system.md` + `.ai/specs/SPEC-045-2026-02-24-integration-marketplace.md` + `.ai/specs/SPEC-045c-payment-shipping-hubs.md` (+ `.ai/specs/SPEC-044-2026-02-24-payment-gateway-integrations.md` for payment providers) |
+| Building a new integration provider module (adapter, health check, credentials, bundle wiring) | `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` + `.ai/skills/integration-builder/SKILL.md` + `.ai/specs/implemented/SPEC-041-2026-02-24-universal-module-extension-system.md` + `.ai/specs/implemented/SPEC-045-2026-02-24-integration-marketplace.md` + `.ai/specs/implemented/SPEC-045c-payment-shipping-hubs.md` (+ `.ai/specs/implemented/SPEC-044-2026-02-24-payment-gateway-integrations.md` for payment providers) |
 | Wiring progress UX for long-running sync operations (top bar polling, job lifecycle, future SSE bridge) | `packages/core/src/modules/data_sync/AGENTS.md` + `packages/events/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
@@ -72,6 +72,10 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Implementing a spec (or specific phases) with coordinated agents, unit tests, docs, progress tracking | `.ai/skills/implement-spec/SKILL.md` |
 | Writing new specs, updating existing specs after implementation, documenting architectural decisions, maintaining changelogs | `.ai/specs/AGENTS.md` |
 | Reviewing code changes for architecture, security, conventions, and quality compliance | `.ai/skills/code-review/SKILL.md` |
+| Migrating hardcoded colors/typography to semantic tokens, analyzing DS violations, scaffolding DS-compliant pages, reviewing DS compliance | `.ai/skills/ds-guardian/SKILL.md` |
+| Reviewing a GitHub PR by number (checkout, code-review, submit review, apply label) | `.ai/skills/review-pr/SKILL.md` |
+| Scanning open PRs for merge readiness, listing what can be merged now, triaging blockers | `.ai/skills/merge-buddy/SKILL.md` |
+| Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
 
 ## Core Principles
 
@@ -90,6 +94,31 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 4.  **Verification**: Run tests, check build, suggest user verification. Ask: "Would a staff engineer approve this?"
 5.  **Elegance**: For non-trivial changes, pause and ask "is there a more elegant way?" Skip for simple fixes.
 6.  **Autonomous bug fixing**: When given a bug report, just fix it. Point at logs/errors, then resolve. Zero hand-holding.
+
+## PR Workflow
+
+- Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
+- Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
+- Meta labels are additive: `needs-qa`, `skip-qa`, `in-progress`.
+- A ready non-draft PR should carry `review` unless it is already in another pipeline state.
+- `review-pr` MUST move approved PRs to `qa` when `needs-qa` is present and `skip-qa` is absent; otherwise it MUST move them to `merge-queue`.
+- `review-pr` MUST move review failures to `changes-requested`.
+- `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing behavior that needs manual exercise.
+- `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly low-risk non-customer-facing changes.
+- Auto-skills that mutate PRs or issues MUST claim them first with all three signals: assignee, `in-progress` label, and a claim comment. They MUST release the `in-progress` label when finished, even on failure.
+- When an auto-skill adds or changes a PR pipeline/meta label, it MUST also leave a short PR comment explaining why that label was applied.
+- Use `gh` for manual QA transitions:
+
+```bash
+# QA pass
+gh pr edit <number> --remove-label "qa" --add-label "merge-queue"
+
+# QA fail
+gh pr edit <number> --remove-label "qa" --add-label "qa-failed"
+
+# Re-request QA after a fix
+gh pr edit <number> --remove-label "qa-failed" --add-label "qa"
+```
 
 ### Documentation and Specifications
 
@@ -228,6 +257,7 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Write operations: implement via the Command pattern (see `packages/core/src/modules/customers/commands/*`)
 - Feature naming convention: `<module>.<action>` (e.g., `example.view`, `example.create`).
 - setup.ts: always declare `defaultRoleFeatures` when adding features to `acl.ts`
+- Every module with guarded routes or pages MUST declare features in `acl.ts` — never ship an empty `acl.ts` with `requireRoles` guards
 - Custom fields: use `collectCustomFieldValues()` from `@open-mercato/ui/backend/utils/customFieldValues`
 - Events: use `createModuleEvents()` with `as const` for typed emit
 - Translations: when adding entities with user-facing text fields (title, name, description, label), create `translations.ts` at module root declaring translatable fields. Run `yarn generate` after adding.
@@ -237,7 +267,8 @@ All paths use `src/modules/<module>/` as shorthand. See `packages/core/AGENTS.md
 - Component replacement: use handle-based IDs (`page:*`, `data-table:*`, `crud-form:*`, `section:*`) for deterministic overrides
 - Generated files: `apps/mercato/.mercato/generated/` — never edit manually
 - Enable modules in your app’s `src/modules.ts` (e.g. `apps/mercato/src/modules.ts`)
-- Run `npm run modules:prepare` after adding/modifying module files
+- Run `yarn generate` after adding/modifying module files
+- Agents MUST automatically run `yarn mercato configs cache structural --all-tenants` after enabling/disabling modules in `src/modules.ts`, adding/removing backend or frontend pages, or changing sidebar/navigation injection — stale `nav:*` cache can hide structural changes until it is purged
 - New integration providers MUST own their env-backed preconfiguration inside the provider package: implement preset reading/application in the provider module, apply it from `setup.ts`, expose a rerunnable provider CLI command when practical, and document the env variables. Do not add provider-specific preconfiguration logic to core modules.
 
 ## Backward Compatibility Contract
@@ -285,7 +316,7 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 -   Never hand-write migrations — update ORM entities, run `yarn db:generate`
 -   Hash passwords with bcryptjs (cost >=10), never log credentials
 -   Return minimal error messages for auth (avoid revealing whether email exists)
--   RBAC: prefer declarative guards (`requireAuth`, `requireRoles`, `requireFeatures`) in page metadata
+-   RBAC: prefer declarative guards (`requireAuth`, `requireFeatures`) in page metadata; avoid `requireRoles` — role names are mutable and can be spoofed; use feature-based guards with immutable IDs from `acl.ts` instead
 -   Portal RBAC: use `requireCustomerAuth` and `requireCustomerFeatures` in page metadata for portal pages
 
 ### UI & HTTP
@@ -310,10 +341,99 @@ Third-party module developers depend on stable platform APIs. Any change to a **
 - Boolean parsing: use `parseBooleanToken`/`parseBooleanWithDefault` from `@open-mercato/shared/lib/boolean`
 - Confirm project still builds after changes
 
+## Design System Rules
+
+### Colors
+- NEVER use hardcoded Tailwind colors for status semantics (`text-red-*`, `bg-green-*`, `text-emerald-*`, `bg-blue-*`, `text-amber-*`, etc.)
+- USE semantic tokens: `text-status-error-text`, `bg-status-success-bg`, `border-status-warning-border`, `text-status-info-icon`
+- Status token structure: `{property}-status-{status}-{role}` where status = error|success|warning|info|neutral and role = bg|text|border|icon
+- For destructive actions (buttons, not status display): use existing `destructive` token (`text-destructive`, `bg-destructive`)
+- All status tokens have dedicated dark mode values — NO `dark:` overrides needed
+
+### Typography
+- NEVER use arbitrary text sizes (`text-[11px]`, `text-[13px]`, `text-[15px]`)
+- USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
+- For 11px uppercase labels: use `text-overline` (custom token)
+- Exception: `text-[9px]` for notification badge count (single use case)
+
+### Typography Hierarchy
+| Role | HTML | Tailwind | When to use |
+|------|------|----------|-------------|
+| Page title | `<h1>` | `text-2xl font-bold tracking-tight` | Page header (one per page) |
+| Section title | `<h2>` | `text-xl font-semibold` | Major sections |
+| Subsection | `<h3>` | `text-sm font-semibold` | Detail page sections, card titles |
+| Body | `<p>` | `text-sm` | Default body text |
+| Body large | `<p>` | `text-base` | Emphasized body |
+| Caption | `<span>` | `text-xs text-muted-foreground` | Secondary info, timestamps |
+| Label | `<label>` | `text-sm font-medium` | Form labels (via Label component) |
+| Overline | `<span>` | `text-overline font-semibold uppercase tracking-wider` | Section labels, category tags |
+| Code | `<code>` | `text-sm font-mono` | Code snippets |
+
+### Feedback
+- USE `Alert` for inline messages — NOT `Notice` (deprecated)
+- USE `flash()` for transient toast messages
+- USE `useConfirmDialog()` for destructive action confirmation
+- Every list/data page MUST handle empty state via `<EmptyState>` or `emptyState` prop on DataTable
+- Every async page MUST show loading state via `<LoadingMessage>`, `<Spinner>`, or `<DataLoader>`
+- Alert variants: `default`, `destructive` (error), `success`, `warning`, `info`
+
+### Status Display
+- USE `StatusBadge` for entity status display — NEVER hardcode colors on Badge
+- Define a `StatusMap` per entity type in your module:
+```typescript
+import type { StatusMap } from '@open-mercato/ui/primitives/status-badge'
+
+const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
+  open: 'info',
+  won: 'success',
+  lost: 'error',
+}
+```
+
+### Forms
+- USE `FormField` wrapper for standalone forms (portal, auth, custom pages)
+- CrudForm handles field layout internally — do NOT wrap CrudForm fields in FormField
+- Every input MUST have a visible label (never placeholder-only)
+- Error messages use `text-status-error-text` (FormField handles this automatically)
+
+### Icons
+- USE `lucide-react` for ALL icons — NEVER inline `<svg>` elements
+- Icon sizes: `size-3` (12px), `size-4` (16px, default), `size-5` (20px), `size-6` (24px)
+- Stroke width: 2 (lucide default) — do NOT override per-instance
+- Icon-only buttons MUST have `aria-label`
+
+### Sections
+- USE `SectionHeader` for detail page section headers (title + count + action)
+- USE `CollapsibleSection` when section content should be collapsible
+
+### Components — quick reference
+| I need to... | Use this |
+|---|---|
+| Show an error/success/warning message inline | `<Alert variant="destructive\|success\|warning\|info">` |
+| Show a toast notification | `flash('message', 'success\|error\|warning\|info')` |
+| Confirm a destructive action | `useConfirmDialog()` |
+| Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` |
+| Wrap a form field with label + error | `<FormField label="..." error={...}>` |
+| Build a section header with count + action | `<SectionHeader title="..." count={n} action={...}>` |
+| Build a collapsible section | `<CollapsibleSection title="...">content</CollapsibleSection>` |
+
+### Reference Implementation
+When building a new module UI, use the **customers module** as reference:
+- List page: `packages/core/src/modules/customers/backend/customers/people/page.tsx`
+- Detail page: `packages/core/src/modules/customers/backend/customers/people/[id]/page.tsx`
+- Create page: `packages/core/src/modules/customers/backend/customers/people/create/page.tsx`
+- Status mapping: `packages/core/src/modules/customers/components/formConfig.tsx`
+
+### Boy Scout Rule
+When modifying a file that contains hardcoded status colors (`text-red-*`, `bg-green-*`, etc.) or arbitrary text sizes (`text-[11px]`), you MUST migrate at minimum the lines you touched to semantic tokens.
+
 ## Key Commands
 
 ```bash
-yarn dev                  # Start development server
+yarn dev                  # Start compact dev runtime; press `d` to toggle raw logs
+yarn dev:verbose          # Start dev runtime with full raw passthrough logs
+yarn dev:app              # Start compact app-only runtime
+yarn dev:app:verbose      # Start app-only runtime with raw passthrough logs
 yarn build                # Build everything
 yarn build:packages       # Build packages only
 yarn lint                 # Lint all packages
@@ -322,7 +442,8 @@ yarn generate             # Run module generators
 yarn db:generate          # Generate database migrations
 yarn db:migrate           # Apply database migrations
 yarn initialize           # Full project initialization
-yarn dev:greenfield       # Fresh dev environment setup
+yarn dev:greenfield       # Fresh compact dev boot with build/generate/reinstall stages
+yarn dev:greenfield:verbose  # Greenfield boot with full raw passthrough logs
 yarn test:integration     # Run integration tests (Playwright, headless)
 yarn test:integration:report  # View HTML test report
 ```

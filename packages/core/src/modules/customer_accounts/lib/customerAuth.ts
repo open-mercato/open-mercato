@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server'
-import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { verifyAudienceJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 
 export interface CustomerAuthContext {
   sub: string
+  sid: string
   type: 'customer'
   tenantId: string
   orgId: string
@@ -12,6 +16,23 @@ export interface CustomerAuthContext {
   customerEntityId?: string | null
   personEntityId?: string | null
   resolvedFeatures: string[]
+}
+
+async function assertSessionStillActive(sessionId: string): Promise<boolean> {
+  try {
+    const [{ createRequestContainer }, { CustomerSessionService }] = await Promise.all([
+      import('@open-mercato/shared/lib/di/container'),
+      import('@open-mercato/core/modules/customer_accounts/services/customerSessionService'),
+    ])
+    const container = await createRequestContainer()
+    const service = container.resolve('customerSessionService') as InstanceType<typeof CustomerSessionService>
+    const session = await service.findActiveSessionById(sessionId)
+    return session !== null
+  } catch {
+    // Fail closed: if we cannot verify the session, treat the token as revoked to prevent
+    // replay of leaked JWTs when the backend is partially degraded.
+    return false
+  }
 }
 
 export function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
@@ -24,6 +45,19 @@ export function readCookieFromHeader(header: string | null | undefined, name: st
     }
   }
   return undefined
+}
+
+async function isSessionRevoked(sub: string, iat: unknown): Promise<boolean> {
+  const [{ createRequestContainer }, { CustomerUser }] = await Promise.all([
+    import('@open-mercato/shared/lib/di/container'),
+    import('@open-mercato/core/modules/customer_accounts/data/entities'),
+  ])
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
+  const user = await findOneWithDecryption(em, CustomerUser, { id: sub }, { fields: ['sessionsRevokedAt'] })
+  if (!user) return true
+  if (!user.sessionsRevokedAt || typeof iat !== 'number') return false
+  return iat * 1000 < user.sessionsRevokedAt.getTime()
 }
 
 export async function getCustomerAuthFromRequest(req: Request): Promise<CustomerAuthContext | null> {
@@ -48,12 +82,28 @@ export async function getCustomerAuthFromRequest(req: Request): Promise<Customer
   if (!token) return null
 
   try {
-    const payload = verifyJwt(token) as Record<string, unknown> | null
+    let payload = verifyAudienceJwt(CUSTOMER_JWT_AUDIENCE, token) as Record<string, unknown> | null
+    // Legacy fallback: try raw JWT_SECRET for pre-migration customer tokens
+    if (!payload) {
+      payload = verifyJwt(token) as Record<string, unknown> | null
+      if (payload) payload._legacyToken = true
+    }
     if (!payload) return null
     if (payload.type !== 'customer') return null
+    const sid = typeof payload.sid === 'string' ? payload.sid : ''
+    if (!sid && payload._legacyToken !== true) return null
+    const stillActive = sid ? await assertSessionStillActive(sid) : true
+    if (!stillActive) return null
+
+    try {
+      if (await isSessionRevoked(String(payload.sub), payload.iat)) return null
+    } catch {
+      return null
+    }
 
     return {
       sub: String(payload.sub),
+      sid,
       type: 'customer',
       tenantId: String(payload.tenantId),
       orgId: String(payload.orgId),
@@ -77,9 +127,18 @@ export async function requireCustomerAuth(req: Request): Promise<CustomerAuthCon
   return auth
 }
 
-export function requireCustomerFeature(auth: CustomerAuthContext, features: string[]): void {
+export async function requireCustomerFeature(
+  auth: CustomerAuthContext,
+  features: string[],
+  rbac: CustomerRbacService,
+): Promise<void> {
   if (!features.length) return
-  if (!hasAllFeatures(features, auth.resolvedFeatures)) {
+  const ok = await rbac.userHasAllFeatures(
+    auth.sub,
+    features,
+    { tenantId: auth.tenantId, organizationId: auth.orgId },
+  )
+  if (!ok) {
     throw NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
 }

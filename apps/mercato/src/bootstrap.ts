@@ -29,7 +29,7 @@ registerAppDictionaryLoader(async (locale: Locale): Promise<Record<string, unkno
 })
 
 // Generated imports (static - works with bundlers)
-import { modules } from '@/.mercato/generated/modules.generated'
+import { modules } from '@/.mercato/generated/modules.app.generated'
 import { entities } from '@/.mercato/generated/entities.generated'
 import { diRegistrars } from '@/.mercato/generated/di.generated'
 import { E } from '@/.mercato/generated/entities.ids.generated'

@@ -1,7 +1,10 @@
 import type { Module } from '../registry'
 import {
+  createLazyModuleSubscriber,
+  createLazyModuleWorker,
   registerCliModules,
   getCliModules,
+  getDefaultEncryptionMaps,
   hasCliModules,
   findFrontendMatch,
   findBackendMatch,
@@ -75,6 +78,43 @@ describe('CLI Modules Registry', () => {
     it('should return true when modules are registered', () => {
       registerCliModules([{ id: 'some-module' }])
       expect(hasCliModules()).toBe(true)
+    })
+  })
+
+  describe('getDefaultEncryptionMaps', () => {
+    it('collects per-module encryption maps', () => {
+      const maps = getDefaultEncryptionMaps([
+        {
+          id: 'auth',
+          defaultEncryptionMaps: [
+            { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
+          ],
+        },
+        {
+          id: 'customers',
+          defaultEncryptionMaps: [
+            { entityId: 'customers:customer_comment', fields: [{ field: 'body' }] },
+          ],
+        },
+      ])
+
+      expect(maps).toEqual([
+        { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] },
+        { entityId: 'customers:customer_comment', fields: [{ field: 'body', hashField: null }] },
+      ])
+    })
+
+    it('throws on duplicate entity registrations', () => {
+      expect(() => getDefaultEncryptionMaps([
+        {
+          id: 'module-a',
+          defaultEncryptionMaps: [{ entityId: 'auth:user', fields: [{ field: 'email' }] }],
+        },
+        {
+          id: 'module-b',
+          defaultEncryptionMaps: [{ entityId: 'auth:user', fields: [{ field: 'email_hash' }] }],
+        },
+      ])).toThrow('Duplicate default encryption map')
     })
   })
 
@@ -296,5 +336,31 @@ describe('Module type with workers', () => {
     expect(module.subscribers).toBeDefined()
     expect(module.subscribers?.length).toBe(1)
     expect(module.subscribers?.[0].event).toBe('user.created')
+  })
+})
+
+describe('Lazy module handlers', () => {
+  it('loads subscriber handlers lazily and caches the module', async () => {
+    const handler = jest.fn(async () => undefined)
+    const loadModule = jest.fn(async () => ({ default: handler }))
+    const lazyHandler = createLazyModuleSubscriber(loadModule, 'subscriber:test')
+
+    await lazyHandler({ value: 1 }, { ctx: true })
+    await lazyHandler({ value: 2 }, { ctx: true })
+
+    expect(loadModule).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledTimes(2)
+  })
+
+  it('loads worker handlers lazily and caches the module', async () => {
+    const handler = jest.fn(async () => undefined)
+    const loadModule = jest.fn(async () => ({ default: handler }))
+    const lazyHandler = createLazyModuleWorker(loadModule, 'worker:test')
+
+    await lazyHandler({ payload: 1 }, { ctx: true })
+    await lazyHandler({ payload: 2 }, { ctx: true })
+
+    expect(loadModule).toHaveBeenCalledTimes(1)
+    expect(handler).toHaveBeenCalledTimes(2)
   })
 })

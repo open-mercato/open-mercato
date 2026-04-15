@@ -6,6 +6,14 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import { checkRateLimit, getClientIp, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { validateSameOriginMutationRequest } from './originGuard'
+import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
@@ -21,39 +29,93 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+const quoteAcceptRateLimitConfig = readEndpointRateLimitConfig('SALES_QUOTES_ACCEPT', {
+  points: 10,
+  duration: 60,
+  blockDuration: 300,
+  keyPrefix: 'sales_quote_accept',
+})
+
 export async function POST(req: Request) {
   try {
+    const { translate } = await resolveTranslations()
+    const sameOriginViolation = validateSameOriginMutationRequest(req)
+    if (sameOriginViolation) {
+      return NextResponse.json(
+        { error: translate('sales.quotes.accept.forbidden', 'Cross-site quote acceptance is not allowed.') },
+        { status: 403 },
+      )
+    }
+
+    const rateLimiterService = getCachedRateLimiterService()
+    const clientIp = rateLimiterService ? getClientIp(req, rateLimiterService.trustProxyDepth) : null
+    if (rateLimiterService && clientIp) {
+      const rateLimitResponse = await checkRateLimit(
+        rateLimiterService,
+        quoteAcceptRateLimitConfig,
+        clientIp,
+        translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
+      )
+      if (rateLimitResponse) return rateLimitResponse
+    }
+
     const { token } = quoteAcceptSchema.parse(await req.json().catch(() => ({})))
+    const auth = await getAuthFromRequest(req)
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
-    const { translate } = await resolveTranslations()
 
-    const quote = await em.findOne(SalesQuote, { acceptanceToken: token, deletedAt: null })
-    if (!quote) {
-      throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
+    const transactionalEm = em as EntityManager & {
+      transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
     }
 
-    const now = new Date()
-    if (quote.validUntil && quote.validUntil.getTime() < now.getTime()) {
-      throw new CrudHttpError(400, { error: translate('sales.quotes.accept.expired', 'This quote has expired.') })
-    }
+    const hashedToken = hashAuthToken(token)
+    const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
 
-    if ((quote.status ?? null) !== 'sent') {
-      throw new CrudHttpError(400, {
-        error: translate('sales.quotes.accept.invalidStatus', 'This quote cannot be accepted in its current status.'),
+    const acceptQuote = async (trx: EntityManager) => {
+      const findQuoteByToken = (acceptanceToken: string) =>
+        findOneWithDecryption(
+          trx,
+          SalesQuote,
+          {
+            acceptanceToken,
+            ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
+            deletedAt: null,
+          },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          tenantScope,
+        )
+      const quote = (await findQuoteByToken(hashedToken)) ?? (await findQuoteByToken(token))
+      if (!quote) {
+        throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
+      }
+
+      const now = new Date()
+      if (quote.validUntil && quote.validUntil.getTime() < now.getTime()) {
+        throw new CrudHttpError(400, { error: translate('sales.quotes.accept.expired', 'This quote has expired.') })
+      }
+
+      if ((quote.status ?? null) !== 'sent') {
+        throw new CrudHttpError(400, {
+          error: translate('sales.quotes.accept.invalidStatus', 'This quote cannot be accepted in its current status.'),
+        })
+      }
+
+      quote.status = 'confirmed'
+      quote.statusEntryId = await resolveStatusEntryIdByValue(trx, {
+        tenantId: quote.tenantId,
+        organizationId: quote.organizationId,
+        value: 'confirmed',
       })
+      quote.updatedAt = now
+      trx.persist(quote)
+      await trx.flush()
+
+      return quote
     }
 
-    // Mark accepted before conversion so the created order inherits the confirmed status.
-    quote.status = 'confirmed'
-    quote.statusEntryId = await resolveStatusEntryIdByValue(em, {
-      tenantId: quote.tenantId,
-      organizationId: quote.organizationId,
-      value: 'confirmed',
-    })
-    quote.updatedAt = now
-    em.persist(quote)
-    await em.flush()
+    const quote = typeof transactionalEm.transactional === 'function'
+      ? await transactionalEm.transactional((trx) => acceptQuote(trx))
+      : await acceptQuote(em)
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx: CommandRuntimeContext = {
@@ -130,7 +192,9 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.object({ orderId: z.string().uuid(), orderNumber: z.string() }),
         },
         { status: 400, description: 'Invalid or expired quote', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Cross-site request rejected', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Quote not found', schema: z.object({ error: z.string() }) },
+        { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
       ],
     },
   },

@@ -51,10 +51,7 @@ export default function EditBusinessRulePage() {
 
   const initialValues = React.useMemo(() => {
     if (rule) {
-      const parsed = parseRuleToFormValues(rule)
-      console.log('Rule data:', rule)
-      console.log('Parsed initial values:', parsed)
-      return parsed
+      return parseRuleToFormValues(rule)
     }
     return null
   }, [rule])
@@ -81,7 +78,7 @@ export default function EditBusinessRulePage() {
 
     if (!response.ok) {
       const error = await response.json()
-      throw new Error(error.message || t('business_rules.errors.updateFailed'))
+      throw new Error(error.error || error.message || t('business_rules.errors.updateFailed'))
     }
 
     router.push('/backend/rules')

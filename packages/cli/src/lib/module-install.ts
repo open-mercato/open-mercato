@@ -10,6 +10,7 @@ import {
 } from './module-package'
 import { ensureModuleRegistration } from './modules-config'
 import type { PackageResolver } from './resolver'
+import { resolveSpawnCommand } from './spawn'
 
 type ModuleCommandResult = {
   moduleId: string
@@ -61,10 +62,12 @@ function runCommand(
   cwd: string,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const resolvedSpawn = resolveSpawnCommand(command, args)
+    const child = spawn(resolvedSpawn.command, resolvedSpawn.args, {
       cwd,
       env: process.env,
       stdio: 'inherit',
+      ...resolvedSpawn.spawnOptions,
     })
 
     child.on('error', reject)
@@ -97,12 +100,14 @@ export async function runModuleGenerators(
     generateModuleEntities,
     generateModulePackageSources,
     generateModuleRegistry,
+    generateModuleRegistryApp,
     generateModuleRegistryCli,
     generateOpenApi,
   } = await import('./generators')
 
   await generateEntityIds({ resolver, quiet })
   await generateModuleRegistry({ resolver, quiet })
+  await generateModuleRegistryApp({ resolver, quiet })
   await generateModuleRegistryCli({ resolver, quiet })
   await generateModuleEntities({ resolver, quiet })
   await generateModuleDi({ resolver, quiet })

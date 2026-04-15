@@ -3,7 +3,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { Module } from '@open-mercato/shared/modules/registry'
+import type { BackendRouteManifestEntry } from '@open-mercato/shared/modules/registry'
 import type {
   BackendChromePayload,
   BackendChromeNavGroup,
@@ -32,7 +32,21 @@ import type { SidebarPreferencesSettings } from '@open-mercato/shared/modules/na
 
 type TranslationFn = (key: string | undefined, fallback: string) => string
 
-type RouteModule = Pick<Module, 'id' | 'backendRoutes'>
+type RouteModule = {
+  id: string
+  backendRoutes?: BackendRouteManifestEntry[]
+}
+
+export function groupBackendRoutesByModule(routes: BackendRouteManifestEntry[]): RouteModule[] {
+  return Array.from(
+    routes.reduce((grouped, route) => {
+      const list = grouped.get(route.moduleId) ?? []
+      list.push(route)
+      grouped.set(route.moduleId, list)
+      return grouped
+    }, new Map<string, BackendRouteManifestEntry[]>()),
+  ).map(([id, backendRoutes]) => ({ id, backendRoutes }))
+}
 
 type SerializableSectionItem = {
   id: string
@@ -62,6 +76,7 @@ type ResolveBackendChromePayloadArgs = {
   locale: string
   modules: RouteModule[]
   translate: TranslationFn
+  request?: Request
   selectedOrganizationId?: string | null
   selectedTenantId?: string | null
 }
@@ -219,6 +234,7 @@ export async function resolveBackendChromePayload({
   locale,
   modules,
   translate,
+  request,
   selectedOrganizationId,
   selectedTenantId,
 }: ResolveBackendChromePayloadArgs): Promise<BackendChromePayload> {
@@ -229,6 +245,7 @@ export async function resolveBackendChromePayload({
       isSuperAdmin: boolean
       features: string[]
     }>
+    userHasAllFeatures: (userId: string, required: string[], scope: { tenantId: string | null; organizationId: string | null }) => Promise<boolean>
   }
 
   let scopedOrganizationId: string | null = auth.orgId ?? null
@@ -239,6 +256,7 @@ export async function resolveBackendChromePayload({
     const { organizationId, scope, allowedOrganizationIds } = await resolveFeatureCheckContext({
       container,
       auth,
+      request,
       selectedId: selectedOrganizationId,
       tenantId: selectedTenantId,
     })
@@ -260,7 +278,22 @@ export async function resolveBackendChromePayload({
     : { isSuperAdmin: false, features: [] }
 
   const grantedFeatures = acl.isSuperAdmin ? ['*'] : acl.features
-  const featureChecker = async (): Promise<string[]> => grantedFeatures
+  const featureChecker = async (features: string[]): Promise<string[]> => {
+    if (!allowNavigation || !features.length) return []
+    const context = {
+      tenantId: scopedTenantId ?? auth.tenantId ?? null,
+      organizationId: scopedOrganizationId ?? null,
+    }
+    const hasAll = await rbac.userHasAllFeatures(auth.sub, features, context)
+    if (hasAll) return features
+
+    const granted: string[] = []
+    for (const feature of features) {
+      const hasFeature = await rbac.userHasAllFeatures(auth.sub, [feature], context)
+      if (hasFeature) granted.push(feature)
+    }
+    return granted
+  }
 
   let userEntities: Array<{ entityId: string; label: string; href: string }> = []
   if (allowNavigation) {
@@ -304,13 +337,12 @@ export async function resolveBackendChromePayload({
   let userPreference: SidebarPreferencesSettings | null = null
 
   if (Array.isArray(auth.roles) && auth.roles.length > 0) {
-    const roleScope: FilterQuery<Role> = scopedTenantId
-      ? { $or: [{ tenantId: scopedTenantId }, { tenantId: null }] }
-      : { tenantId: null }
-    const roleRecords = await em.find(Role, {
-      name: { $in: auth.roles },
-      ...roleScope,
-    })
+    const roleRecords = scopedTenantId
+      ? await em.find(Role, {
+          name: { $in: auth.roles },
+          tenantId: scopedTenantId,
+        })
+      : []
     const roleIds = Array.isArray(roleRecords) ? roleRecords.map((role) => role.id) : []
     if (roleIds.length > 0) {
       rolePreference = await loadFirstRoleSidebarPreference(em, {

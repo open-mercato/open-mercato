@@ -210,6 +210,7 @@ export default function ResourcesResourcesPage() {
       type: 'tags',
       loadOptions: loadTagOptions,
       options: tagOptions,
+      formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
     },
   ], [loadTagOptions, resourceTypeOptions, tagOptions, t])
 
@@ -468,6 +469,7 @@ export default function ResourcesResourcesPage() {
     <Page>
       <PageBody>
         <DataTable
+          stickyActionsColumn
           title={t('resources.resources.page.title', 'Resources')}
           actions={canManage ? (
             <Button asChild>

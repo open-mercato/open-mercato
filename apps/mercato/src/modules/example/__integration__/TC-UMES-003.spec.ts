@@ -664,9 +664,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await page.waitForLoadState('domcontentloaded')
 
       const personIdInput = page.getByTestId('phase-d-person-id')
-      await personIdInput.click()
-      await personIdInput.fill('')
-      await personIdInput.pressSequentially(personId)
+      await personIdInput.fill(personId)
       await expect(personIdInput).toHaveValue(personId)
       await page.getByTestId('phase-d-probe-title').fill('')
       await page.getByTestId('phase-d-run-probe').click()

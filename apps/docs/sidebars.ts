@@ -28,6 +28,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "user-guide/overview",
         "user-guide/login",
+        "user-guide/self-service-onboarding",
         "user-guide/users-and-roles",
         "user-guide/api-keys",
         "user-guide/feature-toggles",
@@ -39,6 +40,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-entities",
         "user-guide/system-status",
         "user-guide/products-and-sales-channels",
+        "user-guide/attachments",
         "user-guide/cache-management",
         "user-guide/taxes",
         "user-guide/search",
@@ -74,6 +76,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/integrations",
             "user-guide/webhooks",
             "user-guide/akeneo-pim",
+            "user-guide/checkout",
             "user-guide/stripe-payments",
             "user-guide/payment-transactions",
           ],
@@ -123,7 +126,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/data-encryption"],
+      items: ["architecture/system-overview", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
     },
     {
       type: "category",
@@ -250,6 +253,11 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Entities",
           items: ["cli/entities-install"],
+        },
+        {
+          type: "category",
+          label: "Configs Module",
+          items: ["cli/configs-cache"],
         },
         {
           type: "category",

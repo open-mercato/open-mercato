@@ -12,7 +12,7 @@ If you want to build a production app without cloning the monorepo, use [`create
 :::
 
 :::tip Windows users
-If you are on **Windows**, skip the native setup and jump straight to the [Docker development setup](#docker-development-setup) below. It runs the entire stack — app, database, Redis, and search — inside containers, so you don't need Node.js, Yarn, or native build tools installed on your machine. This is also a great option for any platform where you prefer a fully containerized workflow.
+If you are on **Windows**, prefer the [Windows native local development](#windows-native-local-development) flow below: Docker Desktop for infrastructure services, then run the app natively with Node.js and Yarn. The full [Docker development setup](#docker-development-setup) remains available as a container-only option, but on Windows it is usually much slower for this monorepo because bind-mounted file watching and filesystem I/O cross the Windows/WSL boundary.
 :::
 
 [![Watch on YouTube](https://img.youtube.com/vi/OsalmbiWQ-I/maxresdefault.jpg)](https://youtu.be/OsalmbiWQ-I)
@@ -49,7 +49,7 @@ Continue with the develop setup steps below.
 
 ### Docker-based setup (all platforms)
 
-Use this track if you want to run the **entire stack inside Docker** with hot reload — no local Node.js or Yarn required. This is the **recommended path for Windows** and works on macOS/Linux too.
+Use this track if you want to run the **entire stack inside Docker** with hot reload — no local Node.js or Yarn required. This works on macOS/Linux and remains available on Windows as a container-only option, but Windows contributors should usually prefer the native local workflow above because it is faster and more reliable for this monorepo.
 
 See the [full Docker Development Setup](#docker-development-setup) section below for step-by-step instructions.
 
@@ -87,7 +87,9 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn build:packages
    yarn generate
+   yarn build:packages
    ```
+   Run `yarn build:packages` again after `yarn generate` on a fresh local setup. This second build makes sure newly generated scripts are compiled before `yarn initialize` runs; otherwise `yarn initialize` may not detect them and can fail during bootstrap.
 6. **Bootstrap data**
    ```bash
    yarn initialize
@@ -97,7 +99,123 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```bash
    yarn dev
    ```
-   Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+   `yarn dev` starts the compact development runtime. On native local runs it serves a startup splash screen with live progress on `http://localhost:4000` by default, auto-opens that page when possible, and prints the backend URL in the terminal. Once the runtime is ready, continue to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
+
+## Windows native local development
+
+This is the recommended Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but on Windows it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy watched file reads across the Windows/Linux filesystem boundary.
+
+### One-time manual setup
+
+From PowerShell, run the recommended Windows prerequisite commands manually:
+
+```powershell
+corepack enable
+corepack prepare yarn@stable --activate
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Microsoft.VCRedist.2015+.x64
+```
+
+### Prerequisites
+
+- **Node.js 24+** - required by the monorepo runtime.
+- **Yarn via Corepack**:
+  ```powershell
+  corepack enable
+  corepack prepare yarn@stable --activate
+  ```
+- **Visual Studio 2022 Build Tools** - required on clean Windows environments for native Node.js dependencies.
+- **Microsoft Visual C++ Redistributable 2015+ x64** - required for native binaries used by the toolchain.
+- **Docker Desktop with WSL 2 backend** - for PostgreSQL, Redis, and Meilisearch.
+
+If you install Build Tools through the UI, make sure the C++ build tools workload is included. Git, Node.js 24+, Yarn/Corepack, and Docker Desktop must be installed and configured separately before continuing with the monorepo setup.
+
+### Monorepo flow
+
+Start only infrastructure services from the repository root:
+
+```powershell
+docker compose up -d
+```
+
+The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+
+Microsoft Defender exclusion is optional, but strongly recommended on Windows because without it repository operations and local development can be noticeably slower. Run it manually in PowerShell if you want the recommended setup:
+
+```powershell
+Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
+```
+
+Continue with the normal monorepo setup:
+
+```powershell
+yarn install
+yarn build:packages
+yarn generate
+yarn build:packages
+yarn initialize
+yarn dev
+```
+
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps. On a fresh local setup, run it both before and after `yarn generate` so `yarn initialize` can see the generated scripts.
+
+For an existing database where you only need to apply new migrations:
+
+```powershell
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
+### Native dev runtime splash screen
+
+When you run `yarn dev` on the host, Open Mercato starts a compact development runtime with a dedicated splash page that shows startup progress while packages, generators, and the app server warm up.
+
+- Default splash URL: `http://localhost:4000`
+- Default backend URL: `http://localhost:3000/backend`
+- Browser auto-open happens on interactive local runs when supported by the OS
+- The terminal still prints both URLs, so you can open them manually if needed
+- Press `d` while `yarn dev` is running to toggle raw logs
+- Standalone apps can show a `Start coding with AI` menu for detected coding tools
+- Standalone apps can show a GitHub publish panel that creates or publishes the local project through `gh`
+
+For the standalone splash features, install these recommended tools up front:
+
+- **GitHub CLI (`gh`)** for the GitHub publish panel: [cli.github.com](https://cli.github.com/)
+- **Codex CLI** for the OpenAI terminal workflow: [developers.openai.com/codex/cli](https://developers.openai.com/codex/cli)
+- **Claude Code** for the Anthropic terminal workflow: [code.claude.com/docs/en/setup](https://code.claude.com/docs/en/setup)
+- **Visual Studio Code** as the recommended general-purpose editor: [code.visualstudio.com/Download](https://code.visualstudio.com/Download)
+- **Cursor** as the recommended AI-first editor: [cursor.com/download](https://cursor.com/download)
+
+To override the splash port for native local runs:
+
+```bash
+OM_DEV_SPLASH_PORT=4100 yarn dev
+```
+
+To use a random free splash port instead of the stable default:
+
+```bash
+OM_DEV_SPLASH_PORT=random yarn dev
+```
+
+To keep the splash from opening automatically:
+
+```bash
+OM_DEV_AUTO_OPEN=0 yarn dev
+```
+
+To hide the standalone GitHub publish panel from the splash:
+
+```bash
+OM_DEV_CREATE_GIT_REPO_FLOW=false yarn dev
+```
+
+To hide the coding-tools menu from the splash:
+
+```bash
+OM_ENABLE_CODING_FLOW_FROM_SPLASH=false yarn dev
+```
 
 ## Docker Management
 
@@ -125,7 +243,7 @@ docker exec mercato-postgres psql -U postgres -d open-mercato -c "SELECT extname
 
 ## Docker Development Setup
 
-Run the entire Open Mercato stack inside Docker **with hot reload**. Source code is mounted from the host so every file change is picked up automatically — no local Node.js, Yarn, or native build tools required. This is the **recommended setup for Windows** and a convenient option on any OS.
+Run the entire Open Mercato stack inside Docker **with hot reload**. Source code is mounted from the host so every file change is picked up automatically — no local Node.js, Yarn, or native build tools required. This is a convenient option on any OS, but on Windows it is usually slower than the native local workflow because of bind-mounted monorepo file watching.
 
 ### Prerequisites
 
@@ -160,7 +278,12 @@ docker compose -f docker-compose.fullapp.dev.yml up --build
 
 The first run takes several minutes — Docker builds the image, installs dependencies, builds packages, runs migrations, and seeds demo data. Subsequent starts are much faster because initialization is cached in a named volume.
 
-Once the logs show the Next.js dev server is ready, open `http://localhost:3000/backend` and sign in with the default credentials printed during initialization (typically `admin@example.com` / `password`).
+The app container uses the same compact `yarn dev` runtime as native local development, including the splash screen with live startup progress. In Docker, the container cannot open a browser on your host automatically, so use the URLs printed in the logs instead:
+
+- Splash URL: `http://localhost:4000`
+- Backend URL: `http://localhost:3000/backend`
+
+Once the runtime is ready, open the backend URL and sign in with the default credentials printed during initialization (typically `admin@example.com` / `password`).
 
 ### How It Works
 
@@ -178,6 +301,7 @@ The app container:
 - **Mounts your source code** from the host into `/app`
 - Uses **named volumes** for `node_modules`, `.next`, and package `dist/` directories so the container manages its own builds
 - Enables **file-watching via polling** (`CHOKIDAR_USEPOLLING`, `WATCHPACK_POLLING`) for reliable change detection on all platforms
+- Exposes a dedicated **dev splash port** so startup progress is available from the host even though browser auto-open is disabled in containerized runs
 - On first run, executes `yarn mercato init` (migrations + seeding); on subsequent runs, applies pending migrations only
 
 ### Common Operations
@@ -310,11 +434,25 @@ Key variables you may want to override:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APP_PORT` | `3000` | Host port for the app |
+| `OM_DEV_SPLASH_PORT` | `4000` | Host and container port for the dev splash progress page |
+| `OM_DEV_AUTO_OPEN` | `1` | Set to `0` to disable browser auto-open for the splash on supported local runs |
+| `OM_DEV_CREATE_GIT_REPO_FLOW` | `true` | Set to `false` to hide the standalone splash GitHub publish panel |
+| `OM_ENABLE_CODING_FLOW_FROM_SPLASH` | `true` | Set to `false` to hide the splash coding-tools menu |
+| `OM_DEV_SPLASH_VSCODE_PATH` | auto-detect | Optional path override for the VS Code CLI used by the splash coding menu |
+| `OM_DEV_SPLASH_CURSOR_PATH` | auto-detect | Optional path override for the Cursor CLI used by the splash coding menu |
+| `OM_DEV_SPLASH_CLAUDE_CODE_PATH` | auto-detect | Optional path override for the Claude Code CLI used by the splash coding menu |
+| `OM_DEV_SPLASH_CODEX_PATH` | auto-detect | Optional path override for the Codex CLI used by the splash coding menu |
 | `POSTGRES_USER` | `postgres` | Database username |
 | `POSTGRES_PASSWORD` | `postgres` | Database password |
 | `JWT_SECRET` | `JWT` | Auth token secret |
 | `OPENAI_API_KEY` | — | Required for vector search and AI features |
 | `DEMO_MODE` | `true` | Seeds demo CRM data on first run |
+
+If you need a different splash port in Docker, set it before startup so the host/container mapping stays aligned:
+
+```bash
+OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up --build
+```
 
 ### Troubleshooting
 
@@ -331,6 +469,7 @@ Key variables you may want to override:
 
 **Port conflicts:**
 - If port 3000 is already in use, override it: `APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up`
+- If port 4000 is already in use, override the splash port too: `OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up`
 - If Postgres auth/connect errors appear during local commands (`yarn generate`, `yarn db:generate`) and `localhost:5432` is occupied by another local PostgreSQL instance, start Docker Postgres on another port and use the same port in `DATABASE_URL`:
   ```bash
   POSTGRES_PORT=55432 docker compose up -d postgres
@@ -560,3 +699,4 @@ The `docker-compose.fullapp.yml` stack includes:
 Services communicate via a dedicated Docker network (`mercato-network-fullapp`) and use health checks to ensure proper startup order.
 
 For advanced/manual flows (custom migration control, selective seeding, etc.) see the CLI reference in the repository README.
+

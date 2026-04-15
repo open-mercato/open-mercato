@@ -38,7 +38,9 @@ test.describe('TC-UMES-008: SPEC-042 + SPEC-043', () => {
       await page.waitForLoadState('domcontentloaded')
 
       const idsInput = page.getByTestId('phase-next-ids-input')
-      await idsInput.fill(`${personIdA},${personIdB}`)
+      const idsValue = `${personIdA},${personIdB}`
+      await idsInput.fill(idsValue)
+      await expect(idsInput).toHaveValue(idsValue)
       await page.getByTestId('phase-next-run-probe').click()
 
       await expect(page.getByTestId('phase-next-probe-status')).toContainText('probeStatus=ok', { timeout: 15_000 })

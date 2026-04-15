@@ -2,7 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
-import { MikroORM, MetadataStorage, type Logger } from '@mikro-orm/core'
+import { MikroORM, type Logger } from '@mikro-orm/core'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
@@ -87,6 +87,11 @@ export function validateTableName(tableName: string): void {
 
 export function makeConstraintDropsIdempotent(sql: string): string {
   return sql.replace(/alter table\s+("[^"]+"|\S+)\s+drop constraint\s+("[^"]+"|\S+);/gi, 'alter table $1 drop constraint if exists $2;')
+}
+
+export function getMigrationSnapshotName(resolver: Pick<PackageResolver, 'getRootDir'>): string {
+  void resolver
+  return '.snapshot-open-mercato'
 }
 
 let tsxLoaderRegistered = false
@@ -212,14 +217,18 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
   const ordered = sortModules(modules)
   const results: string[] = []
 
+  const moduleClasses = new Map<string, any[]>()
   for (const entry of ordered) {
-    // Clear global metadata registry to prevent decorator side effects from
-    // previously loaded modules leaking into this module's migration generation.
-    MetadataStorage.clear()
+    moduleClasses.set(entry.id, await loadModuleEntities(entry, resolver))
+  }
 
+  const sslConfig = getSslConfig()
+  const usedFileNames = new Set<string>()
+
+  for (const entry of ordered) {
     const modId = entry.id
     const sanitizedModId = sanitizeModuleId(modId)
-    const entities = await loadModuleEntities(entry, resolver)
+    const entities = moduleClasses.get(modId) ?? []
     if (!entities.length) {
       if (entry.from === '@app') {
         results.push(formatResult(modId, 'no entities discovered', ''))
@@ -233,7 +242,6 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     const tableName = `mikro_orm_migrations_${sanitizedModId}`
     validateTableName(tableName)
 
-    const sslConfig = getSslConfig()
     const orm = await MikroORM.init<PostgreSqlDriver>({
       driver: PostgreSqlDriver,
       clientUrl: getClientUrl(),
@@ -244,6 +252,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
+        snapshotName: getMigrationSnapshotName(resolver),
         dropTables: false,
       },
       schemaGenerator: {
@@ -263,36 +272,44 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
       } : undefined,
     })
 
-    const migrator = orm.getMigrator() as Migrator
-    const diff = await migrator.createMigration()
-    if (diff && diff.fileName) {
-      try {
-        const orig = diff.fileName
-        const base = path.basename(orig)
-        const dir = path.dirname(orig)
-        const ext = path.extname(base)
-        const stem = base.replace(ext, '')
-        const suffix = `_${modId}`
-        const newBase = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
-        const newPath = path.join(dir, newBase)
-        let content = fs.readFileSync(orig, 'utf8')
-        content = makeConstraintDropsIdempotent(content)
-        // Rename class to ensure uniqueness as well
-        content = content.replace(
-          /export class (Migration\d+)/,
-          `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`
-        )
-        fs.writeFileSync(newPath, content, 'utf8')
-        if (newPath !== orig) fs.unlinkSync(orig)
-        results.push(formatResult(modId, `generated ${newBase}`, ''))
-      } catch {
-        results.push(formatResult(modId, `generated ${path.basename(diff.fileName)} (rename failed)`, ''))
-      }
-    } else {
-      results.push(formatResult(modId, 'no changes', ''))
-    }
+    try {
+      const diff = await orm.getMigrator().createMigration()
+      if (diff && diff.fileName) {
+        try {
+          const orig = diff.fileName
+          const base = path.basename(orig)
+          const dir = path.dirname(orig)
+          const ext = path.extname(base)
+          const stem = base.replace(ext, '')
+          const suffix = `_${modId}`
+          let candidate = stem.endsWith(suffix) ? base : `${stem}${suffix}${ext}`
+          let dedupe = 1
 
-    await orm.close(true)
+          while (usedFileNames.has(path.join(dir, candidate))) {
+            candidate = `${stem}${suffix}_${dedupe++}${ext}`
+          }
+
+          const newPath = path.join(dir, candidate)
+          let content = fs.readFileSync(orig, 'utf8')
+          content = makeConstraintDropsIdempotent(content)
+          content = content.replace(
+            /export class (Migration\d+)/,
+            `export class $1_${modId.replace(/[^a-zA-Z0-9]/g, '_')}`
+          )
+          fs.writeFileSync(newPath, content, 'utf8')
+          if (newPath !== orig) fs.unlinkSync(orig)
+          usedFileNames.add(newPath)
+          results.push(formatResult(modId, `generated ${path.basename(newPath)}`, ''))
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          results.push(formatResult(modId, `generated ${path.basename(diff.fileName)} (rename failed: ${message})`, ''))
+        }
+      } else {
+        results.push(formatResult(modId, 'no changes', ''))
+      }
+    } finally {
+      await orm.close(true)
+    }
   }
 
   console.log(results.join('\n'))
@@ -334,6 +351,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
         tableName,
+        snapshot: false,
         dropTables: false,
       },
       schemaGenerator: {

@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { toAbsoluteUrl } from '@open-mercato/shared/lib/url'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { refreshSessionRequestSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { buildRequestOriginUrl } from '@open-mercato/core/modules/auth/lib/requestRedirect'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { z } from 'zod'
@@ -61,7 +61,7 @@ export async function GET(req: Request) {
   const token = parseCookie(req, 'session_token')
   if (!token) {
     return clearStaffAuthCookies(
-      NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
+      NextResponse.redirect(buildRequestOriginUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
     )
   }
   const c = await createRequestContainer()
@@ -69,12 +69,12 @@ export async function GET(req: Request) {
   const ctx = await auth.refreshFromSessionToken(token)
   if (!ctx) {
     return clearStaffAuthCookies(
-      NextResponse.redirect(toAbsoluteUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
+      NextResponse.redirect(buildRequestOriginUrl(req, '/login?redirect=' + encodeURIComponent(redirectTo)))
     )
   }
-  const { user, roles } = ctx
-  const jwt = signJwt({ sub: String(user.id), tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
-  const res = NextResponse.redirect(toAbsoluteUrl(req, redirectTo))
+  const { user, roles, session } = ctx
+  const jwt = signJwt({ sub: String(user.id), sid: session ? String(session.id) : undefined, tenantId: String(user.tenantId), orgId: String(user.organizationId), email: user.email, roles })
+  const res = NextResponse.redirect(buildRequestOriginUrl(req, redirectTo))
   res.cookies.set('auth_token', jwt, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 60 * 60 * 8 })
   return res
 }
@@ -123,9 +123,10 @@ export async function POST(req: Request) {
     )
   }
 
-  const { user, roles } = ctx
+  const { user, roles, session } = ctx
   const jwt = signJwt({
     sub: String(user.id),
+    sid: session ? String(session.id) : undefined,
     tenantId: String(user.tenantId),
     orgId: String(user.organizationId),
     email: user.email,

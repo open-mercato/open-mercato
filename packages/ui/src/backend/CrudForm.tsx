@@ -76,6 +76,7 @@ import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
+import { sanitizeHtmlRichText, sanitizeRichTextHref, sanitizeRichTextPasteContent } from './utils/richTextSanitizer'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
@@ -127,6 +128,7 @@ export type CrudFieldBase = {
   layout?: 'full' | 'half' | 'third'
   disabled?: boolean
   readOnly?: boolean
+  defaultValue?: unknown
 }
 
 export type CrudFieldOption = { value: string; label: string }
@@ -1576,9 +1578,21 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [injectionWidgets],
   )
 
+  const placedCustomFieldIds = React.useMemo(() => {
+    const placed = new Set<string>()
+    for (const other of (groups ?? [])) {
+      if (other.kind === 'customFields' || !other.fields) continue
+      for (const entry of other.fields) {
+        if (typeof entry === 'string') placed.add(entry)
+        else if (entry && typeof (entry as CrudField).id === 'string') placed.add((entry as CrudField).id)
+      }
+    }
+    return placed
+  }, [groups])
+
   const resolveGroupFields = React.useCallback((g: CrudFormGroup): CrudField[] => {
     if (g.kind === 'customFields') {
-      return cfFields
+      return cfFields.filter((f) => !placedCustomFieldIds.has(f.id))
     }
 
     const src = g.fields || []
@@ -1594,7 +1608,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
 
     return result
-  }, [cfFields, fieldById])
+  }, [cfFields, fieldById, placedCustomFieldIds])
 
   const customFieldsManageHref = React.useMemo(() => buildCustomFieldsManageHref(primaryEntityId), [buildCustomFieldsManageHref, primaryEntityId])
 
@@ -1878,6 +1892,60 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       cancelled = true
     }
   }, [extendedInjectionEventsEnabled, initialValues, injectedFieldDefinitions, triggerInjectionEvent])
+
+  // Apply custom field defaults on create flows (one-time, ref-guarded).
+  // Mode is determined from the host-provided initialValues prop, not from
+  // the reactive values.id (which lags on async-loading edit pages).
+  // We also wait for isLoading to settle so async edit pages that start with
+  // initialValues={} don't get mis-detected as create flows.
+  const cfDefaultsAppliedRef = React.useRef(false)
+  const initialValuesHasId = React.useMemo(() => {
+    if (!initialValues) return false
+    const raw = (initialValues as Record<string, unknown>).id
+    return raw !== undefined && raw !== null && raw !== ''
+  }, [initialValues])
+
+  React.useEffect(() => {
+    // Do not fire while the host is still loading the record
+    if (isLoading) return
+    // Edit flow: initialValues contains an id — never apply defaults
+    if (initialValuesHasId) return
+    // Wait until custom field definitions have loaded
+    if (!cfDefinitions.length) return
+    // One-shot guard: do not reapply if already done
+    if (cfDefaultsAppliedRef.current) return
+    cfDefaultsAppliedRef.current = true
+
+    const defaults: Record<string, unknown> = {}
+    const prefix = customEntity ? '' : 'cf_'
+    for (const def of cfDefinitions) {
+      if (def.defaultValue === undefined || def.defaultValue === null) continue
+      const fieldId = `${prefix}${def.key}`
+      defaults[fieldId] = def.defaultValue
+    }
+
+    if (Object.keys(defaults).length === 0) return
+
+    let mergedValues: CrudFormValues<TValues> | null = null
+    setValues((prev) => {
+      const merged = { ...prev } as CrudFormValues<TValues>
+      let applied = false
+      for (const [fieldId, defaultVal] of Object.entries(defaults)) {
+        // Skip if a value already exists (from initialValues or user input)
+        if (merged[fieldId] !== undefined) continue
+        ;(merged as Record<string, unknown>)[fieldId] = defaultVal
+        applied = true
+      }
+      if (!applied) return prev
+      mergedValues = merged
+      return mergedValues
+    })
+
+    // Update the dirty baseline so the form doesn't appear dirty from defaults
+    if (mergedValues) {
+      dirtyBaselineSnapshotRef.current = JSON.stringify(mergedValues)
+    }
+  }, [isLoading, initialValuesHasId, cfDefinitions, customEntity])
 
   const markFormAsClean = React.useCallback((snapshotSource?: Record<string, unknown>) => {
     clearDirtyState(snapshotSource)
@@ -2452,6 +2520,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               </div>
               {section.groups.map((group) => {
                 const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
+                const visibleFields = placedCustomFieldIds.size > 0
+                  ? group.fields.filter((f) => !placedCustomFieldIds.has(f.id))
+                  : group.fields
+                if (!visibleFields.length) return null
                 return (
                   <div key={groupKey} className="space-y-2">
                     {group.label ? (
@@ -2464,7 +2536,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                         ) : null}
                       </div>
                     ) : null}
-                    {renderFields(group.fields)}
+                    {renderFields(visibleFields)}
                   </div>
                 )
               })}
@@ -2494,6 +2566,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     handleFieldsetSelectionChange,
     handleOpenFieldsetEditor,
     manageFieldsetLabel,
+    placedCustomFieldIds,
     renderFields,
   ])
 
@@ -3141,9 +3214,10 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
     const el = ref.current
     if (!el) return
     const current = el.innerHTML
-    if (!typingRef.current && current !== value) {
+    const sanitizedValue = sanitizeHtmlRichText(value)
+    if (!typingRef.current && current !== sanitizedValue) {
       applyingExternal.current = true
-      el.innerHTML = value || ''
+      el.innerHTML = sanitizedValue
       requestAnimationFrame(() => { applyingExternal.current = false })
     }
   }, [value])
@@ -3168,6 +3242,16 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
     if (k === 'u') { e.preventDefault(); exec('underline') }
   }
 
+  const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    const html = e.clipboardData.getData('text/html')
+    const text = e.clipboardData.getData('text/plain')
+    const sanitizedPaste = sanitizeRichTextPasteContent(html, text)
+    if (!sanitizedPaste) return
+
+    e.preventDefault()
+    exec(sanitizedPaste.command, sanitizedPaste.value)
+  }
+
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
@@ -3183,7 +3267,7 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
           className="h-auto px-2 py-0.5 text-xs"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => {
-            const url = window.prompt(linkUrlPrompt)?.trim()
+            const url = sanitizeRichTextHref(window.prompt(linkUrlPrompt))
             if (url) exec('createLink', url)
           }}
         >{linkLabel}</Button>
@@ -3194,12 +3278,19 @@ const HtmlRichTextEditor = React.memo(function HtmlRichTextEditor({ value = '', 
         contentEditable
         suppressContentEditableWarning
         onKeyDown={onKeyDown}
+        onPaste={onPaste}
         onInput={() => { if (!applyingExternal.current) typingRef.current = true }}
         onBlur={() => {
           const el = ref.current
           if (!el) return
           typingRef.current = false
-          onChange(el.innerHTML)
+          const sanitizedValue = sanitizeHtmlRichText(el.innerHTML)
+          if (el.innerHTML !== sanitizedValue) {
+            applyingExternal.current = true
+            el.innerHTML = sanitizedValue
+            requestAnimationFrame(() => { applyingExternal.current = false })
+          }
+          onChange(sanitizedValue)
         }}
       />
     </div>

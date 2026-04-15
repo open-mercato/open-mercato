@@ -176,7 +176,7 @@ Architecture in two lines: Vault/KMS (or a derived-key fallback) issues per-tena
 ## Getting Started
 
 
-This is a quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
+This is the quickest way to get Open Mercato up and running on your localhost / server - ready for testing / demoing or for `Core development`!
 
 <table>
   <tr>
@@ -211,9 +211,9 @@ This is a quickest way to get Open Mercato up and running on your localhost / se
   nvm use 24
   ```
   
-**Windows:** Use [Docker Setup](#docker-setup) for native setup.
+**Windows:** prefer [Windows local development](#windows-local-development). Use the full Docker dev stack only when you explicitly want a container-only workflow and accept slower file watching and builds.
 
-### Quickstart: (Monorepo, core development / contributting)
+### Quickstart: (Monorepo, core development / contributing)
 
 **Prerequisites:** Yarn 4+
 
@@ -232,10 +232,14 @@ yarn install
 cp apps/mercato/.env.example apps/mercato/.env # EDIT this file to set up your specific files
 #At minimum, set `DATABASE_URL`, `JWT_SECRET`, and `REDIS_URL` (or `EVENTS_REDIS_URL`) before bootstrapping.
 
+yarn build:packages
 yarn generate
+yarn build:packages
 yarn initialize # or yarn reinstall
 yarn dev
 ```
+
+Important: on a fresh local setup, run `yarn build:packages`, then `yarn generate`, then `yarn build:packages` again before `yarn initialize`. The second package build makes sure generated scripts are available, otherwise `yarn initialize` may not detect them, fail to execute correctly, and block the local bootstrap flow.
 
 After upgrading to a newer version, apply any new module migrations:
 
@@ -245,13 +249,97 @@ yarn db:migrate
 
 Note: `yarn initialize` seeds demo data and may abort if users already exist. For upgrades on an existing database, use `yarn db:migrate` instead.
 
+### Windows local development
+
+On Windows, the recommended workflow for day-to-day monorepo development is **Docker Desktop for infrastructure services** and **native Yarn commands for the Open Mercato app/runtime**. The full `docker-compose.fullapp.dev.yml` stack remains available when you explicitly want an isolated, fully containerized environment, but for this repository it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy file watching across the Windows/WSL filesystem boundary.
+
+Prerequisites:
+
+- **Node.js 24+**
+- **Yarn via Corepack**
+- **Git**
+- **Docker Desktop with WSL 2 backend enabled**
+- **Visual Studio 2022 Build Tools** for native Node.js dependencies on clean Windows environments
+- **Microsoft Visual C++ Redistributable 2015+ x64** for native binaries used by the toolchain
+
+Recommended PowerShell commands on a clean Windows machine before `yarn install`:
+
+```powershell
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Microsoft.VCRedist.2015+.x64
+```
+
+If you install Build Tools through the UI, make sure the C++ build tools workload is included. Git, Node.js 24+, Yarn/Corepack, and Docker Desktop must be installed and configured separately before continuing with the monorepo setup.
+
+From the monorepo root, start only infrastructure services:
+
+```powershell
+docker compose up -d
+```
+
+The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+
+Microsoft Defender exclusion is optional, but strongly recommended on Windows because without it repository operations and local development can be noticeably slower. Run it manually in PowerShell if you want the recommended setup:
+
+```powershell
+Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -Command `"Add-MpPreference -ExclusionPath '$((Get-Location).Path)'`""
+```
+
+Then continue with the monorepo setup:
+
+```powershell
+yarn install
+yarn build:packages
+yarn generate
+yarn build:packages
+yarn initialize
+yarn dev
+```
+
+`yarn build:packages` is a monorepo-only step that compiles workspace packages to `dist/`. It does not exist in standalone apps created by `create-mercato-app`. On a fresh local setup, run it both before and after `yarn generate` so `yarn initialize` can see the generated scripts.
+
+For an existing database where you only need to apply new migrations:
+
+```powershell
+yarn db:migrate
+yarn generate
+yarn dev
+```
+
 For a fresh greenfield boot (build packages, generate registries, reinstall modules, then start dev), run:
 
 ```bash
 yarn dev:greenfield
 ```
 
-For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, browser auto-open, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
+### Development runtime modes
+
+- `yarn dev` starts the default compact dev runtime. It shows high-signal startup status, auto-opens the splash page on native local runs, and keeps package/queue/scheduler chatter folded by default.
+- `yarn dev:classic` disables the splash and compact wrappers, and restores the old raw passthrough terminal output.
+- Press `d` while `yarn dev` is running to show or hide raw logs. If a compacted stage fails, the runner automatically expands and prints the raw errored output.
+- `yarn dev:verbose` keeps the old raw passthrough output for debugging.
+- `yarn dev:app` runs only the app runtime in compact mode. `yarn dev:app:verbose` is its raw passthrough variant.
+- `yarn dev:greenfield` keeps the full greenfield flow but compacts package build/generate chatter. `yarn dev:greenfield:verbose` keeps the entire flow raw.
+- `yarn dev:greenfield:classic` keeps the greenfield flow but disables the splash and compact wrappers entirely.
+- `yarn dev:ephemeral` now uses the same splash-first startup experience for its install/build/generate/init stages before handing off to the app runtime. `yarn dev:ephemeral:verbose` keeps the runtime logs raw.
+- `yarn dev:ephemeral:classic` keeps the ephemeral database flow but skips the splash and uses raw passthrough output end to end.
+- Set `OM_DEV_SPLASH_PORT` to override the splash port. Default: `4000`. Use `random` (or `0`) for native local runs when you want a free ephemeral port instead of the stable default.
+- Set `OM_DEV_AUTO_OPEN=0` to keep the splash from opening automatically in your browser.
+- The standalone app splash can expose two ready-state helpers:
+  - `Start coding with AI` launches detected coding tools from the splash when the coding flow is enabled.
+  - `Create new GitHub repository` / `Publish to GitHub` appears in standalone apps when `gh` is installed and `OM_DEV_CREATE_GIT_REPO_FLOW` is not disabled.
+
+### Recommended tools
+
+If you are using the native dev runtime or building a standalone app, these tools are recommended:
+
+- **GitHub CLI (`gh`)** for the standalone splash GitHub publish flow: <https://cli.github.com/>
+- **Codex CLI** for the OpenAI terminal workflow surfaced by `Start coding with AI`: <https://developers.openai.com/codex/cli>
+- **Claude Code** for the Anthropic terminal workflow surfaced by `Start coding with AI`: <https://code.claude.com/docs/en/setup>
+- **Visual Studio Code** as the recommended general-purpose editor: <https://code.visualstudio.com/Download>
+- **Cursor** as a recommended AI-first editor: <https://cursor.com/download>
+
+For a worktree-friendly dev runtime with a dedicated ephemeral PostgreSQL database and an automatically selected free app port (with Node 24 check, dependency install, package build, `.env` bootstrap, generator prep, splash-based startup status, and instance registry in `.ai/dev-ephemeral-envs.json`), run:
 
 ```bash
 yarn dev:ephemeral
@@ -272,6 +360,8 @@ npx create-mercato-app my-store
 cd my-store
 yarn setup
 ```
+
+If you want the standalone bootstrap in raw passthrough mode with no splash screen, run `yarn setup:classic`.
 
 Navigate to `http://localhost:3000/backend` and sign in with the credentials printed by `yarn initialize`.
 
@@ -312,7 +402,7 @@ npx create-mercato-app@develop my-app
 
 ## Docker Setup
 
-Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. The dev mode is the **recommended setup for Windows** users.
+Open Mercato offers two Docker Compose configurations — one for **development** (with hot reload) and one for **production**. Both run the full stack (app + PostgreSQL + Redis + Meilisearch) in containers. On Windows, prefer the native local workflow above for regular monorepo work; use the dev Docker stack when you specifically need a container-only environment.
 
 ### Dev mode (hot reload)
 
@@ -341,6 +431,8 @@ yarn docker:test
 yarn docker:install-skills
 yarn docker:dev -- --skip-rebuilt
 ```
+
+When the app container reaches `yarn dev`, it uses the same compact runtime as native local development. Use `yarn docker:dev -- --verbose` if you want the raw passthrough output inside the container instead.
 
 ### Production mode
 
@@ -467,11 +559,11 @@ Open Mercato follows a **spec-first development approach**. Before implementing 
 
 ### How It Works
 
-1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `SPEC-###-YYYY-MM-DD-title.md`)
+1. **Before coding**: Check if a spec exists in `.ai/specs/` (named `{YYYY-MM-DD}-{title}.md`)
 2. **New features**: Create or update the spec with your design before implementation
 3. **After changes**: Update the spec's changelog with a dated summary
 
-**Naming convention**: Specs use the format `SPEC-{number}-{date}-{title}.md` (e.g., `SPEC-007-2026-01-26-sidebar-reorganization.md`)
+**Naming convention**: Specs use the format `{YYYY-MM-DD}-{title}.md` (e.g., `2026-01-26-sidebar-reorganization.md`)
 
 See [`.ai/specs/README.md`](.ai/specs/README.md) for the full specification directory and [`.ai/specs/AGENTS.md`](.ai/specs/AGENTS.md) for detailed guidelines on maintaining specs.
 
@@ -539,3 +631,4 @@ What’s included:
 Contact us to get support for your implementation: [info@openmercato.com](mailto:info@openmercato.com)
 
 Enterprise features are delivered under the `@open-mercato/enterprise` package (`/packages/enterprise`) and are not part of the open source license scope.
+

@@ -73,8 +73,14 @@ export type RedisConnectionOptions = {
   host?: string
   /** Redis port */
   port?: number
+  /** Redis username */
+  username?: string
   /** Redis password */
   password?: string
+  /** Redis database number */
+  db?: number
+  /** TLS configuration for rediss / encrypted Redis */
+  tls?: Record<string, unknown>
 }
 
 /**
