@@ -13,6 +13,10 @@ import { AccessLogsTable } from '../../components/AccessLogsTable'
 type ActionLogResponse = {
   items: ActionLogItem[]
   canViewTenant: boolean
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
 }
 
 type AccessLogResponse = {
@@ -26,7 +30,7 @@ type AccessLogResponse = {
 
 type TabOption = 'actions' | 'access'
 
-const ACCESS_PAGE_SIZE = 50
+const DEFAULT_PAGE_SIZE = 50
 
 export default function AuditLogsPage() {
   const t = useT()
@@ -36,16 +40,24 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [undoableOnly, setUndoableOnly] = React.useState(false)
+  const [actionsPage, setActionsPage] = React.useState(1)
+  const [actionsPageSize, setActionsPageSize] = React.useState(DEFAULT_PAGE_SIZE)
+  const [actionsTotal, setActionsTotal] = React.useState(0)
+  const [actionsTotalPages, setActionsTotalPages] = React.useState(1)
+  const actionsPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
   const [accessPage, setAccessPage] = React.useState(1)
-  const [accessPageSize, setAccessPageSize] = React.useState(ACCESS_PAGE_SIZE)
+  const [accessPageSize, setAccessPageSize] = React.useState(DEFAULT_PAGE_SIZE)
   const [accessTotal, setAccessTotal] = React.useState(0)
   const [accessTotalPages, setAccessTotalPages] = React.useState(1)
-  const accessPageSizeRef = React.useRef(ACCESS_PAGE_SIZE)
+  const accessPageSizeRef = React.useRef(DEFAULT_PAGE_SIZE)
 
-  const fetchActions = React.useCallback(async () => {
-    const query = undoableOnly ? '?undoableOnly=true' : ''
+  const fetchActions = React.useCallback(async (page: number, pageSize: number) => {
+    const params = new URLSearchParams()
+    params.set('page', String(page))
+    params.set('pageSize', String(pageSize))
+    if (undoableOnly) params.set('undoableOnly', 'true')
     return readApiResultOrThrow<ActionLogResponse>(
-      `/api/audit_logs/audit-logs/actions${query}`,
+      `/api/audit_logs/audit-logs/actions?${params.toString()}`,
       undefined,
       { errorMessage: t('audit_logs.error.load') },
     )
@@ -62,15 +74,26 @@ export default function AuditLogsPage() {
     )
   }, [t])
 
-  const loadAll = React.useCallback(async (page: number, pageSize: number) => {
+  const loadAll = React.useCallback(async (
+    actionPage: number, actionPageSize: number,
+    accessPageNum: number, accessPageSizeNum: number,
+  ) => {
     const [actionsRes, accessRes] = await Promise.all([
-      fetchActions(),
-      fetchAccess(page, pageSize),
+      fetchActions(actionPage, actionPageSize),
+      fetchAccess(accessPageNum, accessPageSizeNum),
     ])
     setActions(actionsRes.items ?? [])
+    setActionsPage(actionsRes.page ?? actionPage)
+    setActionsPageSize((prev) => {
+      const resolved = actionsRes.pageSize ?? actionPageSize
+      actionsPageSizeRef.current = resolved
+      return resolved === prev ? prev : resolved
+    })
+    setActionsTotal(actionsRes.total ?? (actionsRes.items?.length ?? 0))
+    setActionsTotalPages(actionsRes.totalPages ?? 1)
     setAccessLogs(accessRes.items ?? [])
-    const resolvedPage = accessRes.page ?? page
-    const resolvedPageSize = accessRes.pageSize ?? pageSize
+    const resolvedPage = accessRes.page ?? accessPageNum
+    const resolvedPageSize = accessRes.pageSize ?? accessPageSizeNum
     const resolvedTotal = accessRes.total ?? (accessRes.items?.length ?? 0)
     const resolvedTotalPages = accessRes.totalPages ?? Math.max(1, Math.ceil((resolvedTotal || 0) / (resolvedPageSize || 1)))
     setAccessPage(resolvedPage)
@@ -86,11 +109,14 @@ export default function AuditLogsPage() {
     setAccessTotalPages(resolvedTotalPages)
   }, [fetchActions, fetchAccess])
 
-  const loadWithState = React.useCallback(async (page: number, pageSize: number) => {
+  const loadWithState = React.useCallback(async (
+    actionPage: number, actionPageSize: number,
+    accessPageNum: number, accessPageSizeNum: number,
+  ) => {
     setLoading(true)
     setError(null)
     try {
-      await loadAll(page, pageSize)
+      await loadAll(actionPage, actionPageSize, accessPageNum, accessPageSizeNum)
     } catch (err) {
       console.error('Failed to load audit logs', err)
       setError(t('audit_logs.error.load'))
@@ -100,20 +126,21 @@ export default function AuditLogsPage() {
   }, [loadAll, t])
 
   React.useEffect(() => {
+    setActionsPage(1)
     setAccessPage(1)
-    void loadWithState(1, accessPageSizeRef.current)
+    void loadWithState(1, actionsPageSizeRef.current, 1, accessPageSizeRef.current)
   }, [loadWithState, undoableOnly])
 
   const renderRefreshButton = React.useCallback(() => (
     <Button
       variant="outline"
       size="sm"
-      onClick={() => void loadWithState(accessPage, accessPageSize)}
+      onClick={() => void loadWithState(actionsPage, actionsPageSize, accessPage, accessPageSize)}
       disabled={loading}
     >
       {loading ? t('audit_logs.common.refreshing') : t('audit_logs.common.refresh')}
     </Button>
-  ), [loadWithState, accessPage, accessPageSize, loading, t])
+  ), [loadWithState, actionsPage, actionsPageSize, accessPage, accessPageSize, loading, t])
 
   const handleUndoError = React.useCallback(() => {
     setError(t('audit_logs.error.undo'))
@@ -122,11 +149,17 @@ export default function AuditLogsPage() {
     setError(t('audit_logs.error.redo'))
   }, [t])
 
+  const handleActionsPageChange = React.useCallback((nextPage: number) => {
+    const totalPages = actionsTotalPages || 1
+    const normalized = Math.max(1, Math.min(nextPage, totalPages))
+    void loadWithState(normalized, actionsPageSizeRef.current, accessPage, accessPageSizeRef.current)
+  }, [actionsTotalPages, loadWithState, accessPage])
+
   const handleAccessPageChange = React.useCallback((nextPage: number) => {
     const totalPages = accessTotalPages || 1
     const normalized = Math.max(1, Math.min(nextPage, totalPages))
-    void loadWithState(normalized, accessPageSizeRef.current)
-  }, [accessTotalPages, loadWithState])
+    void loadWithState(actionsPage, actionsPageSizeRef.current, normalized, accessPageSizeRef.current)
+  }, [accessTotalPages, loadWithState, actionsPage])
 
   const headerExtras = (
     <>

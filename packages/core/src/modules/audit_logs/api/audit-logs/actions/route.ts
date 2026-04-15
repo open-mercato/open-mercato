@@ -30,6 +30,8 @@ const auditActionQuerySchema = z.object({
     .describe('When `true`, only undoable actions are returned')
     .optional(),
   limit: z.string().describe('Maximum number of records to return (default 50)').optional(),
+  page: z.string().describe('Page number (default 1)').optional(),
+  pageSize: z.string().describe('Page size (default 50, max 200)').optional(),
   before: z.string().describe('Return actions created before this ISO-8601 timestamp').optional(),
   after: z.string().describe('Return actions created after this ISO-8601 timestamp').optional(),
 })
@@ -61,6 +63,10 @@ const auditActionItemSchema = z.object({
 const auditActionResponseSchema = z.object({
   items: z.array(auditActionItemSchema),
   canViewTenant: z.boolean(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
 })
 
 const errorSchema = z.object({
@@ -148,12 +154,12 @@ export async function GET(req: Request) {
   })
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: list.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
-    tenantIds: list.map((entry) => entry.tenantId).filter((value): value is string => !!value),
-    organizationIds: list.map((entry) => entry.organizationId).filter((value): value is string => !!value),
+    userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
+    tenantIds: list.items.map((entry) => entry.tenantId).filter((value): value is string => !!value),
+    organizationIds: list.items.map((entry) => entry.organizationId).filter((value): value is string => !!value),
   })
 
-  const items = list.map((entry) => ({
+  const items = list.items.map((entry) => ({
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,
@@ -177,7 +183,14 @@ export async function GET(req: Request) {
     context: entry.contextJson,
   }))
 
-  return NextResponse.json({ items, canViewTenant })
+  return NextResponse.json({
+    items,
+    canViewTenant,
+    page: list.page,
+    pageSize: list.pageSize,
+    total: list.total,
+    totalPages: list.totalPages,
+  })
 }
 
 export const openApi: OpenApiRouteDoc = {
