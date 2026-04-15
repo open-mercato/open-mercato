@@ -25,6 +25,47 @@ const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJEC
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 
+const mockHealthyReadinessFetch = (
+  overrides: {
+    loginPageResponse?: { status: number; text?: string }
+  } = {},
+) => jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+  const url = typeof input === 'string' ? input : String(input)
+  if (url.endsWith('/api/auth/login')) {
+    const body = typeof init?.body === 'string' ? init.body : ''
+    if (body.includes('email=admin%40acme.com')) {
+      return {
+        status: 200,
+        ok: true,
+        text: async () => JSON.stringify({ token: 'test-admin-token' }),
+      } as unknown as Response
+    }
+    return { status: 401, ok: false, text: async () => '' } as unknown as Response
+  }
+  if (url.includes('/api/customers/people?pageSize=1')) {
+    return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+  }
+  if (url.endsWith('/login')) {
+    const response = overrides.loginPageResponse
+    if (response) {
+      return {
+        status: response.status,
+        ok: response.status >= 200 && response.status < 300,
+        text: async () => response.text ?? '',
+      } as unknown as Response
+    }
+    return {
+      status: 200,
+      ok: true,
+      text: async () => '<!doctype html><script src="/_next/static/chunks/app-healthcheck.js"></script>',
+    } as unknown as Response
+  }
+  if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
+    return { status: 200, ok: true, text: async () => '' } as unknown as Response
+  }
+  return { status: 200, ok: true, text: async () => '' } as unknown as Response
+})
+
 const resolveBuildCacheFingerprint = async (
   projectRoot: string,
   inputPath: string,
@@ -83,22 +124,7 @@ describe('integration cache and options', () => {
   it('reuses an existing reachable ephemeral environment state', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
     delete process.env[CHECKOUT_TEST_INJECTION_FLAG]
-    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
-      const url = typeof input === 'string' ? input : String(input)
-      if (url.endsWith('/api/auth/login')) {
-        return { status: 401, text: async () => '' } as unknown as Response
-      }
-      if (url.endsWith('/login')) {
-        return {
-          status: 200,
-          text: async () => '<!doctype html><script src="/_next/static/chunks/app-healthcheck.js"></script>',
-        } as unknown as Response
-      }
-      if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
-        return { status: 200, text: async () => '' } as unknown as Response
-      }
-      return { status: 200, text: async () => '' } as unknown as Response
-    })
+    const fetchSpy = mockHealthyReadinessFetch()
 
     try {
       await writeEphemeralEnvironmentState({
@@ -135,22 +161,7 @@ describe('integration cache and options', () => {
   it('reuses an existing environment with checkout wrapper injections only when explicitly enabled', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
     process.env[CHECKOUT_TEST_INJECTION_FLAG] = 'true'
-    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
-      const url = typeof input === 'string' ? input : String(input)
-      if (url.endsWith('/api/auth/login')) {
-        return { status: 401, text: async () => '' } as unknown as Response
-      }
-      if (url.endsWith('/login')) {
-        return {
-          status: 200,
-          text: async () => '<!doctype html><script src="/_next/static/chunks/app-healthcheck.js"></script>',
-        } as unknown as Response
-      }
-      if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
-        return { status: 200, text: async () => '' } as unknown as Response
-      }
-      return { status: 200, text: async () => '' } as unknown as Response
-    })
+    const fetchSpy = mockHealthyReadinessFetch()
 
     try {
       await writeEphemeralEnvironmentState({
@@ -177,15 +188,8 @@ describe('integration cache and options', () => {
 
   it('reuses an existing environment when /login returns a redirect status other than 302', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
-    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
-      const url = typeof input === 'string' ? input : String(input)
-      if (url.endsWith('/api/auth/login')) {
-        return { status: 401, text: async () => '' } as unknown as Response
-      }
-      if (url.endsWith('/login')) {
-        return { status: 308, text: async () => '' } as unknown as Response
-      }
-      return { status: 200, text: async () => '' } as unknown as Response
+    const fetchSpy = mockHealthyReadinessFetch({
+      loginPageResponse: { status: 308, text: '' },
     })
 
     try {
@@ -216,18 +220,11 @@ describe('integration cache and options', () => {
 
   it('reuses an existing environment when /login returns healthy HTML without static asset references', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
-    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input) => {
-      const url = typeof input === 'string' ? input : String(input)
-      if (url.endsWith('/api/auth/login')) {
-        return { status: 401, text: async () => '' } as unknown as Response
-      }
-      if (url.endsWith('/login')) {
-        return {
-          status: 200,
-          text: async () => '<!doctype html><html><body><form data-auth-ready="0"></form></body></html>',
-        } as unknown as Response
-      }
-      return { status: 200, text: async () => '' } as unknown as Response
+    const fetchSpy = mockHealthyReadinessFetch({
+      loginPageResponse: {
+        status: 200,
+        text: '<!doctype html><html><body><form data-auth-ready="0"></form></body></html>',
+      },
     })
 
     try {
@@ -396,9 +393,10 @@ describe('integration cache and options', () => {
       await writeFile(
         cacheStatePath,
         `${JSON.stringify({
-          version: 1,
+          version: 2,
           builtAt: Date.now(),
           sourceFingerprint: initialFingerprint,
+          environmentFingerprint: 'enterprise=off',
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,
@@ -410,6 +408,7 @@ describe('integration cache and options', () => {
           inputPaths: [sourceFile],
           artifactPaths: [artifactPath],
           cacheStatePath,
+          environmentFingerprint: 'enterprise=off',
           projectRoot: tempRoot,
         }),
       ).resolves.toBe(true)
@@ -420,6 +419,7 @@ describe('integration cache and options', () => {
           inputPaths: [sourceFile],
           artifactPaths: [artifactPath],
           cacheStatePath,
+          environmentFingerprint: 'enterprise=off',
           projectRoot: tempRoot,
         }),
       ).resolves.toBe(false)
@@ -429,9 +429,10 @@ describe('integration cache and options', () => {
       await writeFile(
         cacheStatePath,
         `${JSON.stringify({
-          version: 1,
+          version: 2,
           builtAt: Date.now() - 240_000,
           sourceFingerprint: refreshedFingerprint,
+          environmentFingerprint: 'enterprise=off',
           artifactPaths: [artifactPath],
           projectRoot: tempRoot,
         }, null, 2)}\n`,
@@ -442,6 +443,29 @@ describe('integration cache and options', () => {
           inputPaths: [sourceFile],
           artifactPaths: [artifactPath],
           cacheStatePath,
+          environmentFingerprint: 'enterprise=off',
+          projectRoot: tempRoot,
+        }),
+      ).resolves.toBe(false)
+
+      await writeFile(
+        cacheStatePath,
+        `${JSON.stringify({
+          version: 2,
+          builtAt: Date.now(),
+          sourceFingerprint: refreshedFingerprint,
+          environmentFingerprint: 'enterprise=off',
+          artifactPaths: [artifactPath],
+          projectRoot: tempRoot,
+        }, null, 2)}\n`,
+        'utf8',
+      )
+      await expect(
+        shouldReuseBuildArtifacts(120, 'integration', {
+          inputPaths: [sourceFile],
+          artifactPaths: [artifactPath],
+          cacheStatePath,
+          environmentFingerprint: 'enterprise=on',
           projectRoot: tempRoot,
         }),
       ).resolves.toBe(false)

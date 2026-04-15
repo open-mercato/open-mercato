@@ -21,9 +21,7 @@ test.describe('TC-CRM-032: DataTable Column Chooser', () => {
     const emailHeader = page.locator('thead button', { hasText: 'Email' }).first();
     await expect(emailHeader).toBeVisible();
 
-    // Open Views sidebar via the toolbar button. The sidebar back button has
-    // aria-label "Close", so name="Views" matches only the toolbar trigger.
-    const viewsToolbarButton = page.getByRole('button', { name: 'Views', exact: true });
+    const viewsToolbarButton = page.getByTestId('data-table-open-views-sidebar').first();
     await expect(viewsToolbarButton).toBeVisible();
     await viewsToolbarButton.click();
 

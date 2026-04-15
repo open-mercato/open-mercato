@@ -744,6 +744,7 @@ function ViewSwitcherDropdown({
   return (
     <div className="inline-flex h-9 items-center rounded-md border border-input text-sm">
       <Button
+        data-testid="data-table-open-views-sidebar"
         type="button"
         variant="ghost"
         size="sm"
