@@ -7,6 +7,16 @@ const KeyIcon = (
   </svg>
 )
 
+const AccessibilityIcon = (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="16" cy="4" r="1" />
+    <path d="m18 19 1-7-6 1" />
+    <path d="m5 8 6-2 3 4.5" />
+    <path d="M4.24 14.5a5 5 0 0 0 6.88 6" />
+    <path d="M13.76 17.5a5 5 0 0 0-6.88-6" />
+  </svg>
+)
+
 export const profileSections: SectionNavGroup[] = [
   {
     id: 'account',
@@ -21,6 +31,14 @@ export const profileSections: SectionNavGroup[] = [
         href: '/backend/profile/change-password',
         icon: KeyIcon,
         order: 1,
+      },
+      {
+        id: 'accessibility',
+        label: 'Accessibility',
+        labelKey: 'auth.accessibility.section_title',
+        href: '/backend/profile/accessibility',
+        icon: AccessibilityIcon,
+        order: 2,
       },
     ],
   },

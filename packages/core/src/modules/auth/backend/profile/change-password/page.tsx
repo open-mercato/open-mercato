@@ -166,44 +166,44 @@ export default function ProfileChangePasswordPage() {
     router.refresh()
   }, [email, router, t])
 
-  if (loading) {
-    return <LoadingMessage label={t('auth.profile.form.loading', 'Loading profile...')} />
-  }
-
-  if (error) {
-    return <ErrorMessage label={error} />
-  }
-
   return (
-    <section className="space-y-6 rounded-lg border bg-background p-6 max-w-2xl">
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold">{t('auth.changePassword.title', 'Change Password')}</h2>
-          <p className="text-sm text-muted-foreground">
-            {t('auth.profile.subtitle', 'Change password')}
-          </p>
-        </div>
-        <Button type="submit" form={formId}>
-          <Save className="size-4 mr-2" />
-          {t('auth.profile.form.save', 'Save changes')}
-        </Button>
-      </header>
-      <CrudForm<ProfileFormValues>
-        key={formKey}
-        formId={formId}
-        schema={schema}
-        fields={fields}
-        initialValues={{
-          email,
-          currentPassword: '',
-          password: '',
-          confirmPassword: '',
-        }}
-        submitLabel={t('auth.profile.form.save', 'Save changes')}
-        onSubmit={handleSubmit}
-        embedded
-        hideFooterActions
-      />
-    </section>
+    <div className="space-y-6">
+      {loading ? (
+        <LoadingMessage label={t('auth.profile.form.loading', 'Loading profile...')} />
+      ) : error ? (
+        <ErrorMessage label={error} />
+      ) : (
+      <section className="space-y-6 rounded-lg border bg-background p-6 max-w-2xl">
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold">{t('auth.changePassword.title', 'Change Password')}</h2>
+            <p className="text-sm text-muted-foreground">
+              {t('auth.profile.subtitle', 'Change password')}
+            </p>
+          </div>
+          <Button type="submit" form={formId}>
+            <Save className="size-4 mr-2" />
+            {t('auth.profile.form.save', 'Save changes')}
+          </Button>
+        </header>
+        <CrudForm<ProfileFormValues>
+          key={formKey}
+          formId={formId}
+          schema={schema}
+          fields={fields}
+          initialValues={{
+            email,
+            currentPassword: '',
+            password: '',
+            confirmPassword: '',
+          }}
+          submitLabel={t('auth.profile.form.save', 'Save changes')}
+          onSubmit={handleSubmit}
+          embedded
+          hideFooterActions
+        />
+      </section>
+      )}
+    </div>
   )
 }

@@ -1,33 +1,28 @@
-# Accessibility: Visual Tokens and Profile Form UI (Draft — DS Direction Pending)
+# Accessibility: Visual Tokens (Draft — DS Direction Pending)
 
 ## Status
 
 **Draft — on hold pending Design System direction.**
 
-This spec captures the visual and UI layer that was cut from the omnibus accessibility PR. Ship only after the DS team decides how `--font-scale`, high-contrast token overrides, and reduced-motion rules should integrate with the semantic tokens v2 system.
+This spec captures only the CSS-level visual layer held out of the PR-A scope. Ship after the DS team decides how `--font-scale`, high-contrast token overrides, and reduced-motion rules should integrate with the semantic tokens v2 system.
 
-Tracked as a follow-up to `.ai/specs/2026-04-14-accessibility-wcag-and-preferences.md` (merged). The data model, API, and browser plumbing to load/apply preferences are already in place; this spec adds the CSS token rules and the user-facing form.
+Tracked as a follow-up to `.ai/specs/2026-04-14-accessibility-wcag-and-preferences.md`. The preference schema, API, command, Provider, form UI, profile page, widget injection, and nav metadata are all already shipped in PR-A; the only remaining piece is the CSS that responds to the root classes the Provider already applies.
 
 ## TLDR
 
 **Key Points:**
-- Define CSS rules that actually make `--font-scale`, `.high-contrast`, and `.reduce-motion` visible. Without these rules the `AccessibilityProvider` toggles classes on `<html>` to no effect.
-- Ship an OSS profile page and an enterprise injection widget so users can edit their preferences. UI form posts through the existing `PUT /api/auth/profile` endpoint already shipped in PR-A.
+- Define CSS rules that make `--font-scale`, `.high-contrast`, and `.reduce-motion` visually meaningful. Without these rules the `AccessibilityProvider` toggles classes on `<html>` to no visible effect.
 - Keep all decisions about typography, contrast, and motion at the DS layer — no ad-hoc tokens in individual modules.
+- Ship the enterprise visual-rendering integration test alongside the CSS so the coverage matches the shipped behavior.
 
 **Scope:**
 - `apps/mercato/src/app/globals.css` + `packages/create-app/template/src/app/globals.css` — add `html { font-size: calc(1rem * var(--font-scale, 1)); }`; add `html.high-contrast:not(.dark)` + `html.high-contrast.dark` token overrides (oklch values); add `html.reduce-motion` global animation/transition override.
-- `AccessibilitySection.tsx` — `CrudForm`-driven form wired via `useGuardedMutation`, reads current values from `useAccessibilityPreferences()`, dispatches `ACCESSIBILITY_PREFERENCES_CHANGED_EVENT` on save for live apply.
-- `/backend/profile/accessibility/page.tsx` + `page.meta.ts` — dedicated OSS page, `requireAuth: true`, `navHidden: false`.
-- `auth/lib/profile-sections.tsx` — section metadata for rendering the nav label and allowing the page to participate in profile navigation.
-- `auth/widgets/injection-table.ts` + `auth/widgets/injection/accessibility-section/` — enterprise `security.profile.sections` widget injection so enterprise users see the form on the security profile as well.
-- Enterprise integration test `TC-SEC-009` — verifies the injected widget renders and the skip link behaves on the enterprise profile.
-- Relevant i18n keys: `auth.accessibility.*` + `auth.profile.nav.label` (EN/DE/ES/PL).
+- Enterprise integration test `TC-SEC-009` — verifies the injected section renders through `security.profile.sections` and that the high-contrast root class actually flips visual tokens in the enterprise security profile.
 
-**Out of scope:**
-- Any change to the persisted preference schema, API route, or command. Those shipped in PR-A.
+**Out of scope (already shipped in PR-A):**
+- Preference schema, `users.accessibility_preferences` column, `GET`/`PUT /api/auth/profile`, `auth.users.update` command, `AccessibilityProvider`, event bridge, profile page `/backend/profile/accessibility`, `AccessibilitySection` form, widget injection into `security.profile.sections`, full `auth.accessibility.*` + `auth.profile.nav.label` i18n keys, OSS UI test in `TC-AUTH-027`.
 
-**Placement:** `packages/ui` (globals), `packages/core/src/modules/auth` (form + page + injection), `packages/enterprise` (security-profile test).
+**Placement:** `apps/mercato` + `packages/create-app/template` (globals.css), `packages/enterprise` (security-profile integration test).
 
 ## Open Questions for the DS Team
 
@@ -39,7 +34,7 @@ Tracked as a follow-up to `.ai/specs/2026-04-14-accessibility-wcag-and-preferenc
 
 ## Dependency
 
-Requires the PR-A scope (`.ai/specs/2026-04-14-accessibility-wcag-and-preferences.md`) to be merged first. The Provider, data model, API, and event bridge are all in place — this spec only adds the CSS rules and the form.
+Requires the PR-A scope (`.ai/specs/2026-04-14-accessibility-wcag-and-preferences.md`) to be merged first. All plumbing is in place — the form saves preferences, the Provider toggles root classes — the only missing piece is the CSS rules responding to those classes.
 
 ## Proposed Solution (Reference — adjust after DS review)
 
@@ -63,31 +58,17 @@ html.reduce-motion *::after {
 
 Actual token values and scope TBD by DS review.
 
-### Form UI
-
-- `AccessibilitySection` built on `CrudForm` with three fields:
-  - `highContrast` → toggle
-  - `fontSize` → select (S/M/L/XL)
-  - `reducedMotion` → toggle (disabled visual when `prefers-reduced-motion: reduce` is detected; label reflects OS fallback)
-- Submit path: `useGuardedMutation().runMutation({ operation: 'update', context: 'auth.profile', ... })` → calls `PUT /api/auth/profile` with `{ accessibilityPreferences }` → dispatches `ACCESSIBILITY_PREFERENCES_CHANGED_EVENT` on success so Provider re-applies without reload.
-
-### OSS vs enterprise hosting
-
-- OSS: dedicated page at `/backend/profile/accessibility` (sidebar + profile dropdown entry).
-- Enterprise: `security.profile.sections` widget injection in the enterprise security profile. OSS page stays available; enterprise redirect short-circuits the nav entry so there is one entry point per environment.
-
 ## Integration Test Coverage
 
-- `TC-SEC-009` — enterprise security profile shows the injected section; save round-trip works; skip link focuses `main#main-content`.
-- UI path for the OSS page — form save dispatches live-update event and reflects preference changes in `<html>` classes without a route change.
+- `TC-SEC-009` — enterprise security profile shows the injected section, save round-trip works, and the `.high-contrast` class actually changes visible tokens (background/foreground contrast measurement).
 
 ## Backward Compatibility
 
 - CSS rules are additive to `globals.css`; they only take effect when the corresponding class is present on `<html>`. Default users (no saved preferences, no class toggle) observe no visual change.
-- Widget injection spot `security.profile.sections` is already part of the enterprise contract — this spec only adds a new widget, does not change the spot ID.
-- New auth i18n keys are additive.
+- No new dependencies, no schema changes, no route changes.
 
 ## Changelog
 
 - **2026-04-14** — initial scope baked into the omnibus spec.
 - **2026-04-15** — extracted to this standalone draft after reviewer feedback held the visual layer for DS direction.
+- **2026-04-15 (narrowed)** — form UI, page, widget injection, nav metadata, and `auth.accessibility.*` i18n moved back into PR-A per reviewer's "possibly backend/profile plumbing without the visual token layer" note. This spec now covers only the CSS rules + the enterprise visual-rendering test.

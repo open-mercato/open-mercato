@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
+import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
@@ -14,16 +15,23 @@ type ProfileResponse = {
   accessibilityPreferences?: AccessibilityPreferences | null
 }
 
+async function isSecurityModuleActive(request: APIRequestContext): Promise<boolean> {
+  const probe = await request.get('/api/security/mfa').catch(() => null)
+  return probe !== null && probe.status() !== 404
+}
+
 test.describe('TC-AUTH-027: Accessibility preferences on self-service profile', () => {
   const stamp = Date.now()
   const password = 'Valid1!Pass'
 
   let adminToken: string | null = null
   let organizationId: string | null = null
+  let securityModuleActive = false
 
   test.beforeAll(async ({ request }) => {
     adminToken = await getAuthToken(request)
     organizationId = getTokenContext(adminToken).organizationId
+    securityModuleActive = await isSecurityModuleActive(request)
   })
 
   async function createTestUser(request: APIRequestContext, email: string) {
@@ -89,5 +97,20 @@ test.describe('TC-AUTH-027: Accessibility preferences on self-service profile', 
     } finally {
       await deleteTestUser(request, userId)
     }
+  })
+
+  test('shows skip link and accessibility section on the OSS profile page', async ({ page }) => {
+    test.skip(securityModuleActive, 'Security module active: accessibility UI lives in the enterprise security profile')
+
+    await login(page, 'admin')
+    await page.goto('/backend/profile/accessibility', { waitUntil: 'domcontentloaded' })
+
+    await page.keyboard.press('Tab')
+    const skipLink = page.getByRole('link', { name: 'Skip to content' })
+    await expect(skipLink).toBeVisible()
+
+    await skipLink.press('Enter')
+    await expect(page.locator('main#main-content')).toBeFocused()
+    await expect(page.getByRole('heading', { name: 'Accessibility' })).toBeVisible()
   })
 })

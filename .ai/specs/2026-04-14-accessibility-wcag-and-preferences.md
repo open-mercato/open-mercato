@@ -5,19 +5,22 @@
 **Key Points:**
 - Introduce WCAG 2.1 AA fixes to the backoffice chrome (skip-to-content link, ARIA labels, live regions for flash messages) and a dev-only `axe-core` bootstrap.
 - Persist per-user accessibility preferences (`highContrast`, `fontSize`, `reducedMotion`) on the `users` row, expose them via `GET`/`PUT /api/auth/profile`, and hydrate them in the browser via `AccessibilityProvider`.
-- Visual token rules (CSS for `--font-scale`, `.high-contrast`, `.reduce-motion`) and the user-facing form UI are **out of scope**; they are tracked in a follow-up DS spec so the ownership decision stays with the design system team.
+- Ship the backend/profile plumbing — `/backend/profile/accessibility` page, `AccessibilitySection` form, profile navigation entry, enterprise widget injection — so users can actually save preferences. The reviewer-approved wording is "possibly backend/profile plumbing without the visual token layer"; this spec owns the plumbing.
+- Visual CSS token rules (`.high-contrast` light/dark overrides, `--font-scale` typography multiplier, `.reduce-motion` blanket rule) are **out of scope**; they are tracked in the DS spec because the ownership decision stays with the design system team.
 - Voice input for the AI assistant is **out of scope**; tracked in a separate spec pending use-case evaluation.
 
 **Scope:**
 - Phase B — WCAG chrome: `AppShell` skip link + `main#main-content` focus target, `FlashMessages` `aria-live`/`role`, `aria-label` on icon-only topbar controls (ProfileDropdown, SettingsButton, UserMenu), dev-only `AxeDevBootstrap` with `@axe-core/react`.
-- Phase C (data/API only) — `users.accessibility_preferences` jsonb column, `AccessibilityPreferencesSchema`, `GET`/`PUT /api/auth/profile` additively extended, `auth.users.update` command merges and restores preferences in its undo snapshot.
+- Phase C — data/API: `users.accessibility_preferences` jsonb column, `AccessibilityPreferencesSchema`, `GET`/`PUT /api/auth/profile` additively extended, `auth.users.update` command merges and restores preferences in its undo snapshot.
+- Phase C — UI plumbing: `AccessibilitySection` (CrudForm + `useGuardedMutation`), dedicated OSS page `/backend/profile/accessibility` with `page.meta.ts`, `change-password/page.tsx` layout refactor so profile sections share a container, `auth/lib/profile-sections.tsx` navigation metadata, enterprise widget injection for `security.profile.sections`, full `auth.accessibility.*` i18n keys plus `auth.profile.nav.label`.
 - Plumbing — `AccessibilityProvider` + `accessibility.ts` hydrate the stored preferences into `document.documentElement` (class toggles + `--font-scale` CSS var) and listen for `ACCESSIBILITY_PREFERENCES_CHANGED_EVENT` for live updates without reload. The provider is forward-compatible: applying the classes is a no-op visually until the DS token spec ships styling for them.
 
 **Out of scope (tracked elsewhere):**
-- Visual CSS tokens (`.high-contrast` light/dark, `--font-scale` typography rules, `.reduce-motion` animation overrides) and the profile-level accessibility form UI (`AccessibilitySection`, `/backend/profile/accessibility`, enterprise widget injection) — see `.ai/specs/2026-04-14-accessibility-ds-visual-tokens.md` (draft).
+- Visual CSS tokens (`.high-contrast` light/dark, `--font-scale` typography rules, `.reduce-motion` animation overrides) — see `.ai/specs/2026-04-14-accessibility-ds-visual-tokens.md` (draft).
+- Enterprise integration test `TC-SEC-009` which exercises the visual-rendering path through the security profile — ships alongside the DS token work.
 - Voice input for the Command Palette / DockableChat (`VoiceMicButton`, Whisper provider, `/api/ai_assistant/transcribe`) — see `.ai/specs/2026-04-14-ai-assistant-voice-input.md` (draft).
 
-**Placement:** `packages/ui` (chrome + provider), `packages/core/src/modules/auth` (data model + API + command).
+**Placement:** `packages/ui` (chrome + provider), `packages/core/src/modules/auth` (data model + API + command + form UI + profile page).
 
 ## Split from omnibus spec
 
@@ -65,6 +68,13 @@ packages/core/src/modules/auth/
 ├── data/validators.ts           # AccessibilityPreferencesSchema
 ├── api/profile/route.ts         # GET returns prefs; PUT accepts prefs; conditional JWT refresh
 ├── commands/users.ts            # merge + undo snapshot
+├── components/AccessibilitySection.tsx         # CrudForm + useGuardedMutation
+├── backend/profile/accessibility/page.tsx      # OSS page
+├── backend/profile/accessibility/page.meta.ts  # requireAuth + nav metadata
+├── backend/profile/change-password/page.tsx    # layout refactor to host sibling sections
+├── lib/profile-sections.tsx                    # profile nav section metadata
+├── widgets/injection-table.ts                  # enterprise security.profile.sections mapping
+├── widgets/injection/accessibility-section/{widget.ts,widget.client.tsx}
 └── migrations/Migration20260414130740.ts
 ```
 
@@ -95,7 +105,16 @@ packages/core/src/modules/auth/
   }
   ```
 - **`auth.users.update`** command merges `accessibilityPreferences` into the entity, includes both `before` and `after` in the undo snapshot, and is covered by a dedicated unit test.
-- **i18n**: extends `auth.profile.form.errors.emailOrPasswordRequired` to mention accessibility settings (EN/DE/ES/PL) so the OSS error message reflects the new optional payload.
+- **i18n**: extends `auth.profile.form.errors.emailOrPasswordRequired` to mention accessibility settings (EN/DE/ES/PL) so the OSS error message reflects the new optional payload. Adds the full `auth.accessibility.*` key set used by the form (`section_title`, `section_description`, `font_size` + size variants, `high_contrast` + description, `reduced_motion` + description, `save_success`, `saving`) plus `auth.profile.nav.label`.
+
+### Phase C — UI plumbing
+
+- **`AccessibilitySection`** — `CrudForm`-driven section with three fields (toggle `highContrast`, select `fontSize` S/M/L/XL, toggle `reducedMotion`). Submit path uses `useGuardedMutation({ operation: 'update' }).runMutation(...)` calling `PUT /api/auth/profile` with `{ accessibilityPreferences }`; on success dispatches `ACCESSIBILITY_PREFERENCES_CHANGED_EVENT` so the Provider re-applies to `<html>` without a page reload.
+- **`/backend/profile/accessibility/page.tsx` + `page.meta.ts`** — OSS self-service page (`requireAuth: true`). Meta exports the nav label key and the profile section grouping.
+- **`auth/backend/profile/change-password/page.tsx`** — container refactor (ternary instead of early return, outer `<div className="space-y-6">`) so the change-password section and future profile sections can render side by side.
+- **`auth/lib/profile-sections.tsx`** — shared profile navigation metadata consumed by OSS page + enterprise widget injection.
+- **`auth/widgets/injection-table.ts` + `widgets/injection/accessibility-section/{widget.ts,widget.client.tsx}`** — enterprise-only widget injection into `security.profile.sections` so enterprise users see the form inside the security profile. OSS still reaches the form via `/backend/profile/accessibility`.
+- **Visual effect note**: the form saves preferences and toggles root classes via the Provider, but actual visual styling (font-size scaling, high-contrast palette overrides, reduced-motion rules) ships with the DS spec. Until then the UI saves successfully and the Provider applies the class flip — the only missing piece is the CSS that responds to those classes.
 
 ### Plumbing — AccessibilityProvider
 
@@ -113,14 +132,16 @@ packages/core/src/modules/auth/
 4. **Profile API + command** — `GET`/`PUT` extension, command merge/undo, tests.
 5. **Retry-after-failure fix** — null `loadPromise` in `.catch()`, regression test covers two consecutive renders (first fails, second succeeds).
 6. **Spec authoring** — this file + DS draft + voice draft; delete omnibus + analysis.
+7. **UI plumbing** — `AccessibilitySection` form, `/backend/profile/accessibility` page + meta, change-password layout refactor, profile-sections metadata, widget injection, full `auth.accessibility.*` i18n keys. `yarn generate` to pick up the new widget.
 
 ## Integration Test Coverage
 
 | Test | Path |
 |------|------|
-| Self-service profile persists accessibility preferences through `GET` + `PUT /api/auth/profile` | `packages/core/src/modules/auth/__integration__/TC-AUTH-027.spec.ts` |
+| Self-service profile persists accessibility preferences through `GET` + `PUT /api/auth/profile` | `packages/core/src/modules/auth/__integration__/TC-AUTH-027.spec.ts` (API test) |
+| OSS profile page renders the skip link, focuses `main#main-content`, and shows the Accessibility heading | `packages/core/src/modules/auth/__integration__/TC-AUTH-027.spec.ts` (UI test) — skipped when the enterprise security profile is active so the test does not race enterprise redirect |
 
-UI-level integration tests that depend on the form page (`/backend/profile/accessibility`) move to the DS spec's coverage along with the page.
+Enterprise visual-rendering test `TC-SEC-009` ships with the DS token spec (it exercises the `security.profile.sections` widget + CSS-bound styling).
 
 ## Unit Test Coverage
 
