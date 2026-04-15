@@ -94,8 +94,10 @@ function buildTestContext() {
     request: undefined as any,
   }
 
-  // findOneWithDecryption returns the org by default
-  mockFindOneWithDecryption.mockResolvedValue({ id: orgId, tenant: { id: tenantId } })
+  // First call: organization lookup returns the org; second call: duplicate email check returns null
+  mockFindOneWithDecryption
+    .mockResolvedValueOnce({ id: orgId, tenant: { id: tenantId } })
+    .mockResolvedValueOnce(null)
 
   return { em, dataEngine, ctx }
 }

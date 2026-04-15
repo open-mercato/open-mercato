@@ -14,9 +14,17 @@ export const metadata: WorkerMeta = {
 type EventJobPayload = {
   event: string
   payload: unknown
+  options?: {
+    tenantId?: string | null
+    organizationId?: string | null
+  }
 }
 
-type HandlerContext = { resolve: <T = unknown>(name: string) => T }
+type HandlerContext = {
+  resolve: <T = unknown>(name: string) => T
+  tenantId?: string | null
+  organizationId?: string | null
+}
 
 type SubscriberEntry = {
   id: string
@@ -65,7 +73,7 @@ export default async function handle(
   job: QueuedJob<EventJobPayload>,
   ctx: JobContext & HandlerContext
 ): Promise<void> {
-  const { event, payload } = job.payload
+  const { event, payload, options } = job.payload
   const listeners = getListenerMap()
   const subscribers = listeners.get(event)
 
@@ -75,7 +83,11 @@ export default async function handle(
 
   for (const sub of subscribers) {
     try {
-      await sub.handler(payload, { resolve: ctx.resolve })
+      await sub.handler(payload, {
+        resolve: ctx.resolve,
+        tenantId: options?.tenantId ?? null,
+        organizationId: options?.organizationId ?? null,
+      })
     } catch (error) {
       // Log error but continue processing other subscribers
       console.error(`[events] Subscriber "${sub.id}" failed for event "${event}":`, error)
@@ -83,13 +95,10 @@ export default async function handle(
     }
   }
 
-  // If all subscribers failed, throw to trigger retry
-  if (errors.length === subscribers.length) {
-    throw new Error(`All ${errors.length} subscriber(s) failed for event "${event}"`)
-  }
-
-  // Log partial failures but don't fail the job
   if (errors.length > 0) {
-    console.warn(`[events] ${errors.length}/${subscribers.length} subscriber(s) failed for event "${event}"`)
+    const failedIds = errors.map((e) => e.subscriberId).join(', ')
+    throw new Error(
+      `${errors.length}/${subscribers.length} subscriber(s) failed for event "${event}": ${failedIds}`
+    )
   }
 }

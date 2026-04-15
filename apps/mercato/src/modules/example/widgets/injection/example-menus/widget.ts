@@ -15,7 +15,7 @@ const widget: InjectionMenuItemWidget = {
       features: ['example.todos.view'],
       groupId: 'example.nav.group',
       groupLabelKey: 'example.nav.group',
-      placement: { position: InjectionPosition.Before, relativeTo: 'sign-out' },
+      placement: { position: InjectionPosition.Last },
     },
   ],
 }

@@ -25,7 +25,7 @@ import {
 
 type SalesDocumentKind = 'order' | 'quote'
 
-type FilterOption = { value: string; label: string }
+type FilterOption = { value: string; label: string; description?: string | null }
 
 type CustomerSnapshot = {
   customer?: {
@@ -200,7 +200,8 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           const id = typeof item?.id === 'string' ? item.id : null
           const label = typeof item?.label === 'string' ? item.label : null
           if (!id || !label) return null
-          return { value: id, label }
+          const description = typeof item?.description === 'string' ? item.description : null
+          return { value: id, label, description }
         })
         .filter((opt): opt is FilterOption => opt !== null)
     } catch {
@@ -353,8 +354,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       type: 'tags',
       options: tagOptions,
       loadOptions: loadTagOptions,
+      formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
+      formatDescription: (val: string) => tagOptions.find((o) => o.value === val)?.description ?? null,
     },
-  ], [channelOptions, loadChannelOptions, loadTagOptions, tagOptions, t])
+  ], [channelOptions, loadChannelOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()

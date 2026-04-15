@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import {
   handleOpenCodeMessageStreaming,
@@ -118,6 +119,14 @@ RESPONSE RULES:
 - Present results in clean business language with **bold names** and bullet points.
 - Only ask for confirmation before create/update/delete operations.
 `.trim()
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'AI Assistant',
+  summary: 'AI chat',
+  methods: {
+    POST: { summary: 'Send message to AI agent via SSE stream' },
+  },
+}
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },

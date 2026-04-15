@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { createPaymentSession, getTransactionStatus } from './helpers/fixtures'
+import { createPaymentSession, getTransactionStatus, postMockWebhook } from './helpers/fixtures'
 
 /**
  * TC-PGWY-006: Webhook processing
@@ -16,9 +16,9 @@ test.describe('TC-PGWY-006: Webhook processing', () => {
     })
     expect(session.status).toBe('authorized')
 
-    const response = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
+    const response = await postMockWebhook(request, {
       token,
-      data: {
+      payload: {
         type: 'payment.captured',
         id: session.sessionId,
         data: { id: session.sessionId, status: 'captured', amount: 10.00 },

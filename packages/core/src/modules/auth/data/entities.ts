@@ -46,8 +46,8 @@ export class Role {
   @Property({ type: 'text' })
   name!: string
 
-  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
-  tenantId?: string | null
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

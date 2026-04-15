@@ -10,8 +10,10 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
+import { workflowInstanceResponseSchema, workflowExecutionResultSchema } from '../../../openapi'
 
 export const metadata = {
   requireAuth: true,
@@ -72,7 +74,7 @@ export async function POST(
       )
     }
 
-    const instance = await em.findOne(WorkflowInstance, {
+    const instance = await findOneWithDecryption(em, WorkflowInstance, {
       id: params.id,
       tenantId,
       organizationId,
@@ -95,7 +97,9 @@ export async function POST(
       )
     }
 
-    // Reset instance to RUNNING status and increment retry count
+    const previousErrorMessage = instance.errorMessage
+    const previousErrorDetails = instance.errorDetails
+
     instance.status = 'RUNNING'
     instance.retryCount = (instance.retryCount || 0) + 1
     instance.errorMessage = null
@@ -104,10 +108,18 @@ export async function POST(
 
     await em.flush()
 
-    // Execute workflow from current step
-    const result = await workflowExecutor.executeWorkflow(em, container, instance.id)
+    let result
+    try {
+      result = await workflowExecutor.executeWorkflow(em, container, instance.id)
+    } catch (executionError) {
+      instance.status = 'FAILED'
+      instance.errorMessage = previousErrorMessage
+      instance.errorDetails = previousErrorDetails
+      instance.updatedAt = new Date()
+      await em.flush()
+      throw executionError
+    }
 
-    // Reload instance to get final state
     await em.refresh(instance)
 
     return NextResponse.json({
@@ -150,8 +162,8 @@ export const openApi = {
           description: 'Workflow retry initiated successfully',
           schema: z.object({
             data: z.object({
-              instance: z.any(),
-              execution: z.any(),
+              instance: workflowInstanceResponseSchema,
+              execution: workflowExecutionResultSchema,
             }),
             message: z.string(),
           }),

@@ -7,7 +7,7 @@ import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
-import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
@@ -107,26 +107,121 @@ function getDatabaseTargetLabel(): string {
   }
 }
 
-function formatCliFailureMessage(modName: string, cmdName: string, error: unknown): string {
+function getFallbackErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   const nestedErrors = collectNestedErrors(error)
-  const fallbackMessage =
-    nestedErrors
-      .map((item) => item.message?.trim() ?? '')
-      .find((item) => item.length > 0)
+
+  return nestedErrors
+    .map((item) => item.message?.trim() ?? '')
+    .find((item) => item.length > 0)
     ?? (typeof message === 'string' && message.trim().length > 0 ? message : 'Unknown error')
+}
+
+function detectDatabaseConnectionIssue(
+  error: unknown,
+): { target: string; reason: 'refused the connection' | 'could not be resolved' } | null {
+  const nestedErrors = collectNestedErrors(error)
+  const hasConnectionRefused = nestedErrors.some((item) =>
+    item.code === 'ECONNREFUSED' || /ECONNREFUSED|Connection refused|connect ECONNREFUSED/i.test(item.message || ''),
+  )
+  const hasDnsFailure = nestedErrors.some((item) =>
+    item.code === 'ENOTFOUND'
+      || item.code === 'EAI_AGAIN'
+      || /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(item.message || ''),
+  )
+
+  if (!hasConnectionRefused && !hasDnsFailure) {
+    return null
+  }
+
+  return {
+    target: getDatabaseTargetLabel(),
+    reason: hasConnectionRefused ? 'refused the connection' : 'could not be resolved',
+  }
+}
+
+function formatCliFailureMessage(modName: string, cmdName: string, error: unknown): string {
+  const fallbackMessage = getFallbackErrorMessage(error)
+  const databaseIssue = detectDatabaseConnectionIssue(error)
 
   const isDatabaseCommand = modName === 'db' && ['migrate', 'generate', 'greenfield'].includes(cmdName)
-  const hasConnectionRefused = nestedErrors.some((item) => item.code === 'ECONNREFUSED' || /ECONNREFUSED|Connection refused|connect ECONNREFUSED/i.test(item.message || ''))
-  const hasDnsFailure = nestedErrors.some((item) => item.code === 'ENOTFOUND' || item.code === 'EAI_AGAIN' || /ENOTFOUND|EAI_AGAIN|getaddrinfo/i.test(item.message || ''))
+  const isDatabaseBackedRuntimeCommand =
+    (modName === 'queue' && ['worker', 'status', 'clear'].includes(cmdName)) ||
+    (modName === 'scheduler' && ['start'].includes(cmdName)) ||
+    (modName === 'configs' && ['cache'].includes(cmdName))
 
-  if (isDatabaseCommand && (hasConnectionRefused || hasDnsFailure)) {
-    const target = getDatabaseTargetLabel()
-    const reason = hasConnectionRefused ? 'refused the connection' : 'could not be resolved'
-    return `${target} is not reachable: it ${reason}. Start the database service or fix DATABASE_URL in .env, then retry \`yarn db:${cmdName}\`.`
+  if (isDatabaseCommand && databaseIssue) {
+    return `${databaseIssue.target} is not reachable: it ${databaseIssue.reason}. Start the database service or fix DATABASE_URL in .env, then retry \`yarn db:${cmdName}\`.`
+  }
+
+  if (isDatabaseBackedRuntimeCommand && databaseIssue) {
+    return `${databaseIssue.target} is not reachable: it ${databaseIssue.reason}. This command needs PostgreSQL. Start the database service or fix DATABASE_URL in .env, then retry \`yarn mercato ${modName} ${cmdName}\`.`
   }
 
   return fallbackMessage
+}
+
+function formatInitFailureMessage(error: unknown): string {
+  const fallbackMessage = getFallbackErrorMessage(error)
+  const databaseIssue = detectDatabaseConnectionIssue(error)
+
+  if (databaseIssue) {
+    return `${databaseIssue.target} is not reachable: it ${databaseIssue.reason}. Start PostgreSQL or fix DATABASE_URL in .env, then retry \`yarn initialize\`.`
+  }
+
+  return fallbackMessage
+}
+
+async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
+  let parsed: URL
+  try {
+    parsed = new URL(dbUrl)
+  } catch {
+    return true
+  }
+
+  const dbName = parsed.pathname.replace(/^\/+/, '')
+  if (!dbName) return true
+
+  const maintenanceUrl = new URL(dbUrl)
+  maintenanceUrl.pathname = '/postgres'
+
+  const { Client } = await import('pg')
+  const adminClient = new Client({ connectionString: maintenanceUrl.toString(), ssl: getSslConfig() })
+
+  try {
+    await adminClient.connect()
+
+    const result = await adminClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName])
+    if (result.rows.length > 0) return true
+
+    console.log(`   Database "${dbName}" does not exist. Attempting to create it...`)
+    try {
+      await adminClient.query(`CREATE DATABASE "${dbName.replace(/"/g, '')}"`)
+      console.log(`   Database "${dbName}" created successfully.`)
+      return true
+    } catch (createError: unknown) {
+      const msg = createError instanceof Error ? createError.message : String(createError)
+      console.error(`   Failed to create database "${dbName}": ${msg}`)
+      console.error(``)
+      console.error(`   To create the database manually, connect to PostgreSQL and run:`)
+      console.error(``)
+      console.error(`     CREATE DATABASE "${dbName}";`)
+      console.error(``)
+      console.error(`   Or from the command line (as a superuser or the owner):`)
+      console.error(``)
+      console.error(`     createdb "${dbName}"`)
+      console.error(``)
+      console.error(`   On Windows with the default postgres user:`)
+      console.error(``)
+      console.error(`     psql -U postgres -c "CREATE DATABASE \\"${dbName}\\";"`)
+      return false
+    }
+  } catch {
+    return true
+  } finally {
+    try { await adminClient.end() } catch {}
+  }
 }
 
 function isTurbopackCacheCorruption(output: string): boolean {
@@ -151,6 +246,13 @@ async function ensureEnvLoaded() {
 
     // Load .env from app directory if it exists
     const envPath = path.join(appDir, '.env')
+    if (!fs.existsSync(envPath) && process.env.NODE_ENV !== 'production') {
+      const examplePath = path.join(appDir, '.env.example')
+      if (fs.existsSync(examplePath)) {
+        fs.copyFileSync(examplePath, envPath)
+        console.log(`📋 Copied .env.example → .env (edit ${envPath} to customize)`)
+      }
+    }
     if (fs.existsSync(envPath)) {
       const dotenv = await import('dotenv')
       dotenv.config({ path: envPath, quiet: quietDotenv })
@@ -438,6 +540,8 @@ export async function run(argv = process.argv) {
           console.error('DATABASE_URL is not set. Aborting reinstall.')
           return 1
         }
+        const dbExists = await ensureDatabaseExists(dbUrl)
+        if (!dbExists) return 1
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
@@ -474,14 +578,33 @@ export async function run(argv = process.argv) {
         } finally {
           try { await client.end() } catch {}
         }
-        // Also flush Redis
-        try {
+        // Also flush Redis when configured. Skip silently if no URL is set —
+        // a stray ioredis client with auto-reconnect would otherwise spam
+        // ETIMEDOUT errors for the rest of the process lifetime.
+        const redisUrl = getRedisUrl()
+        if (redisUrl) {
           const Redis = (await import('ioredis')).default
-          const redis = new Redis(getRedisUrl())
-          await redis.flushall()
-          await redis.quit()
-          console.log('   Redis flushed.')
-        } catch {}
+          const redis = new Redis(redisUrl, {
+            lazyConnect: true,
+            connectTimeout: 3000,
+            maxRetriesPerRequest: 1,
+            retryStrategy: () => null,
+            enableOfflineQueue: false,
+          })
+          redis.on('error', () => {})
+          try {
+            await redis.connect()
+            await redis.flushall()
+            console.log('   Redis flushed.')
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.log(`   Redis flush skipped (${message}).`)
+          } finally {
+            try { redis.disconnect() } catch {}
+          }
+        } else {
+          console.log('   Redis flush skipped (REDIS_URL not configured).')
+        }
         console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
       }
 
@@ -494,6 +617,8 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
+        const dbExists = await ensureDatabaseExists(dbUrl)
+        if (!dbExists) return 1
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
@@ -771,11 +896,7 @@ export async function run(argv = process.argv) {
 
       return 0
     } catch (error: unknown) {
-      if (error instanceof Error) {
-        console.error('❌ Initialization failed:', error.message)
-      } else {
-        console.error('❌ Initialization failed:', error)
-      }
+      console.error('❌ Initialization failed:', formatInitFailureMessage(error))
       return 1
     }
   }
@@ -1080,9 +1201,10 @@ export async function run(argv = process.argv) {
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
+              const queueRedisUrl = getRedisUrl('QUEUE')
               await runWorker({
                 queueName: queue,
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
                 background: true,
                 handler: async (job, ctx) => {
@@ -1111,9 +1233,10 @@ export async function run(argv = process.argv) {
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
+              const queueRedisUrl = getRedisUrl('QUEUE')
               await runWorker({
                 queueName: queueName!,
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
                 handler: async (job, ctx) => {
                   for (const worker of queueWorkers) {
@@ -1144,7 +1267,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: { url: getRedisUrlOrThrow('QUEUE') },
               })
             : createQueue(queueName, 'local')
 
@@ -1167,7 +1290,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: { url: getRedisUrlOrThrow('QUEUE') },
               })
             : createQueue(queueName, 'local')
 

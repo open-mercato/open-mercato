@@ -12,10 +12,14 @@ import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
+<<<<<<< HEAD
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
+=======
+import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
+>>>>>>> origin/develop
 import type { EntityManager } from '@mikro-orm/postgresql'
-import crypto from 'node:crypto'
 
 const resendInviteRateLimitConfig = readEndpointRateLimitConfig('RESEND_INVITE', {
   points: 3, duration: 300, blockDuration: 300, keyPrefix: 'resend-invite',
@@ -125,12 +129,18 @@ export async function POST(req: Request) {
     { usedAt: new Date() },
   )
 
-  const token = crypto.randomBytes(32).toString('hex')
+  const rawToken = generateAuthToken()
+  const tokenHash = hashAuthToken(rawToken)
   const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
-  const row = em.create(PasswordReset, { user, token, expiresAt, createdAt: new Date() })
+  const row = em.create(PasswordReset, { user, token: tokenHash, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
+<<<<<<< HEAD
   const inviteUrl = `${base}/reset/${token}`
+=======
+  const base = resolveInviteBaseUrl(req.url)
+  const inviteUrl = `${base}/reset/${rawToken}`
+>>>>>>> origin/develop
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.invite.subject', 'You have been invited')

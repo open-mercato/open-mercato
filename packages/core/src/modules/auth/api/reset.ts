@@ -93,7 +93,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-export const metadata = {}
+export const metadata = { requireAuth: false }
 
 const passwordResetRequestSchema = z.object({
   email: z.string().email(),

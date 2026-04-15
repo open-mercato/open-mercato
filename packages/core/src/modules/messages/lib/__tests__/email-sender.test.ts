@@ -54,7 +54,7 @@ describe('messages email sender', () => {
     process.env.APP_URL = appUrl
   })
 
-  it('creates and persists access token', async () => {
+  it('creates and persists access token as an HMAC hash while returning the raw token', async () => {
     const em = createEm()
 
     const token = await createMessageAccessToken(
@@ -66,6 +66,10 @@ describe('messages email sender', () => {
     expect(token).toHaveLength(64)
     expect(em.create).toHaveBeenCalledTimes(1)
     expect(em.persistAndFlush).toHaveBeenCalledTimes(1)
+    const [, payload] = em.create.mock.calls[0] as [unknown, { token: string }]
+    const { hashAuthToken } = require('../../../auth/lib/tokenHash')
+    expect(payload.token).toBe(hashAuthToken(token))
+    expect(payload.token).not.toBe(token)
   })
 
   it('sends recipient email with generated view url', async () => {

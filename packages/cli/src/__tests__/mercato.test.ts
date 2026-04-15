@@ -226,7 +226,125 @@ describe('db command failure output', () => {
 
     expect(exitCode).toBe(1)
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      '💥 Failed: connect ECONNREFUSED 127.0.0.1:5432',
+      '💥 Failed: PostgreSQL at 127.0.0.1:5432/open_mercato is not reachable: it refused the connection. This command needs PostgreSQL. Start the database service or fix DATABASE_URL in .env, then retry `yarn mercato configs cache`.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+})
+
+describe('init command failure output', () => {
+  const originalDatabaseUrl = process.env.DATABASE_URL
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    jest.resetModules()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@127.0.0.1:5432/open_mercato'
+  })
+
+  afterEach(() => {
+    jest.dontMock('child_process')
+    jest.dontMock('pg')
+    jest.dontMock('../lib/db')
+    jest.dontMock('../lib/generators')
+    jest.dontMock('../lib/resolver')
+    jest.dontMock('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+    jest.resetModules()
+  })
+
+  afterAll(() => {
+    process.env.DATABASE_URL = originalDatabaseUrl
+  })
+
+  it('shows a targeted message when init cannot reach postgres', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const initError = new AggregateError(
+      [Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:5432'), { code: 'ECONNREFUSED' })],
+      'AggregateError',
+    )
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockRejectedValue(initError),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '❌ Initialization failed:',
+      'PostgreSQL at 127.0.0.1:5432/open_mercato is not reachable: it refused the connection. Start PostgreSQL or fix DATABASE_URL in .env, then retry `yarn initialize`.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
+  it('shows a DNS-focused message when init cannot resolve postgres host', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    process.env.DATABASE_URL = 'postgres://postgres:secret@db.internal:5432/open_mercato'
+
+    const initError = new AggregateError(
+      [Object.assign(new Error('getaddrinfo ENOTFOUND db.internal'), { code: 'ENOTFOUND' })],
+      'AggregateError',
+    )
+
+    jest.doMock('child_process', () => ({
+      execSync: jest.fn(),
+    }))
+    jest.doMock('pg', () => ({
+      Client: jest.fn().mockImplementation(() => ({
+        connect: jest.fn().mockRejectedValue(initError),
+        end: jest.fn().mockResolvedValue(undefined),
+      })),
+    }))
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleEntities: jest.fn().mockResolvedValue(undefined),
+      generateModuleDi: jest.fn().mockResolvedValue(undefined),
+      generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateOpenApi: jest.fn().mockResolvedValue(undefined),
+    }))
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'init'])
+
+    expect(exitCode).toBe(1)
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      '❌ Initialization failed:',
+      'PostgreSQL at db.internal:5432/open_mercato is not reachable: it could not be resolved. Start PostgreSQL or fix DATABASE_URL in .env, then retry `yarn initialize`.',
     )
 
     consoleErrorSpy.mockRestore()

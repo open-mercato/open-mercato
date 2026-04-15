@@ -1,3 +1,23 @@
+# Release Notes - Open Mercato v0.4.3
+
+**Date:** April 11, 2026
+
+## Breaking Changes
+
+### `roles.tenant_id` is now NOT NULL (#687)
+
+The `roles.tenant_id` column has been changed from nullable to `NOT NULL`. Global roles (`tenantId IS NULL`) were never functional — the RBAC service could not load permissions for them (because `RoleAcl.tenantId` is already `NOT NULL`), and `ensureRolesInContext` destructively corrupted them by mutating their `tenantId` during tenant setup, causing cross-tenant access control resets.
+
+**Migration**: `Migration20260411203200` automatically cleans up all FK dependents (`role_acls`, `user_roles`, `role_sidebar_preferences`) referencing global roles and deletes the orphaned rows before applying the constraint. No manual action is required.
+
+**API impact**: `POST /api/auth/roles` and `PUT /api/auth/roles` no longer accept `tenantId: null`. Callers that omit `tenantId` are unaffected — it defaults to the authenticated user's tenant. Callers that explicitly passed `null` will receive a `400` error.
+
+**Function impact**: `ensureRoles()` and `ensureRolesInContext()` now require a non-null `tenantId`. All internal callers already provided one; third-party modules calling these functions with `tenantId: null` must update.
+
+**Spec**: [`.ai/specs/implemented/2026-04-11-eliminate-global-roles.md`](.ai/specs/implemented/2026-04-11-eliminate-global-roles.md)
+
+---
+
 # Release Notes - Open Mercato v0.4.2
 
 **Date:** January 29, 2026
@@ -56,6 +76,9 @@ Switched the OpenCode container base image to Debian for better compatibility. *
 
 ### Change Service Port (#434)
 Updated the default service port configuration. *(@MStaniaszek1998)*
+
+### Database Pool Default Reduced
+Lowered the implicit `DB_POOL_MAX` default from `50` to `20` to keep local and Windows development within a safer PostgreSQL connection budget. Deployments that relied on the old default should set `DB_POOL_MAX` explicitly.
 
 ### Create Dockerfile for Docs (#425)
 Added a dedicated Dockerfile for building and serving the documentation site. *(@MStaniaszek1998)*

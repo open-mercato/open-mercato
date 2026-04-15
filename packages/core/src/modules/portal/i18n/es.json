@@ -89,5 +89,13 @@
   "portal.signup.success.title": "Cuenta creada",
   "portal.signup.title": "Crear cuenta",
   "portal.subtitle": "Tu centro de autoservicio",
-  "portal.title": "Portal del Cliente"
+  "portal.title": "Portal del Cliente",
+  "portal.verify.description": "Espere mientras verificamos su dirección de correo electrónico.",
+  "portal.verify.error.backToLogin": "Volver a iniciar sesión",
+  "portal.verify.error.generic": "La verificación del correo electrónico falló. Inténtalo de nuevo.",
+  "portal.verify.error.invalidToken": "Falta el token de verificación.",
+  "portal.verify.success.description": "Su correo electrónico ha sido verificado. Ahora puede iniciar sesión en el portal.",
+  "portal.verify.success.loginLink": "Iniciar sesión",
+  "portal.verify.success.title": "Correo verificado",
+  "portal.verify.title": "Verificando correo electrónico"
 }

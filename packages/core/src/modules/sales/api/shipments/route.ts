@@ -307,6 +307,7 @@ const crud = makeCrudRoute({
 
 const { GET, POST, PUT, DELETE } = crud
 
+export const metadata = routeMetadata
 export { GET, POST, PUT, DELETE }
 
 const shipmentItemSchema = z.object({

@@ -561,7 +561,15 @@ export class SearchIndexer {
     }
 
     if (indexableRecords.length > 0) {
-      await this.searchService.bulkIndex(indexableRecords)
+      try {
+        await this.searchService.bulkIndex(indexableRecords)
+      } catch (error) {
+        throw new Error(
+          `Failed to bulk index ${indexableRecords.length} records: ${
+            error instanceof Error ? error.message : error
+          }`
+        )
+      }
     }
   }
 

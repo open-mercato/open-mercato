@@ -4,12 +4,21 @@ import { z } from 'zod'
 
 // ---- Mocks ----
 const mockEventBus = { emitEvent: jest.fn() }
+const defaultOrganizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const defaultTenantId = '123e4567-e89b-12d3-a456-426614174000'
+type MockOrganizationScope = {
+  selectedId: string | null
+  filterIds: string[] | null
+  allowedIds: string[] | null
+  tenantId: string | null
+}
 
 type Rec = { id: string; organizationId: string; tenantId: string; title?: string; isDone?: boolean; deletedAt?: Date | null }
 let db: Record<string, Rec>
 let idSeq = 1
 let commandBus: { execute: jest.Mock }
 let crudMutationGuardService: { validateMutation: jest.Mock; afterMutationSuccess: jest.Mock } | null
+let mockOrganizationScopeOverride: MockOrganizationScope | null
 
 const em = {
   create: (_cls: any, data: any) => ({ ...data, id: `id-${idSeq++}` }),
@@ -112,12 +121,26 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => {
-  const auth = { sub: 'u1', orgId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000', roles: ['admin'] }
+  const auth = {
+    sub: 'u1',
+    orgId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    tenantId: '123e4567-e89b-12d3-a456-426614174000',
+    roles: ['admin'],
+  }
   return {
     getAuthFromCookies: async () => auth,
     getAuthFromRequest: async () => auth,
   }
 })
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => mockOrganizationScopeOverride ?? ({
+    selectedId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    tenantId: '123e4567-e89b-12d3-a456-426614174000',
+  })),
+}))
 
 const setRecordCustomFields = jest.fn(async () => {})
 jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
@@ -134,6 +157,7 @@ describe('CRUD Factory', () => {
     jest.clearAllMocks()
     accessLogService.log.mockClear()
     mockDataEngine.__pendingSideEffects = []
+    mockOrganizationScopeOverride = null
     commandBus = {
       execute: jest.fn(async () => ({ result: {}, logEntry: { id: 'log-1' } })),
     }
@@ -348,7 +372,7 @@ describe('CRUD Factory', () => {
 
   it('PUT updates entity, saves custom fields, emits updated event', async () => {
     // Seed
-    const created = em.create(Todo, { title: 'X', organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000' }) as Rec
+    const created = em.create(Todo, { title: 'X', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
     // Force UUID id to satisfy validation
     created.id = '123e4567-e89b-12d3-a456-426614174001'
     await em.persistAndFlush(created)
@@ -366,7 +390,7 @@ describe('CRUD Factory', () => {
   })
 
   it('DELETE soft-deletes entity and emits deleted event', async () => {
-    const created = em.create(Todo, { title: 'Y', organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', tenantId: '123e4567-e89b-12d3-a456-426614174000' }) as Rec
+    const created = em.create(Todo, { title: 'Y', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
     created.id = '123e4567-e89b-12d3-a456-426614174002'
     await em.persistAndFlush(created)
     const res = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}`, { method: 'DELETE' }))
@@ -379,6 +403,46 @@ describe('CRUD Factory', () => {
     expect(deletedArgs.identifiers.id).toBe(created.id)
     expect(deletedArgs.indexer?.entityType).toBe('example.todo')
     expect(db[created.id].deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('trims padded selected organization ids when scope resolution falls back from empty filter ids', async () => {
+    const created = em.create(Todo, { title: 'Scoped', organizationId: defaultOrganizationId, tenantId: defaultTenantId }) as Rec
+    created.id = '123e4567-e89b-12d3-a456-426614174052'
+    await em.persistAndFlush(created)
+    mockOrganizationScopeOverride = {
+      selectedId: ` ${defaultOrganizationId} `,
+      filterIds: [],
+      allowedIds: null,
+      tenantId: defaultTenantId,
+    }
+
+    const updateResponse = await route.PUT(new Request('http://x/api/example/todos', {
+      method: 'PUT',
+      body: JSON.stringify({ id: created.id, title: 'Scoped Updated' }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(updateResponse.status).toBe(200)
+    expect(mockDataEngine.updateOrmEntity).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        id: created.id,
+        organizationId: defaultOrganizationId,
+        tenantId: defaultTenantId,
+        deletedAt: null,
+      },
+    }))
+
+    const deleteResponse = await route.DELETE(new Request(`http://x/api/example/todos?id=${created.id}`, { method: 'DELETE' }))
+
+    expect(deleteResponse.status).toBe(200)
+    expect(mockDataEngine.deleteOrmEntity).toHaveBeenLastCalledWith(expect.objectContaining({
+      where: {
+        id: created.id,
+        organizationId: defaultOrganizationId,
+        tenantId: defaultTenantId,
+        deletedAt: null,
+      },
+    }))
   })
 
   it('PUT mutation guard uses route resource identity instead of spoofed lock headers', async () => {

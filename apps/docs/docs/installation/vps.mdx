@@ -1,0 +1,217 @@
+---
+title: VPS / Production Deployment
+description: Deploy a production-ready Open Mercato stack to any Linux server or VPS using Docker Compose.
+---
+
+Deploy the complete Open Mercato stack — application, PostgreSQL, Redis, and Meilisearch — to any Linux server using Docker Compose.
+
+[![Watch: Deploy Open Mercato on a VPS](https://img.youtube.com/vi/xau17YBP9ek/maxresdefault.jpg)](https://www.youtube.com/watch?v=xau17YBP9ek)
+
+---
+
+## Prerequisites
+
+- A Linux server or VPS (Ubuntu 22.04+ recommended)
+- **Docker 24+** and **Docker Compose v2+**
+- At least **2 GB RAM** (4 GB recommended for production workloads)
+- A domain name pointed at the server (for HTTPS)
+
+Install Docker on Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose-v2
+sudo usermod -aG docker $USER
+newgrp docker
+```
+
+---
+
+## Quick start
+
+```bash
+git clone https://github.com/open-mercato/open-mercato.git
+cd open-mercato
+
+cp apps/mercato/.env.example apps/mercato/.env
+# Edit apps/mercato/.env with your production values (see below)
+
+docker compose -f docker-compose.fullapp.yml up --build -d
+```
+
+The application will be available at **http://your-server-ip:3000/backend**.
+
+Sign in with the default admin credentials printed during first-run initialisation.
+
+---
+
+## Environment variables
+
+Edit `apps/mercato/.env` before starting. At minimum, set:
+
+```env
+# Database
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your-strong-db-password
+POSTGRES_DB=open-mercato
+DATABASE_URL=postgres://postgres:your-strong-db-password@postgres:5432/open-mercato
+
+# Authentication
+JWT_SECRET=your-strong-jwt-secret
+
+# Application
+APP_URL=https://your-domain.com
+NODE_ENV=production
+
+# Cache
+CACHE_REDIS_URL=redis://redis:6379
+CACHE_STRATEGY=redis
+
+# Search (optional but recommended)
+MEILISEARCH_HOST=http://meilisearch:7700
+MEILISEARCH_API_KEY=your-strong-meilisearch-key
+MEILISEARCH_MASTER_KEY=your-strong-meilisearch-key
+
+# AI features (optional)
+OPENAI_API_KEY=sk-...
+```
+
+Generate strong secrets:
+
+```bash
+openssl rand -hex 32   # for JWT_SECRET
+openssl rand -hex 24   # for MEILISEARCH_MASTER_KEY
+```
+
+:::warning
+The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `docker-compose.fullapp.yml`. Use these exact names in your connection strings — not `localhost`.
+:::
+
+---
+
+## Common operations
+
+```bash
+# Start in detached mode
+docker compose -f docker-compose.fullapp.yml up -d
+
+# View logs — all services
+docker compose -f docker-compose.fullapp.yml logs -f
+
+# View logs — app only
+docker compose -f docker-compose.fullapp.yml logs -f app
+
+# Rebuild after pulling new commits
+docker compose -f docker-compose.fullapp.yml up --build -d
+
+# Stop all services
+docker compose -f docker-compose.fullapp.yml down
+
+# Apply new migrations (after upgrade)
+yarn docker:db:migrate
+# or directly:
+docker compose -f docker-compose.fullapp.yml exec app yarn db:migrate
+```
+
+---
+
+## Data persistence
+
+Data is stored in named Docker volumes that survive container restarts:
+
+| Volume | Contents |
+|--------|----------|
+| `mercato-postgres-data` | PostgreSQL database |
+| `mercato-redis-data` | Redis cache and events |
+| `mercato-meilisearch-data` | Meilisearch indexes |
+
+**Backup PostgreSQL:**
+
+```bash
+docker exec mercato-postgres pg_dump -U postgres open-mercato > backup-$(date +%Y%m%d).sql
+```
+
+**Restore PostgreSQL:**
+
+```bash
+cat backup.sql | docker exec -i mercato-postgres psql -U postgres -d open-mercato
+```
+
+---
+
+## HTTPS with a reverse proxy
+
+For production, put a reverse proxy in front of the app. Example with **nginx**:
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name your-domain.com;
+
+    ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Use [Certbot](https://certbot.eff.org/) for free Let's Encrypt certificates.
+
+---
+
+## Production security checklist
+
+- [ ] `JWT_SECRET` — strong random value, never the default
+- [ ] `POSTGRES_PASSWORD` — strong random value
+- [ ] `MEILISEARCH_MASTER_KEY` — strong random value
+- [ ] `NODE_ENV=production`
+- [ ] Database and Redis ports **not** exposed to the public internet
+- [ ] HTTPS configured via reverse proxy
+- [ ] Automated daily backups scheduled for the PostgreSQL volume
+- [ ] Docker resource limits configured for containers
+
+---
+
+## Troubleshooting
+
+**Container fails to start:**
+
+```bash
+docker compose -f docker-compose.fullapp.yml logs app
+```
+
+**Database connection errors:**
+
+```bash
+# Check PostgreSQL is running
+docker compose -f docker-compose.fullapp.yml ps postgres
+
+# Check the DATABASE_URL matches the container config
+grep DATABASE_URL apps/mercato/.env
+```
+
+**Out of disk space:**
+
+```bash
+docker system df            # check usage
+docker system prune -a      # clean unused resources (does not touch named volumes)
+```
+
+**Full reset (deletes all data):**
+
+```bash
+docker compose -f docker-compose.fullapp.yml down -v
+docker compose -f docker-compose.fullapp.yml up --build -d
+```

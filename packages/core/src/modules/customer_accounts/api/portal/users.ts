@@ -3,9 +3,10 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest, requireCustomerFeature } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerUser, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)
@@ -13,8 +14,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
   }
 
+  const container = await createRequestContainer()
+  const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
+
   try {
-    requireCustomerFeature(auth, ['portal.users.view'])
+    await requireCustomerFeature(auth, ['portal.users.view'], customerRbacService)
   } catch (response) {
     return response as NextResponse
   }
@@ -23,7 +27,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'No company association' }, { status: 403 })
   }
 
-  const container = await createRequestContainer()
   const em = container.resolve('em') as import('@mikro-orm/postgresql').EntityManager
 
   const users = await em.find(CustomerUser, {

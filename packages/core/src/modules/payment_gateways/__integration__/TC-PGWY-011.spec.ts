@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
-import { createPaymentSession, getTransactionStatus } from './helpers/fixtures'
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { createPaymentSession, getTransactionStatus, postMockWebhook } from './helpers/fixtures'
 
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 
@@ -24,8 +24,8 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
       data: Buffer.from('this is not json {{{'),
     })
 
-    // Mock adapter's verifyWebhook calls JSON.parse, which throws on invalid JSON.
-    // The webhook endpoint catches the error and returns 401.
+    // Unsigned body fails HMAC verification in the mock adapter and the endpoint
+    // returns 401. Invalid JSON still never reaches JSON.parse.
     expect(response.status()).toBeGreaterThanOrEqual(400)
     expect(response.status()).toBeLessThan(500)
   })
@@ -42,12 +42,12 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
       data: Buffer.alloc(0),
     })
 
-    // Empty body causes JSON.parse to throw in verifyWebhook
+    // Missing signature header — request is rejected before any parsing attempt.
     expect(response.status()).toBeGreaterThanOrEqual(400)
     expect(response.status()).toBeLessThan(500)
   })
 
-  test('should not affect existing transactions when webhook has non-matching session id', async ({ request }) => {
+  test('should fail closed for a signed webhook that references a non-existent session id', async ({ request }) => {
     const token = await getAuthToken(request)
 
     const session = await createPaymentSession(request, token, {
@@ -58,20 +58,21 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
     })
     expect(session.status).toBe('authorized')
 
-    // Send a webhook referencing a non-existent session id
-    const response = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
+    // Signed webhook referencing a session id that never existed. The webhook route
+    // cannot locate a candidate GatewayTransaction whose per-tenant credentials can
+    // verify the signature, so it MUST fail closed with 401 — never 202.
+    const response = await postMockWebhook(request, {
       token,
-      data: {
+      payload: {
         type: 'payment.captured',
         id: 'non_existent_session_id_12345',
         data: { id: 'non_existent_session_id_12345', status: 'captured', amount: 42.00 },
       },
     })
 
-    // Webhook endpoint accepts the call (202) but worker will find no matching transaction
-    expect(response.status()).toBe(202)
+    expect(response.status()).toBe(401)
 
-    // Wait briefly to let async processing complete
+    // Wait briefly to let any async processing settle
     await new Promise((resolve) => setTimeout(resolve, 500))
 
     // Verify the existing transaction was not affected
@@ -79,17 +80,17 @@ test.describe('TC-PGWY-011: Webhook malformed payload', () => {
     expect(status.status).toBe('authorized')
   })
 
-  test('should handle webhook with missing type and id fields without crashing', async ({ request }) => {
+  test('should fail closed for a signed webhook with missing type and id fields', async ({ request }) => {
     const token = await getAuthToken(request)
 
-    // Valid JSON but missing the standard type/id fields
-    const response = await apiRequest(request, 'POST', '/api/payment_gateways/webhook/mock', {
+    // Valid JSON + valid HMAC signature, but no recognizable session id. The webhook
+    // route cannot find a candidate transaction, so it rejects with 401 instead of
+    // silently accepting the event.
+    const response = await postMockWebhook(request, {
       token,
-      data: { unexpected: 'payload', nested: { value: 123 } },
+      payload: { unexpected: 'payload', nested: { value: 123 } },
     })
 
-    // The mock verifyWebhook defaults type to 'mock.event' and id to random UUID.
-    // The endpoint should accept it (202) — worker will skip since no transaction matches.
-    expect(response.status()).toBe(202)
+    expect(response.status()).toBe(401)
   })
 })
