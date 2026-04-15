@@ -64,14 +64,10 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const transactionalEm = em as EntityManager & {
-      transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
-    }
-
     const hashedToken = hashAuthToken(token)
     const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
 
-    const acceptQuote = async (trx: EntityManager) => {
+    const quote = await em.transactional(async (trx) => {
       const findQuoteByToken = (acceptanceToken: string) =>
         findOneWithDecryption(
           trx,
@@ -111,11 +107,7 @@ export async function POST(req: Request) {
       await trx.flush()
 
       return quote
-    }
-
-    const quote = typeof transactionalEm.transactional === 'function'
-      ? await transactionalEm.transactional((trx) => acceptQuote(trx))
-      : await acceptQuote(em)
+    })
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx: CommandRuntimeContext = {
