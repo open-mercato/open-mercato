@@ -20,15 +20,13 @@ import {
   UnsafeOutboundUrlError,
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 
 function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
-  const raw = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
-  if (!raw) return false
-  const normalized = raw.trim().toLowerCase()
-  return normalized === '1' || normalized === 'true' || normalized === 'yes'
+  return parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)
 }
 
 // ============================================================================

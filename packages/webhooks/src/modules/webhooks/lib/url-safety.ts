@@ -5,14 +5,13 @@ import {
   type HostLookup,
   type UrlSafetyReason,
 } from '@open-mercato/shared/lib/url-safety'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 export { isPrivateIpAddress } from '@open-mercato/shared/lib/network'
 
 const SUBJECT = 'Webhook URL'
 
-// Kept as a standalone Error subclass (not extending UnsafeOutboundUrlError) so that
-// `reason: string` stays compatible with pre-refactor consumers. See
-// BACKWARD_COMPATIBILITY.md §2 (Type Definitions): required field types MUST NOT be narrowed.
+// reason: string (not UrlSafetyReason) preserves BC per BACKWARD_COMPATIBILITY.md §2
 export class UnsafeWebhookUrlError extends Error {
   public readonly reason: string
 
@@ -52,10 +51,7 @@ export function assertStaticallySafeWebhookUrl(
 }
 
 export function isAllowPrivateWebhookUrlsEnabled(): boolean {
-  const raw = process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS
-  if (!raw) return false
-  const normalized = raw.trim().toLowerCase()
-  return normalized === '1' || normalized === 'true' || normalized === 'yes'
+  return parseBooleanWithDefault(process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS, false)
 }
 
 export type AssertSafeWebhookDeliveryDeps = {
