@@ -46,6 +46,7 @@ async function generateLucideRegistry() {
       '**/*.test.ts',
       '**/*.test.tsx',
       '**/*.generated.ts',
+      '**/*.generated.tsx',
       '**/*.d.ts',
     ],
   })
