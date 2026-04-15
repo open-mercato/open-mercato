@@ -148,6 +148,21 @@ nvm alias default 24
 
 Verify: `node --version` → `v24.x.x`
 
+### Install build tools for native Node modules
+
+Several dependencies (e.g. `better-sqlite3`, `isolated-vm`) ship without prebuilt binaries and must be compiled locally via `node-gyp`. On a fresh Ubuntu WSL2 image you need a C/C++ toolchain and Python:
+
+```bash
+sudo apt update
+sudo apt install -y build-essential python3
+```
+
+Run this **before** `yarn install`. If `yarn install` ran before these tools were available, native modules silently fail to build and Yarn caches the failure — symptoms include `Could not locate the bindings file` for `better-sqlite3` and the cache service warning `[cache] sqlite strategy unavailable (better-sqlite3 failed to load). Falling back to memory strategy.`. To recover, install the toolchain and then force a rebuild:
+
+```bash
+yarn rebuild
+```
+
 ---
 
 ## 6. Install Yarn 4.12.0
@@ -416,6 +431,52 @@ Then open `http://172.28.163.55:3000/backend` in your Windows browser.
 
 ---
 
+## Editing from Windows with VS Code or Visual Studio
+
+### VS Code (recommended)
+
+VS Code's **WSL** extension turns VS Code on Windows into a thin client: the UI runs on Windows, but the language servers, terminal, extensions, and file I/O all run inside WSL2. That means no `/mnt/c` slowdown, and tools like `node`, `yarn`, `docker`, and `gh` are the ones you installed in Ubuntu.
+
+1. Install [VS Code for Windows](https://code.visualstudio.com/).
+2. Install the **WSL** extension (`ms-vscode-remote.remote-wsl`) from the Extensions pane, or from PowerShell:
+
+   ```powershell
+   code --install-extension ms-vscode-remote.remote-wsl
+   ```
+
+3. From your Ubuntu terminal, open the repository in VS Code:
+
+   ```bash
+   cd ~/projects/open-mercato
+   code .
+   ```
+
+   The first run downloads the VS Code server into WSL2 (one-off, ~100 MB). Subsequent launches are instant.
+
+The bottom-left status bar should read **WSL: Ubuntu**. The integrated terminal (`` Ctrl+` ``) drops you straight into the Ubuntu shell with `node`, `yarn`, `docker`, etc. already on `PATH`.
+
+:::tip Recommended extensions
+Install these **inside the WSL target** (click "Install in WSL: Ubuntu" on each extension's page — installing them on the Windows side does nothing for WSL projects):
+
+- **ESLint** (`dbaeumer.vscode-eslint`)
+- **Prettier** (`esbenp.prettier-vscode`)
+- **Tailwind CSS IntelliSense** (`bradlc.vscode-tailwindcss`)
+- **Docker** (`ms-azuretools.vscode-docker`)
+- **GitLens** (`eamodio.gitlens`)
+:::
+
+:::warning Open via `code .` from WSL, not via `File → Open Folder` on `\\wsl$\...`
+Opening the repo through the `\\wsl$\Ubuntu\home\...` UNC path makes VS Code treat it as a Windows-side folder: extensions run on Windows, file watching goes through the 9P filesystem bridge, and performance collapses. Always open via `code .` from inside the Ubuntu shell, or use the **WSL: Open Folder in WSL…** command from the command palette.
+:::
+
+### Visual Studio 2022
+
+Visual Studio 2022 has native WSL support for C++/CMake and .NET/Linux projects, but **it is not a good fit for this monorepo** (Next.js + TypeScript + Yarn 4). Use VS Code with the WSL extension instead.
+
+If you still want to browse the source from Visual Studio, you can open the folder via `\\wsl$\Ubuntu\home\<you>\projects\open-mercato` — but builds, `yarn`, and debugging must be run from the Ubuntu terminal, not from Visual Studio.
+
+---
+
 ## Common issues
 
 | Symptom | Fix |
@@ -426,3 +487,4 @@ Then open `http://172.28.163.55:3000/backend` in your Windows browser.
 | Cannot connect to Windows-hosted PostgreSQL | See [step 9](#9-connecting-wsl2-to-a-windows-hosted-database). Check `pg_hba.conf`, `listen_addresses`, and Windows Firewall. |
 | `docker: command not found` after install | Run `newgrp docker` or log out and back into your WSL2 session to pick up group membership. |
 | WSL2 uses too much memory | Set `memory=` in `.wslconfig`, restart with `wsl --shutdown`. |
+| `[cache] sqlite strategy unavailable (better-sqlite3 failed to load)` or `Could not locate the bindings file` | The native module never built. Install the toolchain (`sudo apt install -y build-essential python3`) then rebuild: `yarn rebuild better-sqlite3`. See [step 5](#install-build-tools-for-native-node-modules). |
