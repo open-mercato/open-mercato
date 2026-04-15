@@ -393,6 +393,9 @@ jobs:
             yarn test
           fi
 
+      - name: Test scripts
+        run: yarn test:scripts
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -416,6 +419,7 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
     steps:
