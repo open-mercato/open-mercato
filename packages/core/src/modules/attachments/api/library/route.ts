@@ -106,7 +106,7 @@ export async function GET(req: Request) {
     {},
     { orderBy: { title: 'asc' }, fields: ['code', 'title', 'description'] as any },
   )
-  const [records, total, partitions] = await Promise.all([qb.getResultList(), countQb.count('a.id', true), partitionsPromise])
+  const [records, total, partitions] = await Promise.all([qb.getResultList(), countQb.getCount('a.id', true), partitionsPromise])
   const partitionTitleByCode = partitions.reduce<Record<string, string>>((acc, entry) => {
     if (entry.code) acc[entry.code] = entry.title ?? entry.code
     return acc
