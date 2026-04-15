@@ -1,11 +1,11 @@
 ---
 name: auto-create-pr
-description: Execute an arbitrary autonomous agent task end-to-end and deliver it as a GitHub pull request against develop. Start by drafting a dated spec in .ai/specs/ that includes a Progress checklist, commit it on a fresh feature branch in an isolated worktree, implement the work phase-by-phase with incremental commits, update the Progress checklist after every phase, optionally honor one or more external reference skills passed by URL, run the full validation gate (typecheck, unit tests, i18n, build) for any code changes, and open a PR with the correct pipeline labels. Resumable via the auto-continue-pr skill.
+description: Execute an arbitrary autonomous agent task end-to-end and deliver it as a GitHub pull request against develop. Start by drafting a dated spec in .ai/specs/ that includes a Progress checklist, commit it on a fresh task branch in an isolated worktree, implement the work phase-by-phase with incremental commits, update the Progress checklist after every phase, optionally honor one or more external reference skills passed by URL, run the full validation gate (typecheck, unit tests, i18n, build) for any code changes, and open a PR with the correct pipeline labels. Resumable via the auto-continue-pr skill.
 ---
 
 # Auto Create PR
 
-Wrap an autonomous agent task in the same discipline as `fix-github-issue`, but without a pre-existing GitHub issue. The user provides a free-form task brief; you turn it into a spec, implement it phase-by-phase with incremental commits in an isolated worktree, keep a Progress checklist in the spec so the run is resumable, and open a PR against `develop` with normalized pipeline labels.
+Wrap an autonomous agent task in the same discipline as `auto-fix-github`, but without a pre-existing GitHub issue. The user provides a free-form task brief; you turn it into a spec, implement it phase-by-phase with incremental commits in an isolated worktree, keep a Progress checklist in the spec so the run is resumable, and open a PR against `develop` with normalized pipeline labels.
 
 ## Arguments
 
@@ -26,8 +26,15 @@ CURRENT_USER=$(gh api user --jq '.login')
 DATE=$(date +%Y-%m-%d)
 SLUG="{slug-or-derived}"
 SPEC_PATH=".ai/specs/${DATE}-${SLUG}.md"
-BRANCH="codex/auto-create-pr-${SLUG}"
+BRANCH_PREFIX="{fix for bugfix/remediation work; otherwise feat}"
+BRANCH="${BRANCH_PREFIX}/${SLUG}"
 ```
+
+Branch naming rules:
+
+- Use `fix/${SLUG}` when the brief is primarily a bug fix, regression fix, remediation, hardening task, or corrective follow-up on existing behavior.
+- Use `feat/${SLUG}` for new capability work, scoped refactors, docs/process automation, or anything that is not primarily corrective.
+- Never create `codex/...` branches.
 
 A run is considered **already in progress** when ANY of the following is true:
 
@@ -97,7 +104,7 @@ Use `.ai/skills/spec-writing/references/spec-template.md` as the base. Fill in:
 
 Save the spec at `.ai/specs/${DATE}-${SLUG}.md` (or `.ai/specs/enterprise/...` when `--scope enterprise`).
 
-### 4. Create an isolated worktree and feature branch
+### 4. Create an isolated worktree and task branch
 
 Never run in the user's primary worktree.
 
@@ -176,7 +183,7 @@ git commit -m "docs(specs): mark ${SLUG} Phase N step X complete"
 
 ### 7. Full validation gate before opening the PR
 
-Before opening the PR, run the full gate (same as `code-review` / `fix-github-issue`):
+Before opening the PR, run the full gate (same as `code-review` / `auto-fix-github`):
 
 - `yarn build:packages`
 - `yarn generate`
@@ -212,7 +219,7 @@ If self-review finds issues, fix them and loop back to step 6.
 
 Open the PR against `develop` in the current repository.
 
-PR title convention (same as `fix-github-issue`): conventional-commit prefix scoped to the primary area.
+PR title convention (same as `auto-fix-github`): conventional-commit prefix scoped to the primary area.
 
 Examples:
 
@@ -312,7 +319,8 @@ When one or more `--skill-url` arguments are provided:
 
 ## Rules
 
-- Always start with a spec; never commit code on a `auto-create-pr` branch before the spec lands.
+- Always start with a spec; never commit code before the spec lands on the chosen `feat/` or `fix/` branch.
+- Branches created by this skill must use `fix/` for corrective work or `feat/` for non-corrective work; never `codex/`.
 - Spec MUST include the Progress section in the exact format above so `auto-continue-pr` can parse it.
 - Always use an isolated worktree. Reuse the current linked worktree when already inside one. Never nest worktrees. Always clean up a worktree you created.
 - Base branch is always `develop`.

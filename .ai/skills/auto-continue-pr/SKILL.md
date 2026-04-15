@@ -161,7 +161,7 @@ Do not alter work already completed in earlier commits. Do not reorder or rewrit
 
 ### 5. Full validation gate
 
-Before flipping the PR to complete, run the full gate (same as `auto-create-pr` / `code-review` / `fix-github-issue`):
+Before flipping the PR to complete, run the full gate (same as `auto-create-pr` / `code-review` / `auto-fix-github`):
 
 - `yarn build:packages`
 - `yarn generate`

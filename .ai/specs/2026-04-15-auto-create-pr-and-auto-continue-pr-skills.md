@@ -3,7 +3,7 @@
 ## TLDR
 
 **Key Points:**
-- Two new skills, `auto-create-pr` and `auto-continue-pr`, that wrap an arbitrary autonomous agent task and deliver it as a GitHub PR against `develop`, mirroring the isolation and discipline of `fix-github-issue`.
+- Two new skills, `auto-create-pr` and `auto-continue-pr`, that wrap an arbitrary autonomous agent task and deliver it as a GitHub PR against `develop`, mirroring the isolation and discipline of `auto-fix-github`.
 - `auto-create-pr` accepts a free-form task brief plus optional external skill URLs (e.g. `https://skills.sh/...`), generates a spec, implements the work in an isolated worktree, commits incrementally, records progress inside the spec, and opens a PR with the correct pipeline labels.
 - `auto-continue-pr` resumes a PR that was started by `auto-create-pr` but is not yet complete: it reads the referenced spec's Progress section, continues from the next unfinished step, and pushes follow-up commits to the same PR.
 
@@ -19,9 +19,9 @@
 
 ## Overview
 
-Today, autonomous agent runs that produce a PR are bespoke. `fix-github-issue` covers one specific shape (a numbered GitHub issue); spec-driven work is covered by `implement-spec` once a spec already exists; everything else (security review, doc generation, ad-hoc refactors delivered as a PR, running an external skill against our codebase) is manually orchestrated. These skills give us a single, reusable entry point: describe the task, optionally point at an external skill, and get a reviewable PR with a spec trail.
+Today, autonomous agent runs that produce a PR are bespoke. `auto-fix-github` covers one specific shape (a numbered GitHub issue); spec-driven work is covered by `implement-spec` once a spec already exists; everything else (security review, doc generation, ad-hoc refactors delivered as a PR, running an external skill against our codebase) is manually orchestrated. These skills give us a single, reusable entry point: describe the task, optionally point at an external skill, and get a reviewable PR with a spec trail.
 
-> **Market Reference**: The internal `fix-github-issue` skill (see [`.ai/skills/fix-github-issue/SKILL.md`](.ai/skills/fix-github-issue/SKILL.md)) is the direct reference implementation — we copy its worktree isolation, validation loop, lock protocol, and label hygiene. We deliberately reject "do everything inline on the current branch" because it leaks half-finished work into the user's active worktree.
+> **Market Reference**: The internal `auto-fix-github` skill (see [`.ai/skills/auto-fix-github/SKILL.md`](.ai/skills/auto-fix-github/SKILL.md)) is the direct reference implementation — we copy its worktree isolation, validation loop, lock protocol, and label hygiene. We deliberately reject "do everything inline on the current branch" because it leaks half-finished work into the user's active worktree.
 
 ## Problem Statement
 
@@ -33,7 +33,7 @@ Today, autonomous agent runs that produce a PR are bespoke. `fix-github-issue` c
 
 Two skills, both Claude- and Codex-compatible (they live under `.ai/skills/` which is symlinked into `.claude/skills` and `.codex/skills`):
 
-1. **`auto-create-pr`** — accepts a task brief plus optional external skill URLs, drafts a spec in `.ai/specs/{YYYY-MM-DD}-{slug}.md`, commits the spec on a new feature branch in an isolated worktree, executes the plan phase-by-phase with incremental commits, updates the spec's Progress section after every phase, runs the full validation gate, and opens a PR labeled per the PR workflow.
+1. **`auto-create-pr`** — accepts a task brief plus optional external skill URLs, drafts a spec in `.ai/specs/{YYYY-MM-DD}-{slug}.md`, commits the spec on a new `feat/{slug}` or `fix/{slug}` branch in an isolated worktree, executes the plan phase-by-phase with incremental commits, updates the spec's Progress section after every phase, runs the full validation gate, and opens a PR labeled per the PR workflow.
 2. **`auto-continue-pr`** — accepts a PR number, claims it under the in-progress protocol, checks out its branch into an isolated worktree, loads the linked spec, and continues from the first unchecked Progress step. Pushes follow-up commits and leaves the PR ready for review once done.
 
 ### Design Decisions
@@ -43,14 +43,14 @@ Two skills, both Claude- and Codex-compatible (they live under `.ai/skills/` whi
 | Spec is mandatory, even for simple tasks | Required by `AGENTS.md`; also gives `auto-continue-pr` a deterministic place to read progress from. |
 | Progress tracked inside the spec, not in a separate file | One source of truth; the spec is already committed, reviewable, and picked up by the PR. |
 | External skill URLs are fetched read-only and summarized into the spec before execution | Keeps provenance visible; lets humans sanity-check third-party instructions before code lands. |
-| Labels normalized the same way as `fix-github-issue` | Consistent PR pipeline; respects the mutually-exclusive pipeline label rules. |
+| Labels normalized the same way as `auto-fix-github` | Consistent PR pipeline; respects the mutually-exclusive pipeline label rules. |
 | Base branch always `develop` | Matches existing auto-skills; `main` is a release-merge target only. |
 
 ### Alternatives Considered
 
 | Alternative | Why Rejected |
 |-------------|-------------|
-| Extend `fix-github-issue` with an "ad-hoc" mode | Overloads a skill that already has specific semantics (claims a GitHub issue). Clearer to add a sibling skill. |
+| Extend `auto-fix-github` with an "ad-hoc" mode | Overloads a skill that already has specific semantics (claims a GitHub issue). Clearer to add a sibling skill. |
 | Let `implement-spec` handle it | `implement-spec` assumes the spec already exists; it doesn't bootstrap the spec, the branch, or the PR. `auto-create-pr` composes with `implement-spec` for execution. |
 | Track progress in a sidecar JSON file | Adds a second source of truth and a serialization format to maintain; inline checkboxes in the spec are easier to read and review. |
 
@@ -64,7 +64,7 @@ Two skills, both Claude- and Codex-compatible (they live under `.ai/skills/` whi
 
 ### Components
 
-- **`auto-create-pr` skill** — `SKILL.md` with the full workflow; reuses the validation loop and worktree isolation from `fix-github-issue`, adds a spec-authoring step up front and a progress-tracking step between phases.
+- **`auto-create-pr` skill** — `SKILL.md` with the full workflow; reuses the validation loop and worktree isolation from `auto-fix-github`, adds a spec-authoring step up front and a progress-tracking step between phases.
 - **`auto-continue-pr` skill** — `SKILL.md` that finds the spec linked from the PR body, re-enters the worktree (or creates one from the PR head), and resumes from the first unchecked Progress step.
 - **Spec Progress section** — documented in the Implementation Plan below; a fixed markdown format both skills read and write.
 
@@ -80,7 +80,7 @@ user brief + optional external skill URLs
    isolated worktree off origin/develop
         │
         ▼
-   spec draft → commit → push (feature branch, no PR yet)
+   spec draft → commit → push (task branch, no PR yet)
         │
         ▼
    per-phase loop:
@@ -136,7 +136,7 @@ Not applicable — these are developer-tooling skills, not product modules.
 Not applicable. The only persisted state is:
 
 - A markdown spec at `.ai/specs/{YYYY-MM-DD}-{slug}.md`
-- Git commits on the feature branch
+- Git commits on the task branch
 - Labels and comments on the GitHub PR
 
 ## API Contracts
@@ -150,7 +150,7 @@ Not applicable. External surface is the skill invocation contract (arguments) do
   - `--skill-url` (optional, repeatable) — external skill/reference URL to fetch and honor during planning.
   - `--slug` (optional) — kebab-case override for the spec filename.
   - `--scope` (optional) — which specs folder to use (`oss` or `enterprise`). Default: `oss`.
-  - `--force` (optional) — skip the claim-conflict check (mirrors `fix-github-issue`).
+  - `--force` (optional) — skip the claim-conflict check (mirrors `auto-fix-github`).
 - `auto-continue-pr {prNumber} [--force] [--from <phase.step>]`
   - `prNumber` (required) — the PR to resume.
   - `--force` (optional) — override an existing `in-progress` lock.
@@ -166,7 +166,7 @@ Not applicable — the outputs are a spec file, commits, and a PR. UI impact is 
 
 - `Tracking spec: .ai/specs/{file}.md`
 - `Status: in-progress | complete`
-- The same sections as `fix-github-issue` ("Problem / What Changed / Tests / Backward Compatibility") plus a link back to the spec Progress section.
+- The same sections as `auto-fix-github` ("Problem / What Changed / Tests / Backward Compatibility") plus a link back to the spec Progress section.
 
 ## Configuration
 
@@ -182,13 +182,13 @@ None required. The skills rely on existing tooling (`gh`, `git`, `yarn`).
 
 ### Phase 1: Spec and branch bootstrap
 
-1. Create feature branch `feat/auto-create-pr-skills` off `origin/develop`.
+1. Create task branch `feat/auto-create-pr-skills` off `origin/develop`.
 2. Draft this spec at `.ai/specs/2026-04-15-auto-create-pr-and-auto-continue-pr-skills.md`.
 3. Commit the spec as the first commit on the branch.
 
 ### Phase 2: `auto-create-pr` skill
 
-1. Create `.ai/skills/auto-create-pr/SKILL.md` with YAML frontmatter (`name`, `description`) and the full workflow adapted from `fix-github-issue`.
+1. Create `.ai/skills/auto-create-pr/SKILL.md` with YAML frontmatter (`name`, `description`) and the full workflow adapted from `auto-fix-github`.
 2. Document the spec-authoring step, the external-skill-URL handling, the per-phase progress-update cadence, and the label protocol.
 3. Document cleanup and lock-release semantics (finally block).
 
@@ -231,7 +231,7 @@ None required. The skills rely on existing tooling (`gh`, `git`, `yarn`).
 
 ### Cascading Failures & Side Effects
 
-- If `auto-create-pr` crashes between committing the spec and opening the PR, the user is left with a feature branch on their remote but no PR. Mitigation: `auto-continue-pr` can be pointed at the branch's eventual PR, and the finally-block always cleans up the worktree even if the PR open fails.
+- If `auto-create-pr` crashes between committing the spec and opening the PR, the user is left with a task branch on their remote but no PR. Mitigation: `auto-continue-pr` can be pointed at the branch's eventual PR, and the finally-block always cleans up the worktree even if the PR open fails.
 
 ### Tenant & Data Isolation Risks
 
@@ -279,7 +279,7 @@ None required. The skills rely on existing tooling (`gh`, `git`, `yarn`).
 - `AGENTS.md` (root)
 - `.ai/specs/AGENTS.md`
 - `.ai/skills/README.md`
-- `.ai/skills/fix-github-issue/SKILL.md` (reference implementation)
+- `.ai/skills/auto-fix-github/SKILL.md` (reference implementation)
 - `.ai/skills/auto-review-pr/SKILL.md` (label and lock protocol reference)
 - `.ai/skills/spec-writing/SKILL.md`
 
@@ -320,7 +320,7 @@ None.
 
 ### Phase 1: Spec and branch bootstrap
 
-- [x] 1.1 Create feature branch `feat/auto-create-pr-skills` off `origin/develop`.
+- [x] 1.1 Create task branch `feat/auto-create-pr-skills` off `origin/develop`.
 - [x] 1.2 Draft this spec at `.ai/specs/2026-04-15-auto-create-pr-and-auto-continue-pr-skills.md`.
 - [x] 1.3 Commit the spec as the first commit on the branch. — 5d4de9941
 

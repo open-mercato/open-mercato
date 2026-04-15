@@ -136,7 +136,7 @@ These classify what the PR is about. Applied once, never removed.
 
 ## Concurrency Control — In-Progress Markers
 
-Auto-skills (`auto-review-pr`, `code-review`, `fix-github-issue`, `review-prs`, `merge-buddy`, plus any future automation) MUST claim a PR or issue before mutating it, and MUST refuse to claim something that is already in progress unless the user explicitly forces the run. This prevents two parallel skill invocations (or a skill and a human) from stomping on each other.
+Auto-skills (`auto-review-pr`, `code-review`, `auto-fix-github`, `review-prs`, `merge-buddy`, plus any future automation) MUST claim a PR or issue before mutating it, and MUST refuse to claim something that is already in progress unless the user explicitly forces the run. This prevents two parallel skill invocations (or a skill and a human) from stomping on each other.
 
 ### Three signals (used together)
 
@@ -203,7 +203,7 @@ Always release the lock, even on failure:
 gh pr comment {number} --body "🤖 \`{skill-name}\` completed: {verdict-summary}"
 
 # For auto-review-pr: keep the assignee so the human reviewer / next-step owner is visible
-# For fix-github-issue: keep the assignee (the user owns the resulting PR)
+# For auto-fix-github: keep the assignee (the user owns the resulting PR)
 ```
 
 If the skill exits abnormally (process killed, exception unhandled), the next invocation MUST treat a stale `in-progress` label older than 60 minutes as expired and offer to take over (still with `--force` if a different user holds the assignee).
@@ -226,8 +226,8 @@ When the flag is **not** set and the resource is in progress, the skill MUST ask
 | User runs `/auto-review-pr 1234` and PR is assigned to another user | Stop, ask "Override @other-user's claim?" |
 | User runs `/auto-review-pr 1234 --force` on a PR locked by another skill | Force, post override comment, proceed |
 | Background `/review-prs` triage hits a PR already locked by `/auto-review-pr` | Skip silently, log "skipped: in progress" in summary |
-| `/fix-github-issue 999` and issue is assigned to a human contributor | Stop, ask "Override @contributor's claim?" |
-| `/fix-github-issue 999 --force` overrides a stale (>60min) lock | Force, post override comment, continue |
+| `/auto-fix-github 999` and issue is assigned to a human contributor | Stop, ask "Override @contributor's claim?" |
+| `/auto-fix-github 999 --force` overrides a stale (>60min) lock | Force, post override comment, continue |
 
 ### Skip-when-in-progress in batch skills
 
@@ -259,7 +259,7 @@ Current behavior already uses `merge-queue` and `changes-requested`. Changes nee
    - Uses GraphQL (current approach) for atomicity
 8. **`--force` flag** — accept `--force` (or trailing `force` argument) to bypass the in-progress check; document it in the skill's argument list
 
-### `fix-github-issue` skill changes
+### `auto-fix-github` skill changes
 
 1. **Pre-claim check** (see Concurrency Control above) — at the very start, before fetching the issue body or creating a worktree, run the in-progress check on the issue; stop and ask the user (or honor `--force`) if locked
 2. **Claim on start** — assign the **issue** to the current GitHub user, apply `in-progress` label on the issue, post a claim comment on the issue
@@ -497,7 +497,7 @@ for-core-contributors
 ### Phase 2: Skill Updates
 
 1. Update `auto-review-pr` SKILL.md — add QA gate logic and `review` label handling
-2. Update `fix-github-issue` SKILL.md — apply `review` + optional `skip-qa` on PR creation
+2. Update `auto-fix-github` SKILL.md — apply `review` + optional `skip-qa` on PR creation
 3. Extract `setPipelineLabel` helper into a shared skill utility or inline in both skills
 4. Create `merge-buddy` skill — `.ai/skills/merge-buddy/SKILL.md` — scan all open PRs, classify merge-readiness, output actionable table
 5. Create `review-prs` skill — `.ai/skills/review-prs/SKILL.md` — day-start triage that reviews all unreviewed PRs (newest first) using the `auto-review-pr` skill, then optionally runs `merge-buddy`
@@ -598,7 +598,7 @@ echo "Done. Labels cleaned up."
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase 1 — Label Cleanup | Done | 2026-04-14 | Repository labels normalized with `gh`; legacy labels removed or renamed; existing open PR pipeline labels were remapped to the new state machine |
-| Phase 2 — Skill Updates | Done | 2026-04-14 | `auto-review-pr` and `fix-github-issue` updated; `merge-buddy` and `review-prs` skills added |
+| Phase 2 — Skill Updates | Done | 2026-04-14 | `auto-review-pr` and `auto-fix-github` updated; `merge-buddy` and `review-prs` skills added |
 | Phase 3 — AGENTS.md Updates | Done | 2026-04-14 | Root `AGENTS.md` documents the PR workflow, QA routing, and `gh` helper commands |
 | Phase 4 — Automation | Not Started | — | Optional GitHub Actions enforcement remains deferred |
 
@@ -607,7 +607,7 @@ echo "Done. Labels cleaned up."
 - [x] Create and normalize the target label set in GitHub
 - [x] Re-label existing open PRs to the new pipeline states
 - [x] Update `auto-review-pr` with QA gate and `review` label handling
-- [x] Update `fix-github-issue` to open PRs in `review` and document `skip-qa`
+- [x] Update `auto-fix-github` to open PRs in `review` and document `skip-qa`
 - [x] Add `merge-buddy` skill
 - [x] Add `review-prs` skill
 - [x] Add PR workflow guidance to root `AGENTS.md`
