@@ -1,11 +1,24 @@
 import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-// TODO(mikro-orm v7): BasicQueryEngine still uses knex runtime via `(em as any).getConnection().getKnex()`.
-// Rewriting to Kysely is tracked by audit stage 3 (see mikroorm_audit.md). For stage 1 the knex type
-// surface is stubbed in `src/lib/query/knex-compat.d.ts` so typecheck passes; runtime calls remain
-// broken until the full conversion lands.
-import type { Knex } from 'knex'
+// TODO(mikro-orm v7): BasicQueryEngine still uses a knex-style runtime via
+// `(em as any).getConnection().getKnex()`. Typecheck uses local `any` aliases
+// (the `knex` package is no longer a transitive dep in v7 — we now use Kysely
+// everywhere else). Runtime fallback path remains disabled until the full
+// Kysely rewrite — HybridQueryEngine is the production query engine.
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace Knex {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type QueryBuilder<_TRecord = any, _TResult = any> = any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type JoinClause = any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type Raw<_T = any> = any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type Value = any
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Knex = any
 import {
   applyJoinFilters,
   normalizeFilters,

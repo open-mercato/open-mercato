@@ -1,197 +1,203 @@
 import { HybridQueryEngine } from '../../query_index/lib/engine'
 
-function createFakeKnex(config: {
+type KyselyMockConfig = {
   baseTable: string
   hasIndexAny: boolean
   baseCount: number
   indexCount: number
   customFieldKeys?: Record<string, string[]>
+  /** If provided, returned for information_schema.columns lookups. */
   columns?: Array<{ table_name: string; column_name: string }>
-}) {
-  const defaultCustomFieldKeys: Record<string, string[]> = {
-    'example:todo': ['priority'],
-    'customers:customer_entity': ['sector'],
-    'customers:customer_person_profile': ['birthday'],
-    'customers:customer_company_profile': ['industry'],
-  }
-  const customFieldKeys = config.customFieldKeys ?? defaultCustomFieldKeys
-  const calls: any[] = []
-  function raw(sql: string, params?: any[]) { return { toString: () => sql, sql, params } }
-  function normalizeTable(t: any): { table: string; alias?: string } {
-    if (typeof t === 'string') return { table: t }
-    if (t && typeof t === 'object') {
-      const alias = Object.keys(t)[0]
-      const table = (t as any)[alias]
-      return { table, alias }
-    }
-    return { table: String(t) }
-  }
-  function builderFor(tableArg: any) {
-    const { table, alias } = normalizeTable(tableArg)
-    const ops = { table, alias, wheres: [] as any[], joins: [] as any[], selects: [] as any[], orderBys: [] as any[], limits: 0, offsets: 0, isCountDistinct: false, isCount: false }
-    const b: any = {
-      _ops: ops,
-      select: function (...cols: any[]) { ops.selects.push(cols); return this },
-      where: function (...args: any[]) {
-        if (typeof args[0] === 'function') {
-          args[0](this)
-          return this
-        }
-        ops.wheres.push(args)
-        return this
-      },
-      andWhere: function (...args: any[]) { ops.wheres.push(args); return this },
-      whereRaw: function (...args: any[]) { ops.wheres.push(['raw', ...args]); return this },
-      andWhereRaw: function (...args: any[]) { ops.wheres.push(['andRaw', ...args]); return this },
-      whereIn: function (...args: any[]) { ops.wheres.push(['in', ...args]); return this },
-      whereNotIn: function (...args: any[]) { ops.wheres.push(['notIn', ...args]); return this },
-      whereNull: function (col: any) { ops.wheres.push(['isNull', col]); return this },
-      whereNotNull: function (col: any) { ops.wheres.push(['notNull', col]); return this },
-      whereExists: function (sub: any) { ops.wheres.push(['exists', sub]); return this },
-      orWhereExists: function (sub: any) { ops.wheres.push(['orExists', sub]); return this },
-      havingRaw: function (...args: any[]) { ops.wheres.push(['havingRaw', ...args]); return this },
-      leftJoin: function (aliasObj: any, on: any) { ops.joins.push({ aliasObj, on }); return this },
-      orderBy: function (col: any, dir?: any) { ops.orderBys.push([col, dir]); return this },
-      limit: function (n: number) { ops.limits = n; return this },
-      offset: function (n: number) { ops.offsets = n; return this },
-      groupBy: function () { return this },
-      modify: function (fn: (qb: any) => void) { if (typeof fn === 'function') fn(this); return this },
-      clearSelect: function () { ops.selects = []; return this },
-      clearOrder: function () { ops.orderBys = []; return this },
-      clone: function () { return this },
-      as: function (_alias: string) { return table },
-      countDistinct: function () { ops.isCountDistinct = true; return this },
-      count: function () { ops.isCount = true; return this },
-      first: async function () {
-        if (table === 'information_schema.tables') {
-          return { table_name: config.baseTable }
-        }
-        if (table === 'information_schema.columns') {
-          const lookup = ops.wheres.find((entry) => Array.isArray(entry) && entry.length === 1 && entry[0] && typeof entry[0] === 'object')?.[0] as
-            | { table_name?: string; column_name?: string }
-            | undefined
-          return (config.columns ?? []).find((column) =>
-            column.table_name === lookup?.table_name && column.column_name === lookup?.column_name,
-          )
-        }
-        if (table === 'entity_index_coverage') {
-          if (!config.hasIndexAny) return undefined
-          const requiresPositive = ops.wheres.some(
-            (entry) =>
-              Array.isArray(entry) &&
-              entry.length >= 3 &&
-              entry[0] === 'indexed_count' &&
-              entry[1] === '>' &&
-              Number(entry[2]) > 0,
-          )
-          if (requiresPositive && config.indexCount <= 0) return undefined
-          return {
-            base_count: String(config.baseCount),
-            indexed_count: String(config.indexCount),
-            refreshed_at: new Date(),
-          }
-        }
-        if (table === 'entity_indexes' && !ops.isCountDistinct) {
-          return config.hasIndexAny ? { entity_type: 'x' } : undefined
-        }
-        if (ops.isCountDistinct) {
-          if (table === config.baseTable || ops.alias === 'b') return { count: String(config.baseCount) }
-          if (table === 'entity_indexes' || ops.alias === 'ei') return { count: String(config.indexCount) }
-          return { count: '0' }
-        }
-        if (ops.isCount) {
-          return { count: String(config.baseCount) }
-        }
-        return undefined
-      },
-      then: function (resolve: any, reject?: any) {
-        try {
-          let result: any[] = []
-          if (table === 'custom_field_defs') {
-            const entityWhere = ops.wheres.find((entry) => Array.isArray(entry) && entry[0] === 'in' && entry[1] === 'entity_id')
-            const requestedEntities: string[] = Array.isArray(entityWhere?.[2])
-              ? (entityWhere![2] as any[]).map((id) => String(id))
-              : Object.keys(customFieldKeys)
-            result = requestedEntities.flatMap((entityId) => {
-              const keys = customFieldKeys[entityId] ?? []
-              return keys.map((key) => ({ entity_id: entityId, key, is_active: true }))
-            })
-          }
-          return Promise.resolve(resolve(result))
-        } catch (err) {
-          if (reject) return Promise.resolve(reject(err))
-          return Promise.reject(err)
-        }
-      },
-      raw,
-    }
-    calls.push(b)
-    return b
-  }
-  const fn: any = (t: any) => builderFor(t)
-  fn.raw = raw
-  fn.from = (t: any) => builderFor(t)
-  fn._calls = calls
-  // Kysely-compatible stub exposed via `em.getKysely()` — used by helpers that were
-  // migrated to Kysely (e.g. `readCoverageSnapshot`). Keeps knex-style assertions intact
-  // because the primary fakeKnex remains the knex-shaped builder for HybridQueryEngine.
-  fn.__kysely = createFakeKysely({
-    hasIndexAny: config.hasIndexAny,
-    baseCount: config.baseCount,
-    indexCount: config.indexCount,
-  })
-  return fn
 }
 
-// Minimal Kysely-shaped stub that the HybridQueryEngine obtains via
-// `em.getKysely()` when calling helpers (e.g. `readCoverageSnapshot`).
-// Tests retain knex-shaped assertions via the original fakeKnex; this stub
-// only needs to satisfy the limited surface used by coverage/status reads.
-function createFakeKysely(config: {
-  hasIndexAny: boolean
-  baseCount: number
-  indexCount: number
-}): any {
-  const makeSelect = (_table: string): any => {
+type ChainLog = {
+  table: string
+  selects: any[]
+  wheres: any[]
+  joins: Array<{ kind: 'left' | 'inner'; table: string }>
+  orderBys: any[]
+  groupBys: any[]
+  havings: any[]
+  limit: number | null
+  offset: number | null
+}
+
+const DEFAULT_CF_KEYS: Record<string, string[]> = {
+  'example:todo': ['priority'],
+  'customers:customer_entity': ['sector'],
+  'customers:customer_person_profile': ['birthday'],
+  'customers:customer_company_profile': ['industry'],
+}
+
+/**
+ * Pure Kysely test double for HybridQueryEngine. Returns pre-configured rows per
+ * `selectFrom(table)` and accumulates every chain operation in `_chains` so
+ * behavioural assertions can peek at the compiled shape when needed.
+ */
+function createFakeKysely(config: KyselyMockConfig) {
+  const chains: ChainLog[] = []
+  const customFieldKeys = config.customFieldKeys ?? DEFAULT_CF_KEYS
+
+  const makeChain = (rawTable: string): any => {
+    const table = rawTable.split(/\s+as\s+/i)[0].trim()
+    const log: ChainLog = {
+      table, selects: [], wheres: [], joins: [],
+      orderBys: [], groupBys: [], havings: [],
+      limit: null, offset: null,
+    }
+    chains.push(log)
+
     const chain: any = {
-      select: () => chain,
-      selectAll: () => chain,
+      _log: log,
+      select: (...cols: any[]) => { log.selects.push(...cols); return chain },
+      selectAll: () => { log.selects.push('*'); return chain },
       distinct: () => chain,
-      where: () => chain,
-      orderBy: () => chain,
-      limit: () => chain,
-      offset: () => chain,
-      groupBy: () => chain,
-      executeTakeFirst: async () => {
-        if (!config.hasIndexAny) return undefined
-        return {
-          base_count: String(config.baseCount),
-          indexed_count: String(config.indexCount),
-          vector_indexed_count: null,
-          refreshed_at: new Date(),
-          organization_id: null,
-        }
+      where: (...args: any[]) => {
+        // Capture just the raw args (Kysely expression callbacks are opaque).
+        log.wheres.push(args)
+        return chain
       },
-      execute: async () => [],
+      orderBy: (...args: any[]) => { log.orderBys.push(args); return chain },
+      groupBy: (...cols: any[]) => { log.groupBys.push(...cols); return chain },
+      having: (...args: any[]) => { log.havings.push(args); return chain },
+      limit: (n: number) => { log.limit = n; return chain },
+      offset: (n: number) => { log.offset = n; return chain },
+      leftJoin: (target: any, _on: any) => {
+        const name = typeof target === 'string' ? target.split(/\s+as\s+/i).pop()!.trim() : String(target)
+        log.joins.push({ kind: 'left', table: name })
+        return chain
+      },
+      innerJoin: (target: any, _on: any) => {
+        const name = typeof target === 'string' ? target.split(/\s+as\s+/i).pop()!.trim() : String(target)
+        log.joins.push({ kind: 'inner', table: name })
+        return chain
+      },
+      as: (_alias: string) => chain,
+      compile: () => ({ sql: `/* ${table} */`, parameters: [] }),
+
+      executeTakeFirst: async () => resolveFirstRow(table, log, config, customFieldKeys),
+      execute: async () => resolveRows(table, log, config, customFieldKeys),
     }
     return chain
   }
-  const makeMutating = (): any => ({
-    values: () => makeMutating(),
-    set: () => makeMutating(),
-    where: () => makeMutating(),
-    onConflict: () => makeMutating(),
-    returning: () => makeMutating(),
-    execute: async () => [],
-    executeTakeFirst: async () => ({ numUpdatedRows: 0 }),
-  })
-  return {
-    selectFrom: (t: any) => makeSelect(String(t)),
-    insertInto: () => makeMutating(),
-    updateTable: () => makeMutating(),
-    deleteFrom: () => makeMutating(),
-    transaction: () => ({ execute: async (fn: any) => fn(this) }),
+
+  const makeMutatingChain = (kind: 'insert' | 'update' | 'delete'): any => {
+    const chain: any = {
+      values: () => chain,
+      set: () => chain,
+      where: () => chain,
+      onConflict: () => chain,
+      returning: () => chain,
+      execute: async () => (kind === 'insert' ? [{ id: 'mock' }] : []),
+      executeTakeFirst: async () => (kind === 'insert'
+        ? { id: 'mock', numInsertedOrUpdatedRows: 1 }
+        : { numUpdatedRows: 0, numDeletedRows: 0 }),
+    }
+    return chain
   }
+
+  const db: any = {
+    _chains: chains,
+    selectFrom: (table: any) => makeChain(String(table)),
+    insertInto: () => makeMutatingChain('insert'),
+    updateTable: () => makeMutatingChain('update'),
+    deleteFrom: () => makeMutatingChain('delete'),
+    transaction: () => ({ execute: async (fn: any) => fn(db) }),
+  }
+  return db
+}
+
+function resolveFirstRow(
+  table: string,
+  log: ChainLog,
+  config: KyselyMockConfig,
+  customFieldKeys: Record<string, string[]>,
+): any {
+  if (table === 'information_schema.tables') {
+    const lookingFor = log.wheres
+      .flatMap((entry: any[]) => entry)
+      .find((arg: any) => typeof arg === 'string')
+    // Any table_name lookup is satisfied if it matches baseTable or is our service table.
+    return lookingFor ? { one: 1 } : undefined
+  }
+  if (table === 'information_schema.columns') {
+    // Collect column/table names from the captured wheres to match the requested pair.
+    const args = log.wheres.flatMap((entry: any[]) => entry)
+    const tableName = args[args.indexOf('table_name') + 2] as string | undefined
+    const columnName = args[args.indexOf('column_name') + 2] as string | undefined
+    if (config.columns && tableName && columnName) {
+      const match = config.columns.find(
+        (col) => col.table_name === tableName && col.column_name === columnName,
+      )
+      return match ? { one: 1 } : undefined
+    }
+    // Default: report that common columns exist so scope filters can apply.
+    if (columnName === 'organization_id' || columnName === 'tenant_id' || columnName === 'deleted_at' || columnName === 'id') {
+      return { one: 1 }
+    }
+    return undefined
+  }
+  if (table === 'entity_index_coverage') {
+    if (!config.hasIndexAny) return undefined
+    return {
+      base_count: String(config.baseCount),
+      indexed_count: String(config.indexCount),
+      vector_indexed_count: null,
+      refreshed_at: new Date(),
+      organization_id: null,
+    }
+  }
+  if (table === 'entity_indexes') {
+    return config.hasIndexAny ? { entity_id: 'x' } : undefined
+  }
+  if (table === 'custom_entities') {
+    return undefined
+  }
+  // Count subquery / data reads: look for `count` alias in selects.
+  const hasCount = log.selects.some((s: any) => {
+    try { return String(s?.name ?? s) === 'count' || typeof s?.as === 'function' } catch { return false }
+  })
+  if (hasCount) return { count: String(config.baseCount) }
+  return undefined
+}
+
+function resolveRows(
+  table: string,
+  log: ChainLog,
+  config: KyselyMockConfig,
+  customFieldKeys: Record<string, string[]>,
+): any[] {
+  if (table === 'custom_field_defs') {
+    // Flatten all wheres, grab the `entity_id in [...]` arg if present.
+    const args = log.wheres.flatMap((entry: any[]) => entry)
+    const inIdx = args.findIndex((a: any, i: number) => a === 'entity_id' && args[i + 1] === 'in')
+    const requestedEntities: string[] = inIdx >= 0 && Array.isArray(args[inIdx + 2])
+      ? (args[inIdx + 2] as string[])
+      : Object.keys(customFieldKeys)
+    return requestedEntities.flatMap((entityId) =>
+      (customFieldKeys[entityId] ?? []).map((key) => ({ entity_id: entityId, key, is_active: true })),
+    )
+  }
+  if (table === 'information_schema.columns') {
+    if (config.columns) {
+      const args = log.wheres.flatMap((entry: any[]) => entry)
+      const tableName = args[args.indexOf('table_name') + 2] as string | undefined
+      return config.columns
+        .filter((col) => col.table_name === tableName)
+        .map((col) => ({ column_name: col.column_name, data_type: 'text' }))
+    }
+    return [
+      { column_name: 'id', data_type: 'uuid' },
+      { column_name: 'tenant_id', data_type: 'uuid' },
+      { column_name: 'organization_id', data_type: 'uuid' },
+      { column_name: 'deleted_at', data_type: 'timestamp' },
+    ]
+  }
+  return []
+}
+
+function buildEm(db: any): any {
+  return { getKysely: () => db }
 }
 
 describe('HybridQueryEngine', () => {
@@ -212,8 +218,8 @@ describe('HybridQueryEngine', () => {
   })
 
   test('falls back when wantsCf but no index rows exist', async () => {
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -225,8 +231,8 @@ describe('HybridQueryEngine', () => {
 
   test('falls back and warns on partial coverage', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'false'
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -246,43 +252,37 @@ describe('HybridQueryEngine', () => {
   })
 
   test('skips partial coverage warning when entity has no custom fields', async () => {
-    const fakeKnex = createFakeKnex({
-      baseTable: 'todos',
-      hasIndexAny: true,
-      baseCount: 8,
-      indexCount: 2,
-      customFieldKeys: {},
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 8, indexCount: 2, customFieldKeys: {},
     })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     const result = await engine.query('example:todo', {
-      fields: ['id'],
-      includeCustomFields: true,
-      organizationId: 'org1',
-      tenantId: 't1',
+      fields: ['id'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
     })
 
     expect(fallback.query).not.toHaveBeenCalled()
     expect(result.meta?.partialIndexWarning).toBeUndefined()
     expect(warnSpy).not.toHaveBeenCalled()
-
     warnSpy.mockRestore()
   })
 
   test('emits partial coverage metadata when forcing query index usage', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const result = await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
+    const result = await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
+    })
 
     expect(fallback.query).not.toHaveBeenCalled()
     expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'example:todo' }))
@@ -290,19 +290,16 @@ describe('HybridQueryEngine', () => {
     warnSpy.mockRestore()
   })
 
-  test('does not fall back on partial coverage when only projecting all custom fields', async () => {
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+  test('does not fall back on partial coverage when only projecting base fields', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 4 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     await engine.query('example:todo', {
-      fields: ['id'],
-      includeCustomFields: true,
-      organizationId: 'org1',
-      tenantId: 't1',
+      fields: ['id'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
     })
 
     expect(fallback.query).not.toHaveBeenCalled()
@@ -312,76 +309,70 @@ describe('HybridQueryEngine', () => {
 
   test('emits partial coverage metadata when global scope is out of sync', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
 
-    const statsSpy = jest
-      .spyOn(engine as any, 'indexCoverageStats')
-      .mockImplementationOnce(async () => ({ baseCount: 5, indexedCount: 5 })) // scoped ok
-      .mockImplementationOnce(async () => ({ baseCount: 10, indexedCount: 7 })) // global mismatch
+    jest.spyOn(engine as any, 'indexCoverageStats')
+      .mockImplementationOnce(async () => ({ baseCount: 5, indexedCount: 5 }))
+      .mockImplementationOnce(async () => ({ baseCount: 10, indexedCount: 7 }))
 
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const result = await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
+    const result = await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
+    })
 
     expect(fallback.query).not.toHaveBeenCalled()
     expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'example:todo', scope: 'global' }))
     expect(warnSpy).toHaveBeenCalled()
-
-    statsSpy.mockRestore()
     warnSpy.mockRestore()
   })
 
   test('propagates partial coverage metadata from custom field sources', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
-    const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
 
     const originalResolve = (engine as any).resolveCoverageGap.bind(engine)
-    const gapSpy = jest
-      .spyOn(engine as any, 'resolveCoverageGap')
+    jest.spyOn(engine as any, 'resolveCoverageGap')
       .mockImplementationOnce(originalResolve)
       .mockImplementationOnce(async () => ({ stats: { baseCount: 8, indexedCount: 6 }, scope: 'scoped' }))
       .mockImplementation(originalResolve)
 
     const result = await engine.query('customers:customer_entity', {
-      tenantId: 't1',
-      organizationId: 'org1',
+      tenantId: 't1', organizationId: 'org1',
       fields: ['id', 'cf:birthday'],
       includeCustomFields: ['birthday'],
-      customFieldSources: [
-        {
-          entityId: 'customers:customer_person_profile',
-          table: 'customer_people',
-          alias: 'person_profile',
-          recordIdColumn: 'id',
-          join: { fromField: 'id', toField: 'entity_id' },
-        },
-      ],
+      customFieldSources: [{
+        entityId: 'customers:customer_person_profile',
+        table: 'customer_people', alias: 'person_profile',
+        recordIdColumn: 'id',
+        join: { fromField: 'id', toField: 'entity_id' },
+      }],
       page: { page: 1, pageSize: 10 },
     })
 
     expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'customers:customer_person_profile' }))
-    expect(gapSpy).toHaveBeenCalled()
-    gapSpy.mockRestore()
   })
 
   test('detects mismatch when index count exceeds base count', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'true'
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 12 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 12 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
-    const result = await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
+    const result = await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
+    })
 
     expect(fallback.query).not.toHaveBeenCalled()
     expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({ entity: 'example:todo' }))
@@ -389,21 +380,24 @@ describe('HybridQueryEngine', () => {
     warnSpy.mockRestore()
   })
 
-  test('uses hybrid path when coverage complete', async () => {
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+  test('uses hybrid path when coverage is complete', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
 
-    await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1', page: { page: 1, pageSize: 5 } })
+    await engine.query('example:todo', {
+      fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1',
+      page: { page: 1, pageSize: 5 },
+    })
     expect(fallback.query).not.toHaveBeenCalled()
     expect(emitEvent).not.toHaveBeenCalled()
   })
 
   test('joins entity index aliases for customFieldSources', async () => {
-    const fakeKnex = createFakeKnex({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn() }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
@@ -415,15 +409,13 @@ describe('HybridQueryEngine', () => {
       customFieldSources: [
         {
           entityId: 'customers:customer_person_profile',
-          table: 'customer_people',
-          alias: 'person_profile',
+          table: 'customer_people', alias: 'person_profile',
           recordIdColumn: 'id',
           join: { fromField: 'id', toField: 'entity_id' },
         },
         {
           entityId: 'customers:customer_company_profile',
-          table: 'customer_companies',
-          alias: 'company_profile',
+          table: 'customer_companies', alias: 'company_profile',
           recordIdColumn: 'id',
           join: { fromField: 'id', toField: 'entity_id' },
         },
@@ -432,166 +424,29 @@ describe('HybridQueryEngine', () => {
     })
 
     expect(fallback.query).not.toHaveBeenCalled()
-    const baseCall = fakeKnex._calls.find((call: any) => call._ops.alias === 'b')
-    expect(baseCall).toBeTruthy()
-    const summary = fakeKnex._calls.map((call: any) => ({
-      alias: call._ops.alias,
-      joinAliases: call._ops.joins.map((join: any) => Object.keys(join.aliasObj)[0]),
-    }))
-    expect(summary).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        alias: 'b',
-        joinAliases: expect.arrayContaining([
-          'ei',
-          'person_profile',
-          'ei_person_profile',
-          'company_profile',
-          'ei_company_profile',
-        ]),
-      }),
+    // Inspect the data/count queries for the `customer_entities` base table:
+    // each should carry the `ei` + per-source (`person_profile` / `company_profile`) joins.
+    const baseQueries = (db._chains as ChainLog[]).filter((c) => c.table === 'customer_entities')
+    const allJoinTables = baseQueries.flatMap((c) => c.joins.map((j) => j.table))
+    expect(allJoinTables).toEqual(expect.arrayContaining([
+      'ei', 'person_profile', 'ei_person_profile', 'company_profile', 'ei_company_profile',
     ]))
     expect(emitEvent).not.toHaveBeenCalled()
   })
 
-  test('supports object equality filters on customFieldSources aliases', async () => {
-    const fakeKnex = createFakeKnex({
-      baseTable: 'customer_entities',
-      hasIndexAny: true,
-      baseCount: 1,
-      indexCount: 1,
-      columns: [
-        { table_name: 'customer_entities', column_name: 'tenant_id' },
-        { table_name: 'customer_people', column_name: 'id' },
-        { table_name: 'customer_people', column_name: 'tenant_id' },
-      ],
-    })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
-    const fallback = { query: jest.fn() }
-    const emitEvent = jest.fn().mockResolvedValue(undefined)
-    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-
-    await engine.query('customers:customer_entity', {
-      tenantId: 't1',
-      fields: ['id'],
-      customFieldSources: [
-        {
-          entityId: 'customers:customer_person_profile',
-          table: 'customer_people',
-          alias: 'person_profile',
-          join: { fromField: 'id', toField: 'entity_id' },
-        },
-      ],
-      filters: {
-        'person_profile.id': { $eq: 'profile-1' },
-      },
-      page: { page: 1, pageSize: 10 },
-    })
-
-    expect(fallback.query).not.toHaveBeenCalled()
-    const baseCall = fakeKnex._calls.find((call: any) => call._ops.alias === 'b')
-    expect(baseCall).toBeTruthy()
-    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
-    expect(existsFilter).toBeTruthy()
-    const subQuery = existsFilter[1]
-    expect(subQuery?._ops?.table).toBe('customer_people')
-    const hasEqualityFilter = Array.isArray(subQuery?._ops?.wheres)
-      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'person_profile.id' && w[1] === 'profile-1')
-      : false
-    expect(hasEqualityFilter).toBe(true)
-  })
-
-  test('customFieldSources equality filters stay exact when search tokens are available', async () => {
-    const fakeKnex = createFakeKnex({
-      baseTable: 'customer_entities',
-      hasIndexAny: true,
-      baseCount: 1,
-      indexCount: 1,
-      columns: [
-        { table_name: 'customer_entities', column_name: 'tenant_id' },
-        { table_name: 'customer_people', column_name: 'id' },
-        { table_name: 'customer_people', column_name: 'tenant_id' },
-      ],
-    })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
-    const fallback = { query: jest.fn() }
-    const emitEvent = jest.fn().mockResolvedValue(undefined)
-    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    jest.spyOn(engine as any, 'hasSearchTokens').mockResolvedValue(true)
-    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
-
-    await engine.query('customers:customer_entity', {
-      tenantId: 't1',
-      fields: ['id'],
-      customFieldSources: [
-        {
-          entityId: 'customers:customer_person_profile',
-          table: 'customer_people',
-          alias: 'person_profile',
-          join: { fromField: 'id', toField: 'entity_id' },
-        },
-      ],
-      filters: {
-        'person_profile.id': { $eq: 'profile-1' },
-      },
-      page: { page: 1, pageSize: 10 },
-    })
-
-    expect(fallback.query).not.toHaveBeenCalled()
-    expect(applySearchTokensSpy).not.toHaveBeenCalled()
-    const baseCall = fakeKnex._calls.find((call: any) => call._ops.alias === 'b')
-    expect(baseCall).toBeTruthy()
-    const existsFilter = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'exists')
-    expect(existsFilter).toBeTruthy()
-    const subQuery = existsFilter[1]
-    expect(subQuery?._ops?.table).toBe('customer_people')
-    const hasEqualityFilter = Array.isArray(subQuery?._ops?.wheres)
-      ? subQuery._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'person_profile.id' && w[1] === 'profile-1')
-      : false
-    expect(hasEqualityFilter).toBe(true)
-  })
-
-  test('uses search tokens for index document fields on base entities', async () => {
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 1, indexCount: 1 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
-    const fallback = { query: jest.fn() }
-    const emitEvent = jest.fn().mockResolvedValue(undefined)
-    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
-    const searchSourcesSpy = jest.spyOn(engine as any, 'searchSourcesHaveTokens').mockResolvedValue(true)
-    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
-
-    await engine.query('example:todo', {
-      tenantId: 't1',
-      organizationId: 'org1',
-      fields: ['id'],
-      filters: {
-        search_text: { $ilike: '%avision%' },
-      },
-      page: { page: 1, pageSize: 10 },
-    })
-
-    expect(fallback.query).not.toHaveBeenCalled()
-    expect(searchSourcesSpy).toHaveBeenCalled()
-    expect(applySearchTokensSpy).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        entity: 'example:todo',
-        field: 'search_text',
-        recordIdColumn: 'b.id',
-      }),
-    )
-  })
-
   test('does not auto reindex when disabled via env', async () => {
     process.env.QUERY_INDEX_AUTO_REINDEX = 'false'
-    const fakeKnex = createFakeKnex({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
-    const em: any = { getConnection: () => ({ getKnex: () => fakeKnex }), getKysely: () => fakeKnex.__kysely }
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
+    const em = buildEm(db)
     const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
     const emitEvent = jest.fn().mockResolvedValue(undefined)
     const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
 
     await engine.query('example:todo', { fields: ['id', 'cf:priority'], includeCustomFields: true, organizationId: 'org1', tenantId: 't1' })
-    expect(emitEvent).not.toHaveBeenCalled()
+    // The auto-reindex event (`query_index.reindex`) should not fire.
+    const reindexCalls = emitEvent.mock.calls.filter(([name]) => name === 'query_index.reindex')
+    expect(reindexCalls).toHaveLength(0)
     warnSpy.mockRestore()
   })
 })

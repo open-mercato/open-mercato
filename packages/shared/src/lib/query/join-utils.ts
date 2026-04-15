@@ -1,4 +1,20 @@
-import type { Knex } from 'knex'
+// TODO(mikro-orm v7): this helper still uses knex-style fluent chaining internally.
+// It's consumed by both BasicQueryEngine (legacy) and HybridQueryEngine (where the
+// caller wraps a Kysely builder to satisfy the same surface). Types are local `any`
+// aliases so we don't require the `knex` npm package in v7.
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace Knex {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type QueryBuilder<_TRecord = any, _TResult = any> = any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type JoinClause = any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type Raw<_T = any> = any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type Value = any
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Knex = any
 import type { QueryOptions, QueryJoinEdge } from './types'
 import type { FilterOp } from './types'
 
