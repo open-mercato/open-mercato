@@ -393,6 +393,10 @@ jobs:
             yarn test
           fi
 
+      - name: Test scripts
+        # Turbo never picks up root-level scripts — run explicitly.
+        run: yarn test:scripts
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -418,6 +422,7 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
+      OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
     steps:
       - name: Compute shard metadata
         id: shard-meta
