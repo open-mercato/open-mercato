@@ -172,6 +172,58 @@ function formatInitFailureMessage(error: unknown): string {
   return fallbackMessage
 }
 
+async function ensureDatabaseExists(dbUrl: string): Promise<boolean> {
+  let parsed: URL
+  try {
+    parsed = new URL(dbUrl)
+  } catch {
+    return true
+  }
+
+  const dbName = parsed.pathname.replace(/^\/+/, '')
+  if (!dbName) return true
+
+  const maintenanceUrl = new URL(dbUrl)
+  maintenanceUrl.pathname = '/postgres'
+
+  const { Client } = await import('pg')
+  const adminClient = new Client({ connectionString: maintenanceUrl.toString(), ssl: getSslConfig() })
+
+  try {
+    await adminClient.connect()
+
+    const result = await adminClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName])
+    if (result.rows.length > 0) return true
+
+    console.log(`   Database "${dbName}" does not exist. Attempting to create it...`)
+    try {
+      await adminClient.query(`CREATE DATABASE "${dbName.replace(/"/g, '')}"`)
+      console.log(`   Database "${dbName}" created successfully.`)
+      return true
+    } catch (createError: unknown) {
+      const msg = createError instanceof Error ? createError.message : String(createError)
+      console.error(`   Failed to create database "${dbName}": ${msg}`)
+      console.error(``)
+      console.error(`   To create the database manually, connect to PostgreSQL and run:`)
+      console.error(``)
+      console.error(`     CREATE DATABASE "${dbName}";`)
+      console.error(``)
+      console.error(`   Or from the command line (as a superuser or the owner):`)
+      console.error(``)
+      console.error(`     createdb "${dbName}"`)
+      console.error(``)
+      console.error(`   On Windows with the default postgres user:`)
+      console.error(``)
+      console.error(`     psql -U postgres -c "CREATE DATABASE \\"${dbName}\\";"`)
+      return false
+    }
+  } catch {
+    return true
+  } finally {
+    try { await adminClient.end() } catch {}
+  }
+}
+
 function isTurbopackCacheCorruption(output: string): boolean {
   return TURBOPACK_CORRUPTION_PATTERNS.every((pattern) => output.includes(pattern))
 }
@@ -481,6 +533,8 @@ export async function run(argv = process.argv) {
           console.error('DATABASE_URL is not set. Aborting reinstall.')
           return 1
         }
+        const dbExists = await ensureDatabaseExists(dbUrl)
+        if (!dbExists) return 1
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
@@ -537,6 +591,8 @@ export async function run(argv = process.argv) {
         }
 
         const { Client } = await import('pg')
+        const dbExists = await ensureDatabaseExists(dbUrl)
+        if (!dbExists) return 1
         const client = new Client({ connectionString: dbUrl, ssl: getSslConfig() })
         try {
           await client.connect()
