@@ -3,8 +3,8 @@
 ## TLDR
 - Add an additive AI runtime on top of the existing `@open-mercato/ai-assistant` package so modules can expose focused sub-agents and embeddable chat without breaking current MCP, OpenCode, or Command Palette behavior.
 - Keep `ai-tools.ts`, `AiToolDefinition`, `McpToolDefinition`, `registerMcpTool()`, `ai-tools.generated.ts`, `/api/chat`, `/api/tools`, `mcp:serve`, and `mcp:serve-http` working unchanged.
-- Introduce a new additive module convention, `ai-agents.ts`, plus a reusable `<AiChat>` UI component and a new authenticated dispatcher route, `POST /api/ai/chat?agent=<module>.<agent>`.
-- V1 ships focused, read-first sub-agents, standard auth, attachment-backed uploads, tagged client-rendered streamed UI parts, and explicit coexistence with OpenCode Code Mode.
+- Introduce a new additive module convention, `ai-agents.ts`, plus a reusable `<AiChat>` UI component, AI-SDK-first helper APIs, and a new authenticated dispatcher route, `POST /api/ai/chat?agent=<module>.<agent>`.
+- V1 ships focused, read-first sub-agents, standard auth, attachment-backed uploads, tagged client-rendered streamed UI parts, explicit coexistence with OpenCode Code Mode, and first-class support for Vercel AI SDK patterns such as `useChat`, direct transport, and structured-output agents built on `generateText(..., { output })`.
 
 ## Overview
 Open Mercato already has three useful AI building blocks:
@@ -19,6 +19,8 @@ What is missing is a productized path for focused, module-owned AI experiences:
 - an embeddable chat component that can be mounted on backend and portal pages
 - a standard authenticated HTTP endpoint for these focused chats
 - one canonical contract that keeps MCP, in-process AI SDK execution, and module tooling aligned
+- a Vercel AI SDK-friendly path for teams that want to treat an Open Mercato agent as a normal AI SDK primitive instead of a bespoke runtime
+- a first-class file bridge so images, PDFs, and other attachments can be passed to agents safely without leaking private URLs or forcing app teams to hand-roll conversion logic
 
 This specification adds those capabilities without replacing the current stack. OpenCode remains the general assistant. The new stack is for narrow, module-scoped AI features.
 
@@ -30,7 +32,10 @@ Current limitations:
 - Module-owned focused agents do not exist as first-class artifacts. A module can expose tools, but not a complete "orders assistant" or "inbox proposal assistant" with an owned prompt, media policy, and tool whitelist.
 - The current UI surface is centered on the Command Palette. There is no reusable `<AiChat>` component that a page can embed and bind to a specific agent.
 - The current `/api/chat` route is designed around OpenCode and its session/question protocol. It is not the right contract for module-specific agent endpoints.
+- The current public surface is not AI SDK-first. A Vercel AI SDK user should be able to wire Open Mercato agents into `useChat`, transport-based chat, or structured-output flows without reverse-engineering internal adapters.
 - The current MCP/runtime story is internally inconsistent: the generator still emits `ai-tools.generated.ts`, but current tool loading logic is Code Mode-centric. That mismatch must be resolved before adding more AI extension surfaces.
+- File handling is underspecified for AI workloads. The repo already has a mature attachments module, but the current spec does not define how attachment records become model-ready file parts, extracted text, or provider-safe binary payloads.
+- The spec does not yet define the baseline tool packs that a "general", "customers", or "catalog" agent should expose, which risks shipping chat shells without enough domain reach to match the UI.
 - Mutation safety for focused AI workflows is not formalized outside the existing OpenCode question flow.
 
 Non-goals for this spec:
@@ -40,6 +45,15 @@ Non-goals for this spec:
 - Introducing a new top-level package such as `@open-mercato/ai`.
 - Per-module MCP endpoints in v1.
 - RSC `streamUI` in v1.
+
+## Current-State Verification
+Repository inspection on `2026-04-15` confirms the following facts that this spec must design around:
+
+- `packages/ai-assistant/src/modules/ai_assistant/lib/tool-loader.ts` currently registers `context_whoami` plus Code Mode `search` and `execute`, but does not load generated module `ai-tools.ts` contributions. Phase 0 must fix this before any agent rollout.
+- `packages/ai-assistant/src/modules/ai_assistant/lib/mcp-tool-adapter.ts` already converts registered tools into AI SDK tools, which means the repo is structurally close to an AI SDK-first runtime.
+- The attachments module already exposes stable upload, list, transfer, file, image, and library endpoints under `/api/attachments*`, plus MIME validation, OCR/text extraction hooks, and attachment metadata. The new agent stack must reuse this contract instead of inventing a parallel upload system.
+- Customers detail UIs already aggregate the exact read models agents need to be useful: person detail includes notes, activities, deals, addresses, and tasks; company detail adds related people; deal detail includes associations plus notes and activities.
+- Catalog UIs already expose the surfaces that tool packs must mirror: products list/detail, categories list/edit, variants, offers, price kinds, product unit conversions, and product media/attachments.
 
 ## Decisions
 
@@ -56,8 +70,13 @@ Planned layout:
 
 - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-registry.ts`
 - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-runtime.ts`
+- `packages/ai-assistant/src/modules/ai_assistant/lib/agent-tools.ts`
+- `packages/ai-assistant/src/modules/ai_assistant/lib/agent-transport.ts`
+- `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts`
 - `packages/ai-assistant/src/modules/ai_assistant/lib/ai-tool-definition.ts`
 - `packages/ai-assistant/src/modules/ai_assistant/api/ai/chat/route.ts`
+- `packages/ai-assistant/src/modules/ai_assistant/backend/config/ai-assistant/agents/page.tsx`
+- `packages/ai-assistant/src/modules/ai_assistant/backend/config/ai-assistant/playground/page.tsx`
 - `packages/ui/src/ai/AiChat.tsx`
 
 ### D2. Tool Source of Truth
@@ -166,11 +185,57 @@ Deferred to Phase 3 implementation (not in the type definition yet):
 
 Tracked for Phase 4+ (design only, no implementation commitment):
 
-- **Structured prompt composition**: replace raw `systemPrompt` string with a prompt-builder that concatenates named sections (`[ROLE]`, `[AUTH CONTEXT]`, `[MODULE]`, `[GUIDELINES]`). Useful when prompt complexity grows with multi-agent orchestration and richer context injection.
 - **Context dependencies**: modules declare higher-level affinities (`contextDependencies: ['customers', 'catalog']`) that auto-resolve to tool whitelists. Convenience layer over explicit `allowedTools`.
 - **Versioned manifest contract**: add `manifestVersion` and `platformRange` to `AiAgentDefinition` when external modules ship AI agents. Follow existing module versioning patterns from SPEC-061/064/065.
 
 Credit: ideas extracted from @rchrzanwlc's research in PR #1222. Full analysis in `.ai/specs/2026-04-13-pr-1222-decentralized-ai-analysis.md`.
+
+### D12. AI SDK-First Public Adapters
+The new runtime must feel native to Vercel AI SDK users. The HTTP route is necessary, but it is not sufficient.
+
+Rules:
+
+- expose a thin public helper for `useChat` transport creation so app code can bind `agentId`, custom body fields, and debug flags without hand-rolling URLs
+- expose a server-side helper that resolves an Open Mercato agent into AI SDK-compatible tools plus instructions/context for direct `generateText()` / `streamText()` usage
+- expose a structured-output helper so teams can run a focused Open Mercato agent as a normal object-producing call using AI SDK `output` instead of re-implementing the agent contract manually
+- the public helper surface must stay additive and optional; advanced teams may still call lower-level runtime APIs directly
+
+Design implication:
+
+- V1 supports two agent execution shapes:
+  - `chat` agents for multi-turn transcript-based flows
+  - `object` agents for single-turn or bounded structured-output workflows
+
+### D13. Attachment-to-Model Bridge
+Attachments stay stored as Open Mercato records, but the runtime must convert them into model-safe payloads before invocation.
+
+Rules:
+
+- clients send `attachmentIds`, never raw long-lived URLs
+- the runtime resolves each attachment record, validates tenant/org scope, and converts it into AI SDK-compatible file parts or text parts
+- never pass authenticated frontend URLs directly to providers; use short-lived signed URLs, inline bytes, or extracted text depending on provider capability and file type
+- images and PDFs are first-class inputs; text-like files (`txt`, `md`, `csv`, `json`) should also be converted into model-usable content
+- unsupported binary files still appear in agent context as metadata so the model can acknowledge them instead of silently ignoring them
+
+### D14. Prompt Contract and Override Model
+Prompt authoring should be structured from the start so the system is easy to reason about, test, and customize.
+
+Rules:
+
+- replace the flat mental model of one long `systemPrompt` string with a structured prompt composition contract, even if the stored value remains additive-compatible with `systemPrompt`
+- every agent prompt is composed from named sections: role, scope, available data/tools, attachment guidance, mutation policy, response style, and tenant/admin overrides
+- tenant admins may add additive prompt snippets and custom instructions through settings, but must not be able to disable hard safety sections
+- prompt overrides are versioned and attached to the agent id so they can be tested and audited independently
+
+### D15. Tool Coverage Must Follow Real UI Capability
+Agent tools should not be an arbitrary API wrapper set. They must let users reach the same business data and operations that the UI exposes.
+
+Rules:
+
+- every production agent must declare a tool pack that maps to real UI surfaces, not only raw CRUD endpoints
+- read tools should prefer aggregated detail/read-model outputs that mirror the UI tabs and panels users already understand
+- write tools should correspond to actual UI actions and command-backed operations already supported in the repo
+- the first module coverage target for this spec is `customers` and `catalog`
 
 ## Proposed Solution
 
@@ -208,6 +273,7 @@ type AiAgentDefinition = {
   moduleId: string
   label: string
   description: string
+  executionMode?: 'chat' | 'object'
   systemPrompt: string
   allowedTools: string[]
   defaultModel?: string
@@ -216,6 +282,11 @@ type AiAgentDefinition = {
   uiParts?: string[]
   readOnly?: boolean
   maxSteps?: number
+  output?: {
+    schemaName: string
+    schema: ZodTypeAny | StandardSchemaV1
+    mode?: 'generate' | 'stream'
+  }
   resolvePageContext?: (ctx: {
     entityType: string
     recordId: string
@@ -236,11 +307,13 @@ type AiAgentDefinition = {
 Rules:
 
 - `id` format: `<module>.<agent>`
+- `executionMode` defaults to `chat`
 - `allowedTools` is an explicit whitelist
 - `readOnly` defaults to `true` in v1
 - if `readOnly` is `true`, tools marked `isMutation: true` are rejected at registration/runtime
 - focused agents may call other focused agents only in a later phase; v1 agents only call tools
 - `maxSteps` is optional; when set, limits the number of tool-call steps the runtime will execute per turn (passed to `streamText()`)
+- `output` is optional and only valid for `executionMode: 'object'`; it lets app teams run a focused agent through structured-output APIs without hand-writing the prompt and tool plumbing
 - `resolvePageContext` is optional; when present, the runtime calls it before composing the system prompt, injecting the returned string as additional context about the record the user is currently viewing — this replaces generic `pageContext` pass-through with module-owned hydration
 - `keywords`, `domain`, and `dataCapabilities` are optional routing metadata; v1 ignores them at runtime but they are emitted in the generated registry for future agent-suggestion features
 
@@ -254,6 +327,8 @@ Add an internal focused-agent runtime that:
 - resolves whitelisted tools from the shared tool registry
 - adapts those tools to AI SDK tool execution using the same handler/ACL contract
 - enforces `maxSteps` when declared on the agent definition
+- resolves `executionMode: 'object'` agents into AI SDK structured-output calls instead of transcript-oriented chat loops
+- converts `attachmentIds` into validated model-ready file or text parts before invocation
 - streams text and tagged UI parts back to the client
 
 Important constraint:
@@ -261,7 +336,23 @@ Important constraint:
 - this is an internal runtime optimization, not a new public module-authoring contract
 - module authors still author MCP-compatible tools and declarative agent definitions
 
-### 4. Embeddable `<AiChat>`
+### 4. AI SDK-First Adapters
+Expose additive helpers so Open Mercato agents feel native in Vercel AI SDK codebases.
+
+Public helpers:
+
+- `createAiAgentTransport({ agentId, ... })` for `useChat`
+- `resolveAiAgentTools({ agentId, authContext, pageContext, attachmentIds })`
+- `runAiAgentText({ agentId, messages, ... })`
+- `runAiAgentObject({ agentId, input, ... })`
+
+Rules:
+
+- `runAiAgentObject()` uses AI SDK structured-output execution (`generateText` / `streamText` with `output`) instead of inventing a separate object-agent abstraction
+- helper inputs accept the same additive context used by the HTTP runtime: `pageContext`, `attachmentIds`, `debug`, and optional model override
+- transport helpers support request-level custom body fields so frontend pages can pass page context or agent settings without mutating the transcript
+
+### 5. Embeddable `<AiChat>`
 Add a reusable UI component for backend and portal pages.
 
 Supported bindings:
@@ -276,7 +367,12 @@ Supported media:
 - PDF attachments
 - generic file attachments already supported by the attachments module
 
-### 5. Safe V1 Scope
+Companion examples in scope:
+
+- a backend playground page where a user can pick the general assistant or a module agent and chat against it
+- a debug-friendly example that shows transcript events, tool calls, attachment previews, and structured output for object agents
+
+### 6. Safe V1 Scope
 V1 focused agents are read-first.
 
 Rules:
@@ -284,6 +380,110 @@ Rules:
 - agent-bound chat may use only read-only tools in v1
 - mutation-capable tools remain available through the existing general assistant/MCP flows
 - mutation-capable focused agents are deferred to a later follow-up spec once confirmation semantics are unified
+
+### 7. Tool Packs and Coverage
+V1 introduces explicit tool-pack guidance so agents are useful on day one.
+
+General-purpose tool packs to add:
+
+| Tool Pack | Purpose | Backing repo surface |
+|------|--------|-------|
+| `search.hybrid_search` | Global fulltext + vector + token search over enabled entities | `packages/search`, module `search.ts` configs |
+| `search.get_record_context` | Resolve presenter, links, and summary for a search hit | `packages/search` presenter/buildSource pipeline |
+| `attachments.list_record_attachments` | List files bound to a record | `/api/attachments` |
+| `attachments.read_attachment` | Fetch attachment metadata plus extracted text when available | `/api/attachments/library/[id]`, OCR/text extraction |
+| `attachments.transfer_record_attachments` | Move uploaded files from temp or draft records to saved records | `/api/attachments/transfer` |
+| `meta.describe_agent` | Return agent metadata, prompt sections, and tool pack summary | generated agent registry |
+| `meta.list_agents` | Enumerate general and module agents the current user can access | generated agent registry + RBAC |
+
+Customers tool coverage requirements:
+
+| Aggregate / Operation | Minimum tool coverage |
+|------|--------|
+| People list + detail | list/search people; get person detail with notes, activities, deals, addresses, tasks, tags, custom fields |
+| Companies list + detail | list/search companies; get company detail with notes, activities, deals, people, addresses, tasks, tags, custom fields |
+| Deals | list/search deals; get deal detail with notes, activities, people, companies; create/update/delete deal |
+| Activities and tasks | list/create/update activities; complete/cancel interaction; list/create/update customer tasks |
+| Addresses | list/create/update/delete addresses |
+| Tags | list/create tags; assign/unassign tags |
+| Settings data | pipelines, pipeline stages, dictionaries, address format settings |
+
+Catalog tool coverage requirements:
+
+| Aggregate / Operation | Minimum tool coverage |
+|------|--------|
+| Products list + detail | list/search products; get product detail with categories, variants, prices, offers, media, metadata, unit conversions |
+| Categories | list tree/manage categories; get category detail; create/update/archive category |
+| Variants | list/create/update/delete variants and surface option values/media |
+| Prices and price kinds | list/create/update/delete prices; list/create/update/delete price kinds |
+| Offers | list/create/update/delete offers |
+| Product media | list product media and manage attachment associations |
+| Product configuration | option schemas, tags, product unit conversions, bulk delete |
+
+### 8. Prompt Templates and Settings
+The first implementation should ship prompt templates, not ad hoc strings.
+
+Required prompt sections:
+
+- `ROLE`: what the agent is responsible for
+- `SCOPE`: module boundaries and current page context
+- `DATA`: which read models and entities the agent can access
+- `TOOLS`: allowed tool packs and when to use them
+- `ATTACHMENTS`: how to interpret images, PDFs, and files
+- `MUTATION POLICY`: confirmation and safety rules
+- `RESPONSE STYLE`: concise, business-facing output rules
+
+Baseline prompt blueprints to ship with the first implementation:
+
+```md
+[ROLE]
+You are the Open Mercato workspace assistant. Help the user find information, explain records, summarize files, and suggest next actions using only the tools and data currently available.
+
+[SCOPE]
+You may access only the current tenant and organization scope. Respect feature-based access control and do not invent records, actions, or permissions.
+
+[DATA]
+Prefer aggregate read-model tools over raw CRUD lists when they exist. Reuse page context and attachment content before asking for more data.
+
+[ATTACHMENTS]
+Images and PDFs may contain important business context. Summarize what is visible, mention uncertainty, and reference attached files explicitly when they influence the answer.
+
+[MUTATION POLICY]
+Never execute a write without an explicit user confirmation step. Summarize the intended change first.
+
+[RESPONSE STYLE]
+Be concise, business-facing, and action-oriented. Avoid raw IDs and internal implementation terms unless the user asks for them.
+```
+
+```md
+[ROLE]
+You are the customers workspace assistant. Help with people, companies, deals, activities, tasks, addresses, tags, pipelines, and CRM settings.
+
+[DATA]
+Prefer person/company/deal detail aggregate tools so the answer matches the CRM detail pages. Use timeline-style summaries when notes, activities, and tasks all matter.
+
+[MUTATION POLICY]
+When a user wants to change CRM data, explain exactly which record and fields will change before asking for confirmation.
+```
+
+```md
+[ROLE]
+You are the catalog merchandising assistant. Help with products, categories, variants, prices, offers, media, and product configuration.
+
+[DATA]
+Prefer product detail aggregate tools so the answer includes media, categories, variants, pricing, offers, and custom metadata in one coherent view.
+
+[ATTACHMENTS]
+Use attached images and PDFs as merchandising context. Mention when an answer depends on visual interpretation.
+```
+
+First settings page scope:
+
+- agent registry view with enabled/disabled status per agent
+- prompt override editor with additive tenant instructions
+- tool toggle / tool-pack visibility controls
+- attachment policy controls by media type and size budget
+- sample context injection fields for testing prompts without changing production pages
 
 ## Architecture
 
@@ -305,10 +505,13 @@ Rules:
    - MCP execution through existing MCP server/runtime
    - in-process execution through the existing `executeTool()` contract
    - AI SDK adapter built from the same tool definitions
+   - structured-output execution path for `executionMode: 'object'`
 
 5. HTTP/UI layer
    - `POST /api/ai/chat?agent=...`
    - `<AiChat>`
+   - playground page
+   - agent settings page
 
 ### Generator Changes
 
@@ -333,6 +536,8 @@ Before shipping the new runtime, Phase 0 must resolve the current mismatch betwe
 Required fix:
 
 - restore or replace module-tool loading so generated `ai-tools.ts` contributions are actually available to the runtime again
+- preserve the existing `mcp-tool-adapter.ts` path as the foundation for AI SDK-native tool resolution instead of replacing it with a second adapter stack
+- reuse existing attachments endpoints and storage records as the single source of truth for file uploads, previews, OCR, and transfer
 
 This is a prerequisite for the new focused-agent stack because agents depend on module-owned tool discovery.
 
@@ -374,6 +579,25 @@ type AiChatRequestContext = {
 }
 ```
 
+### `AiResolvedAttachmentPart`
+```ts
+type AiResolvedAttachmentPart = {
+  attachmentId: string
+  fileName: string
+  mediaType: string
+  source: 'bytes' | 'signed-url' | 'text' | 'metadata-only'
+  textContent?: string | null
+  url?: string | null
+  data?: Uint8Array | string | null
+}
+```
+
+Rules:
+
+- images and PDFs should prefer `bytes` or short-lived `signed-url` sources depending on provider support
+- text-like files should include extracted `textContent`
+- unsupported binary files must still surface filename, media type, and size to the model/runtime
+
 ## API Contracts
 
 ### 1. Focused Agent Chat
@@ -408,6 +632,7 @@ Rules:
 - `messages` are required
 - `attachmentIds` must belong to the authenticated tenant/org scope
 - client may send `pageContext`; if the agent declares `resolvePageContext`, the runtime calls it to hydrate rich record-level context into the system prompt — otherwise `pageContext` is treated as advisory context only
+- route requests must remain compatible with AI SDK chat transports by accepting request-level body fields without requiring transcript mutation
 
 Response:
 
@@ -424,7 +649,43 @@ Error model:
 - `409` agent/tool policy violation
 - `500` internal runtime failure
 
-### 2. Existing Routes Preserved
+### 2. AI SDK Helper Contracts
+These are additive public APIs, not HTTP endpoints:
+
+```ts
+type RunAiAgentTextInput = {
+  agentId: string
+  messages: UIMessage[]
+  attachmentIds?: string[]
+  pageContext?: {
+    pageId?: string
+    entityType?: string
+    recordId?: string
+  }
+  debug?: boolean
+}
+
+type RunAiAgentObjectInput<TSchema> = {
+  agentId: string
+  input: string | UIMessage[]
+  attachmentIds?: string[]
+  pageContext?: {
+    pageId?: string
+    entityType?: string
+    recordId?: string
+  }
+  output?: TSchema
+  debug?: boolean
+}
+```
+
+Rules:
+
+- `runAiAgentText()` maps to the same runtime policy as the HTTP chat route
+- `runAiAgentObject()` is the Vercel AI SDK-friendly entry point for structured-output agents
+- object helpers must use the same tool filtering, prompt composition, and attachment conversion path as chat helpers
+
+### 3. Existing Routes Preserved
 These remain supported and unchanged by this spec:
 
 - `POST /api/chat`
@@ -459,6 +720,7 @@ Behavior:
 - streamed text renders in the transcript
 - streamed UI parts render through a client-side registry
 - debug panel is opt-in and hidden by default
+- component should expose request-level `body`/context configuration so pages can pass `pageContext`, selected agent settings, or prompt-override ids the same way AI SDK transports pass custom body fields
 
 UX rules:
 
@@ -477,6 +739,28 @@ Initial streamable UI parts for v1:
 - `warning-note`
 
 These are client-rendered components registered in the UI package.
+
+### Playground and Settings Pages
+Add two backend pages under AI Assistant configuration:
+
+- `/backend/config/ai-assistant/playground`
+- `/backend/config/ai-assistant/agents`
+
+Playground requirements:
+
+- selectable agent picker including general agent, customers agents, and catalog agents
+- transcript mode and object-output mode
+- attachment upload and preview support
+- debug event stream and tool-call inspection
+- quick page-context injection form for testing `resolvePageContext`
+
+Settings requirements:
+
+- prompt override editor
+- tool-pack visibility toggles
+- model override display and edit surface
+- attachment policy summary
+- saved test snippets / reusable context blocks for admins
 
 ## Access Control
 
@@ -503,12 +787,15 @@ These are client-rendered components registered in the UI package.
 | Tool contract drift across MCP, in-process, and AI SDK adapters | High | AI runtime, security, behavior | One canonical builder, one `executeTool()` path, cross-surface contract tests | Medium |
 | Current `ai-tools.generated.ts` vs runtime-loading mismatch remains unresolved | High | Existing module tools, new focused agents | Fix current loading in Phase 0 before any new agent work | Low |
 | Tenant context leakage through attachment IDs | High | Security, privacy | Validate every attachment against tenant/org scope before model invocation | Low |
+| Private attachment URLs are passed directly to providers and fail or leak | High | Security, attachment usability | Convert attachments to bytes, signed URLs, or extracted text in one runtime bridge | Low |
 | Provider/model drift across tenants | Medium | Runtime config | Reuse existing tenant settings and only allow `defaultModel` override in v1 | Low |
 | UI part registry grows into unstable mini-framework | Medium | UI maintainability | Ship a very small v1 registry with strict serializable props only | Low |
 | Pressure to allow write-capable focused agents too early | High | Data integrity, UX safety | Keep v1 focused agents read-only; follow-up spec for confirmation protocol | Medium |
 | `resolvePageContext` leaks cross-tenant data | High | Security, privacy | Resolver runs inside the same request-scoped context with tenant/org filters; validate resolver output does not include cross-tenant references | Low |
 | Routing metadata (`keywords`/`domain`) used for auto-selection prematurely | Medium | UX correctness | V1 ignores routing metadata at runtime; only emitted in generated registry for future use | Low |
 | Model factory env overrides bypass tenant settings silently | Medium | Runtime config, billing | Document env override precedence clearly; log which resolution path was used in debug mode | Low |
+| Tenant prompt overrides can weaken safety instructions | High | Security, mutation safety | Keep hard safety sections server-owned and append tenant overrides after them | Low |
+| Tool coverage stops at CRUD and misses UI-level read models | Medium | UX usefulness | Require aggregate detail tools that mirror real tabs/panels for customers and catalog | Low |
 
 ## Phasing
 
@@ -522,37 +809,43 @@ Deliverables:
 - add `AiAgentDefinition` and `ai-agents.ts` generator support
 - emit new `ai-agents.generated.ts`
 
-### Phase 1 - Agent Runtime and Authenticated Dispatcher
-Goal: introduce the focused-agent runtime and HTTP entrypoint.
+### Phase 1 - Tool Packs and AI SDK DX
+Goal: make the platform actually useful to Vercel AI SDK users and ship the baseline tool packs before polishing UI chrome.
 
 Deliverables:
 
 - add agent registry/runtime
 - add `POST /api/ai/chat?agent=...`
-- authenticate with standard route auth
-- adapt whitelisted tools into AI SDK execution
+- add AI SDK helper adapters (`createAiAgentTransport`, `resolveAiAgentTools`, `runAiAgentText`, `runAiAgentObject`)
+- implement general-purpose tool packs plus the initial customers and catalog tool packs
+- add attachment-to-model conversion bridge
+- authenticate with standard route auth and AI SDK helper contexts
 
-### Phase 2 - Embeddable UI
-Goal: ship the reusable chat UI.
+### Phase 2 - Playground, Settings, and First Module Agents
+Goal: ship the admin-facing surfaces that make the system testable and configurable.
 
 Deliverables:
 
 - add `<AiChat>`
-- attachment-backed upload flow
 - tagged streamed UI parts
-- debug panel
+- add playground page with agent picker, chat mode, object mode, and debug panel
+- add settings page with prompt overrides, tool toggles, and attachment policy visibility
+- ship first customers and catalog module agents using the new tool packs
 
-### Phase 3 - First Production Agent
-Goal: prove the design on one real module-owned focused agent.
+### Phase 3 - Production Hardening and Expansion
+Goal: prove the design on real production agents and harden the customization model.
 
 Candidate:
 
-- `inbox_ops.proposal_assistant` or `sales.order_assistant`
+- `inbox_ops.proposal_assistant`
+- `sales.order_assistant`
+- `customers.account_assistant`
+- `catalog.merchandising_assistant`
 
 Deliverables:
 
-- one real `ai-agents.ts` with `resolvePageContext` implementation
-- one whitelisted read-only tool set
+- one or more real `ai-agents.ts` files with `resolvePageContext` implementation
+- structured prompt templates and versioned tenant overrides
 - shared model factory utility extracted from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant`, supporting `defaultModel` override and optional env-based per-agent override (`<MODULE>_AI_MODEL`)
 - integration coverage
 
@@ -563,7 +856,6 @@ Out of scope for this spec but expected follow-ups:
 - per-module MCP endpoints
 - agent-to-agent composition
 - RSC `streamUI`
-- structured prompt composition with named sections (replace raw `systemPrompt` with a prompt builder)
 - agent-suggestion feature consuming `keywords`, `domain`, and `dataCapabilities` metadata
 - context dependencies for auto-resolving tool whitelists from module affinities
 - execution budgets (`maxSteps`) recommended as mandatory for mutation-capable agents
@@ -577,27 +869,32 @@ Out of scope for this spec but expected follow-ups:
 3. Add generator extension for `ai-agents.ts` and emit `ai-agents.generated.ts`.
 4. Restore loading of generated `ai-tools.generated.ts` contributions in the runtime.
 5. Add tests proving existing `ai-tools.ts` modules still register and execute.
+6. Add the attachment bridge contract types and prompt composition primitives.
 
 ### Phase 1
 1. Add `agent-registry.ts` that loads `ai-agents.generated.ts`.
-2. Add runtime policy checks for `requiredFeatures`, `allowedTools`, `readOnly`, and attachment access.
+2. Add runtime policy checks for `requiredFeatures`, `allowedTools`, `readOnly`, attachment access, and `executionMode`.
 3. Add `api/ai/chat/route.ts` with `metadata` and `openApi`.
-4. Reuse existing auth/context resolution for route and in-process execution.
-5. Add contract tests for unknown agent, forbidden agent, invalid attachment, and allowed-tool filtering.
+4. Add AI SDK helper adapters and transport helpers.
+5. Implement general-purpose tool packs plus customers/catalog tool packs that mirror existing UI read models and write operations.
+6. Add contract tests for unknown agent, forbidden agent, invalid attachment, allowed-tool filtering, and object-agent execution.
 
 ### Phase 2
 1. Add `packages/ui/src/ai/AiChat.tsx`.
 2. Add upload adapter that reuses attachment APIs and returns `attachmentIds`.
 3. Add a minimal client-side UI-part registry.
-4. Add backend and portal examples using existing injection/replacement patterns.
-5. Add i18n strings and keyboard interaction coverage.
+4. Add backend playground page and agent settings page.
+5. Add backend and portal examples using existing injection/replacement patterns.
+6. Add i18n strings and keyboard interaction coverage.
+7. Ship first customers and catalog module agents with prompt templates.
 
 ### Phase 3
 1. Extract shared model factory from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`. Support `defaultModel` override and env-based per-agent override (`<MODULE>_AI_MODEL`).
-2. Implement one production `ai-agents.ts` with a `resolvePageContext` callback that hydrates record-level context.
-3. Bind it to an existing backend page through normal injection/UI composition, passing `pageContext` from the page.
-4. Add focused integration tests covering page context resolution and model factory fallback chain.
-5. Add docs.
+2. Implement production `ai-agents.ts` files with `resolvePageContext` callbacks that hydrate record-level context.
+3. Add versioned prompt override persistence and safe additive merge rules.
+4. Bind production agents to existing backend pages through normal injection/UI composition, passing `pageContext` from the page.
+5. Add focused integration tests covering page context resolution, model factory fallback chain, and tenant prompt overrides.
+6. Add docs.
 
 ## Integration Test Coverage
 
@@ -611,6 +908,8 @@ Required coverage for this spec:
 - attachment from another tenant/org is rejected
 - read-only agent cannot access a mutation-marked tool
 - tool whitelist is enforced even if the tool exists globally
+- object-mode agent can execute through the public helper with the same policy checks as chat-mode agents
+- custom request body fields propagate page context without altering the transcript
 
 ### UI
 - `<AiChat>` uploads files and sends `attachmentIds`
@@ -619,6 +918,14 @@ Required coverage for this spec:
 - debug panel remains hidden unless enabled
 - keyboard shortcuts work
 - i18n keys resolve correctly
+- playground page can switch between general, customers, and catalog agents
+- settings page persists additive prompt overrides without mutating hard safety sections
+
+### Tool Coverage
+- general search tool pack can reach fulltext, vector, and token-backed search results
+- customers tool pack can read the same aggregates shown on person, company, and deal pages
+- catalog tool pack can read the same aggregates shown on product and category pages
+- write tools map to the same command-backed operations already exposed by UI forms and actions
 
 ### Page Context Resolution
 - agent with `resolvePageContext` receives hydrated context when `pageContext` includes `entityType` and `recordId`
@@ -640,6 +947,7 @@ Required coverage for this spec:
 - `registerMcpTool()` still works
 - existing `/api/chat` and `/api/tools*` routes still function
 - existing `mcp:serve` and `mcp:serve-http` commands still function
+- current OpenCode Code Mode behavior remains available alongside the new agents
 
 ## Migration & Backward Compatibility
 
@@ -659,11 +967,17 @@ This spec modifies public AI extension surfaces and therefore must remain additi
 
 ### Additive surfaces introduced
 - `ai-agents.ts`
-- `AiAgentDefinition` (with optional `resolvePageContext`, `maxSteps`, `keywords`, `domain`, `dataCapabilities`)
+- `AiAgentDefinition` (with optional `executionMode`, `output`, `resolvePageContext`, `maxSteps`, `keywords`, `domain`, `dataCapabilities`)
 - `defineAiTool()`
 - `ai-agents.generated.ts`
 - `POST /api/ai/chat?agent=...`
 - `<AiChat>`
+- `createAiAgentTransport(...)`
+- `resolveAiAgentTools(...)`
+- `runAiAgentText(...)`
+- `runAiAgentObject(...)`
+- attachment bridge helpers for AI SDK file/text parts
+- playground and agent settings pages
 - shared model factory (`@open-mercato/ai-assistant/lib/model-factory.ts`, Phase 3)
 
 ### Rules
@@ -679,6 +993,8 @@ When implemented, release notes must call out:
 - new `ai-agents.ts` convention
 - new `defineAiTool()` helper
 - new `/api/ai/chat` route
+- new AI SDK helper adapters for chat and structured-output flows
+- new playground and agent settings pages
 - coexistence story with OpenCode and Command Palette
 
 ## Final Compliance Report
@@ -701,11 +1017,17 @@ When implemented, release notes must call out:
 - Added `resolvePageContext` callback to `AiAgentDefinition` for module-owned page context hydration (Phase 3).
 - Added `maxSteps` execution budget field to `AiAgentDefinition` (Phase 1+, recommended for Phase 4 mutation agents).
 - Added routing metadata fields (`keywords`, `domain`, `dataCapabilities`) to `AiAgentDefinition` for future agent-suggestion (Phase 4+).
+- Added AI SDK-first adapter requirements so Open Mercato agents can be used through chat transports and structured-output helper flows without custom glue code.
+- Added `executionMode` / `output` planning to make object-style agents first-class for Vercel AI SDK users.
+- Added explicit attachment-to-model conversion rules covering images, PDFs, text-like files, and unsupported binaries.
+- Added general-purpose tool packs plus customers/catalog coverage requirements derived from real UI and API surfaces in the repo.
+- Added playground and agent settings pages to the planned surface area.
+- Moved tool implementation to the next delivery phase and split the remainder into tooling, playground/settings, and production-hardening phases.
 - Added shared model factory consolidation to Phase 3 deliverables.
-- Expanded Phase 4 follow-up scope with structured prompt composition, context dependencies, and versioned manifest contract.
+- Expanded follow-up scope with context dependencies and versioned manifest contract.
 - Added Decision D11 documenting community-sourced enhancements and their adoption timeline.
-- Added integration test coverage for page context resolution, model factory, and execution budgets.
-- Added risk entries for `resolvePageContext` tenant isolation, routing metadata premature use, and model factory env overrides.
+- Added integration test coverage for AI SDK helper flows, playground/settings behavior, customers/catalog tool packs, page context resolution, model factory, and execution budgets.
+- Added risk entries for private attachment URL leakage, tenant prompt overrides, `resolvePageContext` tenant isolation, routing metadata premature use, and model factory env overrides.
 - Credit: ideas sourced from @rchrzanwlc's research in PR #1222.
 
 ### 2026-04-11
