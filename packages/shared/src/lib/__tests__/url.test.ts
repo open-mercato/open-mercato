@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { resolveRequestOrigin, getAppBaseUrl, toAbsoluteUrl } from '../url'
 
 function createRequest(url: string, headers: Record<string, string> = {}): Request {
