@@ -192,15 +192,15 @@ None.
 
 ### Phase 1: Collect And Classify Merge Window
 
-- [ ] 1.1 Gather every PR merged into `develop` from 2026-04-10 through 2026-04-15 with changed-file metadata and linked issues
-- [ ] 1.2 Group merged work into coherent QA areas and identify direct admin URLs or indirect verification flows
+- [x] 1.1 Gather every PR merged into `develop` from 2026-04-10 through 2026-04-15 with changed-file metadata and linked issues — 04dd3c9c2
+- [x] 1.2 Group merged work into coherent QA areas and identify direct admin URLs or indirect verification flows — 04dd3c9c2
 
 ### Phase 2: Author Report Artifacts
 
-- [ ] 2.1 Write the markdown QA report in `.ai/specs/analysis/`
-- [ ] 2.2 Render and save the HTML version of the report in `.ai/specs/analysis/`
+- [x] 2.1 Write the markdown QA report in `.ai/specs/analysis/` — 04dd3c9c2
+- [x] 2.2 Render and save the HTML version of the report in `.ai/specs/analysis/` — 04dd3c9c2
 
 ### Phase 3: Validate And Publish
 
-- [ ] 3.1 Run the docs-only validation and self-review the output for completeness, link quality, and scope discipline
+- [x] 3.1 Run the docs-only validation and self-review the output for completeness, link quality, and scope discipline — 04dd3c9c2
 - [ ] 3.2 Push the branch, open the PR against `develop`, assign `alinadivante`, request her review, and apply the required labels/comments
