@@ -1,24 +1,7 @@
 import type { QueryEngine, QueryOptions, QueryResult, QueryCustomFieldSource, QueryExtensionsConfig } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
-// TODO(mikro-orm v7): BasicQueryEngine still uses a knex-style runtime via
-// `(em as any).getConnection().getKnex()`. Typecheck uses local `any` aliases
-// (the `knex` package is no longer a transitive dep in v7 — we now use Kysely
-// everywhere else). Runtime fallback path remains disabled until the full
-// Kysely rewrite — HybridQueryEngine is the production query engine.
-// eslint-disable-next-line @typescript-eslint/no-namespace
-namespace Knex {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  export type QueryBuilder<_TRecord = any, _TResult = any> = any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  export type JoinClause = any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  export type Raw<_T = any> = any
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  export type Value = any
-}
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Knex = any
+import { type Kysely, sql, type RawBuilder } from 'kysely'
 import {
   applyJoinFilters,
   normalizeFilters,
@@ -32,6 +15,9 @@ import { resolveSearchConfig } from '../search/config'
 import { tokenizeText } from '../search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 
+type AnyDb = Kysely<any>
+type AnyBuilder = any
+
 const entityTableCache = new Map<string, string>()
 
 type EncryptionResolver = () => {
@@ -43,7 +29,7 @@ type ResolvedCustomFieldSource = {
   entityId: EntityId
   alias: string
   table: string
-  recordIdExpr: any
+  recordIdExpr: RawBuilder<string>
 }
 
 type ResultRow = Record<string, unknown>
@@ -148,11 +134,37 @@ function buildFilterableCustomFieldJoins(
   })
 }
 
+function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, entityIndex: number) {
+  const listVisibleScore = cfg.listVisible === false ? 0 : 1
+  const formEditableScore = cfg.formEditable === false ? 0 : 1
+  const filterableScore = cfg.filterable ? 1 : 0
+  const kindScore = (() => {
+    switch (kind) {
+      case 'dictionary': return 8
+      case 'relation': return 6
+      case 'select': return 4
+      case 'multiline': return 3
+      case 'boolean':
+      case 'integer':
+      case 'float': return 2
+      default: return 1
+    }
+  })()
+  const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
+  const dictionaryBonus = typeof cfg.dictionaryId === 'string' && (cfg.dictionaryId as string).trim().length ? 5 : 0
+  const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
+  const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
+  return { base, penalty, entityIndex }
+}
 
-// Minimal default implementation placeholder.
-// For now, only supports basic base-entity querying by table name inferred from EntityId ('<module>:<entity>' -> '<entities>') via convention.
-// Extensions and custom fields will be added iteratively.
-
+/**
+ * BasicQueryEngine — Kysely-backed fallback query engine.
+ *
+ * Resolves base tables via MikroORM metadata, applies tenant/organization/
+ * deleted_at scoping, handles custom field (cf:*) selection and filtering,
+ * and performs entity-extension joins. Used as the fallback for
+ * {@link HybridQueryEngine} when the query index is unavailable or incomplete.
+ */
 export class BasicQueryEngine implements QueryEngine {
   private columnCache = new Map<string, boolean>()
   private tableCache = new Map<string, boolean>()
@@ -160,7 +172,7 @@ export class BasicQueryEngine implements QueryEngine {
 
   constructor(
     private em: EntityManager,
-    private getKnexFn?: () => any,
+    private getDbFn?: () => AnyDb,
     private resolveEncryptionService?: EncryptionResolver,
   ) {}
 
@@ -170,6 +182,13 @@ export class BasicQueryEngine implements QueryEngine {
     } catch {
       return null
     }
+  }
+
+  private getDb(): AnyDb {
+    if (this.getDbFn) return this.getDbFn()
+    const emAny = this.em as any
+    if (typeof emAny?.getKysely === 'function') return emAny.getKysely() as AnyDb
+    throw new Error('BasicQueryEngine requires an EntityManager exposing getKysely() (MikroORM v7)')
   }
 
   async query<T = any>(entity: EntityId, opts: QueryOptions = {}): Promise<QueryResult<T>> {
@@ -203,9 +222,9 @@ export class BasicQueryEngine implements QueryEngine {
 
     // Heuristic: map '<module>:user' -> table 'users'
     const table = resolveEntityTableName(this.em, entity)
-    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
+    const db = this.getDb()
 
-    let q = knex(table)
+    let q: AnyBuilder = db.selectFrom(table as any)
     const qualify = (col: string) => `${table}.${col}`
     const orgScope = this.resolveOrganizationScope(opts)
     this.searchAliasSeq = 0
@@ -223,11 +242,11 @@ export class BasicQueryEngine implements QueryEngine {
     }
     // Tenant guard (required) when present in schema
     if (await this.columnExists(table, 'tenant_id')) {
-      q = q.where(qualify('tenant_id'), opts.tenantId)
+      q = q.where(qualify('tenant_id'), '=', opts.tenantId)
     }
     // Default soft-delete guard: exclude rows with deleted_at when column exists
     if (!opts.withDeleted && await this.columnExists(table, 'deleted_at')) {
-      q = q.whereNull(qualify('deleted_at'))
+      q = q.where(qualify('deleted_at'), 'is', null)
     }
 
     const normalizedFilters = normalizeFilters(opts.filters)
@@ -286,17 +305,18 @@ export class BasicQueryEngine implements QueryEngine {
     }
     const recordIdColumn = qualify('id')
 
-    const applyFilterOp = (builder: any, column: string, op: any, value: any, fieldName?: string) => {
+    const applyFilterOp = (builder: AnyBuilder, column: string | RawBuilder<unknown>, op: string, value: unknown, fieldName?: string): AnyBuilder => {
       if (
         (op === 'like' || op === 'ilike') &&
         searchActive &&
         typeof value === 'string' &&
-        fieldName
+        fieldName &&
+        typeof column === 'string'
       ) {
         const tokens = tokenizeText(String(value), searchConfig)
         const hashes = tokens.hashes
         if (hashes.length) {
-          const applied = this.applySearchTokens(builder, {
+          const result = this.applySearchTokens(builder, {
             entity: String(entity),
             field: fieldName,
             hashes,
@@ -310,11 +330,11 @@ export class BasicQueryEngine implements QueryEngine {
             field: fieldName,
             tokens: tokens.tokens,
             hashes,
-            applied,
+            applied: result.applied,
             tenantId: opts.tenantId ?? null,
             organizationScope: orgScope,
           })
-          if (applied) return builder
+          if (result.applied) return result.builder
         } else {
           this.logSearchDebug('search:skip-empty-hashes', {
             entity: String(entity),
@@ -323,44 +343,30 @@ export class BasicQueryEngine implements QueryEngine {
           })
         }
       }
-      switch (op) {
-        case 'eq': builder.where(column, value); break
-        case 'ne': builder.whereNot(column, value); break
-        case 'gt': builder.where(column, '>', value); break
-        case 'gte': builder.where(column, '>=', value); break
-        case 'lt': builder.where(column, '<', value); break
-        case 'lte': builder.where(column, '<=', value); break
-        case 'in': builder.whereIn(column, Array.isArray(value) ? value : [value]); break
-        case 'nin': builder.whereNotIn(column, Array.isArray(value) ? value : [value]); break
-        case 'like': builder.where(column, 'like', value); break
-        case 'ilike': builder.where(column, 'ilike', value); break
-        case 'exists': value ? builder.whereNotNull(column) : builder.whereNull(column); break
-        default: break
-      }
-      return builder
+      return this.applyColumnOp(builder, column, op, value)
     }
 
     const applyJoinFilterOp = async (
-      builder: any,
+      builder: AnyBuilder,
       filter: { column: string; op: string; value?: unknown },
       _qualified: string,
       join: ResolvedJoin,
-    ): Promise<boolean> => {
-      if (!searchEnabled || !join.entityId) return false
-      if (!['like', 'ilike'].includes(filter.op)) return false
-      if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return false
+    ): Promise<{ applied: boolean; builder: AnyBuilder }> => {
+      if (!searchEnabled || !join.entityId) return { applied: false, builder }
+      if (!['like', 'ilike'].includes(filter.op)) return { applied: false, builder }
+      if (typeof filter.value !== 'string' || filter.value.trim().length === 0) return { applied: false, builder }
 
       let searchAvailable = joinSearchAvailability.get(join.entityId)
       if (searchAvailable === undefined) {
         searchAvailable = await this.hasSearchTokens(join.entityId, opts.tenantId ?? null, orgScope)
         joinSearchAvailability.set(join.entityId, searchAvailable)
       }
-      if (!searchAvailable) return false
+      if (!searchAvailable) return { applied: false, builder }
 
       const tokens = tokenizeText(String(filter.value), searchConfig)
-      if (!tokens.hashes.length) return false
+      if (!tokens.hashes.length) return { applied: false, builder }
 
-      return this.applySearchTokens(builder, {
+      const result = this.applySearchTokens(builder, {
         entity: join.entityId,
         field: filter.column,
         hashes: tokens.hashes,
@@ -369,6 +375,7 @@ export class BasicQueryEngine implements QueryEngine {
         organizationScope: orgScope,
         tokens: tokens.tokens,
       })
+      return { applied: result.applied, builder: result.builder }
     }
 
     const regularBaseFilters = baseFilters.filter((f) => !f.orGroup)
@@ -396,7 +403,7 @@ export class BasicQueryEngine implements QueryEngine {
         }
         qualified = qualify(column)
       }
-      applyFilterOp(q, qualified, filter.op, filter.value, fieldName)
+      q = applyFilterOp(q, qualified, filter.op, filter.value, fieldName)
     }
 
     // Apply OR-grouped filters as a single WHERE (... OR ... OR ...)
@@ -421,34 +428,27 @@ export class BasicQueryEngine implements QueryEngine {
           }
         }
         if (resolvedOrFilters.length > 0) {
-          q = q.where(function (this: any) {
-            for (let i = 0; i < resolvedOrFilters.length; i++) {
-              const rf = resolvedOrFilters[i]
-              if (i === 0) {
-                applyFilterOp(this, rf.qualified, rf.op, rf.value, rf.fieldName)
-                continue
-              }
-              this.orWhere(function (this: any) {
-                applyFilterOp(this, rf.qualified, rf.op, rf.value, rf.fieldName)
-              })
-            }
-          })
+          q = q.where((eb: any) => eb.or(
+            resolvedOrFilters.map((rf) => this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value))
+          ))
         }
       }
     }
 
-    const applyAliasScopes = async (builder: any, aliasName: string) => {
+    const applyAliasScopes = async (builder: AnyBuilder, aliasName: string): Promise<AnyBuilder> => {
       const targetTable = aliasTables.get(aliasName)
-      if (!targetTable) return
+      if (!targetTable) return builder
+      let next = builder
       if (orgScope && await this.columnExists(targetTable, 'organization_id')) {
-        this.applyOrganizationScope(builder, `${aliasName}.organization_id`, orgScope)
+        next = this.applyOrganizationScope(next, `${aliasName}.organization_id`, orgScope)
       }
       if (opts.tenantId && await this.columnExists(targetTable, 'tenant_id')) {
-        builder.where(`${aliasName}.tenant_id`, opts.tenantId)
+        next = next.where(`${aliasName}.tenant_id`, '=', opts.tenantId)
       }
+      return next
     }
-    await applyJoinFilters({
-      knex,
+    q = await applyJoinFilters({
+      db,
       baseTable: table,
       builder: q,
       joinMap,
@@ -456,27 +456,28 @@ export class BasicQueryEngine implements QueryEngine {
       aliasTables,
       qualifyBase: (column) => qualify(column),
       applyAliasScope: (builder, alias) => applyAliasScopes(builder, alias),
-      applyFilterOp,
+      applyFilterOp: (builder, column, op, value) => applyFilterOp(builder, column, op, value),
       applyJoinFilterOp,
       columnExists: (tbl, column) => this.columnExists(tbl, column),
     })
     // Selection (base columns only here; cf:* handled later)
     if (opts.fields && opts.fields.length) {
       const cols = opts.fields.filter((f) => !f.startsWith('cf:'))
-      if (cols.length) {
+      for (const c of cols) {
         // Qualify and alias to base names to avoid ambiguity
-        const baseSelects = cols.map((c) => knex.raw('?? as ??', [qualify(c), c]))
-        q = q.select(baseSelects)
+        q = q.select(sql.ref(qualify(c)).as(c))
       }
     } else {
       // Default to selecting only base table columns to avoid ambiguity when joining
-      q = q.select(knex.raw('??.*', [table]))
+      q = q.select(sql`${sql.ref(table)}.*`.as('__all'))
     }
 
     // Resolve which custom fields to include
     const tenantId = opts.tenantId
     const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_]/g, '_')
-    const cfSources = this.configureCustomFieldSources(q, table, entity, knex, opts, qualify)
+    const cfSourcesResult = this.configureCustomFieldSources(q, table, entity, db, opts, qualify)
+    q = cfSourcesResult.builder
+    const cfSources = cfSourcesResult.sources
     const entityIdToSource = new Map<string, ResolvedCustomFieldSource>()
     for (const source of cfSources) {
       entityIdToSource.set(String(source.entityId), source)
@@ -498,28 +499,29 @@ export class BasicQueryEngine implements QueryEngine {
         const entityIdList = Array.from(entityIdToSource.keys())
         const entityOrder = new Map<string, number>()
         entityIdList.forEach((id, idx) => entityOrder.set(id, idx))
-        const rows = await knex('custom_field_defs')
-          .select('key', 'entity_id', 'config_json', 'kind')
-          .whereIn('entity_id', entityIdList)
-          .andWhere('is_active', true)
-          .modify((qb: any) => {
-            qb.andWhere((inner: any) => {
-              inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
-            })
-          })
+        const rows = await db
+          .selectFrom('custom_field_defs' as any)
+          .select(['key' as any, 'entity_id' as any, 'config_json' as any, 'kind' as any])
+          .where('entity_id' as any, 'in', entityIdList)
+          .where('is_active' as any, '=', true)
+          .where((eb: any) => eb.or([
+            eb('tenant_id' as any, '=', tenantId),
+            eb('tenant_id' as any, 'is', null),
+          ]))
+          .execute() as Array<{ key: string; entity_id: string; config_json: unknown; kind: string }>
         type CustomFieldDefinitionRow = {
           key: string
           entityId: string
           kind: string
           config: Record<string, unknown>
         }
-        const sorted: CustomFieldDefinitionRow[] = rows.map((row: any) => {
+        const sorted: CustomFieldDefinitionRow[] = rows.map((row) => {
           const raw = row.config_json
           let cfg: Record<string, any> = {}
           if (raw && typeof raw === 'string') {
             try { cfg = JSON.parse(raw) } catch { cfg = {} }
           } else if (raw && typeof raw === 'object') {
-            cfg = raw
+            cfg = raw as Record<string, any>
           }
           return {
             key: String(row.key),
@@ -528,7 +530,7 @@ export class BasicQueryEngine implements QueryEngine {
             config: cfg,
           }
         })
-        sorted.sort((a: CustomFieldDefinitionRow, b: CustomFieldDefinitionRow) => {
+        sorted.sort((a, b) => {
           const ai = entityOrder.get(a.entityId) ?? Number.MAX_SAFE_INTEGER
           const bi = entityOrder.get(b.entityId) ?? Number.MAX_SAFE_INTEGER
           if (ai !== bi) return ai - bi
@@ -540,7 +542,7 @@ export class BasicQueryEngine implements QueryEngine {
           if (!source) continue
           const cfg = row.config || {}
           const entityIndex = entityOrder.get(row.entityId) ?? Number.MAX_SAFE_INTEGER
-          const scores = computeScore(cfg, row.kind, entityIndex)
+          const scores = computeCustomFieldScore(cfg, row.kind, entityIndex)
           const existing = selectedSources.get(row.key)
           if (!existing || scores.base > existing.score || (scores.base === existing.score && (scores.penalty < existing.penalty || (scores.penalty === existing.penalty && scores.entityIndex < existing.entityIndex)))) {
             selectedSources.set(row.key, { source, score: scores.base, penalty: scores.penalty, entityIndex: scores.entityIndex })
@@ -556,16 +558,17 @@ export class BasicQueryEngine implements QueryEngine {
     }
     const unresolvedKeys = Array.from(cfKeys).filter((key) => !keySource.has(key))
     if (unresolvedKeys.length > 0 && entityIdToSource.size > 0) {
-      const rows = await knex('custom_field_defs')
-        .select('key', 'entity_id')
-        .whereIn('entity_id', Array.from(entityIdToSource.keys()))
-        .whereIn('key', unresolvedKeys)
-        .andWhere('is_active', true)
-        .modify((qb: any) => {
-          qb.andWhere((inner: any) => {
-            inner.where({ tenant_id: tenantId }).orWhereNull('tenant_id')
-          })
-        })
+      const rows = await db
+        .selectFrom('custom_field_defs' as any)
+        .select(['key' as any, 'entity_id' as any])
+        .where('entity_id' as any, 'in', Array.from(entityIdToSource.keys()))
+        .where('key' as any, 'in', unresolvedKeys)
+        .where('is_active' as any, '=', true)
+        .where((eb: any) => eb.or([
+          eb('tenant_id' as any, '=', tenantId),
+          eb('tenant_id' as any, 'is', null),
+        ]))
+        .execute() as Array<{ key: string; entity_id: string }>
       for (const row of rows) {
         const source = entityIdToSource.get(String(row.entity_id))
         if (!source) continue
@@ -573,7 +576,7 @@ export class BasicQueryEngine implements QueryEngine {
       }
     }
 
-    const cfValueExprByKey: Record<string, any> = {}
+    const cfValueExprByKey: Record<string, RawBuilder<string | null>> = {}
     const cfSelectedAliases: string[] = []
     const cfJsonAliases = new Set<string>()
     const cfMultiAliasByAlias = new Map<string, string>()
@@ -587,43 +590,46 @@ export class BasicQueryEngine implements QueryEngine {
       const defAlias = `cfd_${sourceAliasSafe}_${keyAliasSafe}`
       const valAlias = `cfv_${sourceAliasSafe}_${keyAliasSafe}`
       // Join definitions for kind resolution
-      q = q.leftJoin({ [defAlias]: 'custom_field_defs' }, function (this: any) {
-        this.on(`${defAlias}.entity_id`, '=', knex.raw('?', [entityIdForKey]))
-          .andOn(`${defAlias}.key`, '=', knex.raw('?', [key]))
-          .andOn(`${defAlias}.is_active`, '=', knex.raw('true'))
-          .andOn(knex.raw(`(${defAlias}.tenant_id = ? OR ${defAlias}.tenant_id IS NULL)`, [tenantId]))
-      })
-      // Join values with record match
-      q = q.leftJoin({ [valAlias]: 'custom_field_values' }, function (this: any) {
-        this.on(`${valAlias}.entity_id`, '=', knex.raw('?', [entityIdForKey]))
-          .andOn(`${valAlias}.field_key`, '=', knex.raw('?', [key]))
-          .andOn(`${valAlias}.record_id`, '=', recordIdExpr)
-          .andOn(knex.raw(`(${valAlias}.tenant_id = ? OR ${valAlias}.tenant_id IS NULL)`, [tenantId]))
-      })
-      // Force a common SQL type across branches to avoid Postgres CASE type conflicts
-      const caseExpr = knex.raw(
-        `CASE ${defAlias}.kind
-           WHEN 'integer' THEN (${valAlias}.value_int)::text
-           WHEN 'float' THEN (${valAlias}.value_float)::text
-           WHEN 'boolean' THEN (${valAlias}.value_bool)::text
-           WHEN 'multiline' THEN (${valAlias}.value_multiline)::text
-           ELSE (${valAlias}.value_text)::text
-         END`
+      q = q.leftJoin(`custom_field_defs as ${defAlias}` as any, (jb: any) =>
+        jb.on(`${defAlias}.entity_id`, '=', String(entityIdForKey))
+          .on(`${defAlias}.key`, '=', key)
+          .on(`${defAlias}.is_active`, '=', true)
+          .on((eb: any) => eb.or([
+            eb(`${defAlias}.tenant_id`, '=', tenantId),
+            eb(`${defAlias}.tenant_id`, 'is', null),
+          ]))
       )
+      // Join values with record match
+      q = q.leftJoin(`custom_field_values as ${valAlias}` as any, (jb: any) =>
+        jb.on(`${valAlias}.entity_id`, '=', String(entityIdForKey))
+          .on(`${valAlias}.field_key`, '=', key)
+          .onRef(`${valAlias}.record_id`, '=', recordIdExpr as any)
+          .on((eb: any) => eb.or([
+            eb(`${valAlias}.tenant_id`, '=', tenantId),
+            eb(`${valAlias}.tenant_id`, 'is', null),
+          ]))
+      )
+      // Force a common SQL type across branches to avoid Postgres CASE type conflicts
+      const caseExpr = sql<string | null>`CASE ${sql.ref(`${defAlias}.kind`)}
+           WHEN 'integer' THEN (${sql.ref(`${valAlias}.value_int`)})::text
+           WHEN 'float' THEN (${sql.ref(`${valAlias}.value_float`)})::text
+           WHEN 'boolean' THEN (${sql.ref(`${valAlias}.value_bool`)})::text
+           WHEN 'multiline' THEN (${sql.ref(`${valAlias}.value_multiline`)})::text
+           ELSE (${sql.ref(`${valAlias}.value_text`)})::text
+         END`
       cfValueExprByKey[key] = caseExpr
       const alias = sanitize(`cf:${key}`)
       // Project as aggregated to avoid duplicates when multi values exist
       if ((opts.fields || []).includes(`cf:${key}`) || opts.includeCustomFields === true || (requestedCustomFieldKeys.length > 0 && requestedCustomFieldKeys.includes(key))) {
-        // Use bool_or over config_json->>multi so it's valid under GROUP BY
-        const isMulti = knex.raw(`bool_or(coalesce((${defAlias}.config_json->>'multi')::boolean, false))`)
-        const aggregatedArray = `array_remove(array_agg(DISTINCT ${caseExpr.toString()}), NULL)`
-        const expr = `CASE WHEN ${isMulti.toString()}
-                THEN to_jsonb(${aggregatedArray})
-                ELSE to_jsonb(max(${caseExpr.toString()}))
-           END`
         const multiAlias = `${alias}__is_multi`
-        q = q.select(knex.raw(`${expr} as ??`, [alias]))
-        q = q.select(knex.raw(`${isMulti.toString()} as ??`, [multiAlias]))
+        const isMultiExpr = sql<boolean>`bool_or(coalesce((${sql.ref(`${defAlias}.config_json`)}->>'multi')::boolean, false))`
+        const aggregatedArray = sql<unknown>`array_remove(array_agg(DISTINCT ${caseExpr}), NULL)`
+        const projExpr = sql<unknown>`CASE WHEN ${isMultiExpr}
+                THEN to_jsonb(${aggregatedArray})
+                ELSE to_jsonb(max(${caseExpr}))
+           END`
+        q = q.select(projExpr.as(alias))
+        q = q.select(isMultiExpr.as(multiAlias))
         cfSelectedAliases.push(alias)
         cfJsonAliases.add(alias)
         cfMultiAliasByAlias.set(alias, multiAlias)
@@ -640,7 +646,7 @@ export class BasicQueryEngine implements QueryEngine {
         const tokens = tokenizeText(String(f.value), searchConfig)
         const hashes = tokens.hashes
         if (hashes.length) {
-          const applied = this.applySearchTokens(q, {
+          const result = this.applySearchTokens(q, {
             entity: String(entity),
             field: f.field,
             hashes,
@@ -654,11 +660,14 @@ export class BasicQueryEngine implements QueryEngine {
             field: f.field,
             tokens: tokens.tokens,
             hashes,
-            applied,
+            applied: result.applied,
             tenantId: opts.tenantId ?? null,
             organizationScope: orgScope,
           })
-          if (applied) continue
+          if (result.applied) {
+            q = result.builder
+            continue
+          }
         } else {
           this.logSearchDebug('search:cf-skip-empty-hashes', {
             entity: String(entity),
@@ -667,19 +676,7 @@ export class BasicQueryEngine implements QueryEngine {
           })
         }
       }
-      switch (f.op) {
-        case 'eq': q = q.where(expr, '=', f.value); break
-        case 'ne': q = q.where(expr, '!=', f.value); break
-        case 'gt': q = q.where(expr, '>', f.value); break
-        case 'gte': q = q.where(expr, '>=', f.value); break
-        case 'lt': q = q.where(expr, '<', f.value); break
-        case 'lte': q = q.where(expr, '<=', f.value); break
-        case 'in': q = q.whereIn(expr as any, f.value ?? []); break
-        case 'nin': q = q.whereNotIn(expr as any, f.value ?? []); break
-        case 'like': q = q.where(expr, 'like', f.value); break
-        case 'ilike': q = q.where(expr, 'ilike', f.value); break
-        case 'exists': f.value ? q = q.whereNotNull(expr) : q = q.whereNull(expr); break
-      }
+      q = this.applyColumnOp(q, expr, f.op, f.value)
     }
 
     // Entity extensions joins (no selection yet; enables future filters/projections)
@@ -695,9 +692,9 @@ export class BasicQueryEngine implements QueryEngine {
         const [, extName] = (e.extension as string).split(':')
         const extTable = extName.endsWith('s') ? extName : `${extName}s`
         const alias = `ext_${sanitize(extName)}`
-        q = q.leftJoin({ [alias]: extTable }, function (this: any) {
-          this.on(`${alias}.${e.join.extensionKey}`, '=', knex.raw('??', [`${table}.${e.join.baseKey}`]))
-        })
+        q = q.leftJoin(`${extTable} as ${alias}` as any, (jb: any) =>
+          jb.onRef(`${alias}.${e.join.extensionKey}`, '=', `${table}.${e.join.baseKey}`)
+        )
       }
     }
 
@@ -710,15 +707,15 @@ export class BasicQueryEngine implements QueryEngine {
         if (!cfSelectedAliases.includes(alias)) {
           const expr = cfValueExprByKey[key]
           if (expr) {
-            q = q.select(knex.raw(`max(${expr.toString()}) as ??`, [alias]))
+            q = q.select(sql<string | null>`max(${expr})`.as(alias))
             cfSelectedAliases.push(alias)
           }
         }
-        q = q.orderBy(alias, s.dir ?? 'asc')
+        q = q.orderBy(alias, (s.dir ?? 'asc') as any)
       } else {
         const column = await this.resolveBaseColumn(table, s.field)
         if (!column) continue
-        q = q.orderBy(qualify(column), s.dir ?? 'asc')
+        q = q.orderBy(qualify(column), (s.dir ?? 'asc') as any)
       }
     }
 
@@ -726,21 +723,19 @@ export class BasicQueryEngine implements QueryEngine {
     const page = opts.page?.page ?? 1
     const pageSize = opts.page?.pageSize ?? 20
     // Deduplicate if we joined CFs or extensions by grouping on base id
-    if ((opts.includeExtensions && (Array.isArray(opts.includeExtensions) ? (opts.includeExtensions.length > 0) : true)) || Object.keys(cfValueExprByKey).length > 0) {
+    const hasJoinedAggregates = (opts.includeExtensions && (Array.isArray(opts.includeExtensions) ? (opts.includeExtensions.length > 0) : true)) || Object.keys(cfValueExprByKey).length > 0
+    if (hasJoinedAggregates) {
       q = q.groupBy(`${table}.id`)
     }
-    const countClone: any = q.clone()
-    if (typeof countClone.clearSelect === 'function') countClone.clearSelect()
-    if (typeof countClone.clearOrder === 'function') countClone.clearOrder()
-    if (typeof countClone.clearGroup === 'function') countClone.clearGroup()
-    const countRow = await countClone
-      .countDistinct(`${table}.id as count`)
-      .first()
+    const countBuilder = hasJoinedAggregates
+      ? q.clearSelect().clearOrderBy().clearGroupBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
+      : q.clearSelect().clearOrderBy().select(sql<string>`count(distinct ${sql.ref(`${table}.id`)})`.as('count'))
+    const countRow = await countBuilder.executeTakeFirst() as { count: unknown } | undefined
     const total = Number((countRow as any)?.count ?? 0)
-    const items = await q.limit(pageSize).offset((page - 1) * pageSize)
+    const items = await q.limit(pageSize).offset((page - 1) * pageSize).execute() as any[]
 
     if (cfJsonAliases.size > 0) {
-      for (const row of items as any[]) {
+      for (const row of items) {
         for (const alias of cfJsonAliases) {
           const multiAlias = cfMultiAliasByAlias.get(alias)
           const isMulti = multiAlias ? Boolean(row[multiAlias]) : false
@@ -810,6 +805,54 @@ export class BasicQueryEngine implements QueryEngine {
     return queryResult
   }
 
+  private applyColumnOp(builder: AnyBuilder, column: string | RawBuilder<unknown>, op: string, value: unknown): AnyBuilder {
+    switch (op) {
+      case 'eq':
+        return builder.where(column as any, '=', value as any)
+      case 'ne':
+        return builder.where(column as any, '!=', value as any)
+      case 'gt':
+        return builder.where(column as any, '>', value as any)
+      case 'gte':
+        return builder.where(column as any, '>=', value as any)
+      case 'lt':
+        return builder.where(column as any, '<', value as any)
+      case 'lte':
+        return builder.where(column as any, '<=', value as any)
+      case 'in':
+        return builder.where(column as any, 'in', Array.isArray(value) ? value : [value])
+      case 'nin':
+        return builder.where(column as any, 'not in', Array.isArray(value) ? value : [value])
+      case 'like':
+        return builder.where(column as any, 'like', value as any)
+      case 'ilike':
+        return builder.where(column as any, 'ilike', value as any)
+      case 'exists':
+        return value
+          ? builder.where(column as any, 'is not', null)
+          : builder.where(column as any, 'is', null)
+      default:
+        return builder
+    }
+  }
+
+  private buildColumnOpExpression(eb: any, column: string, op: string, value: unknown): any {
+    switch (op) {
+      case 'eq': return eb(column, '=', value)
+      case 'ne': return eb(column, '!=', value)
+      case 'gt': return eb(column, '>', value)
+      case 'gte': return eb(column, '>=', value)
+      case 'lt': return eb(column, '<', value)
+      case 'lte': return eb(column, '<=', value)
+      case 'in': return eb(column, 'in', Array.isArray(value) ? value : [value])
+      case 'nin': return eb(column, 'not in', Array.isArray(value) ? value : [value])
+      case 'like': return eb(column, 'like', value)
+      case 'ilike': return eb(column, 'ilike', value)
+      case 'exists': return value ? eb(column, 'is not', null) : eb(column, 'is', null)
+      default: return eb.val(true)
+    }
+  }
+
   private async resolveBaseColumn(table: string, field: string): Promise<string | null> {
     if (await this.columnExists(table, field)) return field
     if (field === 'organization_id' && await this.columnExists(table, 'id')) return 'id'
@@ -823,10 +866,14 @@ export class BasicQueryEngine implements QueryEngine {
       if (cached === true) return true
       this.columnCache.delete(key)
     }
-    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
-    const exists = await knex('information_schema.columns')
-      .where({ table_name: table, column_name: column })
-      .first()
+    const db = this.getDb()
+    const exists = await db
+      .selectFrom('information_schema.columns' as any)
+      .select(sql<number>`1`.as('one'))
+      .where('table_name' as any, '=', table)
+      .where('column_name' as any, '=', column)
+      .limit(1)
+      .executeTakeFirst()
     const present = !!exists
     if (present) this.columnCache.set(key, true)
     else this.columnCache.delete(key)
@@ -835,10 +882,13 @@ export class BasicQueryEngine implements QueryEngine {
 
   private async tableExists(table: string): Promise<boolean> {
     if (this.tableCache.has(table)) return this.tableCache.get(table) ?? false
-    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
-    const exists = await knex('information_schema.tables')
-      .where({ table_name: table })
-      .first()
+    const db = this.getDb()
+    const exists = await db
+      .selectFrom('information_schema.tables' as any)
+      .select(sql<number>`1`.as('one'))
+      .where('table_name' as any, '=', table)
+      .limit(1)
+      .executeTakeFirst()
     const present = !!exists
     this.tableCache.set(table, present)
     return present
@@ -850,15 +900,19 @@ export class BasicQueryEngine implements QueryEngine {
     orgScope?: { ids: string[]; includeNull: boolean } | null
   ): Promise<boolean> {
     try {
-      const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
-      const query = knex('search_tokens').select(1).where('entity_type', entity).limit(1)
+      const db = this.getDb()
+      let query: AnyBuilder = db
+        .selectFrom('search_tokens' as any)
+        .select(sql<number>`1`.as('one'))
+        .where('entity_type' as any, '=', entity)
+        .limit(1)
       if (tenantId !== undefined) {
-        query.andWhereRaw('tenant_id is not distinct from ?', [tenantId])
+        query = query.where(sql<boolean>`tenant_id is not distinct from ${tenantId}`)
       }
       if (orgScope) {
-        this.applyOrganizationScope(query as any, 'search_tokens.organization_id', orgScope)
+        query = this.applyOrganizationScope(query, 'search_tokens.organization_id', orgScope)
       }
-      const row = await query.first()
+      const row = await query.executeTakeFirst()
       return !!row
     } catch (err) {
       this.logSearchDebug('search:has-tokens-error', {
@@ -871,8 +925,8 @@ export class BasicQueryEngine implements QueryEngine {
     }
   }
 
-  private applySearchTokens<TRecord extends ResultRow, TResult>(
-    q: Knex.QueryBuilder<TRecord, TResult>,
+  private applySearchTokens(
+    q: AnyBuilder,
     opts: {
       entity: string
       field: string
@@ -883,7 +937,7 @@ export class BasicQueryEngine implements QueryEngine {
       combineWith?: 'and' | 'or'
       tokens?: string[]
     }
-  ): boolean {
+  ): { applied: boolean; builder: AnyBuilder } {
     if (!opts.hashes.length) {
       this.logSearchDebug('search:skip-no-hashes', {
         entity: opts.entity,
@@ -891,10 +945,9 @@ export class BasicQueryEngine implements QueryEngine {
         tenantId: opts.tenantId ?? null,
         organizationScope: opts.organizationScope,
       })
-      return false
+      return { applied: false, builder: q }
     }
     const alias = `st_${this.searchAliasSeq++}`
-    const combineWith = opts.combineWith === 'or' ? 'orWhereExists' : 'whereExists'
     const engine = this
     this.logSearchDebug('search:apply-search-tokens', {
       entity: opts.entity,
@@ -906,27 +959,38 @@ export class BasicQueryEngine implements QueryEngine {
       organizationScope: opts.organizationScope,
       combineWith: opts.combineWith ?? 'and',
     })
-    ;(q as any)[combineWith](function (this: Knex.QueryBuilder) {
-      this.select(1)
-        .from({ [alias]: 'search_tokens' })
-        .where(`${alias}.entity_type`, opts.entity)
-        .andWhere(`${alias}.field`, opts.field)
-        .andWhereRaw('?? = ??::text', [`${alias}.entity_id`, opts.recordIdColumn])
-        .whereIn(`${alias}.token_hash`, opts.hashes)
-        .groupBy(`${alias}.entity_id`, `${alias}.field`)
-        .havingRaw(`count(distinct ${alias}.token_hash) >= ?`, [opts.hashes.length])
+    const buildSub = (eb: any) => {
+      let sub: AnyBuilder = eb
+        .selectFrom(`search_tokens as ${alias}`)
+        .select(sql<number>`1`.as('one'))
+        .where(`${alias}.entity_type`, '=', opts.entity)
+        .where(`${alias}.field`, '=', opts.field)
+        .where(sql<boolean>`${sql.ref(`${alias}.entity_id`)} = ${sql.ref(opts.recordIdColumn)}::text`)
+        .where(`${alias}.token_hash`, 'in', opts.hashes)
+        .groupBy([`${alias}.entity_id`, `${alias}.field`])
+        .having(sql<boolean>`count(distinct ${sql.ref(`${alias}.token_hash`)}) >= ${opts.hashes.length}`)
       if (opts.tenantId !== undefined) {
-        this.andWhereRaw(`${alias}.tenant_id is not distinct from ?`, [opts.tenantId ?? null])
+        sub = sub.where(sql<boolean>`${sql.ref(`${alias}.tenant_id`)} is not distinct from ${opts.tenantId ?? null}`)
       }
       if (opts.organizationScope) {
-        engine.applyOrganizationScope(this as any, `${alias}.organization_id`, opts.organizationScope)
+        sub = engine.applyOrganizationScope(sub, `${alias}.organization_id`, opts.organizationScope)
       }
-    })
-    return true
+      return sub
+    }
+    const combiner = opts.combineWith === 'or' ? 'or' : 'and'
+    if (combiner === 'or') {
+      // When OR combining, caller expects a raw predicate to include in eb.or([...]).
+      // We keep the same semantics as the previous knex orWhereExists by mutating the outer builder with a WHERE EXISTS.
+      // Return the mutated builder; callers that need per-predicate control should build the sub themselves.
+      const next = q.where((eb: any) => eb.or([eb.exists(buildSub(eb))]))
+      return { applied: true, builder: next }
+    }
+    const next = q.where((eb: any) => eb.exists(buildSub(eb)))
+    return { applied: true, builder: next }
   }
 
-  private applyIndexDocFilter<TRecord extends ResultRow, TResult>(
-    q: Knex.QueryBuilder<TRecord, TResult>,
+  private applyIndexDocFilter(
+    q: AnyBuilder,
     opts: {
       entity: string
       field: string
@@ -939,12 +1003,12 @@ export class BasicQueryEngine implements QueryEngine {
       searchActive: boolean
       searchConfig: ReturnType<typeof resolveSearchConfig>
     }
-  ): Knex.QueryBuilder<TRecord, TResult> {
+  ): AnyBuilder {
     if ((opts.op === 'like' || opts.op === 'ilike') && opts.searchActive && typeof opts.value === 'string') {
       const tokens = tokenizeText(String(opts.value), opts.searchConfig)
       const hashes = tokens.hashes
       if (hashes.length) {
-        const applied = this.applySearchTokens(q, {
+        const result = this.applySearchTokens(q, {
           entity: opts.entity,
           field: opts.field,
           hashes,
@@ -958,11 +1022,11 @@ export class BasicQueryEngine implements QueryEngine {
           field: opts.field,
           tokens: tokens.tokens,
           hashes,
-          applied,
+          applied: result.applied,
           tenantId: opts.tenantId ?? null,
           organizationScope: opts.organizationScope,
         })
-        if (applied) return q
+        if (result.applied) return result.builder
       } else {
         this.logSearchDebug('search:index-doc-skip-empty-hashes', {
           entity: opts.entity,
@@ -973,79 +1037,82 @@ export class BasicQueryEngine implements QueryEngine {
       return q
     }
 
-    const knex = this.getKnexFn ? this.getKnexFn() : (this.em as any).getConnection().getKnex()
     const alias = `ei_${this.searchAliasSeq++}`
     const engine = this
-    return q.whereExists(function (this: Knex.QueryBuilder) {
-      this.select(1)
-        .from({ [alias]: 'entity_indexes' })
-        .where(`${alias}.entity_type`, opts.entity)
-        .andWhereRaw('?? = ??::text', [`${alias}.entity_id`, opts.recordIdColumn])
-
+    return q.where((eb: any) => eb.exists((() => {
+      let sub: AnyBuilder = eb
+        .selectFrom(`entity_indexes as ${alias}`)
+        .select(sql<number>`1`.as('one'))
+        .where(`${alias}.entity_type`, '=', opts.entity)
+        .where(sql<boolean>`${sql.ref(`${alias}.entity_id`)} = ${sql.ref(opts.recordIdColumn)}::text`)
       if (opts.tenantId !== undefined) {
-        this.andWhereRaw(`${alias}.tenant_id is not distinct from ?`, [opts.tenantId ?? null])
+        sub = sub.where(sql<boolean>`${sql.ref(`${alias}.tenant_id`)} is not distinct from ${opts.tenantId ?? null}`)
       }
       if (opts.organizationScope) {
-        engine.applyOrganizationScope(this as any, `${alias}.organization_id`, opts.organizationScope)
+        sub = engine.applyOrganizationScope(sub, `${alias}.organization_id`, opts.organizationScope)
       }
       if (!opts.withDeleted) {
-        this.whereNull(`${alias}.deleted_at`)
+        sub = sub.where(`${alias}.deleted_at`, 'is', null)
       }
 
-      const text = knex.raw(`(${alias}.doc ->> ?)`, [opts.field])
+      const textExpr = sql<string | null>`(${sql.ref(`${alias}.doc`)} ->> ${opts.field})`
       switch (opts.op) {
         case 'eq':
-          this.where(text, '=', opts.value as Knex.Value)
-          break
+          sub = sub.where(sql<boolean>`${textExpr} = ${opts.value}`); break
         case 'ne':
-          this.where(text, '!=', opts.value as Knex.Value)
-          break
+          sub = sub.where(sql<boolean>`${textExpr} <> ${opts.value}`); break
         case 'gt':
         case 'gte':
         case 'lt':
         case 'lte': {
-          const operator = opts.op === 'gt' ? '>' : opts.op === 'gte' ? '>=' : opts.op === 'lt' ? '<' : '<='
-          this.where(text, operator, opts.value as Knex.Value)
+          const operator = sql.raw(opts.op === 'gt' ? '>' : opts.op === 'gte' ? '>=' : opts.op === 'lt' ? '<' : '<=')
+          sub = sub.where(sql<boolean>`${textExpr} ${operator} ${opts.value}`)
           break
         }
-        case 'in':
-          this.whereIn(text as any, Array.isArray(opts.value) ? opts.value : [opts.value])
+        case 'in': {
+          const vals = Array.isArray(opts.value) ? opts.value : [opts.value]
+          sub = sub.where(sql<boolean>`${textExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
           break
-        case 'nin':
-          this.whereNotIn(text as any, Array.isArray(opts.value) ? opts.value : [opts.value])
+        }
+        case 'nin': {
+          const vals = Array.isArray(opts.value) ? opts.value : [opts.value]
+          sub = sub.where(sql<boolean>`${textExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`)
           break
+        }
         case 'like':
-          this.where(text, 'like', opts.value as Knex.Value)
-          break
+          sub = sub.where(sql<boolean>`${textExpr} like ${opts.value}`); break
         case 'ilike':
-          this.where(text, 'ilike', opts.value as Knex.Value)
-          break
+          sub = sub.where(sql<boolean>`${textExpr} ilike ${opts.value}`); break
         case 'exists':
-          opts.value ? this.whereNotNull(text as any) : this.whereNull(text as any)
+          sub = opts.value
+            ? sub.where(sql<boolean>`${textExpr} is not null`)
+            : sub.where(sql<boolean>`${textExpr} is null`)
           break
         default:
           break
       }
-    })
+      return sub
+    })()))
   }
 
   private configureCustomFieldSources(
-    q: any,
+    q: AnyBuilder,
     baseTable: string,
     baseEntity: EntityId,
-    knex: any,
+    db: AnyDb,
     opts: QueryOptions,
-    qualify: (column: string) => string
-  ): ResolvedCustomFieldSource[] {
+    qualify: (column: string) => string,
+  ): { builder: AnyBuilder; sources: ResolvedCustomFieldSource[] } {
     const sources: ResolvedCustomFieldSource[] = [
       {
         entityId: baseEntity,
         alias: 'base',
         table: baseTable,
-        recordIdExpr: knex.raw('??::text', [`${baseTable}.id`]),
+        recordIdExpr: sql<string>`${sql.ref(`${baseTable}.id`)}::text`,
       },
     ]
     const extras: QueryCustomFieldSource[] = opts.customFieldSources ?? []
+    let next = q
     extras.forEach((srcOpt, index) => {
       const joinTable = srcOpt.table ?? resolveEntityTableName(this.em, srcOpt.entityId)
       const alias = srcOpt.alias ?? `cfs_${index}`
@@ -1053,22 +1120,18 @@ export class BasicQueryEngine implements QueryEngine {
       if (!join) {
         throw new Error(`QueryEngine: customFieldSources entry for ${String(srcOpt.entityId)} requires a join configuration`)
       }
-      const joinArgs = { [alias]: joinTable }
-      const joinCallback = function (this: any) {
-        this.on(`${alias}.${join.toField}`, '=', qualify(join.fromField))
-      }
-      const joinType = join.type ?? 'left'
-      if (joinType === 'inner') q.join(joinArgs, joinCallback)
-      else q.leftJoin(joinArgs, joinCallback)
+      const joinFn = (join.type ?? 'left') === 'inner' ? 'innerJoin' : 'leftJoin'
+      next = (next as any)[joinFn](`${joinTable} as ${alias}`, (jb: any) =>
+        jb.onRef(`${alias}.${join.toField}`, '=', qualify(join.fromField)))
       const recordColumn = srcOpt.recordIdColumn ?? 'id'
       sources.push({
         entityId: srcOpt.entityId,
         alias,
         table: joinTable,
-        recordIdExpr: knex.raw('??::text', [`${alias}.${recordColumn}`]),
+        recordIdExpr: sql<string>`${sql.ref(`${alias}.${recordColumn}`)}::text`,
       })
     })
-    return sources
+    return { builder: next, sources }
   }
 
   private logSearchDebug(event: string, payload: Record<string, unknown>) {
@@ -1092,52 +1155,17 @@ export class BasicQueryEngine implements QueryEngine {
     return null
   }
 
-  private applyOrganizationScope(q: any, column: string, scope: { ids: string[]; includeNull: boolean }): any {
+  private applyOrganizationScope(q: AnyBuilder, column: string, scope: { ids: string[]; includeNull: boolean }): AnyBuilder {
     if (!scope) return q
     if (scope.ids.length === 0 && !scope.includeNull) {
-      return q.whereRaw('1 = 0')
+      return q.where(sql<boolean>`1 = 0`)
     }
-    return q.where((builder: any) => {
-      let applied = false
-      if (scope.ids.length > 0) {
-        builder.whereIn(column as any, scope.ids)
-        applied = true
-      }
-      if (scope.includeNull) {
-        if (applied) builder.orWhereNull(column)
-        else builder.whereNull(column)
-        applied = true
-      }
-      if (!applied) builder.whereRaw('1 = 0')
+    return q.where((eb: any) => {
+      const parts: any[] = []
+      if (scope.ids.length > 0) parts.push(eb(column, 'in', scope.ids))
+      if (scope.includeNull) parts.push(eb(column, 'is', null))
+      if (parts.length === 1) return parts[0]
+      return eb.or(parts)
     })
   }
-
 }
-    const computeScore = (cfg: Record<string, unknown>, kind: string, entityIndex: number) => {
-      const listVisibleScore = cfg.listVisible === false ? 0 : 1
-      const formEditableScore = cfg.formEditable === false ? 0 : 1
-      const filterableScore = cfg.filterable ? 1 : 0
-      const kindScore = (() => {
-        switch (kind) {
-          case 'dictionary':
-            return 8
-          case 'relation':
-            return 6
-          case 'select':
-            return 4
-          case 'multiline':
-            return 3
-          case 'boolean':
-          case 'integer':
-          case 'float':
-            return 2
-          default:
-            return 1
-        }
-      })()
-      const optionsBonus = Array.isArray(cfg.options) && cfg.options.length ? 2 : 0
-      const dictionaryBonus = typeof cfg.dictionaryId === 'string' && cfg.dictionaryId.trim().length ? 5 : 0
-      const base = (listVisibleScore * 16) + (formEditableScore * 8) + (filterableScore * 4) + kindScore + optionsBonus + dictionaryBonus
-      const penalty = typeof cfg.priority === 'number' ? cfg.priority : 0
-      return { base, penalty, entityIndex }
-    }

@@ -1,4 +1,5 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
+import type { Kysely } from 'kysely'
 import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../../../queue/fulltext-indexing'
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
@@ -51,16 +52,16 @@ export async function handleFulltextIndexJob(
     return
   }
 
-  // Resolve EntityManager for logging and knex for database queries
+  // Resolve EntityManager for logging and Kysely for database queries
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let em: any | null = null
-  let knex: Knex | null = null
+  let db: Kysely<any> | null = null
   try {
     em = ctx.resolve('em') as EntityManager
-    knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+    db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
   } catch {
     em = null
-    knex = null
+    db = null
   }
 
   // Resolve searchIndexer for loading fresh data
@@ -193,8 +194,8 @@ export async function handleFulltextIndexJob(
       }
 
       // Update heartbeat to signal worker is still processing
-      if (knex && records.length > 0) {
-        await updateReindexProgress(knex, tenantId, 'fulltext', successCount, organizationId ?? null)
+      if (db && records.length > 0) {
+        await updateReindexProgress(db, tenantId, 'fulltext', successCount, organizationId ?? null)
       }
       if (progressService && em && records.length > 0) {
         const completed = await incrementReindexProgress({
@@ -205,8 +206,8 @@ export async function handleFulltextIndexJob(
           organizationId: organizationId ?? null,
           delta: successCount,
         })
-        if (completed && knex) {
-          await clearReindexLock(knex, tenantId, 'fulltext', organizationId ?? null)
+        if (completed && db) {
+          await clearReindexLock(db, tenantId, 'fulltext', organizationId ?? null)
         }
       }
 

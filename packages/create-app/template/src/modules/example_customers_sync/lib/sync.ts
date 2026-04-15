@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { type Kysely } from 'kysely'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -720,34 +721,36 @@ async function loadLegacyExampleTodoLinks(
   cursor?: string,
 ): Promise<{ rows: LegacyExampleTodoLinkRow[]; nextCursor?: string }> {
   const em = (container.resolve('em') as EntityManager).fork()
-  const knex = em.getKnex()
+  const db = (em as any).getKysely() as Kysely<any>
   const parsedCursor = decodeCursor(cursor)
-  const query = knex('customer_todo_links')
-    .select<LegacyExampleTodoLinkRow[]>([
+  let query = db
+    .selectFrom('customer_todo_links')
+    .select([
       'id',
       'entity_id as entityId',
       'todo_id as todoId',
       'created_by_user_id as createdByUserId',
       'created_at as createdAt',
     ])
-    .where({
-      tenant_id: scope.tenantId,
-      organization_id: scope.organizationId,
-      todo_source: 'example:todo',
-    })
+    .where('tenant_id', '=', scope.tenantId)
+    .where('organization_id', '=', scope.organizationId)
+    .where('todo_source', '=', 'example:todo')
     .orderBy('created_at', 'asc')
     .orderBy('id', 'asc')
     .limit(limit + 1)
 
   if (parsedCursor) {
-    query.andWhere(function applyCursor() {
-      this.where('created_at', '>', new Date(parsedCursor.createdAt)).orWhere(function applyTieBreaker() {
-        this.where('created_at', new Date(parsedCursor.createdAt)).andWhere('id', '>', parsedCursor.id)
-      })
-    })
+    const cursorDate = new Date(parsedCursor.createdAt)
+    query = query.where(eb => eb.or([
+      eb('created_at', '>', cursorDate),
+      eb.and([
+        eb('created_at', '=', cursorDate),
+        eb('id', '>', parsedCursor.id),
+      ]),
+    ]))
   }
 
-  const rows = await query
+  const rows = (await query.execute()) as LegacyExampleTodoLinkRow[]
   const pageRows = rows.slice(0, limit)
   const next = rows.length > limit ? pageRows[pageRows.length - 1] : null
   return {

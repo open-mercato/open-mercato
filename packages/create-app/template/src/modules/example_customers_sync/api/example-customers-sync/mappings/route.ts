@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { type Kysely } from 'kysely'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -82,9 +83,10 @@ export async function GET(request: Request) {
         : []
 
     const em = (container.resolve('em') as EntityManager).fork()
-    const knex = em.getKnex()
-    const rowsQuery = knex('example_customer_interaction_mappings')
-      .select<MappingRow[]>([
+    const db = (em as any).getKysely() as Kysely<any>
+    let rowsQuery = db
+      .selectFrom('example_customer_interaction_mappings')
+      .select([
         'id',
         'interaction_id',
         'todo_id',
@@ -97,29 +99,32 @@ export async function GET(request: Request) {
         'organization_id',
         'tenant_id',
       ])
-      .where('tenant_id', auth.tenantId)
+      .where('tenant_id', '=', auth.tenantId)
       .orderBy('updated_at', 'desc')
       .orderBy('id', 'desc')
       .limit(query.limit + 1)
 
     if (organizationIds.length > 0) {
-      rowsQuery.whereIn('organization_id', organizationIds)
+      rowsQuery = rowsQuery.where('organization_id', 'in', organizationIds)
     }
     if (query.interactionId) {
-      rowsQuery.andWhere('interaction_id', query.interactionId)
+      rowsQuery = rowsQuery.where('interaction_id', '=', query.interactionId)
     }
     if (query.todoId) {
-      rowsQuery.andWhere('todo_id', query.todoId)
+      rowsQuery = rowsQuery.where('todo_id', '=', query.todoId)
     }
     if (cursor) {
-      rowsQuery.andWhere(function applyCursor() {
-        this.where('updated_at', '<', new Date(cursor.updatedAt)).orWhere(function applyTieBreaker() {
-          this.where('updated_at', new Date(cursor.updatedAt)).andWhere('id', '<', cursor.id)
-        })
-      })
+      const cursorDate = new Date(cursor.updatedAt)
+      rowsQuery = rowsQuery.where(eb => eb.or([
+        eb('updated_at', '<', cursorDate),
+        eb.and([
+          eb('updated_at', '=', cursorDate),
+          eb('id', '<', cursor.id),
+        ]),
+      ]))
     }
 
-    const rows = await rowsQuery
+    const rows = (await rowsQuery.execute()) as MappingRow[]
     const pageRows = rows.slice(0, query.limit)
     const interactionIds = Array.from(new Set(pageRows.map((row) => row.interaction_id)))
     const interactions = interactionIds.length > 0

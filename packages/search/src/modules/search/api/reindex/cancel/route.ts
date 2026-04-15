@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { Queue } from '@open-mercato/queue'
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Kysely } from 'kysely'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { clearReindexLock } from '../../../lib/reindex-lock'
 import { cancelReindexProgress } from '../../../lib/reindex-progress'
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const progressService = container.resolve('progressService') as ProgressService
-  const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+  const db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 
   let queue: Queue | undefined
   try {
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
     }
   }
 
-  await clearReindexLock(knex, auth.tenantId, 'fulltext', auth.orgId ?? null)
+  await clearReindexLock(db, auth.tenantId, 'fulltext', auth.orgId ?? null)
   await cancelReindexProgress({
     em,
     progressService,

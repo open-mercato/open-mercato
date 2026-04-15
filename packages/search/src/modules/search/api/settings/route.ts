@@ -6,6 +6,7 @@ import type { SearchService } from '@open-mercato/search'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
 
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { Kysely } from 'kysely'
 import { getReindexLockStatus } from '../../lib/reindex-lock'
 import { settingsOpenApi } from '../openapi'
 
@@ -132,10 +133,10 @@ export async function GET(req: Request) {
 
     if (auth.tenantId) {
       const em = container.resolve('em') as EntityManager
-      const knex = (em.getConnection() as unknown as { getKnex: () => Knex }).getKnex()
+      const db = (em as unknown as { getKysely: () => Kysely<any> }).getKysely()
 
       // Check fulltext lock (auto-cleans stale locks based on heartbeat)
-      const fulltextLockStatus = await getReindexLockStatus(knex, auth.tenantId, { type: 'fulltext' })
+      const fulltextLockStatus = await getReindexLockStatus(db, auth.tenantId, { type: 'fulltext' })
       if (fulltextLockStatus) {
         const startedAt = new Date(fulltextLockStatus.startedAt)
         fulltextReindexLock = {
@@ -149,7 +150,7 @@ export async function GET(req: Request) {
       }
 
       // Check vector lock (auto-cleans stale locks based on heartbeat)
-      const vectorLockStatus = await getReindexLockStatus(knex, auth.tenantId, { type: 'vector' })
+      const vectorLockStatus = await getReindexLockStatus(db, auth.tenantId, { type: 'vector' })
       if (vectorLockStatus) {
         const startedAt = new Date(vectorLockStatus.startedAt)
         vectorReindexLock = {

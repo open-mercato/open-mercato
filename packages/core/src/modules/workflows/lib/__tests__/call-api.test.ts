@@ -42,7 +42,7 @@ describe('executeCallApi', () => {
       }),
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
-      removeAndFlush: jest.fn(),
+      remove: jest.fn(function remove(this: any) { return this }),
       findOne: jest.fn((Entity: any, query: any) => {
         const entityName = Entity?.name ?? ''
         if (entityName === 'WorkflowDefinition') {

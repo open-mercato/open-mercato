@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import ts from 'typescript'
 import { MikroORM, type Logger } from '@mikro-orm/core'
+import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { Migrator } from '@mikro-orm/migrations'
 import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
@@ -248,6 +249,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
       loggerFactory: () => createMinimalLogger(),
       dynamicImportProvider,
       entities,
+      metadataProvider: ReflectMetadataProvider,
       migrations: {
         path: migrationsPath,
         glob: '!(*.d).{ts,js}',
@@ -343,6 +345,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
       loggerFactory: () => createMinimalLogger(),
       dynamicImportProvider,
       entities: [],
+      metadataProvider: ReflectMetadataProvider,
       discovery: { warnWhenNoEntities: false },
       migrations: {
         path: migrationsPath,

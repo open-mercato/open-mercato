@@ -1,12 +1,4 @@
-// TODO(mikro-orm v7): knex package no longer available; using Kysely for raw SQL
-// Local type aliases satisfy TypeScript; runtime uses em.getKysely()
-// eslint-disable-next-line @typescript-eslint/no-namespace
-namespace Knex {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  export type QueryBuilder<_TRecord = any, _TResult = any> = any
-}
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Knex = any
+import { type Kysely, sql, type SqlBool } from 'kysely'
 import type {
   SearchStrategy,
   SearchStrategyId,
@@ -42,7 +34,7 @@ export class TokenSearchStrategy implements SearchStrategy {
   private readonly defaultLimit: number
 
   constructor(
-    private readonly knex: Knex,
+    private readonly db: Kysely<any>,
     config?: TokenStrategyConfig,
   ) {
     this.minMatchRatio = config?.minMatchRatio ?? 0.5
@@ -71,25 +63,29 @@ export class TokenSearchStrategy implements SearchStrategy {
     const minMatches = Math.max(1, Math.ceil(hashes.length * this.minMatchRatio))
     const limit = options.limit ?? this.defaultLimit
 
-    let queryBuilder = this.knex('search_tokens')
-      .select('entity_type', 'entity_id')
-      .count('* as match_count')
-      .whereIn('token_hash', hashes)
-      .where('tenant_id', options.tenantId)
-      .groupBy('entity_type', 'entity_id')
-      .havingRaw('COUNT(DISTINCT token_hash) >= ?', [minMatches])
-      .orderByRaw('COUNT(DISTINCT token_hash) DESC')
+    let queryBuilder = this.db
+      .selectFrom('search_tokens' as any)
+      .select([
+        'entity_type' as any,
+        'entity_id' as any,
+        sql<string>`count(*)`.as('match_count'),
+      ])
+      .where('token_hash' as any, 'in', hashes)
+      .where('tenant_id' as any, '=', options.tenantId)
+      .groupBy(['entity_type' as any, 'entity_id' as any])
+      .having(sql<SqlBool>`count(distinct token_hash) >= ${minMatches}`)
+      .orderBy(sql`count(distinct token_hash) desc`)
       .limit(limit)
 
     if (options.organizationId) {
-      queryBuilder = queryBuilder.where('organization_id', options.organizationId)
+      queryBuilder = queryBuilder.where('organization_id' as any, '=', options.organizationId)
     }
 
     if (options.entityTypes?.length) {
-      queryBuilder = queryBuilder.whereIn('entity_type', options.entityTypes)
+      queryBuilder = queryBuilder.where('entity_type' as any, 'in', options.entityTypes)
     }
 
-    const rows = await queryBuilder as Array<{ entity_type: string; entity_id: string; match_count: string | number }>
+    const rows = await queryBuilder.execute() as Array<{ entity_type: string; entity_id: string; match_count: string | number }>
 
     return rows.map((row) => {
       const matchCount = typeof row.match_count === 'string'
@@ -113,7 +109,7 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
-    await replaceSearchTokensForRecord(this.knex, {
+    await replaceSearchTokensForRecord(this.db, {
       entityType: record.entityId,
       recordId: record.recordId,
       tenantId: record.tenantId,
@@ -128,7 +124,7 @@ export class TokenSearchStrategy implements SearchStrategy {
       '@open-mercato/core/modules/query_index/lib/search-tokens'
     )
 
-    await deleteSearchTokensForRecord(this.knex, {
+    await deleteSearchTokensForRecord(this.db, {
       entityType: entityId,
       recordId,
       tenantId,
@@ -150,12 +146,14 @@ export class TokenSearchStrategy implements SearchStrategy {
       doc: record.fields as Record<string, unknown>,
     }))
 
-    await replaceSearchTokensForBatch(this.knex, payloads)
+    await replaceSearchTokensForBatch(this.db, payloads)
   }
 
   async purge(entityId: EntityId, tenantId: string): Promise<void> {
-    await this.knex('search_tokens')
-      .where({ entity_type: entityId, tenant_id: tenantId })
-      .del()
+    await this.db
+      .deleteFrom('search_tokens' as any)
+      .where('entity_type' as any, '=', entityId)
+      .where('tenant_id' as any, '=', tenantId)
+      .execute()
   }
 }

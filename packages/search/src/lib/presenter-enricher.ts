@@ -1,12 +1,4 @@
-// TODO(mikro-orm v7): knex package no longer available; using Kysely for raw SQL
-// Local type aliases satisfy TypeScript; runtime uses em.getKysely()
-// eslint-disable-next-line @typescript-eslint/no-namespace
-namespace Knex {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  export type QueryBuilder<_TRecord = any, _TResult = any> = any
-}
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Knex = any
+import type { Kysely } from 'kysely'
 import type {
   SearchBuildContext,
   SearchResult,
@@ -48,7 +40,7 @@ function chunk<T>(array: T[], size: number): T[][] {
  * Uses OR conditions to fetch all needed docs in one round trip.
  */
 async function fetchDocsBatch(
-  knex: Knex,
+  db: Kysely<any>,
   byEntityType: Map<string, SearchResult[]>,
   tenantId: string,
   organizationId?: string | null,
@@ -78,27 +70,28 @@ async function fetchDocsBatch(
     }
 
     // Build query with OR conditions per entity type
-    const query = knex('entity_indexes')
-      .select('entity_type', 'entity_id', 'doc')
-      .where('tenant_id', tenantId)
-      .whereNull('deleted_at')
-      .where((builder: any) => {
-        for (const [entityType, recordIds] of chunkByType) {
-          builder.orWhere((sub: any) => {
-            sub.where('entity_type', entityType).whereIn('entity_id', recordIds)
-          })
-        }
-      })
+    let query = db
+      .selectFrom('entity_indexes' as any)
+      .select(['entity_type' as any, 'entity_id' as any, 'doc' as any])
+      .where('tenant_id' as any, '=', tenantId)
+      .where('deleted_at' as any, 'is', null)
+      .where((eb: any) => eb.or(
+        Array.from(chunkByType.entries()).map(([entityType, recordIds]) => eb.and([
+          eb('entity_type' as any, '=', entityType),
+          eb('entity_id' as any, 'in', recordIds),
+        ])),
+      ))
 
     // Add organization filter if provided
     if (organizationId) {
-      query.where((builder: any) => {
-        builder.where('organization_id', organizationId).orWhereNull('organization_id')
-      })
+      query = query.where((eb: any) => eb.or([
+        eb('organization_id' as any, '=', organizationId),
+        eb('organization_id' as any, 'is', null),
+      ]))
     }
 
-    const rows = await query
-    allDocs.push(...(rows as typeof allDocs))
+    const rows = await query.execute() as Array<{ entity_type: string; entity_id: string; doc: Record<string, unknown> }>
+    allDocs.push(...rows)
   }
 
   return allDocs
@@ -204,7 +197,7 @@ async function computePresenterAndLinks(
  * - Automatic decryption of encrypted fields when encryption service is provided
  */
 export function createPresenterEnricher(
-  knex: Knex,
+  db: Kysely<any>,
   entityConfigMap: Map<EntityId, SearchEntityConfig>,
   queryEngine?: QueryEngine,
   encryptionService?: TenantDataEncryptionService | null,
@@ -223,7 +216,7 @@ export function createPresenterEnricher(
     }
 
     // Single batch query for all docs across all entity types
-    const rawDocs = await fetchDocsBatch(knex, byEntityType, tenantId, organizationId)
+    const rawDocs = await fetchDocsBatch(db, byEntityType, tenantId, organizationId)
 
     // Decrypt docs in parallel using DEK cache for efficiency
     const dekCache = new Map<string | null, string | null>()

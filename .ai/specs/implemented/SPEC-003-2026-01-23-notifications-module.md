@@ -1,5 +1,7 @@
 # Notifications Module Specification
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `persist().flush()` replaces `persistAndFlush`, and `em.getKysely()` returning `Kysely<any>` replaces `em.getKnex()` / `em.getConnection().getKnex()`.
+
 ## Overview
 
 The Notifications module provides actionable in-app notifications with **i18n-first design**, module-extensible types, and command bus integration. Users receive real-time notifications about events requiring their attention (e.g., approval requests, system alerts) and can take actions directly from the notification panel.
@@ -1061,20 +1063,18 @@ import { Notification } from '../../data/entities'
 export async function PUT(req: Request) {
   const { ctx } = await resolveRequestContext(req)
   const em = ctx.container.resolve('em') as EntityManager
-  const knex = em.getKnex()
+  // MikroORM v7: getKysely() returns a Kysely<any> builder in place of Knex.
+  const db = em.getKysely() as import('kysely').Kysely<any>
 
-  const result = await knex('notifications')
-    .where({
-      recipient_user_id: ctx.auth?.sub,
-      tenant_id: ctx.auth?.tenantId,
-      status: 'unread',
-    })
-    .update({
-      status: 'read',
-      read_at: knex.fn.now(),
-    })
+  const result = await db
+    .updateTable('notifications')
+    .set({ status: 'read', read_at: new Date() })
+    .where('recipient_user_id', '=', ctx.auth?.sub)
+    .where('tenant_id', '=', ctx.auth?.tenantId)
+    .where('status', '=', 'unread')
+    .executeTakeFirst()
 
-  return Response.json({ ok: true, count: result })
+  return Response.json({ ok: true, count: Number(result.numUpdatedRows ?? 0) })
 }
 
 export const openApi = {
@@ -1742,7 +1742,7 @@ export default async function handle(
     organizationId,
   })
   
-  await em.persistAndFlush(notification)
+  await em.persist(notification).flush()
   
   await eventBus.emit('notifications.created', {
     notificationId: notification.id,
@@ -2014,15 +2014,17 @@ The `createForRole` method queries all active users who have the specified role 
 async createForRole(input, ctx) {
   const em = rootEm.fork()
 
-  // Find all users with the specified role in the tenant
-  const knex = em.getConnection().getKnex()
-  const userRoles = await knex('user_roles')
-    .join('users', 'user_roles.user_id', 'users.id')
-    .where('user_roles.role_id', input.roleId)
-    .whereNull('user_roles.deleted_at')
-    .whereNull('users.deleted_at')
-    .where('users.tenant_id', ctx.tenantId)
+  // Find all users with the specified role in the tenant (MikroORM v7 Kysely builder)
+  const db = em.getKysely() as import('kysely').Kysely<any>
+  const userRoles = await db
+    .selectFrom('user_roles')
+    .innerJoin('users', 'user_roles.user_id', 'users.id')
+    .where('user_roles.role_id', '=', input.roleId)
+    .where('user_roles.deleted_at', 'is', null)
+    .where('users.deleted_at', 'is', null)
+    .where('users.tenant_id', '=', ctx.tenantId)
     .select('users.id as user_id')
+    .execute()
 
   if (userRoles.length === 0) {
     return []
@@ -2056,7 +2058,8 @@ async createForRole(input, ctx) {
     notifications.push(notification)
   }
 
-  await em.persistAndFlush(notifications)
+  for (const notification of notifications) em.persist(notification)
+  await em.flush()
 
   // Emit created event for each notification
   for (const notification of notifications) {
@@ -2240,18 +2243,21 @@ function hasFeature(features: string[], requiredFeature: string): boolean {
 ```typescript
 async createForFeature(input, ctx) {
   const em = rootEm.fork()
-  const knex = getKnex(em)
+  // MikroORM v7: use em.getKysely() in place of legacy getKnex(em) helpers.
+  const db = em.getKysely() as import('kysely').Kysely<any>
 
   const userIdsSet = new Set<string>()
 
   // Query 1: Users with direct user ACL
-  const userAcls = await knex('user_acls')
-    .join('users', 'user_acls.user_id', 'users.id')
-    .where('user_acls.tenant_id', ctx.tenantId)
-    .whereNull('user_acls.deleted_at')
-    .whereNull('users.deleted_at')
-    .where('users.tenant_id', ctx.tenantId)
-    .select('users.id as user_id', 'user_acls.features_json', 'user_acls.is_super_admin')
+  const userAcls = await db
+    .selectFrom('user_acls')
+    .innerJoin('users', 'user_acls.user_id', 'users.id')
+    .where('user_acls.tenant_id', '=', ctx.tenantId)
+    .where('user_acls.deleted_at', 'is', null)
+    .where('users.deleted_at', 'is', null)
+    .where('users.tenant_id', '=', ctx.tenantId)
+    .select(['users.id as user_id', 'user_acls.features_json', 'user_acls.is_super_admin'])
+    .execute()
 
   for (const row of userAcls) {
     if (row.is_super_admin) {
@@ -2264,15 +2270,17 @@ async createForFeature(input, ctx) {
   }
 
   // Query 2: Users with role ACL
-  const roleAcls = await knex('role_acls')
-    .join('user_roles', 'role_acls.role_id', 'user_roles.role_id')
-    .join('users', 'user_roles.user_id', 'users.id')
-    .where('role_acls.tenant_id', ctx.tenantId)
-    .whereNull('role_acls.deleted_at')
-    .whereNull('user_roles.deleted_at')
-    .whereNull('users.deleted_at')
-    .where('users.tenant_id', ctx.tenantId)
-    .select('users.id as user_id', 'role_acls.features_json', 'role_acls.is_super_admin')
+  const roleAcls = await db
+    .selectFrom('role_acls')
+    .innerJoin('user_roles', 'role_acls.role_id', 'user_roles.role_id')
+    .innerJoin('users', 'user_roles.user_id', 'users.id')
+    .where('role_acls.tenant_id', '=', ctx.tenantId)
+    .where('role_acls.deleted_at', 'is', null)
+    .where('user_roles.deleted_at', 'is', null)
+    .where('users.deleted_at', 'is', null)
+    .where('users.tenant_id', '=', ctx.tenantId)
+    .select(['users.id as user_id', 'role_acls.features_json', 'role_acls.is_super_admin'])
+    .execute()
 
   for (const row of roleAcls) {
     if (row.is_super_admin) {
@@ -2316,7 +2324,8 @@ async createForFeature(input, ctx) {
     notifications.push(notification)
   }
 
-  await em.persistAndFlush(notifications)
+  for (const notification of notifications) em.persist(notification)
+  await em.flush()
 
   for (const notification of notifications) {
     await eventBus.emit(NOTIFICATION_EVENTS.CREATED, {
@@ -2449,6 +2458,9 @@ External channels (email) link to a dedicated backend route (`/backend/notificat
 ---
 
 ## Changelog
+
+### 2026-04-15
+- Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs).
 
 ### 2026-01-27
 - Added auth module notifications for password reset and role assignment changes

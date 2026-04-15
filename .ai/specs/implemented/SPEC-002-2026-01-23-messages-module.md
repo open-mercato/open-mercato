@@ -1,5 +1,7 @@
 # Messages Module Specification
 
+> **Note (2026-04-15)**: Code snippets updated for MikroORM v7 — `persist().flush()` replaces `persistAndFlush`, and `em.getKysely()` returning `Kysely<any>` replaces `em.getKnex()`.
+
 ## Overview
 
 The Messages module provides an internal messaging system with support for:
@@ -1384,7 +1386,7 @@ export async function sendMessageEmail(
     token,
     expiresAt,
   })
-  await em.persistAndFlush(accessToken)
+  await em.persist(accessToken).flush()
   
   // Build access URL
   const appUrl = process.env.APP_URL || 'http://localhost:3000'
@@ -1699,8 +1701,11 @@ const styles = {
 
 ```typescript
 // packages/core/src/modules/messages/api/route.ts
+// MikroORM v7: use em.getKysely() (returns Kysely<any>) instead of em.getKnex().
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import type { EntityManager } from '@mikro-orm/core'
+import type { Kysely } from 'kysely'
+import { sql } from 'kysely'
 import { Message, MessageRecipient, MessageObject } from '../data/entities'
 import { listMessagesSchema, composeMessageSchema } from '../data/validators'
 import { json } from '@open-mercato/shared/lib/api/response'
@@ -1711,78 +1716,97 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const params = Object.fromEntries(url.searchParams)
   const input = listMessagesSchema.parse(params)
-  
+
   const userId = ctx.auth?.sub
-  const knex = em.getKnex()
-  
-  let query = knex('messages as m')
-    .join('message_recipients as r', 'm.id', 'r.message_id')
-    .where('m.tenant_id', ctx.auth?.tenantId)
-    .whereNull('m.deleted_at')
-  
+  const db = em.getKysely() as Kysely<any>
+
+  let query = db
+    .selectFrom('messages as m')
+    .innerJoin('message_recipients as r', 'm.id', 'r.message_id')
+    .where('m.tenant_id', '=', ctx.auth?.tenantId)
+    .where('m.deleted_at', 'is', null)
+
   // Folder filtering
   switch (input.folder) {
     case 'inbox':
       query = query
-        .where('r.recipient_user_id', userId)
-        .whereNull('r.deleted_at')
-        .whereNull('r.archived_at')
-        .where('m.is_draft', false)
+        .where('r.recipient_user_id', '=', userId)
+        .where('r.deleted_at', 'is', null)
+        .where('r.archived_at', 'is', null)
+        .where('m.is_draft', '=', false)
       break
     case 'sent':
       query = query
-        .where('m.sender_user_id', userId)
-        .where('m.is_draft', false)
+        .where('m.sender_user_id', '=', userId)
+        .where('m.is_draft', '=', false)
       break
     case 'drafts':
       query = query
-        .where('m.sender_user_id', userId)
-        .where('m.is_draft', true)
+        .where('m.sender_user_id', '=', userId)
+        .where('m.is_draft', '=', true)
       break
     case 'archived':
       query = query
-        .where('r.recipient_user_id', userId)
-        .whereNotNull('r.archived_at')
+        .where('r.recipient_user_id', '=', userId)
+        .where('r.archived_at', 'is not', null)
       break
   }
-  
+
   // Additional filters
   if (input.status) {
-    query = query.where('r.status', input.status)
+    query = query.where('r.status', '=', input.status)
   }
   if (input.search) {
-    query = query.where(function() {
-      this.whereILike('m.subject', `%${input.search}%`)
-        .orWhereILike('m.body', `%${input.search}%`)
-    })
+    const like = `%${input.search}%`
+    query = query.where((eb) =>
+      eb.or([
+        eb('m.subject', 'ilike', like),
+        eb('m.body', 'ilike', like),
+      ])
+    )
   }
   if (input.since) {
     query = query.where('m.sent_at', '>', new Date(input.since))
   }
   if (input.visibility) {
-    query = query.where('m.visibility', input.visibility)
+    query = query.where('m.visibility', '=', input.visibility)
   }
   if (input.sourceEntityType) {
-    query = query.where('m.source_entity_type', input.sourceEntityType)
+    query = query.where('m.source_entity_type', '=', input.sourceEntityType)
   }
   if (input.sourceEntityId) {
-    query = query.where('m.source_entity_id', input.sourceEntityId)
+    query = query.where('m.source_entity_id', '=', input.sourceEntityId)
   }
   if (input.externalEmail) {
-    query = query.whereILike('m.external_email', `%${input.externalEmail}%`)
+    query = query.where('m.external_email', 'ilike', `%${input.externalEmail}%`)
   }
-  
+
   // Count total
-  const countResult = await query.clone().count('* as count').first()
+  const countResult = await query
+    .select(sql<number>`count(*)`.as('count'))
+    .executeTakeFirst()
   const total = Number(countResult?.count ?? 0)
-  
+
   // Fetch page
   const offset = (input.page - 1) * input.pageSize
   const messages = await query
-    .select('m.*', 'r.status as recipient_status', 'r.read_at')
+    .select([
+      'm.id',
+      'm.tenant_id',
+      'm.subject',
+      'm.body',
+      'm.sender_user_id',
+      'm.sent_at',
+      'm.visibility',
+      'm.source_entity_type',
+      'm.source_entity_id',
+      'r.status as recipient_status',
+      'r.read_at',
+    ])
     .orderBy('m.sent_at', 'desc')
     .offset(offset)
     .limit(input.pageSize)
+    .execute()
   
   // Load objects for each message
   const messageIds = messages.map((m: any) => m.id)
@@ -1799,12 +1823,13 @@ export async function GET(req: Request) {
   // Load attachments counts
   const { MESSAGE_ATTACHMENT_ENTITY_ID } = await import('../lib/attachments')
   const attachmentCounts = messageIds.length > 0
-    ? await em.getKnex()('attachments')
-        .select('record_id')
-        .count('* as count')
-        .where('entity_id', MESSAGE_ATTACHMENT_ENTITY_ID)
-        .whereIn('record_id', messageIds)
+    ? await db
+        .selectFrom('attachments')
+        .select(['record_id', sql<number>`count(*)`.as('count')])
+        .where('entity_id', '=', MESSAGE_ATTACHMENT_ENTITY_ID)
+        .where('record_id', 'in', messageIds)
         .groupBy('record_id')
+        .execute()
     : []
   
   const attachmentCountByMessage = attachmentCounts.reduce((acc: Record<string, number>, row: any) => {
@@ -1886,7 +1911,7 @@ export async function POST(req: Request) {
     message.threadId = message.id
   }
   
-  await em.persistAndFlush(message)
+  await em.persist(message).flush()
   
   // Create recipients
   for (const recipient of input.recipients) {
@@ -2212,7 +2237,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   })
   
   newMessage.threadId = newMessage.id
-  await em.persistAndFlush(newMessage)
+  await em.persist(newMessage).flush()
   
   // Create recipients
   for (const recipient of input.recipients) {
@@ -3277,4 +3302,5 @@ export function register(container: AwilixContainer): void {
 
 ## Changelog
 
+- 2026-04-15: Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs).
 - 2026-02-16: Refactored message write operations to command-bus handlers with undo support for message mutations, recipient state changes, draft attachment linking/unlinking, terminal action recording, and message confirmation state updates.

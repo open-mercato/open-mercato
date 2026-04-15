@@ -11,6 +11,8 @@ import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 function FeatureBadge({ label }: { label: string }) {
   return (
@@ -60,9 +62,9 @@ export default async function Home() {
   try {
     const container = await createRequestContainer()
     const em = container.resolve<EntityManager>('em')
-    usersCount = await em.count('User', {})
-    tenantsCount = await em.count('Tenant', {})
-    orgsCount = await em.count('Organization', {})
+    usersCount = await em.count(User, {})
+    tenantsCount = await em.count(Tenant, {})
+    orgsCount = await em.count(Organization, {})
     dbStatus = t('app.page.dbStatus.connected', 'Connected')
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : t('app.page.dbStatus.noConnection', 'no connection')

@@ -1,4 +1,5 @@
 
+import type { Kysely } from 'kysely'
 import type { SearchEntityConfig } from '../types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { SearchResult } from '@open-mercato/shared/modules/search'
@@ -15,67 +16,23 @@ type IndexRow = {
   doc: Record<string, unknown>
 }
 
-type ConditionBuilder = {
-  where: (fieldOrCallback: unknown, value?: unknown) => ConditionBuilder
-  whereIn: (field: string, values: string[]) => ConditionBuilder
-  whereNull: (field: string) => ConditionBuilder
-  orWhere: (callback: (builder: ConditionBuilder) => void) => ConditionBuilder
-  orWhereNull: (field: string) => ConditionBuilder
-}
-
-type QueryBuilder = ConditionBuilder & {
-  select: (...fields: string[]) => QueryBuilder
-  then: Promise<IndexRow[]>['then']
-}
-
 const mockedDecryptIndexDocForSearch = jest.mocked(decryptIndexDocForSearch)
 
-function createConditionBuilder(): ConditionBuilder {
-  const builder: ConditionBuilder = {
-    where: (fieldOrCallback) => {
-      if (typeof fieldOrCallback === 'function') {
-        fieldOrCallback(createConditionBuilder())
-      }
-      return builder
-    },
-    whereIn: () => builder,
-    whereNull: () => builder,
-    orWhere: (callback) => {
-      callback(createConditionBuilder())
-      return builder
-    },
-    orWhereNull: () => builder,
+/**
+ * Build a minimal Kysely-like mock for `db.selectFrom(...).select(...).where(...).execute()` chains.
+ * The presenter enricher only uses selectFrom/select/where/execute on the resolved Kysely instance,
+ * so we don't need full coverage here.
+ */
+function createKyselyMock(rows: IndexRow[]): Kysely<any> {
+  const chain: any = {
+    select: jest.fn(() => chain),
+    where: jest.fn(() => chain),
+    execute: jest.fn().mockResolvedValue(rows),
   }
-
-  return builder
-}
-
-function createQueryBuilder(rows: IndexRow[]): QueryBuilder {
-  let query: QueryBuilder
-
-  query = {
-    where: (fieldOrCallback) => {
-      if (typeof fieldOrCallback === 'function') {
-        fieldOrCallback(createConditionBuilder())
-      }
-      return query
-    },
-    whereIn: () => query,
-    whereNull: () => query,
-    orWhere: (callback) => {
-      callback(createConditionBuilder())
-      return query
-    },
-    orWhereNull: () => query,
-    select: () => query,
-    then: (onFulfilled, onRejected) => Promise.resolve(rows).then(onFulfilled, onRejected),
+  const db: any = {
+    selectFrom: jest.fn(() => chain),
   }
-
-  return query
-}
-
-function createKnex(rows: IndexRow[]): Knex {
-  return jest.fn((_tableName: string) => createQueryBuilder(rows)) as unknown as Knex
+  return db as Kysely<any>
 }
 
 function createConfig(config: Omit<SearchEntityConfig, 'entityId'> & { entityId?: SearchEntityConfig['entityId'] }): SearchEntityConfig {
@@ -123,7 +80,7 @@ describe('createPresenterEnricher', () => {
     const config = createConfig({ buildSource, resolveUrl })
 
     const enrich = createPresenterEnricher(
-      createKnex([{ entity_type: 'customers:person', entity_id: 'person-1', doc: decryptedDoc }]),
+      createKyselyMock([{ entity_type: 'customers:person', entity_id: 'person-1', doc: decryptedDoc }]),
       new Map([[config.entityId, config]]),
       queryEngine,
       {} as never,
@@ -171,7 +128,7 @@ describe('createPresenterEnricher', () => {
     const config = createConfig({ resolveLinks })
 
     const enrich = createPresenterEnricher(
-      createKnex([{ entity_type: 'customers:person', entity_id: 'person-1', doc }]),
+      createKyselyMock([{ entity_type: 'customers:person', entity_id: 'person-1', doc }]),
       new Map([[config.entityId, config]]),
     )
 

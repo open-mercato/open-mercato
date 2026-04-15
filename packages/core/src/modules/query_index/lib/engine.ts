@@ -700,17 +700,19 @@ export class HybridQueryEngine implements QueryEngine {
         next = applyOrGroupedBaseFilters(next)
         // applyJoinFilters is the shared helper that handles `joinFilters` (ALIAS:col -> value).
         next = await applyJoinFilters({
-          knex: db as any,
+          db,
           baseTable,
           builder: next,
           joinMap,
           joinFilters,
           aliasTables,
           qualifyBase: (column) => qualify(column),
-          applyAliasScope: async (target: any, alias: string) => { await applyAliasScopes(target as AnyBuilder, alias) },
-          applyFilterOp: (target, column, op, value) => { applyJoinFilterOpFn(target as AnyBuilder, column, op, value) },
-          applyJoinFilterOp: (target, filter, qualified, join) =>
-            applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join),
+          applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
+          applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
+          applyJoinFilterOp: async (target, filter, qualified, join) => {
+            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
+            return { applied, builder: target }
+          },
           columnExists: (tbl, column) => this.columnExists(tbl, column),
         })
         return next
@@ -784,17 +786,19 @@ export class HybridQueryEngine implements QueryEngine {
         countCore = applyOrGroupedBaseFilters(countCore)
         // joinFilters still need to be re-applied in the optimized path
         countCore = await applyJoinFilters({
-          knex: db as any,
+          db,
           baseTable,
           builder: countCore,
           joinMap,
           joinFilters,
           aliasTables,
           qualifyBase: (column) => qualify(column),
-          applyAliasScope: async (target: any, alias: string) => { await applyAliasScopes(target as AnyBuilder, alias) },
-          applyFilterOp: (target, column, op, value) => { applyJoinFilterOpFn(target as AnyBuilder, column, op, value) },
-          applyJoinFilterOp: (target, filter, qualified, join) =>
-            applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join),
+          applyAliasScope: async (target: any, alias: string) => applyAliasScopes(target as AnyBuilder, alias),
+          applyFilterOp: (target, column, op, value) => applyJoinFilterOpFn(target as AnyBuilder, column, op, value),
+          applyJoinFilterOp: async (target, filter, qualified, join) => {
+            const applied = await applyJoinSearchFilterOp(target as AnyBuilder, filter, qualified, join)
+            return { applied, builder: target }
+          },
           columnExists: (tbl, column) => this.columnExists(tbl, column),
         })
         const sub = countCore.select(sql.ref(qualify('id')).as('id')).groupBy(qualify('id')).as('sq')

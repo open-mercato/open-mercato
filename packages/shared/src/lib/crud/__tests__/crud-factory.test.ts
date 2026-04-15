@@ -22,7 +22,14 @@ let mockOrganizationScopeOverride: MockOrganizationScope | null
 
 const em = {
   create: (_cls: any, data: any) => ({ ...data, id: `id-${idSeq++}` }),
-  persistAndFlush: async (entity: Rec) => { db[entity.id] = { ...(db[entity.id] || {} as any), ...entity } },
+  persist(entity: Rec) {
+    db[entity.id] = { ...(db[entity.id] || {} as any), ...entity }
+    return { flush: async () => undefined }
+  },
+  remove(entity: Rec) {
+    delete db[entity.id]
+    return { flush: async () => undefined }
+  },
   findOne: async (_entity: any, where: any) => (em.getRepository(_entity).findOne(where) as any),
   getRepository: (_cls: any) => ({
     find: async (where: any) => Object.values(db).filter((r) => {
@@ -56,7 +63,10 @@ const em = {
           : r.organizationId === orgClause
       return matchesOrg && r.tenantId === where.tenantId
     }) || null,
-    removeAndFlush: async (entity: Rec) => { delete db[entity.id] },
+    remove(entity: Rec) {
+      delete db[entity.id]
+      return { flush: async () => undefined }
+    },
   }),
 }
 
