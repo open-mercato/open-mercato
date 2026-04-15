@@ -34,14 +34,9 @@ import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
-<<<<<<< HEAD
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
-import crypto from 'node:crypto'
-=======
-import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
->>>>>>> origin/develop
 
 type SerializedUser = {
   email: string
@@ -348,13 +343,8 @@ async function sendInviteToUser(
   const row = em.create(PasswordReset, { user, token: tokenHash, expiresAt, createdAt: new Date() })
   await em.persistAndFlush(row)
 
-<<<<<<< HEAD
   const base = getSecurityEmailBaseUrl()
-  const inviteUrl = `${base}/reset/${token}`
-=======
-  const base = resolveInviteBaseUrl()
   const inviteUrl = `${base}/reset/${rawToken}`
->>>>>>> origin/develop
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.invite.subject', 'You have been invited')
