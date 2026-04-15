@@ -64,12 +64,12 @@ jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
 
 const originalEnv = process.env
 
-function makeResetRequest(url: string) {
+function makeResetRequest(url: string, headers: Record<string, string> = {}) {
   const body = new URLSearchParams()
   body.set('email', 'staff@example.com')
   return new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    headers: { 'content-type': 'application/x-www-form-urlencoded', ...headers },
     body: body.toString(),
   })
 }
@@ -126,6 +126,28 @@ describe('POST /api/auth/reset', () => {
     expect(mockResetPasswordEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         resetUrl: 'http://localhost:3000/reset/reset-token-1',
+      }),
+    )
+  })
+
+  test('allows equivalent loopback proxy origins in production', async () => {
+    process.env = {
+      ...process.env,
+      APP_URL: 'http://127.0.0.1:3000',
+      NODE_ENV: 'production',
+    }
+
+    const res = await POST(makeResetRequest('http://127.0.0.1:3000/api/auth/reset', {
+      host: '127.0.0.1:3000',
+      'x-forwarded-host': 'localhost:3000',
+      'x-forwarded-proto': 'https',
+    }))
+
+    expect(res.status).toBe(200)
+    expect(mockRequestPasswordReset).toHaveBeenCalledWith('staff@example.com')
+    expect(mockResetPasswordEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resetUrl: 'http://127.0.0.1:3000/reset/reset-token-1',
       }),
     )
   })

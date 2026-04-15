@@ -60,6 +60,37 @@ describe('security email URL helpers', () => {
     expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
   })
 
+  test('allows equivalent loopback proxy origins in production when the port matches', () => {
+    const env = {
+      APP_URL: 'http://127.0.0.1:3000',
+      NODE_ENV: 'production',
+    }
+    const request = new Request('http://127.0.0.1:3000/api/auth/reset', {
+      headers: {
+        host: '127.0.0.1:3000',
+        'x-forwarded-host': 'localhost:3000',
+        'x-forwarded-proto': 'https',
+      },
+    })
+
+    expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
+  })
+
+  test('rejects loopback proxy origins when the port does not match', () => {
+    const env = {
+      APP_URL: 'http://127.0.0.1:3000',
+      NODE_ENV: 'production',
+    }
+    const request = new Request('http://127.0.0.1:3000/api/auth/reset', {
+      headers: {
+        host: '127.0.0.1:3000',
+        'x-forwarded-host': 'localhost:4444',
+      },
+    })
+
+    expect(() => assertAllowedAppOrigin(request, env)).toThrow(AppOriginRejectedError)
+  })
+
   test('requires APP_URL for security email links in production', () => {
     const env = {
       NODE_ENV: 'production',

@@ -115,11 +115,32 @@ function isLoopbackOrigin(origin: string): boolean {
   }
 }
 
-function shouldAllowLocalLoopbackOrigin(origin: string, allowedOrigins: Set<string>, env: EnvLike): boolean {
-  if (env.NODE_ENV === 'production') return false
+function normalizeOriginPort(url: URL): string {
+  if (url.port) return url.port
+  if (url.protocol === 'https:') return '443'
+  if (url.protocol === 'http:') return '80'
+  return ''
+}
+
+function isEquivalentLoopbackOrigin(origin: string, allowedOrigin: string): boolean {
+  try {
+    const candidateUrl = new URL(origin)
+    const allowedUrl = new URL(allowedOrigin)
+    if (!isLoopbackHostname(candidateUrl.hostname) || !isLoopbackHostname(allowedUrl.hostname)) {
+      return false
+    }
+    return normalizeOriginPort(candidateUrl) === normalizeOriginPort(allowedUrl)
+  } catch {
+    return false
+  }
+}
+
+function shouldAllowLoopbackOrigin(origin: string, allowedOrigins: Set<string>, env: EnvLike): boolean {
   if (!isLoopbackOrigin(origin)) return false
   for (const allowedOrigin of allowedOrigins) {
-    if (isLoopbackOrigin(allowedOrigin)) return true
+    if (!isLoopbackOrigin(allowedOrigin)) continue
+    if (env.NODE_ENV !== 'production') return true
+    if (isEquivalentLoopbackOrigin(origin, allowedOrigin)) return true
   }
   return false
 }
@@ -132,13 +153,12 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
     }
     return
   }
-
   const origins = requestOrigins(input)
   if (origins.size === 0) return
 
   for (const origin of origins) {
     if (!allowedOrigins.has(origin)) {
-      if (shouldAllowLocalLoopbackOrigin(origin, allowedOrigins, env)) continue
+      if (shouldAllowLoopbackOrigin(origin, allowedOrigins, env)) continue
       throw new AppOriginRejectedError('Request origin is not allowed')
     }
   }

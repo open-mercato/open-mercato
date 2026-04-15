@@ -79,11 +79,15 @@ const actorId = 'd0d0d0d0-d0d0-4d0d-8d0d-d0d0d0d0d0d0'
 const orgId = 'e0e0e0e0-e0e0-4e0e-8e0e-e0e0e0e0e0e0'
 const originalEnv = process.env
 
-function makeRequest(body: Record<string, unknown>, url = 'http://localhost/api/auth/users/resend-invite') {
+function makeRequest(
+  body: Record<string, unknown>,
+  url = 'http://localhost/api/auth/users/resend-invite',
+  headers: Record<string, string> = {},
+) {
   __readJsonBody.current = body
   return new Request(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify(body),
   })
 }
@@ -245,6 +249,30 @@ describe('POST /api/auth/users/resend-invite', () => {
     }
 
     const res = await POST(makeRequest({ id: userId }, 'http://127.0.0.1:5001/api/auth/users/resend-invite'))
+
+    expect(res.status).toBe(200)
+    expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
+    expect(mockPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+  })
+
+  test('allows equivalent loopback proxy origins in production', async () => {
+    process.env = {
+      ...process.env,
+      APP_URL: 'http://127.0.0.1:3000',
+      NODE_ENV: 'production',
+      JWT_SECRET: 'test-jwt-secret',
+    }
+
+    const res = await POST(makeRequest(
+      { id: userId },
+      'http://127.0.0.1:3000/api/auth/users/resend-invite',
+      {
+        host: '127.0.0.1:3000',
+        'x-forwarded-host': 'localhost:3000',
+        'x-forwarded-proto': 'https',
+      },
+    ))
 
     expect(res.status).toBe(200)
     expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
