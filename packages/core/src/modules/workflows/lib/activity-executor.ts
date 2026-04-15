@@ -15,8 +15,21 @@ import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { createQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import {
+  assertSafeOutboundUrl,
+  UnsafeOutboundUrlError,
+  type HostLookup,
+} from '@open-mercato/shared/lib/url-safety'
+import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
+
+function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
+  const raw = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+  if (!raw) return false
+  const normalized = raw.trim().toLowerCase()
+  return normalized === '1' || normalized === 'true' || normalized === 'yes'
+}
 
 // ============================================================================
 // Types and Interfaces
@@ -598,27 +611,67 @@ async function resolveDictionaryEntryId(
 /**
  * CALL_WEBHOOK activity handler
  *
- * Makes HTTP request to external URL
+ * Makes HTTP request to an external URL. Applies shared SSRF guard
+ * (protocol / credentials / blocked host / private IP literal / DNS rebinding)
+ * before issuing the request and rejects any 3xx redirect rather than following.
  */
-export async function executeCallWebhook(
-  config: any,
-  context: ActivityContext
-): Promise<any> {
-  const { url, method = 'POST', headers = {}, body } = config
+export type CallWebhookDeps = {
+  lookupHost?: HostLookup
+  allowPrivate?: boolean
+  fetchImpl?: typeof fetch
+}
 
-  if (!url) {
-    throw new Error('CALL_WEBHOOK requires "url" field')
+export async function executeCallWebhook(
+  config: unknown,
+  context: ActivityContext,
+  deps: CallWebhookDeps = {}
+): Promise<any> {
+  const parsed = callWebhookConfigSchema.safeParse(config)
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
+      .join('; ')
+    throw new Error(`CALL_WEBHOOK config invalid: ${issues}`)
+  }
+  const { url, method, headers: rawHeaders, body } = parsed.data
+  const headers = rawHeaders ?? {}
+
+  const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
+
+  try {
+    await assertSafeOutboundUrl(url, {
+      subject: 'Workflow webhook URL',
+      allowPrivate,
+      lookupHost: deps.lookupHost,
+    })
+  } catch (error) {
+    if (error instanceof UnsafeOutboundUrlError) {
+      throw new Error(
+        `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
+      )
+    }
+    throw error
   }
 
-  // Make HTTP request
-  const response = await fetch(url, {
+  const fetchImpl = deps.fetchImpl ?? fetch
+  const response = await fetchImpl(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...headers,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+    redirect: 'manual',
   })
+
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get('location')
+    throw new Error(
+      `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
+        location ?? '(no Location header)'
+      }`
+    )
+  }
 
   // Parse response
   let result: any

@@ -1,12 +1,18 @@
-import { lookup } from 'node:dns/promises'
-import { isIP } from 'node:net'
 import {
-  isBlockedHostname,
-  isPrivateIpAddress,
-} from '@open-mercato/shared/lib/network'
+  assertSafeOutboundUrl,
+  assertStaticallySafeOutboundUrl,
+  parseOutboundUrl,
+  type HostLookup,
+  type UrlSafetyReason,
+} from '@open-mercato/shared/lib/url-safety'
 
 export { isPrivateIpAddress } from '@open-mercato/shared/lib/network'
 
+const SUBJECT = 'Webhook URL'
+
+// Kept as a standalone Error subclass (not extending UnsafeOutboundUrlError) so that
+// `reason: string` stays compatible with pre-refactor consumers. See
+// BACKWARD_COMPATIBILITY.md §2 (Type Definitions): required field types MUST NOT be narrowed.
 export class UnsafeWebhookUrlError extends Error {
   public readonly reason: string
 
@@ -17,7 +23,8 @@ export class UnsafeWebhookUrlError extends Error {
   }
 }
 
-const ALLOWED_PROTOCOLS = new Set(['http:', 'https:'])
+const webhookErrorFactory = (reason: UrlSafetyReason, message: string) =>
+  new UnsafeWebhookUrlError(reason, message)
 
 type ParsedWebhookUrl = {
   url: URL
@@ -25,32 +32,7 @@ type ParsedWebhookUrl = {
 }
 
 export function parseWebhookUrl(rawUrl: string): ParsedWebhookUrl {
-  let url: URL
-  try {
-    url = new URL(rawUrl)
-  } catch {
-    throw new UnsafeWebhookUrlError('invalid_url', 'Webhook URL is not a valid URL')
-  }
-  if (!ALLOWED_PROTOCOLS.has(url.protocol)) {
-    throw new UnsafeWebhookUrlError(
-      'forbidden_protocol',
-      `Webhook URL protocol "${url.protocol.replace(':', '')}" is not allowed; use http or https`,
-    )
-  }
-  if (url.username || url.password) {
-    throw new UnsafeWebhookUrlError(
-      'credentials_in_url',
-      'Webhook URL must not embed basic-auth credentials',
-    )
-  }
-  let hostname = url.hostname.trim().toLowerCase()
-  if (!hostname) {
-    throw new UnsafeWebhookUrlError('missing_host', 'Webhook URL must include a hostname')
-  }
-  if (hostname.startsWith('[') && hostname.endsWith(']')) {
-    hostname = hostname.slice(1, -1)
-  }
-  return { url, hostname }
+  return parseOutboundUrl(rawUrl, { errorFactory: webhookErrorFactory, subject: SUBJECT })
 }
 
 export type AssertStaticWebhookUrlDeps = {
@@ -61,23 +43,12 @@ export function assertStaticallySafeWebhookUrl(
   rawUrl: string,
   deps: AssertStaticWebhookUrlDeps = {},
 ): void {
-  const { hostname } = parseWebhookUrl(rawUrl)
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWebhookUrlsEnabled()
-  if (allowPrivate) return
-
-  if (isBlockedHostname(hostname)) {
-    throw new UnsafeWebhookUrlError(
-      'blocked_hostname',
-      `Webhook URL host "${hostname}" is not allowed`,
-    )
-  }
-  const family = isIP(hostname)
-  if (family && isPrivateIpAddress(hostname)) {
-    throw new UnsafeWebhookUrlError(
-      'private_ip_literal',
-      `Webhook URL host "${hostname}" resolves to a private or reserved IP range`,
-    )
-  }
+  assertStaticallySafeOutboundUrl(rawUrl, {
+    errorFactory: webhookErrorFactory,
+    subject: SUBJECT,
+    allowPrivate,
+  })
 }
 
 export function isAllowPrivateWebhookUrlsEnabled(): boolean {
@@ -88,7 +59,7 @@ export function isAllowPrivateWebhookUrlsEnabled(): boolean {
 }
 
 export type AssertSafeWebhookDeliveryDeps = {
-  lookupHost?: (hostname: string) => Promise<ReadonlyArray<{ address: string; family: number }>>
+  lookupHost?: HostLookup
   allowPrivate?: boolean
 }
 
@@ -96,55 +67,11 @@ export async function assertSafeWebhookDeliveryUrl(
   rawUrl: string,
   deps: AssertSafeWebhookDeliveryDeps = {},
 ): Promise<void> {
-  const { hostname } = parseWebhookUrl(rawUrl)
   const allowPrivate = deps.allowPrivate ?? isAllowPrivateWebhookUrlsEnabled()
-  if (allowPrivate) return
-
-  if (isBlockedHostname(hostname)) {
-    throw new UnsafeWebhookUrlError(
-      'blocked_hostname',
-      `Webhook URL host "${hostname}" is not allowed`,
-    )
-  }
-
-  if (isIP(hostname)) {
-    if (isPrivateIpAddress(hostname)) {
-      throw new UnsafeWebhookUrlError(
-        'private_ip_literal',
-        `Webhook URL host "${hostname}" resolves to a private or reserved IP range`,
-      )
-    }
-    return
-  }
-
-  const resolver = deps.lookupHost ?? (async (host: string) => {
-    const records = await lookup(host, { all: true, verbatim: true })
-    return records
+  await assertSafeOutboundUrl(rawUrl, {
+    errorFactory: webhookErrorFactory,
+    subject: SUBJECT,
+    allowPrivate,
+    lookupHost: deps.lookupHost,
   })
-
-  let addresses: ReadonlyArray<{ address: string; family: number }>
-  try {
-    addresses = await resolver(hostname)
-  } catch (error) {
-    throw new UnsafeWebhookUrlError(
-      'dns_resolution_failed',
-      `Webhook URL host "${hostname}" could not be resolved: ${error instanceof Error ? error.message : 'lookup failed'}`,
-    )
-  }
-
-  if (!addresses || addresses.length === 0) {
-    throw new UnsafeWebhookUrlError(
-      'dns_resolution_empty',
-      `Webhook URL host "${hostname}" has no DNS A/AAAA records`,
-    )
-  }
-
-  for (const record of addresses) {
-    if (isPrivateIpAddress(record.address)) {
-      throw new UnsafeWebhookUrlError(
-        'private_ip_resolved',
-        `Webhook URL host "${hostname}" resolves to a private or reserved IP address (${record.address})`,
-      )
-    }
-  }
 }

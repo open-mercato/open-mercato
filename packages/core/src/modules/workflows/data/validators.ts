@@ -134,6 +134,17 @@ export const callApiConfigSchema = z.object({
   timeout: z.number().int().positive().optional(),
 })
 
+// CALL_WEBHOOK activity configuration
+// URL shape is validated here; network-level SSRF guard runs at execution time
+// via @open-mercato/shared/lib/url-safety (assertSafeOutboundUrl).
+export const callWebhookConfigSchema = z.object({
+  url: z.string().min(1, 'Webhook URL is required'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.any().optional(),
+})
+export type CallWebhookConfig = z.infer<typeof callWebhookConfigSchema>
+
 // Retry policy
 export const retryPolicySchema = z.object({
   maxAttempts: z.number().int().min(1).max(10),
