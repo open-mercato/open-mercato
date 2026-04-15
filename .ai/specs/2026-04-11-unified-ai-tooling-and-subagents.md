@@ -506,6 +506,9 @@ These are client-rendered components registered in the UI package.
 | Provider/model drift across tenants | Medium | Runtime config | Reuse existing tenant settings and only allow `defaultModel` override in v1 | Low |
 | UI part registry grows into unstable mini-framework | Medium | UI maintainability | Ship a very small v1 registry with strict serializable props only | Low |
 | Pressure to allow write-capable focused agents too early | High | Data integrity, UX safety | Keep v1 focused agents read-only; follow-up spec for confirmation protocol | Medium |
+| `resolvePageContext` leaks cross-tenant data | High | Security, privacy | Resolver runs inside the same request-scoped context with tenant/org filters; validate resolver output does not include cross-tenant references | Low |
+| Routing metadata (`keywords`/`domain`) used for auto-selection prematurely | Medium | UX correctness | V1 ignores routing metadata at runtime; only emitted in generated registry for future use | Low |
+| Model factory env overrides bypass tenant settings silently | Medium | Runtime config, billing | Document env override precedence clearly; log which resolution path was used in debug mode | Low |
 
 ## Phasing
 
@@ -560,6 +563,11 @@ Out of scope for this spec but expected follow-ups:
 - per-module MCP endpoints
 - agent-to-agent composition
 - RSC `streamUI`
+- structured prompt composition with named sections (replace raw `systemPrompt` with a prompt builder)
+- agent-suggestion feature consuming `keywords`, `domain`, and `dataCapabilities` metadata
+- context dependencies for auto-resolving tool whitelists from module affinities
+- execution budgets (`maxSteps`) recommended as mandatory for mutation-capable agents
+- versioned manifest contract (`manifestVersion`, `platformRange`) when external modules ship AI agents
 
 ## Implementation Plan
 
@@ -585,9 +593,11 @@ Out of scope for this spec but expected follow-ups:
 5. Add i18n strings and keyboard interaction coverage.
 
 ### Phase 3
-1. Implement one production `ai-agents.ts`.
-2. Bind it to an existing backend page through normal injection/UI composition.
-3. Add focused integration tests and docs.
+1. Extract shared model factory from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`. Support `defaultModel` override and env-based per-agent override (`<MODULE>_AI_MODEL`).
+2. Implement one production `ai-agents.ts` with a `resolvePageContext` callback that hydrates record-level context.
+3. Bind it to an existing backend page through normal injection/UI composition, passing `pageContext` from the page.
+4. Add focused integration tests covering page context resolution and model factory fallback chain.
+5. Add docs.
 
 ## Integration Test Coverage
 
@@ -609,6 +619,20 @@ Required coverage for this spec:
 - debug panel remains hidden unless enabled
 - keyboard shortcuts work
 - i18n keys resolve correctly
+
+### Page Context Resolution
+- agent with `resolvePageContext` receives hydrated context when `pageContext` includes `entityType` and `recordId`
+- agent without `resolvePageContext` treats `pageContext` as advisory only
+- `resolvePageContext` errors are caught and do not crash the chat request
+
+### Model Factory
+- model factory resolves per-agent env override when set
+- model factory falls back to `defaultModel` when no env override exists
+- model factory falls back to tenant settings when no `defaultModel` is declared
+
+### Execution Budget
+- agent with `maxSteps` stops after the declared number of tool-call steps
+- agent without `maxSteps` uses the runtime default
 
 ### Backward Compatibility
 - existing `ai-tools.ts` modules still load
@@ -635,11 +659,12 @@ This spec modifies public AI extension surfaces and therefore must remain additi
 
 ### Additive surfaces introduced
 - `ai-agents.ts`
-- `AiAgentDefinition`
+- `AiAgentDefinition` (with optional `resolvePageContext`, `maxSteps`, `keywords`, `domain`, `dataCapabilities`)
 - `defineAiTool()`
 - `ai-agents.generated.ts`
 - `POST /api/ai/chat?agent=...`
 - `<AiChat>`
+- shared model factory (`@open-mercato/ai-assistant/lib/model-factory.ts`, Phase 3)
 
 ### Rules
 - no existing import path is removed or renamed
@@ -670,6 +695,18 @@ When implemented, release notes must call out:
 | Risks include failure scenarios and mitigations | Pass | Concrete table included |
 
 ## Changelog
+
+### 2026-04-15
+- Integrated high-value ideas from PR #1222 analysis (`.ai/specs/2026-04-13-pr-1222-decentralized-ai-analysis.md`).
+- Added `resolvePageContext` callback to `AiAgentDefinition` for module-owned page context hydration (Phase 3).
+- Added `maxSteps` execution budget field to `AiAgentDefinition` (Phase 1+, recommended for Phase 4 mutation agents).
+- Added routing metadata fields (`keywords`, `domain`, `dataCapabilities`) to `AiAgentDefinition` for future agent-suggestion (Phase 4+).
+- Added shared model factory consolidation to Phase 3 deliverables.
+- Expanded Phase 4 follow-up scope with structured prompt composition, context dependencies, and versioned manifest contract.
+- Added Decision D11 documenting community-sourced enhancements and their adoption timeline.
+- Added integration test coverage for page context resolution, model factory, and execution budgets.
+- Added risk entries for `resolvePageContext` tenant isolation, routing metadata premature use, and model factory env overrides.
+- Credit: ideas sourced from @rchrzanwlc's research in PR #1222.
 
 ### 2026-04-11
 - Replaced the skeleton with an implementation-ready additive migration spec.
