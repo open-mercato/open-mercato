@@ -207,11 +207,18 @@ export default function AuditLogsPage() {
         {tab === 'actions' && (
           <AuditLogsActions
             items={actions}
-            onRefresh={() => loadWithState(accessPage, accessPageSize)}
+            onRefresh={() => loadWithState(actionsPage, actionsPageSize, accessPage, accessPageSize)}
             isLoading={loading}
             headerExtras={headerExtras}
             onUndoError={handleUndoError}
             onRedoError={handleRedoError}
+            pagination={{
+              page: actionsPage,
+              pageSize: actionsPageSize,
+              total: actionsTotal,
+              totalPages: actionsTotalPages,
+              onPageChange: handleActionsPageChange,
+            }}
           />
         )}
 
