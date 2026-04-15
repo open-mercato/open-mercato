@@ -375,7 +375,6 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
       setUserOptions(nextUserOptions)
       setActionOptions(nextActionOptions)
     } catch (loadError) {
-      console.error('customers.changelog.load failed', loadError)
       setEntries([])
       setTotalCount(0)
       setTodayCount(0)

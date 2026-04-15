@@ -77,6 +77,8 @@ export type DealSummary = {
   title: string
   status?: string | null
   pipelineStage?: string | null
+  pipelineId?: string | null
+  pipelineStageId?: string | null
   valueAmount?: number | string | null
   valueCurrency?: string | null
   probability?: number | string | null

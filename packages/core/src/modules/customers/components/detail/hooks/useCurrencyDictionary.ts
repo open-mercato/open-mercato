@@ -35,16 +35,16 @@ async function fetchCurrencyDictionary(): Promise<CurrencyDictionaryPayload> {
   }
   const entriesRaw = Array.isArray(payload?.entries) ? payload.entries : []
   const entries: CurrencyDictionaryEntry[] = entriesRaw
-    .map((entry: any): CurrencyDictionaryEntry | null => {
-      const value = typeof entry?.value === 'string' ? entry.value.trim().toUpperCase() : ''
+    .map((entry: Record<string, unknown>): CurrencyDictionaryEntry | null => {
+      const value = typeof entry.value === 'string' ? entry.value.trim().toUpperCase() : ''
       const label =
-        typeof entry?.label === 'string' && entry.label.trim().length
+        typeof entry.label === 'string' && entry.label.trim().length
           ? entry.label.trim()
           : value
-      const entryId = typeof entry?.id === 'string' ? entry.id : value
+      const entryId = typeof entry.id === 'string' ? entry.id : value
       if (!value) return null
-      const color = typeof entry?.color === 'string' && entry.color.trim().length ? entry.color.trim() : null
-      const icon = typeof entry?.icon === 'string' && entry.icon.trim().length ? entry.icon.trim() : null
+      const color = typeof entry.color === 'string' && entry.color.trim().length ? entry.color.trim() : null
+      const icon = typeof entry.icon === 'string' && entry.icon.trim().length ? entry.icon.trim() : null
       return { id: entryId, value, label, color, icon }
     })
     .filter((entry: CurrencyDictionaryEntry | null): entry is CurrencyDictionaryEntry => entry !== null)

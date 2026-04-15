@@ -35,7 +35,7 @@ import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 
@@ -450,7 +450,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
     const em = (container.resolve('em') as EntityManager)
 
-    const person = await em.findOne(CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null })
+    const person = await findOneWithDecryption(em, CustomerEntity, { id: parse.data.id, kind: 'person', deletedAt: null }, {}, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
     profiler.mark('person_loaded', { found: !!person })
     if (!person) {
       statusCode = 404
@@ -473,12 +473,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return forbidden('Access denied')
     }
 
-    profile = await em.findOne(CustomerPersonProfile, { entity: person }, { populate: ['company'] })
+    profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
     profiler.mark('profile_loaded', { found: !!profile })
     companies = summarizePersonCompanies(profile, await loadPersonCompanyLinks(em, person))
 
     if (includeAddresses) {
-      addresses = await em.find(CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
+      addresses = await findWithDecryption(em, CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
       profiler.mark('addresses_loaded', { count: addresses.length })
     }
 
@@ -491,26 +491,30 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     )
     profiler.mark('tags_loaded', { count: tagAssignments.length })
 
-    const labelAssignments = await em.find(
+    const labelAssignments = await findWithDecryption(
+      em,
       CustomerLabelAssignment,
       { entity: person.id },
       { populate: ['label'] },
+      { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
     )
     profiler.mark('labels_loaded', { count: labelAssignments.length })
 
     if (includeComments) {
-      comments = await em.find(CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+      comments = await findWithDecryption(em, CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
       profiler.mark('comments_loaded', { count: comments.length })
     }
 
     const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
     const canonicalInteractionRows = shouldLoadCanonicalInteractions
-      ? await em.find(
+      ? await findWithDecryption(
+          em,
           CustomerInteraction,
           interactionFlags.unified
             ? { entity: person.id, deletedAt: null }
             : { entity: person.id },
           { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
+          { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
         )
       : []
     profiler.mark('canonical_interactions_loaded', { count: canonicalInteractionRows.length })
@@ -528,7 +532,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('canonical_interactions_hydrated', { count: canonicalInteractions.length })
 
     if (includeActivities && !interactionFlags.unified) {
-      activities = await em.find(CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
+      activities = await findWithDecryption(em, CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
       profiler.mark('activities_loaded', { count: activities.length })
     }
 
@@ -537,7 +541,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     }
 
     if (includeTodos && !interactionFlags.unified) {
-      todoLinks = await em.find(CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+      todoLinks = await findWithDecryption(em, CustomerTodoLink, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
       profiler.mark('todo_links_loaded', { count: todoLinks.length })
       if (todoLinks.length) {
         const queryEngine = (container.resolve('queryEngine') as QueryEngine)
@@ -587,7 +591,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (viewerUserId) authorIds.add(viewerUserId)
 
     if (authorIds.size) {
-      const users = await em.find(User, { id: { $in: Array.from(authorIds) } })
+      const users = await findWithDecryption(em, User, { id: { $in: Array.from(authorIds) } }, {}, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
       userMap = new Map(
         users.map((user) => [
           user.id,
@@ -785,6 +789,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
             title: deal.title,
             status: deal.status,
             pipelineStage: deal.pipelineStage,
+            pipelineId: deal.pipelineId ?? null,
+            pipelineStageId: deal.pipelineStageId ?? null,
             valueAmount: deal.valueAmount,
             valueCurrency: deal.valueCurrency,
             probability: deal.probability,

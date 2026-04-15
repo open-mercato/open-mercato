@@ -43,6 +43,7 @@ import {
   emitQueryIndexUpsertEvents,
   type QueryIndexEventEntry,
 } from './shared'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -595,12 +596,13 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       })
     }
     await syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null)
-    await em.flush()
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
-    await syncEntityTags(em, entity, parsed.tags)
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => { /* scalar mutations and persist calls are already applied above */ },
+      () => syncEntityTags(em, entity, parsed.tags),
+    ], { transaction: true })
     await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -777,9 +779,10 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       record.displayName = nextDisplayName
     }
 
-    await em.flush()
-    await syncEntityTags(em, record, parsed.tags)
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => { /* scalar mutations are already applied to record/profile above */ },
+      () => syncEntityTags(em, record, parsed.tags),
+    ], { transaction: true })
 
     await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
@@ -873,9 +876,10 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       })
       em.persist(profile)
       await syncLegacyPrimaryCompanyLink(em, newEntity, profile, before.profile.companyEntityId)
-      await em.flush()
-      await syncEntityTags(em, newEntity, before.tagIds)
-      await em.flush()
+      await withAtomicFlush(em, [
+        () => { /* entity and profile are already persisted above */ },
+        () => syncEntityTags(em, newEntity, before.tagIds),
+      ], { transaction: true })
     } else {
       entity.displayName = before.entity.displayName
       entity.description = before.entity.description
@@ -891,22 +895,25 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       entity.nextInteractionIcon = before.entity.nextInteractionIcon
       entity.nextInteractionColor = before.entity.nextInteractionColor
       entity.isActive = before.entity.isActive
-      await em.flush()
-      const profile = await em.findOne(CustomerPersonProfile, { entity })
-      if (profile) {
-        profile.firstName = before.profile.firstName
-        profile.lastName = before.profile.lastName
-        profile.preferredName = before.profile.preferredName
-        profile.jobTitle = before.profile.jobTitle
-        profile.department = before.profile.department
-        profile.seniority = before.profile.seniority
-        profile.timezone = before.profile.timezone
-        profile.linkedInUrl = before.profile.linkedInUrl
-        profile.twitterUrl = before.profile.twitterUrl
-        await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
-      }
-      await syncEntityTags(em, entity, before.tagIds)
-      await em.flush()
+      await withAtomicFlush(em, [
+        () => { /* scalar entity mutations are already applied above */ },
+        async () => {
+          const profile = await em.findOne(CustomerPersonProfile, { entity })
+          if (profile) {
+            profile.firstName = before.profile.firstName
+            profile.lastName = before.profile.lastName
+            profile.preferredName = before.profile.preferredName
+            profile.jobTitle = before.profile.jobTitle
+            profile.department = before.profile.department
+            profile.seniority = before.profile.seniority
+            profile.timezone = before.profile.timezone
+            profile.linkedInUrl = before.profile.linkedInUrl
+            profile.twitterUrl = before.profile.twitterUrl
+            await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
+          }
+        },
+        () => syncEntityTags(em, entity, before.tagIds),
+      ], { transaction: true })
     }
 
     const indexedEntity = await em.findOne(CustomerEntity, { id: before.entity.id })
@@ -1156,9 +1163,10 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           profile.company = company
         }
       }
-      await em.flush()
-      await syncEntityTags(em, entity, before.tagIds)
-      await em.flush()
+      await withAtomicFlush(em, [
+        () => { /* company link restores are already persisted above */ },
+        () => syncEntityTags(em, entity, before.tagIds),
+      ], { transaction: true })
 
       const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []
       const beforeTodos = (before as { todos?: PersonTodoSnapshot[] }).todos ?? []

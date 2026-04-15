@@ -196,6 +196,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
       getReference: jest.fn((_ctor, id) => ({ id })),
       remove: jest.fn(() => {}),
     }
@@ -365,6 +366,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
       getReference: jest.fn((_ctor, id) => ({ id })),
     }
 
@@ -545,6 +547,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const setCustomFields = jest.fn(async () => {})
@@ -713,6 +716,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
       remove: jest.fn(() => {}),
     }
 
@@ -835,6 +839,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
@@ -915,6 +920,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
       nativeUpdate,
     }
 
@@ -1020,6 +1026,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
@@ -1101,6 +1108,7 @@ describe('customers commands undo custom fields', () => {
       create: jest.fn((_ctor, data) => data),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
       nativeDelete: jest.fn(async () => {}),
     }
 
@@ -1184,6 +1192,7 @@ describe('customers commands undo custom fields', () => {
       }),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
       remove: jest.fn((record) => {
         if (record === createdInteraction) {
           createdInteraction = null
@@ -1275,6 +1284,7 @@ describe('customers commands undo custom fields', () => {
       find: jest.fn(async () => []),
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine = {
@@ -1361,6 +1371,7 @@ describe('customers commands undo custom fields', () => {
       }),
       find: jest.fn(async () => []),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine = {
@@ -1421,6 +1432,7 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine = {
@@ -1495,6 +1507,7 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine = {
@@ -1625,6 +1638,7 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine = {
@@ -1735,6 +1749,7 @@ describe('customers commands undo custom fields', () => {
       nativeDelete: jest.fn(async () => 1),
       remove: jest.fn(() => em),
       flush: jest.fn(async () => {}),
+      transactional: jest.fn(async (fn: any) => fn(em)),
     }
 
     const dataEngine = {

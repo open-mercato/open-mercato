@@ -10,6 +10,7 @@ import {
   updatePersonCompanyLink,
 } from '@open-mercato/core/modules/customers/lib/personCompanies'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveAuthActorId } from '@open-mercato/core/modules/customers/lib/interactionRequestContext'
 import { loadPersonContext } from '../context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -59,7 +60,7 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
   const { translate } = await resolveTranslations()
   try {
     const { id, linkId } = paramsSchema.parse({ id: ctx.params?.id, linkId: ctx.params?.linkId })
-    const payload = updateSchema.parse(await req.json())
+    const payload = updateSchema.parse(await readJsonSafe(req, {}))
     const { container, auth, selectedOrganizationId, em, person, profile } = await loadPersonContext(req, id)
     const guardUserId = resolveAuthActorId(auth)
     const guardResult = await validateCrudMutationGuard(container, {

@@ -11,6 +11,7 @@ import {
   summarizePersonCompanies,
 } from '@open-mercato/core/modules/customers/lib/personCompanies'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveAuthActorId } from '@open-mercato/core/modules/customers/lib/interactionRequestContext'
 import { loadPersonContext } from './context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -90,7 +91,7 @@ export async function POST(req: Request, ctx: { params?: { id?: string } }) {
   const { translate } = await resolveTranslations()
   try {
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
-    const payload = createSchema.parse(await req.json())
+    const payload = createSchema.parse(await readJsonSafe(req, {}))
     const { container, auth, selectedOrganizationId, em, person, profile } = await loadPersonContext(req, id)
     const guardUserId = resolveAuthActorId(auth)
     const guardResult = await validateCrudMutationGuard(container, {

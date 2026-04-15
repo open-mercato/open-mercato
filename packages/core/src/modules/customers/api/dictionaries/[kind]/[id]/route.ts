@@ -6,9 +6,15 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
 import { CustomerDictionaryEntry } from '../../../../data/entities'
-import { mapDictionaryKind, resolveDictionaryRouteContext } from '../../context'
+import { mapDictionaryKind, resolveDictionaryActorId, resolveDictionaryRouteContext } from '../../context'
 import { invalidateDictionaryCache } from '../../cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -42,7 +48,22 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     }
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
-    const payload = patchSchema.parse(await req.json().catch(() => ({})))
+    const payload = patchSchema.parse(await readJsonSafe(req, {}))
+    const guardUserId = resolveDictionaryActorId(routeContext.auth)
+    const guardResult = await validateCrudMutationGuard(routeContext.container, {
+      tenantId: routeContext.tenantId,
+      organizationId: routeContext.organizationId,
+      userId: guardUserId,
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: id,
+      operation: 'update',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: payload,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
     const commandBus = (routeContext.container.resolve('commandBus') as CommandBus)
     let commandResult: CommandExecuteResult<{ entryId: string; changed: boolean }>
     try {
@@ -88,7 +109,16 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
     }
     const { result, logEntry } = commandResult
 
-    const entry = await routeContext.em.fork().findOne(CustomerDictionaryEntry, id)
+    const entry = await findOneWithDecryption(
+      routeContext.em.fork(),
+      CustomerDictionaryEntry,
+      { id },
+      {},
+      {
+        tenantId: routeContext.tenantId,
+        organizationId: routeContext.organizationId,
+      },
+    )
     if (!entry) {
       throw new CrudHttpError(404, { error: routeContext.translate('customers.errors.lookup_failed', 'Dictionary entry not found') })
     }
@@ -124,6 +154,19 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
         })
       )
     }
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(routeContext.container, {
+        tenantId: routeContext.tenantId,
+        organizationId: routeContext.organizationId,
+        userId: guardUserId,
+        resourceKind: 'customers.dictionary_entry',
+        resourceId: entry.id,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
     return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
@@ -143,6 +186,21 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
     }
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
+    const guardUserId = resolveDictionaryActorId(routeContext.auth)
+    const guardResult = await validateCrudMutationGuard(routeContext.container, {
+      tenantId: routeContext.tenantId,
+      organizationId: routeContext.organizationId,
+      userId: guardUserId,
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: id,
+      operation: 'delete',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: null,
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
     const commandBus = (routeContext.container.resolve('commandBus') as CommandBus)
     let deleteResult: CommandExecuteResult<{ entryId: string }>
     try {
@@ -196,6 +254,19 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
           executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : undefined,
         })
       )
+    }
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(routeContext.container, {
+        tenantId: routeContext.tenantId,
+        organizationId: routeContext.organizationId,
+        userId: guardUserId,
+        resourceKind: 'customers.dictionary_entry',
+        resourceId: id,
+        operation: 'delete',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
     }
     return response
   } catch (err) {

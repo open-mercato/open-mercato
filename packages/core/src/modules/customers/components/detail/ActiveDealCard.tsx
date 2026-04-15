@@ -6,18 +6,23 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { DealSummary } from '../formConfig'
 import { formatCurrency } from './utils'
-
-const DEFAULT_PIPELINE_STAGES = ['Lead', 'Qualification', 'Proposal', 'Negotiation']
 
 type ActiveDealCardProps = {
   deals: DealSummary[]
   onHide?: () => void
 }
 
+type PipelineStageOption = {
+  id: string
+  label: string
+}
+
 export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
   const t = useT()
+  const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>([])
 
   const activeDeals = React.useMemo(
     () => deals.filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed'),
@@ -32,6 +37,41 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
       return vb - va
     })[0]
   }, [activeDeals])
+
+  React.useEffect(() => {
+    let active = true
+
+    if (!topDeal?.pipelineId) {
+      setPipelineStages([])
+      return () => {
+        active = false
+      }
+    }
+
+    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+      `/api/customers/pipeline-stages?pipelineId=${encodeURIComponent(topDeal.pipelineId)}`,
+    )
+      .then((payload) => {
+        if (!active) return
+        const nextStages = (Array.isArray(payload?.items) ? payload.items : [])
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : null
+            const label = typeof item.label === 'string' ? item.label.trim() : ''
+            if (!id || label.length === 0) return null
+            return { id, label }
+          })
+          .filter((stage): stage is PipelineStageOption => stage !== null)
+        setPipelineStages(nextStages)
+      })
+      .catch(() => {
+        if (!active) return
+        setPipelineStages([])
+      })
+
+    return () => {
+      active = false
+    }
+  }, [topDeal?.pipelineId])
 
   if (!topDeal) {
     return (
@@ -52,9 +92,13 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
     : parseFloat(String(topDeal.valueAmount ?? '0'))
 
   const currentStage = topDeal.pipelineStage ?? null
-  const stageIndex = currentStage
-    ? DEFAULT_PIPELINE_STAGES.findIndex((s) => s.toLowerCase() === currentStage.toLowerCase())
-    : -1
+  const stageIndex =
+    topDeal.pipelineStageId && pipelineStages.length > 0
+      ? pipelineStages.findIndex((stage) => stage.id === topDeal.pipelineStageId)
+      : currentStage
+        ? pipelineStages.findIndex((stage) => stage.label.toLowerCase() === currentStage.toLowerCase())
+        : -1
+  const hasPipelineProgress = pipelineStages.length > 0 && stageIndex >= 0
 
   return (
     <div className="group relative rounded-lg border bg-card p-5">
@@ -89,11 +133,11 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
         )}
 
         {/* Pipeline stage progress bar */}
-        {currentStage && (
+        {currentStage && hasPipelineProgress && (
           <div className="mt-3">
             <div className="flex gap-1">
-              {DEFAULT_PIPELINE_STAGES.map((stage, idx) => (
-                <div key={stage} className="flex-1">
+              {pipelineStages.map((stage, idx) => (
+                <div key={stage.id} className="flex-1">
                   <div
                     className={cn(
                       'h-1.5 rounded-full',
@@ -104,14 +148,14 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
                     'mt-1 text-[10px]',
                     idx <= stageIndex ? 'font-medium text-foreground' : 'text-muted-foreground',
                   )}>
-                    {stage}
+                    {stage.label}
                   </p>
                 </div>
               ))}
             </div>
           </div>
         )}
-        {currentStage && !DEFAULT_PIPELINE_STAGES.some((s) => s.toLowerCase() === currentStage.toLowerCase()) && (
+        {currentStage && !hasPipelineProgress && (
           <div className="mt-2">
             <Badge variant="outline" className="text-xs">{currentStage}</Badge>
           </div>

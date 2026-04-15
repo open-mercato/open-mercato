@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { invalidateDictionaryCache } from '../api/dictionaries/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { loadRoleTypeUsage } from '../lib/roleTypeUsage'
 import {
   customerDictionaryEntryCreateSchema,
@@ -85,8 +86,12 @@ function toSnapshot(entry: CustomerDictionaryEntry): CustomerDictionaryEntrySnap
   }
 }
 
-async function loadSnapshot(em: EntityManager, id: string): Promise<CustomerDictionaryEntrySnapshot | null> {
-  const entry = await em.findOne(CustomerDictionaryEntry, { id })
+async function loadSnapshot(
+  em: EntityManager,
+  id: string,
+  scope: { tenantId: string | null; organizationId: string | null },
+): Promise<CustomerDictionaryEntrySnapshot | null> {
+  const entry = await findOneWithDecryption(em, CustomerDictionaryEntry, { id }, {}, scope)
   return entry ? toSnapshot(entry) : null
 }
 
@@ -122,6 +127,8 @@ async function invalidateCache(
 
 type CreateResult = {
   entryId: string
+  tenantId: string
+  organizationId: string
   mode: 'created' | 'updated' | 'unchanged'
   before?: CustomerDictionaryEntrySnapshot | null
 }
@@ -139,12 +146,21 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     const color = sanitizeColor(parsed.color)
     const icon = sanitizeIcon(parsed.icon)
 
-    const existing = await em.findOne(CustomerDictionaryEntry, {
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
-      kind: parsed.kind,
-      normalizedValue: value.normalized,
-    })
+    const existing = await findOneWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        kind: parsed.kind,
+        normalizedValue: value.normalized,
+      },
+      {},
+      {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+      },
+    )
 
     if (existing) {
       const before = toSnapshot(existing)
@@ -166,10 +182,22 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
       if (changed) {
         existing.updatedAt = new Date()
         await em.flush()
-        return { entryId: existing.id, mode: 'updated', before }
+        return {
+          entryId: existing.id,
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+          mode: 'updated',
+          before,
+        }
       }
 
-      return { entryId: existing.id, mode: 'unchanged', before }
+      return {
+        entryId: existing.id,
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        mode: 'unchanged',
+        before,
+      }
     }
 
     const entry = em.create(CustomerDictionaryEntry, {
@@ -185,11 +213,19 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     em.persist(entry)
     await em.flush()
 
-    return { entryId: entry.id, mode: 'created' }
+    return {
+      entryId: entry.id,
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      mode: 'created',
+    }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadSnapshot(em, result.entryId)
+    return loadSnapshot(em, result.entryId, {
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
+    })
   },
   buildLog: async ({ result, snapshots }) => {
     const after = snapshots.after as CustomerDictionaryEntrySnapshot | undefined
@@ -249,7 +285,13 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     if (after && !undo.before) {
       ensureTenantScope(ctx, after.tenantId)
       ensureOrganizationScope(ctx, after.organizationId)
-      const entry = await em.findOne(CustomerDictionaryEntry, { id: after.id })
+      const entry = await findOneWithDecryption(
+        em,
+        CustomerDictionaryEntry,
+        { id: after.id },
+        {},
+        { tenantId: after.tenantId, organizationId: after.organizationId },
+      )
       if (entry) {
         await em.removeAndFlush(entry)
         await invalidateCache(ctx, after)
@@ -268,7 +310,13 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     if (before) {
       ensureTenantScope(ctx, before.tenantId)
       ensureOrganizationScope(ctx, before.organizationId)
-      let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
+      let entry = await findOneWithDecryption(
+        em,
+        CustomerDictionaryEntry,
+        { id: before.id },
+        {},
+        { tenantId: before.tenantId, organizationId: before.organizationId },
+      )
       if (!entry) {
         entry = em.create(CustomerDictionaryEntry, {
           id: before.id,
@@ -293,6 +341,8 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
 
 type UpdateResult = {
   entryId: string
+  tenantId: string
+  organizationId: string
   changed: boolean
 }
 
@@ -303,7 +353,10 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadSnapshot(em, parsed.id)
+    const snapshot = await loadSnapshot(em, parsed.id, {
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+    })
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -312,7 +365,16 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(CustomerDictionaryEntry, { id: parsed.id })
+    const entry = await findOneWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      { id: parsed.id },
+      {},
+      {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+      },
+    )
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
     }
@@ -336,13 +398,22 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
             )
           }
         }
-        const duplicate = await em.findOne(CustomerDictionaryEntry, {
-          id: { $ne: entry.id },
-          tenantId: parsed.tenantId,
-          organizationId: parsed.organizationId,
-          kind: parsed.kind,
-          normalizedValue: value.normalized,
-        })
+        const duplicate = await findOneWithDecryption(
+          em,
+          CustomerDictionaryEntry,
+          {
+            id: { $ne: entry.id },
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: parsed.kind,
+            normalizedValue: value.normalized,
+          },
+          {},
+          {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+          },
+        )
         if (duplicate) {
           throw new CrudHttpError(409, { error: 'An entry with this value already exists' })
         }
@@ -384,11 +455,19 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
       await em.flush()
     }
 
-    return { entryId: entry.id, changed }
+    return {
+      entryId: entry.id,
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      changed,
+    }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadSnapshot(em, result.entryId)
+    return loadSnapshot(em, result.entryId, {
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
+    })
   },
   buildLog: async ({ snapshots, result }) => {
     const before = snapshots.before as CustomerDictionaryEntrySnapshot | undefined
@@ -425,7 +504,13 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
+    let entry = await findOneWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      { id: before.id },
+      {},
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
     if (!entry) {
       entry = em.create(CustomerDictionaryEntry, {
         id: before.id,
@@ -454,7 +539,10 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadSnapshot(em, parsed.id)
+    const snapshot = await loadSnapshot(em, parsed.id, {
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+    })
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -463,7 +551,16 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(CustomerDictionaryEntry, { id: parsed.id })
+    const entry = await findOneWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      { id: parsed.id },
+      {},
+      {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+      },
+    )
     if (!entry || entry.organizationId !== parsed.organizationId || entry.tenantId !== parsed.tenantId || entry.kind !== parsed.kind) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
     }
@@ -511,7 +608,13 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let entry = await em.findOne(CustomerDictionaryEntry, { id: before.id })
+    let entry = await findOneWithDecryption(
+      em,
+      CustomerDictionaryEntry,
+      { id: before.id },
+      {},
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
     if (!entry) {
       entry = em.create(CustomerDictionaryEntry, {
         id: before.id,

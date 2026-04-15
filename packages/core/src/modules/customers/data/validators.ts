@@ -310,9 +310,7 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
 export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
 export type InteractionStatus = typeof interactionStatusValues[number]
 
-export const interactionCreateSchema = z.object({
-  organizationId: z.string().uuid().optional(),
-  tenantId: z.string().uuid().optional(),
+export const interactionCreateSchema = scopedSchema.extend({
   id: z.string().uuid().optional(),
   entityId: z.string().uuid(),
   interactionType: z.string().trim().min(1).max(100),
@@ -332,22 +330,29 @@ export const interactionCreateSchema = z.object({
 
 export type InteractionCreateInput = z.infer<typeof interactionCreateSchema>
 
-export const interactionUpdateSchema = z.object({
-  id: z.string().uuid(),
-  interactionType: z.string().trim().min(1).max(100).optional(),
-  title: z.string().trim().max(500).optional().nullable(),
-  body: z.string().trim().max(10000).optional().nullable(),
-  status: z.enum(interactionStatusValues).optional(),
-  scheduledAt: z.coerce.date().optional().nullable(),
-  occurredAt: z.coerce.date().optional().nullable(),
-  priority: z.number().int().min(0).max(100).optional().nullable(),
-  authorUserId: z.string().uuid().optional().nullable(),
-  ownerUserId: z.string().uuid().optional().nullable(),
-  dealId: z.string().uuid().optional().nullable(),
-  appearanceIcon: z.string().trim().max(100).optional().nullable(),
-  appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
-  pinned: z.boolean().optional(),
-})
+export const interactionUpdateSchema = z
+  .object({
+    id: z.string().uuid(),
+  })
+  .merge(
+    scopedSchema
+      .extend({
+        interactionType: z.string().trim().min(1).max(100).optional(),
+        title: z.string().trim().max(500).optional().nullable(),
+        body: z.string().trim().max(10000).optional().nullable(),
+        status: z.enum(interactionStatusValues).optional(),
+        scheduledAt: z.coerce.date().optional().nullable(),
+        occurredAt: z.coerce.date().optional().nullable(),
+        priority: z.number().int().min(0).max(100).optional().nullable(),
+        authorUserId: z.string().uuid().optional().nullable(),
+        ownerUserId: z.string().uuid().optional().nullable(),
+        dealId: z.string().uuid().optional().nullable(),
+        appearanceIcon: z.string().trim().max(100).optional().nullable(),
+        appearanceColor: z.string().trim().regex(/^#([0-9a-fA-F]{6})$/).optional().nullable(),
+        pinned: z.boolean().optional(),
+      })
+      .partial(),
+  )
 
 export type InteractionUpdateInput = z.infer<typeof interactionUpdateSchema>
 

@@ -150,52 +150,6 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     return interactions.filter((i) => i.status === 'planned' && i.interactionType !== 'task')
   }, [data?.interactions])
 
-  const handleMarkDone = React.useCallback(async (interactionId: string) => {
-    try {
-      await apiCallOrThrow('/api/customers/interactions', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: interactionId, status: 'done', occurredAt: new Date().toISOString() }),
-      })
-      flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
-      handleActivityCreated()
-    } catch {
-      flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
-    }
-  }, [handleActivityCreated, t])
-
-  const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
-    setScheduleEditData({
-      id: activity.id,
-      interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
-      title: typeof activity.title === 'string' ? activity.title : null,
-      body: typeof activity.body === 'string' ? activity.body : null,
-      scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
-      durationMinutes: typeof activity.duration === 'number' ? activity.duration : null,
-      location: typeof (activity as Record<string, unknown>).location === 'string' ? (activity as Record<string, unknown>).location as string : null,
-      allDay: typeof (activity as Record<string, unknown>).allDay === 'boolean' ? (activity as Record<string, unknown>).allDay as boolean : null,
-      recurrenceRule: typeof (activity as Record<string, unknown>).recurrenceRule === 'string' ? (activity as Record<string, unknown>).recurrenceRule as string : null,
-      participants: Array.isArray((activity as Record<string, unknown>).participants) ? (activity as Record<string, unknown>).participants as ScheduleActivityEditData['participants'] : null,
-      reminderMinutes: typeof (activity as Record<string, unknown>).reminderMinutes === 'number' ? (activity as Record<string, unknown>).reminderMinutes as number : null,
-      visibility: typeof (activity as Record<string, unknown>).visibility === 'string' ? (activity as Record<string, unknown>).visibility as string : null,
-    })
-    setScheduleDialogOpen(true)
-  }, [])
-
-  const handleCancelActivity = React.useCallback(async (interactionId: string) => {
-    try {
-      await apiCallOrThrow('/api/customers/interactions', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: interactionId, status: 'canceled' }),
-      })
-      flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
-      handleActivityCreated()
-    } catch {
-      flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
-    }
-  }, [handleActivityCreated, t])
-
   // Injection context for UMES
   const injectionContext = React.useMemo(
     () => ({
@@ -218,6 +172,58 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     },
     [injectionContext, runMutation],
   )
+
+  const handleMarkDone = React.useCallback(async (interactionId: string) => {
+    try {
+      await runMutationWithContext(
+        () => apiCallOrThrow('/api/customers/interactions', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: interactionId, status: 'done', occurredAt: new Date().toISOString() }),
+        }),
+        { id: interactionId, status: 'done' },
+      )
+      flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
+      handleActivityCreated()
+    } catch {
+      flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
+    }
+  }, [handleActivityCreated, runMutationWithContext, t])
+
+  const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
+    setScheduleEditData({
+      id: activity.id,
+      interactionType: typeof activity.interactionType === 'string' ? activity.interactionType : undefined,
+      title: typeof activity.title === 'string' ? activity.title : null,
+      body: typeof activity.body === 'string' ? activity.body : null,
+      scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
+      durationMinutes: typeof activity.duration === 'number' ? activity.duration : null,
+      location: typeof (activity as Record<string, unknown>).location === 'string' ? (activity as Record<string, unknown>).location as string : null,
+      allDay: typeof (activity as Record<string, unknown>).allDay === 'boolean' ? (activity as Record<string, unknown>).allDay as boolean : null,
+      recurrenceRule: typeof (activity as Record<string, unknown>).recurrenceRule === 'string' ? (activity as Record<string, unknown>).recurrenceRule as string : null,
+      participants: Array.isArray((activity as Record<string, unknown>).participants) ? (activity as Record<string, unknown>).participants as ScheduleActivityEditData['participants'] : null,
+      reminderMinutes: typeof (activity as Record<string, unknown>).reminderMinutes === 'number' ? (activity as Record<string, unknown>).reminderMinutes as number : null,
+      visibility: typeof (activity as Record<string, unknown>).visibility === 'string' ? (activity as Record<string, unknown>).visibility as string : null,
+    })
+    setScheduleDialogOpen(true)
+  }, [])
+
+  const handleCancelActivity = React.useCallback(async (interactionId: string) => {
+    try {
+      await runMutationWithContext(
+        () => apiCallOrThrow('/api/customers/interactions', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: interactionId, status: 'canceled' }),
+        }),
+        { id: interactionId, status: 'canceled' },
+      )
+      flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
+      handleActivityCreated()
+    } catch {
+      flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
+    }
+  }, [handleActivityCreated, runMutationWithContext, t])
 
   // Injected tabs from UMES
   const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.person:tabs', {

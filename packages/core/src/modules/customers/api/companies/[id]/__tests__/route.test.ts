@@ -7,6 +7,7 @@ const mockLoadCustomFieldValues = jest.fn()
 const mockResolveCompanyCustomFieldRouting = jest.fn()
 const mockMergeCompanyCustomFieldValues = jest.fn()
 const mockFindWithDecryption = jest.fn()
+const mockFindOneWithDecryption = jest.fn()
 
 const mockEm = {
   findOne: jest.fn(),
@@ -47,6 +48,7 @@ jest.mock('../../../../lib/customFieldRouting', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
+  findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
 }))
 
 jest.mock('../../../../lib/interactionReadModel', () => ({
@@ -72,6 +74,7 @@ describe('GET /api/customers/companies/[id]?include=people', () => {
     mockResolveCompanyCustomFieldRouting.mockReset()
     mockMergeCompanyCustomFieldValues.mockReset()
     mockFindWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockReset()
     mockEm.findOne.mockReset()
     mockEm.find.mockReset()
     mockContainer.resolve.mockClear()
@@ -98,7 +101,7 @@ describe('GET /api/customers/companies/[id]?include=people', () => {
     const createdAt = new Date('2026-04-10T08:00:00.000Z')
     const linkedAt = new Date('2026-04-13T09:15:00.000Z')
 
-    mockEm.findOne
+    mockFindOneWithDecryption
       .mockResolvedValueOnce({
         id: '2408107d-0000-4000-8000-000000000000',
         kind: 'company',
@@ -185,8 +188,7 @@ describe('GET /api/customers/companies/[id]?include=people', () => {
         linkedAt: '2026-04-13T09:15:00.000Z',
       }),
     ])
-    expect(mockFindWithDecryption).toHaveBeenNthCalledWith(
-      2,
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
       mockEm,
       expect.any(Function),
       expect.objectContaining({

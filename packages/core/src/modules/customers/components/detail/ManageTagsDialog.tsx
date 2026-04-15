@@ -37,6 +37,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
@@ -70,90 +71,130 @@ type TagEntryDraft = {
 type CategoryDef = {
   kind: string // route param for /api/customers/dictionaries/{kind}
   icon: React.ComponentType<{ className?: string }>
-  shortLabel: string
-  description: string
+  shortLabelKey: string
+  shortLabelFallback: string
+  descriptionKey: string
+  descriptionFallback: string
   badges?: string[]
-  noteTitle: string
-  noteDescription: string
+  noteTitleKey: string
+  noteTitleFallback: string
+  noteDescriptionKey: string
+  noteDescriptionFallback: string
 }
 
 const CATEGORIES: CategoryDef[] = [
   {
     kind: 'statuses',
     icon: Tag,
-    shortLabel: 'Status',
-    description: 'Single-select values visible on the hero area of person, company, and deal cards.',
+    shortLabelKey: 'customers.personTags.category.statuses',
+    shortLabelFallback: 'Status',
+    descriptionKey: 'customers.tags.manage.description.customers.status',
+    descriptionFallback: 'Single-select values visible on the hero area of person, company, and deal cards.',
     badges: ['system', 'required'],
-    noteTitle: 'System category',
-    noteDescription:
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.status',
+    noteTitleFallback: 'System category',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.status',
+    noteDescriptionFallback:
       'Status is required on customer cards. Existing rows can be edited, but this category should remain available tenant-wide.',
   },
   {
     kind: 'lifecycle-stages',
     icon: RefreshCw,
-    shortLabel: 'Lifecycle',
-    description: 'Pipeline-aligned lifecycle values shared across CRM detail pages.',
+    shortLabelKey: 'customers.personTags.category.lifecycle-stages',
+    shortLabelFallback: 'Lifecycle',
+    descriptionKey: 'customers.tags.manage.description.customers.lifecycle_stage',
+    descriptionFallback: 'Pipeline-aligned lifecycle values shared across CRM detail pages.',
     badges: ['system'],
-    noteTitle: 'Shared lifecycle values',
-    noteDescription:
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.lifecycle_stage',
+    noteTitleFallback: 'Shared lifecycle values',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.lifecycle_stage',
+    noteDescriptionFallback:
       'Use lifecycle stages to keep person and company headers visually consistent across CRM detail views.',
   },
   {
     kind: 'sources',
     icon: Radio,
-    shortLabel: 'Source',
-    description: 'Acquisition source labels used in Zone 1 forms and CRM summary badges.',
+    shortLabelKey: 'customers.personTags.category.sources',
+    shortLabelFallback: 'Source',
+    descriptionKey: 'customers.tags.manage.description.customers.source',
+    descriptionFallback: 'Acquisition source labels used in Zone 1 forms and CRM summary badges.',
     badges: ['system'],
-    noteTitle: 'Source dictionary',
-    noteDescription: 'These values are reused by customer forms and reporting filters.',
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.source',
+    noteTitleFallback: 'Source dictionary',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.source',
+    noteDescriptionFallback: 'These values are reused by customer forms and reporting filters.',
   },
   {
     kind: 'temperature',
     icon: Thermometer,
-    shortLabel: 'Temperature',
-    description: 'Temperature / interest level for leads and contacts.',
-    noteTitle: 'Temperature / Interest',
-    noteDescription: 'Use temperature to quickly classify contact interest level — from hot to cold.',
+    shortLabelKey: 'customers.personTags.category.temperature',
+    shortLabelFallback: 'Temperature',
+    descriptionKey: 'customers.tags.manage.description.customers.temperature',
+    descriptionFallback: 'Temperature / interest level for leads and contacts.',
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.temperature',
+    noteTitleFallback: 'Temperature / Interest',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.temperature',
+    noteDescriptionFallback: 'Use temperature to quickly classify contact interest level from hot to cold.',
   },
   {
     kind: 'renewal-quarters',
     icon: CalendarDays,
-    shortLabel: 'Renewal',
-    description: 'Renewal quarter labels for tracking contract renewal timing.',
-    noteTitle: 'Renewal quarter',
-    noteDescription: 'Assign renewal quarters to track when contracts or subscriptions are up for renewal.',
+    shortLabelKey: 'customers.personTags.category.renewal-quarters',
+    shortLabelFallback: 'Renewal',
+    descriptionKey: 'customers.tags.manage.description.customers.renewal_quarter',
+    descriptionFallback: 'Renewal quarter labels for tracking contract renewal timing.',
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.renewal_quarter',
+    noteTitleFallback: 'Renewal quarter',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.renewal_quarter',
+    noteDescriptionFallback: 'Assign renewal quarters to track when contracts or subscriptions are up for renewal.',
   },
   {
     kind: 'person-company-roles',
     icon: Users,
-    shortLabel: 'Roles',
-    description: 'Person-company relationship roles such as decision maker, influencer, or budget holder.',
-    noteTitle: 'Person-company roles',
-    noteDescription: 'Use roles to classify how a person relates to a company — e.g. decision maker, technical evaluator, or primary contact.',
+    shortLabelKey: 'customers.personTags.category.person-company-roles',
+    shortLabelFallback: 'Roles',
+    descriptionKey: 'customers.tags.manage.description.customers.person_company_role',
+    descriptionFallback: 'Person-company relationship roles such as decision maker, influencer, or budget holder.',
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.person_company_role',
+    noteTitleFallback: 'Person-company roles',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.person_company_role',
+    noteDescriptionFallback: 'Use roles to classify how a person relates to a company, for example decision maker, technical evaluator, or primary contact.',
   },
   {
     kind: 'activity-types',
     icon: CalendarDays,
-    shortLabel: 'Activity',
-    description: 'Activity types for calls, emails, meetings, and other CRM interactions.',
-    noteTitle: 'Activity types',
-    noteDescription: 'Keep activity type names consistent so timeline filters remain readable across CRM views.',
+    shortLabelKey: 'customers.personTags.category.activity-types',
+    shortLabelFallback: 'Activity',
+    descriptionKey: 'customers.tags.manage.description.customers.activity_type',
+    descriptionFallback: 'Activity types for calls, emails, meetings, and other CRM interactions.',
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.activity_type',
+    noteTitleFallback: 'Activity types',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.activity_type',
+    noteDescriptionFallback: 'Keep activity type names consistent so timeline filters remain readable across CRM views.',
   },
   {
     kind: 'deal-statuses',
     icon: Tag,
-    shortLabel: 'Deal status',
-    description: 'Deal status labels used in pipeline views and deal detail cards.',
-    noteTitle: 'Deal statuses',
-    noteDescription: 'Deal status values affect pipeline filtering and reporting groupings.',
+    shortLabelKey: 'customers.personTags.category.deal-statuses',
+    shortLabelFallback: 'Deal status',
+    descriptionKey: 'customers.tags.manage.description.customers.deal_status',
+    descriptionFallback: 'Deal status labels used in pipeline views and deal detail cards.',
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.deal_status',
+    noteTitleFallback: 'Deal statuses',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.deal_status',
+    noteDescriptionFallback: 'Deal status values affect pipeline filtering and reporting groupings.',
   },
   {
     kind: 'industries',
     icon: Hash,
-    shortLabel: 'Industry',
-    description: 'Industry classification labels for companies and contacts.',
-    noteTitle: 'Industry labels',
-    noteDescription: 'Add industry categories that match your target market segments for consistent CRM classification.',
+    shortLabelKey: 'customers.personTags.category.industries',
+    shortLabelFallback: 'Industry',
+    descriptionKey: 'customers.config.dictionaries.sections.industries.description',
+    descriptionFallback: 'Industry classification labels for companies and contacts.',
+    noteTitleKey: 'customers.tags.manage.noteTitle.customers.industry',
+    noteTitleFallback: 'Industry labels',
+    noteDescriptionKey: 'customers.tags.manage.noteDescription.customers.industry',
+    noteDescriptionFallback: 'Add industry categories that match your target market segments for consistent CRM classification.',
   },
 ]
 
@@ -353,6 +394,44 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   const [entryCounts, setEntryCounts] = React.useState<Record<string, number>>({})
   const [draftsByKind, setDraftsByKind] = React.useState<Record<string, TagEntryDraft[]>>({})
   const [originalByKind, setOriginalByKind] = React.useState<Record<string, TagEntryDraft[]>>({})
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: 'customers-manage-tags',
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: 'customers-manage-tags',
+      resourceKind: 'customers.dictionary_entry',
+      resourceId: 'bulk',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+  const runGuardedMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload: Record<string, unknown>) =>
+      runMutation({
+        operation,
+        mutationPayload,
+        context: mutationContext,
+      }),
+    [mutationContext, runMutation],
+  )
+  const translatedCategories = React.useMemo(
+    () =>
+      CATEGORIES.map((category) => ({
+        ...category,
+        shortLabel: t(category.shortLabelKey, category.shortLabelFallback),
+        description: t(category.descriptionKey, category.descriptionFallback),
+        noteTitle: t(category.noteTitleKey, category.noteTitleFallback),
+        noteDescription: t(category.noteDescriptionKey, category.noteDescriptionFallback),
+      })),
+    [t],
+  )
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -415,7 +494,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
 
   // --- derived state ---
 
-  const activeMeta = CATEGORIES.find((c) => c.kind === activeTab) ?? null
+  const activeMeta = translatedCategories.find((category) => category.kind === activeTab) ?? null
   const activeEntries = draftsByKind[activeTab] ?? []
   const visibleEntries = React.useMemo(() => {
     const query = searchValue.trim().toLowerCase()
@@ -546,9 +625,13 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         for (const entry of currentEntries) {
           if (entry.deleted) {
             if (entry.id) {
-              await apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
-                method: 'DELETE',
-              })
+              await runGuardedMutation(
+                () =>
+                  apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
+                    method: 'DELETE',
+                  }),
+                { kind: category.kind, entryId: entry.id, operation: 'delete' },
+              )
             }
             continue
           }
@@ -561,11 +644,15 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
           }
 
           if (!entry.id) {
-            await apiCallOrThrow(`/api/customers/dictionaries/${category.kind}`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(payload),
-            })
+            await runGuardedMutation(
+              () =>
+                apiCallOrThrow(`/api/customers/dictionaries/${category.kind}`, {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify(payload),
+                }),
+              { kind: category.kind, value: payload.value, operation: 'create' },
+            )
             continue
           }
 
@@ -583,11 +670,15 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             continue
           }
 
-          await apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
-            method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          })
+          await runGuardedMutation(
+            () =>
+              apiCallOrThrow(`/api/customers/dictionaries/${category.kind}/${entry.id}`, {
+                method: 'PATCH',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              }),
+            { kind: category.kind, entryId: entry.id, value: payload.value, operation: 'update' },
+          )
         }
       }
 
@@ -602,7 +693,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     } finally {
       setSaving(false)
     }
-  }, [draftsByKind, loadData, originalByKind, saving, t])
+  }, [draftsByKind, loadData, originalByKind, runGuardedMutation, saving, t])
 
   // --- keyboard shortcut ---
 
@@ -669,7 +760,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
           <>
             {/* Tab bar */}
             <div className="flex shrink-0 items-end overflow-x-auto border-b border-border px-[24px]">
-              {CATEGORIES.map((category) => {
+              {translatedCategories.map((category) => {
                 const Icon = category.icon
                 const isActive = category.kind === activeTab
                 const count = entryCounts[category.kind] ?? 0

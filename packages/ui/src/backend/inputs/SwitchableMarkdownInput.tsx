@@ -79,7 +79,7 @@ export function SwitchableMarkdownInput({
   if (isMarkdownEnabled && !disableMarkdown) {
     return (
       <div className={editorWrapperClasses}>
-        <div data-color-mode="light" className={editorClasses}>
+        <div data-color-mode="auto" className={editorClasses}>
           <UiMarkdownEditor
             value={value}
             height={height}

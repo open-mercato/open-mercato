@@ -15,6 +15,7 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
 const iconSchema = z.string().trim().min(1).max(48)
@@ -65,15 +66,17 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       }
     }
 
-    const entries = await em.find(
+    const entries = await findWithDecryption(
+      em,
       CustomerDictionaryEntry,
       { tenantId, kind: mappedKind, organizationId: { $in: scopedOrganizationIds } } as any,
-      { orderBy: { label: 'asc' } }
+      { orderBy: { label: 'asc' } },
+      { tenantId, organizationId },
     )
 
     if (mappedKind === 'pipeline_stage' && organizationId) {
       const existingNormalized = new Set(entries.map((e) => e.normalizedValue))
-      const pipelineStages = await em.find(CustomerPipelineStage, { organizationId, tenantId })
+      const pipelineStages = await findWithDecryption(em, CustomerPipelineStage, { organizationId, tenantId }, {}, { tenantId, organizationId })
       for (const stage of pipelineStages) {
         if (!existingNormalized.has(stage.label.trim().toLowerCase())) {
           const created = await ensureDictionaryEntry(em, {
@@ -232,7 +235,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
         },
         ctx: context.ctx,
       })) as CommandExecuteResult<{ entryId: string; mode: 'created' | 'updated' | 'unchanged' }>
-    const entry = await context.em.fork().findOne(CustomerDictionaryEntry, result.entryId)
+    const entry = await findOneWithDecryption(context.em.fork(), CustomerDictionaryEntry, result.entryId, {}, { tenantId: context.tenantId, organizationId: context.organizationId })
     if (!entry) {
       throw new CrudHttpError(400, { error: context.translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') })
     }

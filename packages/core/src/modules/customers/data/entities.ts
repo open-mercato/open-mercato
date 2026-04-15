@@ -219,7 +219,7 @@ export class CustomerPersonProfile {
 @Index({ name: 'customer_person_company_links_scope_idx', properties: ['organizationId', 'tenantId'] })
 @Unique({ name: 'customer_person_company_links_unique', properties: ['person', 'company'] })
 export class CustomerPersonCompanyLink {
-  [OptionalProps]?: 'isPrimary' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'isPrimary' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -238,6 +238,9 @@ export class CustomerPersonCompanyLink {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 
   @ManyToOne(() => CustomerEntity, { fieldName: 'person_entity_id' })
   person!: CustomerEntity

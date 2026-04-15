@@ -152,19 +152,45 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     return interactions.filter((i) => i.status === 'planned' && i.interactionType !== 'task')
   }, [data?.interactions])
 
+  // Injection context for UMES
+  const injectionContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      companyId: currentCompanyId,
+      resourceKind: 'customers.company',
+      resourceId: currentCompanyId ?? (id ?? undefined),
+      data,
+      retryLastMutation,
+    }),
+    [currentCompanyId, data, id, mutationContextId, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: injectionContext,
+      })
+    },
+    [injectionContext, runMutation],
+  )
+
   const handleMarkDone = React.useCallback(async (interactionId: string) => {
     try {
-      await apiCallOrThrow(`/api/customers/interactions?id=${encodeURIComponent(interactionId)}`, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ status: 'done', occurredAt: new Date().toISOString() }),
-      })
+      await runMutationWithContext(
+        () => apiCallOrThrow(`/api/customers/interactions?id=${encodeURIComponent(interactionId)}`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ status: 'done', occurredAt: new Date().toISOString() }),
+        }),
+        { id: interactionId, status: 'done' },
+      )
       flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
       handleActivityCreated()
     } catch {
       flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
     }
-  }, [handleActivityCreated, t])
+  }, [handleActivityCreated, runMutationWithContext, t])
 
   const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
     setScheduleEditData({
@@ -191,40 +217,20 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const handleCancelActivity = React.useCallback(async (interactionId: string) => {
     try {
-      await apiCallOrThrow('/api/customers/interactions', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: interactionId, status: 'canceled' }),
-      })
+      await runMutationWithContext(
+        () => apiCallOrThrow('/api/customers/interactions', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id: interactionId, status: 'canceled' }),
+        }),
+        { id: interactionId, status: 'canceled' },
+      )
       flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
       handleActivityCreated()
     } catch {
       flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
     }
-  }, [handleActivityCreated, t])
-
-  // Injection context for UMES
-  const injectionContext = React.useMemo(
-    () => ({
-      formId: mutationContextId,
-      companyId: currentCompanyId,
-      resourceKind: 'customers.company',
-      resourceId: currentCompanyId ?? (id ?? undefined),
-      data,
-      retryLastMutation,
-    }),
-    [currentCompanyId, data, id, mutationContextId, retryLastMutation],
-  )
-  const runMutationWithContext = React.useCallback(
-    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
-      return runMutation({
-        operation,
-        mutationPayload,
-        context: injectionContext,
-      })
-    },
-    [injectionContext, runMutation],
-  )
+  }, [handleActivityCreated, runMutationWithContext, t])
 
   // Injected tabs from UMES
   const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.company:tabs', {

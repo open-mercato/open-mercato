@@ -40,7 +40,7 @@ import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
@@ -319,10 +319,15 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const interactionFlags = await resolveCustomerInteractionFeatureFlags(container, scope?.tenantId ?? auth.tenantId)
   const interactionMode = interactionFlags.unified ? 'canonical' : 'legacy'
 
-  const company = await em.findOne(
+  const company = await findOneWithDecryption(
+    em,
     CustomerEntity,
     { id: parse.data.id, kind: 'company', deletedAt: null },
     { populate: ['companyProfile'] },
+    {
+      tenantId: auth.tenantId ?? null,
+      organizationId: scope?.selectedId ?? auth.orgId ?? null,
+    },
   )
   if (!company) return notFound('Company not found')
 
@@ -335,37 +340,103 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     return forbidden('Access denied')
   }
 
+  const companyScope = {
+    tenantId: company.tenantId ?? auth.tenantId ?? null,
+    organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
+  }
+
   const profile = company.companyProfile
-    ? await em.findOne(CustomerCompanyProfile, { id: company.companyProfile.id })
-    : await em.findOne(CustomerCompanyProfile, { entity: company })
+    ? await findOneWithDecryption(
+        em,
+        CustomerCompanyProfile,
+        {
+          id: company.companyProfile.id,
+          tenantId: company.tenantId,
+          organizationId: company.organizationId,
+        },
+        {},
+        companyScope,
+      )
+    : await findOneWithDecryption(
+        em,
+        CustomerCompanyProfile,
+        {
+          entity: company,
+          tenantId: company.tenantId,
+          organizationId: company.organizationId,
+        },
+        {},
+        companyScope,
+      )
 
   const addresses = includeAddresses
-    ? await em.find(CustomerAddress, { entity: company.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } })
+    ? await findWithDecryption(
+        em,
+        CustomerAddress,
+        {
+          entity: company.id,
+          tenantId: company.tenantId,
+          organizationId: company.organizationId,
+        },
+        { orderBy: { isPrimary: 'desc', createdAt: 'desc' } },
+        companyScope,
+      )
     : []
   const tagAssignments = await findWithDecryption(
     em,
     CustomerTagAssignment,
-    { entity: company.id },
+    {
+      entity: company.id,
+      tenantId: company.tenantId,
+      organizationId: company.organizationId,
+    },
     { populate: ['tag'] },
-    { tenantId: company.tenantId ?? auth.tenantId ?? null, organizationId: company.organizationId ?? auth.orgId ?? null },
+    companyScope,
   )
-  const labelAssignments = await em.find(
+  const labelAssignments = await findWithDecryption(
+    em,
     CustomerLabelAssignment,
-    { entity: company.id },
+    {
+      entity: company.id,
+      tenantId: company.tenantId,
+      organizationId: company.organizationId,
+    },
     { populate: ['label'] },
+    companyScope,
   )
 
   const comments = includeComments
-    ? await em.find(CustomerComment, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+    ? await findWithDecryption(
+        em,
+        CustomerComment,
+        {
+          entity: company.id,
+          tenantId: company.tenantId,
+          organizationId: company.organizationId,
+        },
+        { orderBy: { createdAt: 'desc' }, limit: 50 },
+        companyScope,
+      )
     : []
   const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
   const canonicalInteractionRows = shouldLoadCanonicalInteractions
-    ? await em.find(
+    ? await findWithDecryption(
+        em,
         CustomerInteraction,
         interactionFlags.unified
-          ? { entity: company.id, deletedAt: null }
-          : { entity: company.id },
+          ? {
+              entity: company.id,
+              tenantId: company.tenantId,
+              organizationId: company.organizationId,
+              deletedAt: null,
+            }
+          : {
+              entity: company.id,
+              tenantId: company.tenantId,
+              organizationId: company.organizationId,
+            },
         { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
+        companyScope,
       )
     : []
   const canonicalActiveInteractions = canonicalInteractionRows.filter((interaction) => !interaction.deletedAt)
@@ -381,10 +452,30 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     : []
 
   const activities = includeActivities && !interactionFlags.unified
-    ? await em.find(CustomerActivity, { entity: company.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 })
+    ? await findWithDecryption(
+        em,
+        CustomerActivity,
+        {
+          entity: company.id,
+          tenantId: company.tenantId,
+          organizationId: company.organizationId,
+        },
+        { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 },
+        companyScope,
+      )
     : []
   const todoLinks = includeTodos && !interactionFlags.unified
-    ? await em.find(CustomerTodoLink, { entity: company.id }, { orderBy: { createdAt: 'desc' }, limit: 50 })
+    ? await findWithDecryption(
+        em,
+        CustomerTodoLink,
+        {
+          entity: company.id,
+          tenantId: company.tenantId,
+          organizationId: company.organizationId,
+        },
+        { orderBy: { createdAt: 'desc' }, limit: 50 },
+        companyScope,
+      )
     : []
 
   let todoDetails = new Map<string, TodoDetail>()
@@ -437,7 +528,16 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   let userMap = new Map<string, { name: string | null; email: string | null }>()
   if (authorIds.size) {
     const authorIdList = Array.from(authorIds)
-    const users = await em.find(User, { id: { $in: authorIdList } })
+    const users = await findWithDecryption(
+      em,
+      User,
+      {
+        id: { $in: authorIdList },
+        tenantId: company.tenantId,
+      },
+      {},
+      companyScope,
+    )
     userMap = new Map(
       users.map((user) => [
         user.id,
@@ -454,13 +554,21 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     const dealLinks = await findWithDecryption(
       em,
       CustomerDealCompanyLink,
-      { company: company.id },
+      {
+        company: company.id,
+      },
       { populate: ['deal'] },
-      { tenantId: company.tenantId ?? auth.tenantId ?? null, organizationId: company.organizationId ?? auth.orgId ?? null },
+      companyScope,
     )
     deals = dealLinks
       .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
-      .filter((deal): deal is CustomerDeal => !!deal && typeof deal !== 'string')
+      .filter(
+        (deal): deal is CustomerDeal =>
+          !!deal &&
+          typeof deal !== 'string' &&
+          deal.tenantId === company.tenantId &&
+          deal.organizationId === company.organizationId,
+      )
   }
 
   let relatedPeople: Array<{
@@ -471,7 +579,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   if (includePeople) {
     const peopleDecryptionScope = {
       tenantId: company.tenantId ?? auth.tenantId ?? null,
-      organizationId: company.organizationId ?? auth.orgId ?? null,
+      organizationId: company.organizationId ?? scope?.selectedId ?? auth.orgId ?? null,
     }
     const relatedPeopleById = new Map<
       string,
@@ -508,7 +616,12 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     const profiles = await findWithDecryption(
       em,
       CustomerPersonProfile,
-      { company: company.id, entity: { deletedAt: null } },
+      {
+        company: company.id,
+        tenantId: company.tenantId,
+        organizationId: company.organizationId,
+        entity: { deletedAt: null },
+      },
       { populate: ['entity'] },
       peopleDecryptionScope,
     )
@@ -679,15 +792,17 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     interactions: includeInteractions
       ? canonicalInteractions
       : [],
-    deals: includeDeals
-      ? deals.map((deal) => ({
-          id: deal.id,
-          title: deal.title,
-          status: deal.status,
-          pipelineStage: deal.pipelineStage,
-          valueAmount: deal.valueAmount,
-          valueCurrency: deal.valueCurrency,
-          probability: deal.probability,
+      deals: includeDeals
+        ? deals.map((deal) => ({
+            id: deal.id,
+            title: deal.title,
+            status: deal.status,
+            pipelineStage: deal.pipelineStage,
+            pipelineId: deal.pipelineId ?? null,
+            pipelineStageId: deal.pipelineStageId ?? null,
+            valueAmount: deal.valueAmount,
+            valueCurrency: deal.valueCurrency,
+            probability: deal.probability,
           expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
           ownerUserId: deal.ownerUserId,
           source: deal.source,

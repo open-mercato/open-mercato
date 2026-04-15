@@ -1,3 +1,8 @@
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
+  validateCrudMutationGuard: jest.fn(async () => null),
+  runCrudMutationGuardAfterSuccess: jest.fn(async () => undefined),
+}))
+
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 const mockCommandBus = {
@@ -36,6 +41,7 @@ jest.mock('../../../context', () => ({
     mappedKind: 'person_company_role',
   })),
   resolveDictionaryRouteContext: jest.fn(async () => mockRouteContext),
+  resolveDictionaryActorId: jest.fn(() => 'user-1'),
 }))
 
 jest.mock('../../../cache', () => ({

@@ -132,7 +132,7 @@ export function PersonDetailHeader({
           {(jobTitle || companyName) && (
             <p className="mt-0.5 text-sm text-muted-foreground">
               {jobTitle}
-              {jobTitle && companyName && ' at '}
+              {jobTitle && companyName && ` ${t('customers.people.detail.header.at', 'at')} `}
               {companyName && companyId && (
                 <Link href={`/backend/customers/companies-v2/${companyId}`} className="text-primary hover:underline">
                   {companyName}

@@ -383,7 +383,7 @@ export function CompanyCard({
               {(data.billing?.bankName || data.billing?.bankAccountMasked) && (
                 <BillingRow
                   icon={CreditCard}
-                  label="Bank / IBAN"
+                  label={t('customers.fields.bankIban', 'Bank / IBAN')}
                   value={[data.billing?.bankName, data.billing?.bankAccountMasked]
                     .filter(Boolean)
                     .join(' · ')}

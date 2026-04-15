@@ -109,7 +109,7 @@ export function ChangelogEntryRow({ entry }: ChangelogEntryRowProps) {
               <ArrowRight className="size-3.5 text-muted-foreground" />
               <Badge
                 variant="outline"
-                className="max-w-[12rem] rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700"
+                className="max-w-[12rem] rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
               >
                 <span className="truncate">{change.newValue || '—'}</span>
               </Badge>

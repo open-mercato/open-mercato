@@ -7,6 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn, slugifyTagLabel } from '@open-mercato/shared/lib/utils'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import {
@@ -288,6 +289,39 @@ export function EntityTagsDialog({
   const [creatingKind, setCreatingKind] = React.useState<string | null>(null)
   const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
   const creationInFlightRef = React.useRef<string | null>(null)
+  const mutationContextId = React.useMemo(
+    () => `customer-tags:${entityType}:${entityId}`,
+    [entityId, entityType],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    entityType: 'person' | 'company'
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      resourceKind: entityType === 'person' ? 'customers.person' : 'customers.company',
+      resourceId: entityId,
+      entityType,
+      retryLastMutation,
+    }),
+    [entityId, entityType, mutationContextId, retryLastMutation],
+  )
+  const runGuardedMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload: Record<string, unknown>) =>
+      runMutation({
+        operation,
+        mutationPayload,
+        context: mutationContext,
+      }),
+    [mutationContext, runMutation],
+  )
 
   const updateCategoryEntries = React.useCallback(
     (kind: string, updater: (entries: CategoryOption[]) => CategoryOption[]) => {
@@ -610,16 +644,20 @@ export function EntityTagsDialog({
     setCreatingKind(activeCategory.kind)
     try {
       if (activeCategory.source === 'tags') {
-        const result = await readApiResultOrThrow<Record<string, unknown>>(
-          '/api/customers/tags',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              label: trimmed,
-              slug: slugifyTagLabel(trimmed),
-            }),
-          },
+        const result = await runGuardedMutation(
+          () =>
+            readApiResultOrThrow<Record<string, unknown>>(
+              '/api/customers/tags',
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({
+                  label: trimmed,
+                  slug: slugifyTagLabel(trimmed),
+                }),
+              },
+            ),
+          { categoryKind: activeCategory.kind, operation: 'createTag', label: trimmed },
         )
         const id = typeof result?.id === 'string' ? result.id : ''
         if (!id) {
@@ -640,13 +678,17 @@ export function EntityTagsDialog({
         const payload = entityOrganizationId
           ? { label: trimmed, organizationId: entityOrganizationId }
           : { label: trimmed }
-        const result = await readApiResultOrThrow<{ id: string; slug: string; label: string }>(
-          '/api/customers/labels',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
+        const result = await runGuardedMutation(
+          () =>
+            readApiResultOrThrow<{ id: string; slug: string; label: string }>(
+              '/api/customers/labels',
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+            ),
+          { categoryKind: activeCategory.kind, operation: 'createLabel', label: trimmed },
         )
         const option: CategoryOption = {
           id: result.id,
@@ -671,7 +713,7 @@ export function EntityTagsDialog({
       creationInFlightRef.current = null
       setCreatingKind(null)
     }
-  }, [activeCategory, creatingKind, entityOrganizationId, newEntryInputByKind, t, updateCategoryEntries])
+  }, [activeCategory, creatingKind, entityOrganizationId, newEntryInputByKind, runGuardedMutation, t, updateCategoryEntries])
 
   const handleSave = React.useCallback(async () => {
     if (saving) return
@@ -690,11 +732,15 @@ export function EntityTagsDialog({
       })
 
       if (Object.keys(entityUpdate).length > 0) {
-        await apiCallOrThrow(`/api/customers/${entityType === 'person' ? 'people' : 'companies'}`, {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: entityId, ...entityUpdate }),
-        })
+        await runGuardedMutation(
+          () =>
+            apiCallOrThrow(`/api/customers/${entityType === 'person' ? 'people' : 'companies'}`, {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: entityId, ...entityUpdate }),
+            }),
+          { operation: 'updateEntityTags', entityUpdate },
+        )
       }
 
       const currentTags = selectedValues.tags ?? new Set<string>()
@@ -703,19 +749,27 @@ export function EntityTagsDialog({
       const removedTags = Array.from(originalTags).filter((tagId) => !currentTags.has(tagId))
 
       for (const tagId of addedTags) {
-        await apiCallOrThrow('/api/customers/tags/assign', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ tagId, entityId }),
-        })
+        await runGuardedMutation(
+          () =>
+            apiCallOrThrow('/api/customers/tags/assign', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ tagId, entityId }),
+            }),
+          { operation: 'assignTag', tagId },
+        )
       }
 
       for (const tagId of removedTags) {
-        await apiCallOrThrow('/api/customers/tags/unassign', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ tagId, entityId }),
-        })
+        await runGuardedMutation(
+          () =>
+            apiCallOrThrow('/api/customers/tags/unassign', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ tagId, entityId }),
+            }),
+          { operation: 'unassignTag', tagId },
+        )
       }
 
       const currentLabels = selectedValues.labels ?? new Set<string>()
@@ -727,22 +781,30 @@ export function EntityTagsDialog({
         const payload = entityOrganizationId
           ? { labelId, entityId, organizationId: entityOrganizationId }
           : { labelId, entityId }
-        await apiCallOrThrow('/api/customers/labels/assign', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
+        await runGuardedMutation(
+          () =>
+            apiCallOrThrow('/api/customers/labels/assign', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+          { operation: 'assignLabel', labelId },
+        )
       }
 
       for (const labelId of removedLabels) {
         const payload = entityOrganizationId
           ? { labelId, entityId, organizationId: entityOrganizationId }
           : { labelId, entityId }
-        await apiCallOrThrow('/api/customers/labels/unassign', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
+        await runGuardedMutation(
+          () =>
+            apiCallOrThrow('/api/customers/labels/unassign', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+          { operation: 'unassignLabel', labelId },
+        )
       }
 
       flash(t('customers.personTags.saveSuccess', 'Tags updated.'), 'success')
@@ -767,6 +829,7 @@ export function EntityTagsDialog({
     originalValues,
     saving,
     selectedValues,
+    runGuardedMutation,
     t,
   ])
 

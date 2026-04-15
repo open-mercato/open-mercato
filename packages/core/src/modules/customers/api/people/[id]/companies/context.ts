@@ -8,6 +8,7 @@ import {
 } from '@open-mercato/core/modules/customers/data/entities'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 export async function loadPersonContext(req: Request, personId: string) {
   const { translate } = await resolveTranslations()
@@ -20,7 +21,17 @@ export async function loadPersonContext(req: Request, personId: string) {
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth: authenticatedAuth, request: req })
   const em = (container.resolve('em') as EntityManager).fork()
-  const person = await em.findOne(CustomerEntity, { id: personId, kind: 'person', deletedAt: null })
+  const decryptionScope = {
+    tenantId: authenticatedAuth.tenantId,
+    organizationId: scope?.selectedId ?? authenticatedAuth.orgId ?? null,
+  }
+  const person = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    { id: personId, kind: 'person', deletedAt: null },
+    {},
+    decryptionScope,
+  )
 
   if (!person || person.tenantId !== authenticatedAuth.tenantId) {
     throw new CrudHttpError(404, { error: translate('customers.errors.person_not_found', 'Person not found') })
@@ -34,7 +45,16 @@ export async function loadPersonContext(req: Request, personId: string) {
     throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
   }
 
-  const profile = await em.findOne(CustomerPersonProfile, { entity: person }, { populate: ['company'] })
+  const profile = await findOneWithDecryption(
+    em,
+    CustomerPersonProfile,
+    { entity: person },
+    { populate: ['company'] },
+    {
+      tenantId: person.tenantId,
+      organizationId: person.organizationId,
+    },
+  )
   if (!profile) {
     throw new CrudHttpError(404, { error: translate('customers.errors.person_profile_not_found', 'Person profile not found') })
   }

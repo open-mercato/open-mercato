@@ -158,6 +158,7 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
       identifiers: getRoleIdentifiers(role),
       syncOrigin: ctx.syncOrigin,
       events: entityRoleCrudEvents,
+      indexer: { entityType: 'customers:entity_role' },
     })
 
     return { roleId: role.id }
@@ -211,6 +212,7 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
       identifiers: getRoleIdentifiers(role),
       syncOrigin: ctx.syncOrigin,
       events: entityRoleCrudEvents,
+      indexer: { entityType: 'customers:entity_role' },
     })
   },
 }
@@ -250,6 +252,7 @@ const updateEntityRoleCommand: CommandHandler<EntityRoleUpdateInput, { roleId: s
       identifiers: getRoleIdentifiers(role),
       syncOrigin: ctx.syncOrigin,
       events: entityRoleCrudEvents,
+      indexer: { entityType: 'customers:entity_role' },
     })
 
     return { roleId: role.id }
@@ -306,6 +309,7 @@ const updateEntityRoleCommand: CommandHandler<EntityRoleUpdateInput, { roleId: s
       identifiers: getRoleIdentifiers(role),
       syncOrigin: ctx.syncOrigin,
       events: entityRoleCrudEvents,
+      indexer: { entityType: 'customers:entity_role' },
     })
   },
 }
@@ -345,6 +349,7 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
       identifiers: getRoleIdentifiers(role),
       syncOrigin: ctx.syncOrigin,
       events: entityRoleCrudEvents,
+      indexer: { entityType: 'customers:entity_role' },
     })
 
     return { roleId: role.id }
@@ -414,6 +419,7 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
       identifiers: getRoleIdentifiers(role),
       syncOrigin: ctx.syncOrigin,
       events: entityRoleCrudEvents,
+      indexer: { entityType: 'customers:entity_role' },
     })
   },
 }

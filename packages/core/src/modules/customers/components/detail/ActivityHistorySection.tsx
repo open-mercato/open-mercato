@@ -245,7 +245,6 @@ export function ActivityHistorySection({
       setActivities(sortActivities(combined, sortMode))
       setHasMore(firstPageHasMore)
     } catch (loadError) {
-      console.error('customers.activityLog.history failed', loadError)
       setActivities([])
       setHasMore(false)
       setError(t('customers.activityLog.error', 'Failed to load activity history'))

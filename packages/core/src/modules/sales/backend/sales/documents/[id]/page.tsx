@@ -26,6 +26,8 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
@@ -44,7 +46,8 @@ import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDict
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
-import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
+import { NotesSection, mapCommentSummary } from '@open-mercato/ui/backend/detail'
+import type { NotesDataAdapter } from '@open-mercato/ui/backend/detail/NotesSection'
 import {
   emitSalesDocumentTotalsRefresh,
   subscribeSalesDocumentTotalsRefresh,
@@ -1815,7 +1818,7 @@ function StatusInlineEditor({
           onClick={(event) => {
             event.stopPropagation()
             if (editing) {
-              setDraft(normalizedValue)
+              setDraft(value ?? null)
               setError(null)
             }
             setEditing((prev) => !prev)
@@ -1879,7 +1882,41 @@ export default function SalesDocumentDetailPage({
   const [adjustmentRows, setAdjustmentRows] = React.useState<AdjustmentRowData[]>([])
   const clearCustomerError = React.useCallback(() => setCustomerError(null), [])
   const { data: currencyDictionary } = useCurrencyDictionary()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
+  const mutationContextId = React.useMemo(() => `sales-document:${kind}:${params.id}`, [kind, params.id])
+  const resourceKind = React.useMemo(() => (kind === 'order' ? 'sales.order' : 'sales.quote'), [kind])
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    kind: 'order' | 'quote'
+    record: { id: string }
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo(
+    () => ({
+      formId: mutationContextId,
+      resourceKind,
+      resourceId: record?.id ?? params.id,
+      kind,
+      record: { id: record?.id ?? params.id },
+      retryLastMutation,
+    }),
+    [kind, mutationContextId, params.id, record?.id, resourceKind, retryLastMutation],
+  )
+  const runGuardedDocumentMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload: Record<string, unknown>) =>
+      runMutation({
+        operation,
+        mutationPayload,
+        context: mutationContext,
+      }),
+    [mutationContext, runMutation],
+  )
   const parseNumber = React.useCallback((value: unknown): number => {
     if (typeof value === 'number' && Number.isFinite(value)) return value
     if (typeof value === 'string' && value.trim().length) {
@@ -2854,17 +2891,21 @@ export default function SalesDocumentDetailPage({
         throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-      return apiCallOrThrow<DocumentUpdateResult>(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: record.id, ...patch }),
-        },
-        { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+      return runGuardedDocumentMutation(
+        () =>
+          apiCallOrThrow<DocumentUpdateResult>(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: record.id, ...patch }),
+            },
+            { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+          ),
+        { id: record.id, ...patch },
       )
     },
-    [kind, record, t]
+    [kind, record, runGuardedDocumentMutation, t]
   )
 
   const handleUpdateCurrency = React.useCallback(
@@ -3284,12 +3325,14 @@ export default function SalesDocumentDetailPage({
           !!record.shippingAddressSnapshot ||
           !!record.billingAddressSnapshot
         if (hasAddresses) {
-          const confirmed = window.confirm(
-            t(
+          const confirmed = await confirm({
+            title: t('sales.documents.detail.customerChangeTitle', 'Change customer'),
+            text: t(
               'sales.documents.detail.customerChangeConfirm',
               'Change the customer? Existing shipping and billing addresses will be unassigned.'
-            )
-          )
+            ),
+            variant: 'destructive',
+          })
           if (!confirmed) return
         }
       }
@@ -3399,66 +3442,88 @@ export default function SalesDocumentDetailPage({
 
   const handleGenerateNumber = React.useCallback(async () => {
     setGenerating(true)
-    const call = await apiCall<{ number?: string }>(`/api/sales/document-numbers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind }),
-    })
-    if (call.ok && call.result?.number) {
-      setRecord((prev) => (prev ? { ...prev, orderNumber: kind === 'order' ? call.result?.number : prev.orderNumber, quoteNumber: kind === 'quote' ? call.result?.number : prev.quoteNumber } : prev))
+    try {
+      const call = await runGuardedDocumentMutation(
+        () =>
+          apiCallOrThrow<{ number?: string }>(`/api/sales/document-numbers`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind }),
+          }, { errorMessage: t('sales.documents.detail.numberGenerateError', 'Could not generate number.') }),
+        { kind },
+      )
+      if (!call.result?.number) {
+        throw new Error(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'))
+      }
+      setRecord((prev) => (prev ? { ...prev, orderNumber: kind === 'order' ? call.result.number : prev.orderNumber, quoteNumber: kind === 'quote' ? call.result.number : prev.quoteNumber } : prev))
       flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
-    } else {
+    } catch {
       flash(t('sales.documents.detail.numberGenerateError', 'Could not generate number.'), 'error')
+    } finally {
+      setGenerating(false)
     }
-    setGenerating(false)
-  }, [kind, t])
+  }, [kind, runGuardedDocumentMutation, t])
 
   const handleConvert = React.useCallback(async () => {
     if (!record || kind !== 'quote') return
     setConverting(true)
     try {
-      const call = await apiCallOrThrow<{ orderId?: string }>(
-        '/api/sales/quotes/convert',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ quoteId: record.id }),
-        },
-        { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+      const call = await runGuardedDocumentMutation(
+        () =>
+          apiCallOrThrow<{ orderId?: string }>(
+            '/api/sales/quotes/convert',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ quoteId: record.id }),
+            },
+            { errorMessage: t('sales.documents.detail.convertError', 'Failed to convert quote.') },
+          ),
+        { quoteId: record.id },
       )
       const orderId = call.result?.orderId ?? record.id
       flash(t('sales.documents.detail.convertSuccess', 'Quote converted to order.'), 'success')
       router.replace(`/backend/sales/orders/${orderId}`)
-    } catch (err) {
-      console.error('sales.documents.convert', err)
+    } catch {
       flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
     } finally {
       setConverting(false)
     }
-  }, [kind, record, router, t])
+  }, [kind, record, router, runGuardedDocumentMutation, t])
 
   const handleDelete = React.useCallback(async () => {
     if (!record) return
-    const confirmed = window.confirm(
-      t('sales.documents.detail.deleteConfirm', 'Delete this document? This cannot be undone.')
-    )
+    const confirmed = await confirm({
+      title: t('sales.documents.detail.deleteTitle', 'Delete document'),
+      text: t('sales.documents.detail.deleteConfirm', 'Delete this document? This cannot be undone.'),
+      variant: 'destructive',
+    })
     if (!confirmed) return
     setDeleting(true)
     const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
-    const call = await apiCall(endpoint, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: record.id }),
-    })
-    if (call.ok) {
+    try {
+      await runGuardedDocumentMutation(
+        () =>
+          apiCallOrThrow(
+            endpoint,
+            {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: record.id }),
+            },
+            { errorMessage: t('sales.documents.detail.deleteFailed', 'Could not delete document.') },
+          ),
+        { id: record.id },
+      )
       flash(t('sales.documents.detail.deleted', 'Document deleted.'), 'success')
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
-    } else {
+    } catch {
       flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
+    } finally {
+      setDeleting(false)
     }
-    setDeleting(false)
-  }, [kind, record, router, t])
+  }, [kind, record, router, runGuardedDocumentMutation, t])
 
   const detailFields = React.useMemo(() => {
     const fields: DetailFieldConfig[] = [
@@ -3665,7 +3730,10 @@ export default function SalesDocumentDetailPage({
     []
   )
 
-  const injectionContext = React.useMemo(() => ({ kind, record }), [kind, record])
+  const injectionContext = React.useMemo(
+    () => ({ kind, record, retryLastMutation }),
+    [kind, record, retryLastMutation],
+  )
   const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
   const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
@@ -3743,20 +3811,25 @@ export default function SalesDocumentDetailPage({
         if (!record || record.id !== entityId) {
           throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
         }
-        const response = await apiCallOrThrow<Record<string, unknown>>(
-          '/api/sales/notes',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              contextType: kind,
-              contextId: entityId,
-              body,
-              appearanceIcon: appearanceIcon ?? undefined,
-              appearanceColor: appearanceColor ?? undefined,
-            }),
-          },
-          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        const payload = {
+          contextType: kind,
+          contextId: entityId,
+          body,
+          appearanceIcon: appearanceIcon ?? undefined,
+          appearanceColor: appearanceColor ?? undefined,
+        }
+        const response = await runGuardedDocumentMutation(
+          () =>
+            apiCallOrThrow<Record<string, unknown>>(
+              '/api/sales/notes',
+              {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+            ),
+          payload,
         )
         return response.result ?? {}
       },
@@ -3766,29 +3839,37 @@ export default function SalesDocumentDetailPage({
         if (patch.body !== undefined) payload.body = patch.body
         if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
         if (patch.appearanceColor !== undefined) payload.appearanceColor = patch.appearanceColor
-        await apiCallOrThrow(
-          '/api/sales/notes',
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        await runGuardedDocumentMutation(
+          () =>
+            apiCallOrThrow(
+              '/api/sales/notes',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+              { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+            ),
+          payload,
         )
       },
       delete: async ({ id }) => {
         if (!record) throw new Error(t('sales.documents.detail.updateError', 'Failed to update document.'))
-        await apiCallOrThrow(
-          `/api/sales/notes?id=${encodeURIComponent(id)}`,
-          {
-            method: 'DELETE',
-            headers: { 'content-type': 'application/json' },
-          },
-          { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') }
+        await runGuardedDocumentMutation(
+          () =>
+            apiCallOrThrow(
+              `/api/sales/notes?id=${encodeURIComponent(id)}`,
+              {
+                method: 'DELETE',
+                headers: { 'content-type': 'application/json' },
+              },
+              { errorMessage: t('sales.documents.detail.updateError', 'Failed to update document.') },
+            ),
+          { id },
         )
       },
     }),
-    [kind, record, t],
+    [kind, record, runGuardedDocumentMutation, t],
   )
 
   const appendShipmentComment = React.useCallback(
@@ -4029,14 +4110,18 @@ export default function SalesDocumentDetailPage({
       }
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       try {
-        await apiCallOrThrow(
-          endpoint,
-          {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ id: record.id, customFields: customPayload }),
-          },
-          { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
+        await runGuardedDocumentMutation(
+          () =>
+            apiCallOrThrow(
+              endpoint,
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: record.id, customFields: customPayload }),
+              },
+              { errorMessage: t('sales.documents.detail.inlineError', 'Unable to update document.') },
+            ),
+          { id: record.id, customFields: customPayload },
         )
       } catch (err) {
         const { message: helperMessage, fieldErrors } = mapCrudServerErrorToFormErrors(err)
@@ -4064,7 +4149,7 @@ export default function SalesDocumentDetailPage({
       )
       flash(t('ui.forms.flash.saveSuccess', 'Saved successfully.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runGuardedDocumentMutation, t],
   )
 
   const loadTagOptions = React.useCallback(
@@ -4106,14 +4191,18 @@ export default function SalesDocumentDetailPage({
       if (!trimmed.length) {
         throw new Error(t('sales.documents.detail.tags.labelRequired', 'Tag name is required.'))
       }
-      const response = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/sales/tags',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ label: trimmed }),
-        },
-        { errorMessage: t('sales.documents.detail.tags.createError', 'Failed to create tag.') },
+      const response = await runGuardedDocumentMutation(
+        () =>
+          apiCallOrThrow<Record<string, unknown>>(
+            '/api/sales/tags',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ label: trimmed }),
+            },
+            { errorMessage: t('sales.documents.detail.tags.createError', 'Failed to create tag.') },
+          ),
+        { label: trimmed },
       )
       const payload = response.result ?? {}
       const id =
@@ -4128,7 +4217,7 @@ export default function SalesDocumentDetailPage({
         : null
       return { id, label: trimmed, color }
     },
-    [t],
+    [runGuardedDocumentMutation, t],
   )
 
   const handleTagsSave = React.useCallback(
@@ -4136,20 +4225,24 @@ export default function SalesDocumentDetailPage({
       if (!record) return
       const endpoint = kind === 'order' ? '/api/sales/orders' : '/api/sales/quotes'
       const tagIds = Array.from(new Set(next.map((tag) => tag.id)))
-      await apiCallOrThrow(
-        endpoint,
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: record.id, tags: tagIds }),
-        },
-        { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
+      await runGuardedDocumentMutation(
+        () =>
+          apiCallOrThrow(
+            endpoint,
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id: record.id, tags: tagIds }),
+            },
+            { errorMessage: t('sales.documents.detail.tags.updateError', 'Failed to update tags.') },
+          ),
+        { id: record.id, tags: tagIds },
       )
       setRecord((prev) => (prev ? { ...prev, tags: next } : prev))
       setTags(next)
       flash(t('sales.documents.detail.tags.success', 'Tags updated.'), 'success')
     },
-    [kind, record, t],
+    [kind, record, runGuardedDocumentMutation, t],
   )
 
   if (loading) {
@@ -4197,6 +4290,7 @@ export default function SalesDocumentDetailPage({
 
   return (
     <Page>
+      {ConfirmDialogElement}
       <PageBody className="space-y-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex flex-wrap items-center gap-3">
