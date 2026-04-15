@@ -5,9 +5,13 @@
  * should import from here instead of reading env vars directly.
  *
  * The `prefix` parameter lets each subsystem define its own override:
- *   getRedisUrl('QUEUE')  → QUEUE_REDIS_URL  > REDIS_URL > localhost
- *   getRedisUrl('CACHE')  → CACHE_REDIS_URL  > REDIS_URL > localhost
- *   getRedisUrl()         → REDIS_URL > localhost
+ *   getRedisUrl('QUEUE')  → QUEUE_REDIS_URL  > REDIS_URL > null
+ *   getRedisUrl('CACHE')  → CACHE_REDIS_URL  > REDIS_URL > null
+ *   getRedisUrl()         → REDIS_URL > null
+ *
+ * Returns null when Redis is not configured so callers can explicitly
+ * decide whether to fall back to a non-Redis strategy or fail loudly.
+ * Use getRedisUrlOrThrow() when Redis is mandatory for the caller.
  */
 
 export type ParsedRedisConnection = {
@@ -21,14 +25,33 @@ export type ParsedRedisConnection = {
 /**
  * Resolve a Redis URL from environment variables.
  *
- * Priority: <PREFIX>_REDIS_URL  →  REDIS_URL  →  redis://localhost:6379
+ * Priority: <PREFIX>_REDIS_URL  →  REDIS_URL  →  null
+ *
+ * Returns null when no env var is set. Callers MUST NOT assume a
+ * localhost default — silently connecting to localhost masks missing
+ * configuration and stalls on platforms where nothing listens there
+ * (e.g., WSL2 without a local Redis).
  */
-export function getRedisUrl(prefix?: string): string {
+export function getRedisUrl(prefix?: string): string | null {
   if (prefix) {
     const prefixed = process.env[`${prefix}_REDIS_URL`]
     if (prefixed) return prefixed
   }
-  return process.env.REDIS_URL || 'redis://localhost:6379'
+  return process.env.REDIS_URL || null
+}
+
+/**
+ * Like getRedisUrl, but throws a descriptive error when Redis is not
+ * configured. Use from code paths that require Redis (e.g. BullMQ
+ * async queue, Redis cache strategy, scheduler service).
+ */
+export function getRedisUrlOrThrow(prefix?: string): string {
+  const url = getRedisUrl(prefix)
+  if (url) return url
+  const which = prefix ? `${prefix}_REDIS_URL or REDIS_URL` : 'REDIS_URL'
+  throw new Error(
+    `Redis URL is not configured. Set ${which} in your environment to use a Redis-backed strategy.`
+  )
 }
 
 /**
@@ -61,8 +84,12 @@ export function parseRedisUrl(url: string): ParsedRedisConnection {
 
 /**
  * Convenience: resolve the URL from env and parse it in one step.
+ * Returns null when Redis is not configured.
  */
-export function resolveRedisConnection(prefix?: string): ParsedRedisConnection & { url: string } {
+export function resolveRedisConnection(
+  prefix?: string,
+): (ParsedRedisConnection & { url: string }) | null {
   const url = getRedisUrl(prefix)
+  if (!url) return null
   return { url, ...parseRedisUrl(url) }
 }

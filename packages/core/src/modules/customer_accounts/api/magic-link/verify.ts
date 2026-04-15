@@ -11,7 +11,7 @@ import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function POST(req: Request) {
   let body: unknown

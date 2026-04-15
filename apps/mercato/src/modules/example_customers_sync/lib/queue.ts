@@ -1,5 +1,4 @@
-import { createQueue, type Queue } from '@open-mercato/queue'
-import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { createModuleQueue, type Queue } from '@open-mercato/queue'
 
 export const EXAMPLE_CUSTOMERS_SYNC_OUTBOUND_QUEUE = 'example-customers-sync-outbound'
 export const EXAMPLE_CUSTOMERS_SYNC_INBOUND_QUEUE = 'example-customers-sync-inbound'
@@ -20,12 +19,8 @@ export function getExampleCustomersSyncQueue<T extends Record<string, unknown>>(
   const existing = queues.get(queueName)
   if (existing) return existing as Queue<T>
 
-  const created = process.env.QUEUE_STRATEGY === 'async'
-    ? createQueue<T>(queueName, 'async', {
-        connection: { url: getRedisUrl('QUEUE') },
-        concurrency: Math.max(1, Number.parseInt(process.env.EXAMPLE_CUSTOMERS_SYNC_QUEUE_CONCURRENCY ?? '5', 10) || 5),
-      })
-    : createQueue<T>(queueName, 'local')
+  const concurrency = Math.max(1, Number.parseInt(process.env.EXAMPLE_CUSTOMERS_SYNC_QUEUE_CONCURRENCY ?? '5', 10) || 5)
+  const created = createModuleQueue<T>(queueName, { concurrency })
 
   queues.set(queueName, created as Queue<Record<string, unknown>>)
   return created

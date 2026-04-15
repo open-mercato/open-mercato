@@ -205,6 +205,92 @@ describe('Queue - local strategy', () => {
     await queue.close()
   })
 
+  test('failed jobs are retained in queue for retry', async () => {
+    const queue = createQueue<{ shouldFail: boolean }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+
+    await queue.enqueue({ shouldFail: true })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    await queue.process((job) => {
+      if (job.payload.shouldFail) throw new Error('transient')
+    }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].attemptCount).toBe(1)
+    expect(remaining[0].availableAt).toBeDefined()
+
+    errorSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('failed jobs are removed after max attempts', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+
+    await queue.enqueue({ value: 1 })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+    // Manually set attemptCount to simulate prior failures
+    const jobs = readJson(queuePath)
+    jobs[0].attemptCount = 2
+    jobs[0].availableAt = undefined
+    fs.writeFileSync(queuePath, JSON.stringify(jobs, null, 2), 'utf8')
+
+    await queue.process(() => { throw new Error('permanent') }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(0)
+
+    errorSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('retry jobs include exponential backoff delay', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+
+    await queue.enqueue({ value: 1 })
+
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    const beforeProcess = Date.now()
+
+    await queue.process(() => { throw new Error('fail') }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(1)
+    const availableAt = new Date(remaining[0].availableAt).getTime()
+    expect(availableAt).toBeGreaterThanOrEqual(beforeProcess + 1000)
+
+    errorSpy.mockRestore()
+    await queue.close()
+  })
+
+  test('attempt number is passed correctly in job context', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+    const attempts: number[] = []
+
+    await queue.enqueue({ value: 1 })
+
+    // Set attemptCount to 1 to simulate a retry
+    const jobs = readJson(queuePath)
+    jobs[0].attemptCount = 1
+    jobs[0].availableAt = undefined
+    fs.writeFileSync(queuePath, JSON.stringify(jobs, null, 2), 'utf8')
+
+    await queue.process((_job, ctx) => {
+      attempts.push(ctx.attemptNumber)
+    }, { limit: 10 })
+
+    expect(attempts).toEqual([2])
+
+    await queue.close()
+  })
+
   test('job context contains correct information', async () => {
     const queue = createQueue<{ value: number }>('context-test', 'local')
     let capturedContext: any = null

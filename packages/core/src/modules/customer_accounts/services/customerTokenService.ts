@@ -70,8 +70,14 @@ export class CustomerTokenService {
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
 
-    record.usedAt = new Date()
-    await this.em.flush()
+    const knex = this.em.getKnex()
+    const consumed = await knex('customer_user_email_verifications')
+      .where('id', record.id)
+      .whereNull('used_at')
+      .where('expires_at', '>', new Date())
+      .update({ used_at: new Date() })
+    if (consumed === 0) return null
+
     const resolvedUserId = typeof user === 'string' ? user : user.id
     const resolvedTenantId = typeof user === 'string' ? '' : user.tenantId
     return { userId: resolvedUserId, tenantId: resolvedTenantId }
@@ -89,8 +95,14 @@ export class CustomerTokenService {
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
 
-    record.usedAt = new Date()
-    await this.em.flush()
+    const knex = this.em.getKnex()
+    const consumed = await knex('customer_user_password_resets')
+      .where('id', record.id)
+      .whereNull('used_at')
+      .where('expires_at', '>', new Date())
+      .update({ used_at: new Date() })
+    if (consumed === 0) return null
+
     const resolvedUserId = typeof user === 'string' ? user : user.id
     const resolvedTenantId = typeof user === 'string' ? '' : user.tenantId
     return { userId: resolvedUserId, tenantId: resolvedTenantId }

@@ -289,7 +289,7 @@ describe('Events Worker', () => {
       expect(called).toBe(true)
     })
 
-    it('should isolate errors - continue processing other subscribers when one fails', async () => {
+    it('should run all subscribers even when one fails, then throw to trigger retry', async () => {
       const subscriber1Calls: unknown[] = []
       const subscriber2Calls: unknown[] = []
 
@@ -326,13 +326,17 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      // Should not throw - partial failures are logged but don't fail the job
-      await expect(handle(job, ctx)).resolves.toBeUndefined()
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
-      // Both subscribers should have been called
+      await expect(handle(job, ctx)).rejects.toThrow(
+        '1/2 subscriber(s) failed for event "test.event": a:failing-subscriber'
+      )
+
       expect(subscriber1Calls.length).toBe(1)
       expect(subscriber2Calls.length).toBe(1)
       expect(subscriber2Calls[0]).toEqual({ data: 'test' })
+
+      errorSpy.mockRestore()
     })
 
     it('should throw when all subscribers fail', async () => {
@@ -368,8 +372,13 @@ describe('Events Worker', () => {
       const job = createMockJob('test.event', { data: 'test' })
       const ctx = createMockContext()
 
-      // Should throw when all subscribers fail
-      await expect(handle(job, ctx)).rejects.toThrow('All 2 subscriber(s) failed for event "test.event"')
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+      await expect(handle(job, ctx)).rejects.toThrow(
+        '2/2 subscriber(s) failed for event "test.event": a:failing-subscriber, b:failing-subscriber'
+      )
+
+      errorSpy.mockRestore()
     })
   })
 })

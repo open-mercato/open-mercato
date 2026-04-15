@@ -8,6 +8,7 @@
 import { cookies } from 'next/headers'
 import { verifyAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { CUSTOMER_JWT_AUDIENCE } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
+import { validateUserState } from './customerAuth'
 import type { CustomerAuthContext } from './customerAuth'
 
 export type { CustomerAuthContext }
@@ -56,6 +57,14 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
     const stillActive = await assertSessionStillActive(sid)
     if (!stillActive) return null
 
+    const userState = await validateUserState(
+      String(payload.sub),
+      String(payload.tenantId),
+      String(payload.orgId),
+      payload.iat,
+    )
+    if (!userState.valid) return null
+
     return {
       sub: String(payload.sub),
       sid,
@@ -66,7 +75,7 @@ export async function getCustomerAuthFromCookies(): Promise<CustomerAuthContext 
       displayName: String(payload.displayName || ''),
       customerEntityId: payload.customerEntityId ? String(payload.customerEntityId) : null,
       personEntityId: payload.personEntityId ? String(payload.personEntityId) : null,
-      resolvedFeatures: Array.isArray(payload.resolvedFeatures) ? payload.resolvedFeatures as string[] : [],
+      resolvedFeatures: userState.resolvedFeatures,
     }
   } catch {
     // Invalid or expired JWT — treat as unauthenticated

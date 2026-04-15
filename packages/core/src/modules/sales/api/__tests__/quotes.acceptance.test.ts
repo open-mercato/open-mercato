@@ -494,6 +494,147 @@ describe('accept - TOCTOU concurrency guard', () => {
   })
 })
 
+describe('accept - state rollback on conversion failure (fix: #1415)', () => {
+  const ACCEPTANCE_TOKEN = '00000000-0000-4000-8000-000000000003'
+
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    mockEm.fork.mockReturnValue(mockEm)
+    mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { getCachedRateLimiterService } = await import('@open-mercato/core/bootstrap')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue(null)
+    ;(getCachedRateLimiterService as jest.Mock).mockReturnValue(mockRateLimiterService)
+  })
+
+  test('reverts quote status to sent when order conversion fails', async () => {
+    const quote = {
+      id: '99999999-9999-4999-8999-999999999999',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-REVERT-1',
+      status: 'sent',
+      statusEntryId: null,
+      validUntil: new Date(Date.now() + 60_000),
+      updatedAt: new Date(),
+    }
+
+    mockEm.transactional = jest.fn(async (callback: (trx: any) => Promise<unknown>) => {
+      return callback(mockEm)
+    }) as any
+
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) {
+        if (where?.acceptanceToken) return quote
+        if (where?.id === quote.id) return quote
+        return null
+      }
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-confirmed' }
+      return null
+    })
+
+    mockCommandBus.execute.mockRejectedValue(new Error('Conversion failed'))
+
+    const res = await acceptQuote(makeAcceptRequest({ token: ACCEPTANCE_TOKEN }))
+    expect(res.status).toBe(400)
+    expect(quote.status).toBe('sent')
+  })
+})
+
+describe('send - no flush before email delivery (fix: #1415)', () => {
+  beforeEach(async () => {
+    jest.clearAllMocks()
+    mockEm.fork.mockReturnValue(mockEm)
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const { resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      orgId: '11111111-1111-4111-8111-111111111111',
+      roles: ['admin'],
+    })
+    ;(resolveOrganizationScopeForRequest as jest.Mock).mockResolvedValue({
+      selectedId: '11111111-1111-4111-8111-111111111111',
+      filterIds: ['11111111-1111-4111-8111-111111111111'],
+      allowedIds: ['11111111-1111-4111-8111-111111111111'],
+    })
+  })
+
+  test('does not persist quote state when email delivery fails', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-NOEMAIL-1',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: { customer: { primaryEmail: 'test@example.com' } },
+      metadata: null,
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP connection refused'))
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    expect(res.status).toBe(400)
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  test('persists quote state only after email delivery succeeds', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-OK-1',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: { customer: { primaryEmail: 'test@example.com' } },
+      metadata: null,
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: any, where: any) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    const callOrder: string[] = []
+    mockEm.flush.mockImplementation(async () => {
+      callOrder.push('flush')
+    })
+
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockImplementation(async () => {
+      callOrder.push('sendEmail')
+    })
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    expect(res.status).toBe(200)
+    expect(callOrder.indexOf('sendEmail')).toBeLessThan(callOrder.indexOf('flush'))
+  })
+})
+
 describe('quote editing invalidates sent token', () => {
   test('updating a sent quote clears token and reverts status to draft', async () => {
     // Registers commands (including sales.quotes.update) into the global command registry.
