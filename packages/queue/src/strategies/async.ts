@@ -1,5 +1,5 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions } from '../types'
-import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 
 // BullMQ interface types - we define the shape we use to maintain type safety
 // while keeping bullmq as an optional peer dependency
@@ -61,7 +61,7 @@ function resolveConnection(options?: AsyncQueueOptions['connection']): Connectio
     }
   }
 
-  return { url: getRedisUrl('QUEUE') }
+  return { url: getRedisUrlOrThrow('QUEUE') }
 }
 
 /**

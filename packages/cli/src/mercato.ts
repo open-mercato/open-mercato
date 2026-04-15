@@ -7,7 +7,7 @@ import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
-import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import { parseModuleInstallArgs } from './lib/module-install-args'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
@@ -571,14 +571,33 @@ export async function run(argv = process.argv) {
         } finally {
           try { await client.end() } catch {}
         }
-        // Also flush Redis
-        try {
+        // Also flush Redis when configured. Skip silently if no URL is set —
+        // a stray ioredis client with auto-reconnect would otherwise spam
+        // ETIMEDOUT errors for the rest of the process lifetime.
+        const redisUrl = getRedisUrl()
+        if (redisUrl) {
           const Redis = (await import('ioredis')).default
-          const redis = new Redis(getRedisUrl())
-          await redis.flushall()
-          await redis.quit()
-          console.log('   Redis flushed.')
-        } catch {}
+          const redis = new Redis(redisUrl, {
+            lazyConnect: true,
+            connectTimeout: 3000,
+            maxRetriesPerRequest: 1,
+            retryStrategy: () => null,
+            enableOfflineQueue: false,
+          })
+          redis.on('error', () => {})
+          try {
+            await redis.connect()
+            await redis.flushall()
+            console.log('   Redis flushed.')
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            console.log(`   Redis flush skipped (${message}).`)
+          } finally {
+            try { redis.disconnect() } catch {}
+          }
+        } else {
+          console.log('   Redis flush skipped (REDIS_URL not configured).')
+        }
         console.log('✅ Database cleared. Proceeding with fresh initialization...\n')
       }
 
@@ -1175,9 +1194,10 @@ export async function run(argv = process.argv) {
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
+              const queueRedisUrl = getRedisUrl('QUEUE')
               await runWorker({
                 queueName: queue,
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
                 background: true,
                 handler: async (job, ctx) => {
@@ -1206,9 +1226,10 @@ export async function run(argv = process.argv) {
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
+              const queueRedisUrl = getRedisUrl('QUEUE')
               await runWorker({
                 queueName: queueName!,
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
                 handler: async (job, ctx) => {
                   for (const worker of queueWorkers) {
@@ -1239,7 +1260,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: { url: getRedisUrlOrThrow('QUEUE') },
               })
             : createQueue(queueName, 'local')
 
@@ -1262,7 +1283,7 @@ export async function run(argv = process.argv) {
 
           const queue = strategyEnv === 'async'
             ? createQueue(queueName, 'async', {
-                connection: { url: getRedisUrl('QUEUE') },
+                connection: { url: getRedisUrlOrThrow('QUEUE') },
               })
             : createQueue(queueName, 'local')
 
