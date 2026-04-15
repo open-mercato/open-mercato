@@ -1,4 +1,5 @@
 import { Entity, PrimaryKey, Property, ManyToOne, Unique, Index } from '@mikro-orm/core'
+import type { AccessibilityPreferences } from './validators'
 
 @Entity({ tableName: 'users' })
 export class User {
@@ -27,13 +28,16 @@ export class User {
   @Property({ name: 'is_confirmed', type: 'boolean', default: true })
   isConfirmed: boolean = true
 
+  @Property({ name: 'accessibility_preferences', type: 'json', nullable: true })
+  accessibilityPreferences?: AccessibilityPreferences | null
+
   @Property({ name: 'last_login_at', type: Date, nullable: true })
   lastLoginAt?: Date
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-@Property({ name: 'deleted_at', type: Date, nullable: true })
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
 

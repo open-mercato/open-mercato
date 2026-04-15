@@ -402,6 +402,22 @@
           "default": "true",
           "mappedType": "boolean"
         },
+        "accessibility_preferences": {
+          "name": "accessibility_preferences",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "last_login_at": {
           "name": "last_login_at",
           "type": "timestamptz",

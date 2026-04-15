@@ -34,6 +34,12 @@ export const sidebarPreferencesInputSchema = z.object({
   clearRoleIds: z.array(z.string().uuid()).optional(),
 })
 
+export const AccessibilityPreferencesSchema = z.object({
+  highContrast: z.boolean().optional(),
+  fontSize: z.enum(['sm', 'md', 'lg', 'xl']).optional(),
+  reducedMotion: z.boolean().optional(),
+})
+
 // Optional helpers for CLI or admin forms
 export const userCreateSchema = z.object({
   email: z.string().email(),
@@ -56,5 +62,6 @@ export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchem
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>
 export type RefreshSessionRequestInput = z.infer<typeof refreshSessionRequestSchema>
 export type SidebarPreferencesInput = z.infer<typeof sidebarPreferencesInputSchema>
+export type AccessibilityPreferences = z.infer<typeof AccessibilityPreferencesSchema>
 export type UserCreateInput = z.infer<typeof userCreateSchema>
 export type FeatureCheckRequestInput = z.infer<typeof featureCheckRequestSchema>
