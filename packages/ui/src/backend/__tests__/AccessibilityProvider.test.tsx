@@ -70,6 +70,37 @@ describe('AccessibilityProvider', () => {
     expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('')
   })
 
+  it('retries the profile request in the same session after a failed initial load', async () => {
+    mockReadApiResultOrThrow
+      .mockRejectedValueOnce(new Error('Unauthorized'))
+      .mockResolvedValueOnce({
+        accessibilityPreferences: {
+          highContrast: true,
+          fontSize: 'lg',
+          reducedMotion: false,
+        },
+      })
+
+    const { unmount } = render(<AccessibilityProvider />)
+
+    await waitFor(() => {
+      expect(mockReadApiResultOrThrow).toHaveBeenCalledTimes(1)
+    })
+    expect(document.documentElement.classList.contains('high-contrast')).toBe(false)
+
+    unmount()
+
+    render(<AccessibilityProvider />)
+
+    await waitFor(() => {
+      expect(mockReadApiResultOrThrow).toHaveBeenCalledTimes(2)
+    })
+    await waitFor(() => {
+      expect(document.documentElement.classList.contains('high-contrast')).toBe(true)
+    })
+    expect(document.documentElement.style.getPropertyValue('--font-scale')).toBe('1.125')
+  })
+
   it('reacts to the accessibility preferences event without reload', async () => {
     mockReadApiResultOrThrow.mockResolvedValue({
       accessibilityPreferences: null,

@@ -64,7 +64,10 @@ function ensureAccessibilityPreferencesLoaded(): Promise<void> {
       applyAccessibilityPreferences(prefs)
     })
     .catch((err) => {
-      // 401/403 expected on unauthenticated SSR hydration — keep defaults, do not surface loudly
+      // 401/403 expected on unauthenticated SSR hydration — keep defaults, do not surface loudly.
+      // Null the memoized promise so a later call (e.g. after the user signs in) can retry
+      // instead of short-circuiting on the rejected result.
+      loadPromise = null
       setState({ loading: false, error: err })
     })
   return loadPromise
