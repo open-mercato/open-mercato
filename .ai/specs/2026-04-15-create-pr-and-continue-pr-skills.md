@@ -320,24 +320,24 @@ None.
 
 - [x] 1.1 Create feature branch `feat/create-pr-skills` off `origin/develop`.
 - [x] 1.2 Draft this spec at `.ai/specs/2026-04-15-create-pr-and-continue-pr-skills.md`.
-- [ ] 1.3 Commit the spec as the first commit on the branch.
+- [x] 1.3 Commit the spec as the first commit on the branch. — 5d4de9941
 
 ### Phase 2: `create-pr` skill
 
-- [ ] 2.1 Create `.ai/skills/create-pr/SKILL.md`.
-- [ ] 2.2 Document spec-authoring, external-skill handling, progress cadence, and label protocol.
-- [ ] 2.3 Document cleanup and lock-release semantics.
+- [x] 2.1 Create `.ai/skills/create-pr/SKILL.md`.
+- [x] 2.2 Document spec-authoring, external-skill handling, progress cadence, and label protocol.
+- [x] 2.3 Document cleanup and lock-release semantics.
 
 ### Phase 3: `continue-pr` skill
 
-- [ ] 3.1 Create `.ai/skills/continue-pr/SKILL.md`.
-- [ ] 3.2 Document spec resolution and Progress-parse rules.
-- [ ] 3.3 Document the same validation and label discipline as `create-pr`.
+- [x] 3.1 Create `.ai/skills/continue-pr/SKILL.md`.
+- [x] 3.2 Document spec resolution and Progress-parse rules.
+- [x] 3.3 Document the same validation and label discipline as `create-pr`.
 
 ### Phase 4: Registration and discoverability
 
-- [ ] 4.1 Update `.ai/skills/README.md` with both skills.
-- [ ] 4.2 Update root `AGENTS.md` Task Router.
+- [x] 4.1 Update `.ai/skills/README.md` with both skills.
+- [x] 4.2 Update root `AGENTS.md` Task Router.
 
 ### Phase 5: Validation and PR
 
