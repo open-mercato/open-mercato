@@ -107,7 +107,33 @@ This is the recommended Windows setup for day-to-day work on the monorepo. Docke
 
 ### One-time manual setup
 
-From PowerShell, run the recommended Windows prerequisite commands manually:
+For a quick one-time prerequisite pass after cloning the repository or unpacking the source archive, open **PowerShell as Administrator** and run:
+
+```powershell
+.\scripts\setup-windows-dev.ps1
+```
+
+If Windows shows a security warning because the script came from a downloaded ZIP/archive, unblock it first:
+
+```powershell
+Unblock-File .\scripts\setup-windows-dev.ps1
+```
+
+The helper script:
+
+- verifies administrator access before continuing
+- verifies WSL 2 support and sets the default WSL version to `2`
+- verifies Node.js `24.x`
+- verifies Yarn `4.12.0` via Corepack
+- verifies Git and repairs the current-session `PATH` if Git is installed but not yet visible
+- verifies Visual Studio 2022 Build Tools with the C++ workload
+- verifies Microsoft Visual C++ Redistributable 2015+ x64
+- optionally adds a Microsoft Defender exclusion for the target repo directory
+- writes a transcript log under `%TEMP%\open-mercato-setup\`
+
+The helper does **not** install or start Docker Desktop, clone the repository, or run monorepo bootstrap commands such as `yarn install` or `yarn initialize`.
+
+If you prefer to run the prerequisite commands manually instead, use:
 
 ```powershell
 corepack enable

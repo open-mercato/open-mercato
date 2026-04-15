@@ -13,6 +13,7 @@
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
+<<<<<<< HEAD
 import { createQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
@@ -22,6 +23,9 @@ import {
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
+=======
+import { createModuleQueue, Queue } from '@open-mercato/queue'
+>>>>>>> origin/develop
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 
@@ -104,23 +108,10 @@ let activityQueue: Queue<WorkflowActivityJob> | null = null
  */
 function getActivityQueue(): Queue<WorkflowActivityJob> {
   if (!activityQueue) {
-    if (process.env.QUEUE_STRATEGY === 'async') {
-      activityQueue = createQueue<WorkflowActivityJob>(
-        WORKFLOW_ACTIVITIES_QUEUE_NAME,
-        'async',
-        {
-          connection: {
-            url: getRedisUrl('QUEUE'),
-          },
-          concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5'),
-        }
-      )
-    } else {
-      activityQueue = createQueue<WorkflowActivityJob>(
-        WORKFLOW_ACTIVITIES_QUEUE_NAME,
-        'local'
-      )
-    }
+    activityQueue = createModuleQueue<WorkflowActivityJob>(
+      WORKFLOW_ACTIVITIES_QUEUE_NAME,
+      { concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5') },
+    )
   }
 
   return activityQueue
@@ -243,6 +234,11 @@ export async function executeActivity(
       lastError = error
       retryCount = attempt + 1
 
+      // Log activity retry attempt with context
+      if (attempt < retryPolicy.maxAttempts - 1) {
+        console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed on attempt ${attempt + 1}/${retryPolicy.maxAttempts} (instance: ${context.workflowInstance.id}):`, error instanceof Error ? error.message : error)
+      }
+
       // If not the last attempt, apply backoff and retry
       if (attempt < retryPolicy.maxAttempts - 1) {
         const backoff = calculateBackoff(
@@ -259,6 +255,10 @@ export async function executeActivity(
 
   // All retries exhausted
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
+  console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed after ${retryCount} attempts (instance: ${context.workflowInstance.id}): ${errorMessage}`)
+  if (lastError instanceof Error && lastError.stack) {
+    console.error('[WORKFLOW] Activity error stack:', lastError.stack)
+  }
 
   return {
     activityId: activity.activityId,

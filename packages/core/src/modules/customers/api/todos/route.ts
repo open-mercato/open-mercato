@@ -137,13 +137,14 @@ function collectTodoCustomValues(
 async function findLegacyTodoLink(
   em: EntityManager,
   target: { linkId?: string; todoId?: string },
+  tenantId: string,
 ): Promise<CustomerTodoLink | null> {
   if (target.linkId) {
-    const byLinkId = await em.findOne(CustomerTodoLink, { id: target.linkId }, { populate: ['entity'] })
+    const byLinkId = await em.findOne(CustomerTodoLink, { id: target.linkId, tenantId }, { populate: ['entity'] })
     if (byLinkId) return byLinkId
   }
   if (target.todoId) {
-    return await em.findOne(CustomerTodoLink, { todoId: target.todoId }, { populate: ['entity'] })
+    return await em.findOne(CustomerTodoLink, { todoId: target.todoId, tenantId }, { populate: ['entity'] })
   }
   return null
 }
@@ -155,7 +156,7 @@ async function ensureCanonicalTodoBridge(
   commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
   link: CustomerTodoLink,
 ): Promise<string> {
-  const existing = await em.findOne(CustomerInteraction, { id: link.todoId })
+  const existing = await em.findOne(CustomerInteraction, { id: link.todoId, tenantId: link.tenantId })
   if (existing) return existing.id
 
   const detailMap = await resolveLegacyTodoDetails(
@@ -196,13 +197,14 @@ async function resolveCanonicalTodoTargetId(
   commandBus: CommandBus,
   commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
   target: { todoId?: string; linkId?: string },
+  tenantId: string,
 ): Promise<string> {
   if (target.todoId) {
-    const interaction = await em.findOne(CustomerInteraction, { id: target.todoId })
+    const interaction = await em.findOne(CustomerInteraction, { id: target.todoId, tenantId })
     if (interaction) return interaction.id
   }
 
-  const legacyLink = await findLegacyTodoLink(em, target)
+  const legacyLink = await findLegacyTodoLink(em, target, tenantId)
   if (!legacyLink) {
     if (!target.todoId) throw new CrudHttpError(404, { error: 'Todo not found' })
     return target.todoId
@@ -420,6 +422,7 @@ export async function PUT(request: Request): Promise<Response> {
             todoId: body.id,
             linkId: body.linkId,
           },
+          auth.tenantId,
         )
     const customValues = collectTodoCustomValues(body as Record<string, unknown>)
     const nextDone = normalizeTodoStatusInput(body)
@@ -510,6 +513,7 @@ export async function DELETE(request: Request): Promise<Response> {
             linkId: body.id,
             todoId: body.todoId ?? body.id,
           },
+          auth.tenantId,
         )
 
     await commandBus.execute('customers.interactions.delete', {

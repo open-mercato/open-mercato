@@ -1001,6 +1001,9 @@ async function processApiRoutes(options: {
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
+    if (!metadata) {
+      console.warn(`[generate] ⚠ Route file exports handlers but no metadata — auth will default to required: ${sourceFile}`)
+    }
     const metadataLiteral = buildApiMetadataLiteral(metadata)
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ((${importName} as any).openApi as any)` : ''
@@ -1030,6 +1033,9 @@ async function processApiRoutes(options: {
     const resolvedPath = resolveApiPathFromMetadata(metadata, routePath)
     const exportedMethods = detectExportedHttpMethods(sourceFile)
     if (exportedMethods.length === 0) continue
+    if (!metadata) {
+      console.warn(`[generate] ⚠ Route file exports handlers but no metadata — auth will default to required: ${sourceFile}`)
+    }
     const metadataLiteral = buildApiMetadataLiteral(metadata)
     const hasOpenApi = await moduleHasExport(sourceFile, 'openApi')
     const docsPart = hasOpenApi ? `, docs: ((${importName} as any).openApi as any)` : ''

@@ -224,17 +224,31 @@ export class SearchService {
       }),
     )
 
-    // Log any failures
+    // Collect failures and throw if any occurred
+    const failures: Array<{ strategyId: string; error: string }> = []
     for (let i = 0; i < results.length; i++) {
       const result = results[i]
       if (result.status === 'rejected') {
         const strategy = strategies[i]
+        const errorMessage = result.reason instanceof Error ? result.reason.message : result.reason
+        failures.push({
+          strategyId: strategy?.id || 'unknown',
+          error: errorMessage,
+        })
         searchError('SearchService', 'Strategy bulkIndex failed', {
           strategyId: strategy?.id,
           recordCount: records.length,
-          error: result.reason instanceof Error ? result.reason.message : result.reason,
+          error: errorMessage,
         })
       }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(
+        `Bulk indexing failed for ${failures.length} strategy(ies): ${failures
+          .map((f) => `${f.strategyId} (${f.error})`)
+          .join(', ')}`
+      )
     }
   }
 

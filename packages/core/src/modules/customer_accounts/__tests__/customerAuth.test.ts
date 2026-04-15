@@ -6,6 +6,7 @@ import {
 
 const findActiveSessionById = jest.fn()
 const findOneWithDecryption = jest.fn()
+const loadAcl = jest.fn()
 const mockEm = {}
 const containerResolve = jest.fn()
 const createRequestContainer = jest.fn(async () => ({
@@ -59,10 +60,19 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
       if (name === 'customerSessionService') {
         return { findActiveSessionById }
       }
+      if (name === 'customerRbacService') {
+        return { loadAcl }
+      }
       if (name === 'em') return mockEm
       return null
     })
-    findOneWithDecryption.mockResolvedValue({ id: userId, sessionsRevokedAt: null })
+    findOneWithDecryption.mockResolvedValue({
+      id: userId,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: true,
+    })
+    loadAcl.mockResolvedValue({ isPortalAdmin: false, features: ['customer_portal.view'] })
     findActiveSessionById.mockResolvedValue({
       id: sessionId,
       deletedAt: null,
@@ -134,5 +144,65 @@ describe('getCustomerAuthFromRequest — session revocation', () => {
     })
 
     await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
+
+  it('rejects tokens for soft-deleted users', async () => {
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      sessionsRevokedAt: null,
+      deletedAt: new Date(),
+      isActive: true,
+    })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
+
+  it('rejects tokens for deactivated users', async () => {
+    findOneWithDecryption.mockResolvedValueOnce({
+      id: userId,
+      sessionsRevokedAt: null,
+      deletedAt: null,
+      isActive: false,
+    })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    await expect(getCustomerAuthFromRequest(req)).resolves.toBeNull()
+  })
+
+  it('resolves features from DB instead of trusting JWT claims', async () => {
+    loadAcl.mockResolvedValueOnce({ isPortalAdmin: false, features: ['portal.orders.view'] })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload({
+      resolvedFeatures: ['portal.admin.all', 'portal.users.manage'],
+    }))
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    const result = await getCustomerAuthFromRequest(req)
+
+    expect(result).not.toBeNull()
+    expect(result!.resolvedFeatures).toEqual(['portal.orders.view'])
+    expect(result!.resolvedFeatures).not.toContain('portal.admin.all')
+    expect(result!.resolvedFeatures).not.toContain('portal.users.manage')
+  })
+
+  it('grants wildcard features for portal admins', async () => {
+    loadAcl.mockResolvedValueOnce({ isPortalAdmin: true, features: ['portal.orders.view'] })
+    const token = signAudienceJwt(CUSTOMER_AUDIENCE, buildCustomerPayload())
+    const req = new Request('http://localhost/api/customer/me', {
+      headers: { cookie: buildCustomerCookieHeader(token) },
+    })
+
+    const result = await getCustomerAuthFromRequest(req)
+
+    expect(result).not.toBeNull()
+    expect(result!.resolvedFeatures).toEqual(['*'])
   })
 })

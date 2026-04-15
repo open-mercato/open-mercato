@@ -8,7 +8,7 @@ import { CustomerRbacService } from '@open-mercato/core/modules/customer_account
 import { CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { profileUpdateSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)

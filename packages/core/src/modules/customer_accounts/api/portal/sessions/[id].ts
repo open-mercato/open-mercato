@@ -7,7 +7,7 @@ import { CustomerSessionService } from '@open-mercato/core/modules/customer_acco
 import { CustomerUserSession } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   const auth = await getCustomerAuthFromRequest(req)

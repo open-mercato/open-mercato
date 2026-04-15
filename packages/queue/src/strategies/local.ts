@@ -11,11 +11,14 @@ type LocalState = {
 
 type StoredJob<T> = QueuedJob<T> & {
   availableAt?: string
+  attemptCount?: number
 }
 
 /** Default polling interval in milliseconds */
 const DEFAULT_POLL_INTERVAL = 1000
 const DEFAULT_LOCAL_QUEUE_BASE_DIR = '.mercato/queue'
+const DEFAULT_MAX_ATTEMPTS = 3
+const RETRY_BACKOFF_BASE_MS = 1000
 
 /**
  * Creates a file-based local queue.
@@ -176,17 +179,10 @@ export function createLocalQueue<T = unknown>(
     const state = readState()
     const jobs = readQueue()
 
-    // Find jobs that haven't been processed yet
-    const lastProcessedIndex = state.lastProcessedId
-      ? jobs.findIndex((j) => j.id === state.lastProcessedId)
-      : -1
-
-    const pendingJobs = jobs
-      .slice(lastProcessedIndex + 1)
-      .filter((job) => {
-        if (!job.availableAt) return true
-        return new Date(job.availableAt).getTime() <= Date.now()
-      })
+    const pendingJobs = jobs.filter((job) => {
+      if (!job.availableAt) return true
+      return new Date(job.availableAt).getTime() <= Date.now()
+    })
     const jobsToProcess = options?.limit
       ? pendingJobs.slice(0, options.limit)
       : pendingJobs
@@ -194,39 +190,53 @@ export function createLocalQueue<T = unknown>(
     let processed = 0
     let failed = 0
     let lastJobId: string | undefined
-    const jobIdsToRemove = new Set<string>()
+    const completedJobIds = new Set<string>()
+    const deadJobIds = new Set<string>()
+    const retryUpdates = new Map<string, StoredJob<T>>()
 
     for (const job of jobsToProcess) {
+      const attemptNumber = (job.attemptCount ?? 0) + 1
       try {
         await Promise.resolve(
           handler(job, {
             jobId: job.id,
-            attemptNumber: 1,
+            attemptNumber,
             queueName: name,
           })
         )
         processed++
         lastJobId = job.id
-        jobIdsToRemove.add(job.id)
+        completedJobIds.add(job.id)
         console.log(`[queue:${name}] Job ${job.id} completed`)
       } catch (error) {
-        console.error(`[queue:${name}] Job ${job.id} failed:`, error)
+        console.error(`[queue:${name}] Job ${job.id} failed (attempt ${attemptNumber}/${DEFAULT_MAX_ATTEMPTS}):`, error)
         failed++
         lastJobId = job.id
-        jobIdsToRemove.add(job.id) // Remove failed jobs too (matching async strategy)
+        if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
+          console.error(`[queue:${name}] Job ${job.id} exhausted all ${DEFAULT_MAX_ATTEMPTS} attempts, moving to dead letter`)
+          deadJobIds.add(job.id)
+        } else {
+          const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
+          retryUpdates.set(job.id, {
+            ...job,
+            attemptCount: attemptNumber,
+            availableAt: new Date(Date.now() + backoffMs).toISOString(),
+          })
+        }
       }
     }
 
-    // Remove processed jobs from queue (matching async removeOnComplete behavior)
-    if (jobIdsToRemove.size > 0) {
-      const updatedJobs = jobs.filter((j) => !jobIdsToRemove.has(j.id))
+    const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryUpdates.size > 0
+    if (hasChanges) {
+      const updatedJobs = jobs
+        .filter((j) => !completedJobIds.has(j.id) && !deadJobIds.has(j.id))
+        .map((j) => retryUpdates.get(j.id) ?? j)
       writeQueue(updatedJobs)
 
-      // Update state with running counts
       const newState: LocalState = {
         lastProcessedId: lastJobId,
         completedCount: (state.completedCount ?? 0) + processed,
-        failedCount: (state.failedCount ?? 0) + failed,
+        failedCount: (state.failedCount ?? 0) + deadJobIds.size,
       }
       writeState(newState)
     }
