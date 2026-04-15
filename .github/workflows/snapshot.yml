@@ -1,5 +1,8 @@
 name: Snapshot Release
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 on:
   push:
     branches: [develop]
@@ -9,6 +12,14 @@ on:
 permissions:
   contents: read
   pull-requests: write
+
+# Serialize snapshot runs per branch — queue rather than cancel.
+# cancel-in-progress: false is intentional: cancelling mid-publish would
+# leave some packages at the new version and others at the previous one,
+# making the npm registry inconsistent. Queuing is the safe behaviour.
+concurrency:
+  group: snapshot-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   snapshot:
