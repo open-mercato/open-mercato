@@ -1,5 +1,6 @@
 jest.mock('@open-mercato/queue', () => ({
   createQueue: jest.fn(),
+  createModuleQueue: jest.fn(),
 }))
 
 describe('webhooks queue', () => {
@@ -19,8 +20,8 @@ describe('webhooks queue', () => {
 
     const enqueue = jest.fn(async () => 'job-1')
     const processQueue = jest.fn(async () => ({ processed: -1, failed: -1, lastJobId: undefined }))
-    const createQueue = jest.requireMock('@open-mercato/queue').createQueue as jest.Mock
-    createQueue.mockReturnValue({
+    const createModuleQueue = jest.requireMock('@open-mercato/queue').createModuleQueue as jest.Mock
+    createModuleQueue.mockReturnValue({
       enqueue,
       process: processQueue,
       clear: jest.fn(),
@@ -51,8 +52,8 @@ describe('webhooks queue', () => {
 
     const enqueue = jest.fn(async () => 'job-1')
     const processQueue = jest.fn(async () => ({ processed: -1, failed: -1, lastJobId: undefined }))
-    const createQueue = jest.requireMock('@open-mercato/queue').createQueue as jest.Mock
-    createQueue.mockReturnValue({
+    const createModuleQueue = jest.requireMock('@open-mercato/queue').createModuleQueue as jest.Mock
+    createModuleQueue.mockReturnValue({
       enqueue,
       process: processQueue,
       clear: jest.fn(),
