@@ -105,6 +105,49 @@ describe('health-service', () => {
     jest.useRealTimers()
   })
 
+  it('persists healthy status and logs info on successful check', async () => {
+    registerIntegration({
+      id: 'int_ok',
+      title: 'OK',
+      healthCheck: { service: 'mockHealth' },
+    })
+    const upsert = jest.fn()
+    const stateService = { upsert }
+    const infoFn = jest.fn()
+    const scopedLogger = { info: infoFn, warn: jest.fn(), error: jest.fn() }
+    const logService = { scoped: () => scopedLogger }
+    const checker = {
+      check: jest.fn(async () => ({ status: 'healthy' as const, message: 'All good' })),
+    }
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'integrationCredentialsService') {
+          return { resolve: jest.fn(async () => ({ apiKey: 'sk_test' })) }
+        }
+        if (name === 'mockHealth') return checker
+        throw new Error(`unexpected ${name}`)
+      },
+    } as unknown as AwilixContainer
+    const service = createHealthService(container, stateService as never, logService as never)
+    const result = await service.runHealthCheck('int_ok', scope)
+    expect(result.status).toBe('healthy')
+    expect(result.message).toBe('All good')
+    expect(typeof result.latencyMs).toBe('number')
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0)
+    expect(upsert).toHaveBeenCalledWith(
+      'int_ok',
+      expect.objectContaining({
+        lastHealthStatus: 'healthy',
+        lastHealthLatencyMs: expect.any(Number),
+      }),
+      scope,
+    )
+    expect(infoFn).toHaveBeenCalledWith(
+      'Health check passed',
+      expect.objectContaining({ status: 'healthy' }),
+    )
+  })
+
   it('deriveIntegrationHealthStatus marks missing checker as unconfigured', () => {
     expect(
       deriveIntegrationHealthStatus({

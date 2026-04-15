@@ -254,7 +254,7 @@ export default function IntegrationsMarketplacePage() {
   const renderHealthBadge = React.useCallback((status: IntegrationItem['healthStatus']) => {
     return (
       <span
-        className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${HEALTH_BADGE_CLASS[status] ?? HEALTH_BADGE_CLASS.unconfigured}`}
+        className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${HEALTH_BADGE_CLASS[status] ?? HEALTH_BADGE_CLASS.unconfigured}`}
       >
         {t(`integrations.marketplace.health.${status}`, status)}
       </span>
@@ -444,7 +444,7 @@ export default function IntegrationsMarketplacePage() {
                         />
                       </div>
                       <div className="flex items-end justify-between gap-2 border-t pt-2">
-                        <div className="text-[10px] text-muted-foreground space-y-0.5">
+                        <div className="text-xs text-muted-foreground space-y-0.5">
                           <div>
                             {t('integrations.marketplace.analytics.events', { count: item.analytics.totalCount })}
                           </div>
@@ -492,7 +492,7 @@ export default function IntegrationsMarketplacePage() {
                       </p>
                     )}
                     <div className="flex items-end justify-between gap-2 border-t pt-3">
-                      <div className="text-[10px] text-muted-foreground space-y-0.5">
+                      <div className="text-xs text-muted-foreground space-y-0.5">
                         <div>
                           {t('integrations.marketplace.analytics.events', { count: item.analytics.totalCount })}
                         </div>
