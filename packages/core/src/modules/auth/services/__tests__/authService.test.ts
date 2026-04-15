@@ -4,14 +4,17 @@ import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
 function makeEm() {
   const calls: any[] = []
+  const persisted: any[] = []
+  const flushFn = jest.fn(async () => undefined)
   const em: any = {
-    flush: jest.fn(async (e: any) => calls.push(['flush', e])),
+    persist: jest.fn((entity: any) => { persisted.push(entity); calls.push(['persist', entity]); return em }),
+    flush: flushFn,
     create: jest.fn((_cls: any, data: any) => ({ ...data, id: 'generated-id' })),
     findOne: jest.fn(async () => null),
     nativeDelete: jest.fn(async () => 1),
     find: jest.fn(async () => []),
   }
-  return { em, calls }
+  return { em, calls, persisted }
 }
 
 describe('AuthService', () => {
@@ -24,16 +27,17 @@ describe('AuthService', () => {
   })
 
   it('createSession persists hashed token and returns raw token', async () => {
-    const { em } = makeEm()
+    const { em, persisted } = makeEm()
     const svc = new AuthService(em)
     // @ts-expect-error partial
     const result = await svc.createSession({ id: 1 }, new Date(Date.now() + 1000))
     expect(typeof result.token).toBe('string')
     expect(result.token.length).toBeGreaterThan(0)
 
-    const persisted = (em.flush as jest.Mock).mock.calls[0][0]
-    expect(persisted.token).toBe(hashAuthToken(result.token))
-    expect(persisted.token).not.toBe(result.token)
+    expect(em.flush).toHaveBeenCalled()
+    const row = persisted[0]
+    expect(row.token).toBe(hashAuthToken(result.token))
+    expect(row.token).not.toBe(result.token)
   })
 
   it('deleteSessionByToken tries hashed token first then falls back to raw', async () => {
@@ -80,7 +84,7 @@ describe('AuthService', () => {
   })
 
   it('requestPasswordReset persists hashed token and returns raw token', async () => {
-    const { em } = makeEm()
+    const { em, persisted } = makeEm()
     em.findOne.mockResolvedValueOnce({ id: 'user-1', email: 'user@example.com' })
     const svc = new AuthService(em)
     const result = await svc.requestPasswordReset('user@example.com')
@@ -89,9 +93,10 @@ describe('AuthService', () => {
     expect(typeof rawToken).toBe('string')
     expect(rawToken.length).toBeGreaterThan(0)
 
-    const persisted = (em.flush as jest.Mock).mock.calls[0][0]
-    expect(persisted.token).toBe(hashAuthToken(rawToken))
-    expect(persisted.token).not.toBe(rawToken)
+    expect(em.flush).toHaveBeenCalled()
+    const row = persisted[0]
+    expect(row.token).toBe(hashAuthToken(rawToken))
+    expect(row.token).not.toBe(rawToken)
   })
 
   it('confirmPasswordReset looks up by hashed token first', async () => {

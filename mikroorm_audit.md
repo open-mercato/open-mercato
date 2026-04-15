@@ -1,5 +1,7 @@
 # Audyt migracji MikroORM v6 → v7 dla Open Mercato
 
+> **Status (2026-04-15)**: Migration complete. This document is historical; retained for reference only. See commit history and CHANGELOG for the post-migration state.
+
 Dokument opisuje stan migracji z MikroORM v6 do v7 na gałęzi `upgrade-mikro-orm` i plan dokończenia prac. Oparty na oficjalnych breaking changes ([mikro-orm.io/docs/upgrading-v6-to-v7](https://mikro-orm.io/docs/upgrading-v6-to-v7)) oraz rzeczywistym stanie zainstalowanej wersji `@mikro-orm/*@7.0.10` w repo.
 
 ## Stan aktualny

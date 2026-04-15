@@ -187,7 +187,8 @@ describe('Event Logger (Unit Tests)', () => {
       const results = await eventLogger.logWorkflowEvents(mockEm, inputs)
 
       expect(mockEm.create).toHaveBeenCalledTimes(2)
-      expect(mockEm.flush).toHaveBeenCalledWith(mockEvents)
+      expect(mockEm.persist).toHaveBeenCalledWith(mockEvents)
+      expect(mockEm.flush).toHaveBeenCalled()
       expect(results).toEqual(mockEvents)
     })
   })

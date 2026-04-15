@@ -304,7 +304,8 @@ describe('executeCallApi', () => {
       .rejects.toThrow('Network error')
 
     expect(createdApiKeys[0].deletedAt).toBeInstanceOf(Date)
-    expect(mockEm.flush).toHaveBeenLastCalledWith(createdApiKeys[0])
+    expect(mockEm.persist).toHaveBeenLastCalledWith(createdApiKeys[0])
+    expect(mockEm.flush).toHaveBeenCalled()
   })
 
   it('should parse non-JSON response as text', async () => {

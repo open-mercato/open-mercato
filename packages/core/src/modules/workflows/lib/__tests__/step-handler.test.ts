@@ -84,8 +84,6 @@ describe('Step Handler (Unit Tests)', () => {
       create: jest.fn(),
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
-      persist: jest.fn(function persist(this: any) { return this }),
-      flush: jest.fn(),
       nativeDelete: jest.fn(),
     } as any
 
@@ -131,7 +129,8 @@ describe('Step Handler (Unit Tests)', () => {
       expect(stepInstance.stepType).toBe('AUTOMATED')
       expect(stepInstance.status).toBe('ACTIVE')
       expect(mockEm.create).toHaveBeenCalled()
-      expect(mockEm.flush).toHaveBeenCalledWith(mockStepInstance)
+      expect(mockEm.persist).toHaveBeenCalledWith(mockStepInstance)
+      expect(mockEm.flush).toHaveBeenCalled()
     })
 
     test('should throw error if definition not found', async () => {

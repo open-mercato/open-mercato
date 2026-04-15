@@ -1,32 +1,30 @@
 /** @type {import('jest').Config} */
 module.exports = {
-  preset: 'ts-jest',
   testEnvironment: 'node',
   watchman: false,
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.test.ts'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
     '^@open-mercato/queue/(.*)$': '<rootDir>/../queue/src/$1',
     '^@open-mercato/events/(.*)$': '<rootDir>/../events/src/$1',
-    // Strip .js extensions from relative imports
+    // Strip .js extensions from relative imports (@mikro-orm ESM compatibility)
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {
-    '^.+\\.tsx?$': [
-      'ts-jest',
+    '^.+\\.(t|j)sx?$': [
+      '<rootDir>/../../scripts/jest-mikroorm-transformer.cjs',
       {
         tsconfig: {
           esModuleInterop: true,
-          moduleResolution: 'node',
+          allowJs: true,
         },
       },
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|@open-mercato)/)',
+    'node_modules/(?!(@mikro-orm)/)',
   ],
-  extensionsToTreatAsEsm: ['.ts'],
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
 }
