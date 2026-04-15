@@ -1811,7 +1811,11 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }).catch((err) => {
       console.error('[CrudForm] Error in onFieldChange:', err)
     })
-  }, [extendedInjectionEventsEnabled, t, translateValidationMessage, triggerInjectionEvent])
+  }, [extendedInjectionEventsEnabled, flash, t, translateValidationMessage, triggerInjectionEvent])
+
+  const onBlurRequest = React.useCallback((fieldId: string) => {
+    void validateFieldOnBlur(fieldId)
+  }, [validateFieldOnBlur])
 
   const handleFieldsetSelectionChange = React.useCallback(
     (entityId: string, nextCode: string | null) => {
@@ -2332,7 +2336,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
               setValue={setValue}
-              onBlurRequest={(fieldId) => { void validateFieldOnBlur(fieldId) }}
+              onBlurRequest={onBlurRequest}
               values={values}
               loadFieldOptions={loadFieldOptions}
               autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
@@ -2772,7 +2776,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
                     setValue={setValue}
-                    onBlurRequest={(fieldId) => { void validateFieldOnBlur(fieldId) }}
+                    onBlurRequest={onBlurRequest}
                     values={values}
                     loadFieldOptions={loadFieldOptions}
                     autoFocus={!formReadOnly && Boolean(firstFieldId && f.id === firstFieldId)}
@@ -3696,6 +3700,8 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.loadFieldOptions === next.loadFieldOptions &&
   prev.autoFocus === next.autoFocus &&
   prev.onSubmitRequest === next.onSubmitRequest &&
+  prev.setValue === next.setValue &&
+  prev.onBlurRequest === next.onBlurRequest &&
   prev.wrapperClassName === next.wrapperClassName &&
   prev.entityIdForField === next.entityIdForField &&
   prev.recordId === next.recordId &&
