@@ -78,8 +78,9 @@ jobs:
           fi
 
           # Extract module folder names from module-specific paths.
+          # Match any workspace package or app that follows the src/modules/ convention.
           MODULES=$(echo "$CHANGED" | \
-            grep -oP '(?:packages/(?:core|enterprise)|apps/mercato)/src/modules/\K[^/]+' | \
+            grep -oP '(?:packages/[^/]+|apps/[^/]+)/src/modules/\K[^/]+' | \
             sort -u | paste -sd,)
 
           if [ -z "$MODULES" ]; then

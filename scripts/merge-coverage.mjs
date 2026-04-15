@@ -33,33 +33,36 @@ function findShardSummaryFiles(root) {
 }
 
 function mergeSummaries(summaries) {
+  const mergedFiles = {}
+
+  for (const summary of summaries) {
+    for (const [key, value] of Object.entries(summary)) {
+      if (key === 'total') continue // recomputed below from deduplicated file entries
+      const existing = mergedFiles[key]
+      const incomingCovered = (value.lines?.covered ?? 0) + (value.statements?.covered ?? 0)
+      const existingCovered = existing
+        ? (existing.lines?.covered ?? 0) + (existing.statements?.covered ?? 0)
+        : -1
+      if (!existing || incomingCovered > existingCovered) {
+        mergedFiles[key] = value
+      }
+    }
+  }
+
+  // Recompute totals from the deduplicated per-file map to avoid double-counting
+  // files that appear in more than one shard.
   const mergedTotals = {
     lines: { total: 0, covered: 0, skipped: 0, pct: 0 },
     statements: { total: 0, covered: 0, skipped: 0, pct: 0 },
     functions: { total: 0, covered: 0, skipped: 0, pct: 0 },
     branches: { total: 0, covered: 0, skipped: 0, pct: 0 },
   }
-  const mergedFiles = {}
-
-  for (const summary of summaries) {
-    for (const [key, value] of Object.entries(summary)) {
-      if (key === 'total') {
-        for (const metric of ['lines', 'statements', 'functions', 'branches']) {
-          const src = value[metric] ?? {}
-          mergedTotals[metric].total += src.total ?? 0
-          mergedTotals[metric].covered += src.covered ?? 0
-          mergedTotals[metric].skipped += src.skipped ?? 0
-        }
-      } else {
-        const existing = mergedFiles[key]
-        const incomingCovered = (value.lines?.covered ?? 0) + (value.statements?.covered ?? 0)
-        const existingCovered = existing
-          ? (existing.lines?.covered ?? 0) + (existing.statements?.covered ?? 0)
-          : -1
-        if (!existing || incomingCovered > existingCovered) {
-          mergedFiles[key] = value
-        }
-      }
+  for (const fileEntry of Object.values(mergedFiles)) {
+    for (const metric of ['lines', 'statements', 'functions', 'branches']) {
+      const src = fileEntry[metric] ?? {}
+      mergedTotals[metric].total += src.total ?? 0
+      mergedTotals[metric].covered += src.covered ?? 0
+      mergedTotals[metric].skipped += src.skipped ?? 0
     }
   }
 
