@@ -391,7 +391,9 @@ export async function executeWorkflow(
           )
 
           if (!transitionResult.success) {
-            errors.push(transitionResult.error || 'Transition failed')
+            const rejectionMessage = transitionResult.error || 'Transition failed'
+            console.error(`[WORKFLOW] Transition rejected (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}): ${rejectionMessage}`)
+            errors.push(rejectionMessage)
 
             return {
               status: 'FAILED',
@@ -448,7 +450,7 @@ export async function executeWorkflow(
           await trx.flush()
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
-          console.error('[WORKFLOW] Transition execution failed:', error)
+          console.error(`[WORKFLOW] Transition execution failed (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}):`, error)
           console.error('[WORKFLOW] Error stack:', error instanceof Error ? error.stack : 'No stack trace')
           errors.push(errorMessage)
 
@@ -483,6 +485,10 @@ export async function executeWorkflow(
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`[WORKFLOW] Execution failed (instance: ${instanceId}):`, error)
+      if (error instanceof Error && error.stack) {
+        console.error('[WORKFLOW] Error stack:', error.stack)
+      }
       errors.push(errorMessage)
 
       try {
@@ -503,7 +509,7 @@ export async function executeWorkflow(
           })
         }
       } catch (updateError) {
-        console.error('Failed to update instance with error:', updateError)
+        console.error(`[WORKFLOW] Failed to update instance ${instanceId} with error state:`, updateError)
       }
 
       throw error

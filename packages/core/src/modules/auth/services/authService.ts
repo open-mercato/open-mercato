@@ -132,10 +132,18 @@ export class AuthService {
       row = await this.em.findOne(PasswordReset, { token })
     }
     if (!row || (row.usedAt && row.usedAt <= now) || row.expiresAt <= now) return null
+
+    // Atomic compare-and-set: only mark used if still unused — prevents token replay under concurrency
+    const affected = await this.em.nativeUpdate(
+      PasswordReset,
+      { id: row.id, usedAt: null },
+      { usedAt: now },
+    )
+    if (affected === 0) return null
+
     const user = await findOneWithDecryption(this.em, User, { id: row.user.id, deletedAt: null })
     if (!user) return null
     user.passwordHash = await hash(newPassword, 10)
-    row.usedAt = new Date()
     await this.em.flush()
     await this.deleteAllUserSessions(String(user.id))
     return user

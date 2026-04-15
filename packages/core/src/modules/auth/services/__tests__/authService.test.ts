@@ -2,6 +2,13 @@ import { AuthService } from '@open-mercato/core/modules/auth/services/authServic
 import { Session } from '@open-mercato/core/modules/auth/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
+const mockFindOneWithDecryption = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
+  findWithDecryption: jest.fn().mockResolvedValue([]),
+}))
+
 function makeEm() {
   const calls: any[] = []
   const persisted: any[] = []
@@ -12,8 +19,12 @@ function makeEm() {
     create: jest.fn((_cls: any, data: any) => ({ ...data, id: 'generated-id' })),
     findOne: jest.fn(async () => null),
     nativeDelete: jest.fn(async () => 1),
+    nativeUpdate: jest.fn(async () => 1),
     find: jest.fn(async () => []),
   }
+  mockFindOneWithDecryption.mockImplementation(async (passedEm: any, _cls: any, filter: any) => {
+    return passedEm.findOne?.(_cls, filter)
+  })
   return { em, calls, persisted }
 }
 
@@ -156,5 +167,70 @@ describe('AuthService', () => {
     })
     const svc = new AuthService(em)
     await expect(svc.findActiveSessionById('session-1')).resolves.toBeNull()
+  })
+
+  // -------------------------------------------------------------------------
+  // Regression: password reset token replay prevention (issue #1414)
+  // -------------------------------------------------------------------------
+
+  it('confirmPasswordReset uses atomic nativeUpdate to prevent concurrent token replay', async () => {
+    const { em } = makeEm()
+    const resetRow = {
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() + 60000),
+      usedAt: null,
+      user: { id: 'u1' },
+    }
+    em.findOne.mockResolvedValueOnce(resetRow)
+    em.nativeUpdate.mockResolvedValueOnce(1)
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: 'u1', passwordHash: 'old-hash', deletedAt: null })
+
+    const svc = new AuthService(em)
+    const result = await svc.confirmPasswordReset('raw-token-value', 'NewSecurePass1!')
+
+    expect(result).not.toBeNull()
+    expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
+    const [_entity, filter, update] = em.nativeUpdate.mock.calls[0]
+    expect(filter).toMatchObject({ id: 'reset-1', usedAt: null })
+    expect(update).toMatchObject({ usedAt: expect.any(Date) })
+  })
+
+  it('confirmPasswordReset returns null when nativeUpdate affects 0 rows (token already consumed)', async () => {
+    const { em } = makeEm()
+    const resetRow = {
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() + 60000),
+      usedAt: null,
+      user: { id: 'u1' },
+    }
+    em.findOne.mockResolvedValueOnce(resetRow)
+    em.nativeUpdate.mockResolvedValueOnce(0)
+
+    const svc = new AuthService(em)
+    const result = await svc.confirmPasswordReset('raw-token-value', 'NewSecurePass1!')
+
+    expect(result).toBeNull()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('confirmPasswordReset does not set usedAt via ORM — only via nativeUpdate', async () => {
+    const { em } = makeEm()
+    const resetRow = {
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() + 60000),
+      usedAt: null,
+      user: { id: 'u1' },
+    }
+    em.findOne.mockResolvedValueOnce(resetRow)
+    em.nativeUpdate.mockResolvedValueOnce(1)
+    mockFindOneWithDecryption.mockResolvedValueOnce({ id: 'u1', passwordHash: 'old-hash', deletedAt: null })
+
+    const svc = new AuthService(em)
+    await svc.confirmPasswordReset('raw-token-value', 'NewSecurePass1!')
+
+    expect(resetRow.usedAt).toBeNull()
   })
 })
