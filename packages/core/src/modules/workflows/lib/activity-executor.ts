@@ -13,8 +13,7 @@
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
-<<<<<<< HEAD
-import { createQueue, Queue } from '@open-mercato/queue'
+import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
 import {
   assertSafeOutboundUrl,
@@ -23,9 +22,6 @@ import {
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema } from '../data/validators'
-=======
-import { createModuleQueue, Queue } from '@open-mercato/queue'
->>>>>>> origin/develop
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 
