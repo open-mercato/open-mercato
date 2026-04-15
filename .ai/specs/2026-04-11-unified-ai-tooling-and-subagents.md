@@ -745,6 +745,8 @@ Add two backend pages under AI Assistant configuration:
 
 - `/backend/config/ai-assistant/playground`
 - `/backend/config/ai-assistant/agents`
+- companion screen wireframes: `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents-screen-mockups.md`
+- companion component wireframes: `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents-component-mockups.md`
 
 Playground requirements:
 
@@ -799,8 +801,10 @@ Settings requirements:
 
 ## Phasing
 
-### Phase 0 - Alignment and Foundations
-Goal: align the current tool runtime with generator output and add additive contracts.
+This implementation should land in three delivery phases after the alignment prerequisite. The goal is to make the next execution round unambiguous: first make the runtime/tooling real, then ship the operator-facing UI, then harden and expand.
+
+### Phase 0 - Alignment Prerequisite
+Goal: remove current runtime mismatches and establish the additive contracts that every later phase depends on.
 
 Deliverables:
 
@@ -809,8 +813,21 @@ Deliverables:
 - add `AiAgentDefinition` and `ai-agents.ts` generator support
 - emit new `ai-agents.generated.ts`
 
-### Phase 1 - Tool Packs and AI SDK DX
-Goal: make the platform actually useful to Vercel AI SDK users and ship the baseline tool packs before polishing UI chrome.
+Exit criteria:
+
+- generated `ai-tools.ts` contributions are visible to the runtime again
+- generated `ai-agents.ts` contributions can be discovered without breaking BC
+- the attachment bridge contracts and prompt-composition primitives exist as implementation-ready types
+
+### Phase 1 - Runtime, Tools, and AI SDK DX
+Goal: make the platform actually usable to Vercel AI SDK users before building admin chrome.
+
+Scope:
+
+- one canonical agent runtime
+- one canonical attachment-to-model bridge
+- baseline general-purpose, customers, and catalog tool packs
+- AI SDK-native helper surface for chat and object agents
 
 Deliverables:
 
@@ -821,8 +838,21 @@ Deliverables:
 - add attachment-to-model conversion bridge
 - authenticate with standard route auth and AI SDK helper contexts
 
+Exit criteria:
+
+- a Vercel AI SDK consumer can use `createAiAgentTransport(...)`, `runAiAgentText(...)`, or `runAiAgentObject(...)` without custom glue
+- the runtime can accept images, PDFs, and generic files through `attachmentIds`
+- customers and catalog tool packs can reach the same read models and writes already exposed by the UI
+
 ### Phase 2 - Playground, Settings, and First Module Agents
-Goal: ship the admin-facing surfaces that make the system testable and configurable.
+Goal: ship the operator-facing surfaces that make the system testable, configurable, and demonstrable.
+
+Scope:
+
+- embeddable chat UI
+- backend playground page
+- backend agent settings page
+- first customers and catalog module agents using the new tool packs
 
 Deliverables:
 
@@ -832,8 +862,21 @@ Deliverables:
 - add settings page with prompt overrides, tool toggles, and attachment policy visibility
 - ship first customers and catalog module agents using the new tool packs
 
+Exit criteria:
+
+- an internal admin can test chat-mode and object-mode agents from the playground
+- tenant admins can adjust additive prompt overrides and inspect tool/attachment settings
+- at least one customers agent and one catalog agent run end-to-end on the new stack
+
 ### Phase 3 - Production Hardening and Expansion
 Goal: prove the design on real production agents and harden the customization model.
+
+Scope:
+
+- production-grade agents beyond the first customers/catalog examples
+- shared model factory
+- prompt override persistence/versioning
+- page-context-driven embedding into existing backend surfaces
 
 Candidate:
 
@@ -849,6 +892,13 @@ Deliverables:
 - shared model factory utility extracted from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant`, supporting `defaultModel` override and optional env-based per-agent override (`<MODULE>_AI_MODEL`)
 - integration coverage
 
+Exit criteria:
+
+- production agents can be mounted into existing backend flows with `resolvePageContext`
+- model selection is centralized
+- prompt overrides are safe, versioned, and test-covered
+- the playground and first module agents have been promoted into real production entry points where appropriate
+
 ### Phase 4 - Follow-up Scope
 Out of scope for this spec but expected follow-ups:
 
@@ -863,7 +913,9 @@ Out of scope for this spec but expected follow-ups:
 
 ## Implementation Plan
 
-### Phase 0
+The implementation plan below mirrors the delivery phases above. Each phase should end in a reviewable, working slice rather than a partially wired framework.
+
+### Phase 0 - Alignment Prerequisite
 1. Add `AiAgentDefinition` type and export it from `@open-mercato/ai-assistant`.
 2. Add `defineAiTool()` helper that returns `AiToolDefinition`.
 3. Add generator extension for `ai-agents.ts` and emit `ai-agents.generated.ts`.
@@ -871,30 +923,53 @@ Out of scope for this spec but expected follow-ups:
 5. Add tests proving existing `ai-tools.ts` modules still register and execute.
 6. Add the attachment bridge contract types and prompt composition primitives.
 
-### Phase 1
+### Phase 1 - Runtime, Tools, and AI SDK DX
+#### Workstream A - Core runtime
 1. Add `agent-registry.ts` that loads `ai-agents.generated.ts`.
 2. Add runtime policy checks for `requiredFeatures`, `allowedTools`, `readOnly`, attachment access, and `executionMode`.
 3. Add `api/ai/chat/route.ts` with `metadata` and `openApi`.
-4. Add AI SDK helper adapters and transport helpers.
-5. Implement general-purpose tool packs plus customers/catalog tool packs that mirror existing UI read models and write operations.
-6. Add contract tests for unknown agent, forbidden agent, invalid attachment, allowed-tool filtering, and object-agent execution.
 
-### Phase 2
+#### Workstream B - AI SDK adapters
+1. Add AI SDK helper adapters and transport helpers.
+2. Add structured-output execution support for `executionMode: 'object'`.
+3. Add contract tests for chat-mode and object-mode parity.
+
+#### Workstream C - Files and tool packs
+1. Implement the attachment-to-model conversion bridge.
+2. Implement general-purpose tool packs.
+3. Implement customers tool packs that mirror person/company/deal detail views and write operations.
+4. Implement catalog tool packs that mirror product/category detail views and write operations.
+5. Add contract tests for unknown agent, forbidden agent, invalid attachment, allowed-tool filtering, and tool-pack coverage.
+
+### Phase 2 - Playground, Settings, and First Module Agents
+#### Workstream A - Shared UI
 1. Add `packages/ui/src/ai/AiChat.tsx`.
 2. Add upload adapter that reuses attachment APIs and returns `attachmentIds`.
 3. Add a minimal client-side UI-part registry.
-4. Add backend playground page and agent settings page.
-5. Add backend and portal examples using existing injection/replacement patterns.
-6. Add i18n strings and keyboard interaction coverage.
-7. Ship first customers and catalog module agents with prompt templates.
 
-### Phase 3
+#### Workstream B - Admin-facing screens
+1. Add backend playground page.
+2. Add backend agent settings page.
+3. Add i18n strings, keyboard interaction coverage, and debug support.
+
+#### Workstream C - First module agents
+1. Ship first customers agents with prompt templates.
+2. Ship first catalog agents with prompt templates.
+3. Add backend and portal examples using existing injection/replacement patterns.
+
+### Phase 3 - Production Hardening and Expansion
+#### Workstream A - Production agent runtime
 1. Extract shared model factory from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`. Support `defaultModel` override and env-based per-agent override (`<MODULE>_AI_MODEL`).
 2. Implement production `ai-agents.ts` files with `resolvePageContext` callbacks that hydrate record-level context.
-3. Add versioned prompt override persistence and safe additive merge rules.
-4. Bind production agents to existing backend pages through normal injection/UI composition, passing `pageContext` from the page.
-5. Add focused integration tests covering page context resolution, model factory fallback chain, and tenant prompt overrides.
-6. Add docs.
+
+#### Workstream B - Prompt and settings hardening
+1. Add versioned prompt override persistence and safe additive merge rules.
+2. Add focused integration tests covering tenant prompt overrides and settings persistence.
+
+#### Workstream C - Production rollout
+1. Bind production agents to existing backend pages through normal injection/UI composition, passing `pageContext` from the page.
+2. Add focused integration tests covering page context resolution and model factory fallback chain.
+3. Add docs and operator rollout notes.
 
 ## Integration Test Coverage
 
