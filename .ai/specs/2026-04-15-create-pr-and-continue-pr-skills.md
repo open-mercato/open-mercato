@@ -145,14 +145,16 @@ Not applicable. External surface is the skill invocation contract (arguments) do
 
 ### Skill invocation
 
-- `create-pr {brief} [--skill-url <url>...] [--slug <slug>] [--force]`
+- `create-pr {brief} [--skill-url <url>...] [--slug <slug>] [--scope oss|enterprise] [--force]`
   - `brief` (required) — free-form task description.
   - `--skill-url` (optional, repeatable) — external skill/reference URL to fetch and honor during planning.
   - `--slug` (optional) — kebab-case override for the spec filename.
+  - `--scope` (optional) — which specs folder to use (`oss` or `enterprise`). Default: `oss`.
   - `--force` (optional) — skip the claim-conflict check (mirrors `fix-github-issue`).
-- `continue-pr {prNumber} [--force]`
+- `continue-pr {prNumber} [--force] [--from <phase.step>]`
   - `prNumber` (required) — the PR to resume.
   - `--force` (optional) — override an existing `in-progress` lock.
+  - `--from` (optional) — override the resume point (e.g. `2.1`). Only honored when the Progress section cannot be parsed unambiguously.
 
 ## Internationalization (i18n)
 
