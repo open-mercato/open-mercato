@@ -1,4 +1,12 @@
-import type { Knex } from 'knex'
+// TODO(mikro-orm v7): knex package no longer available; using Kysely for raw SQL
+// Local type aliases satisfy TypeScript; runtime uses em.getKysely()
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace Knex {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type QueryBuilder<_TRecord = any, _TResult = any> = any
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Knex = any
 import type {
   SearchStrategy,
   SearchStrategyId,

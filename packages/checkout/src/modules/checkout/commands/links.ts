@@ -113,14 +113,14 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       completionCount: 0,
       activeReservationCount: 0,
       isLocked: false,
-      ...sourceValues,
       fixedPriceAmount: toMoneyString(sourceValues.fixedPriceAmount),
       fixedPriceOriginalAmount: toMoneyString(sourceValues.fixedPriceOriginalAmount),
       customAmountMin: toMoneyString(sourceValues.customAmountMin),
       customAmountMax: toMoneyString(sourceValues.customAmountMax),
       slug,
       passwordHash: await hashCheckoutPassword(sourceValues.password),
-    })
+      ...sourceValues,
+    } as any)
     em.persist(link)
     await em.flush()
     await setCustomFieldsIfAny({

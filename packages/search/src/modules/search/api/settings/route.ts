@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { SearchService } from '@open-mercato/search'
 import type { FullTextSearchStrategy } from '@open-mercato/search/strategies'
-import type { Knex } from 'knex'
+
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getReindexLockStatus } from '../../lib/reindex-lock'
 import { settingsOpenApi } from '../openapi'

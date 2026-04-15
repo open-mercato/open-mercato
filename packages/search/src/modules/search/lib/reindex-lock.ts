@@ -1,4 +1,4 @@
-import type { Knex } from 'knex'
+
 import {
   prepareJob,
   updateJobProgress,

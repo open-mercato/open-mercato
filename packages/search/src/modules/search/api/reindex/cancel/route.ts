@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { Queue } from '@open-mercato/queue'
-import type { Knex } from 'knex'
+
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { clearReindexLock } from '../../../lib/reindex-lock'

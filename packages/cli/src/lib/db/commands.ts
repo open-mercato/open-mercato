@@ -262,8 +262,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
         min: 1,
         max: 3,
         idleTimeoutMillis: 30000,
-        acquireTimeoutMillis: 60000,
-        destroyTimeoutMillis: 30000,
+        // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
       },
       driverOptions: sslConfig ? {
         ssl: sslConfig,
@@ -359,8 +358,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
         min: 1,
         max: 3,
         idleTimeoutMillis: 30000,
-        acquireTimeoutMillis: 60000,
-        destroyTimeoutMillis: 30000,
+        // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
       },
       driverOptions: sslConfig ? {
         ssl: sslConfig,

@@ -3,7 +3,7 @@ import { FULLTEXT_INDEXING_QUEUE_NAME, type FulltextIndexJobPayload } from '../.
 import type { FullTextSearchStrategy } from '../../../strategies/fulltext.strategy'
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'

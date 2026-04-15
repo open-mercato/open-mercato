@@ -3,7 +3,7 @@ import { VECTOR_INDEXING_QUEUE_NAME, type VectorIndexJobPayload } from '../../..
 import type { SearchIndexer } from '../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../vector'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '@open-mercato/core/modules/query_index/lib/coverage'

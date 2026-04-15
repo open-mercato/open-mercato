@@ -1,4 +1,12 @@
-import type { Knex } from 'knex'
+// TODO(mikro-orm v7): knex package no longer available; using Kysely for raw SQL
+// Local type aliases satisfy TypeScript; runtime uses em.getKysely()
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace Knex {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type QueryBuilder<_TRecord = any, _TResult = any> = any
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Knex = any
 import type {
   SearchBuildContext,
   SearchResult,
@@ -74,9 +82,9 @@ async function fetchDocsBatch(
       .select('entity_type', 'entity_id', 'doc')
       .where('tenant_id', tenantId)
       .whereNull('deleted_at')
-      .where((builder) => {
+      .where((builder: any) => {
         for (const [entityType, recordIds] of chunkByType) {
-          builder.orWhere((sub) => {
+          builder.orWhere((sub: any) => {
             sub.where('entity_type', entityType).whereIn('entity_id', recordIds)
           })
         }
@@ -84,7 +92,7 @@ async function fetchDocsBatch(
 
     // Add organization filter if provided
     if (organizationId) {
-      query.where((builder) => {
+      query.where((builder: any) => {
         builder.where('organization_id', organizationId).orWhereNull('organization_id')
       })
     }

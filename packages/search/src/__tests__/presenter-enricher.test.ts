@@ -1,4 +1,4 @@
-import type { Knex } from 'knex'
+
 import type { SearchEntityConfig } from '../types'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { SearchResult } from '@open-mercato/shared/modules/search'

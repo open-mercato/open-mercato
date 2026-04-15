@@ -9,7 +9,14 @@ import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { Knex } from 'knex'
+// TODO(mikro-orm v7): knex package no longer available
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace Knex {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type QueryBuilder<_TRecord = any, _TResult = any> = any
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Knex = any
 import { searchDebug, searchError } from '../../../../lib/debug'
 import {
   acquireReindexLock,

@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { SearchIndexer } from '../../../../../indexer/search-indexer'
 import type { EmbeddingService } from '../../../../../vector'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
-import type { Knex } from 'knex'
+
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'

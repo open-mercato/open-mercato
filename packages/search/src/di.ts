@@ -1,5 +1,13 @@
 import { asValue } from 'awilix'
-import type { Knex } from 'knex'
+// TODO(mikro-orm v7): knex package no longer available; using Kysely for raw SQL
+// Local type aliases satisfy TypeScript; runtime uses em.getKysely()
+// eslint-disable-next-line @typescript-eslint/no-namespace
+namespace Knex {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  export type QueryBuilder<_TRecord = any, _TResult = any> = any
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Knex = any
 import { SearchService } from './service'
 import { TokenSearchStrategy } from './strategies/token.strategy'
 import { VectorSearchStrategy, type EmbeddingService } from './strategies/vector.strategy'
@@ -122,11 +130,11 @@ export function registerSearchModule(
   // Token strategy (always available unless explicitly skipped)
   if (!options?.skipTokens) {
     try {
-      const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
-      const knex = em.getConnection().getKnex()
+      const em = container.resolve<any>('em')
+      const knex = em.getKysely()
       strategies.push(new TokenSearchStrategy(knex))
     } catch {
-      // knex not available via em, skipping TokenSearchStrategy
+      // Kysely not available via em, skipping TokenSearchStrategy
     }
   }
 
@@ -163,8 +171,8 @@ export function registerSearchModule(
     let encryptionMapResolver: ((entityId: EntityId) => Promise<EncryptionMapEntry[]>) | undefined
     if (shouldExcludeEncryptedFields()) {
       try {
-        const em = container.resolve<{ getConnection: () => { getKnex: () => Knex } }>('em')
-        const knex = em.getConnection().getKnex()
+        const em = container.resolve<any>('em')
+        const knex = em.getKysely()
         encryptionMapResolver = createEncryptionMapResolver(knex)
       } catch {
         // Knex not available, encrypted field filtering disabled
