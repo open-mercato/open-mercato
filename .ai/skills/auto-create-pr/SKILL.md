@@ -277,11 +277,7 @@ Suggested label comments:
 
 Before you post the final summary comment, push the last commits, or report back, subject the PR to an automated second pass with the `auto-review-pr` skill. This is the equivalent of a peer reviewer catching issues the self-review missed.
 
-```bash
-# Treat this like any other run of the skill — claim protocol applies,
-# but you are both owner of this PR and owner of the autofix run, so the
-# claim check will recognize re-entry and proceed without re-locking.
-```
+`auto-create-pr` does not hold an `in-progress` lock on the PR at this point (only `auto-continue-pr` does), so `auto-review-pr`'s claim check will see "not in progress, current user is the author/assignee" and claim it fresh by applying the `in-progress` label. That is expected — `auto-review-pr` owns releasing the label when it finishes, per its own step 11. Do not second-guess its claim/release protocol.
 
 Invoke `.ai/skills/auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode:
 
