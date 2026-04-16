@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { StaffTimeProjectMember } from '../../../../../data/entities'
 import { staffTimeProjectMemberAssignSchema } from '../../../../../data/validators'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../../../openapi'
@@ -112,15 +113,19 @@ const crud = makeCrudRoute({
     delete: {
       commandId: 'staff.timesheets.time_project_members.unassign',
       schema: rawBodySchema,
-      mapInput: async ({ raw, ctx }) => {
+      mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
-        const body = raw ?? {}
-        return parseScopedCommandInput(
-          z.object({ id: z.string().uuid() }),
-          body,
-          ctx,
-          translate,
-        )
+        const id =
+          parsed?.body?.id ??
+          parsed?.id ??
+          parsed?.query?.id ??
+          (ctx.request ? new URL(ctx.request.url).searchParams.get('id') : null)
+        if (!id) {
+          throw new CrudHttpError(400, {
+            error: translate('staff.timesheets.errors.memberRequired', 'Time project member id is required.'),
+          })
+        }
+        return { id }
       },
       response: () => ({ ok: true }),
     },
