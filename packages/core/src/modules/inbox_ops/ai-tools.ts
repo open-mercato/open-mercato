@@ -6,7 +6,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { hasFeature } from '@open-mercato/shared/security/features'
 import {
   resolveOpenCodeModel,
-  resolveOpenCodeProviderApiKey,
+  requireOpenCodeProviderApiKey,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { InboxProposal, InboxProposalAction, InboxDiscrepancy } from './data/entities'
 import { inboxProposalCategoryEnum } from './data/validators'
@@ -391,10 +391,7 @@ Input text is limited to 10,000 characters for cost control.`,
     requireTenantContext(ctx)
 
     const providerId = resolveExtractionProviderId()
-    const apiKey = resolveOpenCodeProviderApiKey(providerId)
-    if (!apiKey) {
-      throw new Error(`Missing API key for provider "${providerId}"`)
-    }
+    const apiKey = requireOpenCodeProviderApiKey(providerId)
 
     const modelConfig = resolveOpenCodeModel(providerId, {})
     const model = await createStructuredModel(providerId, apiKey, modelConfig.modelId)

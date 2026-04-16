@@ -2,7 +2,7 @@ import { generateObject } from 'ai'
 import {
   resolveFirstConfiguredOpenCodeProvider,
   resolveOpenCodeModel,
-  resolveOpenCodeProviderApiKey,
+  requireOpenCodeProviderApiKey,
   resolveOpenCodeProviderId,
   type OpenCodeProviderId,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
@@ -84,10 +84,7 @@ export async function runExtractionWithConfiguredProvider(input: {
   modelWithProvider: string
 }> {
   const providerId = resolveExtractionProviderId()
-  const apiKey = resolveOpenCodeProviderApiKey(providerId)
-  if (!apiKey) {
-    throw new Error(`Missing API key for provider "${providerId}"`)
-  }
+  const apiKey = requireOpenCodeProviderApiKey(providerId)
 
   const modelConfig = resolveOpenCodeModel(providerId, {
     overrideModel: input.modelOverride,
