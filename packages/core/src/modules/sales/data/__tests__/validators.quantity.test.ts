@@ -113,6 +113,62 @@ describe('shipmentCreateSchema — items quantity validation', () => {
     expect(result.success).toBe(false)
     if (!result.success) expectQuantityError(result)
   })
+
+  it('accepts integer quantity = 1', () => {
+    const result = shipmentCreateSchema.safeParse({
+      ...base,
+      items: [{ orderLineId: UUID, quantity: 1 }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts integer quantity = 0', () => {
+    const result = shipmentCreateSchema.safeParse({
+      ...base,
+      items: [{ orderLineId: UUID, quantity: 0 }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts integer quantity = 100', () => {
+    const result = shipmentCreateSchema.safeParse({
+      ...base,
+      items: [{ orderLineId: UUID, quantity: 100 }],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects fractional quantity = 0.7', () => {
+    const result = shipmentCreateSchema.safeParse({
+      ...base,
+      items: [{ orderLineId: UUID, quantity: 0.7 }],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages).toContain('Quantity must be a whole number.')
+    }
+  })
+
+  it('rejects fractional quantity = 1.5', () => {
+    const result = shipmentCreateSchema.safeParse({
+      ...base,
+      items: [{ orderLineId: UUID, quantity: 1.5 }],
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages).toContain('Quantity must be a whole number.')
+    }
+  })
+
+  it('rejects negative quantity', () => {
+    const result = shipmentCreateSchema.safeParse({
+      ...base,
+      items: [{ orderLineId: UUID, quantity: -1 }],
+    })
+    expect(result.success).toBe(false)
+  })
 })
 
 // ---------------------------------------------------------------------------

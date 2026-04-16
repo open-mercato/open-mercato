@@ -611,141 +611,145 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const shipment = await findOneWithDecryption(
-      em,
-      SalesShipment,
-      { id: input.id },
-      { populate: ['order'] },
-      { tenantId: input.tenantId, organizationId: input.organizationId },
-    )
     const { translate } = await resolveTranslations()
-    if (!shipment || !shipment.order) {
-      throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
-    }
-    ensureSameScope(shipment, input.organizationId, input.tenantId)
-    const order = shipment.order as SalesOrder
-    if (input.orderId && input.orderId !== order.id) {
-      throw new CrudHttpError(400, { error: 'sales.shipments.invalid_order' })
-    }
-    const validatedItems = input.items
-      ? await validateShipmentItems({
-          em,
-          order,
-          items: input.items,
-          excludeShipmentId: shipment.id,
-        })
-      : null
-    const normalizedItems = validatedItems?.items ?? null
-    const lineMap = validatedItems?.lineMap ?? new Map<string, SalesOrderLine>()
-    if (input.shipmentNumber !== undefined) shipment.shipmentNumber = input.shipmentNumber ?? null
-    if (input.shippingMethodId !== undefined) shipment.shippingMethodId = input.shippingMethodId ?? null
-    if (input.statusEntryId !== undefined) {
-      shipment.statusEntryId = input.statusEntryId ?? null
-      shipment.status = await resolveDictionaryEntryValue(em, input.statusEntryId ?? null)
-    }
-    if (input.carrierName !== undefined) shipment.carrierName = input.carrierName ?? null
-    if (input.trackingNumbers !== undefined) shipment.trackingNumbers = parseTrackingNumbers(input.trackingNumbers)
-    if (input.shippedAt !== undefined) shipment.shippedAt = input.shippedAt ?? null
-    if (input.deliveredAt !== undefined) shipment.deliveredAt = input.deliveredAt ?? null
-    if (input.weightValue !== undefined) shipment.weightValue = input.weightValue !== null ? input.weightValue.toString() : null
-    if (input.weightUnit !== undefined) shipment.weightUnit = input.weightUnit ?? null
-    if (input.declaredValueNet !== undefined) {
-      shipment.declaredValueNet = input.declaredValueNet !== null ? input.declaredValueNet.toString() : null
-    }
-    if (input.declaredValueGross !== undefined) {
-      shipment.declaredValueGross = input.declaredValueGross !== null ? input.declaredValueGross.toString() : null
-    }
-    if (input.currencyCode !== undefined) shipment.currencyCode = input.currencyCode ?? null
-    if (input.notes !== undefined) shipment.notesText = input.notes ?? null
-    if (input.metadata !== undefined || input.shipmentAddressSnapshot !== undefined) {
-      shipment.metadata = mergeAddressSnapshot(
-        input.metadata ? cloneJson(input.metadata) : shipment.metadata ?? null,
-        input.shipmentAddressSnapshot
+
+    const shipment = await em.transactional(async (tx) => {
+      const shipmentEntity = await findOneWithDecryption(
+        tx,
+        SalesShipment,
+        { id: input.id },
+        { populate: ['order'] },
+        { tenantId: input.tenantId, organizationId: input.organizationId },
       )
-    }
-    shipment.updatedAt = new Date()
+      if (!shipmentEntity || !shipmentEntity.order) {
+        throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
+      }
+      ensureSameScope(shipmentEntity, input.organizationId, input.tenantId)
+      const order = shipmentEntity.order as SalesOrder
+      if (input.orderId && input.orderId !== order.id) {
+        throw new CrudHttpError(400, { error: 'sales.shipments.invalid_order' })
+      }
+      const validatedItems = input.items
+        ? await validateShipmentItems({
+            em: tx,
+            order,
+            items: input.items,
+            excludeShipmentId: shipmentEntity.id,
+          })
+        : null
+      const normalizedItems = validatedItems?.items ?? null
+      const lineMap = validatedItems?.lineMap ?? new Map<string, SalesOrderLine>()
+      if (input.shipmentNumber !== undefined) shipmentEntity.shipmentNumber = input.shipmentNumber ?? null
+      if (input.shippingMethodId !== undefined) shipmentEntity.shippingMethodId = input.shippingMethodId ?? null
+      if (input.statusEntryId !== undefined) {
+        shipmentEntity.statusEntryId = input.statusEntryId ?? null
+        shipmentEntity.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      }
+      if (input.carrierName !== undefined) shipmentEntity.carrierName = input.carrierName ?? null
+      if (input.trackingNumbers !== undefined) shipmentEntity.trackingNumbers = parseTrackingNumbers(input.trackingNumbers)
+      if (input.shippedAt !== undefined) shipmentEntity.shippedAt = input.shippedAt ?? null
+      if (input.deliveredAt !== undefined) shipmentEntity.deliveredAt = input.deliveredAt ?? null
+      if (input.weightValue !== undefined) shipmentEntity.weightValue = input.weightValue !== null ? input.weightValue.toString() : null
+      if (input.weightUnit !== undefined) shipmentEntity.weightUnit = input.weightUnit ?? null
+      if (input.declaredValueNet !== undefined) {
+        shipmentEntity.declaredValueNet = input.declaredValueNet !== null ? input.declaredValueNet.toString() : null
+      }
+      if (input.declaredValueGross !== undefined) {
+        shipmentEntity.declaredValueGross = input.declaredValueGross !== null ? input.declaredValueGross.toString() : null
+      }
+      if (input.currencyCode !== undefined) shipmentEntity.currencyCode = input.currencyCode ?? null
+      if (input.notes !== undefined) shipmentEntity.notesText = input.notes ?? null
+      if (input.metadata !== undefined || input.shipmentAddressSnapshot !== undefined) {
+        shipmentEntity.metadata = mergeAddressSnapshot(
+          input.metadata ? cloneJson(input.metadata) : shipmentEntity.metadata ?? null,
+          input.shipmentAddressSnapshot
+        )
+      }
+      shipmentEntity.updatedAt = new Date()
 
-    const shouldLoadItems = Boolean(normalizedItems || input.lineStatusEntryId !== undefined)
-    const existingItems = shouldLoadItems ? await em.find(SalesShipmentItem, { shipment }) : []
-    const newItems: SalesShipmentItem[] = []
-    if (normalizedItems) {
-      existingItems.forEach((item) => em.remove(item))
-      normalizedItems.forEach((item) => {
-        const lineRef = em.getReference(SalesOrderLine, item.orderLineId)
-        const shipmentItem = em.create(SalesShipmentItem, {
-          id: randomUUID(),
-          shipment,
-          orderLine: lineRef,
-          organizationId: shipment.organizationId,
-          tenantId: shipment.tenantId,
-          quantity: item.quantity.toString(),
-          metadata: item.metadata ? cloneJson(item.metadata) : null,
+      const shouldLoadItems = Boolean(normalizedItems || input.lineStatusEntryId !== undefined)
+      const existingItems = shouldLoadItems ? await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }) : []
+      const newItems: SalesShipmentItem[] = []
+      if (normalizedItems) {
+        existingItems.forEach((item) => tx.remove(item))
+        normalizedItems.forEach((item) => {
+          const lineRef = tx.getReference(SalesOrderLine, item.orderLineId)
+          const shipmentItem = tx.create(SalesShipmentItem, {
+            id: randomUUID(),
+            shipment: shipmentEntity,
+            orderLine: lineRef,
+            organizationId: shipmentEntity.organizationId,
+            tenantId: shipmentEntity.tenantId,
+            quantity: item.quantity.toString(),
+            metadata: item.metadata ? cloneJson(item.metadata) : null,
+          })
+          newItems.push(shipmentItem)
+          tx.persist(shipmentItem)
         })
-        newItems.push(shipmentItem)
-        em.persist(shipmentItem)
-      })
-    }
+      }
 
-    if (input.customFields !== undefined) {
-      await setRecordCustomFields(em, {
-        entityId: E.sales.sales_shipment,
-        recordId: shipment.id,
-        organizationId: shipment.organizationId,
-        tenantId: shipment.tenantId,
-        values: normalizeCustomFieldsInput(input.customFields),
-      })
-    }
-    if (input.documentStatusEntryId !== undefined) {
-      const orderStatus = await resolveDictionaryEntryValue(em, input.documentStatusEntryId ?? null)
-      if (input.documentStatusEntryId && !orderStatus) {
-        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+      if (input.customFields !== undefined) {
+        await setRecordCustomFields(tx, {
+          entityId: E.sales.sales_shipment,
+          recordId: shipmentEntity.id,
+          organizationId: shipmentEntity.organizationId,
+          tenantId: shipmentEntity.tenantId,
+          values: normalizeCustomFieldsInput(input.customFields),
+        })
       }
-      order.statusEntryId = input.documentStatusEntryId ?? null
-      order.status = orderStatus
-      order.updatedAt = new Date()
-    }
-    if (input.lineStatusEntryId !== undefined) {
-      const lineStatus = await resolveDictionaryEntryValue(em, input.lineStatusEntryId ?? null)
-      if (input.lineStatusEntryId && !lineStatus) {
-        throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
-      }
-      const targetLineIds = normalizedItems
-        ? Array.from(new Set(normalizedItems.map((item) => item.orderLineId)))
-        : Array.from(
-            new Set(
-              existingItems
-                .map((item) =>
-                  typeof item.orderLine === 'string'
-                    ? item.orderLine
-                    : (item.orderLine as SalesOrderLine | null)?.id ?? null
-                )
-                .filter((id): id is string => Boolean(id))
-            )
-          )
-      if (targetLineIds.length) {
-        const missing = targetLineIds.filter((id) => !lineMap.has(id))
-        if (missing.length) {
-          const fetched = await em.find(SalesOrderLine, { id: { $in: missing } })
-          fetched.forEach((line) => lineMap.set(line.id, line))
+      if (input.documentStatusEntryId !== undefined) {
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        if (input.documentStatusEntryId && !orderStatus) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
-        targetLineIds.forEach((lineId) => {
-          const line = lineMap.get(lineId)
-          if (!line) return
-          line.statusEntryId = input.lineStatusEntryId ?? null
-          line.status = lineStatus
-          line.updatedAt = new Date()
-        })
+        order.statusEntryId = input.documentStatusEntryId ?? null
+        order.status = orderStatus
+        order.updatedAt = new Date()
       }
-    }
+      if (input.lineStatusEntryId !== undefined) {
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        if (input.lineStatusEntryId && !lineStatus) {
+          throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
+        }
+        const targetLineIds = normalizedItems
+          ? Array.from(new Set(normalizedItems.map((item) => item.orderLineId)))
+          : Array.from(
+              new Set(
+                existingItems
+                  .map((item) =>
+                    typeof item.orderLine === 'string'
+                      ? item.orderLine
+                      : (item.orderLine as SalesOrderLine | null)?.id ?? null
+                  )
+                  .filter((id): id is string => Boolean(id))
+              )
+            )
+        if (targetLineIds.length) {
+          const missing = targetLineIds.filter((id) => !lineMap.has(id))
+          if (missing.length) {
+            const fetched = await tx.find(SalesOrderLine, { id: { $in: missing } })
+            fetched.forEach((line) => lineMap.set(line.id, line))
+          }
+          targetLineIds.forEach((lineId) => {
+            const line = lineMap.get(lineId)
+            if (!line) return
+            line.statusEntryId = input.lineStatusEntryId ?? null
+            line.status = lineStatus
+            line.updatedAt = new Date()
+          })
+        }
+      }
 
-    const itemsForSnapshot =
-      normalizedItems || shouldLoadItems
-        ? (normalizedItems ? newItems : existingItems)
-        : await em.find(SalesShipmentItem, { shipment })
-    await refreshShipmentItemsSnapshot(em, shipment, { items: itemsForSnapshot, lineMap })
-    await em.flush()
-    await recomputeFulfilledQuantities(em, order)
-    await em.flush()
+      const itemsForSnapshot =
+        normalizedItems || shouldLoadItems
+          ? (normalizedItems ? newItems : existingItems)
+          : await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId })
+      await refreshShipmentItemsSnapshot(tx, shipmentEntity, { items: itemsForSnapshot, lineMap })
+      await tx.flush()
+      await recomputeFulfilledQuantities(tx, order)
+      await tx.flush()
+      return shipmentEntity
+    })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -863,36 +867,44 @@ const deleteShipmentCommand: CommandHandler<
       throw error
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const shipment = await findOneWithDecryption(
-      em,
-      SalesShipment,
-      { id: payload.id },
-      { populate: ['order'] },
-      { tenantId: payload.tenantId, organizationId: payload.organizationId },
-    )
-    if (!shipment || !shipment.order) {
-      throw new CrudHttpError(404, { error: translate('sales.shipments.not_found', 'Shipment not found') })
-    }
-    try {
-      ensureSameScope(shipment, payload.organizationId, payload.tenantId)
-    } catch (error) {
-      logShipmentDeleteScopeRejection(ctx, 'Shipment scope mismatch against payload', {
-        shipmentId: payload.id,
-        shipmentOrganizationId: shipment.organizationId,
-        shipmentTenantId: shipment.tenantId,
-        payloadOrganizationId: payload.organizationId,
-        payloadTenantId: payload.tenantId,
-      })
-      throw error
-    }
-    const order = shipment.order as SalesOrder
-    if (order.id !== payload.orderId) {
-      throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })
-    }
-    const shipmentItems = await em.find(SalesShipmentItem, { shipment })
-    await deleteShipmentWithItems(em, shipment)
-    await recomputeFulfilledQuantities(em, order)
-    await em.flush()
+
+    const { shipment, shipmentItems } = await em.transactional(async (tx) => {
+      const shipmentEntity = await findOneWithDecryption(
+        tx,
+        SalesShipment,
+        { id: payload.id },
+        { populate: ['order'] },
+        { tenantId: payload.tenantId, organizationId: payload.organizationId },
+      )
+      if (!shipmentEntity || !shipmentEntity.order) {
+        throw new CrudHttpError(404, { error: translate('sales.shipments.not_found', 'Shipment not found') })
+      }
+      try {
+        ensureSameScope(shipmentEntity, payload.organizationId, payload.tenantId)
+      } catch (error) {
+        logShipmentDeleteScopeRejection(ctx, 'Shipment scope mismatch against payload', {
+          shipmentId: payload.id,
+          shipmentOrganizationId: shipmentEntity.organizationId,
+          shipmentTenantId: shipmentEntity.tenantId,
+          payloadOrganizationId: payload.organizationId,
+          payloadTenantId: payload.tenantId,
+        })
+        throw error
+      }
+      const order = shipmentEntity.order as SalesOrder
+      if (order.id !== payload.orderId) {
+        throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })
+      }
+      const scope = { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }
+      const items = await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, scope)
+      items.forEach((item) => tx.remove(item))
+      tx.remove(shipmentEntity)
+      await tx.flush()
+      await recomputeFulfilledQuantities(tx, order)
+      await tx.flush()
+      return { shipment: shipmentEntity, shipmentItems: items }
+    })
+
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
       dataEngine,
