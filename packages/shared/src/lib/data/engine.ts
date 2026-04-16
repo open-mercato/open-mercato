@@ -14,6 +14,24 @@ import type {
 import { CrudHttpError } from '../crud/errors'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import { parseBooleanToken } from '../boolean'
+import { isEventDeclared } from '../../modules/events'
+
+const undeclaredEventWarned = new Set<string>()
+
+function warnIfUndeclaredEvent(eventName: string, context: string): void {
+  if (isEventDeclared(eventName)) return
+  if (undeclaredEventWarned.has(eventName)) return
+  undeclaredEventWarned.add(eventName)
+  console.warn(
+    `[data-engine] ${context} is emitting undeclared event "${eventName}". ` +
+    `Declare it in the owning module's events.ts (createModuleEvents) so the event registry stays authoritative.`,
+  )
+}
+
+/** Internal: clear the undeclared-event warning cache. Exposed for tests. */
+export function __resetUndeclaredEventWarningsForTests(): void {
+  undeclaredEventWarned.clear()
+}
 
 const COVERAGE_REFRESH_INTERVAL_MS = 5 * 60 * 1000
 const coverageRefreshTracker = new Map<string, number>()
@@ -154,8 +172,10 @@ export class DefaultDataEngine implements DataEngine {
       if (bus) {
         const [mod, ent] = (entityId || '').split(':')
         if (mod && ent) {
+          const eventName = `${mod}.${ent}.updated`
+          warnIfUndeclaredEvent(eventName, 'setCustomFields')
           try {
-            await bus.emitEvent(`${mod}.${ent}.updated`, { id: recordId, organizationId, tenantId }, { persistent: true })
+            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, { persistent: true })
           } catch {
             // non-blocking
           }
@@ -463,6 +483,7 @@ export class DefaultDataEngine implements DataEngine {
 
     if (events) {
       const eventName = `${events.module}.${events.entity}.${action}`
+      warnIfUndeclaredEvent(eventName, 'emitOrmEntityEvent')
       const payload = events.buildPayload
         ? events.buildPayload(ctx)
         : {
