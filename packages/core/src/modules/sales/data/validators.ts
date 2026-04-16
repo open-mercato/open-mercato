@@ -618,6 +618,12 @@ export const shipmentUpdateSchema = z
   })
   .merge(shipmentCreateSchema.partial())
 
+const returnLineQuantitySchema = z.coerce
+  .number()
+  .int('Return quantity must be a whole number.')
+  .min(1, 'Return quantity must be at least 1.')
+  .max(MAX_QUANTITY, 'Quantity is too large.')
+
 export const returnCreateSchema = scoped.extend({
   orderId: uuid(),
   reason: z.string().trim().max(4000).optional(),
@@ -627,7 +633,7 @@ export const returnCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: decimal({ min: 0 }),
+        quantity: returnLineQuantitySchema,
       })
     )
     .min(1),
