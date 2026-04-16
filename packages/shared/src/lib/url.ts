@@ -164,12 +164,18 @@ export function assertAllowedAppOrigin(input: RequestInput, env: EnvLike = proce
   }
 }
 
-export function getAppBaseUrl(req: Request): string {
+export function resolveRequestOrigin(req: Request): string {
   const url = new URL(req.url)
+  const proto = req.headers.get('x-forwarded-proto') || url.protocol.replace(':', '')
+  const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || url.host
+  return `${proto}://${host}`
+}
+
+export function getAppBaseUrl(req: Request): string {
   return (
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
-    `${url.protocol}//${url.host}`
+    resolveRequestOrigin(req)
   )
 }
 

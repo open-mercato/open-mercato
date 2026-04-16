@@ -1,9 +1,9 @@
 ---
-name: review-pr
-description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional autofix and fix-forward flow that iterates through conflict resolution, code fixes, unit tests, typecheck, and re-review until the PR is merge-ready or a real blocker remains. Usage - /review-pr <PR-number>
+name: auto-review-pr
+description: Review or re-review a GitHub pull request by number in an isolated git worktree. Fetch the specific PR from GitHub, run the full code-review skill, submit approve or request-changes, manage labels, and if blockers remain offer an optional autofix and fix-forward flow that iterates through conflict resolution, code fixes, unit tests, typecheck, and re-review until the PR is merge-ready or a real blocker remains. Usage - /auto-review-pr <PR-number>
 ---
 
-# Review PR
+# Auto Review PR
 
 Review a GitHub pull request by number without touching the current worktree. Always fetch the exact PR from GitHub, review it in an isolated worktree, submit the verdict, and if the PR still has blockers offer an explicit autofix flow that keeps resolving conflicts, fixing code, testing, typechecking, and re-reviewing until the PR is actually ready or a non-actionable blocker remains.
 
@@ -50,7 +50,7 @@ gh pr edit {prNumber} --add-assignee "$CURRENT_USER"
 # Apply the in-progress label via the same GraphQL flow used for pipeline labels
 # (kept atomic with the pipeline label transitions in step 8)
 
-gh pr comment {prNumber} --body "🤖 \`review-pr\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this PR until the lock is released."
+gh pr comment {prNumber} --body "🤖 \`auto-review-pr\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this PR until the lock is released."
 ```
 
 The release step happens in step 11 — the lock MUST be released even on failure.
@@ -151,7 +151,7 @@ First detect whether you are already inside a linked worktree:
 REPO_ROOT=$(git rev-parse --show-toplevel)
 GIT_DIR=$(git rev-parse --git-dir)
 GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
-WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/review-pr"
+WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/auto-review-pr"
 CREATED_WORKTREE=0
 
 if [ "$GIT_DIR" != "$GIT_COMMON_DIR" ]; then
@@ -367,7 +367,7 @@ Suggested label comments:
 
 ### 9. Autonomous autofix flow
 
-After posting a `changes_requested` review, **immediately proceed to fix all actionable findings** without asking the user. The review-pr skill must be fully autonomous — it reviews, fixes, re-reviews, and iterates until the PR is merge-ready or a truly critical blocker remains.
+After posting a `changes_requested` review, **immediately proceed to fix all actionable findings** without asking the user. The auto-review-pr skill must be fully autonomous — it reviews, fixes, re-reviews, and iterates until the PR is merge-ready or a truly critical blocker remains.
 
 Only stop and ask the user in these critical situations:
 
@@ -483,7 +483,7 @@ Always release before the skill exits — even on failure. Use a `trap` or equiv
 ```bash
 # Remove the in-progress label (use the same GraphQL label flow used elsewhere)
 
-gh pr comment {prNumber} --body "🤖 \`review-pr\` completed: ${VERDICT}. Lock released."
+gh pr comment {prNumber} --body "🤖 \`auto-review-pr\` completed: ${VERDICT}. Lock released."
 ```
 
 Rules:

@@ -79,19 +79,23 @@ export default async function handle(
 
   if (!subscribers || subscribers.length === 0) return
 
-  const errors: Array<{ subscriberId: string; error: unknown }> = []
+  const handlerCtx = {
+    resolve: ctx.resolve,
+    tenantId: options?.tenantId ?? null,
+    organizationId: options?.organizationId ?? null,
+  }
 
-  for (const sub of subscribers) {
-    try {
-      await sub.handler(payload, {
-        resolve: ctx.resolve,
-        tenantId: options?.tenantId ?? null,
-        organizationId: options?.organizationId ?? null,
-      })
-    } catch (error) {
-      // Log error but continue processing other subscribers
-      console.error(`[events] Subscriber "${sub.id}" failed for event "${event}":`, error)
-      errors.push({ subscriberId: sub.id, error })
+  const results = await Promise.allSettled(
+    subscribers.map((sub) => Promise.resolve(sub.handler(payload, handlerCtx)))
+  )
+
+  const errors: Array<{ subscriberId: string; error: unknown }> = []
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    if (result.status === 'rejected') {
+      const sub = subscribers[i]
+      console.error(`[events] Subscriber "${sub.id}" failed for event "${event}":`, result.reason)
+      errors.push({ subscriberId: sub.id, error: result.reason })
     }
   }
 
