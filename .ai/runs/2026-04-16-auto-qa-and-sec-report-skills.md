@@ -93,3 +93,10 @@ convention so we can use `.ai/analysis/` with a dated `auto-qa-scenarios-*`
 ### Phase 3: PR delivery
 
 - [x] 3.1 Push branch and open PR against `develop` (do not merge) — PR #1542
+
+### Phase 4: Revision — split sec-report into single-unit + driver
+
+- [x] 4.1 Add `auto-sec-report-pr` single-unit skill covering PR / spec / branch inputs with paranoid deep vectors and "Next steps — go deeper"
+- [x] 4.2 Add `references/deep-attack-vectors.md` paranoid checklist bundled with `auto-sec-report-pr`
+- [x] 4.3 Refactor `auto-sec-report` to loop `auto-sec-report-pr` in sub-unit mode and aggregate per-unit fragments
+- [x] 4.4 Update README.md skills index: new row for `auto-sec-report-pr`, updated row for driver `auto-sec-report`, folder added to structure tree

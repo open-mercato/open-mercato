@@ -1,89 +1,69 @@
 ---
 name: auto-sec-report
-description: Generate an OWASP-oriented security analysis report for a window of merged pull requests and deliver it as a docs-only PR. Accepts a date (reports PRs merged on or after that date), a PR number floor (reports PRs whose number is >= that value), or defaults to the last 7 days when nothing is specified. For each PR, classifies whether it fixes a security issue, maps it to the relevant OWASP Top 10 2021 category, and calls out other places in the codebase where the same fix or hardening pattern should be applied. Writes both markdown and HTML artifacts under `.ai/analysis/`. Uses the `auto-create-pr` workflow to open a PR against `develop` (never merges), and hands off to `auto-continue-pr` when the run cannot finish in one pass.
+description: Driver that runs `auto-sec-report-pr` across a window of units of work and aggregates the findings into a single docs-only PR. Accepts a window spec that can be a date (PRs merged on or after it), a PR number floor (PRs whose number is >= it), a branch name (analyze the branch diff as a single unit), a spec path (analyze one spec as a single unit), or nothing (defaults to the last 7 days of merged PRs). Loops `auto-sec-report-pr` per unit in sub-unit mode, concatenates the markdown fragments, renders a combined markdown + HTML report under `.ai/analysis/`, carries forward each unit's "Next steps — go deeper" into a consolidated drill-deeper list at the top of the report, and opens a PR against `develop` (never merges). Uses `auto-create-pr` for branch/worktree/commit/label discipline and hands off to `auto-continue-pr` when the run cannot finish in one pass.
 ---
 
-# Auto Security Report
+# Auto Security Report — Driver
 
-Produce a security-engineer-facing report that reviews a window of merged
-pull requests for OWASP Top 10 risk signals, identifies PRs that
-introduced or fixed security issues, and proposes where the same fix or
-hardening pattern should be applied elsewhere in the codebase. The final
-deliverable is a docs-only PR against `develop` with markdown and HTML
-artifacts under `.ai/analysis/`.
-
-This skill is a specialization of `auto-create-pr`. It adopts that skill's
-worktree, branch, commit, validation, self-review, and label discipline
-verbatim. The sections below describe only the security-specific content
-and the few places where the flow deviates from the generic
-`auto-create-pr` workflow.
+Aggregate a security analysis across a window of units of work. This
+skill does not perform the per-unit analysis itself; it delegates that
+to `auto-sec-report-pr` (the single-unit skill) and combines the
+resulting fragments into a single docs-only PR. The report preserves
+every per-unit finding, every "Apply elsewhere" pointer, and every
+"Next steps — go deeper" suggestion so the reviewer can keep drilling
+into specific areas with additional `auto-sec-report-pr` runs.
 
 ## Arguments
 
-- `{windowSpec}` (optional) — one of:
-  - A date in `YYYY-MM-DD` form (e.g. `2026-04-10`). Report covers every
-    PR merged on or after that date, up to today (UTC).
-  - A PR number (e.g. `1200`). Report covers every PR whose number is
-    greater than or equal to the given number and that is merged.
-  - Omitted — defaults to the last 7 days (UTC).
-- `--base <branch>` (optional) — which base branch to count merges into.
+`{windowSpec}` (optional) — one of:
+
+- A date in `YYYY-MM-DD` form — every PR merged on or after that date
+  into `--base` (default `develop`) up to today (UTC).
+- A PR number — every PR whose number is greater than or equal to
+  this value and that is merged into `--base`.
+- A branch name (e.g. `feat/foo`) — treated as a single unit of work;
+  the driver invokes `auto-sec-report-pr branch:{name}` exactly once
+  and still produces the aggregate report layout.
+- A spec path (any path ending in `.md` under `.ai/specs/` or
+  `.ai/specs/enterprise/`) — treated as a single unit of work;
+  driver invokes `auto-sec-report-pr spec:{path}` exactly once.
+- Omitted — defaults to the last 7 days (UTC) of merged PRs into
+  `--base`.
+
+Options:
+
+- `--base <branch>` (optional) — base ref for PR / branch diffs.
   Defaults to `develop`. Merges into `main` are still reported and
-  flagged separately.
-- `--include-open` (optional) — also include open non-draft PRs (off by
-  default). Open PRs are flagged as "not yet merged" but their diff is
-  still analysed for security signal.
-- `--deep-scan` (optional) — also sweep the current HEAD for **top OWASP
-  issues that match the patterns surfaced by PRs in the window**. Off by
-  default; on means the report includes a "Codebase cross-check" section.
-- `--slug <kebab-case>` (optional) — override the slug used in the plan
-  and artifact filenames. Default: derived from the window.
-- `--force` (optional) — bypass the claim-conflict check when a previous
-  run left a branch or plan behind.
+  flagged when a different base is specified.
+- `--include-open` (optional) — also include open non-draft PRs in
+  the queue, flagged as "not yet merged". Off by default.
+- `--deep-scan` (optional) — pass `--deep-scan` through to every
+  sub-unit call so the apply-elsewhere sweeps cover the whole repo.
+  Off by default.
+- `--max-units <n>` (optional) — cap the number of sub-unit runs.
+  Default: 50. Larger caps are allowed but keep the run paged.
+- `--slug <kebab-case>` (optional) — override the slug used in the
+  plan and artifact filenames. Default: derived from the window.
+- `--force` (optional) — bypass the claim-conflict check when a
+  previous run left a branch or plan behind.
 
-## OWASP Top 10 taxonomy
+## Relationship to other skills
 
-Use OWASP Top 10 2021 categories verbatim. Every classified PR MUST cite
-exactly one primary category (secondary categories allowed):
-
-- **A01: Broken Access Control** — missing tenant scoping, RBAC bypass,
-  IDOR, open redirects, privilege escalation, path traversal, over-scoped
-  `__all__`/wildcard ACL handling.
-- **A02: Cryptographic Failures** — weak hashing, missing encryption at
-  rest for PII, leaked secrets, bad JWT lifetime, `findOne` bypassing
-  `findWithDecryption`.
-- **A03: Injection** — SQL, NoSQL, command, template, header, CRLF, log
-  forging. Includes raw fetch/exec usage and XSS via unescaped HTML.
-- **A04: Insecure Design** — missing rate limits, missing idempotency on
-  money-moving flows, race conditions (double-shipment, double-credit),
-  workflows with no failure visibility.
-- **A05: Security Misconfiguration** — CORS, cookies without `SameSite` /
-  `HttpOnly` / `Secure`, debug routes in prod, default creds, verbose
-  errors, public S3/queue handles.
-- **A06: Vulnerable and Outdated Components** — bumped libs, pinned
-  versions, `yarn audit` style changes, removed shell-out dependencies.
-- **A07: Identification and Authentication Failures** — session rotation,
-  missing MFA, rate-limit identifiers, stale session reuse, forgot/reset
-  flows, magic-link hardening.
-- **A08: Software and Data Integrity Failures** — webhook signature
-  verification, replay protection, deserialization, signed URLs,
-  code-loading from untrusted sources.
-- **A09: Security Logging and Monitoring Failures** — missing audit logs,
-  silent failure paths, stack traces sent to clients, unlogged admin
-  actions.
-- **A10: Server-Side Request Forgery (SSRF)** — outbound HTTP allowlists,
-  blocked private/internal URLs in webhooks, avatar fetchers, OAuth
-  metadata endpoints, preview generators.
-
-When a PR fixes something outside this taxonomy (e.g. a pure availability
-fix), classify it as **Out of scope (not OWASP Top 10)** and still list
-it in the appendix.
+- **Delegates** to `.ai/skills/auto-sec-report-pr/SKILL.md` for every
+  unit of work. All paranoid checks, deep vectors, apply-elsewhere
+  sweeps, and next-step suggestions live in that skill. This driver
+  only orchestrates.
+- **Reuses** `.ai/skills/auto-create-pr/SKILL.md` for
+  branch/worktree/commit/validation/label discipline when opening the
+  aggregate PR.
+- **Hands off** to `.ai/skills/auto-continue-pr/SKILL.md` when the run
+  cannot finish in one invocation.
 
 ## Workflow
 
 ### 0. Pre-flight and claim
 
-Follow `.ai/skills/auto-create-pr/SKILL.md` step 0 verbatim. Branch name
-MUST use the `feat/` prefix:
+Follow `.ai/skills/auto-create-pr/SKILL.md` step 0 verbatim.
 
 ```bash
 DATE=$(date -u +%Y-%m-%d)
@@ -92,267 +72,215 @@ PLAN_PATH=".ai/runs/${DATE}-${SLUG}.md"
 BRANCH="feat/${SLUG}"
 ```
 
-### 1. Resolve the PR window
+### 1. Build the unit queue
 
-Same as `auto-qa-scenarios` step 1. Paginate until the floor is reached.
-Record the resolved window in the plan Overview.
+Translate `{windowSpec}` into an ordered list of units. Each entry is
+one of `pr:{n}`, `spec:{path}`, or `branch:{name}`.
 
-### 2. Gather per-PR evidence
+- **Date mode**: `gh pr list --state merged --base {base}` paginated
+  until everything merged on or after the date is captured. Emit
+  `pr:{n}` for each.
+- **PR number floor**: same listing, filtered by number ≥ floor.
+- **Branch mode**: a single-entry queue with `branch:{name}`.
+- **Spec mode**: a single-entry queue with `spec:{path}`.
+- **Default**: last 7 days of merged PRs.
 
-For each PR in the window:
+Sort the queue newest-first for PR lists so the driver surfaces the
+most recent risk first. Honor `--max-units`; if the queue is longer,
+truncate with a noted residue in the plan's Risks section and
+propose a follow-up invocation for the remainder.
 
-```bash
-gh pr view {number} --json number,title,url,author,body,labels,baseRefName,mergeCommit,mergedAt,files,additions,deletions
-gh pr diff {number} --patch
-```
+Record the resolved window (start date or PR floor, end date or
+target name, base branch, queue size) in the plan's Overview.
 
-From each PR extract:
+### 2. Draft the execution plan
 
-- Title, number, URL, merged date, base branch, labels.
-- Changed files (top-level module/package paths).
-- Strong signal keywords in title/body: `security`, `fix(security)`,
-  `CVE`, `SSRF`, `XSS`, `CSRF`, `IDOR`, `tenant`, `ACL`, `RBAC`,
-  `rate-limit`, `session`, `JWT`, `redirect`, `signature`, `encrypt`.
-- Diff-level signals:
-  - Raw `em.find(` / `em.findOne(` that were replaced with
-    `findWithDecryption` / `findOneWithDecryption` (A02).
-  - Missing / added `organization_id` or `tenant_id` filters (A01).
-  - Added URL allowlist / blocklist in webhook/workflow code (A10).
-  - Added signature verification on inbound webhooks (A08).
-  - Changed session handling, cookie flags, or JWT TTL (A07).
-  - Input validation via zod on previously untyped routes (A03).
-  - RBAC metadata additions (`requireFeatures`, `requireAuth`) (A01).
-  - Removed open redirect / unsafe redirect handling (A01).
-
-Cap the per-PR diff read at the changed files actually relevant. Never
-paste full diffs into the report.
-
-### 3. Classify PRs
-
-For each PR, produce a record:
-
-```json
-{
-  "number": 1234,
-  "title": "...",
-  "url": "https://github.com/{owner}/{repo}/pull/1234",
-  "mergedAt": "2026-04-12T10:21:00Z",
-  "owaspPrimary": "A01",
-  "owaspSecondary": ["A07"],
-  "classification": "security-fix | security-hardening | security-adjacent | non-security",
-  "whatChanged": "one sentence",
-  "whyItMatters": "one sentence",
-  "riskIfReverted": "one sentence",
-  "applyElsewhere": ["module or file path", "..."]
-}
-```
-
-Classification rules:
-
-- **security-fix** — PR title/body or diff explicitly addresses a
-  specific vulnerability (e.g. SSRF in CALL_WEBHOOK, open redirect in
-  locale switch, missing tenant scope in public quote endpoints).
-- **security-hardening** — PR tightens defences without naming a
-  specific vulnerability (e.g. adds rate-limit identifier, rotates
-  session tokens on login, enforces signature verification).
-- **security-adjacent** — PR touches a sensitive path (auth, tenant
-  scope, webhook dispatch) but does not change the security posture.
-- **non-security** — PR is docs, tests, DX, tooling, pure UI, or
-  refactor without security impact.
-
-### 4. Cross-code audit: "apply the same fix elsewhere"
-
-For every **security-fix** and **security-hardening** PR, try to find
-other places in the current codebase that exhibit the same
-pre-fix pattern. Use targeted grep sweeps:
-
-```bash
-# A02 example: surface leftover raw ORM calls that may bypass decryption
-Grep pattern: "em\\.findOne\\(" type=ts
-Grep pattern: "em\\.find\\("     type=ts
-
-# A01 example: webhook / public endpoints without organization_id scoping
-Grep pattern: "organization_?id" type=ts -B 2 -A 5
-
-# A10 example: outbound HTTP without allowlist helper
-Grep pattern: "(fetch|axios|undici)\\(" type=ts
-```
-
-Produce a targeted list **per fix** of files/functions that look similar
-and should be reviewed. Never claim a file is vulnerable without a
-concrete pattern match and a one-line justification.
-
-Hard limits to keep the report honest:
-
-- List at most 10 apply-elsewhere candidates per fix.
-- Never recommend a change without citing the exact file path.
-- Distinguish "same pattern, same risk" from "same pattern, different
-  context — worth a look" in the narrative.
-
-### 5. Draft the execution plan
-
-Follow `.ai/skills/auto-create-pr/SKILL.md` step 3. Required plan
-Progress phases:
+Follow `.ai/skills/auto-create-pr/SKILL.md` step 3 with a Progress
+section shaped like this:
 
 ```markdown
-### Phase 1: Data gathering
+### Phase 1: Queue and plan
 
-- [ ] 1.1 Resolve PR window and fetch merged PR metadata
-- [ ] 1.2 Enrich PRs with diffs, labels, and linked issue refs
+- [ ] 1.1 Resolve unit queue and record the window
 
-### Phase 2: Classification
+### Phase 2: Per-unit analysis
 
-- [ ] 2.1 Map each PR to an OWASP Top 10 category and classification
-- [ ] 2.2 Build per-fix "apply elsewhere" candidate lists via targeted greps
+- [ ] 2.N {target caption} — auto-sec-report-pr {target} --out-fragment ...
+```
 
-### Phase 3: Artifact generation
+Phase 2 MUST list one checkbox per unit in the queue, in order. The
+checkbox title MUST include the exact `auto-sec-report-pr` command
+the driver will run. Append commit SHA on each flip so
+`auto-continue-pr` can resume precisely.
 
-- [ ] 3.1 Write markdown report to `.ai/analysis/auto-sec-report-${DATE}.md`
-- [ ] 3.2 Render HTML mirror to `.ai/analysis/auto-sec-report-${DATE}.html`
-- [ ] 3.3 Spot-check artifacts render correctly, links resolve, and redactions held
+```markdown
+### Phase 3: Aggregation
+
+- [ ] 3.1 Concatenate fragments into `.ai/analysis/auto-sec-report-${DATE}.md`
+- [ ] 3.2 Build consolidated "Next steps — go deeper" list
+- [ ] 3.3 Render HTML mirror to `.ai/analysis/auto-sec-report-${DATE}.html`
+- [ ] 3.4 Spot-check artifacts: links resolve, redactions held, secret-grep clean
 
 ### Phase 4: PR delivery
 
 - [ ] 4.1 Commit artifacts, push branch, open PR against `develop` (do not merge)
-- [ ] 4.2 Apply `review`, `documentation`, `security`, and `skip-qa` labels with comments
+- [ ] 4.2 Apply `review`, `documentation`, `security`, `skip-qa` labels with comments
 ```
 
-### 6. Isolated worktree, branch, first commit
+### 3. Isolated worktree and first commit
 
 Follow `.ai/skills/auto-create-pr/SKILL.md` steps 4–5 verbatim.
 
-### 7. Execute the phases
+### 4. Execute the queue
 
-Run steps 1.1 → 3.3 in the worktree. Flip checkboxes and push per phase
-exactly like `auto-create-pr` step 6.
+For each unit in Phase 2, invoke `auto-sec-report-pr` in sub-unit
+mode. Pass `--out-fragment` so no per-unit PR is opened and no
+autofix pass is triggered:
 
-#### 7a. Markdown artifact layout
+```bash
+FRAGMENT_DIR=".ai/tmp/auto-sec-report/${DATE}-${SLUG}/fragments"
+mkdir -p "$FRAGMENT_DIR"
 
-Write to `.ai/analysis/auto-sec-report-${DATE}.md`:
+for UNIT in "${QUEUE[@]}"; do
+  FRAGMENT_PATH="${FRAGMENT_DIR}/$(slug "$UNIT").md"
+  invoke_skill "auto-sec-report-pr" \
+    --target "$UNIT" \
+    --base "${BASE:-develop}" \
+    ${DEEP_SCAN:+--deep-scan} \
+    --out-fragment "$FRAGMENT_PATH"
+done
+```
+
+Rules during the loop:
+
+- Honor the in-progress lock protocol owned by `auto-sec-report-pr`
+  when the unit is a PR. If a PR is locked by someone else, skip it,
+  note the skip in the plan under the unit's Progress line, and
+  continue.
+- If a sub-unit exits non-zero, capture the partial fragment (if
+  any), mark the unit's Progress line with `⚠ partial` and the
+  reason, and continue to the next unit. Do not abort the batch.
+- Flip the unit's Progress checkbox to `- [x]` with the commit SHA
+  once the fragment lands. Commit the progress update as its own
+  `docs(runs): mark ${SLUG} unit X complete` commit.
+- Push after every 5 units so `auto-continue-pr` always has a
+  recent checkpoint to resume from.
+
+### 5. Aggregate
+
+After every unit is processed, build the aggregate markdown at
+`.ai/analysis/auto-sec-report-${DATE}.md` using this outline:
 
 ```markdown
 # Auto Security Report — {window caption}
 
-Report window: **{start date or PR floor} through {end date}** (base: `{base}`).
+Window: **{start date or PR floor} through {end date} | branch:{name} | spec:{path}** (base: `{base}`).
+Units analyzed: {count} ({N PRs, M branches, L specs}).
+Partial / skipped units: {if any, inline with reasons}.
 
 ## Executive Summary
 
-- Reviewed **{count} merged PRs** in the requested window.
-- **{N}** PRs classified as security-fixes, **{M}** as security-hardening.
-- Top OWASP categories touched this window: {A01, A08, A10}.
-- {one sentence on the single riskiest residual area the reviewer should
-  double-check}.
+- Total findings: {N blocker, M major, L minor, K nit, I info}.
+- Top OWASP categories: {A01, A08, A10}.
+- Top paranoid vectors surfaced across units: {TOCTOU, cache-key
+  cross-tenant leakage, SSRF redirect chain, JWT alg confusion}.
+- Single sentence on the riskiest residual area the reviewer should
+  double-check.
+
+## Consolidated Next Steps — Go Deeper
+
+Every "Next steps" entry produced by per-unit fragments is listed
+here, deduplicated and ordered by expected impact. The single
+highest-impact entry is marked `[recommended]`.
+
+- **[recommended]** `auto-sec-report-pr {target}` — {why}.
+- `auto-sec-report-pr {target}` — {why}.
+- Audit `packages/core/src/modules/sales/` for TOCTOU on concurrent
+  shipment creation — {why}.
+- ...
 
 ## Risk Heatmap
 
-| OWASP Category | Security-fix PRs | Hardening PRs | Adjacent PRs | Notes |
+| OWASP Category | Blocker | Major | Minor | Notes |
 |---|---|---|---|---|
 | A01 Broken Access Control | {n} | {n} | {n} | {one sentence} |
 | A02 Cryptographic Failures | {n} | {n} | {n} | {one sentence} |
 | ... continue through A10 ... | | | | |
-| Out of scope (not OWASP Top 10) | — | — | — | {n} PRs |
+| Out of scope (not OWASP) | — | — | — | {n} findings |
 
-## Security-fix PRs
+## Paranoid Deep Vectors — Coverage Matrix
 
-For each security-fix, one subsection.
+Row per vector, column per unit outcome (`covered`, `risk surfaced`,
+`not applicable`, `inconclusive`). Abbreviated when units are many;
+full tables remain in the per-unit fragments.
 
-### [#{n}]({url}) {title}
+## Per-Unit Findings
 
-- **OWASP:** {A01} (secondary: {A07})
-- **What changed:** {one sentence}
-- **Why it matters:** {one sentence}
-- **Risk if reverted:** {one sentence}
-- **Apply the same fix elsewhere — candidate list:**
-  - `path/to/file.ts` — {one-line justification}
-  - `path/to/otherfile.ts` — {one-line justification}
-  - {up to 10 entries; "None found" is a valid and honest answer}
+{Concatenate every sub-unit fragment here, in queue order. Do not
+rewrite the fragments — keep the per-unit "Next Steps" sections
+intact so a reviewer can trace each consolidated entry back to its
+unit.}
 
-### [#{n}]({url}) {title}
-... repeat ...
+## Appendix — Queue
 
-## Security-hardening PRs
-
-{Same structure as security-fix.}
-
-## Security-adjacent PRs
-
-{One-line entries; group by OWASP category.}
-
-## Codebase cross-check  <!-- only if --deep-scan -->
-
-{Targeted grep findings that are not tied to a specific PR in the
-window. Same shape as apply-elsewhere, but standalone.}
-
-## Appendix: Full PR Inventory (window)
-
-Each item below is one PR from the requested window with OWASP
-classification.
+Each item below is one unit from the window with the exact invocation
+that was run.
 
 ### {YYYY-MM-DD}
 
-- [#{n}]({url}) {title} — OWASP {A01} — {security-fix|hardening|adjacent|non-security}
+- `auto-sec-report-pr pr:{n}` — [#{n}]({url}) {title} — status: {complete|partial|skipped}
+- `auto-sec-report-pr branch:{name}` — status: {...}
 - ...
 ```
 
-Rules for the markdown:
+Rules for the aggregate:
 
-- Every apply-elsewhere candidate MUST cite a file path you actually
-  confirmed exists via Grep. Do not invent paths.
-- If a PR body mentions a CVE, reference the CVE id verbatim; do not
-  paste exploit-style details.
-- Never paste raw tokens, secrets, `.env` content, credentials, private
-  URLs, or internal infrastructure hostnames. Redact to `{REDACTED}`.
-- Keep per-fix narrative tight. Push full enumeration to the appendix.
+- Do NOT paraphrase unit fragments. Include them verbatim under
+  Per-Unit Findings.
+- Deduplicate the consolidated "Next steps" list on exact command
+  equality; keep the highest-severity justification.
+- Mark exactly one `[recommended]` across the consolidated list,
+  even when multiple units each marked their own.
+- Never paste raw diffs, secrets, tokens, `.env` content,
+  credentials, internal hostnames, or user PII. Redact to
+  `{REDACTED}`.
 
-#### 7b. HTML artifact layout
+### 6. Render HTML mirror
 
-Same rules as `auto-qa-scenarios` step 6b. Write stand-alone HTML at
-`.ai/analysis/auto-sec-report-${DATE}.html` with:
+Write `.ai/analysis/auto-sec-report-${DATE}.html` following the HTML
+rules from `.ai/skills/auto-sec-report-pr/SKILL.md` step 6a:
 
-- Inline `<style>` only, no JS, no remote assets.
-- Mirror every section of the markdown (Executive Summary, Risk
-  Heatmap table, Security-fix PRs, Security-hardening PRs,
-  Security-adjacent PRs, optional Codebase cross-check, Appendix).
-- Every PR, issue, and CVE link as `<a href="..." rel="noopener noreferrer">`.
+- Stand-alone `<!DOCTYPE html>`, inline `<style>`, no JS, no remote
+  assets, `rel="noopener noreferrer"` on every link.
+- Mirror every section of the aggregate markdown.
 
-### 8. Validation gate (docs-only)
+### 7. Validation gate (docs-only)
 
-Same as `auto-qa-scenarios` step 7:
+Same as `auto-sec-report-pr` step 7:
 
-- `yarn lint` (frontmatter sanity).
-- `git diff --check`.
-- Manual re-read; spot-check that every PR link resolves.
+- `git diff --check` on the artifact files.
+- Secret-leak grep on the diff before commit.
+- Manual re-read; every PR/issue/CVE link resolves.
 
-Add one security-specific check: before committing, grep the diff for
-accidental secrets:
+### 8. Self-review and BC review
 
-```bash
-git diff origin/develop..HEAD | \
-  grep -Ei "(aws_secret|password\\s*=|bearer\\s+[A-Za-z0-9._-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
-```
+Apply `.ai/skills/code-review/SKILL.md` to the artifact diff. Verify
+no PII, no internal hostnames, no secrets leaked through.
 
-If this matches, stop, redact, recommit, and document in the plan's
-Risks section.
-
-### 9. Self-review and BC review
-
-Apply `.ai/skills/code-review/SKILL.md`. This is docs-only, so the
-contract-surface risk is low — but the exfiltration risk is real.
-Re-read both artifacts and verify no internal URLs, no secrets, and no
-user PII from PR bodies leaked into the report.
-
-### 10. Open the PR
+### 9. Open the PR
 
 Follow `.ai/skills/auto-create-pr/SKILL.md` step 9 with:
 
 - Title: `docs(analysis): add auto-sec-report for {window caption}`.
 - Base: `develop`. Never merge directly.
-- Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}.md` and the
-  correct `Status:` line.
-- Body MUST link both artifacts under `.ai/analysis/` and state the
-  total PR count, security-fix count, and top OWASP categories touched.
+- Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}.md` and
+  the correct `Status:` line.
+- Body MUST link the aggregate markdown + HTML, state the queue size,
+  the blocker/major count, and the top OWASP categories, and repeat
+  the `[recommended]` next step verbatim so the reviewer can trigger
+  the drill-deeper run in one line.
 
-### 11. Labels
+### 10. Labels
 
 Apply in order, each with a short explanatory comment:
 
@@ -363,57 +291,60 @@ Apply in order, each with a short explanatory comment:
 
 Never `needs-qa`.
 
-### 12. Auto-review pass
+### 11. Auto-review pass
 
-Run `.ai/skills/auto-review-pr/SKILL.md` against the new PR in autofix
-mode. Never rewrite history.
+Run `.ai/skills/auto-review-pr/SKILL.md` against the new PR in
+autofix mode. Apply fixes as new commits. Never rewrite history.
 
-### 13. Summary comment
+### 12. Summary comment
 
 Post the comprehensive summary comment required by
-`.ai/skills/auto-create-pr/SKILL.md` step 12. In the **What can go
-wrong** section, be honest about report limitations:
+`.ai/skills/auto-create-pr/SKILL.md` step 12. In the "What can go
+wrong" section, be honest about report limitations:
 
-- Classification is heuristic. PRs with ambiguous security impact may
-  be miscategorised.
-- "Apply elsewhere" candidates are suggestions based on grep patterns.
-  A human reviewer must confirm before any fix is applied.
-- The report is a snapshot of the requested window. It does not replace
-  a full security audit.
+- Findings are aggregated from per-unit heuristic analysis; confirm
+  before acting.
+- "Apply elsewhere" and "Next steps" pointers are suggestions; a
+  human reviewer must confirm.
+- A large window can mask per-unit context; if anything looks
+  surprising, re-run the single-unit skill against the suspect unit.
 
-### 14. Cleanup and resumability
+### 13. Cleanup and resumability
 
 Follow `.ai/skills/auto-create-pr/SKILL.md` step 13.
 
 If the run cannot finish in a single invocation:
 
 1. Leave `Status: in-progress` in the PR body.
-2. Ensure the Progress checklist reflects what actually landed, with
-   commit SHAs on every completed step.
+2. Ensure the Phase-2 Progress checklist reflects which units
+   completed and which are pending, each with commit SHAs and the
+   exact `auto-sec-report-pr` command to resume.
 3. Post a PR comment that says verbatim:
    `🤖 auto-sec-report is not complete. Resume with /auto-continue-pr {prNumber}.`
-4. Release any `in-progress` lock per `auto-continue-pr` rules if one
-   was claimed during this run.
+4. Release any `in-progress` lock per `auto-continue-pr` rules.
 
 ## Rules
 
-- Always deliver as a PR. Never push the report to `develop` directly.
-  Never merge the PR from within this skill.
-- Default window is the last 7 days (UTC) when `{windowSpec}` is omitted.
-- Artifacts go under `.ai/analysis/` with a dated filename. Both markdown
-  and HTML MUST be produced in the same run.
-- Every PR listed in the report MUST carry exactly one primary OWASP
-  Top 10 2021 category or be marked `Out of scope (not OWASP Top 10)`.
-- Apply-elsewhere candidates MUST cite a file path confirmed via Grep.
-  `None found` is a valid and honest answer; never fabricate candidates.
-- Never paste raw diffs, secrets, tokens, `.env` content, credentials,
-  internal hostnames, or user PII into the report. Redact to
-  `{REDACTED}` when encountered.
-- Classification is heuristic; state that explicitly in the summary
-  comment's "What can go wrong" section.
-- Reuse `auto-create-pr` for branch/worktree/commit/validation/label
-  discipline. Do not reinvent those mechanics.
-- On partial completion, leave a `/auto-continue-pr {prNumber}` hand-off
-  comment and keep `Status: in-progress` on the PR body.
-- Labels on this skill's PR: `review`, `documentation`, `security`,
-  `skip-qa`. Never `needs-qa`.
+- This skill delegates per-unit analysis to `auto-sec-report-pr`.
+  Never re-implement the paranoid checks or the "Next steps"
+  production here — always call the sub-unit skill.
+- Always run in an isolated worktree. Never nest worktrees.
+- Always open a docs-only PR against `develop`. Never merge from
+  within this skill.
+- Default window is the last 7 days of merged PRs (UTC) when
+  `{windowSpec}` is omitted.
+- Branch and spec inputs are first-class: a single-entry queue is
+  still a valid driver run; the aggregate format is unchanged.
+- Aggregate markdown concatenates sub-unit fragments verbatim. Do not
+  rewrite them.
+- Consolidated "Next steps" list MUST deduplicate on exact command
+  equality and MUST mark exactly one entry `[recommended]`.
+- Never paste raw diffs, secrets, tokens, `.env` content,
+  credentials, internal hostnames, or user PII.
+- On partial batch runs (a unit skipped or failed), record the reason
+  inline and continue — do not abort the whole driver.
+- On partial completion of the driver itself, leave
+  `Status: in-progress` and post a `/auto-continue-pr {prNumber}`
+  hand-off comment.
+- Labels: `review`, `documentation`, `security`, `skip-qa`. Never
+  `needs-qa`.
