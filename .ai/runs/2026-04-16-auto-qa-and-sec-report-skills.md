@@ -100,3 +100,7 @@ convention so we can use `.ai/analysis/` with a dated `auto-qa-scenarios-*`
 - [x] 4.2 Add `references/deep-attack-vectors.md` paranoid checklist bundled with `auto-sec-report-pr`
 - [x] 4.3 Refactor `auto-sec-report` to loop `auto-sec-report-pr` in sub-unit mode and aggregate per-unit fragments
 - [x] 4.4 Update README.md skills index: new row for `auto-sec-report-pr`, updated row for driver `auto-sec-report`, folder added to structure tree
+
+### Phase 5: CI stabilization
+
+- [x] Post-review fix: restore `YARN_ENABLE_IMMUTABLE_INSTALLS=0` and add `YARN_ENABLE_HARDENED_MODE=0` to the scaffolded standalone-app install steps — resolves YN0028 (lockfile would be modified) triggered by Yarn 4.12 auto-enabling hardened mode on public PR workflows — 2f113173e
