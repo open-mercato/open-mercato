@@ -1,6 +1,6 @@
 ---
 title: Add auto-qa-scenarios and auto-sec-report skills
-status: in-progress
+status: complete
 ---
 
 # Execution Plan — `auto-qa-scenarios` and `auto-sec-report` skills
@@ -92,4 +92,4 @@ convention so we can use `.ai/analysis/` with a dated `auto-qa-scenarios-*`
 
 ### Phase 3: PR delivery
 
-- [ ] 3.1 Push branch and open PR against `develop` (do not merge)
+- [x] 3.1 Push branch and open PR against `develop` (do not merge) — PR #1542
