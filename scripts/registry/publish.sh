@@ -18,6 +18,11 @@ cleanup() {
 
 trap cleanup EXIT
 
+reset_verdaccio_storage() {
+  docker compose rm -sf verdaccio > /dev/null 2>&1 || true
+  docker volume rm -f mercato-verdaccio-storage mercato-verdaccio-plugins > /dev/null 2>&1 || true
+}
+
 wait_for_verdaccio() {
   local attempts=0
   local max_attempts=30
@@ -42,6 +47,7 @@ export NPM_CONFIG_USERCONFIG="$NPMRC_TMP"
 
 echo "Bootstrapping Verdaccio at $REGISTRY_URL..."
 cd "$ROOT_DIR"
+reset_verdaccio_storage
 docker compose up -d verdaccio > /dev/null
 wait_for_verdaccio
 

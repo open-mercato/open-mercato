@@ -32,6 +32,10 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
+import { INVITE_TOKEN_TTL_MS, resolveInviteBaseUrl } from '@open-mercato/core/modules/auth/lib/inviteToken'
+import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 
 type SerializedUser = {
   email: string
@@ -72,10 +76,14 @@ const passwordSchema = buildPasswordSchema()
 
 const createSchema = z.object({
   email: z.string().email(),
-  password: passwordSchema,
+  password: passwordSchema.optional(),
+  sendInviteEmail: z.boolean().optional(),
   organizationId: z.string().uuid(),
   roles: z.array(z.string()).optional(),
-})
+}).refine(
+  (data) => data.password || data.sendInviteEmail,
+  { message: 'Either password or sendInviteEmail is required', path: ['password'] },
+)
 
 const updateSchema = z.object({
   id: z.string().uuid(),
@@ -152,7 +160,9 @@ async function notifyRoleChanges(
   }
 }
 
-const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
+type CreateUserResult = { user: User; warning?: 'invite_email_failed' }
+
+const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResult> = {
   id: 'auth.users.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(createSchema, rawInput)
@@ -168,11 +178,14 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
 
     const emailHash = computeEmailHash(parsed.email)
-    const duplicate = await em.findOne(User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any)
+    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any, {}, { tenantId: null, organizationId: null })
     if (duplicate) await throwDuplicateEmailError()
 
-    const { hash } = await import('bcryptjs')
-    const passwordHash = await hash(parsed.password, 10)
+    let passwordHash: string | null = null
+    if (parsed.password) {
+      const { hash } = await import('bcryptjs')
+      passwordHash = await hash(parsed.password, 10)
+    }
     const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -209,6 +222,12 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       values: custom,
     })
 
+    let inviteEmailSent = false
+    if (parsed.sendInviteEmail) {
+      const inviteResult = await sendInviteToUser(em, user)
+      inviteEmailSent = inviteResult.emailSent
+    }
+
     await emitCrudSideEffects({
       dataEngine: de,
       action: 'created',
@@ -222,39 +241,41 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
       indexer: userCrudIndexer,
     })
 
-    if (assignedRoles.length) {
+    if (assignedRoles.length && !parsed.sendInviteEmail) {
       await notifyRoleChanges(ctx, user, assignedRoles, [])
     }
 
-    return user
+    const warning = (parsed.sendInviteEmail && !inviteEmailSent) ? 'invite_email_failed' as const : undefined
+
+    return { user, warning }
   },
-  captureAfter: async (_input, result, ctx) => {
+  captureAfter: async (_input, { user }, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const roles = await loadUserRoleNames(em, String(result.id))
+    const roles = await loadUserRoleNames(em, String(user.id))
     const custom = await loadUserCustomSnapshot(
       em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null,
-      result.organizationId ? String(result.organizationId) : null
+      String(user.id),
+      user.tenantId ? String(user.tenantId) : null,
+      user.organizationId ? String(user.organizationId) : null
     )
-    return serializeUser(result, roles, custom)
+    return serializeUser(user, roles, custom)
   },
-  buildLog: async ({ result, ctx }) => {
+  buildLog: async ({ result: { user }, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const roles = await loadUserRoleNames(em, String(result.id))
+    const roles = await loadUserRoleNames(em, String(user.id))
     const custom = await loadUserCustomSnapshot(
       em,
-      String(result.id),
-      result.tenantId ? String(result.tenantId) : null,
-      result.organizationId ? String(result.organizationId) : null
+      String(user.id),
+      user.tenantId ? String(user.tenantId) : null,
+      user.organizationId ? String(user.organizationId) : null
     )
-    const snapshot = captureUserSnapshots(result, roles, undefined, custom)
+    const snapshot = captureUserSnapshots(user, roles, undefined, custom)
     return {
       actionLabel: translate('auth.audit.users.create', 'Create user'),
       resourceKind: 'auth.user',
-      resourceId: String(result.id),
-      tenantId: result.tenantId ? String(result.tenantId) : null,
+      resourceId: String(user.id),
+      tenantId: user.tenantId ? String(user.tenantId) : null,
       snapshotAfter: snapshot.view,
       payload: {
         undo: {
@@ -311,6 +332,40 @@ const createUserCommand: CommandHandler<Record<string, unknown>, User> = {
   },
 }
 
+async function sendInviteToUser(
+  em: EntityManager,
+  user: User,
+): Promise<{ emailSent: boolean }> {
+  const rawToken = generateAuthToken()
+  const tokenHash = hashAuthToken(rawToken)
+  const expiresAt = new Date(Date.now() + INVITE_TOKEN_TTL_MS)
+  const row = em.create(PasswordReset, { user, token: tokenHash, expiresAt, createdAt: new Date() })
+  await em.persistAndFlush(row)
+
+  const base = resolveInviteBaseUrl()
+  const inviteUrl = `${base}/reset/${rawToken}`
+
+  const { translate } = await resolveTranslations()
+  const subject = translate('auth.email.invite.subject', 'You have been invited')
+  const copy = {
+    preview: translate('auth.email.invite.preview', 'Set up your account'),
+    title: translate('auth.email.invite.title', 'You have been invited'),
+    body: translate('auth.email.invite.body', 'An administrator has created an account for you. Click the link below to set your password. This link will expire in 48 hours.'),
+    cta: translate('auth.email.invite.cta', 'Set up your password'),
+    hint: translate('auth.email.invite.hint', 'If you did not expect this invitation, you can safely ignore this email.'),
+  }
+
+  let emailSent = true
+  try {
+    await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+  } catch (err) {
+    console.error('[auth.users.invite] Failed to send invitation email:', err)
+    emailSent = false
+  }
+
+  return { emailSent }
+}
+
 function isUniqueViolation(error: unknown): boolean {
   if (error instanceof UniqueConstraintViolationException) return true
   if (!error || typeof error !== 'object') return false
@@ -326,7 +381,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(updateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(User, { id: parsed.id, deletedAt: null })
+    const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
     const roles = await loadUserRoleNames(em, parsed.id)
     const acls = await loadUserAclSnapshots(em, parsed.id)
@@ -347,13 +402,16 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
 
     if (parsed.email !== undefined) {
       const emailHash = computeEmailHash(parsed.email)
-      const duplicate = await em.findOne(
+      const duplicate = await findOneWithDecryption(
+        em,
         User,
         {
           $or: [{ email: parsed.email }, { emailHash }],
           deletedAt: null,
           id: { $ne: parsed.id } as any,
         } as FilterQuery<User>,
+        {},
+        { tenantId: null, organizationId: null },
       )
       if (duplicate) await throwDuplicateEmailError()
     }
@@ -560,7 +618,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   async prepare(input, ctx) {
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(User, { id, deletedAt: null })
+    const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) return {}
     const roles = await loadUserRoleNames(em, id)
     const acls = await loadUserAclSnapshots(em, id)
@@ -630,7 +688,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager)
-    let user = await em.findOne(User, { id: before.id })
+    let user = await findOneWithDecryption(em, User, { id: before.id }, {}, { tenantId: null, organizationId: null })
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
     if (user) {
@@ -697,15 +755,11 @@ async function resolveRole(
   if (UUID_RE.test(value)) {
     const where: Record<string, unknown> = { id: value }
     if (normalizedTenantId !== null) {
-      where.$or = [{ tenantId: normalizedTenantId }, { tenantId: null }]
+      where.tenantId = normalizedTenantId
     }
-    return em.findOne(Role, where as any)
+    return findOneWithDecryption(em, Role, where as any, {}, { tenantId: normalizedTenantId, organizationId: null })
   }
-  let role = await em.findOne(Role, { name: value, tenantId: normalizedTenantId })
-  if (!role && normalizedTenantId !== null) {
-    role = await em.findOne(Role, { name: value, tenantId: null })
-  }
-  return role
+  return findOneWithDecryption(em, Role, { name: value, tenantId: normalizedTenantId }, {}, { tenantId: normalizedTenantId, organizationId: null })
 }
 
 async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string[], tenantId: string | null) {
@@ -729,7 +783,7 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
   }
 
   const desiredIds = new Set(resolvedRoles.map((r) => String(r.id)))
-  const currentLinks = await em.find(UserRole, { user })
+  const currentLinks = await findWithDecryption(em, UserRole, { user }, {}, { tenantId: null, organizationId: null })
   const currentRoleIds = new Map(
     currentLinks.map((link) => {
       const roleId = String(link.role?.id ?? (link.role as unknown as string) ?? '')
@@ -803,7 +857,7 @@ function captureUserSnapshots(
 }
 
 async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<UserAclSnapshot[]> {
-  const list = await em.find(UserAcl, { user: userId as unknown as User })
+  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User }, {}, { tenantId: null, organizationId: null })
   return list.map((acl) => ({
     tenantId: String(acl.tenantId),
     features: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,

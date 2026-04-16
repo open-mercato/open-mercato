@@ -1,7 +1,7 @@
 {
   "name": "Open Mercato",
   "initializeCommand": "bash .devcontainer/scripts/generate-compose-volumes.sh",
-  "dockerComposeFile": ["docker-compose.yml", "docker-compose.volumes.yml"],
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.volumes.yml", "docker-compose.local.yml"],
   "service": "workspace",
   "workspaceFolder": "/workspace",
   "remoteUser": "node",
@@ -9,9 +9,10 @@
   "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
   "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
 
-  "forwardPorts": [3000, "postgres:5432", "redis:6379", "meilisearch:7700"],
+  "forwardPorts": [3000, 4000, "postgres:5432", "redis:6379", "meilisearch:7700"],
   "portsAttributes": {
     "3000": { "label": "App", "onAutoForward": "notify" },
+    "4000": { "label": "Dev Splash", "onAutoForward": "notify" },
     "5432": { "label": "PostgreSQL", "onAutoForward": "silent" },
     "6379": { "label": "Redis", "onAutoForward": "silent" },
     "7700": { "label": "Meilisearch", "onAutoForward": "silent" }

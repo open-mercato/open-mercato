@@ -13,6 +13,7 @@ import { z } from 'zod'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
+import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 
 const resetRateLimitConfig = readEndpointRateLimitConfig('RESET', {
   points: 3, duration: 60, blockDuration: 60, keyPrefix: 'reset',
@@ -41,8 +42,7 @@ export async function POST(req: Request) {
   const resReq = await auth.requestPasswordReset(parsed.data.email)
   if (!resReq) return NextResponse.json({ ok: true })
   const { user, token } = resReq
-  const url = new URL(req.url)
-  const base = process.env.APP_URL || `${url.protocol}//${url.host}`
+  const base = getAppBaseUrl(req)
   const resetUrl = `${base}/reset/${token}`
 
   const { translate } = await resolveTranslations()
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true })
 }
 
-export const metadata = {}
+export const metadata = { requireAuth: false }
 
 const passwordResetRequestSchema = z.object({
   email: z.string().email(),

@@ -123,7 +123,7 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 ## CRITICAL rules — always follow without exception
 
 1. **After editing any entity file**: run `yarn mercato db generate` (never hand-write migrations)
-2. **After editing `src/modules.ts`** or any module file: run `yarn generate`
+2. **After editing `src/modules.ts`** or any structural module file: run `yarn generate`
 3. **Never edit `.mercato/generated/*`** — auto-generated. Never edit `node_modules/@open-mercato/*` — eject instead.
 4. **Confirm migrations with user** before running `yarn mercato db migrate`
 5. **BEFORE writing ANY code**, you MUST:
@@ -136,6 +136,8 @@ Register in `src/modules.ts`: `{ id: '<id>', from: '@app' }`
 ## Additional Conventions
 
 - Custom modules use `from: '@app'` in `src/modules.ts`
+- Standalone apps expose `yarn mercato configs cache ...` because the template enables the `configs` module from `@open-mercato/core`
+- `yarn generate` automatically runs a best-effort structural cache purge (`yarn mercato configs cache structural --all-tenants`) after successful generation; if the cache command is unavailable, generation still succeeds
 - Sidebar icons MUST use `lucide-react` components — never inline SVG via `React.createElement`
 - `page.meta.ts` MUST include `pageGroup`, `pageGroupKey`, and `pageOrder` for sidebar grouping
 - Settings pages MUST use `pageContext: 'settings' as const` with `navHidden: true`
@@ -192,8 +194,10 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 
 | Command | Purpose |
 |---|---|
-| `yarn dev` | Start dev server |
+| `yarn dev` | Start compact dev runtime (`d` toggles raw logs) |
+| `yarn dev:verbose` | Start dev runtime with full raw passthrough logs |
 | `yarn generate` | Regenerate `.mercato/generated/` |
+| `yarn mercato configs cache structural --all-tenants` | Manually purge structural navigation/sidebar cache entries |
 | `yarn mercato module add <package>` | Install and enable an official module package |
 | `yarn mercato db generate` | Create migration for entity changes |
 | `yarn mercato db migrate` | Apply pending migrations |

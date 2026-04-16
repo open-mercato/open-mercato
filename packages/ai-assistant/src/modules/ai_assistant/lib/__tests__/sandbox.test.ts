@@ -182,6 +182,44 @@ describe('createSandbox', () => {
       )
       expect(result.error).toBeDefined()
     })
+
+    it('blocks prototype-chain escape via Object.constructor.constructor', async () => {
+      const sandbox = createSandbox({})
+      const result = await sandbox.execute(
+        "async () => Object.constructor('return process')()"
+      )
+      expect(result.result).toBeFalsy()
+      expect(result.error).toBeDefined()
+    })
+
+    it('blocks prototype-chain escape via Array.constructor.constructor', async () => {
+      const sandbox = createSandbox({})
+      const result = await sandbox.execute(
+        "async () => Array.constructor('return this')()"
+      )
+      const leaked = result.result as Record<string, unknown> | null | undefined
+      const gotHostProcess = typeof leaked === 'object' && leaked !== null
+        && typeof (leaked as { process?: unknown }).process === 'object'
+        && (leaked as { process?: { pid?: unknown } }).process?.pid !== undefined
+      expect(gotHostProcess).toBe(false)
+    })
+
+    it('blocks prototype-chain escape via Promise.constructor.constructor', async () => {
+      const sandbox = createSandbox({})
+      const result = await sandbox.execute(
+        "async () => Promise.constructor('return process.env')()"
+      )
+      const leaked = result.result as Record<string, unknown> | null | undefined
+      expect(leaked === undefined || leaked === null || Object.keys(leaked as object).length === 0).toBe(true)
+    })
+
+    it('blocks (() => {}).constructor escape', async () => {
+      const sandbox = createSandbox({})
+      const result = await sandbox.execute(
+        "async () => ((()=>{}).constructor)('return process.mainModule.require(\"child_process\").execSync(\"id\").toString()')()"
+      )
+      expect(result.error).toBeDefined()
+    })
   })
 
   describe('allowed built-ins', () => {

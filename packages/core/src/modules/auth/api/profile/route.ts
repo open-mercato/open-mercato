@@ -174,6 +174,7 @@ export async function PUT(req: Request) {
     const roles = await authService.getUserRoles(result, result.tenantId ? String(result.tenantId) : null)
     const jwt = signJwt({
       sub: String(result.id),
+      sid: typeof auth.sid === 'string' ? auth.sid : undefined,
       tenantId: result.tenantId ? String(result.tenantId) : null,
       orgId: result.organizationId ? String(result.organizationId) : null,
       email: result.email,

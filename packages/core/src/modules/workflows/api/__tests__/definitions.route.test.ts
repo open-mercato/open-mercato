@@ -12,6 +12,10 @@ import {
   DELETE as deleteDefinition,
 } from '../definitions/[id]/route'
 import { WorkflowDefinition, WorkflowInstance } from '../../data/entities'
+import {
+  expectListHandlerOmitsOrganizationForWildcardScope,
+  expectListHandlerScopesToFilterIds,
+} from './helpers/orgScopeAssertions'
 
 // Mock dependencies
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -130,7 +134,7 @@ describe('Workflow Definitions API', () => {
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
           deletedAt: null,
         }),
         expect.any(Object)
@@ -220,6 +224,30 @@ describe('Workflow Definitions API', () => {
       expect(response.status).toBe(500)
       const data = await response.json()
       expect(data.error).toBeDefined()
+    })
+
+    test('should scope across all permitted orgs when filterIds has multiple entries', async () => {
+      const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+      await expectListHandlerScopesToFilterIds({
+        Entity: WorkflowDefinition,
+        findAndCount: mockEm.findAndCount,
+        resolveScope: resolveOrganizationScopeForRequest,
+        runHandler: () => listDefinitions(new NextRequest('http://localhost/api/workflows/definitions')),
+        tenantId: testTenantId,
+        extraWhere: { deletedAt: null },
+      })
+    })
+
+    test('should omit organization filter when scope resolves to wildcard (filterIds null)', async () => {
+      const { resolveOrganizationScopeForRequest } = require('@open-mercato/core/modules/directory/utils/organizationScope')
+      await expectListHandlerOmitsOrganizationForWildcardScope({
+        Entity: WorkflowDefinition,
+        findAndCount: mockEm.findAndCount,
+        resolveScope: resolveOrganizationScopeForRequest,
+        runHandler: () => listDefinitions(new NextRequest('http://localhost/api/workflows/definitions')),
+        tenantId: testTenantId,
+        extraWhere: { deletedAt: null },
+      })
     })
   })
 
@@ -460,7 +488,7 @@ describe('Workflow Definitions API', () => {
         expect.objectContaining({
           id: 'def-1',
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
           deletedAt: null,
         })
       )
@@ -486,7 +514,7 @@ describe('Workflow Definitions API', () => {
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         })
       )
     })
@@ -783,7 +811,7 @@ describe('Workflow Definitions API', () => {
         WorkflowDefinition,
         expect.objectContaining({
           tenantId: testTenantId,
-          organizationId: testOrgId,
+          organizationId: { $in: [testOrgId] },
         }),
         expect.any(Object)
       )
