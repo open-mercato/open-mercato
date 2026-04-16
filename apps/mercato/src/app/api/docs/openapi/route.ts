@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { modules } from '@/.mercato/generated/modules.generated'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { buildOpenApiDocument, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
@@ -16,6 +17,11 @@ function resolveBaseUrl() {
 }
 
 export async function GET() {
+  const auth = await getAuthFromCookies()
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { t } = await resolveTranslations()
   const baseUrl = resolveBaseUrl()
   const rawDoc = buildOpenApiDocument(modules, {

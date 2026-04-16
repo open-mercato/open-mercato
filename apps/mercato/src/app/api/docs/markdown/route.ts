@@ -1,4 +1,5 @@
 import { modules } from '@/.mercato/generated/modules.generated'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { buildOpenApiDocument, generateMarkdownFromOpenApi, sanitizeOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
@@ -15,6 +16,17 @@ function resolveBaseUrl() {
 }
 
 export async function GET() {
+  const auth = await getAuthFromCookies()
+  if (!auth) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+    })
+  }
+
   const { t } = await resolveTranslations()
   const baseUrl = resolveBaseUrl()
   const rawDoc = buildOpenApiDocument(modules, {
