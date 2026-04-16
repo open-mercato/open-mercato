@@ -676,7 +676,7 @@ export default function MyTimesheetsPage() {
 
         {/* Content: Grid or List */}
         <div className={isRefreshing ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
-        {projects.length === 0 ? (
+        {allAssignedProjects.length === 0 ? (
           <div className="py-12 text-center">
             <p className="text-lg font-semibold mb-2">
               {t('staff.timesheets.my.noProjects.title', 'No projects assigned yet')}
