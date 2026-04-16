@@ -2301,6 +2301,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }
 
+  // Tracks the last loader function observed per field id so we can invalidate cached
+  // options when callers rebuild loaders that capture different state (e.g. a tenant id).
+  const dynamicOptionLoadersRef = React.useRef<
+    Map<string, ((query?: string) => Promise<CrudFieldOption[]>) | undefined>
+  >(new Map())
+
   // Stable key prevents infinite re-render loop (see #814) — do not depend on allFields directly.
   React.useEffect(() => {
     let cancelled = false
@@ -2312,6 +2318,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         )
         .map(async (f) => {
           try {
+            dynamicOptionLoadersRef.current.set(f.id, f.loadOptions)
             const opts = await f.loadOptions()
             if (!cancelled) setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
           } catch {
@@ -2331,7 +2338,16 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const builtin = field as CrudBuiltinField
     const loader = builtin.loadOptions
     if (typeof loader === 'function') {
-      if (query === undefined && Array.isArray(dynamicOptions[field.id])) return dynamicOptions[field.id]
+      const previousLoader = dynamicOptionLoadersRef.current.get(field.id)
+      const loaderChanged = previousLoader !== loader
+      dynamicOptionLoadersRef.current.set(field.id, loader)
+      if (
+        query === undefined &&
+        !loaderChanged &&
+        Array.isArray(dynamicOptions[field.id])
+      ) {
+        return dynamicOptions[field.id]
+      }
       try {
         const fetched = await loader(query)
         if (query === undefined) {
