@@ -2,13 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Phone, Mail, Building2, Trash2, MoreHorizontal, Pencil, Plus } from 'lucide-react'
+import { Phone, Mail, Building2, Trash2, Pencil, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { useQueryClient } from '@tanstack/react-query'
 import { PersonTagsDialog } from './PersonTagsDialog'
 import { useCustomerDictionary, invalidateCustomerDictionary } from './hooks/useCustomerDictionary'
@@ -97,6 +96,10 @@ export function PersonDetailHeader({
         : []
     return items
   }, [data.companies, data.company, data.isPrimary])
+  const visibleCompanies = React.useMemo(() => linkedCompanies.slice(0, 3), [linkedCompanies])
+  const hiddenCompaniesCount = Math.max(0, linkedCompanies.length - visibleCompanies.length)
+  const visibleTags = React.useMemo(() => data.tags.slice(0, 6), [data.tags])
+  const hiddenTagsCount = Math.max(0, data.tags.length - visibleTags.length)
   const primaryCompany = linkedCompanies.find((entry) => entry.isPrimary) ?? linkedCompanies[0] ?? null
   const companyName = primaryCompany?.displayName ?? null
   const companyId = primaryCompany?.id ?? profile?.companyEntityId ?? null
@@ -165,7 +168,7 @@ export function PersonDetailHeader({
                 <Building2 className="mr-1 inline size-3.5" />
                 {t('customers.people.detail.header.companies', 'Companies')} ({linkedCompanies.length}):
               </span>
-              {linkedCompanies.map((company) => (
+              {visibleCompanies.map((company) => (
                 <Link
                   key={company.id}
                   href={`/backend/customers/companies-v2/${company.id}`}
@@ -185,6 +188,11 @@ export function PersonDetailHeader({
                   ) : null}
                 </Link>
               ))}
+              {hiddenCompaniesCount > 0 ? (
+                <Badge variant="outline" className="rounded-[4px] text-[11px] font-semibold">
+                  +{hiddenCompaniesCount} {t('customers.people.detail.header.more', 'more')}
+                </Badge>
+              ) : null}
               {onOpenCompaniesTab ? (
                 <Button
                   type="button"
@@ -218,9 +226,14 @@ export function PersonDetailHeader({
               <DictionaryBadge value={person.renewalQuarter} map={renewalQuarterDict?.map} />
             )}
             {/* Inline tag pills */}
-            {data.tags.map((tag) => (
+            {visibleTags.map((tag) => (
               <TagBadge key={tag.id ?? tag.label} tag={tag} />
             ))}
+            {hiddenTagsCount > 0 ? (
+              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium">
+                +{hiddenTagsCount} {t('customers.people.detail.header.more', 'more')}
+              </Badge>
+            ) : null}
             {/* Manage tags — opens dialog directly */}
             <Button
               type="button"
@@ -235,27 +248,19 @@ export function PersonDetailHeader({
           </div>
         </div>
 
-        {/* Right side: actions — Delete hidden in ⋯ menu (annotation 1b) */}
+        {/* Right side: actions */}
         <div className="flex w-full shrink-0 items-center justify-start gap-2 sm:w-auto sm:justify-end">
-          <Popover>
-            <PopoverTrigger asChild>
-              <IconButton variant="outline" size="sm" type="button" aria-label={t('customers.people.detail.actions.more', 'More')}>
-                <MoreHorizontal className="size-4" />
-              </IconButton>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-48 p-1">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="w-full justify-start text-destructive hover:text-destructive"
-                onClick={onDelete}
-              >
-                <Trash2 className="mr-2 size-4" />
-                {t('customers.people.detail.actions.delete', 'Delete')}
-              </Button>
-            </PopoverContent>
-          </Popover>
+          <IconButton
+            variant="outline"
+            size="sm"
+            type="button"
+            aria-label={t('customers.people.detail.actions.delete', 'Delete')}
+            onClick={() => {
+              void onDelete()
+            }}
+          >
+            <Trash2 className="size-4" />
+          </IconButton>
           <Button
             type="button"
             size="sm"
@@ -278,6 +283,7 @@ export function PersonDetailHeader({
           temperature: person.temperature,
           renewalQuarter: person.renewalQuarter,
           jobTitle: data.profile?.jobTitle ?? null,
+          customFields: data.customFields,
           tags: data.tags,
         }}
         onSaved={() => {

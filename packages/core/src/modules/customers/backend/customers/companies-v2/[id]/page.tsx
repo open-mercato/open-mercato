@@ -11,6 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -44,6 +45,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
 
@@ -81,6 +83,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
+  const [dealCount, setDealCount] = React.useState(0)
 
   const currentCompanyId = data?.company?.id ?? null
   const mutationContextId = React.useMemo(
@@ -117,12 +120,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     }
     setError(null)
     try {
-      const search = new URLSearchParams()
-      search.append('include', 'todos')
-      search.append('include', 'people')
-      search.append('include', 'interactions')
       const payload = await readApiResultOrThrow<CompanyOverview>(
-        `/api/customers/companies/${encodeURIComponent(id)}?${search.toString()}`,
+        `/api/customers/companies/${encodeURIComponent(id)}`,
         undefined,
         { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
       )
@@ -141,6 +140,10 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     loadData().catch(() => {})
   }, [loadData])
 
+  React.useEffect(() => {
+    setDealCount(data?.counts?.deals ?? 0)
+  }, [data?.counts?.deals])
+
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
     loadData().catch(() => {})
@@ -148,9 +151,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   // Planned activities for the activity-log tab
   const plannedActivities = React.useMemo(() => {
-    const interactions = data?.interactions ?? []
-    return interactions.filter((i) => i.status === 'planned' && i.interactionType !== 'task')
-  }, [data?.interactions])
+    return data?.plannedActivitiesPreview ?? []
+  }, [data?.plannedActivitiesPreview])
 
   // Injection context for UMES
   const injectionContext = React.useMemo(
@@ -178,12 +180,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const handleMarkDone = React.useCallback(async (interactionId: string) => {
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow(`/api/customers/interactions?id=${encodeURIComponent(interactionId)}`, {
-          method: 'PUT',
+        () => apiCallOrThrow('/api/customers/interactions/complete', {
+          method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ status: 'done', occurredAt: new Date().toISOString() }),
+          body: JSON.stringify({ id: interactionId, occurredAt: new Date().toISOString() }),
         }),
-        { id: interactionId, status: 'done' },
+        { id: interactionId, status: 'done', operation: 'completeActivity' },
       )
       flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
       handleActivityCreated()
@@ -289,10 +291,23 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   // Delete handler (shared between header and form)
   const handleDelete = React.useCallback(async () => {
-    await deleteCrud('customers/companies', { id: data?.company?.id ?? '' })
+    const companyId = data?.company?.id ?? ''
+    if (!companyId) return
+    const approved = await confirm({
+      title: t('customers.companies.detail.deleteConfirmTitle', 'Delete company?'),
+      description: t('customers.companies.detail.deleteConfirmDescription', 'This action cannot be undone.'),
+      confirmText: t('customers.companies.detail.actions.delete', 'Delete company'),
+      cancelText: t('customers.companies.detail.actions.cancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!approved) return
+    await runMutationWithContext(
+      () => deleteCrud('customers/companies', { id: companyId }),
+      { id: companyId, operation: 'deleteCompany' },
+    )
     flash(t('customers.companies.list.deleteSuccess', 'Company deleted.'), 'success')
     router.push('/backend/customers/companies')
-  }, [data?.company?.id, router, t])
+  }, [confirm, data?.company?.id, router, runMutationWithContext, t])
 
   // Form submit handler (lifted from CompanyDataTab)
   const handleFormSubmit = React.useCallback(
@@ -417,15 +432,15 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
-                peopleCount={data.people?.length ?? 0}
-                dealsCount={data.deals?.length ?? 0}
-                activitiesCount={data.interactions?.length ?? 0}
+                peopleCount={data.counts?.people ?? 0}
+                dealsCount={dealCount}
+                activitiesCount={data.counts?.activities ?? 0}
               >
                 {activeTab === 'people' && (
                   <CompanyPeopleSection
                     companyId={companyId}
                     companyName={data.company?.displayName ?? ''}
-                    initialPeople={data.people ?? []}
+                    initialPeople={[]}
                     addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
                     emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
                     emptyState={{
@@ -434,10 +449,17 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     }}
                     onActionChange={handleSectionActionChange}
                     translator={detailTranslator}
-                    onDataRefresh={loadData}
                     runGuardedMutation={runMutationWithContext}
                     onPeopleChange={(next) => {
-                      setData((prev) => (prev ? { ...prev, people: next } : prev))
+                      setData((prev) => {
+                        if (!prev) return prev
+                        const nextCount = next.length
+                        return {
+                          ...prev,
+                          people: next,
+                          counts: prev.counts ? { ...prev.counts, people: nextCount } : prev.counts,
+                        }
+                      })
                     }}
                   />
                 )}
@@ -453,6 +475,8 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     }}
                     onActionChange={handleSectionActionChange}
                     translator={detailTranslator}
+                    runGuardedMutation={runMutationWithContext}
+                    onCountDelta={(delta) => setDealCount((current) => Math.max(0, current + delta))}
                   />
                 )}
 
@@ -503,6 +527,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onActivityCreated={handleActivityCreated}
             editData={scheduleEditData}
           />
+          {ConfirmDialogElement}
         </div>
       </PageBody>
     </Page>

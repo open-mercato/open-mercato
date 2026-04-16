@@ -7,7 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
-import { fetchAssignableStaffMembers } from '../assignableStaff'
+import { fetchAssignableStaffMembersPage } from '../assignableStaff'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible } from './fieldConfig'
 import type { Participant, RsvpStatus } from './useScheduleFormState'
@@ -16,31 +16,45 @@ import { PARTICIPANT_COLORS } from './useScheduleFormState'
 function ParticipantSearchPopover({
   existingIds,
   onAdd,
+  onAddMany,
   t,
 }: {
   existingIds: Set<string>
   onAdd: (p: Participant) => void
+  onAddMany: (participants: Participant[]) => void
   t: (key: string, fallback: string) => string
 }) {
   const [open, setOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ userId: string; name: string; email: string }>>([])
+  const [page, setPage] = React.useState(1)
+  const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
+  const selectableResults = React.useMemo(
+    () => results.filter((result) => !existingIds.has(result.userId)),
+    [existingIds, results],
+  )
 
   React.useEffect(() => {
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
-    fetchAssignableStaffMembers(query, { pageSize: 10, signal: controller.signal })
-      .then((members) => {
-        setResults(
-          members.map((member) => ({
-            userId: member.userId,
-            name: member.displayName,
-            email: member.email ?? '',
-          })),
-        )
+    fetchAssignableStaffMembersPage(query, { page, pageSize: 20, signal: controller.signal })
+      .then((result) => {
+        const members = result.items
+        const nextResults = members.map((member) => ({
+          userId: member.userId,
+          name: member.displayName,
+          email: member.email ?? '',
+        }))
+        setResults((current) => {
+          if (page <= 1) return nextResults
+          const merged = new Map(current.map((entry) => [entry.userId, entry]))
+          nextResults.forEach((entry) => merged.set(entry.userId, entry))
+          return Array.from(merged.values())
+        })
+        setTotalPages(result.total > 0 ? Math.max(1, Math.ceil(result.total / result.pageSize)) : 1)
         setLoadError(null)
       })
       .catch(() => {
@@ -54,7 +68,12 @@ function ParticipantSearchPopover({
       })
       .finally(() => setLoading(false))
     return () => controller.abort()
-  }, [open, query, t])
+  }, [open, page, query, t])
+
+  React.useEffect(() => {
+    if (!open) return
+    setPage(1)
+  }, [open, query])
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -76,6 +95,30 @@ function ParticipantSearchPopover({
             autoFocus
           />
         </div>
+        {selectableResults.length ? (
+          <div className="mb-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                onAddMany(
+                  selectableResults.map((participant, index) => ({
+                    userId: participant.userId,
+                    name: participant.name,
+                    email: participant.email,
+                    color: PARTICIPANT_COLORS[(existingIds.size + index) % PARTICIPANT_COLORS.length],
+                  })),
+                )
+                setOpen(false)
+                setQuery('')
+              }}
+            >
+              {t('customers.schedule.addVisibleParticipants', 'Add all visible')}
+            </Button>
+          </div>
+        ) : null}
         <div className="max-h-48 overflow-y-auto space-y-0.5">
           {loading && <p className="px-2 py-3 text-xs text-muted-foreground text-center">{t('customers.schedule.searching', 'Searching...')}</p>}
           {!loading && loadError && <p className="px-2 py-3 text-xs text-destructive text-center">{loadError}</p>}
@@ -107,6 +150,13 @@ function ParticipantSearchPopover({
               </Button>
             )
           })}
+          {!loading && !loadError && page < totalPages ? (
+            <div className="px-2 py-2">
+              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
+                {t('customers.schedule.loadMore', 'Load more')}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>
@@ -156,6 +206,12 @@ export function ParticipantsField({
         <ParticipantSearchPopover
           existingIds={new Set(participants.map((p) => p.userId))}
           onAdd={(p) => setParticipants((prev) => [...prev, { ...p, status: 'pending' as RsvpStatus }])}
+          onAddMany={(nextParticipants) => {
+            setParticipants((prev) => [
+              ...prev,
+              ...nextParticipants.map((participant) => ({ ...participant, status: 'pending' as RsvpStatus })),
+            ])
+          }}
           t={t}
         />
       </div>

@@ -36,6 +36,25 @@ jest.mock('../CreatePersonDialog', () => ({
   }) => (open ? <div>Add new person</div> : null),
 }))
 
+jest.mock('../PersonCard', () => ({
+  PersonCard: ({
+    person,
+    onUnlink,
+  }: {
+    person: CompanyPersonSummary
+    onUnlink: (personId: string) => void
+  }) => (
+    <div>
+      <span>{person.displayName}</span>
+      <button type="button" onClick={() => onUnlink(person.id)}>Unlink</button>
+    </div>
+  ),
+}))
+
+jest.mock('../DecisionMakersFooter', () => ({
+  DecisionMakersFooter: () => null,
+}))
+
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) => (open ? <div>{children}</div> : null),
   DialogContent: ({ children, ...props }: React.HTMLAttributes<HTMLDivElement>) => <div data-testid="dialog-content" {...props}>{children}</div>,
@@ -51,14 +70,37 @@ describe('CompanyPeopleSection', () => {
     actionLabel: 'Create person',
   }
 
+  function mockCompanyPeopleApi(options?: {
+    linkedPeople?: CompanyPersonSummary[]
+    searchItems?: Array<Record<string, unknown>>
+  }) {
+    const linkedPeople = options?.linkedPeople ?? []
+    const searchItems = options?.searchItems ?? []
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/companies/company-123/people')) {
+        return {
+          items: linkedPeople,
+          page: 1,
+          total: linkedPeople.length,
+          totalPages: 1,
+        }
+      }
+      return {
+        items: searchItems,
+        totalPages: 1,
+      }
+    })
+  }
+
   beforeEach(() => {
     pushMock.mockReset()
     flashMock.mockReset()
     apiCallOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockReset()
+    mockCompanyPeopleApi()
   })
 
-  it('opens the inline create dialog from the empty state', () => {
+  it('opens the inline create dialog from the empty state', async () => {
     renderWithProviders(
       <CompanyPeopleSection
         companyId="company-123"
@@ -69,7 +111,7 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create person' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Create person' }))
 
     expect(screen.getByText('Add new person')).toBeInTheDocument()
   })
@@ -77,8 +119,8 @@ describe('CompanyPeopleSection', () => {
   it('links an existing person through the guarded mutation path', async () => {
     const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
     const onPeopleChange = jest.fn()
-    readApiResultOrThrowMock.mockResolvedValue({
-      items: [
+    mockCompanyPeopleApi({
+      searchItems: [
         {
           id: 'person-2',
           display_name: 'Ada Lovelace',
@@ -134,8 +176,8 @@ describe('CompanyPeopleSection', () => {
   it('links multiple existing people from the same dialog', async () => {
     const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
     const onPeopleChange = jest.fn()
-    readApiResultOrThrowMock.mockResolvedValue({
-      items: [
+    mockCompanyPeopleApi({
+      searchItems: [
         {
           id: 'person-2',
           display_name: 'Ada Lovelace',
@@ -198,10 +240,94 @@ describe('CompanyPeopleSection', () => {
     })
   })
 
+  it('selects all visible candidates and updates the visible people list without a reload', async () => {
+    let linkedPeople: CompanyPersonSummary[] = []
+    const searchablePeople = [
+      {
+        id: 'person-2',
+        display_name: 'Ada Lovelace',
+        primary_email: 'ada@example.com',
+      },
+      {
+        id: 'person-3',
+        display_name: 'Grace Hopper',
+        primary_email: 'grace@example.com',
+      },
+    ]
+
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/companies/company-123/people')) {
+        return {
+          items: linkedPeople,
+          page: 1,
+          total: linkedPeople.length,
+          totalPages: 1,
+        }
+      }
+      return {
+        items: searchablePeople,
+        totalPages: 1,
+      }
+    })
+    apiCallOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.includes('/people/person-2/companies')) {
+        linkedPeople = [
+          {
+            id: 'person-2',
+            displayName: 'Ada Lovelace',
+            primaryEmail: 'ada@example.com',
+          },
+        ]
+      }
+      if (url.includes('/people/person-3/companies')) {
+        linkedPeople = [
+          {
+            id: 'person-2',
+            displayName: 'Ada Lovelace',
+            primaryEmail: 'ada@example.com',
+          },
+          {
+            id: 'person-3',
+            displayName: 'Grace Hopper',
+            primaryEmail: 'grace@example.com',
+          },
+        ]
+      }
+      return { ok: true }
+    })
+
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Select visible' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select visible' }))
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Link selected' }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+      expect(screen.getByText('Grace Hopper')).toBeInTheDocument()
+    })
+  })
+
   it('submits the link dialog on Cmd/Ctrl+Enter', async () => {
     const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
-    readApiResultOrThrowMock.mockResolvedValue({
-      items: [
+    mockCompanyPeopleApi({
+      searchItems: [
         {
           id: 'person-2',
           display_name: 'Ada Lovelace',
@@ -243,15 +369,35 @@ describe('CompanyPeopleSection', () => {
   it('does not trigger a setState-in-render warning when the parent syncs linked people', async () => {
     const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
-    readApiResultOrThrowMock.mockResolvedValue({
-      items: [
+    let linkedPeople: CompanyPersonSummary[] = []
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/companies/company-123/people')) {
+        return {
+          items: linkedPeople,
+          page: 1,
+          total: linkedPeople.length,
+          totalPages: 1,
+        }
+      }
+      return {
+        items: [
+          {
+            id: 'person-2',
+            display_name: 'Ada Lovelace',
+          },
+        ],
+        totalPages: 1,
+      }
+    })
+    apiCallOrThrowMock.mockImplementation(async () => {
+      linkedPeople = [
         {
           id: 'person-2',
-          display_name: 'Ada Lovelace',
+          displayName: 'Ada Lovelace',
         },
-      ],
+      ]
+      return { ok: true }
     })
-    apiCallOrThrowMock.mockResolvedValue({ ok: true })
 
     function Harness() {
       const [people, setPeople] = React.useState<CompanyPersonSummary[]>([])
@@ -300,6 +446,7 @@ describe('CompanyPeopleSection', () => {
         displayName: 'Grace Hopper',
       },
     ]
+    mockCompanyPeopleApi({ linkedPeople: initialPeople })
     apiCallOrThrowMock.mockResolvedValue({ ok: true })
 
     renderWithProviders(
@@ -313,6 +460,10 @@ describe('CompanyPeopleSection', () => {
         runGuardedMutation={runGuardedMutation}
       />,
     )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Unlink' })).toBeInTheDocument()
+    })
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Unlink' }))
@@ -331,6 +482,14 @@ describe('CompanyPeopleSection', () => {
 
   it('keeps the add-person section action configured after the first person is linked', () => {
     const onActionChange = jest.fn()
+    mockCompanyPeopleApi({
+      linkedPeople: [
+        {
+          id: 'person-1',
+          displayName: 'Grace Hopper',
+        },
+      ],
+    })
 
     renderWithProviders(
       <CompanyPeopleSection
@@ -356,7 +515,85 @@ describe('CompanyPeopleSection', () => {
     )
   })
 
+  it('keeps visible candidates mounted while loading more people', async () => {
+    let resolvePageTwo: ((value: { items: Array<Record<string, unknown>>; totalPages: number }) => void) | null = null
+
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/customers/companies/company-123/people')) {
+        return {
+          items: [],
+          page: 1,
+          total: 0,
+          totalPages: 1,
+        }
+      }
+      const parsed = new URL(url, 'http://localhost')
+      const page = Number(parsed.searchParams.get('page') ?? '1')
+      if (page === 1) {
+        return {
+          items: [
+            {
+              id: 'person-2',
+              display_name: 'Ada Lovelace',
+              primary_email: 'ada@example.com',
+            },
+          ],
+          totalPages: 2,
+        }
+      }
+      return new Promise<{ items: Array<Record<string, unknown>>; totalPages: number }>((resolve) => {
+        resolvePageTwo = resolve
+      })
+    })
+
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
+    expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more people' }))
+
+    await waitFor(() => {
+      expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Load more people' })).toBeDisabled()
+    })
+
+    await act(async () => {
+      resolvePageTwo?.({
+        items: [
+          {
+            id: 'person-3',
+            display_name: 'Grace Hopper',
+            primary_email: 'grace@example.com',
+          },
+        ],
+        totalPages: 2,
+      })
+    })
+
+    expect(await screen.findByText('Grace Hopper')).toBeInTheDocument()
+    expect(screen.getByText('Ada Lovelace')).toBeInTheDocument()
+  })
+
   it('shows the people search controls by default when linked people exist', () => {
+    mockCompanyPeopleApi({
+      linkedPeople: [
+        {
+          id: 'person-1',
+          displayName: 'Grace Hopper',
+          primaryEmail: 'grace@example.com',
+        },
+      ],
+    })
+
     renderWithProviders(
       <CompanyPeopleSection
         companyId="company-123"

@@ -305,6 +305,10 @@ export class CustomerCompanyProfile {
 
 @Entity({ tableName: 'customer_deals' })
 @Index({ name: 'customer_deals_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'customer_deals_closure_stats_idx',
+  properties: ['organizationId', 'tenantId', 'closureOutcome', 'updatedAt'],
+})
 export class CustomerDeal {
   [OptionalProps]?: 'status' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -382,6 +386,59 @@ export class CustomerDeal {
 
   @OneToMany(() => CustomerComment, (comment) => comment.deal)
   comments = new Collection<CustomerComment>(this)
+
+  @OneToMany(() => CustomerDealStageTransition, (transition) => transition.deal)
+  stageTransitions = new Collection<CustomerDealStageTransition>(this)
+}
+
+@Entity({ tableName: 'customer_deal_stage_transitions' })
+@Index({ name: 'customer_deal_stage_transitions_deal_idx', properties: ['deal'] })
+@Index({ name: 'customer_deal_stage_transitions_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Unique({ name: 'customer_deal_stage_transitions_deal_stage_uq', properties: ['deal', 'stageId'] })
+export class CustomerDealStageTransition {
+  [OptionalProps]?: 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt' | 'transitionedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'pipeline_id', type: 'uuid' })
+  pipelineId!: string
+
+  @Property({ name: 'stage_id', type: 'uuid' })
+  stageId!: string
+
+  @Property({ name: 'stage_label', type: 'text' })
+  stageLabel!: string
+
+  @Property({ name: 'stage_order', type: 'int' })
+  stageOrder!: number
+
+  @Property({ name: 'transitioned_at', type: Date, onCreate: () => new Date() })
+  transitionedAt: Date = new Date()
+
+  @Property({ name: 'transitioned_by_user_id', type: 'uuid', nullable: true })
+  transitionedByUserId?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
+  @ManyToOne(() => CustomerDeal, { fieldName: 'deal_id' })
+  deal!: CustomerDeal
 }
 
 @Entity({ tableName: 'customer_deal_people' })

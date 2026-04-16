@@ -6,10 +6,18 @@ import {
   emitCrudSideEffects,
   emitCrudUndoSideEffects,
   requireId,
+  normalizeAuthorUserId,
 } from '@open-mercato/shared/lib/commands/helpers'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink, CustomerPipelineStage } from '../data/entities'
+import {
+  CustomerDeal,
+  CustomerDealPersonLink,
+  CustomerDealCompanyLink,
+  CustomerDealStageTransition,
+  CustomerPipelineStage,
+} from '../data/entities'
 import {
   dealCreateSchema,
   dealUpdateSchema,
@@ -37,6 +45,7 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../lib/dealStageTransitionTable'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -54,13 +63,46 @@ const dealCrudEvents: CrudEventsConfig = {
   }),
 }
 
+type PipelineStageSnapshot = {
+  id: string
+  pipelineId: string
+  label: string
+  order: number
+}
+
+type DealStageTransitionSnapshot = {
+  id: string
+  pipelineId: string
+  stageId: string
+  stageLabel: string
+  stageOrder: number
+  transitionedAt: Date
+  transitionedByUserId: string | null
+}
+
+async function loadPipelineStageSnapshot(
+  em: EntityManager,
+  pipelineStageId: string,
+  tenantId: string,
+  organizationId: string,
+): Promise<PipelineStageSnapshot | null> {
+  const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: pipelineStageId }, {}, { tenantId, organizationId })
+  if (!stage) return null
+  return {
+    id: stage.id,
+    pipelineId: stage.pipelineId,
+    label: stage.label,
+    order: stage.order,
+  }
+}
+
 async function resolvePipelineStageValue(
   em: EntityManager,
   pipelineStageId: string,
   tenantId: string,
   organizationId: string,
 ): Promise<string | null> {
-  const stage = await findOneWithDecryption(em, CustomerPipelineStage, { id: pipelineStageId }, {}, { tenantId, organizationId })
+  const stage = await loadPipelineStageSnapshot(em, pipelineStageId, tenantId, organizationId)
   if (!stage) return null
   const entry = await ensureDictionaryEntry(em, {
     tenantId,
@@ -69,6 +111,96 @@ async function resolvePipelineStageValue(
     value: stage.label,
   })
   return entry?.value ?? stage.label
+}
+
+async function upsertDealStageTransition(
+  em: EntityManager,
+  input: {
+    deal: CustomerDeal
+    pipelineId: string
+    stageId: string
+    stageLabel: string
+    stageOrder: number
+    transitionedByUserId: string | null
+    transitionedAt?: Date
+  },
+): Promise<void> {
+  let existing: CustomerDealStageTransition | null = null
+  try {
+    existing = await findOneWithDecryption(
+      em,
+      CustomerDealStageTransition,
+      { deal: input.deal.id, stageId: input.stageId, deletedAt: null },
+      {},
+      { tenantId: input.deal.tenantId, organizationId: input.deal.organizationId },
+    )
+  } catch (error) {
+    if (!isMissingDealStageTransitionTable(error)) {
+      throw error
+    }
+    warnMissingDealStageTransitionTable('customers.commands.deals.upsertTransition')
+    return
+  }
+  const transitionedAt = input.transitionedAt ?? new Date()
+  if (existing) {
+    existing.pipelineId = input.pipelineId
+    existing.stageLabel = input.stageLabel
+    existing.stageOrder = input.stageOrder
+    existing.transitionedAt = transitionedAt
+    existing.transitionedByUserId = input.transitionedByUserId
+    existing.deletedAt = null
+    existing.isActive = true
+    return
+  }
+
+  const transition = em.create(CustomerDealStageTransition, {
+    organizationId: input.deal.organizationId,
+    tenantId: input.deal.tenantId,
+    deal: input.deal,
+    pipelineId: input.pipelineId,
+    stageId: input.stageId,
+    stageLabel: input.stageLabel,
+    stageOrder: input.stageOrder,
+    transitionedAt,
+    transitionedByUserId: input.transitionedByUserId,
+    isActive: true,
+  })
+  em.persist(transition)
+}
+
+async function deleteDealStageTransitions(em: EntityManager, deal: CustomerDeal): Promise<void> {
+  try {
+    await em.nativeDelete(CustomerDealStageTransition, { deal: deal.id })
+  } catch (error) {
+    if (!isMissingDealStageTransitionTable(error)) {
+      throw error
+    }
+    warnMissingDealStageTransitionTable('customers.commands.deals.deleteTransitions')
+  }
+}
+
+async function restoreDealStageTransitions(
+  em: EntityManager,
+  deal: CustomerDeal,
+  transitions: DealStageTransitionSnapshot[],
+): Promise<void> {
+  if (!transitions.length) return
+  for (const transitionSnapshot of transitions) {
+    const transition = em.create(CustomerDealStageTransition, {
+      id: transitionSnapshot.id,
+      organizationId: deal.organizationId,
+      tenantId: deal.tenantId,
+      deal,
+      pipelineId: transitionSnapshot.pipelineId,
+      stageId: transitionSnapshot.stageId,
+      stageLabel: transitionSnapshot.stageLabel,
+      stageOrder: transitionSnapshot.stageOrder,
+      transitionedAt: transitionSnapshot.transitionedAt,
+      transitionedByUserId: transitionSnapshot.transitionedByUserId,
+      isActive: true,
+    })
+    em.persist(transition)
+  }
 }
 
 type DealSnapshot = {
@@ -94,6 +226,7 @@ type DealSnapshot = {
   }
   people: string[]
   companies: string[]
+  transitions: DealStageTransitionSnapshot[]
   custom?: Record<string, unknown>
 }
 
@@ -124,6 +257,19 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
     { populate: ['company'] },
     decryptionScope,
   )
+  const transitions = await findWithDecryption(
+    em,
+    CustomerDealStageTransition,
+    { deal: deal.id, deletedAt: null },
+    { orderBy: { stageOrder: 'ASC', transitionedAt: 'ASC' } },
+    decryptionScope,
+  ).catch((error: unknown) => {
+    if (!isMissingDealStageTransitionTable(error)) {
+      throw error
+    }
+    warnMissingDealStageTransitionTable('customers.commands.deals.loadSnapshot')
+    return [] as CustomerDealStageTransition[]
+  })
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: DEAL_ENTITY_ID,
     recordId: deal.id,
@@ -157,6 +303,15 @@ async function loadDealSnapshot(em: EntityManager, id: string): Promise<DealSnap
     companies: companyLinks.map((link) =>
       typeof link.company === 'string' ? link.company : link.company.id
     ),
+    transitions: transitions.map((transition) => ({
+      id: transition.id,
+      pipelineId: transition.pipelineId,
+      stageId: transition.stageId,
+      stageLabel: transition.stageLabel,
+      stageOrder: transition.stageOrder,
+      transitionedAt: transition.transitionedAt,
+      transitionedByUserId: transition.transitionedByUserId ?? null,
+    })),
     custom,
   }
 }
@@ -214,13 +369,25 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const stageSnapshot = parsed.pipelineStageId
+      ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, parsed.tenantId, parsed.organizationId)
+      : null
+    const resolvedPipelineStageLabel = stageSnapshot
+      ? (await ensureDictionaryEntry(em, {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        kind: 'pipeline_stage',
+        value: stageSnapshot.label,
+      }))?.value ?? stageSnapshot.label
+      : parsed.pipelineStage ?? null
+    const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
     const deal = em.create(CustomerDeal, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
       title: parsed.title,
       description: parsed.description ?? null,
       status: parsed.status ?? 'open',
-      pipelineStage: parsed.pipelineStage ?? null,
+      pipelineStage: resolvedPipelineStageLabel,
       pipelineId: parsed.pipelineId ?? null,
       pipelineStageId: parsed.pipelineStageId ?? null,
       valueAmount: toNumericString(parsed.valueAmount),
@@ -235,16 +402,22 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     })
     em.persist(deal)
 
-    if (deal.pipelineStageId && !deal.pipelineStage) {
-      const resolved = await resolvePipelineStageValue(em, deal.pipelineStageId, parsed.tenantId, parsed.organizationId)
-      if (resolved) deal.pipelineStage = resolved
-    }
-
     await em.flush()
-
-    await syncDealPeople(em, deal, parsed.personIds ?? [])
-    await syncDealCompanies(em, deal, parsed.companyIds ?? [])
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        if (!stageSnapshot) return
+        await upsertDealStageTransition(em, {
+          deal,
+          pipelineId: stageSnapshot.pipelineId,
+          stageId: stageSnapshot.id,
+          stageLabel: stageSnapshot.label,
+          stageOrder: stageSnapshot.order,
+          transitionedByUserId: normalizedTransitionAuthorUserId,
+        })
+      },
+      () => syncDealPeople(em, deal, parsed.personIds ?? []),
+      () => syncDealCompanies(em, deal, parsed.companyIds ?? []),
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
@@ -276,9 +449,10 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadDealSnapshot(em, result.dealId)
   },
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
-    const snapshot = snapshots.after as DealSnapshot | undefined
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const snapshot = await loadDealSnapshot(em, result.dealId)
     return {
       actionLabel: translate('customers.audit.deals.create', 'Create deal'),
       resourceKind: 'customers.deal',
@@ -299,6 +473,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const deal = await findOneWithDecryption(em, CustomerDeal, { id: dealId })
     if (!deal) return
+    await deleteDealStageTransitions(em, deal)
     await em.nativeDelete(CustomerDealPersonLink, { deal })
     await em.nativeDelete(CustomerDealCompanyLink, { deal })
     em.remove(deal)
@@ -324,31 +499,69 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     ensureOrganizationScope(ctx, record.organizationId)
 
     const previousStatus = record.status
+    const previousPipelineStageId = record.pipelineStageId ?? null
+    const nextStageSnapshot = parsed.pipelineStageId
+      ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, record.tenantId, record.organizationId)
+      : null
+    const nextPipelineStageLabel = nextStageSnapshot
+      ? (await ensureDictionaryEntry(em, {
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+        kind: 'pipeline_stage',
+        value: nextStageSnapshot.label,
+      }))?.value ?? nextStageSnapshot.label
+      : null
+    const resolvedCurrentPipelineStageLabel =
+      !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
+        ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
+        : null
+    const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
 
-    if (parsed.title !== undefined) record.title = parsed.title
-    if (parsed.description !== undefined) record.description = parsed.description ?? null
-    if (parsed.status !== undefined) record.status = parsed.status ?? record.status
-    if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
-    if (parsed.pipelineId !== undefined) record.pipelineId = parsed.pipelineId ?? null
-    if (parsed.pipelineStageId !== undefined) record.pipelineStageId = parsed.pipelineStageId ?? null
+    const shouldRecordStageTransition =
+      parsed.pipelineStageId !== undefined &&
+      parsed.pipelineStageId !== null &&
+      parsed.pipelineStageId !== previousPipelineStageId &&
+      !!nextStageSnapshot
 
-    if (record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
-      const resolved = await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
-      if (resolved) record.pipelineStage = resolved
-    }
-    if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
-    if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
-    if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
-    if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null
-    if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
-    if (parsed.source !== undefined) record.source = parsed.source ?? null
-    if (parsed.closureOutcome !== undefined) record.closureOutcome = parsed.closureOutcome ?? null
-    if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
-    if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
+    await withAtomicFlush(em, [
+      () => {
+        if (parsed.title !== undefined) record.title = parsed.title
+        if (parsed.description !== undefined) record.description = parsed.description ?? null
+        if (parsed.status !== undefined) record.status = parsed.status ?? record.status
+        if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
+        if (parsed.pipelineId !== undefined) record.pipelineId = parsed.pipelineId ?? null
+        if (parsed.pipelineStageId !== undefined) record.pipelineStageId = parsed.pipelineStageId ?? null
 
-    await syncDealPeople(em, record, parsed.personIds)
-    await syncDealCompanies(em, record, parsed.companyIds)
-    await em.flush()
+        if (nextPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+          record.pipelineStage = nextPipelineStageLabel
+        } else if (resolvedCurrentPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+          record.pipelineStage = resolvedCurrentPipelineStageLabel
+        }
+
+        if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
+        if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
+        if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
+        if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null
+        if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
+        if (parsed.source !== undefined) record.source = parsed.source ?? null
+        if (parsed.closureOutcome !== undefined) record.closureOutcome = parsed.closureOutcome ?? null
+        if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
+        if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
+      },
+      async () => {
+        if (!shouldRecordStageTransition || !nextStageSnapshot) return
+        await upsertDealStageTransition(em, {
+          deal: record,
+          pipelineId: nextStageSnapshot.pipelineId,
+          stageId: nextStageSnapshot.id,
+          stageLabel: nextPipelineStageLabel ?? nextStageSnapshot.label,
+          stageOrder: nextStageSnapshot.order,
+          transitionedByUserId: normalizedTransitionAuthorUserId,
+        })
+      },
+      () => syncDealPeople(em, record, parsed.personIds),
+      () => syncDealCompanies(em, record, parsed.companyIds),
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await setCustomFieldsIfAny({
@@ -414,11 +627,12 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     return await loadDealSnapshot(em, result.dealId)
   },
-  buildLog: async ({ snapshots }) => {
+  buildLog: async ({ result, snapshots, ctx }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as DealSnapshot | undefined
     if (!before) return null
-    const afterSnapshot = snapshots.after as DealSnapshot | undefined
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const afterSnapshot = await loadDealSnapshot(em, result.dealId)
     return {
       actionLabel: translate('customers.audit.deals.update', 'Update deal'),
       resourceKind: 'customers.deal',
@@ -440,6 +654,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
     let deal = await findOneWithDecryption(em, CustomerDeal, { id: before.deal.id })
     if (!deal) {
       deal = em.create(CustomerDeal, {
@@ -463,27 +678,54 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         lossNotes: before.deal.lossNotes,
       })
       em.persist(deal)
-    } else {
-      deal.title = before.deal.title
-      deal.description = before.deal.description
-      deal.status = before.deal.status
-      deal.pipelineStage = before.deal.pipelineStage
-      deal.pipelineId = before.deal.pipelineId
-      deal.pipelineStageId = before.deal.pipelineStageId
-      deal.valueAmount = before.deal.valueAmount
-      deal.valueCurrency = before.deal.valueCurrency
-      deal.probability = before.deal.probability
-      deal.expectedCloseAt = before.deal.expectedCloseAt
-      deal.ownerUserId = before.deal.ownerUserId
-      deal.source = before.deal.source
-      deal.closureOutcome = before.deal.closureOutcome
-      deal.lossReasonId = before.deal.lossReasonId
-      deal.lossNotes = before.deal.lossNotes
     }
-    await em.flush()
-    await syncDealPeople(em, deal, before.people)
-    await syncDealCompanies(em, deal, before.companies)
-    await em.flush()
+    const revertedStageSnapshot = before.deal.pipelineStageId
+      ? await loadPipelineStageSnapshot(em, before.deal.pipelineStageId, before.deal.tenantId, before.deal.organizationId)
+      : null
+    const existingTransition = before.deal.pipelineStageId
+      ? before.transitions.find((transition) => transition.stageId === before.deal.pipelineStageId) ?? null
+      : null
+    const shouldRecordRevertTransition =
+      before.deal.pipelineStageId !== (payload?.after?.deal.pipelineStageId ?? null) &&
+      !!before.deal.pipelineStageId &&
+      !!(revertedStageSnapshot?.pipelineId ?? before.deal.pipelineId ?? existingTransition?.pipelineId) &&
+      !!(revertedStageSnapshot?.label ?? before.deal.pipelineStage ?? existingTransition?.stageLabel)
+
+    await withAtomicFlush(em, [
+      () => {
+        deal.title = before.deal.title
+        deal.description = before.deal.description
+        deal.status = before.deal.status
+        deal.pipelineStage = before.deal.pipelineStage
+        deal.pipelineId = before.deal.pipelineId
+        deal.pipelineStageId = before.deal.pipelineStageId
+        deal.valueAmount = before.deal.valueAmount
+        deal.valueCurrency = before.deal.valueCurrency
+        deal.probability = before.deal.probability
+        deal.expectedCloseAt = before.deal.expectedCloseAt
+        deal.ownerUserId = before.deal.ownerUserId
+        deal.source = before.deal.source
+        deal.closureOutcome = before.deal.closureOutcome
+        deal.lossReasonId = before.deal.lossReasonId
+        deal.lossNotes = before.deal.lossNotes
+      },
+      async () => {
+        if (!shouldRecordRevertTransition || !before.deal.pipelineStageId) return
+        const pipelineId = revertedStageSnapshot?.pipelineId ?? before.deal.pipelineId ?? existingTransition?.pipelineId
+        const stageLabel = revertedStageSnapshot?.label ?? before.deal.pipelineStage ?? existingTransition?.stageLabel
+        if (!pipelineId || !stageLabel) return
+        await upsertDealStageTransition(em, {
+          deal,
+          pipelineId,
+          stageId: before.deal.pipelineStageId,
+          stageLabel,
+          stageOrder: revertedStageSnapshot?.order ?? existingTransition?.stageOrder ?? 0,
+          transitionedByUserId: normalizedTransitionAuthorUserId,
+        })
+      },
+      () => syncDealPeople(em, deal, before.people),
+      () => syncDealCompanies(em, deal, before.companies),
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -531,6 +773,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       if (!record) throw new CrudHttpError(404, { error: 'Deal not found' })
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
+      await deleteDealStageTransitions(em, record)
       await em.nativeDelete(CustomerDealPersonLink, { deal: record })
       await em.nativeDelete(CustomerDealCompanyLink, { deal: record })
       em.remove(record)
@@ -598,10 +841,12 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         })
         em.persist(deal)
       }
-      await em.flush()
-      await syncDealPeople(em, deal, before.people)
-      await syncDealCompanies(em, deal, before.companies)
-      await em.flush()
+      await withAtomicFlush(em, [
+        () => syncDealPeople(em, deal, before.people),
+        () => syncDealCompanies(em, deal, before.companies),
+        () => deleteDealStageTransitions(em, deal),
+        () => restoreDealStageTransitions(em, deal, before.transitions),
+      ], { transaction: true })
 
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({

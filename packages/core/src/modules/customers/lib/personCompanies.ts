@@ -6,6 +6,7 @@ import {
   CustomerPersonCompanyLink,
   CustomerPersonProfile,
 } from '../data/entities'
+import { withActiveCustomerPersonCompanyLinkFilter } from './personCompanyLinkTable'
 
 export type PersonCompanySummary = {
   linkId: string | null
@@ -35,10 +36,15 @@ export async function loadPersonCompanyLinks(
   em: EntityManager,
   person: CustomerEntity,
 ): Promise<CustomerPersonCompanyLink[]> {
+  const where = await withActiveCustomerPersonCompanyLinkFilter(
+    em,
+    { person, organizationId: person.organizationId, tenantId: person.tenantId },
+    'customers.personCompanies.loadPersonCompanyLinks',
+  )
   return findWithDecryption(
     em,
     CustomerPersonCompanyLink,
-    { person, organizationId: person.organizationId, tenantId: person.tenantId },
+    where,
     { populate: ['company'], orderBy: { isPrimary: 'desc', createdAt: 'asc' } },
     { tenantId: person.tenantId, organizationId: person.organizationId },
   )

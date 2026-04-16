@@ -5,6 +5,7 @@ import { Clock } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
 import { ActivityTimeline } from './ActivityTimeline'
 import type { ActivitySummary, InteractionSummary } from './types'
@@ -109,6 +110,8 @@ export function ActivitiesSection({
   const [filterDateTo, setFilterDateTo] = React.useState('')
   const [activities, setActivities] = React.useState<InteractionSummary[]>([])
   const [loading, setLoading] = React.useState(false)
+  const [hasMore, setHasMore] = React.useState(false)
+  const [loadedPages, setLoadedPages] = React.useState(1)
 
   React.useEffect(() => {
     onActionChange?.(null)
@@ -140,28 +143,46 @@ export function ActivitiesSection({
       if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
       if (filterDateTo) canonicalParams.set('to', filterDateTo)
 
-      const canonicalPayload = await readApiResultOrThrow<{ items?: InteractionSummary[] }>(
-        `/api/customers/interactions?${canonicalParams.toString()}`,
-      ).catch(() => ({ items: [] as InteractionSummary[] }))
-      const canonicalItems = Array.isArray(canonicalPayload?.items) ? canonicalPayload.items : []
+      const canonicalItems: InteractionSummary[] = []
+      let canonicalCursor: string | undefined
+      let canonicalHasMore = false
+      let pageIndex = 0
+      do {
+        const params = new URLSearchParams(canonicalParams)
+        if (canonicalCursor) params.set('cursor', canonicalCursor)
+        const canonicalPayload = await readApiResultOrThrow<{ items?: InteractionSummary[]; nextCursor?: string }>(
+          `/api/customers/interactions?${params.toString()}`,
+        ).catch(() => ({ items: [] as InteractionSummary[], nextCursor: undefined }))
+        canonicalItems.push(...(Array.isArray(canonicalPayload?.items) ? canonicalPayload.items : []))
+        canonicalCursor = typeof canonicalPayload?.nextCursor === 'string' ? canonicalPayload.nextCursor : undefined
+        canonicalHasMore = Boolean(canonicalCursor)
+        pageIndex += 1
+      } while (canonicalCursor && pageIndex < loadedPages)
 
       if (useCanonicalInteractions) {
         setActivities(sortTimelineActivities(canonicalItems))
+        setHasMore(canonicalHasMore)
         return
       }
 
       // In legacy mode, also fetch legacy activities and merge with canonical
-      const legacyParams = new URLSearchParams({
-        entityId,
-        pageSize: '50',
-        sortField: 'occurredAt',
-        sortDir: 'desc',
-      })
-      if (dealId) legacyParams.set('dealId', dealId)
-      const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[] }>(
-        `/api/customers/activities?${legacyParams.toString()}`,
-      ).catch(() => ({ items: [] as ActivitySummary[] }))
-      const legacyItems = Array.isArray(legacyPayload?.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []
+      const legacyItems: InteractionSummary[] = []
+      let legacyTotalPages = 1
+      for (let legacyPage = 1; legacyPage <= loadedPages; legacyPage += 1) {
+        const legacyParams = new URLSearchParams({
+          entityId,
+          page: String(legacyPage),
+          pageSize: '50',
+          sortField: 'occurredAt',
+          sortDir: 'desc',
+        })
+        if (dealId) legacyParams.set('dealId', dealId)
+        const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
+          `/api/customers/activities?${legacyParams.toString()}`,
+        ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
+        legacyItems.push(...(Array.isArray(legacyPayload?.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []))
+        legacyTotalPages = typeof legacyPayload?.totalPages === 'number' ? legacyPayload.totalPages : legacyTotalPages
+      }
       const legacyFiltered = legacyItems.filter((entry) => {
         if (filterTypes.length > 0 && !filterTypes.includes(entry.interactionType)) return false
         const dateOnly = toDateOnly(entry.occurredAt ?? entry.createdAt)
@@ -180,13 +201,19 @@ export function ActivitiesSection({
         }
       }
       setActivities(sortTimelineActivities(merged))
+      setHasMore(canonicalHasMore || legacyTotalPages > loadedPages)
     } catch (error) {
       console.error('customers.activities.history failed', error)
       setActivities([])
+      setHasMore(false)
     } finally {
       setLoading(false)
     }
-  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, useCanonicalInteractions, refreshKey])
+  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey])
+
+  React.useEffect(() => {
+    setLoadedPages(1)
+  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, useCanonicalInteractions])
 
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
@@ -277,13 +304,20 @@ export function ActivitiesSection({
       ) : (
         <>
           <ActivityTimeline activities={activities} onEdit={onEditActivity} />
-          {activities.length > 0 && (
+          {activities.length > 0 ? (
             <div className="border-t px-5 py-3">
-              <span className="text-xs text-muted-foreground">
-                {t('customers.activities.seeAll', 'See all {count} activities', { count: activities.length })}
-              </span>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-xs text-muted-foreground">
+                  {t('customers.activities.seeAll', 'See all {count} activities', { count: activities.length })}
+                </span>
+                {hasMore ? (
+                  <Button type="button" variant="link" size="sm" onClick={() => setLoadedPages((value) => value + 1)}>
+                    {t('customers.activities.loadMore', 'Load more')}
+                  </Button>
+                ) : null}
+              </div>
             </div>
-          )}
+          ) : null}
         </>
       )}
     </div>

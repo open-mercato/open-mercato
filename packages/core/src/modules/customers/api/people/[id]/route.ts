@@ -399,6 +399,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const includeDeals = includeTokens.has('deals')
   const includeInteractions = includeTokens.has('interactions')
   const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
+  const plannedPreviewLimit = 5
 
   let statusCode = 500
   let profileMeta: Record<string, unknown> | undefined
@@ -531,6 +532,40 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       : []
     profiler.mark('canonical_interactions_hydrated', { count: canonicalInteractions.length })
 
+    const plannedPreviewInteractions = shouldLoadCanonicalInteractions
+      ? (() => {
+          const sorted = [...canonicalInteractions]
+            .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+            .sort((left, right) => {
+              const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
+              const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
+              if (leftTime === rightTime) return left.id.localeCompare(right.id)
+              return leftTime - rightTime
+            })
+          return sorted.slice(0, plannedPreviewLimit)
+        })()
+      : await hydrateCanonicalInteractions({
+          em,
+          container,
+          auth,
+          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          interactions: await findWithDecryption(
+            em,
+            CustomerInteraction,
+            {
+              entity: person.id,
+              organizationId: person.organizationId,
+              tenantId: person.tenantId,
+              deletedAt: null,
+              status: 'planned',
+              interactionType: { $ne: 'task' },
+            },
+            { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
+            { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
+          ),
+          enrich: true,
+        })
+
     if (includeActivities && !interactionFlags.unified) {
       activities = await findWithDecryption(em, CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
       profiler.mark('activities_loaded', { count: activities.length })
@@ -656,6 +691,56 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('custom_fields_merged', { keys: Object.keys(customFields).length })
 
     const viewerUserIdFinal = viewerUserId
+    const counts = {
+      tags: tagAssignments.length + labelAssignments.length,
+      comments: includeComments
+        ? comments.length
+        : await em.count(CustomerComment, {
+            entity: person.id,
+            organizationId: person.organizationId,
+            tenantId: person.tenantId,
+          }),
+      activities: await em.count(CustomerInteraction, {
+        entity: person.id,
+        organizationId: person.organizationId,
+        tenantId: person.tenantId,
+        deletedAt: null,
+        interactionType: { $ne: 'task' },
+      }),
+      interactions: await em.count(CustomerInteraction, {
+        entity: person.id,
+        organizationId: person.organizationId,
+        tenantId: person.tenantId,
+        deletedAt: null,
+      }),
+      todos: interactionFlags.unified
+        ? await em.count(CustomerInteraction, {
+            entity: person.id,
+            organizationId: person.organizationId,
+            tenantId: person.tenantId,
+            deletedAt: null,
+            interactionType: 'task',
+          })
+        : await em.count(CustomerTodoLink, {
+            entity: person.id,
+            organizationId: person.organizationId,
+            tenantId: person.tenantId,
+          }),
+      addresses: includeAddresses
+        ? addresses.length
+        : await em.count(CustomerAddress, {
+            entity: person.id,
+            organizationId: person.organizationId,
+            tenantId: person.tenantId,
+          }),
+      deals: includeDeals
+        ? deals.length
+        : await em.count(CustomerDealPersonLink, {
+            person: person.id,
+          }),
+      companies: companies.length,
+    }
+
     const response = NextResponse.json({
       interactionMode,
       person: {
@@ -859,6 +944,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           ? { id: primaryCompany.companyId, displayName: primaryCompany.displayName }
           : null
       })(),
+      plannedActivitiesPreview: plannedPreviewInteractions,
+      counts,
       viewer: {
         userId: viewerUserIdFinal,
         name: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.name ?? null : null,
@@ -869,19 +956,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profileMeta = {
       include: Array.from(includeTokens),
       interactionMode,
-      counts: {
-        tags: tagAssignments.length,
-        comments: comments.length,
-        activities: includeActivities
-          ? (interactionFlags.unified ? canonicalActivityItems.length : activities.length + canonicalActivityItems.length)
-          : 0,
-        interactions: canonicalInteractions.length,
-        todos: includeTodos
-          ? (interactionFlags.unified ? canonicalTodoItems.length : todoLinks.length + canonicalTodoItems.length)
-          : 0,
-        addresses: addresses.length,
-        deals: deals.length,
-      },
+      counts,
     }
     profiler.mark('response_ready', { status: statusCode })
     return response

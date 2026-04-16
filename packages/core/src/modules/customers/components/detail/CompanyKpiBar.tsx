@@ -62,21 +62,29 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
   const t = useT()
 
   const activeDeals = React.useMemo(() => getActiveDeals(data.deals), [data.deals])
-  const activeDealsValue = React.useMemo(() => sumActiveDeals(data.deals), [data.deals])
-  const dealCurrency = activeDeals[0]?.valueCurrency ?? data.deals[0]?.valueCurrency ?? 'PLN'
-  const activityTrend = React.useMemo(() => computeActivityTrend(data.interactions), [data.interactions])
+  const activeDealsValue = React.useMemo(
+    () => data.kpis?.activeDealsValue ?? sumActiveDeals(data.deals),
+    [data.deals, data.kpis?.activeDealsValue],
+  )
+  const dealCurrency = data.kpis?.dealCurrency ?? activeDeals[0]?.valueCurrency ?? data.deals[0]?.valueCurrency ?? 'PLN'
+  const activityTrend = React.useMemo(
+    () => data.kpis?.activityTrend ?? computeActivityTrend(data.interactions),
+    [data.interactions, data.kpis?.activityTrend],
+  )
   const dealTrend = React.useMemo(() => computeDealTrend(data.deals), [data.deals])
 
   const ltvValue = React.useMemo(() => {
+    if (data.kpis?.ltvValue !== undefined) return data.kpis.ltvValue
     const wonDeals = data.deals.filter((d) => d.status === 'won')
     if (wonDeals.length === 0) return null
     return wonDeals.reduce((sum, d) => {
       const amt = typeof d.valueAmount === 'number' ? d.valueAmount : parseFloat(String(d.valueAmount ?? '0'))
       return sum + (Number.isFinite(amt) ? amt : 0)
     }, 0)
-  }, [data.deals])
+  }, [data.deals, data.kpis?.ltvValue])
 
   const clientTenureYears = React.useMemo(() => {
+    if (data.kpis?.clientTenureYears !== undefined) return data.kpis.clientTenureYears
     const allDates = data.interactions
       .map((i) => i.occurredAt ?? i.scheduledAt ?? i.createdAt)
       .filter(Boolean)
@@ -84,7 +92,7 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
     if (allDates.length === 0) return null
     const earliest = Math.min(...allDates)
     return Math.floor((Date.now() - earliest) / (365.25 * 86_400_000))
-  }, [data.interactions])
+  }, [data.interactions, data.kpis?.clientTenureYears])
 
   const [hiddenTiles, setHiddenTiles] = React.useState<Set<string>>(() => {
     try {
@@ -115,12 +123,12 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
       value: activeDealsValue,
       trend: dealTrend,
       formatValue: (v: number) => formatCurrency(v, dealCurrency),
-      comparisonLabel: `${activeDeals.length} ${activeDeals.length === 1 ? 'pipeline' : 'pipelines'}`,
+      comparisonLabel: `${data.kpis?.activeDealsCount ?? activeDeals.length} ${(data.kpis?.activeDealsCount ?? activeDeals.length) === 1 ? 'pipeline' : 'pipelines'}`,
     },
     {
       id: 'activities',
       title: t('customers.companies.dashboard.kpi.activities', 'ACTIVITIES'),
-      value: data.interactions.length,
+      value: data.kpis?.activityCount ?? data.interactions.length,
       trend: activityTrend,
       comparisonLabel: t('customers.companies.dashboard.kpi.last12months', 'last 12 months'),
     },
@@ -143,10 +151,10 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
           : `${v} ${v === 1 ? t('customers.companies.dashboard.kpi.year', 'year') : t('customers.companies.dashboard.kpi.years', 'years')}`
         : undefined,
       comparisonLabel: clientTenureYears !== null
-        ? `${data.deals.filter((d) => d.status === 'won').length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
+        ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => d.status === 'won').length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
         : t('customers.companies.dashboard.kpi.noInteractions', 'No interactions yet'),
     },
-  ], [t, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, data.interactions.length, activityTrend, ltvValue, clientTenureYears, data.deals])
+  ], [t, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis])
 
   const visibleTiles = kpiTiles.filter((tile) => !hiddenTiles.has(tile.id))
 

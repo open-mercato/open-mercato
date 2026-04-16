@@ -132,6 +132,9 @@ export type InteractionSummary = {
   appearanceColor?: string | null
   source?: string | null
   location?: string | null
+  allDay?: boolean | null
+  recurrenceRule?: string | null
+  recurrenceEnd?: string | null
   entityId?: string | null
   dealId?: string | null
   organizationId?: string | null
@@ -141,6 +144,8 @@ export type InteractionSummary = {
   dealTitle?: string | null
   customValues?: Record<string, unknown> | null
   participants?: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  reminderMinutes?: number | null
+  visibility?: string | null
   customer?: {
     id: string | null
     displayName: string | null

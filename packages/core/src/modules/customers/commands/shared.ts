@@ -131,24 +131,14 @@ const DICTIONARY_KINDS = new Set([
   'person_company_role',
 ])
 
+const CUSTOM_DICTIONARY_KIND_PATTERN = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
+
 export async function ensureDictionaryEntry(
   em: EntityManager,
   params: {
     tenantId: string
     organizationId: string
-    kind:
-      | 'status'
-      | 'source'
-      | 'lifecycle_stage'
-      | 'address_type'
-      | 'activity_type'
-      | 'deal_status'
-      | 'pipeline_stage'
-      | 'job_title'
-      | 'industry'
-      | 'temperature'
-      | 'renewal_quarter'
-      | 'person_company_role'
+    kind: string
     value: string
     label?: string | null
     color?: string | null | undefined
@@ -157,7 +147,7 @@ export async function ensureDictionaryEntry(
 ): Promise<CustomerDictionaryEntry | null> {
   const trimmed = params.value?.trim()
   if (!trimmed) return null
-  if (!DICTIONARY_KINDS.has(params.kind)) {
+  if (!DICTIONARY_KINDS.has(params.kind) && !CUSTOM_DICTIONARY_KIND_PATTERN.test(params.kind)) {
     throw new CrudHttpError(400, { error: 'Unsupported dictionary kind' })
   }
   const normalized = trimmed.toLowerCase()

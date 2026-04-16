@@ -2,11 +2,17 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerCompanyProfile, CustomerEntity } from '../../data/entities'
+import {
+  CustomerCompanyProfile,
+  CustomerDealCompanyLink,
+  CustomerEntity,
+  CustomerPersonCompanyLink,
+} from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { companyCreateSchema, companyUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
+  applyEntityIdExclusion,
   applyEntityIdRestriction,
   consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
@@ -27,6 +33,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { withActiveCustomerPersonCompanyLinkFilter } from '../../lib/personCompanyLinkTable'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -51,6 +58,10 @@ const listSchema = z
     id: z.string().uuid().optional(),
     tagIds: z.string().optional(),
     tagIdsEmpty: z.string().optional(),
+    excludeIds: z.string().optional(),
+    excludeLinkedPersonId: z.string().uuid().optional(),
+    excludeLinkedCompanyId: z.string().uuid().optional(),
+    excludeLinkedDealId: z.string().uuid().optional(),
   })
   .passthrough()
 
@@ -183,6 +194,68 @@ const crud = makeCrudRoute({
       } else if (tagIds.length > 0) {
         filters['tag_assignments.tag_id'] = { $in: tagIds }
       }
+      const excludedIds = new Set<string>()
+      const excludeIdsRaw = typeof query.excludeIds === 'string' ? query.excludeIds : ''
+      excludeIdsRaw
+        .split(',')
+        .map((value: string) => value.trim())
+        .filter((value: string) => value.length > 0)
+        .forEach((value: string) => excludedIds.add(value))
+      if (ctx && query.excludeLinkedPersonId) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const decryptionScope = {
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          }
+          const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
+            em,
+            { person: query.excludeLinkedPersonId },
+            'customers.companies.GET',
+          )
+          const links = await findWithDecryption(
+            em,
+            CustomerPersonCompanyLink,
+            linkWhere,
+            { populate: ['company'] },
+            decryptionScope,
+          )
+          links.forEach((link) => {
+            const companyId = link.company?.id
+            if (typeof companyId === 'string' && companyId.length > 0) excludedIds.add(companyId)
+          })
+        } catch {
+          // ignore exclusion lookup failures and fall back to the base result set
+        }
+      }
+      if (typeof query.excludeLinkedCompanyId === 'string' && query.excludeLinkedCompanyId.length > 0) {
+        excludedIds.add(query.excludeLinkedCompanyId)
+      }
+      if (ctx && query.excludeLinkedDealId) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const decryptionScope = {
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          }
+          const links = await findWithDecryption(
+            em,
+            CustomerDealCompanyLink,
+            {
+              deal: query.excludeLinkedDealId,
+            },
+            { populate: ['company'] },
+            decryptionScope,
+          )
+          links.forEach((link) => {
+            const companyId = link.company?.id
+            if (typeof companyId === 'string' && companyId.length > 0) excludedIds.add(companyId)
+          })
+        } catch {
+          // ignore exclusion lookup failures and fall back to the base result set
+        }
+      }
+      applyEntityIdExclusion(filters, Array.from(excludedIds))
       const email = typeof query.email === 'string' ? query.email.trim().toLowerCase() : ''
       const emailStartsWith = typeof query.emailStartsWith === 'string' ? query.emailStartsWith.trim().toLowerCase() : ''
       const emailContains = typeof query.emailContains === 'string' ? query.emailContains.trim().toLowerCase() : ''

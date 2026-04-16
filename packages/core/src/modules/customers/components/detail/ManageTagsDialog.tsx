@@ -3,6 +3,8 @@
 import * as React from 'react'
 import {
   CalendarDays,
+  ChevronsLeft,
+  ChevronsRight,
   Check,
   GripVertical,
   Hash,
@@ -64,6 +66,13 @@ type TagEntryDraft = {
   deleted: boolean
 }
 
+type KindSetting = {
+  kind: string
+  selectionMode: 'single' | 'multi'
+  visibleInTags: boolean
+  sortOrder: number
+}
+
 // ---------------------------------------------------------------------------
 // Category definitions — maps to /api/customers/dictionaries/{kind}
 // ---------------------------------------------------------------------------
@@ -80,9 +89,10 @@ type CategoryDef = {
   noteTitleFallback: string
   noteDescriptionKey: string
   noteDescriptionFallback: string
+  isCustom?: boolean
 }
 
-const CATEGORIES: CategoryDef[] = [
+const BUILTIN_CATEGORIES: CategoryDef[] = [
   {
     kind: 'statuses',
     icon: Tag,
@@ -198,6 +208,8 @@ const CATEGORIES: CategoryDef[] = [
   },
 ]
 
+const BUILTIN_CATEGORY_KINDS = new Set(BUILTIN_CATEGORIES.map((category) => category.kind))
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -228,6 +240,31 @@ function slugifyLabel(value: string): string {
 
 function sanitizeIcon(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function humanizeCategoryKind(kind: string): string {
+  return kind
+    .split(/[-_]+/)
+    .filter((part) => part.trim().length > 0)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ')
+}
+
+function createCustomCategoryDef(kind: string): CategoryDef {
+  const label = humanizeCategoryKind(kind)
+  return {
+    kind,
+    icon: Hash,
+    shortLabelKey: '',
+    shortLabelFallback: label,
+    descriptionKey: 'customers.tags.manage.customCategoryDescription',
+    descriptionFallback: `Custom CRM category: ${label}.`,
+    noteTitleKey: 'customers.tags.manage.customCategoryNoteTitle',
+    noteTitleFallback: 'Custom category',
+    noteDescriptionKey: 'customers.tags.manage.customCategoryNoteDescription',
+    noteDescriptionFallback: 'Use this category to group and manage additional CRM values for your team.',
+    isCustom: true,
+  }
 }
 
 function makeDraftEntry(entry: Record<string, unknown>): TagEntryDraft | null {
@@ -387,13 +424,21 @@ interface ManageTagsDialogProps {
 
 export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   const t = useT()
-  const [activeTab, setActiveTab] = React.useState(CATEGORIES[0].kind)
+  const [categories, setCategories] = React.useState<CategoryDef[]>(BUILTIN_CATEGORIES)
+  const [activeTab, setActiveTab] = React.useState(BUILTIN_CATEGORIES[0].kind)
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
   const [searchValue, setSearchValue] = React.useState('')
   const [entryCounts, setEntryCounts] = React.useState<Record<string, number>>({})
   const [draftsByKind, setDraftsByKind] = React.useState<Record<string, TagEntryDraft[]>>({})
   const [originalByKind, setOriginalByKind] = React.useState<Record<string, TagEntryDraft[]>>({})
+  const [createCategoryOpen, setCreateCategoryOpen] = React.useState(false)
+  const [newCategoryName, setNewCategoryName] = React.useState('')
+  const [newCategorySelectionMode, setNewCategorySelectionMode] = React.useState<'single' | 'multi'>('multi')
+  const [creatingCategory, setCreatingCategory] = React.useState(false)
+  const [canScrollLeft, setCanScrollLeft] = React.useState(false)
+  const [canScrollRight, setCanScrollRight] = React.useState(false)
+  const categoryRailRef = React.useRef<HTMLDivElement | null>(null)
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
     resourceKind: string
@@ -423,14 +468,26 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   )
   const translatedCategories = React.useMemo(
     () =>
-      CATEGORIES.map((category) => ({
+      categories.map((category) => ({
         ...category,
-        shortLabel: t(category.shortLabelKey, category.shortLabelFallback),
-        description: t(category.descriptionKey, category.descriptionFallback),
-        noteTitle: t(category.noteTitleKey, category.noteTitleFallback),
-        noteDescription: t(category.noteDescriptionKey, category.noteDescriptionFallback),
+        shortLabel: category.shortLabelKey
+          ? t(category.shortLabelKey, category.shortLabelFallback)
+          : category.shortLabelFallback,
+        description: category.descriptionKey
+          ? t(
+            category.descriptionKey,
+            category.descriptionFallback,
+            category.isCustom ? { name: category.shortLabelFallback } : undefined,
+          )
+          : category.descriptionFallback,
+        noteTitle: category.noteTitleKey
+          ? t(category.noteTitleKey, category.noteTitleFallback)
+          : category.noteTitleFallback,
+        noteDescription: category.noteDescriptionKey
+          ? t(category.noteDescriptionKey, category.noteDescriptionFallback)
+          : category.noteDescriptionFallback,
       })),
-    [t],
+    [categories, t],
   )
 
   const sensors = useSensors(
@@ -443,10 +500,27 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   const loadData = React.useCallback(async () => {
     setLoading(true)
     try {
+      let kindSettings: KindSetting[] = []
+      try {
+        const settings = await readApiResultOrThrow<{ items?: KindSetting[] }>(
+          '/api/customers/dictionaries/kind-settings',
+          { cache: 'no-store' },
+        )
+        kindSettings = Array.isArray(settings?.items) ? settings.items : []
+      } catch {
+        kindSettings = []
+      }
+
+      const customCategories = kindSettings
+        .filter((setting) => !BUILTIN_CATEGORY_KINDS.has(setting.kind))
+        .sort((left, right) => left.sortOrder - right.sortOrder || left.kind.localeCompare(right.kind))
+        .map((setting) => createCustomCategoryDef(setting.kind))
+      const resolvedCategories = [...BUILTIN_CATEGORIES, ...customCategories]
+
       const loadedDrafts: Record<string, TagEntryDraft[]> = {}
       const counts: Record<string, number> = {}
 
-      for (const category of CATEGORIES) {
+      for (const category of resolvedCategories) {
         try {
           const data = await readApiResultOrThrow<{
             items?: Array<Record<string, unknown>>
@@ -464,6 +538,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         }
       }
 
+      setCategories(resolvedCategories)
       setDraftsByKind(
         Object.fromEntries(
           Object.entries(loadedDrafts).map(([k, v]) => [k, cloneDrafts(v)]),
@@ -475,6 +550,11 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         ),
       )
       setEntryCounts(counts)
+      setActiveTab((current) =>
+        resolvedCategories.some((category) => category.kind === current)
+          ? current
+          : resolvedCategories[0]?.kind ?? BUILTIN_CATEGORIES[0].kind,
+      )
     } catch (error) {
       const message =
         error instanceof Error
@@ -489,6 +569,9 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   React.useEffect(() => {
     if (!open) return
     setSearchValue('')
+    setCreateCategoryOpen(false)
+    setNewCategoryName('')
+    setNewCategorySelectionMode('multi')
     loadData().catch(() => {})
   }, [loadData, open])
 
@@ -509,12 +592,12 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
 
   const hasChanges = React.useMemo(
     () =>
-      CATEGORIES.some((category) => {
+      categories.some((category) => {
         const original = originalByKind[category.kind] ?? []
         const current = draftsByKind[category.kind] ?? []
         return serializeEntries(original) !== serializeEntries(current)
       }),
-    [draftsByKind, originalByKind],
+    [categories, draftsByKind, originalByKind],
   )
 
   // --- draft mutations ---
@@ -594,7 +677,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
   const handleSave = React.useCallback(async () => {
     if (saving) return
 
-    for (const category of CATEGORIES) {
+    for (const category of categories) {
       const entries = draftsByKind[category.kind] ?? []
       for (const entry of entries) {
         if (entry.deleted) continue
@@ -615,7 +698,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
 
     setSaving(true)
     try {
-      for (const category of CATEGORIES) {
+      for (const category of categories) {
         const currentEntries = draftsByKind[category.kind] ?? []
         const originalEntries = originalByKind[category.kind] ?? []
         const originalById = new Map(
@@ -693,7 +776,103 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     } finally {
       setSaving(false)
     }
-  }, [draftsByKind, loadData, originalByKind, runGuardedMutation, saving, t])
+  }, [categories, draftsByKind, loadData, originalByKind, runGuardedMutation, saving, t])
+
+  const updateCategoryRailState = React.useCallback(() => {
+    const rail = categoryRailRef.current
+    if (!rail) {
+      setCanScrollLeft(false)
+      setCanScrollRight(false)
+      return
+    }
+    const maxScrollLeft = Math.max(0, rail.scrollWidth - rail.clientWidth)
+    setCanScrollLeft(rail.scrollLeft > 4)
+    setCanScrollRight(rail.scrollLeft < maxScrollLeft - 4)
+  }, [])
+
+  const scrollCategoryRail = React.useCallback(
+    (direction: 'left' | 'right') => {
+      const rail = categoryRailRef.current
+      if (!rail) return
+      const offset = Math.max(180, Math.round(rail.clientWidth * 0.65))
+      rail.scrollBy({
+        left: direction === 'left' ? -offset : offset,
+        behavior: 'smooth',
+      })
+    },
+    [],
+  )
+
+  React.useEffect(() => {
+    if (!open) return
+    const rail = categoryRailRef.current
+    if (!rail) return
+    updateCategoryRailState()
+    rail.addEventListener('scroll', updateCategoryRailState, { passive: true })
+    const resizeObserver =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(() => updateCategoryRailState())
+        : null
+    resizeObserver?.observe(rail)
+    return () => {
+      rail.removeEventListener('scroll', updateCategoryRailState)
+      resizeObserver?.disconnect()
+    }
+  }, [open, translatedCategories, updateCategoryRailState])
+
+  const handleCreateCategory = React.useCallback(async () => {
+    if (creatingCategory) return
+    const trimmedName = newCategoryName.trim()
+    const kind = slugifyLabel(trimmedName)
+    if (!kind.length) {
+      flash(
+        t('customers.tags.manage.addCategoryRequired', 'Enter a category name first.'),
+        'error',
+      )
+      return
+    }
+    if (categories.some((category) => category.kind === kind)) {
+      setActiveTab(kind)
+      setCreateCategoryOpen(false)
+      return
+    }
+
+    setCreatingCategory(true)
+    try {
+      await runGuardedMutation(
+        () =>
+          apiCallOrThrow('/api/customers/dictionaries/kind-settings', {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              kind,
+              selectionMode: newCategorySelectionMode,
+              visibleInTags: true,
+              sortOrder: categories.length + 1,
+            }),
+          }),
+        {
+          kind,
+          selectionMode: newCategorySelectionMode,
+          operation: 'createCategory',
+        },
+      )
+      await loadData()
+      setActiveTab(kind)
+      setCreateCategoryOpen(false)
+      setNewCategoryName('')
+      setNewCategorySelectionMode('multi')
+      flash(t('customers.tags.manage.createCategorySuccess', 'Category created.'), 'success')
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : t('customers.tags.manage.createCategoryError', 'Failed to create category.')
+      flash(message, 'error')
+    } finally {
+      setCreatingCategory(false)
+    }
+  }, [categories, creatingCategory, loadData, newCategoryName, newCategorySelectionMode, runGuardedMutation, t])
 
   // --- keyboard shortcut ---
 
@@ -739,16 +918,32 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
               )}
             </p>
           </div>
-          <IconButton
-            type="button"
-            variant="outline"
-            size="sm"
-            className="size-[28px] shrink-0 rounded-[6px] border-border"
-            onClick={onClose}
-            aria-label={t('customers.tags.manage.closeDialog', 'Close')}
-          >
-            <X className="size-[13px]" />
-          </IconButton>
+          <div className="flex items-center gap-[8px]">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-auto gap-[6px] rounded-[8px] px-[12px] py-[7px] text-[12px] font-semibold"
+              onClick={() => {
+                setCreateCategoryOpen((current) => !current)
+                setNewCategoryName('')
+                setNewCategorySelectionMode('multi')
+              }}
+            >
+              <Plus className="size-[13px]" />
+              {t('customers.tags.manage.addCategory', 'New category')}
+            </Button>
+            <IconButton
+              type="button"
+              variant="outline"
+              size="sm"
+              className="size-[28px] shrink-0 rounded-[6px] border-border"
+              onClick={onClose}
+              aria-label={t('customers.tags.manage.closeDialog', 'Close')}
+            >
+              <X className="size-[13px]" />
+            </IconButton>
+          </div>
         </div>
         <div className="h-px shrink-0 bg-border" />
 
@@ -758,40 +953,122 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
           </div>
         ) : (
           <>
-            {/* Tab bar */}
-            <div className="flex shrink-0 items-end overflow-x-auto border-b border-border px-[24px]">
-              {translatedCategories.map((category) => {
-                const Icon = category.icon
-                const isActive = category.kind === activeTab
-                const count = entryCounts[category.kind] ?? 0
-                return (
-                  <Button
-                    key={category.kind}
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setActiveTab(category.kind)
-                      setSearchValue('')
+            {createCategoryOpen ? (
+              <div className="flex shrink-0 flex-wrap items-center gap-[10px] border-b border-border px-[24px] py-[12px]">
+                <div className="min-w-[220px] flex-1 rounded-[8px] border border-input bg-background px-[12px] py-[8px]">
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={(event) => setNewCategoryName(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        void handleCreateCategory()
+                      }
                     }}
-                    className={`flex h-auto shrink-0 items-center gap-[5px] rounded-none border-b-2 px-[10px] py-[8px] hover:bg-transparent ${
-                      isActive
-                        ? '-mb-px border-foreground text-foreground'
-                        : '-mb-px border-transparent text-muted-foreground'
-                    }`}
+                    placeholder={t('customers.tags.manage.addCategoryPlaceholder', 'Category name...')}
+                    className="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                  />
+                </div>
+                <div className="flex items-center gap-[4px] rounded-[8px] border border-border bg-muted/60 p-[4px]">
+                  <Button
+                    type="button"
+                    variant={newCategorySelectionMode === 'single' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-[12px]"
+                    onClick={() => setNewCategorySelectionMode('single')}
                   >
-                    <Icon className="size-[13px]" />
-                    <span
-                      className={`whitespace-nowrap text-[11px] ${isActive ? 'font-semibold' : 'font-medium'}`}
-                    >
-                      {category.shortLabel}
-                    </span>
-                    <span className="rounded-[3px] bg-muted px-[4px] py-px text-[9px] font-semibold text-foreground">
-                      {count}
-                    </span>
+                    {t('customers.tags.manage.categoryMode.single', 'Single')}
                   </Button>
-                )
-              })}
+                  <Button
+                    type="button"
+                    variant={newCategorySelectionMode === 'multi' ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-[12px]"
+                    onClick={() => setNewCategorySelectionMode('multi')}
+                  >
+                    {t('customers.tags.manage.categoryMode.multi', 'Multi')}
+                  </Button>
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-auto rounded-[8px] px-[12px] py-[7px] text-[12px] font-semibold"
+                  onClick={() => {
+                    void handleCreateCategory()
+                  }}
+                  disabled={creatingCategory}
+                >
+                  {creatingCategory
+                    ? t('customers.tags.manage.creatingCategory', 'Creating...')
+                    : t('customers.tags.manage.createCategory', 'Create category')}
+                </Button>
+              </div>
+            ) : null}
+
+            {/* Tab bar */}
+            <div className="flex shrink-0 items-center gap-[8px] border-b border-border px-[16px] py-[6px]">
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-[30px] shrink-0 rounded-full"
+                onClick={() => scrollCategoryRail('left')}
+                disabled={!canScrollLeft}
+                aria-label={t('customers.tags.manage.scrollLeft', 'Scroll categories left')}
+              >
+                <ChevronsLeft className="size-[14px]" />
+              </IconButton>
+              <div
+                ref={categoryRailRef}
+                className="min-w-0 flex-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                <div className="flex items-end gap-[2px]">
+                  {translatedCategories.map((category) => {
+                    const Icon = category.icon
+                    const isActive = category.kind === activeTab
+                    const count = entryCounts[category.kind] ?? 0
+                    return (
+                      <Button
+                        key={category.kind}
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setActiveTab(category.kind)
+                          setSearchValue('')
+                        }}
+                        className={`flex h-auto shrink-0 items-center gap-[5px] rounded-none border-b-2 px-[10px] py-[8px] hover:bg-transparent ${
+                          isActive
+                            ? '-mb-px border-foreground text-foreground'
+                            : '-mb-px border-transparent text-muted-foreground'
+                        }`}
+                      >
+                        <Icon className="size-[13px]" />
+                        <span
+                          className={`whitespace-nowrap text-[11px] ${isActive ? 'font-semibold' : 'font-medium'}`}
+                        >
+                          {category.shortLabel}
+                        </span>
+                        <span className="rounded-[3px] bg-muted px-[4px] py-px text-[9px] font-semibold text-foreground">
+                          {count}
+                        </span>
+                      </Button>
+                    )
+                  })}
+                </div>
+              </div>
+              <IconButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="size-[30px] shrink-0 rounded-full"
+                onClick={() => scrollCategoryRail('right')}
+                disabled={!canScrollRight}
+                aria-label={t('customers.tags.manage.scrollRight', 'Scroll categories right')}
+              >
+                <ChevronsRight className="size-[14px]" />
+              </IconButton>
             </div>
 
             {/* Content */}

@@ -14,6 +14,10 @@ import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
 type AttachmentsResponse = {
   items?: AttachmentItem[]
+  total?: number
+  page?: number
+  pageSize?: number
+  totalPages?: number
   error?: string
 }
 
@@ -40,6 +44,8 @@ function AttachmentsSectionImpl({
 }: Props) {
   const t = useT()
   const [items, setItems] = React.useState<AttachmentItem[]>([])
+  const [page, setPage] = React.useState(1)
+  const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [isUploading, setIsUploading] = React.useState(false)
@@ -50,13 +56,19 @@ function AttachmentsSectionImpl({
   const [deleteTarget, setDeleteTarget] = React.useState<AttachmentItem | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
-  const load = React.useCallback(async () => {
+  const load = React.useCallback(async (targetPage = 1, replace = true) => {
     if (!recordId) return
     setLoading(true)
     setError(null)
     try {
+      const params = new URLSearchParams({
+        entityId,
+        recordId,
+        page: String(targetPage),
+        pageSize: '24',
+      })
       const call = await apiCall<AttachmentsResponse>(
-        `/api/attachments?entityId=${encodeURIComponent(entityId)}&recordId=${encodeURIComponent(recordId)}`,
+        `/api/attachments?${params.toString()}`,
         undefined,
         { fallback: { items: [] } },
       )
@@ -65,7 +77,10 @@ function AttachmentsSectionImpl({
         throw new Error(message)
       }
       const payload = call.result ?? { items: [] }
-      setItems(Array.isArray(payload.items) ? payload.items : [])
+      const nextItems = Array.isArray(payload.items) ? payload.items : []
+      setItems((current) => (replace ? nextItems : [...current, ...nextItems]))
+      setPage(typeof payload.page === 'number' ? payload.page : targetPage)
+      setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.load', 'Failed to load attachments.'))
     } finally {
@@ -78,6 +93,8 @@ function AttachmentsSectionImpl({
       void load()
     } else {
       setItems([])
+      setPage(1)
+      setTotalPages(1)
       setError(null)
     }
   }, [load, recordId])
@@ -103,7 +120,7 @@ function AttachmentsSectionImpl({
             throw new Error(message)
           }
         }
-        await load()
+        await load(1, true)
         onChanged?.()
       } catch (err: any) {
         setError(err?.message || t('attachments.library.upload.failed', 'Upload failed.'))
@@ -162,7 +179,7 @@ function AttachmentsSectionImpl({
       }
       setDeleteOpen(false)
       setDeleteTarget(null)
-      await load()
+      await load(1, true)
       onChanged?.()
     } catch (err: any) {
       setError(err?.message || t('attachments.library.errors.delete', 'Failed to delete attachment.'))
@@ -188,7 +205,7 @@ function AttachmentsSectionImpl({
         throw new Error(message)
       }
       setMetadataOpen(false)
-      await load()
+      await load(1, true)
       onChanged?.()
     },
     [load, onChanged, t],
@@ -305,6 +322,20 @@ function AttachmentsSectionImpl({
           {t('attachments.library.table.empty', 'No attachments found.')}
         </div>
       )}
+
+      {items.length > 0 && page < totalPages ? (
+        <div className="flex justify-center">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => { void load(page + 1, false) }}
+            disabled={loading}
+          >
+            {t('attachments.library.loadMore', 'Load more')}
+          </Button>
+        </div>
+      ) : null}
 
       <AttachmentMetadataDialog
         open={metadataOpen}

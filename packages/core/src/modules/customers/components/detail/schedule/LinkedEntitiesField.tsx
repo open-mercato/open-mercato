@@ -14,46 +14,117 @@ import type { LinkedEntity } from './useScheduleFormState'
 
 const ENTITY_LINK_TYPES = ['company', 'deal', 'offer'] as const
 
+function readLabelCandidate(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function resolveLinkedEntityLabel(
+  item: Record<string, unknown>,
+  linkType: 'company' | 'deal' | 'offer',
+): string {
+  if (linkType === 'offer') {
+    const quoteNumber =
+      readLabelCandidate(item.quoteNumber)
+      ?? readLabelCandidate(item.quote_number)
+      ?? readLabelCandidate(item.documentNumber)
+      ?? readLabelCandidate(item.document_number)
+      ?? readLabelCandidate(item.externalReference)
+      ?? readLabelCandidate(item.external_reference)
+    const customerName =
+      readLabelCandidate(item.customerName)
+      ?? readLabelCandidate(item.customer_name)
+      ?? readLabelCandidate(item.display_name)
+      ?? readLabelCandidate(item.displayName)
+      ?? readLabelCandidate(item.name)
+      ?? readLabelCandidate(item.title)
+    if (quoteNumber && customerName) return `${quoteNumber} · ${customerName}`
+    if (quoteNumber) return quoteNumber
+    if (customerName) return customerName
+  }
+
+  if (linkType === 'deal') {
+    const dealLabel =
+      readLabelCandidate(item.title)
+      ?? readLabelCandidate(item.name)
+      ?? readLabelCandidate(item.display_name)
+      ?? readLabelCandidate(item.displayName)
+    if (dealLabel) return dealLabel
+  }
+
+  return (
+    readLabelCandidate(item.display_name)
+    ?? readLabelCandidate(item.displayName)
+    ?? readLabelCandidate(item.name)
+    ?? readLabelCandidate(item.title)
+    ?? String(item.id ?? '')
+  )
+}
+
 function EntityLinkSearchPopover({
   existingIds,
   onAdd,
+  onAddMany,
   t,
 }: {
   existingIds: Set<string>
   onAdd: (entity: LinkedEntity) => void
+  onAddMany: (entities: LinkedEntity[]) => void
   t: (key: string, fallback: string) => string
 }) {
   const [open, setOpen] = React.useState(false)
   const [linkType, setLinkType] = React.useState<'company' | 'deal' | 'offer'>('company')
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ id: string; label: string }>>([])
+  const [page, setPage] = React.useState(1)
+  const [totalPages, setTotalPages] = React.useState(1)
   const [loading, setLoading] = React.useState(false)
+  const selectableResults = React.useMemo(
+    () => results.filter((result) => !existingIds.has(result.id)),
+    [existingIds, results],
+  )
 
   React.useEffect(() => {
     if (!open) return
     const controller = new AbortController()
     setLoading(true)
     const searchParam = query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''
+    const pagingParam = `&page=${page}&pageSize=20`
     const endpoint = linkType === 'company'
-      ? `/api/customers/companies?pageSize=10${searchParam}`
+      ? `/api/customers/companies?sortField=name&sortDir=asc${pagingParam}${searchParam}`
       : linkType === 'deal'
-        ? `/api/customers/deals?pageSize=10${searchParam}`
-        : `/api/sales/quotes?pageSize=10${searchParam}`
-    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(endpoint, { signal: controller.signal })
+        ? `/api/customers/deals?pageSize=20&page=${page}${searchParam}`
+        : `/api/sales/quotes?pageSize=20&page=${page}${searchParam}`
+    readApiResultOrThrow<{ items?: Array<Record<string, unknown>>; totalPages?: number; page?: number; pageSize?: number; total?: number }>(endpoint, { signal: controller.signal })
       .then((data) => {
         const items = Array.isArray(data?.items) ? data.items : []
-        setResults(items.map((item) => ({
+        const nextResults = items.map((item) => ({
           id: typeof item?.id === 'string' ? item.id : '',
-          label: typeof item?.display_name === 'string' ? item.display_name
-            : typeof item?.displayName === 'string' ? item.displayName
-            : typeof item?.title === 'string' ? item.title
-            : typeof item?.name === 'string' ? item.name
-            : String(item?.id ?? ''),
-        })).filter((r) => r.id))
+          label: resolveLinkedEntityLabel(item, linkType),
+        })).filter((r) => r.id)
+        setResults((current) => {
+          if (page <= 1) return nextResults
+          const merged = new Map(current.map((entry) => [entry.id, entry]))
+          nextResults.forEach((entry) => merged.set(entry.id, entry))
+          return Array.from(merged.values())
+        })
+        if (typeof data?.totalPages === 'number') {
+          setTotalPages(data.totalPages)
+        } else if (typeof data?.total === 'number' && typeof data?.pageSize === 'number') {
+          setTotalPages(Math.max(1, Math.ceil(data.total / data.pageSize)))
+        } else {
+          setTotalPages(1)
+        }
       })
       .catch(() => setResults([]))
       .finally(() => setLoading(false))
     return () => controller.abort()
+  }, [open, page, query, linkType])
+
+  React.useEffect(() => {
+    if (!open) return
+    setPage(1)
   }, [open, query, linkType])
 
   return (
@@ -91,6 +162,29 @@ function EntityLinkSearchPopover({
             autoFocus
           />
         </div>
+        {selectableResults.length ? (
+          <div className="mb-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => {
+                onAddMany(
+                  selectableResults.map((result) => ({
+                    id: result.id,
+                    type: linkType,
+                    label: result.label,
+                  })),
+                )
+                setOpen(false)
+                setQuery('')
+              }}
+            >
+              {t('customers.schedule.addVisibleLinks', 'Add all visible')}
+            </Button>
+          </div>
+        ) : null}
         <div className="max-h-48 overflow-y-auto space-y-0.5">
           {loading && <p className="px-2 py-3 text-xs text-muted-foreground text-center">{t('customers.schedule.searching', 'Searching...')}</p>}
           {!loading && results.length === 0 && <p className="px-2 py-3 text-xs text-muted-foreground text-center">{t('customers.schedule.noResults', 'No results')}</p>}
@@ -118,6 +212,13 @@ function EntityLinkSearchPopover({
               </Button>
             )
           })}
+          {!loading && page < totalPages ? (
+            <div className="px-2 py-2">
+              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
+                {t('customers.schedule.loadMore', 'Load more')}
+              </Button>
+            </div>
+          ) : null}
         </div>
       </PopoverContent>
     </Popover>
@@ -167,6 +268,7 @@ export function LinkedEntitiesField({
         <EntityLinkSearchPopover
           existingIds={new Set(linkedEntities.map((e) => e.id))}
           onAdd={(entity) => setLinkedEntities((prev) => [...prev, entity])}
+          onAddMany={(entities) => setLinkedEntities((prev) => [...prev, ...entities])}
           t={t}
         />
       </div>

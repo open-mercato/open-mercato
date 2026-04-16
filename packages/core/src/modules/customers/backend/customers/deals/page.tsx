@@ -36,6 +36,7 @@ import {
   normalizeCustomFieldFilterOptions,
   supportsCustomFieldColumn,
 } from '@open-mercato/ui/backend/utils/customFieldColumns'
+import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 
 type DealRow = {
   id: string
@@ -820,19 +821,17 @@ export default function CustomersDealsPage() {
         colorClassName="h-3 w-3 rounded-full"
       />
     )
-    const renderAssociationList = (
+    const renderAssociationSummary = (
       items: { id: string; label: string }[],
       fallbackLabel: string,
     ) => {
       if (!items.length) return noValue
+      const labels = normalizeCollectionLabels(
+        items.map((entry) => (entry.label && entry.label.trim().length ? entry.label : fallbackLabel)),
+      )
+      if (!labels.length) return noValue
       return (
-        <ul className="flex flex-wrap gap-1 text-sm">
-          {items.map((entry) => (
-            <li key={entry.id} className="rounded border px-2 py-0.5 text-xs bg-muted">
-              {entry.label && entry.label.trim().length ? entry.label : fallbackLabel}
-            </li>
-          ))}
-        </ul>
+        <CollectionPreviewCell labels={labels} maxVisible={1} />
       )
     }
 
@@ -847,20 +846,22 @@ export default function CustomersDealsPage() {
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
+          maxWidth: '220px',
         },
         cell: ({ getValue }) => {
           const value = getValue()
           if (value == null) return noValue
           if (Array.isArray(value)) {
-            const normalized = value
-              .map((item) => {
-                if (item == null) return ''
-                if (typeof item === 'string') return item.trim()
-                return String(item).trim()
-              })
-              .filter((item) => item.length > 0)
+            const normalized = normalizeCollectionLabels(
+              value
+                .map((item) => {
+                  if (item == null) return ''
+                  if (typeof item === 'string') return item
+                  return String(item)
+                }),
+            )
             if (!normalized.length) return noValue
-            return <span className="text-sm">{normalized.join(', ')}</span>
+            return <CollectionPreviewCell labels={normalized} maxVisible={2} />
           }
           if (typeof value === 'boolean') {
             return (
@@ -881,7 +882,12 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'title',
         header: t('customers.deals.list.columns.title'),
-        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'title' },
+        meta: {
+          alwaysVisible: true,
+          columnChooserGroup: 'Basic Info',
+          filterKey: 'title',
+          maxWidth: '280px',
+        },
         cell: ({ row }) => <span className="font-medium text-sm">{row.original.title}</span>,
       },
       {
@@ -899,7 +905,7 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'pipelineId',
         header: t('customers.deals.list.columns.pipeline', 'Pipeline'),
-        meta: { columnChooserGroup: 'Pipeline', filterKey: 'pipeline_id' },
+        meta: { columnChooserGroup: 'Pipeline', filterKey: 'pipeline_id', maxWidth: '220px' },
         cell: ({ row }) => {
           const name = row.original.pipelineId ? pipelineNames[row.original.pipelineId] : null
           return name ? <span className="text-sm">{name}</span> : noValue
@@ -940,14 +946,30 @@ export default function CustomersDealsPage() {
       {
         accessorKey: 'companies',
         header: t('customers.deals.list.columns.companies'),
-        meta: { columnChooserGroup: 'Associations', filterable: false },
-        cell: ({ row }) => renderAssociationList(row.original.companies, t('customers.deals.list.unnamedCompany')),
+        meta: {
+          columnChooserGroup: 'Associations',
+          filterable: false,
+          maxWidth: '220px',
+          tooltipContent: (row: DealRow) =>
+            normalizeCollectionLabels(
+              row.companies.map((entry) => (entry.label && entry.label.trim().length ? entry.label : t('customers.deals.list.unnamedCompany'))),
+            ).join(', '),
+        },
+        cell: ({ row }) => renderAssociationSummary(row.original.companies, t('customers.deals.list.unnamedCompany')),
       },
       {
         accessorKey: 'people',
         header: t('customers.deals.list.columns.people'),
-        meta: { columnChooserGroup: 'Associations', filterable: false },
-        cell: ({ row }) => renderAssociationList(row.original.people, t('customers.deals.list.unnamedPerson')),
+        meta: {
+          columnChooserGroup: 'Associations',
+          filterable: false,
+          maxWidth: '220px',
+          tooltipContent: (row: DealRow) =>
+            normalizeCollectionLabels(
+              row.people.map((entry) => (entry.label && entry.label.trim().length ? entry.label : t('customers.deals.list.unnamedPerson'))),
+            ).join(', '),
+        },
+        cell: ({ row }) => renderAssociationSummary(row.original.people, t('customers.deals.list.unnamedPerson')),
       },
       {
         accessorKey: 'updatedAt',

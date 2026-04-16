@@ -1802,6 +1802,30 @@ export type CompanyOverview = {
   deals: DealSummary[]
   todos: TodoLinkSummary[]
   people: CompanyPersonSummary[]
+  counts?: {
+    comments: number
+    activities: number
+    interactions: number
+    todos: number
+    deals: number
+    people: number
+    addresses: number
+    tags: number
+  }
+  plannedActivitiesPreview?: InteractionSummary[]
+  kpis?: {
+    activeDealsCount: number
+    activeDealsValue: number | null
+    dealCurrency: string | null
+    activityCount: number
+    activityTrend: {
+      value: number
+      direction: 'up' | 'down' | 'unchanged'
+    } | null
+    ltvValue: number | null
+    completedDealsCount: number
+    clientTenureYears: number | null
+  }
   interactionMode?: 'canonical' | 'legacy'
   viewer?: {
     userId: string | null
@@ -1850,6 +1874,17 @@ export type PersonOverview = {
   interactions: InteractionSummary[]
   deals: DealSummary[]
   todos: TodoLinkSummary[]
+  counts?: {
+    comments: number
+    activities: number
+    interactions: number
+    todos: number
+    deals: number
+    companies: number
+    addresses: number
+    tags: number
+  }
+  plannedActivitiesPreview?: InteractionSummary[]
   interactionMode?: 'canonical' | 'legacy'
   /** Whether this person is the primary contact for any linked company. */
   isPrimary?: boolean

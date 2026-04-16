@@ -1,13 +1,12 @@
 "use client"
 
 import * as React from 'react'
-import { Phone, Mail, Trash2, Building2, Globe, MoreHorizontal, Pencil, MapPin } from 'lucide-react'
+import { Phone, Mail, Trash2, Building2, Globe, Pencil, MapPin } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { CompanyTagsDialog } from './CompanyTagsDialog'
 import { invalidateCustomerDictionary, useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { renderDictionaryIcon } from '../../../dictionaries/components/dictionaryAppearance'
@@ -62,6 +61,14 @@ export function CompanyDetailHeader({
   const company = data.company
   const profile = data.profile
   const displayName = company.displayName || t('customers.companies.detail.untitled', 'Untitled')
+  const visibleCustomTags = React.useMemo(
+    () => (data.tags?.filter((tag) => !['status', 'lifecycle_stage', 'source'].includes(tag.id)).slice(0, 6) ?? []),
+    [data.tags],
+  )
+  const hiddenCustomTagsCount = Math.max(
+    0,
+    (data.tags?.filter((tag) => !['status', 'lifecycle_stage', 'source'].includes(tag.id)).length ?? 0) - visibleCustomTags.length,
+  )
 
   const industryLabel = profile?.industry ?? null
   const sizeLabel = profile?.sizeBucket ?? null
@@ -148,7 +155,7 @@ export function CompanyDetailHeader({
             {company.renewalQuarter && (
               <CompanyDictionaryBadge value={company.renewalQuarter} map={renewalQuarterDict?.map} />
             )}
-            {data.tags?.filter((tag) => !['status', 'lifecycle_stage', 'source'].includes(tag.id)).map((tag) => {
+            {visibleCustomTags.map((tag) => {
               const colorStyle: React.CSSProperties | undefined = tag.color
                 ? { color: tag.color, borderColor: tag.color, backgroundColor: `${tag.color}1A` }
                 : undefined
@@ -163,6 +170,11 @@ export function CompanyDetailHeader({
                 </Badge>
               )
             })}
+            {hiddenCustomTagsCount > 0 ? (
+              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium">
+                +{hiddenCustomTagsCount} {t('customers.companies.detail.header.more', 'more')}
+              </Badge>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -178,27 +190,18 @@ export function CompanyDetailHeader({
 
         {/* Right side: actions */}
         <div className="flex w-full shrink-0 flex-col items-start gap-3 sm:w-auto sm:items-end">
-          {/* Action buttons - delete in three-dot menu */}
           <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
-            <Popover>
-              <PopoverTrigger asChild>
-                <IconButton variant="outline" size="sm" type="button" aria-label={t('customers.companies.detail.actions.more', 'More')}>
-                  <MoreHorizontal className="size-4" />
-                </IconButton>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-48 p-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="w-full justify-start text-destructive hover:text-destructive"
-                  onClick={onDelete}
-                >
-                  <Trash2 className="mr-2 size-4" />
-                  {t('customers.companies.detail.actions.delete', 'Delete')}
-                </Button>
-              </PopoverContent>
-            </Popover>
+            <IconButton
+              variant="outline"
+              size="sm"
+              type="button"
+              aria-label={t('customers.companies.detail.actions.delete', 'Delete company')}
+              onClick={() => {
+                void onDelete()
+              }}
+            >
+              <Trash2 className="size-4" />
+            </IconButton>
             <Button
               type="button"
               size="sm"
@@ -223,6 +226,7 @@ export function CompanyDetailHeader({
           temperature: company.temperature,
           renewalQuarter: company.renewalQuarter,
           industry: profile?.industry ?? null,
+          customFields: data.customFields,
           tags: data.tags,
         }}
         onSaved={() => {

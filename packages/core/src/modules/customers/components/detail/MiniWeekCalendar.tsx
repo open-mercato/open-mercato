@@ -91,74 +91,120 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
   React.useEffect(() => {
     if (!entityId) return
     const controller = new AbortController()
-    const from = weekStart.toISOString().slice(0, 10)
-    const toDate = new Date(weekEnd)
-    toDate.setDate(toDate.getDate() + 2)
-    const to = toDate.toISOString().slice(0, 10)
+    const rangeStart = new Date(weekStart)
+    rangeStart.setHours(0, 0, 0, 0)
+    const rangeEnd = new Date(weekEnd)
+    rangeEnd.setDate(rangeEnd.getDate() + 2)
+    rangeEnd.setHours(23, 59, 59, 999)
 
-    function filterByDateRange(items: InteractionSummary[]): InteractionSummary[] {
-      return items.filter((item) => {
-        const d = (item.scheduledAt ?? item.occurredAt ?? item.createdAt ?? '').slice(0, 10)
-        return d >= from && d <= to
-      })
+    function isWithinRange(item: InteractionSummary): boolean {
+      const rawDate = item.scheduledAt ?? item.occurredAt ?? item.createdAt
+      if (!rawDate) return false
+      const eventDate = new Date(rawDate)
+      if (Number.isNaN(eventDate.getTime())) return false
+      return eventDate >= rangeStart && eventDate <= rangeEnd
     }
 
-    // Don't use from/to API params — the API only filters on scheduled_at which is null for logged activities.
-    // Fetch all and filter client-side.
-    const canonicalUrl = `/api/customers/interactions?entityId=${encodeURIComponent(entityId)}&sortField=occurredAt&sortDir=asc&limit=50&excludeInteractionType=task`
+    async function loadCanonicalInteractions(): Promise<InteractionSummary[]> {
+      const items: InteractionSummary[] = []
+      let cursor: string | undefined
+      do {
+        const params = new URLSearchParams({
+          entityId,
+          sortField: 'occurredAt',
+          sortDir: 'desc',
+          limit: '100',
+          excludeInteractionType: 'task',
+          from: rangeStart.toISOString(),
+          to: rangeEnd.toISOString(),
+        })
+        if (cursor) params.set('cursor', cursor)
+        const payload = await readApiResultOrThrow<{
+          items?: InteractionSummary[]
+          nextCursor?: string
+        }>(`/api/customers/interactions?${params.toString()}`, { signal: controller.signal })
+        const pageItems = Array.isArray(payload?.items) ? payload.items : []
+        items.push(...pageItems)
+        cursor = typeof payload?.nextCursor === 'string' ? payload.nextCursor : undefined
+      } while (cursor)
+      return items.filter(isWithinRange)
+    }
 
-    if (useCanonicalInteractions) {
-      readApiResultOrThrow<{ items?: InteractionSummary[] }>(canonicalUrl, { signal: controller.signal })
-        .then((data) => setEvents(filterByDateRange(Array.isArray(data?.items) ? data.items : [])))
-        .catch(() => {})
-    } else {
-      // Fetch both canonical + legacy and merge
-      Promise.all([
-        readApiResultOrThrow<{ items?: InteractionSummary[] }>(canonicalUrl, { signal: controller.signal })
-          .catch(() => ({ items: [] as InteractionSummary[] })),
-        readApiResultOrThrow<{ items?: ActivitySummary[] }>(
-          `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&pageSize=50&sortField=occurredAt&sortDir=asc`,
+    async function loadLegacyActivities(): Promise<InteractionSummary[]> {
+      const items: InteractionSummary[] = []
+      let page = 1
+      let totalPages = 1
+      do {
+        const payload = await readApiResultOrThrow<{
+          items?: ActivitySummary[]
+          totalPages?: number
+        }>(
+          `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&page=${page}&pageSize=100&sortField=occurredAt&sortDir=desc`,
           { signal: controller.signal },
-        ).catch(() => ({ items: [] as ActivitySummary[] })),
-      ]).then(([canonical, legacy]) => {
-        const canonicalItems = Array.isArray(canonical?.items) ? canonical.items : []
-        const legacyRaw = Array.isArray(legacy?.items) ? legacy.items : []
-        const legacyMapped: InteractionSummary[] = legacyRaw.map((a) => ({
-          id: a.id,
-          interactionType: a.activityType,
-          title: a.subject ?? null,
-          body: a.body ?? null,
+        )
+        const pageItems = Array.isArray(payload?.items) ? payload.items : []
+        const mappedItems: InteractionSummary[] = pageItems.map((activity) => ({
+          id: activity.id,
+          interactionType: activity.activityType,
+          title: activity.subject ?? null,
+          body: activity.body ?? null,
           status: 'done',
           scheduledAt: null,
-          occurredAt: a.occurredAt ?? null,
+          occurredAt: activity.occurredAt ?? null,
           priority: null,
-          authorUserId: a.authorUserId ?? null,
+          authorUserId: activity.authorUserId ?? null,
           ownerUserId: null,
-          appearanceIcon: a.appearanceIcon ?? null,
-          appearanceColor: a.appearanceColor ?? null,
+          appearanceIcon: activity.appearanceIcon ?? null,
+          appearanceColor: activity.appearanceColor ?? null,
           source: 'legacy-activity',
-          entityId: a.entityId ?? null,
-          dealId: a.dealId ?? null,
+          entityId: activity.entityId ?? null,
+          dealId: activity.dealId ?? null,
           organizationId: null,
           tenantId: null,
-          authorName: a.authorName ?? null,
-          authorEmail: a.authorEmail ?? null,
-          dealTitle: a.dealTitle ?? null,
+          authorName: activity.authorName ?? null,
+          authorEmail: activity.authorEmail ?? null,
+          dealTitle: activity.dealTitle ?? null,
           customValues: null,
-          createdAt: a.createdAt,
-          updatedAt: a.createdAt,
+          createdAt: activity.createdAt,
+          updatedAt: activity.createdAt,
         }))
+        items.push(...mappedItems.filter(isWithinRange))
+        totalPages = typeof payload?.totalPages === 'number' ? payload.totalPages : totalPages
+        if (!pageItems.length) break
+        const oldestPageTimestamp = pageItems.reduce<number>((oldest, activity) => {
+          const rawDate = activity.occurredAt ?? activity.createdAt
+          const timestamp = rawDate ? new Date(rawDate).getTime() : Number.NaN
+          if (!Number.isFinite(timestamp)) return oldest
+          return Math.min(oldest, timestamp)
+        }, Number.POSITIVE_INFINITY)
+        if (Number.isFinite(oldestPageTimestamp) && oldestPageTimestamp < rangeStart.getTime()) {
+          break
+        }
+        page += 1
+      } while (page <= totalPages)
+      return items
+    }
+
+    void (async () => {
+      try {
+        const canonicalItems = await loadCanonicalInteractions()
+        if (useCanonicalInteractions) {
+          setEvents(canonicalItems)
+          return
+        }
+        const legacyItems = await loadLegacyActivities()
         const seen = new Set<string>()
         const merged: InteractionSummary[] = []
-        for (const item of [...canonicalItems, ...legacyMapped]) {
-          if (!seen.has(item.id)) {
-            seen.add(item.id)
-            merged.push(item)
-          }
+        for (const item of [...canonicalItems, ...legacyItems]) {
+          if (seen.has(item.id)) continue
+          seen.add(item.id)
+          merged.push(item)
         }
-        setEvents(filterByDateRange(merged))
-      }).catch(() => {})
-    }
+        setEvents(merged.filter(isWithinRange))
+      } catch {
+        setEvents([])
+      }
+    })()
     return () => controller.abort()
   }, [entityId, weekStart, weekEnd, useCanonicalInteractions, refreshKey])
 

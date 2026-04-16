@@ -17,6 +17,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, type SectionAction } from '@open-mercato/ui/backend/detail'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -49,6 +50,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const router = useRouter()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
 
@@ -74,6 +76,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const [scheduleDialogOpen, setScheduleDialogOpen] = React.useState(false)
   const [scheduleEditData, setScheduleEditData] = React.useState<ScheduleActivityEditData | null>(null)
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
+  const [dealCount, setDealCount] = React.useState(0)
 
   const currentPersonId = data?.person?.id ?? null
   const mutationContextId = React.useMemo(
@@ -116,12 +119,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     }
     setError(null)
     try {
-      const search = new URLSearchParams()
-      search.append('include', 'todos')
-      search.append('include', 'interactions')
-      search.append('include', 'deals')
       const payload = await readApiResultOrThrow<PersonOverview>(
-        `/api/customers/people/${encodeURIComponent(id)}?${search.toString()}`,
+        `/api/customers/people/${encodeURIComponent(id)}`,
         undefined,
         { errorMessage: t('customers.people.detail.error.load', 'Failed to load person.') },
       )
@@ -140,15 +139,18 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     loadData().catch(() => {})
   }, [loadData])
 
+  React.useEffect(() => {
+    setDealCount(data?.counts?.deals ?? 0)
+  }, [data?.counts?.deals])
+
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
     loadData().catch(() => {})
   }, [loadData])
 
   const plannedActivities = React.useMemo(() => {
-    const interactions = data?.interactions ?? []
-    return interactions.filter((i) => i.status === 'planned' && i.interactionType !== 'task')
-  }, [data?.interactions])
+    return data?.plannedActivitiesPreview ?? []
+  }, [data?.plannedActivitiesPreview])
 
   // Injection context for UMES
   const injectionContext = React.useMemo(
@@ -176,12 +178,12 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const handleMarkDone = React.useCallback(async (interactionId: string) => {
     try {
       await runMutationWithContext(
-        () => apiCallOrThrow('/api/customers/interactions', {
-          method: 'PUT',
+        () => apiCallOrThrow('/api/customers/interactions/complete', {
+          method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: interactionId, status: 'done', occurredAt: new Date().toISOString() }),
+          body: JSON.stringify({ id: interactionId, occurredAt: new Date().toISOString() }),
         }),
-        { id: interactionId, status: 'done' },
+        { id: interactionId, status: 'done', operation: 'completeActivity' },
       )
       flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
       handleActivityCreated()
@@ -310,11 +312,24 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const handleFormDelete = React.useCallback(
     async () => {
-      await deleteCrud('customers/people', { id: data?.person?.id ?? '' })
+      const personId = data?.person?.id ?? ''
+      if (!personId) return
+      const approved = await confirm({
+        title: t('customers.people.detail.deleteConfirmTitle', 'Delete person?'),
+        description: t('customers.people.detail.deleteConfirmDescription', 'This action cannot be undone.'),
+        confirmText: t('customers.people.detail.actions.delete', 'Delete'),
+        cancelText: t('customers.people.detail.actions.cancel', 'Cancel'),
+        variant: 'destructive',
+      })
+      if (!approved) return
+      await runMutationWithContext(
+        () => deleteCrud('customers/people', { id: personId }),
+        { id: personId, operation: 'deletePerson' },
+      )
       flash(t('customers.people.list.deleteSuccess', 'Person deleted.'), 'success')
       router.push('/backend/customers/people')
     },
-    [data?.person?.id, router, t],
+    [confirm, data?.person?.id, router, runMutationWithContext, t],
   )
 
   const handleHeaderSave = React.useCallback(() => {
@@ -323,10 +338,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   }, [])
 
   // Counts for tab badges
-  const interactionCount = data?.interactions?.length ?? 0
-  const dealCount = data?.deals?.length ?? 0
-  const todoCount = data?.todos?.length ?? 0
-  const companyCount = data?.companies?.length ?? (data?.company ? 1 : 0)
+  const interactionCount = data?.counts?.activities ?? 0
+  const todoCount = data?.counts?.todos ?? 0
+  const companyCount = data?.counts?.companies ?? (data?.companies?.length ?? (data?.company ? 1 : 0))
 
   // Loading / error states
   if (isLoading) {
@@ -484,6 +498,8 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                         }}
                         onActionChange={handleSectionActionChange}
                         translator={detailTranslator}
+                        runGuardedMutation={runMutationWithContext}
+                        onCountDelta={(delta) => setDealCount((current) => Math.max(0, current + delta))}
                       />
                     )
                   }
@@ -493,7 +509,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                       <PersonCompaniesSection
                         personId={personId}
                         personName={personName}
-                        onChanged={() => { loadData().catch(() => {}) }}
+                        initialLinkedCompanies={data?.companies ?? []}
+                        onChanged={loadData}
+                        runGuardedMutation={runMutationWithContext}
                       />
                     )
                   }
@@ -502,7 +520,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     return (
                       <TasksSection
                         entityId={personId}
-                        initialTasks={data.todos}
+                        initialTasks={[]}
                         useCanonicalInteractions={useCanonicalInteractions}
                         runGuardedMutation={runMutationWithContext}
                         onDataRefresh={loadData}
@@ -557,6 +575,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onActivityCreated={handleActivityCreated}
             editData={scheduleEditData}
           />
+          {ConfirmDialogElement}
         </div>
       </PageBody>
     </Page>

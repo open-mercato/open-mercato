@@ -2,11 +2,17 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { CustomerEntity, CustomerPersonProfile } from '../../data/entities'
+import {
+  CustomerDealPersonLink,
+  CustomerEntity,
+  CustomerPersonCompanyLink,
+  CustomerPersonProfile,
+} from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { personCreateSchema, personUpdateSchema } from '../../data/validators'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
+  applyEntityIdExclusion,
   applyEntityIdRestriction,
   consumeAdvancedFilterState,
   findMatchingEntityIdsWithQueryEngine,
@@ -23,6 +29,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi'
+import { withActiveCustomerPersonCompanyLinkFilter } from '../../lib/personCompanyLinkTable'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -47,6 +54,9 @@ const listSchema = z
     id: z.string().uuid().optional(),
     tagIds: z.string().optional(),
     tagIdsEmpty: z.string().optional(),
+    excludeIds: z.string().optional(),
+    excludeLinkedCompanyId: z.string().uuid().optional(),
+    excludeLinkedDealId: z.string().uuid().optional(),
   })
   .passthrough()
 
@@ -191,6 +201,65 @@ const crud = makeCrudRoute({
       } else if (tagIds.length > 0) {
         filters['tag_assignments.tag_id'] = { $in: tagIds }
       }
+      const excludedIds = new Set<string>()
+      const excludeIdsRaw = typeof query.excludeIds === 'string' ? query.excludeIds : ''
+      excludeIdsRaw
+        .split(',')
+        .map((value: string) => value.trim())
+        .filter((value: string) => value.length > 0)
+        .forEach((value: string) => excludedIds.add(value))
+      if (ctx && query.excludeLinkedCompanyId) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const decryptionScope = {
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          }
+          const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
+            em,
+            { company: query.excludeLinkedCompanyId },
+            'customers.people.GET',
+          )
+          const links = await findWithDecryption(
+            em,
+            CustomerPersonCompanyLink,
+            linkWhere,
+            { populate: ['person'] },
+            decryptionScope,
+          )
+          links.forEach((link) => {
+            const personId = link.person?.id
+            if (typeof personId === 'string' && personId.length > 0) excludedIds.add(personId)
+          })
+        } catch {
+          // ignore exclusion lookup failures and fall back to the base result set
+        }
+      }
+      if (ctx && query.excludeLinkedDealId) {
+        try {
+          const em = ctx.container.resolve('em') as any
+          const decryptionScope = {
+            tenantId: ctx.auth?.tenantId ?? null,
+            organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+          }
+          const links = await findWithDecryption(
+            em,
+            CustomerDealPersonLink,
+            {
+              deal: query.excludeLinkedDealId,
+            },
+            { populate: ['person'] },
+            decryptionScope,
+          )
+          links.forEach((link) => {
+            const personId = link.person?.id
+            if (typeof personId === 'string' && personId.length > 0) excludedIds.add(personId)
+          })
+        } catch {
+          // ignore exclusion lookup failures and fall back to the base result set
+        }
+      }
+      applyEntityIdExclusion(filters, Array.from(excludedIds))
       const hasEmail = parseBooleanToken(query.hasEmail)
       if (!email && !emailStartsWith && !emailContains && hasEmail !== null) {
         filters.primary_email = { $exists: hasEmail }

@@ -40,6 +40,7 @@ function formatDateBadge(isoLocal: string, t: TranslateFn): string {
 interface InlineActivityComposerProps {
   entityType: 'company' | 'person' | 'deal'
   entityId: string
+  dealId?: string | null
   onActivityCreated?: () => void
   runGuardedMutation?: GuardedMutationRunner
   onScheduleRequested?: () => void
@@ -49,6 +50,7 @@ interface InlineActivityComposerProps {
 export function InlineActivityComposer({
   entityType,
   entityId,
+  dealId = null,
   onActivityCreated,
   runGuardedMutation,
   onScheduleRequested,
@@ -99,6 +101,7 @@ export function InlineActivityComposer({
     try {
       const mutationPayload = {
         entityId,
+        dealId,
         interactionType: selectedType,
         body: description.trim(),
         status: scheduledAt ? 'planned' : 'done',
@@ -135,6 +138,7 @@ export function InlineActivityComposer({
     }
   }, [
     description,
+    dealId,
     entityId,
     handleReset,
     occurredAt,

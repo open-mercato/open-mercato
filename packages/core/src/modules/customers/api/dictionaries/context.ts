@@ -9,7 +9,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
-export const dictionaryKindSchema = z.enum([
+const BUILTIN_DICTIONARY_ROUTE_KINDS = [
   'statuses',
   'sources',
   'lifecycle-stages',
@@ -22,24 +22,24 @@ export const dictionaryKindSchema = z.enum([
   'temperature',
   'renewal-quarters',
   'person-company-roles',
+] as const
+
+type BuiltinDictionaryRouteKind = (typeof BUILTIN_DICTIONARY_ROUTE_KINDS)[number]
+
+const dictionaryCustomKindSchema = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Invalid dictionary kind')
+
+export const dictionaryKindSchema = z.union([
+  z.enum(BUILTIN_DICTIONARY_ROUTE_KINDS),
+  dictionaryCustomKindSchema,
 ])
 
 export type DictionaryRouteParam = z.infer<typeof dictionaryKindSchema>
-export type DictionaryEntityKind =
-  | 'status'
-  | 'source'
-  | 'lifecycle_stage'
-  | 'address_type'
-  | 'activity_type'
-  | 'deal_status'
-  | 'pipeline_stage'
-  | 'job_title'
-  | 'industry'
-  | 'temperature'
-  | 'renewal_quarter'
-  | 'person_company_role'
+export type DictionaryEntityKind = string
 
-const KIND_MAP: Record<DictionaryRouteParam, DictionaryEntityKind> = {
+const KIND_MAP: Record<BuiltinDictionaryRouteKind, DictionaryEntityKind> = {
   statuses: 'status',
   sources: 'source',
   'lifecycle-stages': 'lifecycle_stage',
@@ -81,9 +81,12 @@ export function resolveDictionaryActorId(
 
 export function mapDictionaryKind(kind: string | undefined) {
   const parsed = paramsSchema.parse({ kind })
+  const mappedKind = Object.prototype.hasOwnProperty.call(KIND_MAP, parsed.kind)
+    ? KIND_MAP[parsed.kind as BuiltinDictionaryRouteKind]
+    : parsed.kind
   return {
     kind: parsed.kind,
-    mappedKind: KIND_MAP[parsed.kind],
+    mappedKind,
   }
 }
 

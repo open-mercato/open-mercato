@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { ActivitiesSection as CustomerActivitiesSection } from '../ActivitiesSection'
 
@@ -159,5 +159,70 @@ describe('Customer ActivitiesSection wrapper', () => {
     ])
 
     nowSpy.mockRestore()
+  })
+
+  it('loads additional canonical pages when the timeline requests more activity history', async () => {
+    readApiResultOrThrowMock.mockImplementation((url: string) => {
+      if (url.includes('cursor=cursor-2')) {
+        return Promise.resolve({
+          items: [
+            {
+              id: 'page-2',
+              interactionType: 'email',
+              status: 'done',
+              occurredAt: '2026-03-27T09:00:00.000Z',
+              scheduledAt: null,
+              createdAt: '2026-03-27T09:00:00.000Z',
+              updatedAt: '2026-03-27T09:00:00.000Z',
+            },
+          ],
+        })
+      }
+
+      return Promise.resolve({
+        items: [
+          {
+            id: 'page-1',
+            interactionType: 'call',
+            status: 'done',
+            occurredAt: '2026-03-29T09:00:00.000Z',
+            scheduledAt: null,
+            createdAt: '2026-03-29T09:00:00.000Z',
+            updatedAt: '2026-03-29T09:00:00.000Z',
+          },
+        ],
+        nextCursor: 'cursor-2',
+      })
+    })
+
+    renderWithProviders(
+      <CustomerActivitiesSection
+        entityId="company-123"
+        useCanonicalInteractions
+        addActionLabel="Log activity"
+        emptyState={{
+          title: 'No activities logged yet',
+          actionLabel: 'Log activity',
+        }}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Load more' })).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+
+    await waitFor(() => {
+      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+        expect.stringContaining('cursor=cursor-2'),
+      )
+    })
+
+    const timelineProps = activityTimelineMock.mock.calls[activityTimelineMock.mock.calls.length - 1]?.[0] as {
+      activities: Array<{ id: string }>
+    }
+
+    expect(timelineProps.activities.map((item) => item.id)).toEqual(['page-1', 'page-2'])
   })
 })

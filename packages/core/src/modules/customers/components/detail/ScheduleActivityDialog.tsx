@@ -35,6 +35,7 @@ interface ScheduleActivityDialogProps {
   open: boolean
   onClose: () => void
   entityId: string
+  dealId?: string | null
   entityName?: string
   companyName?: string | null
   entityType: 'company' | 'person' | 'deal'
@@ -47,6 +48,7 @@ export function ScheduleActivityDialog({
   open,
   onClose,
   entityId,
+  dealId = null,
   entityName,
   companyName,
   entityType,
@@ -146,6 +148,7 @@ export function ScheduleActivityDialog({
       const payload = {
         ...(isEditing ? { id: editData!.id } : {}),
         entityId,
+        dealId,
         interactionType: state.activityType,
         title: state.title.trim(),
         body: state.description.trim() || null,
@@ -190,7 +193,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [state.activityType, state.allDay, state.date, state.description, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, state.title, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, state.title, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {

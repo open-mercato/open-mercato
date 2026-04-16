@@ -19,9 +19,17 @@ import {
   CustomerDeal,
   CustomerInteraction,
 } from '../../../../../data/entities'
+import { withActiveCustomerPersonCompanyLinkFilter } from '../../../../../lib/personCompanyLinkTable'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
+})
+
+const querySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(20),
+  search: z.string().optional(),
+  sort: z.enum(['name-asc', 'name-desc', 'recent']).default('name-asc'),
 })
 
 export const metadata = {
@@ -33,6 +41,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Get enriched company data for a person\'s linked companies',
+      query: querySchema,
       responses: [
         {
           status: 200,
@@ -91,6 +100,10 @@ export const openApi: OpenApiRouteDoc = {
                 renewalQuarter: z.string().nullable(),
               }),
             ),
+            total: z.number().int().nonnegative(),
+            page: z.number().int().min(1),
+            pageSize: z.number().int().min(1),
+            totalPages: z.number().int().min(1),
           }),
         },
       ],
@@ -114,6 +127,21 @@ function buildSubtitle(industry: string | null | undefined, address: CustomerAdd
   return parts.length > 0 ? parts.join(' · ') : null
 }
 
+function matchesSearch(item: Record<string, unknown>, query: string): boolean {
+  const normalized = query.trim().toLowerCase()
+  if (!normalized.length) return true
+  return [
+    typeof item.displayName === 'string' ? item.displayName : null,
+    typeof item.subtitle === 'string' ? item.subtitle : null,
+    typeof item.status === 'string' ? item.status : null,
+    typeof item.lifecycleStage === 'string' ? item.lifecycleStage : null,
+    typeof item.temperature === 'string' ? item.temperature : null,
+    typeof item.renewalQuarter === 'string' ? item.renewalQuarter : null,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    .some((value) => value.toLowerCase().includes(normalized))
+}
+
 export async function GET(req: Request, ctx: { params?: { id?: string } }) {
   try {
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
@@ -122,6 +150,13 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (!auth?.tenantId) {
       throw new CrudHttpError(401, { error: 'Unauthorized' })
     }
+    const url = new URL(req.url)
+    const query = querySchema.parse({
+      page: url.searchParams.get('page') ?? undefined,
+      pageSize: url.searchParams.get('pageSize') ?? undefined,
+      search: url.searchParams.get('search') ?? undefined,
+      sort: url.searchParams.get('sort') ?? undefined,
+    })
 
     const container = await createRequestContainer()
     const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
@@ -142,15 +177,32 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: person.organizationId }
-    const links = await findWithDecryption(em, CustomerPersonCompanyLink, {
-      person,
-      tenantId: auth.tenantId,
-    }, { populate: ['company'] }, entityScope)
+    const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
+      em,
+      {
+        person,
+        tenantId: auth.tenantId,
+      },
+      'customers.people.companiesEnriched.GET',
+    )
+    const links = await findWithDecryption(
+      em,
+      CustomerPersonCompanyLink,
+      linkWhere,
+      { populate: ['company'] },
+      entityScope,
+    )
 
     const companyIds = links.map((link) => (link.company as CustomerEntity).id)
 
     if (companyIds.length === 0) {
-      return NextResponse.json({ items: [] })
+      return NextResponse.json({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: query.pageSize,
+        totalPages: 1,
+      })
     }
 
     const [allProfiles, allAddresses, allBillings, allTagAssignments, allRoles, allDealLinks, allInteractions] =
@@ -288,7 +340,34 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       }
     })
 
-    return NextResponse.json({ items })
+    const filteredItems = query.search?.trim().length
+      ? items.filter((item) => matchesSearch(item as Record<string, unknown>, query.search ?? ''))
+      : items
+    const sortedItems = [...filteredItems].sort((left, right) => {
+      if (query.sort === 'recent') {
+        const leftTimestamp = left.lastContactAt ? new Date(left.lastContactAt).getTime() : 0
+        const rightTimestamp = right.lastContactAt ? new Date(right.lastContactAt).getTime() : 0
+        if (leftTimestamp === rightTimestamp) {
+          return left.displayName.localeCompare(right.displayName, undefined, { sensitivity: 'base' })
+        }
+        return rightTimestamp - leftTimestamp
+      }
+      const compare = left.displayName.localeCompare(right.displayName, undefined, { sensitivity: 'base' })
+      return query.sort === 'name-asc' ? compare : -compare
+    })
+
+    const total = sortedItems.length
+    const totalPages = Math.max(1, Math.ceil(total / query.pageSize))
+    const page = Math.min(query.page, totalPages)
+    const start = (page - 1) * query.pageSize
+
+    return NextResponse.json({
+      items: sortedItems.slice(start, start + query.pageSize),
+      total,
+      page,
+      pageSize: query.pageSize,
+      totalPages,
+    })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

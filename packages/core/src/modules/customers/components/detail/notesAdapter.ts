@@ -19,6 +19,30 @@ export function createCustomerNotesAdapter(translator: Translator): NotesDataAda
       const items = Array.isArray(payload?.items) ? payload.items : []
       return items.map(mapCommentSummary)
     },
+    listPage: async ({ entityId, dealId, page, pageSize }) => {
+      const params = new URLSearchParams()
+      if (entityId) params.set('entityId', entityId)
+      if (dealId) params.set('dealId', dealId)
+      params.set('page', String(page))
+      params.set('pageSize', String(pageSize))
+      const payload = await readApiResultOrThrow<Record<string, unknown>>(
+        `/api/customers/comments?${params.toString()}`,
+        undefined,
+        { errorMessage: translator('customers.people.detail.notes.loadError', 'Failed to load notes.') },
+      )
+      const items = Array.isArray(payload?.items) ? payload.items.map(mapCommentSummary) : []
+      const total = typeof payload?.total === 'number' ? payload.total : items.length
+      const totalPages = typeof payload?.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(total / pageSize))
+      const resolvedPage = typeof payload?.page === 'number' ? payload.page : page
+      const resolvedPageSize = typeof payload?.pageSize === 'number' ? payload.pageSize : pageSize
+      return {
+        items,
+        total,
+        page: resolvedPage,
+        pageSize: resolvedPageSize,
+        totalPages,
+      }
+    },
     create: async ({ entityId, body, appearanceIcon, appearanceColor, dealId }) => {
       const response = await apiCallOrThrow<Record<string, unknown>>(
         '/api/customers/comments',

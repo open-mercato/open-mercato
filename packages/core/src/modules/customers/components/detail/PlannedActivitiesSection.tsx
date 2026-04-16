@@ -105,7 +105,10 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   variant="outline"
                   size="sm"
                   className="h-7 shrink-0 text-xs"
-                  onClick={() => onComplete(activity.id)}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onComplete(activity.id)
+                  }}
                 >
                   <Check className="mr-1 size-3" />
                   {t('customers.timeline.planned.markDone', 'Mark done')}
@@ -118,10 +121,28 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   </IconButton>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-40 p-1">
-                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => onEdit?.(activity)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onEdit?.(activity)
+                    }}
+                  >
                     {t('customers.timeline.planned.reschedule', 'Reschedule')}
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-destructive hover:text-destructive" onClick={() => onCancel?.(activity.id)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs text-destructive hover:text-destructive"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onCancel?.(activity.id)
+                    }}
+                  >
                     {t('customers.timeline.planned.cancel', 'Cancel')}
                   </Button>
                 </PopoverContent>
@@ -165,10 +186,28 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   </IconButton>
                 </PopoverTrigger>
                 <PopoverContent align="end" className="w-40 p-1">
-                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs" onClick={() => onEdit?.(activity)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onEdit?.(activity)
+                    }}
+                  >
                     {t('customers.timeline.planned.reschedule', 'Reschedule')}
                   </Button>
-                  <Button type="button" variant="ghost" size="sm" className="w-full justify-start text-xs text-destructive hover:text-destructive" onClick={() => onCancel?.(activity.id)}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full justify-start text-xs text-destructive hover:text-destructive"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onCancel?.(activity.id)
+                    }}
+                  >
                     {t('customers.timeline.planned.cancel', 'Cancel')}
                   </Button>
                 </PopoverContent>

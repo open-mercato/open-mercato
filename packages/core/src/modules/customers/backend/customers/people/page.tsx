@@ -37,6 +37,7 @@ import {
 } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
+import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 
 type PersonRow = {
   id: string
@@ -557,15 +558,15 @@ export default function CustomersPeoplePage() {
       if (value == null) return noValue
       if (Array.isArray(value)) {
         if (!value.length) return noValue
-        const normalized = value
-          .map((item) => {
+        const normalized = normalizeCollectionLabels(
+          value.map((item) => {
             if (item == null) return ''
-            if (typeof item === 'string') return item.trim()
-            return String(item).trim()
-          })
-          .filter((item) => item.length > 0)
+            if (typeof item === 'string') return item
+            return String(item)
+          }),
+        )
         if (!normalized.length) return noValue
-        return <span className="text-sm">{normalized.join(', ')}</span>
+        return <CollectionPreviewCell labels={normalized} maxVisible={2} />
       }
       if (typeof value === 'boolean') {
         return (
@@ -585,7 +586,7 @@ export default function CustomersPeoplePage() {
       {
         accessorKey: 'name',
         header: t('customers.people.list.columns.name'),
-        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name' },
+        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name', maxWidth: '240px' },
         cell: ({ row }) => (
           <Link href={`/backend/customers/people-v2/${row.original.id}`} className="font-medium hover:underline">
             {row.original.name}
@@ -595,7 +596,7 @@ export default function CustomersPeoplePage() {
       {
         accessorKey: 'email',
         header: t('customers.people.list.columns.email'),
-        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email' },
+        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email', maxWidth: '220px' },
         cell: ({ row }) => row.original.email || <span className="text-muted-foreground text-sm">{t('customers.people.list.noValue')}</span>,
       },
       {
@@ -731,6 +732,7 @@ export default function CustomersPeoplePage() {
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
+          maxWidth: '220px',
         },
         cell: ({ getValue }) => renderCustomFieldCell(getValue()),
       }))

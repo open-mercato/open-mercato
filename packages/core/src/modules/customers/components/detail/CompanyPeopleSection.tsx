@@ -62,6 +62,8 @@ export type CompanyPeopleSectionProps = {
   runGuardedMutation?: GuardedMutationRunner
 }
 
+const COMPANY_PEOPLE_PAGE_SIZE = 20
+
 function normalizeCompanyPerson(record: Record<string, unknown>): CompanyPersonSummary | null {
   const id = typeof record.id === 'string' ? record.id : null
   if (!id) return null
@@ -136,6 +138,41 @@ function normalizeCompanyPerson(record: Record<string, unknown>): CompanyPersonS
   }
 }
 
+function mergeCompanyPeople(items: CompanyPersonSummary[]): CompanyPersonSummary[] {
+  const merged = new Map<string, CompanyPersonSummary>()
+  items.forEach((item) => merged.set(item.id, item))
+  return Array.from(merged.values())
+}
+
+function matchesCompanyPersonSearch(person: CompanyPersonSummary, query: string): boolean {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery.length) return true
+  const haystack = [
+    person.displayName,
+    person.jobTitle ?? '',
+    person.primaryEmail ?? '',
+    person.primaryPhone ?? '',
+    person.department ?? '',
+  ]
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(normalizedQuery)
+}
+
+function sortCompanyPeople(items: CompanyPersonSummary[], sortMode: 'name-asc' | 'name-desc' | 'recent'): CompanyPersonSummary[] {
+  return [...items].sort((left, right) => {
+    if (sortMode === 'recent') {
+      const leftTimestamp = Date.parse(left.linkedAt ?? left.createdAt ?? '') || 0
+      const rightTimestamp = Date.parse(right.linkedAt ?? right.createdAt ?? '') || 0
+      return rightTimestamp - leftTimestamp
+    }
+    const leftLabel = left.displayName.trim().toLowerCase()
+    const rightLabel = right.displayName.trim().toLowerCase()
+    if (sortMode === 'name-desc') return rightLabel.localeCompare(leftLabel)
+    return leftLabel.localeCompare(rightLabel)
+  })
+}
+
 type LinkExistingPeopleDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -147,6 +184,11 @@ type LinkExistingPeopleDialogProps = {
   selectedPersonIds: string[]
   onTogglePerson: (personId: string) => void
   onClearSelection: () => void
+  onSelectVisible: () => void
+  onClearVisible: () => void
+  hasMoreCandidates: boolean
+  candidateLoadingMore: boolean
+  onLoadMoreCandidates: () => void
   onConfirm: () => void
   linking: boolean
   onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
@@ -163,12 +205,22 @@ function LinkExistingPeopleDialog({
   selectedPersonIds,
   onTogglePerson,
   onClearSelection,
+  onSelectVisible,
+  onClearVisible,
+  hasMoreCandidates,
+  candidateLoadingMore,
+  onLoadMoreCandidates,
   onConfirm,
   linking,
   onKeyDown,
 }: LinkExistingPeopleDialogProps) {
   const selectedCount = selectedPersonIds.length
   const selectedIds = React.useMemo(() => new Set(selectedPersonIds), [selectedPersonIds])
+  const selectedVisibleCount = React.useMemo(
+    () => candidatePeople.filter((person) => selectedIds.has(person.id)).length,
+    [candidatePeople, selectedIds],
+  )
+  const selectableVisibleCount = candidatePeople.length - selectedVisibleCount
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -202,13 +254,25 @@ function LinkExistingPeopleDialog({
                     'Choose one or more people to link.',
                   )}
             </p>
-            {selectedCount > 0 ? (
-              <Button type="button" variant="ghost" size="sm" onClick={onClearSelection}>
-                {translate('customers.companies.detail.people.linkClear', 'Clear selection')}
-              </Button>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {selectableVisibleCount > 0 ? (
+                <Button type="button" variant="ghost" size="sm" onClick={onSelectVisible}>
+                  {translate('customers.companies.detail.people.linkSelectVisible', 'Select visible')}
+                </Button>
+              ) : null}
+              {selectedVisibleCount > 0 ? (
+                <Button type="button" variant="ghost" size="sm" onClick={onClearVisible}>
+                  {translate('customers.companies.detail.people.linkClearVisible', 'Clear visible')}
+                </Button>
+              ) : null}
+              {selectedCount > 0 ? (
+                <Button type="button" variant="ghost" size="sm" onClick={onClearSelection}>
+                  {translate('customers.companies.detail.people.linkClear', 'Clear selection')}
+                </Button>
+              ) : null}
+            </div>
           </div>
-          {candidateLoading ? (
+          {candidateLoading && candidatePeople.length === 0 ? (
             <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
               {translate('customers.companies.detail.people.linkLoading', 'Searching people…')}
             </div>
@@ -257,6 +321,21 @@ function LinkExistingPeopleDialog({
                   </label>
                 )
               })}
+              {hasMoreCandidates || candidateLoadingMore ? (
+                <div className="border-t border-border/60 px-3 py-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={onLoadMoreCandidates}
+                    disabled={candidateLoadingMore}
+                  >
+                    {candidateLoadingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {translate('customers.companies.detail.people.linkLoadMore', 'Load more people')}
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
@@ -308,11 +387,19 @@ export function CompanyPeopleSection({
   const [linking, setLinking] = React.useState(false)
   const [candidatePeople, setCandidatePeople] = React.useState<CompanyPersonSummary[]>([])
   const [candidatePeopleLoading, setCandidatePeopleLoading] = React.useState(false)
+  const [candidatePeopleLoadingMore, setCandidatePeopleLoadingMore] = React.useState(false)
   const [linkSearchQuery, setLinkSearchQuery] = React.useState('')
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
   const [searchQuery, setSearchQuery] = React.useState('')
   const [sortMode, setSortMode] = React.useState<'name-asc' | 'name-desc' | 'recent'>('name-asc')
   const [filtersOpen, setFiltersOpen] = React.useState(true)
+  const [visiblePeople, setVisiblePeople] = React.useState<CompanyPersonSummary[]>([])
+  const [listPage, setListPage] = React.useState(1)
+  const [listTotalPages, setListTotalPages] = React.useState(1)
+  const [listTotalCount, setListTotalCount] = React.useState(initialPeople.length)
+  const [listLoading, setListLoading] = React.useState(true)
+  const [candidatePage, setCandidatePage] = React.useState(1)
+  const [candidateTotalPages, setCandidateTotalPages] = React.useState(1)
   const [starredIds, setStarredIds] = React.useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem(`om:starred-people:${companyId}`)
@@ -343,31 +430,14 @@ export function CompanyPeopleSection({
     })
   }, [companyId])
 
-  const filteredAndSorted = React.useMemo(() => {
-    let result = [...people]
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
-      result = result.filter((p) =>
-        p.displayName.toLowerCase().includes(q) ||
-        (p.primaryEmail?.toLowerCase().includes(q)) ||
-        (p.jobTitle?.toLowerCase().includes(q)),
-      )
-    }
-    if (sortMode === 'name-asc') result.sort((a, b) => a.displayName.localeCompare(b.displayName))
-    else if (sortMode === 'name-desc') result.sort((a, b) => b.displayName.localeCompare(a.displayName))
-    else result.sort((a, b) => {
-      const da = a.linkedAt ?? a.createdAt
-      const db = b.linkedAt ?? b.createdAt
-      const daValue = da ? new Date(da).getTime() : 0
-      const dbValue = db ? new Date(db).getTime() : 0
-      return dbValue - daValue
-    })
-    return result
-  }, [people, searchQuery, sortMode])
-
+  const displayedPeople = React.useMemo(
+    () => (visiblePeople.length > 0 ? visiblePeople : people),
+    [people, visiblePeople],
+  )
+  const totalLinkedPeople = listTotalCount > 0 ? listTotalCount : displayedPeople.length
   const decisionMakerNames = React.useMemo(
-    () => people.filter((p) => starredIds.has(p.id)).map((p) => p.displayName),
-    [people, starredIds],
+    () => displayedPeople.filter((person) => starredIds.has(person.id)).map((person) => person.displayName),
+    [displayedPeople, starredIds],
   )
 
   React.useEffect(() => {
@@ -394,14 +464,59 @@ export function CompanyPeopleSection({
     onPeopleChange?.(people)
   }, [onPeopleChange, people])
 
-  const linkedIds = React.useMemo(() => new Set(people.map((person) => person.id)), [people])
+  const loadVisiblePeople = React.useCallback(async () => {
+    setListLoading(true)
+    try {
+      const params = new URLSearchParams({
+        page: String(listPage),
+        pageSize: String(COMPANY_PEOPLE_PAGE_SIZE),
+        sort: sortMode,
+      })
+      if (searchQuery.trim().length > 0) {
+        params.set('search', searchQuery.trim())
+      }
+      const payload = await readApiResultOrThrow<{
+        items?: CompanyPersonSummary[]
+        page?: number
+        total?: number
+        totalPages?: number
+      }>(
+        `/api/customers/companies/${encodeURIComponent(companyId)}/people?${params.toString()}`,
+        undefined,
+        { errorMessage: translate('customers.companies.detail.people.loadError', 'Failed to load people.') },
+      )
+      const nextTotalCount = typeof payload.total === 'number' ? payload.total : 0
+      setVisiblePeople(Array.isArray(payload.items) ? payload.items : [])
+      setListPage(typeof payload.page === 'number' ? payload.page : listPage)
+      setListTotalCount((current) => (searchQuery.trim().length > 0 ? Math.max(current, nextTotalCount) : nextTotalCount))
+      setListTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+    } catch {
+      setVisiblePeople([])
+      if (searchQuery.trim().length === 0) {
+        setListTotalCount(0)
+      }
+      setListTotalPages(1)
+    } finally {
+      setListLoading(false)
+    }
+  }, [companyId, listPage, searchQuery, sortMode, translate])
+
+  React.useEffect(() => {
+    void loadVisiblePeople()
+  }, [loadVisiblePeople])
+
+  React.useEffect(() => {
+    setListPage(1)
+  }, [searchQuery, sortMode])
 
   const loadCandidatePeople = React.useCallback(
-    async (query?: string): Promise<CompanyPersonSummary[]> => {
+    async (query?: string, page = 1): Promise<{ items: CompanyPersonSummary[]; totalPages: number }> => {
       const params = new URLSearchParams({
-        pageSize: '20',
+        page: String(page),
+        pageSize: String(COMPANY_PEOPLE_PAGE_SIZE),
         sortField: 'name',
         sortDir: 'asc',
+        excludeLinkedCompanyId: companyId,
       })
       if (typeof query === 'string' && query.trim().length > 0) {
         params.set('search', query.trim())
@@ -415,13 +530,15 @@ export function CompanyPeopleSection({
       const nextPeople = items
         .map((item) => (item && typeof item === 'object' ? normalizeCompanyPerson(item as Record<string, unknown>) : null))
         .filter((entry): entry is CompanyPersonSummary => entry !== null)
-        .filter((entry) => !linkedIds.has(entry.id))
       nextPeople.forEach((entry) => {
         candidatePeopleRef.current.set(entry.id, entry)
       })
-      return nextPeople
+      return {
+        items: nextPeople,
+        totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
+      }
     },
-    [linkedIds, translate],
+    [companyId, translate],
   )
 
   React.useEffect(() => {
@@ -429,23 +546,41 @@ export function CompanyPeopleSection({
 
     const requestId = candidateRequestIdRef.current + 1
     candidateRequestIdRef.current = requestId
-    setCandidatePeopleLoading(true)
+    const appendRequest = candidatePage > 1
+    if (appendRequest) {
+      setCandidatePeopleLoadingMore(true)
+    } else {
+      setCandidatePeopleLoading(true)
+    }
 
     const timeoutId = window.setTimeout(() => {
       void (async () => {
         try {
-          const nextPeople = await loadCandidatePeople(linkSearchQuery)
+          const nextPage = await loadCandidatePeople(linkSearchQuery, candidatePage)
           if (candidateRequestIdRef.current !== requestId) return
-          setCandidatePeople(nextPeople)
+          setCandidatePeople((current) => {
+            if (candidatePage <= 1) return nextPage.items
+            const merged = new Map(current.map((entry) => [entry.id, entry]))
+            nextPage.items.forEach((entry) => merged.set(entry.id, entry))
+            return Array.from(merged.values())
+          })
+          setCandidateTotalPages(nextPage.totalPages)
           setSelectedPersonIds((current) =>
-            current.filter((personId) => nextPeople.some((entry) => entry.id === personId) || candidatePeopleRef.current.has(personId)),
+            current.filter((personId) => nextPage.items.some((entry) => entry.id === personId) || candidatePeopleRef.current.has(personId)),
           )
         } catch {
           if (candidateRequestIdRef.current !== requestId) return
-          setCandidatePeople([])
+          if (!appendRequest) {
+            setCandidatePeople([])
+            setCandidateTotalPages(1)
+          }
         } finally {
           if (candidateRequestIdRef.current === requestId) {
-            setCandidatePeopleLoading(false)
+            if (appendRequest) {
+              setCandidatePeopleLoadingMore(false)
+            } else {
+              setCandidatePeopleLoading(false)
+            }
           }
         }
       })()
@@ -454,7 +589,12 @@ export function CompanyPeopleSection({
     return () => {
       window.clearTimeout(timeoutId)
     }
-  }, [linkDialogOpen, linkSearchQuery, loadCandidatePeople])
+  }, [candidatePage, linkDialogOpen, linkSearchQuery, loadCandidatePeople])
+
+  React.useEffect(() => {
+    if (!linkDialogOpen) return
+    setCandidatePage(1)
+  }, [linkDialogOpen, linkSearchQuery])
 
   const resetLinkDialog = React.useCallback(() => {
     candidateRequestIdRef.current += 1
@@ -462,6 +602,9 @@ export function CompanyPeopleSection({
     setLinkSearchQuery('')
     setCandidatePeople([])
     setCandidatePeopleLoading(false)
+    setCandidatePeopleLoadingMore(false)
+    setCandidatePage(1)
+    setCandidateTotalPages(1)
     candidatePeopleRef.current.clear()
   }, [])
 
@@ -484,6 +627,21 @@ export function CompanyPeopleSection({
     setSelectedPersonIds([])
   }, [])
 
+  const selectVisibleCandidatePeople = React.useCallback(() => {
+    if (!candidatePeople.length) return
+    setSelectedPersonIds((current) => {
+      const merged = new Set(current)
+      candidatePeople.forEach((person) => merged.add(person.id))
+      return Array.from(merged)
+    })
+  }, [candidatePeople])
+
+  const clearVisibleCandidatePeople = React.useCallback(() => {
+    if (!candidatePeople.length) return
+    const visibleIds = new Set(candidatePeople.map((person) => person.id))
+    setSelectedPersonIds((current) => current.filter((personId) => !visibleIds.has(personId)))
+  }, [candidatePeople])
+
   const applyPeopleChange = React.useCallback(
     (updater: (current: CompanyPersonSummary[]) => CompanyPersonSummary[]) => {
       setPeople((current) => {
@@ -504,6 +662,7 @@ export function CompanyPeopleSection({
     const optimisticPeople = idsToLink
       .map((personId) => candidatePeopleRef.current.get(personId) ?? null)
       .filter((entry): entry is CompanyPersonSummary => entry !== null)
+    const newLinkedCount = idsToLink.filter((personId) => !people.some((entry) => entry.id === personId)).length
 
     setLinking(true)
     onLoadingChange?.(true)
@@ -527,15 +686,25 @@ export function CompanyPeopleSection({
           )
       }
 
-      if (!onDataRefresh && optimisticPeople.length > 0) {
+      if (optimisticPeople.length > 0) {
         applyPeopleChange((current) => {
-          const nextById = new Map(current.map((entry) => [entry.id, entry]))
-          optimisticPeople.forEach((entry) => nextById.set(entry.id, entry))
-          return Array.from(nextById.values())
+          return mergeCompanyPeople([...current, ...optimisticPeople])
         })
+        if (newLinkedCount > 0) {
+          setListTotalCount((current) => current + newLinkedCount)
+        }
+        if (listPage === 1) {
+          setVisiblePeople((current) => {
+            const matchingPeople = optimisticPeople.filter((entry) => matchesCompanyPersonSearch(entry, searchQuery))
+            if (!matchingPeople.length) return current
+            return sortCompanyPeople(
+              mergeCompanyPeople([...current, ...matchingPeople]),
+              sortMode,
+            ).slice(0, COMPANY_PEOPLE_PAGE_SIZE)
+          })
+        }
       }
-
-      await onDataRefresh?.()
+      await loadVisiblePeople()
       flash(
         idsToLink.length === 1
           ? translate('customers.companies.detail.people.linkSuccess', 'Person linked to company.')
@@ -567,10 +736,14 @@ export function CompanyPeopleSection({
     companyId,
     handleLinkDialogOpenChange,
     linking,
-    onDataRefresh,
     onLoadingChange,
+    loadVisiblePeople,
+    listPage,
+    people,
     runWriteMutation,
+    searchQuery,
     selectedPersonIds,
+    sortMode,
     translate,
   ])
 
@@ -604,8 +777,10 @@ export function CompanyPeopleSection({
           },
         )
         applyPeopleChange((current) => current.filter((entry) => entry.id !== personId))
+        setVisiblePeople((current) => current.filter((entry) => entry.id !== personId))
+        setListTotalCount((current) => Math.max(0, current - 1))
+        await loadVisiblePeople()
         flash(translate('customers.companies.detail.people.removeSuccess', 'Person unlinked from company.'), 'success')
-        await onDataRefresh?.()
       } catch (err) {
         const message =
           err instanceof Error
@@ -617,7 +792,7 @@ export function CompanyPeopleSection({
         onLoadingChange?.(false)
       }
     },
-    [applyPeopleChange, onDataRefresh, onLoadingChange, removingId, runWriteMutation, translate],
+    [applyPeopleChange, companyId, loadVisiblePeople, onLoadingChange, removingId, runWriteMutation, translate],
   )
 
   const linkAction = (
@@ -633,7 +808,7 @@ export function CompanyPeopleSection({
     </Button>
   )
 
-  if (!people.length) {
+  if (!listLoading && totalLinkedPeople === 0) {
     return (
       <>
         <EmptyState
@@ -652,10 +827,15 @@ export function CompanyPeopleSection({
           searchQuery={linkSearchQuery}
           onSearchQueryChange={setLinkSearchQuery}
           candidatePeople={candidatePeople}
-          candidateLoading={candidatePeopleLoading}
+          candidateLoading={candidatePeopleLoading || candidatePeopleLoadingMore}
           selectedPersonIds={selectedPersonIds}
           onTogglePerson={toggleSelectedPerson}
           onClearSelection={clearSelectedPeople}
+          onSelectVisible={selectVisibleCandidatePeople}
+          onClearVisible={clearVisibleCandidatePeople}
+          hasMoreCandidates={candidatePage < candidateTotalPages}
+          candidateLoadingMore={candidatePeopleLoadingMore}
+          onLoadMoreCandidates={() => setCandidatePage((current) => current + 1)}
           onConfirm={() => void handleLink()}
           linking={linking}
           onKeyDown={handleLinkDialogKeyDown}
@@ -694,7 +874,7 @@ export function CompanyPeopleSection({
                     {translate('customers.companies.detail.people.sectionTitle', 'People')}
                   </h3>
                   <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-semibold">
-                    {people.length}
+                    {totalLinkedPeople}
                   </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">
@@ -710,7 +890,7 @@ export function CompanyPeopleSection({
               </div>
             </div>
 
-            {people.length > 0 ? (
+            {totalLinkedPeople > 0 ? (
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                 {filtersOpen ? (
                   <div className="min-w-0 flex-1">
@@ -749,22 +929,46 @@ export function CompanyPeopleSection({
               </div>
             ) : null}
 
-            {filteredAndSorted.length > 0 ? (
-              <div
-                className="grid items-start gap-4"
-                style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 19.5rem), 1fr))' }}
-              >
-                {filteredAndSorted.map((person) => (
-                  <PersonCard
-                    key={person.id}
-                    person={person}
-                    isStarred={starredIds.has(person.id)}
-                    onToggleStar={toggleStar}
-                    onUnlink={handleRemove}
-                  />
-                ))}
-              </div>
-            ) : people.length > 0 ? (
+            {listLoading ? (
+              <p className="py-6 text-center text-sm text-muted-foreground">
+                {translate('customers.companies.detail.people.loading', 'Loading people…')}
+              </p>
+            ) : visiblePeople.length > 0 ? (
+              <>
+                <div
+                  className="grid items-start gap-4"
+                  style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 19.5rem), 1fr))' }}
+                >
+                  {visiblePeople.map((person) => (
+                    <PersonCard
+                      key={person.id}
+                      person={person}
+                      isStarred={starredIds.has(person.id)}
+                      onToggleStar={toggleStar}
+                      onUnlink={handleRemove}
+                    />
+                  ))}
+                </div>
+                {listTotalPages > 1 ? (
+                  <div className="flex items-center justify-between border-t border-border/60 pt-3 text-sm text-muted-foreground">
+                    <span>
+                      {translate('customers.companies.detail.people.pageSummary', 'Page {{page}} of {{total}}', {
+                        page: listPage,
+                        total: listTotalPages,
+                      })}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setListPage((current) => Math.max(1, current - 1))} disabled={listPage <= 1}>
+                        {translate('customers.companies.detail.people.previous', 'Previous')}
+                      </Button>
+                      <Button type="button" variant="outline" size="sm" onClick={() => setListPage((current) => Math.min(listTotalPages, current + 1))} disabled={listPage >= listTotalPages}>
+                        {translate('customers.companies.detail.people.next', 'Next')}
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : totalLinkedPeople > 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">
                 {translate('customers.companies.detail.people.noSearchResults', 'No people match your search.')}
               </p>
@@ -775,9 +979,9 @@ export function CompanyPeopleSection({
         <DecisionMakersFooter
           names={decisionMakerNames}
           onSendInvitation={() => {
-            const starredEmails = people
-              .filter((p) => starredIds.has(p.id) && p.primaryEmail)
-              .map((p) => p.primaryEmail!)
+            const starredEmails = displayedPeople
+              .filter((person) => starredIds.has(person.id) && person.primaryEmail)
+              .map((person) => person.primaryEmail!)
             if (starredEmails.length > 0) {
               window.open(`mailto:${starredEmails.join(',')}`, '_blank')
             }
@@ -791,10 +995,15 @@ export function CompanyPeopleSection({
         searchQuery={linkSearchQuery}
         onSearchQueryChange={setLinkSearchQuery}
         candidatePeople={candidatePeople}
-        candidateLoading={candidatePeopleLoading}
+        candidateLoading={candidatePeopleLoading || candidatePeopleLoadingMore}
         selectedPersonIds={selectedPersonIds}
         onTogglePerson={toggleSelectedPerson}
         onClearSelection={clearSelectedPeople}
+        onSelectVisible={selectVisibleCandidatePeople}
+        onClearVisible={clearVisibleCandidatePeople}
+        hasMoreCandidates={candidatePage < candidateTotalPages}
+        candidateLoadingMore={candidatePeopleLoadingMore}
+        onLoadMoreCandidates={() => setCandidatePage((current) => current + 1)}
         onConfirm={() => void handleLink()}
         linking={linking}
         onKeyDown={handleLinkDialogKeyDown}
@@ -808,7 +1017,8 @@ export function CompanyPeopleSection({
         runGuardedMutation={runWriteMutation}
         onPersonCreated={() => {
           setCreateDialogOpen(false)
-          onDataRefresh?.()
+          void loadVisiblePeople()
+          void onDataRefresh?.()
         }}
       />
     </>

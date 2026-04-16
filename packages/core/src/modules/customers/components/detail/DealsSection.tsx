@@ -2,11 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowUpRightSquare, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -18,7 +19,6 @@ import { formatDate } from './utils'
 import { DealDialog } from './DealDialog'
 import type { DealFormBaseValues, DealFormSubmitPayload } from './DealForm'
 import { generateTempId } from '@open-mercato/core/modules/customers/lib/detailHelpers'
-import { DealClosureDialog } from '@open-mercato/core/modules/sales/components/documents/DealClosureDialog'
 import { useCurrencyDictionary } from './hooks/useCurrencyDictionary'
 import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { CustomFieldValuesList } from './CustomFieldValuesList'
@@ -31,11 +31,12 @@ type DealsScope =
   | { kind: 'person'; entityId: string }
   | { kind: 'company'; entityId: string }
 
-type PendingAction =
-  | { kind: 'create' }
-  | { kind: 'update'; id: string }
-  | { kind: 'close'; id: string }
-  | { kind: 'delete'; id: string }
+type PendingAction = { kind: 'create' } | { kind: 'unlink'; id: string }
+
+type GuardedMutationRunner = <T,>(
+  operation: () => Promise<T>,
+  mutationPayload?: Record<string, unknown>,
+) => Promise<T>
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -117,10 +118,15 @@ function sanitizeCustomFieldEntries(
   return Array.from(map.values())
 }
 
-type NormalizedDeal = Omit<DealSummary, 'valueAmount' | 'probability' | 'expectedCloseAt' | 'customValues' | 'customFields'> & {
+type NormalizedDeal = Omit<
+  DealSummary,
+  'valueAmount' | 'probability' | 'expectedCloseAt' | 'customValues' | 'customFields' | 'personIds' | 'companyIds'
+> & {
   valueAmount: number | null
   probability: number | null
   expectedCloseAt: string | null
+  personIds: string[]
+  companyIds: string[]
   customValues: Record<string, unknown> | null
   customFields: DealCustomFieldEntry[]
 }
@@ -255,46 +261,6 @@ function normalizeDeal(deal: Partial<DealSummary> & { id: string; title?: string
   }
 }
 
-function buildInitialValues(deal: NormalizedDeal): Partial<DealFormBaseValues & Record<string, unknown>> {
-  const base: Partial<DealFormBaseValues & Record<string, unknown>> = {
-    title: deal.title,
-    status: deal.status ?? '',
-    pipelineStage: deal.pipelineStage ?? '',
-    valueAmount: (() => {
-      if (typeof deal.valueAmount === 'number') return deal.valueAmount
-      if (deal.valueAmount == null) return null
-      const parsed = Number(deal.valueAmount)
-      return Number.isFinite(parsed) ? parsed : null
-    })(),
-    valueCurrency: deal.valueCurrency ?? '',
-    probability: (() => {
-      if (typeof deal.probability === 'number') return deal.probability
-      if (deal.probability == null) return null
-      const parsed = Number(deal.probability)
-      return Number.isFinite(parsed) ? parsed : null
-    })(),
-    expectedCloseAt: deal.expectedCloseAt ?? null,
-    description: deal.description ?? '',
-    personIds: Array.isArray(deal.personIds) ? deal.personIds : [],
-    companyIds: Array.isArray(deal.companyIds) ? deal.companyIds : [],
-  }
-  if (deal.customValues) {
-    for (const [key, value] of Object.entries(deal.customValues)) {
-      base[`cf_${key}`] = value
-    }
-  }
-  if (Array.isArray(deal.customFields)) {
-    deal.customFields.forEach((entry) => {
-      if (!entry || typeof entry.key !== 'string') return
-      const fieldKey = `cf_${entry.key}`
-      if (base[fieldKey] === undefined) {
-        base[fieldKey] = entry.value ?? null
-      }
-    })
-  }
-  return base
-}
-
 function formatValueLabel(amount: number | null, currency: string | null, emptyLabel: string): string {
   if (typeof amount === 'number') {
     const formatter = new Intl.NumberFormat(undefined, {
@@ -316,9 +282,11 @@ export type DealsSectionProps = {
   addActionLabel: string
   emptyLabel: string
   emptyState: TabEmptyStateConfig
+  onCountDelta?: (delta: number) => void
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
   translator?: Translator
+  runGuardedMutation?: GuardedMutationRunner
 }
 
 export function DealsSection({
@@ -326,9 +294,11 @@ export function DealsSection({
   addActionLabel,
   emptyLabel,
   emptyState,
+  onCountDelta,
   onActionChange,
   onLoadingChange,
   translator,
+  runGuardedMutation,
 }: DealsSectionProps) {
   const tHook = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -348,12 +318,9 @@ export function DealsSection({
   const pageRef = React.useRef(0)
   const hasMoreRef = React.useRef(true)
   const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [dialogMode, setDialogMode] = React.useState<'create' | 'edit'>('create')
-  const [editingDealId, setEditingDealId] = React.useState<string | null>(null)
   const [initialValues, setInitialValues] = React.useState<
     Partial<DealFormBaseValues & Record<string, unknown>> | undefined
   >(undefined)
-  const [closingDeal, setClosingDeal] = React.useState<NormalizedDeal | null>(null)
   const pendingCounterRef = React.useRef(0)
 
   const pushLoading = React.useCallback(() => {
@@ -372,6 +339,16 @@ export function DealsSection({
       return value === key && fallback ? fallback : value
     },
     [t],
+  )
+
+  const runDealMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload: Record<string, unknown>) => {
+      if (runGuardedMutation) {
+        return runGuardedMutation(operation, mutationPayload)
+      }
+      return operation()
+    },
+    [runGuardedMutation],
   )
 
   const loadDeals = React.useCallback(async ({ append }: { append: boolean }) => {
@@ -573,8 +550,6 @@ export function DealsSection({
 
   const openCreateDialog = React.useCallback(() => {
     if (!scope) return
-    setDialogMode('create')
-    setEditingDealId(null)
     setInitialValues({
       personIds: scope.kind === 'person' ? [scope.entityId] : [],
       companyIds: scope.kind === 'company' ? [scope.entityId] : [],
@@ -582,20 +557,8 @@ export function DealsSection({
     setDialogOpen(true)
   }, [scope])
 
-  const openEditDialog = React.useCallback(
-    (deal: NormalizedDeal) => {
-      setDialogMode('edit')
-      setEditingDealId(deal.id)
-      setInitialValues(buildInitialValues(deal))
-      setDialogOpen(true)
-    },
-    [],
-  )
-
   const closeDialog = React.useCallback(() => {
     setDialogOpen(false)
-    setDialogMode('create')
-    setEditingDealId(null)
     setInitialValues(undefined)
   }, [])
 
@@ -631,9 +594,16 @@ export function DealsSection({
           companyIds,
         }
         if (Object.keys(custom).length) payload.customFields = custom
-        const { result } = await createCrud<{ id?: string }>('customers/deals', payload, {
-          errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
-        })
+        const { result } = await runDealMutation(
+          () =>
+            createCrud<{ id?: string }>('customers/deals', payload, {
+              errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
+            }),
+          {
+            ...payload,
+            operation: 'createDeal',
+          },
+        )
         const dealId =
           typeof result?.id === 'string' && result.id.trim().length ? result.id : generateTempId()
         const belongsToScope =
@@ -661,6 +631,7 @@ export function DealsSection({
             updatedAt: timestamp,
           })
           setDeals((prev) => [normalized, ...prev])
+          onCountDelta?.(1)
         }
         flash(translate('customers.people.detail.deals.success', 'Deal created.'), 'success')
       } finally {
@@ -668,158 +639,75 @@ export function DealsSection({
         popLoading()
       }
     },
-    [popLoading, pushLoading, scope, translate],
+    [onCountDelta, popLoading, pushLoading, runDealMutation, scope, translate],
   )
 
-  const handleUpdate = React.useCallback(
-    async (dealId: string, { base, custom }: DealFormSubmitPayload) => {
-      if (!scope) {
-        throw new Error(translate('customers.people.detail.deals.error', 'Failed to save deal.'))
-      }
-      setPendingAction({ kind: 'update', id: dealId })
+  const handleUnlink = React.useCallback(
+    async (deal: NormalizedDeal) => {
+      if (!scope) return
+
+      const nextPersonIds =
+        scope.kind === 'person'
+          ? deal.personIds.filter((id) => id !== scope.entityId)
+          : deal.personIds
+      const nextCompanyIds =
+        scope.kind === 'company'
+          ? deal.companyIds.filter((id) => id !== scope.entityId)
+          : deal.companyIds
+
+      const confirmed = await confirm({
+        title:
+          scope.kind === 'person'
+            ? translate('customers.people.detail.deals.unlinkConfirmPerson', 'Unlink this deal from this person?')
+            : translate('customers.people.detail.deals.unlinkConfirmCompany', 'Unlink this deal from this company?'),
+        description: translate(
+          'customers.people.detail.deals.unlinkDescription',
+          'The deal will remain available from its own detail page.',
+        ),
+        confirmText: translate('customers.people.card.unlink', 'Unlink'),
+        cancelText: translate('customers.people.detail.deals.cancel', 'Cancel'),
+      })
+      if (!confirmed) return
+
+      setPendingAction({ kind: 'unlink', id: deal.id })
       pushLoading()
       try {
-        const personIds = mergeIds(base.personIds)
-        const companyIds = mergeIds(base.companyIds)
-
         const payload: Record<string, unknown> = {
-          id: dealId,
-          title: base.title,
-          status: base.status ?? undefined,
-          pipelineStage: base.pipelineStage ?? undefined,
-          valueAmount: typeof base.valueAmount === 'number' ? base.valueAmount : undefined,
-          valueCurrency: base.valueCurrency ?? undefined,
-          probability: typeof base.probability === 'number' ? base.probability : undefined,
-          expectedCloseAt: base.expectedCloseAt ?? undefined,
-          description: base.description ?? undefined,
-          personIds,
-          companyIds,
+          id: deal.id,
+          personIds: nextPersonIds,
+          companyIds: nextCompanyIds,
         }
-        if (Object.keys(custom).length) payload.customFields = custom
-        await updateCrud('customers/deals', payload, {
-          errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
-        })
-        const hasCustomChanges = Object.keys(custom).length > 0
-        const customValuesForState = hasCustomChanges ? sanitizeCustomValues(custom) : null
-        const remainsInScope =
-          (scope.kind !== 'person' || personIds.includes(scope.entityId)) &&
-          (scope.kind !== 'company' || companyIds.includes(scope.entityId))
-        if (!remainsInScope) {
-          setDeals((prev) => prev.filter((deal) => deal.id !== dealId))
-        } else {
-          setDeals((prev) =>
-            prev.map((deal) =>
-              deal.id === dealId
-                ? normalizeDeal({
-                    ...deal,
-                    title: base.title,
-                    status: base.status ?? null,
-                    pipelineStage: base.pipelineStage ?? null,
-                    valueAmount: base.valueAmount ?? null,
-                    valueCurrency: base.valueCurrency ?? null,
-                    probability: base.probability ?? null,
-                    expectedCloseAt: base.expectedCloseAt ?? null,
-                    description: base.description ?? null,
-                    personIds,
-                    people: personIds.map((id) => deal.people?.find((entry) => entry.id === id) ?? { id, label: '' }),
-                    companyIds,
-                    companies: companyIds.map((id) => deal.companies?.find((entry) => entry.id === id) ?? { id, label: '' }),
-                    customValues: hasCustomChanges ? customValuesForState : deal.customValues,
-                    customFields: hasCustomChanges
-                      ? customValuesForState
-                        ? deal.customFields
-                        : []
-                      : deal.customFields,
-                    updatedAt: new Date().toISOString(),
-                  })
-                : deal,
-            ),
-          )
-        }
-        flash(translate('customers.people.detail.deals.updateSuccess', 'Deal updated.'), 'success')
+        await runDealMutation(
+          () =>
+            updateCrud('customers/deals', payload, {
+              errorMessage: translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.'),
+            }),
+          {
+            ...payload,
+            operation: 'unlinkDeal',
+          },
+        )
+        setDeals((prev) => prev.filter((item) => item.id !== deal.id))
+        onCountDelta?.(-1)
+        flash(translate('customers.people.detail.deals.unlinkSuccess', 'Deal unlinked.'), 'success')
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.')
+        flash(message, 'error')
       } finally {
         setPendingAction(null)
         popLoading()
       }
     },
-    [popLoading, pushLoading, scope, translate],
+    [confirm, onCountDelta, popLoading, pushLoading, runDealMutation, scope, translate],
   )
-
-  const handleDelete = React.useCallback(
-    async (deal: NormalizedDeal) => {
-      const confirmed = await confirm({
-        title: translate(
-          'customers.people.detail.deals.deleteConfirm',
-          'Delete this deal? You can restore it using version history.',
-        ),
-        variant: 'destructive',
-      })
-      if (!confirmed) return
-      setPendingAction({ kind: 'delete', id: deal.id })
-      try {
-        await deleteCrud('customers/deals', {
-          id: deal.id,
-          errorMessage: translate('customers.people.detail.deals.deleteError', 'Failed to delete deal.'),
-        })
-        setDeals((prev) => prev.filter((item) => item.id !== deal.id))
-        flash(translate('customers.people.detail.deals.deleteSuccess', 'Deal deleted.'), 'success')
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : translate('customers.people.detail.deals.deleteError', 'Failed to delete deal.')
-        flash(message, 'error')
-      } finally {
-        setPendingAction(null)
-      }
-    },
-    [confirm, translate],
-  )
-
-  const handleMarkLost = React.useCallback(async (deal: NormalizedDeal, payload: { outcome: 'won' | 'lost'; lossReasonId?: string; lossNotes?: string }) => {
-    setPendingAction({ kind: 'close', id: deal.id })
-    try {
-      await updateCrud('customers/deals', {
-        id: deal.id,
-        status: payload.outcome,
-        closureOutcome: payload.outcome,
-        lossReasonId: payload.lossReasonId,
-        lossNotes: payload.lossNotes,
-      }, {
-        errorMessage: translate('customers.people.detail.deals.updateError', 'Failed to update deal.'),
-      })
-      setDeals((prev) =>
-        prev.map((entry) =>
-          entry.id === deal.id
-            ? normalizeDeal({
-                ...entry,
-                status: payload.outcome,
-                closureOutcome: payload.outcome,
-                lossReasonId: payload.lossReasonId ?? null,
-                lossNotes: payload.lossNotes ?? null,
-                updatedAt: new Date().toISOString(),
-              })
-            : entry,
-        ),
-      )
-      flash(translate('customers.people.detail.deals.markLostSuccess', 'Deal marked as lost.'), 'success')
-      setClosingDeal(null)
-    } catch (error) {
-      const message = error instanceof Error ? error.message : translate('customers.people.detail.deals.updateError', 'Failed to update deal.')
-      flash(message, 'error')
-    } finally {
-      setPendingAction(null)
-    }
-  }, [translate])
 
   const handleDialogSubmit = React.useCallback(
     async (payload: DealFormSubmitPayload) => {
       try {
-        if (dialogMode === 'edit' && editingDealId) {
-          await handleUpdate(editingDealId, payload)
-        } else {
-          await handleCreate(payload)
-        }
+        await handleCreate(payload)
         closeDialog()
       } catch (err) {
         const message =
@@ -829,7 +717,7 @@ export function DealsSection({
         flash(message, 'error')
       }
     },
-    [closeDialog, dialogMode, editingDealId, handleCreate, handleUpdate, translate],
+    [closeDialog, handleCreate, translate],
   )
 
   React.useEffect(() => {
@@ -848,9 +736,7 @@ export function DealsSection({
     }
   }, [addActionLabel, isLoading, onActionChange, openCreateDialog, pendingAction, scope])
 
-  const isFormPending =
-    pendingAction?.kind === 'create' ||
-    (pendingAction?.kind === 'update' && pendingAction.id === editingDealId)
+  const isFormPending = pendingAction?.kind === 'create'
 
   const sortedDeals = React.useMemo(() => {
     return [...deals].sort((a, b) => {
@@ -890,9 +776,7 @@ export function DealsSection({
           const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
-          const isUpdatePending = pendingAction?.kind === 'update' && pendingAction.id === deal.id
-          const isClosePending = pendingAction?.kind === 'close' && pendingAction.id === deal.id
-          const isDeletePending = pendingAction?.kind === 'delete' && pendingAction.id === deal.id
+          const isUnlinkPending = pendingAction?.kind === 'unlink' && pendingAction.id === deal.id
           const statusLabel =
             deal.status && statusDictionaryMap
               ? statusDictionaryMap[deal.status]?.label ?? deal.status
@@ -901,7 +785,12 @@ export function DealsSection({
             <article key={deal.id} className="group rounded-lg border bg-card p-4 shadow-xs transition hover:border-border/80">
               <header className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-base font-semibold">{deal.title || emptyLabel}</h3>
+                  <Link
+                    href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
+                    className="text-base font-semibold text-foreground transition hover:text-primary hover:underline"
+                  >
+                    {deal.title || emptyLabel}
+                  </Link>
                   {deal.description ? (
                     <p className="mt-1 text-sm text-muted-foreground whitespace-pre-wrap">{deal.description}</p>
                   ) : null}
@@ -911,56 +800,28 @@ export function DealsSection({
                     {statusLabel}
                   </span>
                   <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                    {deal.status !== 'won' && deal.status !== 'lost' && deal.status !== 'closed' ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-8 rounded-[10px] px-3 text-xs"
-                        onClick={(event) => {
-                          event.preventDefault()
-                          setClosingDeal(deal)
-                        }}
-                        disabled={pendingAction !== null}
+                    <IconButton asChild variant="ghost" size="sm" className="h-8 w-8">
+                      <Link
+                        href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
+                        aria-label={t('customers.people.detail.deals.edit', 'Open deal details')}
                       >
-                        {isClosePending
-                          ? t('customers.people.detail.deals.closing', 'Closing…')
-                          : t('customers.people.detail.deals.markLost', 'Mark lost')}
-                      </Button>
-                    ) : null}
+                        <Pencil className="size-4" />
+                      </Link>
+                    </IconButton>
                     <Button
                       type="button"
-                      variant="ghost"
-                      size="icon"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 rounded-[10px] px-3 text-xs"
                       onClick={(event) => {
                         event.preventDefault()
-                        openEditDialog(deal)
+                        void handleUnlink(deal)
                       }}
                       disabled={pendingAction !== null}
                     >
-                      {isUpdatePending ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Pencil className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={(event) => {
-                        event.preventDefault()
-                        handleDelete(deal)
-                      }}
-                      disabled={pendingAction !== null}
-                    >
-                      {isDeletePending ? (
-                        <span className="relative flex h-4 w-4 items-center justify-center text-destructive">
-                          <span className="absolute h-4 w-4 animate-spin rounded-full border border-destructive border-t-transparent" />
-                        </span>
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
+                      {isUnlinkPending
+                        ? t('customers.people.detail.deals.unlinking', 'Unlinking…')
+                        : t('customers.people.card.unlink', 'Unlink')}
                     </Button>
                   </div>
                 </div>
@@ -1003,15 +864,6 @@ export function DealsSection({
                 itemKeyPrefix={`deal-${deal.id}-field`}
                 className="mt-3"
               />
-              <div className="mt-3 text-xs">
-                <Link
-                  href={`/backend/customers/deals/${encodeURIComponent(deal.id)}`}
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  <ArrowUpRightSquare className="h-3.5 w-3.5" aria-hidden />
-                  {t('customers.people.detail.deals.openDeal', 'Open deal')}
-                </Link>
-              </div>
             </article>
           )
             })}
@@ -1043,23 +895,13 @@ export function DealsSection({
 
       <DealDialog
         open={dialogOpen}
-        mode={dialogMode}
+        mode="create"
         onOpenChange={handleDialogOpenChange}
         initialValues={initialValues}
         onSubmit={async (payload) => {
           await handleDialogSubmit(payload)
         }}
         isSubmitting={Boolean(isFormPending)}
-      />
-      <DealClosureDialog
-        open={closingDeal !== null}
-        outcome="lost"
-        dealLabel={closingDeal?.title ?? undefined}
-        onCancel={() => setClosingDeal(null)}
-        onConfirm={(payload) => {
-          if (!closingDeal) return
-          void handleMarkLost(closingDeal, payload)
-        }}
       />
       {ConfirmDialogElement}
     </div>

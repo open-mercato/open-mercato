@@ -42,6 +42,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
+import { withActiveCustomerPersonCompanyLinkFilter } from '../../../lib/personCompanyLinkTable'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -142,6 +143,54 @@ function readCustomField(record: Record<string, unknown>, key: string): unknown 
     if (key in bucket) return bucket[key]
   }
   return undefined
+}
+
+type CompanyDetailKpiSummary = {
+  activeDealsCount: number
+  activeDealsValue: number | null
+  dealCurrency: string | null
+  activityCount: number
+  activityTrend: { value: number; direction: 'up' | 'down' | 'unchanged' } | null
+  ltvValue: number | null
+  completedDealsCount: number
+  clientTenureYears: number | null
+}
+
+function parseDealAmount(value: string | number | null | undefined): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed.length) return null
+    const parsed = Number(trimmed)
+    return Number.isNaN(parsed) ? null : parsed
+  }
+  return null
+}
+
+function computeActivityTrend(
+  timestamps: string[],
+): { value: number; direction: 'up' | 'down' | 'unchanged' } | null {
+  if (!timestamps.length) return null
+  const now = Date.now()
+  const weekMs = 7 * 86_400_000
+  let thisWeek = 0
+  let lastWeek = 0
+  timestamps.forEach((value) => {
+    const time = new Date(value).getTime()
+    if (Number.isNaN(time)) return
+    const diff = now - time
+    if (diff < 0 || diff >= weekMs * 2) return
+    if (diff < weekMs) {
+      thisWeek += 1
+      return
+    }
+    lastWeek += 1
+  })
+  if (lastWeek === 0 && thisWeek === 0) return null
+  if (lastWeek === 0) return { value: 100, direction: 'up' }
+  const pct = ((thisWeek - lastWeek) / lastWeek) * 100
+  if (Math.abs(pct) < 0.5) return { value: 0, direction: 'unchanged' }
+  return { value: Math.round(Math.abs(pct) * 100) / 100, direction: pct > 0 ? 'up' : 'down' }
 }
 
 async function resolveTodoDetails(
@@ -312,6 +361,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const includeInteractions = includeTokens.has('interactions')
   const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
   const includePeople = includeTokens.has('people')
+  const plannedPreviewLimit = 5
 
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: _req })
@@ -451,6 +501,42 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       })
     : []
 
+  const plannedPreviewRows =
+    canonicalActiveInteractions.length > 0
+      ? canonicalActiveInteractions
+          .filter((interaction) => interaction.status === 'planned' && interaction.interactionType !== 'task')
+          .sort((left, right) => {
+            const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
+            const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
+            if (leftTime === rightTime) return left.id.localeCompare(right.id)
+            return leftTime - rightTime
+          })
+          .slice(0, plannedPreviewLimit)
+      : await findWithDecryption(
+          em,
+          CustomerInteraction,
+          {
+            entity: company.id,
+            organizationId: company.organizationId,
+            tenantId: company.tenantId,
+            deletedAt: null,
+            status: 'planned',
+            interactionType: { $ne: 'task' },
+          },
+          { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
+          companyScope,
+        )
+  const plannedActivitiesPreview = plannedPreviewRows.length
+    ? await hydrateCanonicalInteractions({
+        em,
+        container,
+        auth,
+        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        interactions: plannedPreviewRows,
+        enrich: true,
+      })
+    : []
+
   const activities = includeActivities && !interactionFlags.unified
     ? await findWithDecryption(
         em,
@@ -571,6 +657,28 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       )
   }
 
+  const dealLinksForMetrics = includeDeals
+    ? deals
+    : (
+        await findWithDecryption(
+          em,
+          CustomerDealCompanyLink,
+          {
+            company: company.id,
+          },
+          { populate: ['deal'] },
+          companyScope,
+        )
+      )
+        .map((link) => (link.deal as CustomerDeal | string | null) ?? null)
+        .filter(
+          (deal): deal is CustomerDeal =>
+            !!deal &&
+            typeof deal !== 'string' &&
+            deal.tenantId === company.tenantId &&
+            deal.organizationId === company.organizationId,
+        )
+
   let relatedPeople: Array<{
     entity: CustomerEntity
     profile: CustomerPersonProfile | null
@@ -585,14 +693,19 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       string,
       { entity: CustomerEntity; profile: CustomerPersonProfile | null; linkedAt: string | null }
     >()
-    const companyLinks = await findWithDecryption(
+    const companyLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
       em,
-      CustomerPersonCompanyLink,
       {
         company: company.id,
         organizationId: company.organizationId,
         tenantId: company.tenantId,
       },
+      'customers.companies.GET',
+    )
+    const companyLinks = await findWithDecryption(
+      em,
+      CustomerPersonCompanyLink,
+      companyLinkWhere,
       {
         populate: ['person', 'person.personProfile'],
         orderBy: { isPrimary: 'desc', createdAt: 'asc' },
@@ -670,6 +783,123 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     entityCustomFieldValues?.[company.id] ?? {},
     profileId ? profileCustomFieldValues?.[profileId] ?? {} : {},
   )
+
+  const activityCount = await em.count(CustomerInteraction, {
+    entity: company.id,
+    organizationId: company.organizationId,
+    tenantId: company.tenantId,
+    deletedAt: null,
+    interactionType: { $ne: 'task' },
+  })
+  const interactionCount = await em.count(CustomerInteraction, {
+    entity: company.id,
+    organizationId: company.organizationId,
+    tenantId: company.tenantId,
+    deletedAt: null,
+  })
+  const todoCount = interactionFlags.unified
+    ? await em.count(CustomerInteraction, {
+        entity: company.id,
+        organizationId: company.organizationId,
+        tenantId: company.tenantId,
+        deletedAt: null,
+        interactionType: 'task',
+      })
+    : await em.count(CustomerTodoLink, {
+        entity: company.id,
+        organizationId: company.organizationId,
+        tenantId: company.tenantId,
+      })
+  const commentsCount = includeComments
+    ? comments.length
+    : await em.count(CustomerComment, {
+        entity: company.id,
+        organizationId: company.organizationId,
+        tenantId: company.tenantId,
+      })
+  const addressesCount = includeAddresses
+    ? addresses.length
+    : await em.count(CustomerAddress, {
+        entity: company.id,
+        organizationId: company.organizationId,
+        tenantId: company.tenantId,
+      })
+  const peopleCount = includePeople
+    ? relatedPeople.length
+    : await em.count(
+        CustomerPersonCompanyLink,
+        await withActiveCustomerPersonCompanyLinkFilter(
+          em,
+          {
+            company: company.id,
+            organizationId: company.organizationId,
+            tenantId: company.tenantId,
+          },
+          'customers.companies.GET',
+        ),
+      )
+  const kpiInteractionRows = canonicalActiveInteractions.length
+    ? canonicalActiveInteractions
+    : await em.find(
+        CustomerInteraction,
+        {
+          entity: company.id,
+          organizationId: company.organizationId,
+          tenantId: company.tenantId,
+          deletedAt: null,
+        },
+        {
+          fields: ['id', 'occurredAt', 'scheduledAt', 'createdAt'],
+          orderBy: { createdAt: 'DESC' },
+        },
+      )
+  const activityTrend = computeActivityTrend(
+    kpiInteractionRows
+      .map((interaction) => interaction.occurredAt ?? interaction.scheduledAt ?? interaction.createdAt)
+      .map((value) => (value instanceof Date ? value.toISOString() : typeof value === 'string' ? value : ''))
+      .filter((value) => value.length > 0),
+  )
+  const activeDeals = dealLinksForMetrics.filter(
+    (deal) => deal.status !== 'won' && deal.status !== 'lost' && deal.status !== 'closed',
+  )
+  const wonDeals = dealLinksForMetrics.filter((deal) => deal.status === 'won')
+  const activeDealsValue = activeDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)
+  const ltvValue = wonDeals.length
+    ? wonDeals.reduce((sum, deal) => sum + (parseDealAmount(deal.valueAmount) ?? 0), 0)
+    : null
+  const earliestInteractionTime = kpiInteractionRows.reduce<number | null>((earliest, interaction) => {
+    const candidate = interaction.occurredAt ?? interaction.scheduledAt ?? interaction.createdAt
+    const time = candidate instanceof Date ? candidate.getTime() : new Date(candidate).getTime()
+    if (Number.isNaN(time)) return earliest
+    if (earliest === null) return time
+    return Math.min(earliest, time)
+  }, null)
+  const companyKpis: CompanyDetailKpiSummary = {
+    activeDealsCount: activeDeals.length,
+    activeDealsValue: activeDeals.length ? activeDealsValue : null,
+    dealCurrency:
+      activeDeals[0]?.valueCurrency ??
+      dealLinksForMetrics[0]?.valueCurrency ??
+      null,
+    activityCount,
+    activityTrend,
+    ltvValue,
+    completedDealsCount: wonDeals.length,
+    clientTenureYears:
+      earliestInteractionTime === null
+        ? null
+        : Math.floor((Date.now() - earliestInteractionTime) / (365.25 * 86_400_000)),
+  }
+  const counts = {
+    tags: tagAssignments.length + labelAssignments.length,
+    comments: commentsCount,
+    activities: activityCount,
+    interactions: interactionCount,
+    todos: todoCount,
+    deals: includeDeals ? deals.length : dealLinksForMetrics.length,
+    people: peopleCount,
+    addresses: addressesCount,
+  }
 
   return NextResponse.json({
     interactionMode,
@@ -870,6 +1100,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           linkedAt,
         }))
       : [],
+    plannedActivitiesPreview,
+    counts,
+    kpis: companyKpis,
     viewer: {
       userId: viewerUserId,
       name: viewerUserId ? userMap.get(viewerUserId)?.name ?? null : null,

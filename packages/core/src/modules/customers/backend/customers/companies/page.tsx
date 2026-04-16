@@ -37,6 +37,7 @@ import {
 } from '@open-mercato/ui/backend/utils/customFieldColumns'
 import { useQueryClient } from '@tanstack/react-query'
 import { ensureCustomerDictionary } from '../../../components/detail/hooks/useCustomerDictionary'
+import { CollectionPreviewCell, normalizeCollectionLabels } from '../../../components/list/CollectionPreviewCell'
 
 type CompanyRow = {
   id: string
@@ -548,15 +549,15 @@ export default function CustomersCompaniesPage() {
       if (value == null) return noValue
       if (Array.isArray(value)) {
         if (!value.length) return noValue
-        const normalized = value
-          .map((item) => {
+        const normalized = normalizeCollectionLabels(
+          value.map((item) => {
             if (item == null) return ''
-            if (typeof item === 'string') return item.trim()
-            return String(item).trim()
-          })
-          .filter((item) => item.length > 0)
+            if (typeof item === 'string') return item
+            return String(item)
+          }),
+        )
         if (!normalized.length) return noValue
-        return <span className="text-sm">{normalized.join(', ')}</span>
+        return <CollectionPreviewCell labels={normalized} maxVisible={2} />
       }
       if (typeof value === 'boolean') {
         return (
@@ -576,7 +577,7 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'name',
         header: t('customers.companies.list.columns.name'),
-        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name' },
+        meta: { alwaysVisible: true, columnChooserGroup: 'Basic Info', filterKey: 'display_name', maxWidth: '260px' },
         cell: ({ row }) => (
           <Link href={`/backend/customers/companies-v2/${row.original.id}`} className="font-medium hover:underline">
             {row.original.name}
@@ -586,13 +587,13 @@ export default function CustomersCompaniesPage() {
       {
         accessorKey: 'email',
         header: t('customers.companies.list.columns.email'),
-        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email' },
+        meta: { columnChooserGroup: 'Contact', filterKey: 'primary_email', maxWidth: '220px' },
         cell: ({ row }) => row.original.email || noValue,
       },
       {
         accessorKey: 'phone',
         header: t('customers.companies.detail.highlights.primaryPhone', 'Primary phone'),
-        meta: { columnChooserGroup: 'Contact', hidden: true, filterKey: 'primary_phone' },
+        meta: { columnChooserGroup: 'Contact', hidden: true, filterKey: 'primary_phone', maxWidth: '180px' },
         cell: ({ row }) => row.original.phone || noValue,
       },
       {
@@ -712,6 +713,7 @@ export default function CustomersCompaniesPage() {
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
+          maxWidth: '220px',
         },
         cell: ({ getValue }) => renderCustomFieldCell(getValue()),
       }))

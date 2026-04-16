@@ -57,7 +57,7 @@ type ChangelogEntry = {
 
 type ChangelogTabProps = {
   entityId: string
-  entityType: 'company' | 'person'
+  entityType: 'company' | 'person' | 'deal'
 }
 
 type FilterState = {
@@ -80,7 +80,6 @@ type SortState = {
 }
 
 const PAGE_SIZE = 50
-const OPTION_LIMIT = 1000
 const ACTION_OPTIONS: Array<{ value: ChangelogActionType; key: string; fallback: string }> = [
   { value: 'create', key: 'customers.changelog.actions.create', fallback: 'Create' },
   { value: 'edit', key: 'customers.changelog.actions.edit', fallback: 'Edit' },
@@ -112,6 +111,16 @@ function formatFieldLabel(fieldName: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/^\w/, (char) => char.toUpperCase())
+}
+
+function mergeFilterOptions(...groups: FilterOption[][]): FilterOption[] {
+  const options = new Map<string, FilterOption>()
+  groups.flat().forEach((option) => {
+    options.set(option.value, option)
+  })
+  return Array.from(options.values()).sort((left, right) =>
+    left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }),
+  )
 }
 
 function mapAuditActionToEntry(action: AuditAction): ChangelogEntry {
@@ -161,7 +170,7 @@ function buildQueryUrl({
   after,
 }: {
   entityId: string
-  entityType: 'company' | 'person'
+  entityType: 'company' | 'person' | 'deal'
   dateRange: FilterState['dateRange']
   filters: Pick<FilterState, 'fieldNames' | 'actorUserIds' | 'actionTypes'>
   limit: number
@@ -197,7 +206,7 @@ function buildExportUrl({
   sorting,
 }: {
   entityId: string
-  entityType: 'company' | 'person'
+  entityType: 'company' | 'person' | 'deal'
   filters: Pick<FilterState, 'fieldNames' | 'actorUserIds' | 'actionTypes'>
   dateRange: FilterState['dateRange']
   sorting: SortState
@@ -289,7 +298,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
       const todayStart = startOfDay(0).toISOString()
       const yesterdayStart = startOfDay(1).toISOString()
 
-      const [mainResponse, todayResponse, yesterdayResponse, optionResponse] = await Promise.all([
+      const [mainResponse, todayResponse, yesterdayResponse] = await Promise.all([
         readApiResultOrThrow<AuditActionsResponse>(
           buildQueryUrl({
             entityId,
@@ -327,52 +336,45 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
             before: todayStart,
           }),
         ).catch(() => ({ items: [], total: 0 })),
-        readApiResultOrThrow<AuditActionsResponse>(
-          buildQueryUrl({
-            entityId,
-            entityType,
-            dateRange: filters.dateRange,
-            filters: { fieldNames: [], actorUserIds: [], actionTypes: [] },
-            limit: OPTION_LIMIT,
-            sorting,
-          }),
-        ).catch(() => ({ items: [] })),
       ])
 
       const mappedEntries = Array.isArray(mainResponse.items) ? mainResponse.items.map(mapAuditActionToEntry) : []
-      const optionEntries = Array.isArray(optionResponse.items) ? optionResponse.items.map(mapAuditActionToEntry) : []
 
       setEntries(mappedEntries)
       setTotalCount(typeof mainResponse.total === 'number' ? mainResponse.total : mappedEntries.length)
       setTodayCount(typeof todayResponse.total === 'number' ? todayResponse.total : 0)
       setYesterdayCount(typeof yesterdayResponse.total === 'number' ? yesterdayResponse.total : 0)
 
-      const nextFieldOptions = Array.from(
-        new Set(
-          optionEntries.flatMap((entry) => entry.changes.map((change) => change.fieldName)),
-        ),
+      const nextFieldOptions = mergeFilterOptions(
+        filters.fieldNames.map((fieldName) => ({ value: fieldName, label: formatFieldLabel(fieldName) })),
+        Array.from(
+          new Set(
+          mappedEntries.flatMap((entry) => entry.changes.map((change) => change.fieldName)),
+          ),
+        )
+          .sort((left, right) => left.localeCompare(right))
+          .map((fieldName) => ({ value: fieldName, label: formatFieldLabel(fieldName) })),
       )
-        .sort((left, right) => left.localeCompare(right))
-        .map((fieldName) => ({ value: fieldName, label: formatFieldLabel(fieldName) }))
-      const nextUserOptions = Array.from(
-        new Map(
-          optionEntries
-            .filter((entry) => entry.actorUserId && entry.actorUserName)
-            .map((entry) => [entry.actorUserId as string, entry.actorUserName as string]),
-        ).entries(),
-      )
-        .map(([value, label]) => ({ value, label }))
-        .sort((left, right) => left.label.localeCompare(right.label))
-      const availableActions = new Set(optionEntries.map((entry) => entry.actionType))
       const nextActionOptions = ACTION_OPTIONS
-        .filter((option) => availableActions.has(option.value))
+        .filter((option) => filters.actionTypes.includes(option.value) || mappedEntries.some((entry) => entry.actionType === option.value))
         .map((option) => ({
           value: option.value,
           label: t(option.key, option.fallback),
         }))
 
       setFieldOptions(nextFieldOptions)
-      setUserOptions(nextUserOptions)
+      setUserOptions((current) =>
+        mergeFilterOptions(
+          current.filter((option) => filters.actorUserIds.includes(option.value)),
+          Array.from(
+            new Map(
+              mappedEntries
+                .filter((entry) => entry.actorUserId && entry.actorUserName)
+                .map((entry) => [entry.actorUserId as string, entry.actorUserName as string]),
+            ).entries(),
+          ).map(([value, label]) => ({ value, label })),
+        ),
+      )
       setActionOptions(nextActionOptions)
     } catch (loadError) {
       setEntries([])

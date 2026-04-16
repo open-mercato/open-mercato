@@ -29,6 +29,10 @@ export const metadata = {
 const querySchema = z.object({
   entityId: z.string().uuid().optional(),
   organizationId: z.string().uuid().optional(),
+  ids: z.string().optional(),
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
+  search: z.string().optional(),
 })
 
 const createLabelRequestSchema = labelCreateSchema.extend({
@@ -50,6 +54,10 @@ export async function GET(req: Request) {
     const query = querySchema.parse({
       entityId: url.searchParams.get('entityId') ?? undefined,
       organizationId: url.searchParams.get('organizationId') ?? undefined,
+      ids: url.searchParams.get('ids') ?? undefined,
+      page: url.searchParams.get('page') ?? undefined,
+      pageSize: url.searchParams.get('pageSize') ?? undefined,
+      search: url.searchParams.get('search') ?? undefined,
     })
     const scope = await resolveOrganizationScopeForRequest({
       container,
@@ -93,13 +101,37 @@ export async function GET(req: Request) {
       }
     }
 
+    const requestedIds = query.ids
+      ? new Set(
+          query.ids
+            .split(',')
+            .map((value) => value.trim())
+            .filter(Boolean),
+        )
+      : null
+    const scopedLabels = requestedIds
+      ? labels.filter((label) => requestedIds.has(label.id))
+      : labels
+    const filteredLabels = query.search?.trim().length
+      ? scopedLabels.filter((label) => label.label.toLowerCase().includes(query.search!.trim().toLowerCase()))
+      : scopedLabels
+    const total = filteredLabels.length
+    const totalPages = Math.max(1, Math.ceil(total / query.pageSize))
+    const page = Math.min(query.page, totalPages)
+    const start = (page - 1) * query.pageSize
+    const items = filteredLabels.slice(start, start + query.pageSize)
+
     return NextResponse.json({
-      items: labels.map((l) => ({
+      items: items.map((l) => ({
         id: l.id,
         slug: l.slug,
         label: l.label,
       })),
       assignedIds: assignedLabelIds.filter(Boolean),
+      total,
+      page,
+      pageSize: query.pageSize,
+      totalPages,
     })
   } catch (err) {
     if (isMissingCustomerLabelTable(err)) {
@@ -222,6 +254,10 @@ const labelSchema = z.object({
 const labelsListSchema = z.object({
   items: z.array(labelSchema),
   assignedIds: z.array(z.string().uuid()),
+  total: z.number().int().nonnegative(),
+  page: z.number().int().min(1),
+  pageSize: z.number().int().min(1),
+  totalPages: z.number().int().min(1),
 })
 
 const errorSchema = z.object({ error: z.string() })

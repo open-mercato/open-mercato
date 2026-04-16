@@ -146,15 +146,15 @@ export function ActivityHistorySection({
   const t = useT()
   const [searchInput, setSearchInput] = React.useState('')
   const [search, setSearch] = React.useState('')
-  const [activeTypes, setActiveTypes] = React.useState<string[]>(['call', 'email'])
-  const [dateRange, setDateRange] = React.useState<'7d' | '30d' | '90d'>('30d')
+  const [activeTypes, setActiveTypes] = React.useState<string[]>([])
+  const [dateRange, setDateRange] = React.useState<'7d' | '30d' | '90d'>('90d')
   const [sortMode, setSortMode] = React.useState<'recent' | 'title-asc' | 'title-desc'>('recent')
   const [activities, setActivities] = React.useState<InteractionSummary[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [counts, setCounts] = React.useState<Record<string, number>>({ call: 0, email: 0, meeting: 0, note: 0, total: 0 })
   const [hasMore, setHasMore] = React.useState(false)
-  const [showAll, setShowAll] = React.useState(false)
+  const [loadedPages, setLoadedPages] = React.useState(1)
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 300)
@@ -189,10 +189,11 @@ export function ActivityHistorySection({
     setError(null)
     try {
       const rangeStart = computeRangeStart(dateRange).toISOString()
-      const pageSize = showAll ? 100 : 20
+      const pageSize = 20
       const canonicalItems: InteractionSummary[] = []
       let nextCursor: string | undefined
       let firstPageHasMore = false
+      let pagesLoaded = 0
 
       do {
         const params = new URLSearchParams({
@@ -220,15 +221,22 @@ export function ActivityHistorySection({
         canonicalItems.push(...pageItems)
         nextCursor = response.nextCursor
         if (!firstPageHasMore) firstPageHasMore = Boolean(response.nextCursor)
-      } while (showAll && nextCursor && canonicalItems.length < 200)
+        pagesLoaded += 1
+      } while (nextCursor && pagesLoaded < loadedPages)
 
       let combined = canonicalItems
 
       if (!useCanonicalInteractions) {
-        const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[] }>(
-          `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&pageSize=${showAll ? '100' : '20'}&sortField=occurredAt&sortDir=desc`,
-        ).catch(() => ({ items: [] as ActivitySummary[] }))
-        const legacyItems = Array.isArray(legacyPayload.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []
+        const legacyItems: InteractionSummary[] = []
+        let legacyTotalPages = 1
+        for (let legacyPage = 1; legacyPage <= loadedPages; legacyPage += 1) {
+          const legacyPayload = await readApiResultOrThrow<{ items?: ActivitySummary[]; totalPages?: number }>(
+            `/api/customers/activities?entityId=${encodeURIComponent(entityId)}&page=${legacyPage}&pageSize=20&sortField=occurredAt&sortDir=desc`,
+          ).catch(() => ({ items: [] as ActivitySummary[], totalPages: 1 }))
+          legacyItems.push(...(Array.isArray(legacyPayload.items) ? legacyPayload.items.map(normalizeLegacyActivity) : []))
+          legacyTotalPages = typeof legacyPayload.totalPages === 'number' ? legacyPayload.totalPages : legacyTotalPages
+          if (legacyPage >= legacyTotalPages) break
+        }
         const rangeStartDate = computeRangeStart(dateRange)
         const filteredLegacy = legacyItems.filter((item) => {
           if (activeTypes.length > 0 && !activeTypes.includes(item.interactionType)) return false
@@ -240,6 +248,7 @@ export function ActivityHistorySection({
           if (!deduped.has(item.id)) deduped.set(item.id, item)
         })
         combined = Array.from(deduped.values())
+        firstPageHasMore = firstPageHasMore || legacyTotalPages > loadedPages
       }
 
       setActivities(sortActivities(combined, sortMode))
@@ -251,18 +260,21 @@ export function ActivityHistorySection({
     } finally {
       setLoading(false)
     }
-  }, [activeTypes, dateRange, entityId, search, showAll, sortMode, t, useCanonicalInteractions])
+  }, [activeTypes, dateRange, entityId, loadedPages, search, sortMode, t, useCanonicalInteractions])
 
   React.useEffect(() => {
     void loadHistory()
   }, [loadHistory, refreshKey])
+
+  React.useEffect(() => {
+    setLoadedPages(1)
+  }, [activeTypes, dateRange, entityId, search, sortMode, useCanonicalInteractions])
 
   const filteredLabel = activeTypes.length > 0
     ? activeTypes.map((type) => t(`customers.timeline.filter.${type}`, type)).join(', ')
     : t('customers.timeline.filter.all', 'All')
 
   const handleTypeToggle = React.useCallback((type: string) => {
-    setShowAll(false)
     setActiveTypes((current) => (
       current.includes(type)
         ? current.filter((entry) => entry !== type)
@@ -270,13 +282,8 @@ export function ActivityHistorySection({
     ))
   }, [])
 
-  const handleSeeAll = React.useCallback(() => {
-    setShowAll(true)
-    setSearchInput('')
-    setSearch('')
-    setActiveTypes([])
-    setDateRange('90d')
-    setSortMode('recent')
+  const handleLoadMore = React.useCallback(() => {
+    setLoadedPages((current) => current + 1)
   }, [])
 
   return (
@@ -303,7 +310,6 @@ export function ActivityHistorySection({
             <Input
               value={searchInput}
               onChange={(event) => {
-                setShowAll(false)
                 setSearchInput(event.target.value)
               }}
               placeholder={t('customers.activityLog.searchPlaceholder', 'Search by title, note, or author')}
@@ -337,7 +343,6 @@ export function ActivityHistorySection({
             <select
               value={dateRange}
               onChange={(event) => {
-                setShowAll(false)
                 setDateRange(event.target.value as '7d' | '30d' | '90d')
               }}
               className="h-8 rounded-[10px] border bg-background px-3 text-xs outline-none ring-offset-background focus:ring-2 focus:ring-ring"
@@ -350,7 +355,6 @@ export function ActivityHistorySection({
             <select
               value={sortMode}
               onChange={(event) => {
-                setShowAll(false)
                 setSortMode(event.target.value as 'recent' | 'title-asc' | 'title-desc')
               }}
               className="h-8 rounded-[10px] border bg-background px-3 text-xs outline-none ring-offset-background focus:ring-2 focus:ring-ring"
@@ -391,10 +395,10 @@ export function ActivityHistorySection({
               )
             })}
 
-            {hasMore && !showAll ? (
+            {hasMore ? (
               <div className="pt-2 text-center">
-                <Button type="button" variant="link" size="sm" onClick={handleSeeAll} className="text-sm">
-                  {t('customers.timeline.history.seeAll', 'See all {{count}} activities', { count: counts.total || activities.length })}
+                <Button type="button" variant="link" size="sm" onClick={handleLoadMore} className="text-sm">
+                  {t('customers.activities.loadMore', 'Load more')}
                 </Button>
               </div>
             ) : null}

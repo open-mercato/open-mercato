@@ -17,6 +17,9 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
 
   if (names.length === 0) return null
 
+  const visibleNames = names.slice(0, 4)
+  const hiddenCount = Math.max(0, names.length - visibleNames.length)
+
   return (
     <div className="sticky bottom-0 flex flex-col gap-3 rounded-lg border bg-card px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
       <div className="flex min-w-0 items-start gap-3">
@@ -27,7 +30,8 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
           </p>
           <p className="break-words text-sm font-medium">
             {t('customers.people.decisionMakers.count', '{count} key people', { count: names.length })}:
-            {' '}{names.join(' \u00b7 ')}
+            {' '}{visibleNames.join(' \u00b7 ')}
+            {hiddenCount > 0 ? ` \u00b7 +${hiddenCount} ${t('customers.people.decisionMakers.more', 'more')}` : ''}
           </p>
           {suggestion && (
             <p className="text-xs text-muted-foreground mt-0.5">{suggestion}</p>

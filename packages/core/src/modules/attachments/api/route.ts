@@ -36,6 +36,8 @@ export const metadata = {
 const attachmentQuerySchema = z.object({
   entityId: z.string().min(1).describe('Entity identifier that owns the attachments'),
   recordId: z.string().min(1).describe('Record identifier within the entity'),
+  page: z.coerce.number().min(1).optional(),
+  pageSize: z.coerce.number().min(1).max(100).optional(),
 })
 
 const attachmentAssignmentSchema = z.object({
@@ -61,6 +63,10 @@ const attachmentItemSchema = z.object({
 
 const attachmentListResponseSchema = z.object({
   items: z.array(attachmentItemSchema),
+  total: z.number().int().nonnegative().optional(),
+  page: z.number().int().min(1).optional(),
+  pageSize: z.number().int().min(1).optional(),
+  totalPages: z.number().int().min(1).optional(),
 })
 
 const attachmentUploadBodySchema = z.object({
@@ -163,18 +169,40 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
-  const entityId = url.searchParams.get('entityId') || ''
-  const recordId = url.searchParams.get('recordId') || ''
-  if (!entityId || !recordId) return NextResponse.json({ error: 'entityId and recordId are required' }, { status: 400 })
+  const parsedQuery = attachmentQuerySchema.safeParse({
+    entityId: url.searchParams.get('entityId') || '',
+    recordId: url.searchParams.get('recordId') || '',
+    page: url.searchParams.get('page') ?? undefined,
+    pageSize: url.searchParams.get('pageSize') ?? undefined,
+  })
+  if (!parsedQuery.success) {
+    return NextResponse.json({ error: 'entityId and recordId are required' }, { status: 400 })
+  }
+  const { entityId, recordId, page, pageSize } = parsedQuery.data
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
   const filter: Record<string, unknown> = { entityId, recordId, tenantId: auth.tenantId! }
   if (auth.orgId) filter.organizationId = auth.orgId
+  const orderBy = { createdAt: 'desc' } as any
+  const usePaging = typeof page === 'number' && typeof pageSize === 'number'
+  const total = usePaging ? await em.count(Attachment, filter) : null
+  const currentPage = usePaging ? Math.max(1, page) : null
+  const currentPageSize = usePaging ? pageSize : null
+  const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
+  const pageOffset = usePaging ? (Math.min(currentPage!, totalPages!) - 1) * currentPageSize! : undefined
   const items = await em.find(
     Attachment,
     filter,
-    { orderBy: { createdAt: 'desc' } as any }
+    {
+      orderBy,
+      ...(usePaging
+        ? {
+            limit: currentPageSize,
+            offset: pageOffset,
+          }
+        : {}),
+    },
   )
   return NextResponse.json({
     items: items.map((a: any) => {
@@ -197,6 +225,14 @@ export async function GET(req: Request) {
         assignments: metadata.assignments ?? [],
       }
     }),
+    ...(usePaging
+      ? {
+          total,
+          page: Math.min(currentPage!, totalPages!),
+          pageSize: currentPageSize,
+          totalPages,
+        }
+      : {}),
   })
 }
 

@@ -99,4 +99,45 @@ describe('CompanyDetailHeader', () => {
 
     expect(screen.queryByRole('button', { name: 'History' })).not.toBeInTheDocument()
   })
+
+  it('triggers deletion directly from the trash action', () => {
+    const onDelete = jest.fn(async () => undefined)
+
+    renderWithProviders(
+      <CompanyDetailHeader
+        data={{
+          company: {
+            id: 'company-1',
+            displayName: 'Acme Corp',
+            organizationId: 'org-1',
+            status: null,
+            lifecycleStage: null,
+            source: null,
+            temperature: null,
+            renewalQuarter: null,
+          },
+          profile: null,
+          customFields: {},
+          tags: [],
+          comments: [],
+          activities: [],
+          interactions: [],
+          deals: [],
+          todos: [],
+          people: [],
+          viewer: null,
+        }}
+        onTagsChange={jest.fn()}
+        tagsSectionControllerRef={{ current: null }}
+        onSave={jest.fn()}
+        onDelete={onDelete}
+        isDirty={false}
+        isSaving={false}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete company' }))
+
+    expect(onDelete).toHaveBeenCalledTimes(1)
+  })
 })

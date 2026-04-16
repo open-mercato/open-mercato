@@ -39,6 +39,7 @@ type EntityTagData = {
   renewalQuarter?: string | null
   jobTitle?: string | null
   industry?: string | null
+  customFields?: Record<string, unknown>
   tags?: TagSummary[]
 }
 
@@ -60,6 +61,7 @@ type CategoryDef = {
   routeKind?: string
   settingKind?: string
   entityField?: keyof EntityTagData
+  customFieldKey?: string
   selectionMode?: 'single' | 'multi'
   hasColorDots: boolean
   supportsCreate?: boolean
@@ -207,6 +209,9 @@ const CATEGORY_DEFS: CategoryDef[] = [
   },
 ]
 
+const REMOTE_CATEGORY_PAGE_SIZE = 50
+const CUSTOM_CATEGORY_FIELD_PREFIX = 'crmTagCategory:'
+
 function cloneSelectionMap(values: Record<string, Set<string>>): Record<string, Set<string>> {
   return Object.fromEntries(
     Object.entries(values).map(([key, selection]) => [key, new Set(selection)]),
@@ -217,6 +222,87 @@ function sortOptions(entries: CategoryOption[]): CategoryOption[] {
   return [...entries].sort((left, right) =>
     left.label.localeCompare(right.label, undefined, { sensitivity: 'base' }),
   )
+}
+
+function mergeOptions(...groups: CategoryOption[][]): CategoryOption[] {
+  const merged = new Map<string, CategoryOption>()
+  groups.flat().forEach((entry) => {
+    merged.set(entry.value, entry)
+  })
+  return sortOptions(Array.from(merged.values()))
+}
+
+function humanizeCategoryKind(kind: string): string {
+  return kind
+    .split(/[-_]+/)
+    .filter((part) => part.trim().length > 0)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(' ')
+}
+
+function resolveCustomCategoryFieldKey(kind: string): string {
+  return `${CUSTOM_CATEGORY_FIELD_PREFIX}${kind}`
+}
+
+function createCustomCategoryDef(kind: string, selectionMode: 'single' | 'multi'): CategoryDef {
+  const label = humanizeCategoryKind(kind)
+  return {
+    kind,
+    source: 'dictionary',
+    supportedEntityTypes: ['person', 'company'],
+    labelKey: '',
+    labelFallback: label,
+    descriptionKey: 'customers.personTags.description.customCategory',
+    descriptionFallback: `Custom CRM category: ${label}.`,
+    routeKind: kind,
+    settingKind: kind,
+    customFieldKey: resolveCustomCategoryFieldKey(kind),
+    selectionMode,
+    hasColorDots: true,
+  }
+}
+
+function normalizeSelectionValues(
+  value: unknown,
+  selectionMode: 'single' | 'multi',
+): string[] {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? [trimmed] : []
+  }
+  if (Array.isArray(value)) {
+    const normalized = value
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0)
+    if (selectionMode === 'single') {
+      return normalized.length > 0 ? [normalized[0]] : []
+    }
+    return normalized
+  }
+  return []
+}
+
+function readCategorySelectionValues(
+  category: CategoryDef,
+  entityData: EntityTagData,
+  selectionMode: 'single' | 'multi',
+): string[] {
+  if (category.entityField) {
+    return normalizeSelectionValues(entityData[category.entityField], selectionMode)
+  }
+  if (category.customFieldKey) {
+    return normalizeSelectionValues(entityData.customFields?.[category.customFieldKey], selectionMode)
+  }
+  return []
+}
+
+function areSelectionsEqual(left: Set<string>, right: Set<string>): boolean {
+  if (left.size !== right.size) return false
+  for (const value of left) {
+    if (!right.has(value)) return false
+  }
+  return true
 }
 
 function TagChip({
@@ -264,8 +350,16 @@ function TagChip({
   )
 }
 
-function buildApplicableCategories(entityType: 'person' | 'company') {
-  return CATEGORY_DEFS.filter((category) => category.supportedEntityTypes.includes(entityType))
+function buildApplicableCategories(
+  entityType: 'person' | 'company',
+  kindSettings: KindSetting[],
+) {
+  const baseCategories = CATEGORY_DEFS.filter((category) => category.supportedEntityTypes.includes(entityType))
+  const customCategories = kindSettings
+    .filter((setting) => setting.visibleInTags)
+    .filter((setting) => !CATEGORY_DEFS.some((category) => category.kind === setting.kind || category.settingKind === setting.kind))
+    .map((setting) => createCustomCategoryDef(setting.kind, setting.selectionMode))
+  return [...baseCategories, ...customCategories]
 }
 
 export function EntityTagsDialog({
@@ -282,12 +376,16 @@ export function EntityTagsDialog({
   const [saving, setSaving] = React.useState(false)
   const [searchValue, setSearchValue] = React.useState('')
   const [categories, setCategories] = React.useState<CategorySection[]>([])
+  const [selectedEntrySeeds, setSelectedEntrySeeds] = React.useState<Record<string, CategoryOption[]>>({})
   const [selectedValues, setSelectedValues] = React.useState<Record<string, Set<string>>>({})
   const [originalValues, setOriginalValues] = React.useState<Record<string, Set<string>>>({})
   const [activeCategoryKind, setActiveCategoryKind] = React.useState<string | null>(null)
   const [newEntryInputByKind, setNewEntryInputByKind] = React.useState<Record<string, string | null>>({})
   const [creatingKind, setCreatingKind] = React.useState<string | null>(null)
   const [manageTagsOpen, setManageTagsOpen] = React.useState(false)
+  const [activeCategoryPage, setActiveCategoryPage] = React.useState(1)
+  const [activeCategoryTotalPages, setActiveCategoryTotalPages] = React.useState(1)
+  const [activeCategoryLoading, setActiveCategoryLoading] = React.useState(false)
   const creationInFlightRef = React.useRef<string | null>(null)
   const mutationContextId = React.useMemo(
     () => `customer-tags:${entityType}:${entityId}`,
@@ -358,29 +456,21 @@ export function EntityTagsDialog({
 
       const settingsMap = new Map(kindSettings.map((setting) => [setting.kind, setting]))
 
-      let availableTags: CategoryOption[] = []
-      try {
-        const tagsQuery = new URLSearchParams({ pageSize: '100' })
-        const tagsCall = await apiCall<{ items?: DictEntry[] }>(
-          `/api/customers/tags?${tagsQuery.toString()}`,
-          { cache: 'no-store', headers: { 'x-om-unauthorized-redirect': '0' } },
-        )
-        const tagItems = tagsCall.ok ? tagsCall.result?.items ?? [] : []
-        availableTags = tagItems.map((tag) => ({
-          id: tag.id,
-          value: tag.id,
-          label: tag.label,
-          color: tag.color ?? null,
-        }))
-      } catch {
-        availableTags = []
-      }
+      const selectedTagEntries = Array.isArray(entityData.tags)
+        ? entityData.tags.map((tag) => ({
+            id: tag.id,
+            value: tag.id,
+            label: tag.label,
+            color: tag.color ?? null,
+          }))
+        : []
 
-      let availableLabels: LabelItem[] = []
       let assignedLabelIds: string[] = []
+      let selectedLabelEntries: CategoryOption[] = []
       try {
         const labelsQuery = new URLSearchParams()
         labelsQuery.set('entityId', entityId)
+        labelsQuery.set('pageSize', '1')
         if (entityOrganizationId) {
           labelsQuery.set('organizationId', entityOrganizationId)
         }
@@ -392,14 +482,36 @@ export function EntityTagsDialog({
           headers: { 'x-om-unauthorized-redirect': '0' },
         })
         const labelsData = labelsCall.ok ? labelsCall.result : null
-        availableLabels = labelsData?.items ?? []
         assignedLabelIds = labelsData?.assignedIds ?? []
+        if (assignedLabelIds.length > 0) {
+          const detailQuery = new URLSearchParams({
+            ids: assignedLabelIds.join(','),
+            pageSize: String(Math.min(assignedLabelIds.length, 100)),
+          })
+          if (entityOrganizationId) {
+            detailQuery.set('organizationId', entityOrganizationId)
+          }
+          const selectedLabelsCall = await apiCall<{ items?: LabelItem[] }>(
+            `/api/customers/labels?${detailQuery.toString()}`,
+            {
+              cache: 'no-store',
+              headers: { 'x-om-unauthorized-redirect': '0' },
+            },
+          )
+          const selectedLabels = selectedLabelsCall.ok ? selectedLabelsCall.result?.items ?? [] : []
+          selectedLabelEntries = selectedLabels.map((label) => ({
+            id: label.id,
+            value: label.id,
+            label: label.label,
+            color: null,
+          }))
+        }
       } catch {
-        availableLabels = []
         assignedLabelIds = []
+        selectedLabelEntries = []
       }
 
-      const categoryDefs = buildApplicableCategories(entityType)
+      const categoryDefs = buildApplicableCategories(entityType, kindSettings)
       const loadedCategories: CategorySection[] = []
 
       for (const categoryDef of categoryDefs) {
@@ -408,7 +520,7 @@ export function EntityTagsDialog({
             ...categoryDef,
             label: t(categoryDef.labelKey, categoryDef.labelFallback),
             description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
-            entries: sortOptions(availableTags),
+            entries: sortOptions(selectedTagEntries),
             selectionMode: categoryDef.selectionMode ?? 'multi',
           })
           continue
@@ -419,14 +531,7 @@ export function EntityTagsDialog({
             ...categoryDef,
             label: t(categoryDef.labelKey, categoryDef.labelFallback),
             description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
-            entries: sortOptions(
-              availableLabels.map((label) => ({
-                id: label.id,
-                value: label.id,
-                label: label.label,
-                color: null,
-              })),
-            ),
+            entries: sortOptions(selectedLabelEntries),
             selectionMode: categoryDef.selectionMode ?? 'multi',
           })
           continue
@@ -448,49 +553,60 @@ export function EntityTagsDialog({
             label: entry.label,
             color: entry.color ?? null,
           }))
-          const currentValue = categoryDef.entityField ? entityData[categoryDef.entityField] : null
-          if (
-            typeof currentValue === 'string'
-            && currentValue.trim().length > 0
-            && !entries.some((entry) => entry.value === currentValue.trim())
-          ) {
+          const setting = categoryDef.settingKind
+            ? settingsMap.get(categoryDef.settingKind)
+            : undefined
+          const selectionMode = setting?.selectionMode ?? categoryDef.selectionMode ?? 'single'
+          const currentValues = readCategorySelectionValues(categoryDef, entityData, selectionMode)
+          currentValues.forEach((currentValue) => {
+            if (entries.some((entry) => entry.value === currentValue)) return
             entries.push({
-              id: `current:${categoryDef.kind}:${currentValue.trim()}`,
-              value: currentValue.trim(),
-              label: currentValue.trim(),
+              id: `current:${categoryDef.kind}:${currentValue}`,
+              value: currentValue,
+              label: currentValue,
               color: null,
             })
-          }
-          const setting = categoryDef.settingKind
-            ? settingsMap.get(categoryDef.settingKind)
-            : undefined
+          })
           loadedCategories.push({
             ...categoryDef,
-            label: t(categoryDef.labelKey, categoryDef.labelFallback),
-            description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
+            label: categoryDef.labelKey
+              ? t(categoryDef.labelKey, categoryDef.labelFallback)
+              : categoryDef.labelFallback,
+            description: categoryDef.descriptionKey
+              ? t(
+                categoryDef.descriptionKey,
+                categoryDef.descriptionFallback,
+                categoryDef.customFieldKey ? { name: categoryDef.labelFallback } : undefined,
+              )
+              : categoryDef.descriptionFallback,
             entries: sortOptions(entries),
-            selectionMode: setting?.selectionMode ?? categoryDef.selectionMode ?? 'single',
+            selectionMode,
           })
         } catch {
-          const currentValue = categoryDef.entityField ? entityData[categoryDef.entityField] : null
-          const fallbackEntries =
-            typeof currentValue === 'string' && currentValue.trim().length > 0
-              ? [{
-                  id: `current:${categoryDef.kind}:${currentValue.trim()}`,
-                  value: currentValue.trim(),
-                  label: currentValue.trim(),
-                  color: null,
-                }]
-              : []
           const setting = categoryDef.settingKind
             ? settingsMap.get(categoryDef.settingKind)
             : undefined
+          const selectionMode = setting?.selectionMode ?? categoryDef.selectionMode ?? 'single'
+          const fallbackEntries = readCategorySelectionValues(categoryDef, entityData, selectionMode).map((value) => ({
+            id: `current:${categoryDef.kind}:${value}`,
+            value,
+            label: value,
+            color: null,
+          }))
           loadedCategories.push({
             ...categoryDef,
-            label: t(categoryDef.labelKey, categoryDef.labelFallback),
-            description: t(categoryDef.descriptionKey, categoryDef.descriptionFallback),
+            label: categoryDef.labelKey
+              ? t(categoryDef.labelKey, categoryDef.labelFallback)
+              : categoryDef.labelFallback,
+            description: categoryDef.descriptionKey
+              ? t(
+                categoryDef.descriptionKey,
+                categoryDef.descriptionFallback,
+                categoryDef.customFieldKey ? { name: categoryDef.labelFallback } : undefined,
+              )
+              : categoryDef.descriptionFallback,
             entries: fallbackEntries,
-            selectionMode: setting?.selectionMode ?? categoryDef.selectionMode ?? 'single',
+            selectionMode,
           })
         }
       }
@@ -509,12 +625,10 @@ export function EntityTagsDialog({
 
       const initialValues: Record<string, Set<string>> = {}
       for (const category of loadedCategories) {
-        if (category.source === 'dictionary' && category.entityField) {
-          const currentValue = entityData[category.entityField]
-          initialValues[category.kind] =
-            typeof currentValue === 'string' && currentValue.trim().length > 0
-              ? new Set([currentValue.trim()])
-              : new Set()
+        if (category.source === 'dictionary' && (category.entityField || category.customFieldKey)) {
+          initialValues[category.kind] = new Set(
+            readCategorySelectionValues(category, entityData, category.selectionMode),
+          )
           continue
         }
         if (category.source === 'tags') {
@@ -538,6 +652,10 @@ export function EntityTagsDialog({
       }
 
       setCategories(loadedCategories)
+      setSelectedEntrySeeds({
+        tags: selectedTagEntries,
+        labels: selectedLabelEntries,
+      })
       setSelectedValues(initialValues)
       setOriginalValues(cloneSelectionMap(initialValues))
       setActiveCategoryKind((previous) => {
@@ -567,6 +685,92 @@ export function EntityTagsDialog({
     if (!categories.length) return null
     return categories.find((category) => category.kind === activeCategoryKind) ?? categories[0]
   }, [activeCategoryKind, categories])
+  const activeCategoryKindValue = activeCategory?.kind ?? null
+  const activeCategorySource = activeCategory?.source ?? null
+
+  React.useEffect(() => {
+    if (!open) return
+    setActiveCategoryPage(1)
+  }, [activeCategoryKind, open, searchValue])
+
+  React.useEffect(() => {
+    if (!open || !activeCategoryKindValue || (activeCategorySource !== 'tags' && activeCategorySource !== 'labels')) {
+      setActiveCategoryLoading(false)
+      setActiveCategoryTotalPages(1)
+      return
+    }
+
+    let cancelled = false
+    const params = new URLSearchParams({
+      page: String(activeCategoryPage),
+      pageSize: String(REMOTE_CATEGORY_PAGE_SIZE),
+    })
+    if (searchValue.trim().length > 0) {
+      params.set('search', searchValue.trim())
+    }
+    if (activeCategorySource === 'labels') {
+      params.set('entityId', entityId)
+      if (entityOrganizationId) {
+        params.set('organizationId', entityOrganizationId)
+      }
+    }
+
+    const endpoint =
+      activeCategorySource === 'tags'
+        ? `/api/customers/tags?${params.toString()}`
+        : `/api/customers/labels?${params.toString()}`
+    const seedEntries = searchValue.trim().length > 0 ? [] : selectedEntrySeeds[activeCategoryKindValue] ?? []
+
+    const mapEntries = (items: Array<DictEntry | LabelItem>): CategoryOption[] =>
+      items.map((entry) => ({
+        id: entry.id,
+        value: entry.id,
+        label: entry.label,
+        color: activeCategorySource === 'tags' && 'color' in entry ? entry.color ?? null : null,
+      }))
+
+    setActiveCategoryLoading(true)
+    void apiCall<{ items?: Array<DictEntry | LabelItem>; totalPages?: number }>(endpoint, {
+      cache: 'no-store',
+      headers: { 'x-om-unauthorized-redirect': '0' },
+    })
+      .then((response) => {
+        if (!response.ok || cancelled) return
+        const fetchedEntries = mapEntries(Array.isArray(response.result?.items) ? response.result.items : [])
+        setActiveCategoryTotalPages(
+          typeof response.result?.totalPages === 'number' ? response.result.totalPages : 1,
+        )
+        updateCategoryEntries(activeCategoryKindValue, (currentEntries) =>
+          activeCategoryPage <= 1
+            ? mergeOptions(seedEntries, fetchedEntries)
+            : mergeOptions(currentEntries, seedEntries, fetchedEntries),
+        )
+      })
+      .catch(() => {
+        if (cancelled) return
+        setActiveCategoryTotalPages(1)
+        updateCategoryEntries(activeCategoryKindValue, () => seedEntries)
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setActiveCategoryLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    activeCategoryKindValue,
+    activeCategoryPage,
+    activeCategorySource,
+    entityId,
+    entityOrganizationId,
+    open,
+    searchValue,
+    selectedEntrySeeds,
+    updateCategoryEntries,
+  ])
 
   const activeCount = React.useMemo(
     () => Object.values(selectedValues).reduce((count, values) => count + values.size, 0),
@@ -670,6 +874,10 @@ export function EntityTagsDialog({
           color: typeof result?.color === 'string' ? result.color : null,
         }
         updateCategoryEntries(activeCategory.kind, (entries) => [...entries, option])
+        setSelectedEntrySeeds((previous) => ({
+          ...previous,
+          [activeCategory.kind]: mergeOptions(previous[activeCategory.kind] ?? [], [option]),
+        }))
         setSelectedValues((previous) => ({
           ...previous,
           [activeCategory.kind]: new Set([...(previous[activeCategory.kind] ?? []), option.value]),
@@ -697,6 +905,10 @@ export function EntityTagsDialog({
           color: null,
         }
         updateCategoryEntries(activeCategory.kind, (entries) => [...entries, option])
+        setSelectedEntrySeeds((previous) => ({
+          ...previous,
+          [activeCategory.kind]: mergeOptions(previous[activeCategory.kind] ?? [], [option]),
+        }))
         setSelectedValues((previous) => ({
           ...previous,
           [activeCategory.kind]: new Set([...(previous[activeCategory.kind] ?? []), option.value]),
@@ -720,26 +932,45 @@ export function EntityTagsDialog({
     setSaving(true)
     try {
       const entityUpdate: Record<string, string | null> = {}
+      const customFieldUpdate: Record<string, unknown> = {}
       categories.forEach((category) => {
-        if (category.source !== 'dictionary' || !category.entityField) return
+        if (category.source !== 'dictionary') return
         const currentSelection = selectedValues[category.kind] ?? new Set<string>()
         const originalSelection = originalValues[category.kind] ?? new Set<string>()
-        const currentValue = currentSelection.size > 0 ? Array.from(currentSelection)[0] ?? null : null
-        const originalValue = originalSelection.size > 0 ? Array.from(originalSelection)[0] ?? null : null
-        if (currentValue !== originalValue) {
+        if (areSelectionsEqual(currentSelection, originalSelection)) return
+        if (category.entityField) {
+          const currentValue = currentSelection.size > 0 ? Array.from(currentSelection)[0] ?? null : null
           entityUpdate[category.entityField] = currentValue
+          return
+        }
+        if (category.customFieldKey) {
+          customFieldUpdate[category.customFieldKey] =
+            category.selectionMode === 'single'
+              ? Array.from(currentSelection)[0] ?? null
+              : Array.from(currentSelection)
         }
       })
 
-      if (Object.keys(entityUpdate).length > 0) {
+      if (Object.keys(entityUpdate).length > 0 || Object.keys(customFieldUpdate).length > 0) {
         await runGuardedMutation(
           () =>
             apiCallOrThrow(`/api/customers/${entityType === 'person' ? 'people' : 'companies'}`, {
               method: 'PUT',
               headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: entityId, ...entityUpdate }),
+              body: JSON.stringify({
+                id: entityId,
+                ...entityUpdate,
+                ...(Object.keys(customFieldUpdate).length > 0
+                  ? {
+                      customFields: {
+                        ...(entityData.customFields ?? {}),
+                        ...customFieldUpdate,
+                      },
+                    }
+                  : {}),
+              }),
             }),
-          { operation: 'updateEntityTags', entityUpdate },
+          { operation: 'updateEntityTags', entityUpdate, customFieldUpdate },
         )
       }
 
@@ -966,23 +1197,45 @@ export function EntityTagsDialog({
                       </div>
 
                       {filteredEntries.length > 0 ? (
-                        <div className="flex flex-wrap gap-x-[6px] gap-y-[8px]">
-                          {filteredEntries.map((entry) => (
-                            <TagChip
-                              key={`${activeCategory.kind}:${entry.value}`}
-                              label={entry.label}
-                              color={entry.color}
-                              active={activeSelection.has(entry.value)}
-                              showColorDot={activeCategory.hasColorDots}
-                              onClick={() =>
-                                toggleValue(
-                                  activeCategory.kind,
-                                  entry.value,
-                                  activeCategory.selectionMode,
-                                )
-                              }
-                            />
-                          ))}
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap gap-x-[6px] gap-y-[8px]">
+                            {filteredEntries.map((entry) => (
+                              <TagChip
+                                key={`${activeCategory.kind}:${entry.value}`}
+                                label={entry.label}
+                                color={entry.color}
+                                active={activeSelection.has(entry.value)}
+                                showColorDot={activeCategory.hasColorDots}
+                                onClick={() =>
+                                  toggleValue(
+                                    activeCategory.kind,
+                                    entry.value,
+                                    activeCategory.selectionMode,
+                                  )
+                                }
+                              />
+                            ))}
+                          </div>
+                          {activeCategoryLoading ? (
+                            <div className="text-xs text-muted-foreground">
+                              {t('customers.personTags.loading', 'Loading...')}
+                            </div>
+                          ) : null}
+                          {(activeCategory.source === 'tags' || activeCategory.source === 'labels') && activeCategoryPage < activeCategoryTotalPages ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="rounded-[10px] px-3 text-xs"
+                              onClick={() => setActiveCategoryPage((current) => current + 1)}
+                            >
+                              {t('customers.activities.loadMore', 'Load more')}
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : activeCategoryLoading ? (
+                        <div className="rounded-[12px] border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
+                          {t('customers.personTags.loading', 'Loading...')}
                         </div>
                       ) : (
                         <div className="rounded-[12px] border border-dashed border-border bg-background px-4 py-6 text-center text-sm text-muted-foreground">
