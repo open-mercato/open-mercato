@@ -574,22 +574,22 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await findOneWithDecryption(
-      em,
-      SalesShipment,
-      { id: after.id },
-      { populate: ['order'] },
-      { tenantId: after.tenantId, organizationId: after.organizationId },
-    )
-    if (existing) {
+    await em.transactional(async (tx) => {
+      const existing = await findOneWithDecryption(
+        tx,
+        SalesShipment,
+        { id: after.id },
+        { populate: ['order'] },
+        { tenantId: after.tenantId, organizationId: after.organizationId },
+      )
+      if (!existing) return
       const order = existing.order as SalesOrder | null
-      await deleteShipmentWithItems(em, existing)
+      await deleteShipmentWithItems(tx, existing)
       if (order) {
-        await recomputeFulfilledQuantities(em, order)
-        await em.flush()
+        await recomputeFulfilledQuantities(tx, order)
+        await tx.flush()
       }
-      return
-    }
+    })
   },
 }
 
@@ -795,13 +795,15 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    await restoreShipmentSnapshot(em, before)
-    const order = await em.findOne(SalesOrder, { id: before.orderId })
-    await em.flush()
-    if (order) {
-      await recomputeFulfilledQuantities(em, order)
-      await em.flush()
-    }
+    await em.transactional(async (tx) => {
+      await restoreShipmentSnapshot(tx, before)
+      const order = await tx.findOne(SalesOrder, { id: before.orderId })
+      await tx.flush()
+      if (order) {
+        await recomputeFulfilledQuantities(tx, order)
+        await tx.flush()
+      }
+    })
   },
 }
 
@@ -942,13 +944,15 @@ const deleteShipmentCommand: CommandHandler<
     const snapshot = payload?.before ?? null
     if (!snapshot) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    await restoreShipmentSnapshot(em, snapshot)
-    const order = await em.findOne(SalesOrder, { id: snapshot.orderId })
-    await em.flush()
-    if (order) {
-      await recomputeFulfilledQuantities(em, order)
-      await em.flush()
-    }
+    await em.transactional(async (tx) => {
+      await restoreShipmentSnapshot(tx, snapshot)
+      const order = await tx.findOne(SalesOrder, { id: snapshot.orderId })
+      await tx.flush()
+      if (order) {
+        await recomputeFulfilledQuantities(tx, order)
+        await tx.flush()
+      }
+    })
   },
   buildLog: async ({ snapshots }) => {
     const before = snapshots.before as ShipmentSnapshot | undefined
