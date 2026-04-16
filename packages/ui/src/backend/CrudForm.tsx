@@ -464,6 +464,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const valuesRef = React.useRef(values)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [pending, setPending] = React.useState(false)
+  // Synchronous guard against re-entrant submit/delete invocations (e.g. rapid
+  // double-clicks of "Save" while validation and network IO are still running).
+  // React state is async, so `pending` cannot block a click that fires before
+  // the next render; a ref flips on the first call and rejects duplicates.
+  const submittingRef = React.useRef(false)
+  const deletingRef = React.useRef(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const [dynamicOptions, setDynamicOptions] = React.useState<Record<string, CrudFieldOption[]>>({})
   const [cfDefinitions, setCfDefinitions] = React.useState<CustomFieldDefDto[]>([])
@@ -891,6 +897,8 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // Unified delete handler with confirmation
   const handleDelete = React.useCallback(async () => {
     if (!onDelete) return
+    if (deletingRef.current) return
+    deletingRef.current = true
     const deletePayload = values as TValues
     try {
       const confirmed = await confirm({
@@ -996,6 +1004,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const message = err instanceof Error && err.message ? err.message : deleteErrorMessage
       try { flash(message, 'error') } catch {}
     } finally {
+      deletingRef.current = false
       setPending(false)
     }
   }, [
@@ -1984,6 +1993,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (formReadOnly) return
+    if (submittingRef.current) return
+    submittingRef.current = true
+    try {
     setFormError(null)
     setErrors({})
 
@@ -2283,6 +2295,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       setFormError(displayMessage)
     } finally {
       setPending(false)
+    }
+    } finally {
+      submittingRef.current = false
     }
   }
 
