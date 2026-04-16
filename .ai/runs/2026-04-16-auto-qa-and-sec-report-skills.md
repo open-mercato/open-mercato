@@ -83,12 +83,12 @@ convention so we can use `.ai/analysis/` with a dated `auto-qa-scenarios-*`
 
 ### Phase 1: Skill authoring
 
-- [ ] 1.1 Write `auto-qa-scenarios/SKILL.md`
-- [ ] 1.2 Write `auto-sec-report/SKILL.md`
+- [x] 1.1 Write `auto-qa-scenarios/SKILL.md` — d140deec3
+- [x] 1.2 Write `auto-sec-report/SKILL.md` — d140deec3
 
 ### Phase 2: Wiring
 
-- [ ] 2.1 Register both skills in `.ai/skills/README.md`
+- [x] 2.1 Register both skills in `.ai/skills/README.md` — d140deec3
 
 ### Phase 3: PR delivery
 
