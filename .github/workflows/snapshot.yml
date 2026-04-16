@@ -283,10 +283,21 @@ jobs:
 
       - name: Install standalone app dependencies
         working-directory: /tmp/standalone-app
+        # The scaffolded app ships an empty yarn.lock.template; `yarn install`
+        # must resolve ~1.6k deps fresh. Yarn 4.12 auto-enables hardened mode
+        # on pull_request workflows, which forces immutable installs and fails
+        # with YN0028. Disable both for this scaffolded-app install only — the
+        # monorepo install above still runs with --immutable.
+        env:
+          YARN_ENABLE_HARDENED_MODE: '0'
+          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app
+        env:
+          YARN_ENABLE_HARDENED_MODE: '0'
+          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
       - name: Generate standalone app modules
