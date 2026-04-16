@@ -23,6 +23,10 @@ Skills extend AI agents with task-specific capabilities. Each skill is a folder 
 │   └── SKILL.md
 ├── auto-create-pr/
 │   └── SKILL.md
+├── auto-qa-scenarios/
+│   └── SKILL.md
+├── auto-sec-report/
+│   └── SKILL.md
 ├── create-agents-md/
 │   └── SKILL.md
 ├── ds-guardian/
@@ -177,6 +181,8 @@ Skills also trigger automatically when a task matches the skill's `description`.
 | `auto-continue-pr` | Resuming an in-progress PR that was started by `auto-create-pr`: claims the PR, checks its branch out into an isolated worktree, reads the Progress checklist in the linked spec, and continues execution from the first unchecked step |
 | `create-agents-md` | Creating or rewriting AGENTS.md files for packages and modules |
 | `auto-create-pr` | Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop`: drafts a dated spec with a Progress checklist, commits it first, implements phase-by-phase with incremental commits, optionally honors external reference skills passed by URL, runs the full validation gate, and opens a PR with normalized pipeline labels |
+| `auto-qa-scenarios` | Generating a human QA report for a window of merged PRs (date floor, PR number floor, or last 7 days default): groups work into practical testing routes (P0/P1/P2), calls out where to click, what to verify, and what can go wrong, then ships markdown + HTML artifacts under `.ai/analysis/` as a docs-only PR against `develop` |
+| `auto-sec-report` | Generating an OWASP-oriented security analysis for a window of merged PRs (date floor, PR number floor, or last 7 days default): classifies each PR by OWASP Top 10 category, highlights security-fix PRs, proposes where the same fix should apply elsewhere in the codebase, and ships markdown + HTML artifacts under `.ai/analysis/` as a docs-only PR against `develop` |
 | `ds-guardian` | Design system enforcement: analyzing modules for DS violations, migrating hardcoded colors/typography to semantic tokens, scaffolding DS-compliant pages, reviewing code against DS principles, and reporting health metrics |
 | `auto-fix-github` | Fixing a GitHub issue by number: first checks whether the issue is already solved or already has an open solution, then uses an isolated worktree to implement the minimal fix, add regression tests, run review and compatibility checks, and open a PR linked to the original issue |
 | `fix-specs` | Normalizing legacy spec filenames to `{YYYY-MM-DD}-{slug}.md`, resolving post-normalization collisions, and updating references/links |
