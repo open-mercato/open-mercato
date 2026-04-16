@@ -13,6 +13,10 @@ permissions:
 jobs:
   snapshot:
     name: Publish Snapshot
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write  # required for npm provenance attestation
     outputs:
       snapshot_version: ${{ steps.release.outputs.version }}
       publish_tag: ${{ steps.channel.outputs.publish_tag }}
@@ -279,14 +283,10 @@ jobs:
 
       - name: Install standalone app dependencies
         working-directory: /tmp/standalone-app
-        env:
-          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app
-        env:
-          YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
         run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
       - name: Generate standalone app modules
