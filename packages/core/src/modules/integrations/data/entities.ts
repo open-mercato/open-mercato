@@ -75,7 +75,7 @@ export class IntegrationCredentials {
 @Entity({ tableName: 'integration_states' })
 @Index({ properties: ['integrationId', 'organizationId', 'tenantId'] })
 export class IntegrationState {
-  [OptionalProps]?: 'isEnabled' | 'apiVersion' | 'reauthRequired' | 'lastHealthStatus' | 'lastHealthCheckedAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isEnabled' | 'apiVersion' | 'reauthRequired' | 'lastHealthStatus' | 'lastHealthCheckedAt' | 'lastHealthLatencyMs' | 'enabledAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -96,6 +96,12 @@ export class IntegrationState {
 
   @Property({ name: 'last_health_checked_at', type: Date, nullable: true })
   lastHealthCheckedAt?: Date | null
+
+  @Property({ name: 'last_health_latency_ms', type: 'int', nullable: true })
+  lastHealthLatencyMs?: number | null
+
+  @Property({ name: 'enabled_at', type: Date, nullable: true })
+  enabledAt?: Date | null
 
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
