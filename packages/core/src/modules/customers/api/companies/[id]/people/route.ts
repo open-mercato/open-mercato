@@ -35,7 +35,7 @@ type CompanyPersonItem = {
   jobTitle: string | null
   department: string | null
   createdAt: string
-  organizationId: string | null
+  organizationId: string
   temperature: string | null
   source: string | null
   linkedAt: string | null
@@ -171,7 +171,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
           jobTitle: profile?.jobTitle ?? null,
           department: profile?.department ?? null,
           createdAt: person.createdAt.toISOString(),
-          organizationId: person.organizationId ?? null,
+          organizationId: person.organizationId,
           temperature: person.temperature ?? null,
           source: person.source ?? null,
           linkedAt: link.createdAt ? link.createdAt.toISOString() : null,

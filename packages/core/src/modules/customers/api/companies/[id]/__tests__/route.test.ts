@@ -12,6 +12,7 @@ const mockFindOneWithDecryption = jest.fn()
 const mockEm = {
   findOne: jest.fn(),
   find: jest.fn(),
+  count: jest.fn(),
 }
 
 const mockContainer = {
@@ -77,6 +78,8 @@ describe('GET /api/customers/companies/[id]?include=people', () => {
     mockFindOneWithDecryption.mockReset()
     mockEm.findOne.mockReset()
     mockEm.find.mockReset()
+    mockEm.count.mockReset()
+    mockEm.count.mockResolvedValue(0)
     mockContainer.resolve.mockClear()
 
     mockGetAuthFromRequest.mockResolvedValue({

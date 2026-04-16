@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { wrap } from '@mikro-orm/core'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -166,12 +165,13 @@ async function loadAuditStageTransitionsFallback({
 }): Promise<StageTransitionPayload[]> {
   if (!deal.tenantId || !deal.organizationId || !pipelineStages.length) return []
 
-  let actionLogs: ActionLogService
+  let actionLogs: ActionLogService | null = null
   try {
     actionLogs = container.resolve('actionLogService') as ActionLogService
   } catch {
     return []
   }
+  if (!actionLogs || typeof actionLogs.list !== 'function') return []
   const stageOrderById = new Map(pipelineStages.map((stage) => [stage.id, stage.order]))
   const stageLabelById = new Map(pipelineStages.map((stage) => [stage.id, stage.label]))
   const transitionsByStageId = new Map<string, StageTransitionPayload>()
@@ -409,8 +409,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
             const personRef = link.person
             if (!personRef) return null
             if (typeof personRef === 'string') return personRef
-            const personIdValue = wrap(personRef).getPrimaryKey()
-            return typeof personIdValue === 'string' ? personIdValue : String(personIdValue)
+            const personIdValue = personRef.id
+            return typeof personIdValue === 'string' ? personIdValue : null
           })
           .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
       ),
@@ -422,8 +422,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
             const companyRef = link.company
             if (!companyRef) return null
             if (typeof companyRef === 'string') return companyRef
-            const companyIdValue = wrap(companyRef).getPrimaryKey()
-            return typeof companyIdValue === 'string' ? companyIdValue : String(companyIdValue)
+            const companyIdValue = companyRef.id
+            return typeof companyIdValue === 'string' ? companyIdValue : null
           })
           .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
       ),
@@ -524,12 +524,14 @@ export async function GET(request: Request, context: { params?: Record<string, u
   let viewerName: string | null = null
   let viewerEmail: string | null = auth.email ?? null
   if (viewerUserId) {
-    const viewer = await em.findOne(User, { id: viewerUserId })
+    const viewer = await em.findOne(User, { id: viewerUserId, tenantId: auth.tenantId ?? null })
     viewerName = viewer?.name ?? null
     viewerEmail = viewer?.email ?? viewerEmail ?? null
   }
 
-  const owner = deal.ownerUserId ? await em.findOne(User, { id: deal.ownerUserId }) : null
+  const owner = deal.ownerUserId
+    ? await em.findOne(User, { id: deal.ownerUserId, tenantId: deal.tenantId ?? auth.tenantId ?? null })
+    : null
   const ownerPayload = owner
     ? {
       id: owner.id,

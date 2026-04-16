@@ -18,6 +18,7 @@ Use `@open-mercato/shared` for cross-cutting utilities, types, DSL helpers, and 
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
+| `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
 | `crud/` | When building CRUD routes | `@open-mercato/shared/lib/crud` |
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |

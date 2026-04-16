@@ -315,7 +315,17 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
 
     expect(response.status).toBe(200)
     expect(body.pipelineStages).toHaveLength(1)
-    expect(body.stageTransitions).toEqual([])
+    // When the stage transition table is missing and no action logs are available,
+    // the merge still surfaces the current stage as a single synthesized entry using
+    // the deal's createdAt timestamp — this keeps the UI informative instead of blank.
+    expect(body.stageTransitions).toEqual([
+      {
+        stageId: '550e8400-e29b-41d4-a716-446655440011',
+        stageLabel: 'Discovery',
+        stageOrder: 1,
+        transitionedAt: '2026-04-10T08:00:00.000Z',
+      },
+    ])
 
     warnSpy.mockRestore()
   })

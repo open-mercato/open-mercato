@@ -251,6 +251,9 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   embedded?: boolean
   // Hide the footer action bar (Save/Cancel/Delete) when embedding in a custom layout
   hideFooterActions?: boolean
+  // Opt-in: track dirty state even when embedded is true. Default: false (preserves pre-existing
+  // behavior where embedded forms do not maintain internal unsaved-changes state).
+  trackDirtyWhenEmbedded?: boolean
   onDirtyChange?: (dirty: boolean) => void
   // Optional custom content injected between the header actions and the form body
   contentHeader?: React.ReactNode
@@ -444,6 +447,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customEntity = false,
   embedded = false,
   hideFooterActions = false,
+  trackDirtyWhenEmbedded = false,
   onDirtyChange,
   extraActions,
   versionHistory,
@@ -575,6 +579,13 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const popStateRollbackRef = React.useRef(false)
 
   React.useEffect(() => {
+    // Preserve pre-existing behavior: embedded forms do not track dirty state by default.
+    // Opt-in via `trackDirtyWhenEmbedded` when the parent actually needs the callback.
+    if (embedded && !trackDirtyWhenEmbedded) {
+      isDirtyRef.current = false
+      setHasUnsavedChanges(false)
+      return
+    }
     const snapshot = dirtyBaselineSnapshotRef.current
     if (!snapshot) {
       isDirtyRef.current = false
@@ -585,7 +596,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const dirty = currentSnapshot !== snapshot
     isDirtyRef.current = dirty
     setHasUnsavedChanges(dirty)
-  }, [values])
+  }, [embedded, trackDirtyWhenEmbedded, values])
 
   React.useEffect(() => {
     onDirtyChange?.(hasUnsavedChanges)
