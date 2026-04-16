@@ -263,6 +263,8 @@ jobs:
           cp .env.example .env
           cat >> .env << 'EOF'
           DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
+          APP_URL=http://localhost:3001
+          NEXT_PUBLIC_APP_URL=http://localhost:3001
           JWT_SECRET=ci-standalone-test-jwt-secret
           TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key
           NODE_ENV=test

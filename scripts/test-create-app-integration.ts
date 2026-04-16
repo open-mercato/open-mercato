@@ -46,6 +46,8 @@ function writeStandaloneEnv(appDir: string): void {
   const example = fs.existsSync(envExamplePath) ? fs.readFileSync(envExamplePath, 'utf8') : ''
   const envLines = [
     example.trimEnd(),
+    'APP_URL=http://localhost:3000',
+    'NEXT_PUBLIC_APP_URL=http://localhost:3000',
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
     'JWT_SECRET=ci-standalone-test-jwt-secret',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
@@ -75,6 +77,8 @@ async function main(): Promise<void> {
   const standaloneInstallEnv = createStandaloneInstallEnv(tempRoot)
 
   const integrationEnv: NodeJS.ProcessEnv = {
+    APP_URL: 'http://localhost:3000',
+    NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     JWT_SECRET: 'ci-standalone-test-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
