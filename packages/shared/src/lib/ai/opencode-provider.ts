@@ -108,6 +108,22 @@ export function resolveOpenCodeProviderApiKey(
   return null
 }
 
+export function requireOpenCodeProviderApiKey(
+  providerId: OpenCodeProviderId,
+  env: EnvLookup = process.env,
+): string {
+  const apiKey = resolveOpenCodeProviderApiKey(providerId, env)
+  if (apiKey) {
+    return apiKey
+  }
+
+  const provider = OPEN_CODE_PROVIDERS[providerId]
+  const envKeysHint = provider.envKeys.join(' or ')
+  throw new Error(
+    `Missing API key for provider "${providerId}". Set ${envKeysHint} in your .env file.`,
+  )
+}
+
 export function getOpenCodeProviderConfiguredEnvKey(
   providerId: OpenCodeProviderId,
   env: EnvLookup = process.env,
