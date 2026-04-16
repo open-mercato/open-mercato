@@ -2,12 +2,23 @@
  * Events API - Returns declared events from module events.ts files
  *
  * Uses the globally registered event configs (registered during bootstrap).
+ *
+ * Authenticated only. The declared event registry leaks module/entity topology
+ * and SSE/portal broadcast surfaces; anonymous callers must not be able to
+ * enumerate it. The contract surface mirrors `packages/webhooks/.../api/events`,
+ * which already gates the same data behind authentication.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
 
 export async function GET(request: NextRequest) {
+  const auth = await getAuthFromCookies()
+  if (!auth) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const { searchParams } = new URL(request.url)
 
   // Optional filters
