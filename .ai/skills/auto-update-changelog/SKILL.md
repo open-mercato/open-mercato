@@ -223,15 +223,25 @@ Credit:\s+original\s+implementation\s+by\s+@([A-Za-z0-9][A-Za-z0-9-]{0,38})
 
 When matched, set `primaryAuthor` from the captured handle and `viaAuthor = mergedPrAuthor`. No `supersedes #M` suffix unless Path A also fires (it usually does).
 
-### Path C: `auto-review-pr` carry-forward comment
+### Path C: `Closing in favor of` comment on the superseded PR
 
-When neither body regex matches, inspect PR comments for a bot-style marker like:
+When neither body regex on the merged PR matches, `auto-review-pr`'s carry-forward flow still leaves an authoritative trail on the **original** PR via the closing comment template (see `.ai/skills/auto-review-pr/SKILL.md` lines 471–477):
 
 ```
-🤖 `auto-review-pr` carried forward #\d+
+Closing in favor of #{newPrNumber} ({newPrUrl}).
+
+Credit to @{originalAuthor} for the original implementation. ...
 ```
 
-(written by the reviewer via `gh pr comment` — see `.ai/skills/auto-review-pr/SKILL.md`). When found, extract the superseded PR number and resolve the author the same way as Path A.
+Detection is reversed compared to Paths A and B — you are walking *candidate superseded PRs*, not the merged PR itself. For each closed-unmerged PR in the same window (already enumerated by `sync-merged-pr-issues`), check its comments for a line matching:
+
+```
+^Closing in favor of #(\d+)\b
+```
+
+When the captured number equals the merged PR currently being credited, treat the merged PR as a carry-forward. Set `primaryAuthor = mergedPrAuthor` of the closed PR (i.e., the original contributor, looked up via `gh pr view {closedPrNumber} --json author`) and `viaAuthor = mergedPrAuthor` of the merged replacement.
+
+Path C is a fallback only — Paths A and B cover the overwhelming majority of cases because `auto-review-pr` writes both the `Supersedes #N` body and the `Credit: original implementation by @user` line on the replacement PR.
 
 ### Fallback
 
