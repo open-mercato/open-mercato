@@ -1,9 +1,16 @@
-import { createHash } from 'node:crypto'
+import { createHmac, randomBytes } from 'node:crypto'
 
 const DEFAULT_SUCCESS_TTL_MS = 30_000
 const DEFAULT_NEGATIVE_TTL_MS = 5_000
 const DEFAULT_LAST_USED_WRITE_INTERVAL_MS = 60_000
 const DEFAULT_MAX_ENTRIES = 1_000
+
+// Process-local random key used to derive opaque in-memory cache indices for
+// API key secrets. This is NOT password storage — the underlying secret is
+// verified via bcrypt in findApiKeyBySecret before any entry is written, and
+// nothing derived from this key leaves the process. The key is regenerated on
+// every process start so cache indices cannot be replayed across restarts.
+const CACHE_INDEX_KEY = randomBytes(32)
 
 export type CachedApiKeyAuth = Record<string, unknown> | null
 
@@ -31,8 +38,8 @@ export type ApiKeyAuthCache = {
   size(): number
 }
 
-function hashSecret(secret: string): string {
-  return createHash('sha256').update(secret).digest('hex')
+function deriveCacheIndex(secret: string): string {
+  return createHmac('sha256', CACHE_INDEX_KEY).update(secret).digest('hex')
 }
 
 function resolveTtlEnv(name: string, fallback: number): number {
@@ -74,7 +81,7 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
   return {
     get(secret) {
       if (!secret) return undefined
-      const key = hashSecret(secret)
+      const key = deriveCacheIndex(secret)
       const entry = entries.get(key)
       if (!entry) return undefined
       const currentMs = now()
@@ -86,7 +93,7 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
     setSuccess(secret, auth, expiresAtMs) {
       if (!secret) return
       if (successTtlMs <= 0) return
-      const key = hashSecret(secret)
+      const key = deriveCacheIndex(secret)
       const currentMs = now()
       const ttlEnd = currentMs + successTtlMs
       const effectiveExpiry = expiresAtMs != null ? Math.min(ttlEnd, expiresAtMs) : ttlEnd
@@ -96,7 +103,7 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
     setMiss(secret) {
       if (!secret) return
       if (negativeTtlMs <= 0) return
-      const key = hashSecret(secret)
+      const key = deriveCacheIndex(secret)
       const currentMs = now()
       touch(key, { auth: null, cachedAtMs: currentMs, expiresAtMs: currentMs + negativeTtlMs })
     },
