@@ -1,16 +1,7 @@
-import { createHmac, randomBytes } from 'node:crypto'
-
 const DEFAULT_SUCCESS_TTL_MS = 30_000
 const DEFAULT_NEGATIVE_TTL_MS = 5_000
 const DEFAULT_LAST_USED_WRITE_INTERVAL_MS = 60_000
 const DEFAULT_MAX_ENTRIES = 1_000
-
-// Process-local random key used to derive opaque in-memory cache indices for
-// API key secrets. This is NOT password storage — the underlying secret is
-// verified via bcrypt in findApiKeyBySecret before any entry is written, and
-// nothing derived from this key leaves the process. The key is regenerated on
-// every process start so cache indices cannot be replayed across restarts.
-const CACHE_INDEX_KEY = randomBytes(32)
 
 export type CachedApiKeyAuth = Record<string, unknown> | null
 
@@ -36,10 +27,6 @@ export type ApiKeyAuthCache = {
   shouldWriteLastUsed(keyId: string): boolean
   clear(): void
   size(): number
-}
-
-function deriveCacheIndex(secret: string): string {
-  return createHmac('sha256', CACHE_INDEX_KEY).update(secret).digest('hex')
 }
 
 function resolveTtlEnv(name: string, fallback: number): number {
@@ -81,31 +68,28 @@ export function createApiKeyAuthCache(options: ApiKeyAuthCacheOptions = {}): Api
   return {
     get(secret) {
       if (!secret) return undefined
-      const key = deriveCacheIndex(secret)
-      const entry = entries.get(key)
+      const entry = entries.get(secret)
       if (!entry) return undefined
       const currentMs = now()
-      if (purgeStale(key, entry, currentMs)) return undefined
-      entries.delete(key)
-      entries.set(key, entry)
+      if (purgeStale(secret, entry, currentMs)) return undefined
+      entries.delete(secret)
+      entries.set(secret, entry)
       return entry.auth
     },
     setSuccess(secret, auth, expiresAtMs) {
       if (!secret) return
       if (successTtlMs <= 0) return
-      const key = deriveCacheIndex(secret)
       const currentMs = now()
       const ttlEnd = currentMs + successTtlMs
       const effectiveExpiry = expiresAtMs != null ? Math.min(ttlEnd, expiresAtMs) : ttlEnd
       if (effectiveExpiry <= currentMs) return
-      touch(key, { auth, cachedAtMs: currentMs, expiresAtMs: effectiveExpiry })
+      touch(secret, { auth, cachedAtMs: currentMs, expiresAtMs: effectiveExpiry })
     },
     setMiss(secret) {
       if (!secret) return
       if (negativeTtlMs <= 0) return
-      const key = deriveCacheIndex(secret)
       const currentMs = now()
-      touch(key, { auth: null, cachedAtMs: currentMs, expiresAtMs: currentMs + negativeTtlMs })
+      touch(secret, { auth: null, cachedAtMs: currentMs, expiresAtMs: currentMs + negativeTtlMs })
     },
     invalidateByKeyId(keyId) {
       if (!keyId) return
