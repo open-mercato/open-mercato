@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardRoleWidgets } from '@open-mercato/core/modules/dashboards/data/entities'
+import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { roleWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { hasFeature } from '@open-mercato/shared/security/features'
@@ -99,8 +100,13 @@ export async function PUT(req: Request) {
   const validWidgetIds = new Set(widgets.map((w) => w.metadata.id))
   const widgetIds = parsed.data.widgetIds.filter((id) => validWidgetIds.has(id))
 
-  const tenantId = parsed.data.tenantId ?? auth.tenantId ?? null
-  const organizationId = parsed.data.organizationId ?? null
+  const tenantId = auth.tenantId ?? null
+  const organizationId = auth.orgId ?? null
+
+  const role = await em.findOne(Role, { id: parsed.data.roleId, deletedAt: null })
+  if (!role || (tenantId && role.tenantId !== tenantId)) {
+    return NextResponse.json({ error: 'Role not found' }, { status: 404 })
+  }
 
   let record = await em.findOne(DashboardRoleWidgets, {
     roleId: parsed.data.roleId,
