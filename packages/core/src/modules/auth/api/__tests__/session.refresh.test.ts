@@ -50,6 +50,13 @@ describe('/api/auth/session/refresh', () => {
     expect(setCookie).toContain('session_token=;')
   })
 
+  it('GET sanitizes a // open-redirect bypass before forwarding to /login', async () => {
+    const response = await GET(new Request('https://develop.openmercato.com/api/auth/session/refresh?redirect=%2Fbackend%2F%2Fevil.com'))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe('https://develop.openmercato.com/login?redirect=%2F')
+  })
+
   it('GET redirects valid browser refreshes to the request host', async () => {
     refreshFromSessionToken.mockResolvedValue({
       user: {
