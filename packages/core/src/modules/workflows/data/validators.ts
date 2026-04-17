@@ -134,6 +134,14 @@ export const callApiConfigSchema = z.object({
   timeout: z.number().int().positive().optional(),
 })
 
+export const callWebhookConfigSchema = z.object({
+  url: z.string().min(1, 'Webhook URL is required'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.any().optional(),
+})
+export type CallWebhookConfig = z.infer<typeof callWebhookConfigSchema>
+
 // Retry policy
 export const retryPolicySchema = z.object({
   maxAttempts: z.number().int().min(1).max(10),

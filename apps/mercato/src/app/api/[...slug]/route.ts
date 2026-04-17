@@ -134,7 +134,7 @@ async function checkAuthorization(
   req: NextRequest
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
-  const requiresAuthentication = methodMetadata !== null && methodMetadata?.requireAuth !== false
+  const requiresAuthentication = methodMetadata?.requireAuth !== false
   if (requiresAuthentication && !auth) {
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }

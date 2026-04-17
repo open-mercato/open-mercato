@@ -50,6 +50,7 @@ import { DictionaryValue, createDictionaryMap, renderDictionaryColor, renderDict
 import { DictionaryEntrySelect } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useEmailDuplicateCheck } from '@open-mercato/core/modules/customers/backend/hooks/useEmailDuplicateCheck'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import { NotesSection, mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backend/detail'
 import {
   emitSalesDocumentTotalsRefresh,
@@ -464,7 +465,17 @@ function CustomerInlineEditor({
     }
   }, [draftEmail, draftId, onClearError, onSave])
 
+  const phoneIsValid = React.useMemo(
+    () => isValidPhoneNumber(snapshotDraft.primaryPhone),
+    [snapshotDraft.primaryPhone],
+  )
+  const phoneInvalidMessage = t(
+    'customers.people.form.primaryPhone.invalid',
+    'Enter a valid phone number with country code (e.g. +1 212 555 1234)',
+  )
+
   const handleSaveSnapshot = React.useCallback(async () => {
+    if (!phoneIsValid) return
     try {
       onClearError()
       const payload = buildSnapshotPayload()
@@ -473,7 +484,7 @@ function CustomerInlineEditor({
     } catch (err) {
       console.error('sales.documents.customer.snapshot.save', err)
     }
-  }, [buildSnapshotPayload, onClearError, onSaveSnapshot])
+  }, [buildSnapshotPayload, onClearError, onSaveSnapshot, phoneIsValid])
 
   if (mode === 'select') {
     return (
@@ -668,7 +679,11 @@ function CustomerInlineEditor({
                 value={snapshotDraft.primaryPhone}
                 onChange={(event) => setSnapshotDraft((prev) => ({ ...prev, primaryPhone: event.target.value }))}
                 placeholder={t('customers.people.form.primaryPhonePlaceholder', '+00 000 000 000')}
+                aria-invalid={!phoneIsValid || undefined}
               />
+              {!phoneIsValid ? (
+                <p className="text-xs text-status-error-text">{phoneInvalidMessage}</p>
+              ) : null}
             </div>
           </div>
 
@@ -711,7 +726,7 @@ function CustomerInlineEditor({
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
 
           <div className="flex items-center gap-2">
-            <Button type="button" size="sm" onClick={() => void handleSaveSnapshot()} disabled={saving}>
+            <Button type="button" size="sm" onClick={() => void handleSaveSnapshot()} disabled={saving || !phoneIsValid}>
               {saving ? <Spinner className="mr-2 h-4 w-4 animate-spin" /> : null}
               {t('customers.people.detail.inline.saveShortcut')}
             </Button>

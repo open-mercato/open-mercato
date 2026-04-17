@@ -134,15 +134,7 @@ export class LocalSchedulerService {
   private async executeSchedule(schedule: ScheduledJob): Promise<void> {
     const lockKey = `schedule:${schedule.id}`
 
-    // Try to acquire lock to prevent duplicate execution
-    const acquired = await this.lockStrategy.tryLock(lockKey)
-    
-    if (!acquired) {
-      console.log(`[scheduler:local] Schedule ${schedule.name} is already locked, skipping`)
-      return
-    }
-
-    try {
+    const { acquired } = await this.lockStrategy.runWithLock(lockKey, async () => {
       console.log(`[scheduler:local] Executing schedule: ${schedule.name} (${schedule.id})`)
 
       // Emit started event
@@ -238,9 +230,11 @@ export class LocalSchedulerService {
         // Still update next run time even on failure
         await this.updateNextRun(schedule)
       }
-    } finally {
-      // Always release the lock
-      await this.lockStrategy.unlock(lockKey)
+    })
+
+    if (!acquired) {
+      console.log(`[scheduler:local] Schedule ${schedule.name} is already locked, skipping`)
+      return
     }
   }
 

@@ -1,19 +1,11 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { generateObject } from '../../lib/ai-sdk'
-import {
-  createOpenAI,
-  createAnthropic,
-  createGoogleGenerativeAI,
-} from '../../lib/ai-sdk'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import {
-  resolveFirstConfiguredOpenCodeProvider,
-  resolveOpenCodeModel,
-  resolveOpenCodeProviderApiKey,
-} from '@open-mercato/shared/lib/ai/opencode-provider'
+import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { resolveOpenCodeModel } from '@open-mercato/shared/lib/ai/opencode-provider'
 import {
   resolveChatConfig,
   isProviderConfigured,
@@ -40,39 +32,43 @@ const RouteResultSchema = z.object({
 })
 
 function createRoutingModel(providerId: ChatProviderId, configuredModel?: string) {
-  const { modelId, modelWithProvider } = resolveOpenCodeModel(providerId, {
-    overrideModel: configuredModel,
-  })
-  const apiKey = resolveOpenCodeProviderApiKey(providerId)
-  if (!apiKey) {
-    throw new Error(`${providerId.toUpperCase()} API key not configured`)
+  const provider = llmProviderRegistry.get(providerId)
+  if (!provider) {
+    throw new Error(`Unknown provider: ${providerId}`)
   }
 
-  switch (providerId) {
-    case 'openai': {
-      const openai = createOpenAI({ apiKey })
-      return {
-        model: openai(modelId) as unknown as Parameters<typeof generateObject>[0]['model'],
-        modelWithProvider,
-      }
-    }
-    case 'anthropic': {
-      const anthropic = createAnthropic({ apiKey })
-      return {
-        model: anthropic(modelId) as unknown as Parameters<typeof generateObject>[0]['model'],
-        modelWithProvider,
-      }
-    }
-    case 'google': {
-      const google = createGoogleGenerativeAI({ apiKey })
-      return {
-        model: google(modelId) as unknown as Parameters<typeof generateObject>[0]['model'],
-        modelWithProvider,
-      }
-    }
-    default:
-      throw new Error(`Unknown provider: ${providerId}`)
+  // resolveOpenCodeModel is still used for token parsing and provider-prefix
+  // validation (`openai/gpt-5-mini` vs `anthropic/claude-…`). It falls back
+  // to the provider's defaultModel via the opencode-provider facade, which
+  // is only populated for the three native providers — if the registry
+  // returns a preset-based provider whose id is unknown to opencode-provider,
+  // we short-circuit and use the provider's own defaultModel.
+  let modelId: string
+  let modelWithProvider: string
+  try {
+    const resolved = resolveOpenCodeModel(providerId as 'anthropic' | 'openai' | 'google', {
+      overrideModel: configuredModel,
+    })
+    modelId = resolved.modelId
+    modelWithProvider = resolved.modelWithProvider
+  } catch {
+    // Preset-based provider or unknown id — fall back to the provider's own
+    // model list. The explicit override (if any) wins.
+    const requested = (configuredModel ?? '').trim()
+    modelId = requested.length > 0 ? requested : provider.defaultModel
+    modelWithProvider = `${providerId}/${modelId}`
   }
+
+  const apiKey = provider.resolveApiKey()
+  if (!apiKey) {
+    const envKey = provider.getConfiguredEnvKey()
+    throw new Error(`${envKey} not configured for provider "${providerId}"`)
+  }
+
+  const model = provider.createModel({ modelId, apiKey }) as unknown as Parameters<
+    typeof generateObject
+  >[0]['model']
+  return { model, modelWithProvider }
 }
 
 export async function POST(req: NextRequest) {
@@ -104,16 +100,23 @@ export async function POST(req: NextRequest) {
     const container = await createRequestContainer()
     let config = await resolveChatConfig(container)
 
-    // Fallback to first configured provider
+    // Fallback to first configured provider from the LLM provider registry.
+    // Default walk order prioritizes the native adapters (backward compatible)
+    // before OpenAI-compatible presets.
     if (!config) {
-      const configuredProvider = resolveFirstConfiguredOpenCodeProvider()
-      if (!configuredProvider) {
+      const picked = llmProviderRegistry.resolveFirstConfigured({
+        order: ['anthropic', 'openai', 'google'],
+      })
+      if (!picked) {
         return NextResponse.json(
-          { error: 'No AI provider configured. Please set an API key for OpenAI, Anthropic, or Google.' },
-          { status: 503 }
+          {
+            error:
+              'No AI provider configured. Please set an API key for one of the registered providers (Anthropic, OpenAI, Google, DeepInfra, Groq, …).',
+          },
+          { status: 503 },
         )
       }
-      config = { providerId: configuredProvider, model: '', updatedAt: '' }
+      config = { providerId: picked.id, model: '', updatedAt: '' }
     }
 
     console.log('[AI Route] Using provider:', config.providerId)

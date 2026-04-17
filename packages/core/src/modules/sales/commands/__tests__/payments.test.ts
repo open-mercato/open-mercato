@@ -69,6 +69,10 @@ function buildMockEm(overrides: Record<string, unknown> = {}) {
     remove: jest.fn(),
     flush: jest.fn().mockResolvedValue(undefined),
     getReference: jest.fn().mockImplementation((_entity: unknown, id: unknown) => ({ id })),
+    transactional: jest.fn().mockImplementation(async (callback: (tx: any) => Promise<any>) => {
+      const self = buildMockEm(overrides)
+      return callback(self)
+    }),
     ...overrides,
   }
 }
@@ -413,5 +417,71 @@ describe('createPaymentCommand.undo — tenant-scoped SalesOrder lookup', () => 
       tenantId: TEST_TENANT_ID,
       organizationId: TEST_ORG_ID,
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Regression: payment balance corruption — transaction wrapping (issue #1414)
+// ---------------------------------------------------------------------------
+
+describe('createPaymentCommand.execute — transaction wrapping for race condition prevention', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockClear()
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+    ;(findWithDecryption as jest.Mock).mockClear()
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+  })
+
+  it('wraps order lookup and payment creation in em.transactional()', async () => {
+    const execute = commandRegistry.get('sales.payments.create')?.execute
+    expect(execute).toBeInstanceOf(Function)
+
+    let transactionalCalled = false
+    const mockOrder = {
+      id: TEST_ORDER_ID,
+      tenantId: TEST_TENANT_ID,
+      organizationId: TEST_ORG_ID,
+      deletedAt: null,
+      currencyCode: 'USD',
+      paymentMethodId: null,
+      paymentMethodCode: null,
+      orderNumber: 'ORD-001',
+      grandTotalGrossAmount: '100',
+      paidTotalAmount: '0',
+      refundedTotalAmount: '0',
+      outstandingAmount: '100',
+    }
+
+    const innerEm = buildMockEm({
+      transactional: jest.fn().mockImplementation(async (callback: (tx: any) => Promise<any>) => {
+        transactionalCalled = true
+        const txEm = buildMockEm()
+        ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(mockOrder)
+        return callback(txEm)
+      }),
+    })
+
+    const container = {
+      resolve: jest.fn().mockImplementation((name: string) => {
+        if (name === 'em') return { fork: jest.fn().mockReturnValue(innerEm) }
+        if (name === 'dataEngine') return {}
+        return {}
+      }),
+    }
+    const ctx = {
+      container,
+      auth: { tenantId: TEST_TENANT_ID, orgId: TEST_ORG_ID },
+      selectedOrganizationId: TEST_ORG_ID,
+      organizationIds: [TEST_ORG_ID],
+      request: {} as Request,
+      organizationScope: null,
+    }
+
+    await execute?.(
+      { orderId: TEST_ORDER_ID, tenantId: TEST_TENANT_ID, organizationId: TEST_ORG_ID, amount: 50, currencyCode: 'USD' },
+      ctx as any,
+    )
+
+    expect(transactionalCalled).toBe(true)
   })
 })
