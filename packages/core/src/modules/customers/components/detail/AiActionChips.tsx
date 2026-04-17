@@ -5,49 +5,24 @@ import { Sparkles } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@open-mercato/ui/primitives/tooltip'
-
-type ActivityType = 'call' | 'email' | 'meeting' | 'note' | string
-
-const ACTION_MAP: Record<string, Array<{ labelKey: string; fallback: string }>> = {
-  call: [
-    { labelKey: 'customers.ai.actions.summarize', fallback: 'Summarize' },
-    { labelKey: 'customers.ai.actions.replay', fallback: 'Replay' },
-    { labelKey: 'customers.ai.actions.transcription', fallback: 'Transcription' },
-    { labelKey: 'customers.ai.actions.actionItems', fallback: 'Action items' },
-  ],
-  email: [
-    { labelKey: 'customers.ai.actions.summarize', fallback: 'Summarize' },
-    { labelKey: 'customers.ai.actions.showEmail', fallback: 'Show email' },
-    { labelKey: 'customers.ai.actions.reply', fallback: 'Reply' },
-    { labelKey: 'customers.ai.actions.sentiment', fallback: 'Sentiment' },
-  ],
-  meeting: [
-    { labelKey: 'customers.ai.actions.summarize', fallback: 'Summarize' },
-    { labelKey: 'customers.ai.actions.replay', fallback: 'Replay' },
-    { labelKey: 'customers.ai.actions.actionItems', fallback: 'Action items' },
-    { labelKey: 'customers.ai.actions.leadScore', fallback: 'Lead score' },
-  ],
-  note: [
-    { labelKey: 'customers.ai.actions.expand', fallback: 'Expand' },
-    { labelKey: 'customers.ai.actions.bulletize', fallback: 'Bulletize' },
-    { labelKey: 'customers.ai.actions.translate', fallback: 'Translate' },
-  ],
-}
+import { AI_TIMELINE_ACTIONS_BY_TYPE, resolveAiActions } from './aiActionCatalog'
 
 interface AiActionChipsProps {
-  activityType: ActivityType
+  activityType: string
 }
 
 export function AiActionChips({ activityType }: AiActionChipsProps) {
   const t = useT()
-  const actions = ACTION_MAP[activityType] ?? ACTION_MAP.note
+  const actions = resolveAiActions(activityType, AI_TIMELINE_ACTIONS_BY_TYPE)
 
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex items-center gap-0.5">
-        <span className="mr-1 text-xs text-muted-foreground">AI:</span>
+        <span className="mr-1 text-xs text-muted-foreground">
+          {t('customers.ai.prefix', 'AI:')}
+        </span>
         {actions.map((action, index) => (
-          <React.Fragment key={action.labelKey}>
+          <React.Fragment key={action.key}>
             {index > 0 && <span className="text-xs text-muted-foreground/40">|</span>}
             <Tooltip>
               <TooltipTrigger asChild>
@@ -58,7 +33,7 @@ export function AiActionChips({ activityType }: AiActionChipsProps) {
                   className="h-auto inline-flex items-center gap-0.5 px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 >
                   <Sparkles className="size-2.5" />
-                  {t(action.labelKey, action.fallback)}
+                  {t(action.i18nKey, action.fallback)}
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom" className="text-xs">

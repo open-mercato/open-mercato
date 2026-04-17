@@ -30,6 +30,7 @@ import {
   ensureTenantScope,
   extractUndoPayload,
 } from './shared'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 
 type PersonCompanyLinkSnapshot = {
   id: string
@@ -191,51 +192,52 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       existingLinks.find((link) => (typeof link.company === 'string' ? link.company : link.company.id) === company.id) ?? null
 
     if (existingLive) {
-      let didChange = false
       if (makePrimary && !existingLive.isPrimary) {
-        await clearPrimaryFlagsForPerson(em, person)
-        existingLive.isPrimary = true
-        profile.company = company
-        didChange = true
-      }
-      if (didChange) {
-        await em.flush()
+        await withAtomicFlush(em, [
+          () => clearPrimaryFlagsForPerson(em, person),
+          () => {
+            existingLive.isPrimary = true
+            profile.company = company
+          },
+        ], { transaction: true })
       }
       return { linkId: existingLive.id, created: false, undeleted: false }
     }
 
-    const deletedLink = await findDeletedPersonCompanyLink(em, person, company)
-    if (makePrimary) {
-      await clearPrimaryFlagsForPerson(em, person)
-    }
-
-    let link: CustomerPersonCompanyLink
+    let link!: CustomerPersonCompanyLink
     let undeleted = false
-    if (deletedLink) {
-      deletedLink.deletedAt = null
-      deletedLink.isPrimary = makePrimary
-      em.persist(deletedLink)
-      link = deletedLink
-      undeleted = true
-    } else {
-      link = em.create(CustomerPersonCompanyLink, {
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        person,
-        company,
-        isPrimary: makePrimary,
-      })
-      em.persist(link)
-    }
-
-    if (makePrimary) {
-      profile.company = company
-    } else if (!profile.company && existingLinks.length === 0) {
-      profile.company = company
-      link.isPrimary = true
-    }
-
-    await em.flush()
+    await withAtomicFlush(em, [
+      async () => {
+        const deletedLink = await findDeletedPersonCompanyLink(em, person, company)
+        if (makePrimary) {
+          await clearPrimaryFlagsForPerson(em, person)
+        }
+        if (deletedLink) {
+          deletedLink.deletedAt = null
+          deletedLink.isPrimary = makePrimary
+          em.persist(deletedLink)
+          link = deletedLink
+          undeleted = true
+        } else {
+          link = em.create(CustomerPersonCompanyLink, {
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            person,
+            company,
+            isPrimary: makePrimary,
+          })
+          em.persist(link)
+        }
+      },
+      () => {
+        if (makePrimary) {
+          profile.company = company
+        } else if (!profile.company && existingLinks.length === 0) {
+          profile.company = company
+          link.isPrimary = true
+        }
+      },
+    ], { transaction: true })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -245,6 +247,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       identifiers: getLinkIdentifiers(link),
       syncOrigin: ctx.syncOrigin,
       events: personCompanyLinkCrudEvents,
+      indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
     return { linkId: link.id, created: !undeleted, undeleted }
@@ -329,6 +332,7 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       identifiers: getLinkIdentifiers(link),
       syncOrigin: ctx.syncOrigin,
       events: personCompanyLinkCrudEvents,
+      indexer: { entityType: 'customers:customer_person_company_link' },
     })
   },
 }
@@ -337,7 +341,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
   id: 'customers.personCompanyLinks.update',
   async prepare(rawInput, ctx) {
     const parsed = personCompanyLinkUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadPersonCompanyLinkSnapshot(em, parsed.linkId, {
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -396,6 +400,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
       identifiers: getLinkIdentifiers(link),
       syncOrigin: ctx.syncOrigin,
       events: personCompanyLinkCrudEvents,
+      indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
     return { linkId: link.id }
@@ -486,6 +491,7 @@ const updatePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkUpdateInpu
       identifiers: getLinkIdentifiers(link),
       syncOrigin: ctx.syncOrigin,
       events: personCompanyLinkCrudEvents,
+      indexer: { entityType: 'customers:customer_person_company_link' },
     })
   },
 }
@@ -494,7 +500,7 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
   id: 'customers.personCompanyLinks.delete',
   async prepare(rawInput, ctx) {
     const parsed = personCompanyLinkDeleteSchema.parse(rawInput)
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadPersonCompanyLinkSnapshot(em, parsed.linkId, {
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -529,22 +535,25 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
     const profile = await requirePersonProfile(em, person)
     const linkWasPrimary = link.isPrimary
 
-    link.isPrimary = false
-    link.deletedAt = new Date()
-
-    const existingLinks = await loadPersonCompanyLinks(em, person)
-    const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
-    if (linkWasPrimary) {
-      await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
-    } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
-      const primary = remainingLinks.find((entry) => entry.isPrimary) ?? null
-      const primaryCompany = primary && typeof primary.company !== 'string' ? primary.company : null
-      if (primaryCompany) {
-        profile.company = primaryCompany
-      }
-    }
-
-    await em.flush()
+    await withAtomicFlush(em, [
+      () => {
+        link.isPrimary = false
+        link.deletedAt = new Date()
+      },
+      async () => {
+        const existingLinks = await loadPersonCompanyLinks(em, person)
+        const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
+        if (linkWasPrimary) {
+          await promoteFallbackPrimaryLink(em, person, profile, remainingLinks, companyId)
+        } else if (profile.company && typeof profile.company !== 'string' && profile.company.id === companyId) {
+          const primary = remainingLinks.find((entry) => entry.isPrimary) ?? null
+          const primaryCompany = primary && typeof primary.company !== 'string' ? primary.company : null
+          if (primaryCompany) {
+            profile.company = primaryCompany
+          }
+        }
+      },
+    ], { transaction: true })
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -554,6 +563,7 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
       identifiers: getLinkIdentifiers(link),
       syncOrigin: ctx.syncOrigin,
       events: personCompanyLinkCrudEvents,
+      indexer: { entityType: 'customers:customer_person_company_link' },
     })
 
     return { linkId: link.id }
@@ -634,6 +644,7 @@ const deletePersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkDeleteInpu
       identifiers: getLinkIdentifiers(link),
       syncOrigin: ctx.syncOrigin,
       events: personCompanyLinkCrudEvents,
+      indexer: { entityType: 'customers:customer_person_company_link' },
     })
   },
 }

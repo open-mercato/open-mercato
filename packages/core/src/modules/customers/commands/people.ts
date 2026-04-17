@@ -535,76 +535,81 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       throw new CrudHttpError(400, { error: 'Display name is required' })
     }
 
-    const entity = em.create(CustomerEntity, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      kind: 'person',
-      displayName,
-      description,
-      ownerUserId: parsed.ownerUserId ?? null,
-      primaryEmail,
-      primaryPhone,
-      status,
-      lifecycleStage,
-      source,
-      nextInteractionAt: parsed.nextInteraction?.at ?? null,
-      nextInteractionName,
-      nextInteractionRefId,
-      nextInteractionIcon,
-      nextInteractionColor,
-      isActive: parsed.isActive ?? true,
-    })
+    let entity!: CustomerEntity
+    let profile!: CustomerPersonProfile
+    await withAtomicFlush(em, [
+      () => {
+        entity = em.create(CustomerEntity, {
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          kind: 'person',
+          displayName,
+          description,
+          ownerUserId: parsed.ownerUserId ?? null,
+          primaryEmail,
+          primaryPhone,
+          status,
+          lifecycleStage,
+          source,
+          nextInteractionAt: parsed.nextInteraction?.at ?? null,
+          nextInteractionName,
+          nextInteractionRefId,
+          nextInteractionIcon,
+          nextInteractionColor,
+          isActive: parsed.isActive ?? true,
+        })
 
-    const profile = em.create(CustomerPersonProfile, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      entity,
-      firstName,
-      lastName,
-      preferredName,
-      jobTitle,
-      department,
-      seniority,
-      timezone,
-      linkedInUrl,
-      twitterUrl,
-      company: null,
-    })
+        profile = em.create(CustomerPersonProfile, {
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          entity,
+          firstName,
+          lastName,
+          preferredName,
+          jobTitle,
+          department,
+          seniority,
+          timezone,
+          linkedInUrl,
+          twitterUrl,
+          company: null,
+        })
 
-    em.persist(entity)
-    em.persist(profile)
-    if (status) {
-      await ensureDictionaryEntry(em, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: 'status',
-        value: status,
-      })
-    }
-    if (jobTitle) {
-      await ensureDictionaryEntry(em, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: 'job_title',
-        value: jobTitle,
-      })
-    }
-    if (source) {
-      await ensureDictionaryEntry(em, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: 'source',
-        value: source,
-      })
-    }
-    await syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null)
+        em.persist(entity)
+        em.persist(profile)
+      },
+      async () => {
+        if (status) {
+          await ensureDictionaryEntry(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: 'status',
+            value: status,
+          })
+        }
+        if (jobTitle) {
+          await ensureDictionaryEntry(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: 'job_title',
+            value: jobTitle,
+          })
+        }
+        if (source) {
+          await ensureDictionaryEntry(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: 'source',
+            value: source,
+          })
+        }
+      },
+      () => syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null),
+      () => syncEntityTags(em, entity, parsed.tags),
+    ], { transaction: true })
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
-    await withAtomicFlush(em, [
-      () => { /* scalar mutations and persist calls are already applied above */ },
-      () => syncEntityTags(em, entity, parsed.tags),
-    ], { transaction: true })
     await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
@@ -689,7 +694,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
   id: 'customers.people.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(personUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadPersonSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -703,94 +708,106 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const profile = await em.findOne(CustomerPersonProfile, { entity: record })
     if (!profile) throw new CrudHttpError(404, { error: 'Person profile not found' })
 
-    if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
-    if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
-    if (parsed.primaryEmail !== undefined) record.primaryEmail = normalizeEmail(parsed.primaryEmail)
-    if (parsed.primaryPhone !== undefined) record.primaryPhone = normalizeOptionalString(parsed.primaryPhone)
-    if (parsed.status !== undefined) {
-      const normalizedStatus = normalizeOptionalString(parsed.status)
-      record.status = normalizedStatus
-      if (normalizedStatus) {
-        await ensureDictionaryEntry(em, {
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          kind: 'status',
-          value: normalizedStatus,
-        })
-      }
-    }
-    if (parsed.lifecycleStage !== undefined) record.lifecycleStage = normalizeOptionalString(parsed.lifecycleStage)
-    if (parsed.source !== undefined) {
-      const normalizedSource = normalizeOptionalString(parsed.source)
-      record.source = normalizedSource
-      if (normalizedSource) {
-        await ensureDictionaryEntry(em, {
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          kind: 'source',
-          value: normalizedSource,
-        })
-      }
-    }
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-    if (parsed.nextInteraction) {
-      record.nextInteractionAt = parsed.nextInteraction.at
-      record.nextInteractionName = parsed.nextInteraction.name.trim()
-      record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
-      record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
-      record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
-    } else if (parsed.nextInteraction === null) {
-      record.nextInteractionAt = null
-      record.nextInteractionName = null
-      record.nextInteractionRefId = null
-      record.nextInteractionIcon = null
-      record.nextInteractionColor = null
-    }
-
-    if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
-    if (parsed.lastName !== undefined) profile.lastName = normalizeOptionalString(parsed.lastName)
-    if (parsed.preferredName !== undefined) profile.preferredName = normalizeOptionalString(parsed.preferredName)
-    if (parsed.jobTitle !== undefined) {
-      const normalizedJobTitle = normalizeOptionalString(parsed.jobTitle)
-      profile.jobTitle = normalizedJobTitle
-      if (normalizedJobTitle) {
-        await ensureDictionaryEntry(em, {
-          tenantId: record.tenantId,
-          organizationId: record.organizationId,
-          kind: 'job_title',
-          value: normalizedJobTitle,
-        })
-      }
-    }
-    if (parsed.department !== undefined) profile.department = normalizeOptionalString(parsed.department)
-    if (parsed.seniority !== undefined) profile.seniority = normalizeOptionalString(parsed.seniority)
-    if (parsed.timezone !== undefined) profile.timezone = normalizeOptionalString(parsed.timezone)
-    if (parsed.linkedInUrl !== undefined) profile.linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
-    if (parsed.twitterUrl !== undefined) profile.twitterUrl = normalizeOptionalString(parsed.twitterUrl)
-
-    if (parsed.companyEntityId !== undefined) {
-      await syncLegacyPrimaryCompanyLink(em, record, profile, parsed.companyEntityId)
-    }
-
-    const profileFieldsUpdated = [
-      parsed.firstName, parsed.lastName, parsed.preferredName, parsed.jobTitle,
-      parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
-      parsed.twitterUrl, parsed.companyEntityId,
-    ].some((v) => v !== undefined)
-    if (profileFieldsUpdated) {
-      record.updatedAt = new Date()
-    }
-
     if (parsed.displayName !== undefined) {
       const nextDisplayName = parsed.displayName.trim()
       if (!nextDisplayName) {
         throw new CrudHttpError(400, { error: 'Display name is required' })
       }
-      record.displayName = nextDisplayName
     }
 
     await withAtomicFlush(em, [
-      () => { /* scalar mutations are already applied to record/profile above */ },
+      () => {
+        if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
+        if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
+        if (parsed.primaryEmail !== undefined) record.primaryEmail = normalizeEmail(parsed.primaryEmail)
+        if (parsed.primaryPhone !== undefined) record.primaryPhone = normalizeOptionalString(parsed.primaryPhone)
+        if (parsed.status !== undefined) {
+          record.status = normalizeOptionalString(parsed.status)
+        }
+        if (parsed.lifecycleStage !== undefined) record.lifecycleStage = normalizeOptionalString(parsed.lifecycleStage)
+        if (parsed.source !== undefined) {
+          record.source = normalizeOptionalString(parsed.source)
+        }
+        if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+        if (parsed.nextInteraction) {
+          record.nextInteractionAt = parsed.nextInteraction.at
+          record.nextInteractionName = parsed.nextInteraction.name.trim()
+          record.nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction.refId) ?? null
+          record.nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction.icon)
+          record.nextInteractionColor = normalizeHexColor(parsed.nextInteraction.color)
+        } else if (parsed.nextInteraction === null) {
+          record.nextInteractionAt = null
+          record.nextInteractionName = null
+          record.nextInteractionRefId = null
+          record.nextInteractionIcon = null
+          record.nextInteractionColor = null
+        }
+
+        if (parsed.firstName !== undefined) profile.firstName = normalizeOptionalString(parsed.firstName)
+        if (parsed.lastName !== undefined) profile.lastName = normalizeOptionalString(parsed.lastName)
+        if (parsed.preferredName !== undefined) profile.preferredName = normalizeOptionalString(parsed.preferredName)
+        if (parsed.jobTitle !== undefined) {
+          profile.jobTitle = normalizeOptionalString(parsed.jobTitle)
+        }
+        if (parsed.department !== undefined) profile.department = normalizeOptionalString(parsed.department)
+        if (parsed.seniority !== undefined) profile.seniority = normalizeOptionalString(parsed.seniority)
+        if (parsed.timezone !== undefined) profile.timezone = normalizeOptionalString(parsed.timezone)
+        if (parsed.linkedInUrl !== undefined) profile.linkedInUrl = normalizeOptionalString(parsed.linkedInUrl)
+        if (parsed.twitterUrl !== undefined) profile.twitterUrl = normalizeOptionalString(parsed.twitterUrl)
+
+        const profileFieldsUpdated = [
+          parsed.firstName, parsed.lastName, parsed.preferredName, parsed.jobTitle,
+          parsed.department, parsed.seniority, parsed.timezone, parsed.linkedInUrl,
+          parsed.twitterUrl, parsed.companyEntityId,
+        ].some((v) => v !== undefined)
+        if (profileFieldsUpdated) {
+          record.updatedAt = new Date()
+        }
+
+        if (parsed.displayName !== undefined) {
+          record.displayName = parsed.displayName.trim()
+        }
+      },
+      async () => {
+        if (parsed.status !== undefined) {
+          const normalizedStatus = normalizeOptionalString(parsed.status)
+          if (normalizedStatus) {
+            await ensureDictionaryEntry(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              kind: 'status',
+              value: normalizedStatus,
+            })
+          }
+        }
+        if (parsed.source !== undefined) {
+          const normalizedSource = normalizeOptionalString(parsed.source)
+          if (normalizedSource) {
+            await ensureDictionaryEntry(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              kind: 'source',
+              value: normalizedSource,
+            })
+          }
+        }
+        if (parsed.jobTitle !== undefined) {
+          const normalizedJobTitle = normalizeOptionalString(parsed.jobTitle)
+          if (normalizedJobTitle) {
+            await ensureDictionaryEntry(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              kind: 'job_title',
+              value: normalizedJobTitle,
+            })
+          }
+        }
+      },
+      async () => {
+        if (parsed.companyEntityId !== undefined) {
+          await syncLegacyPrimaryCompanyLink(em, record, profile, parsed.companyEntityId)
+        }
+      },
       () => syncEntityTags(em, record, parsed.tags),
     ], { transaction: true })
 
@@ -848,65 +865,69 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: before.entity.id })
     if (!entity) {
-      const newEntity = em.create(CustomerEntity, {
-        id: before.entity.id,
-        organizationId: before.entity.organizationId,
-        tenantId: before.entity.tenantId,
-        kind: 'person',
-        displayName: before.entity.displayName,
-        description: before.entity.description,
-        ownerUserId: before.entity.ownerUserId,
-        primaryEmail: before.entity.primaryEmail,
-        primaryPhone: before.entity.primaryPhone,
-        status: before.entity.status,
-        lifecycleStage: before.entity.lifecycleStage,
-        source: before.entity.source,
-        nextInteractionAt: before.entity.nextInteractionAt,
-        nextInteractionName: before.entity.nextInteractionName,
-        nextInteractionRefId: before.entity.nextInteractionRefId,
-        nextInteractionIcon: before.entity.nextInteractionIcon,
-        nextInteractionColor: before.entity.nextInteractionColor,
-        isActive: before.entity.isActive,
-      })
-      em.persist(newEntity)
-      const profile = em.create(CustomerPersonProfile, {
-        id: before.profile.id,
-        organizationId: before.entity.organizationId,
-        tenantId: before.entity.tenantId,
-        entity: newEntity,
-        firstName: before.profile.firstName,
-        lastName: before.profile.lastName,
-        preferredName: before.profile.preferredName,
-        jobTitle: before.profile.jobTitle,
-        department: before.profile.department,
-        seniority: before.profile.seniority,
-        timezone: before.profile.timezone,
-        linkedInUrl: before.profile.linkedInUrl,
-        twitterUrl: before.profile.twitterUrl,
-      })
-      em.persist(profile)
-      await syncLegacyPrimaryCompanyLink(em, newEntity, profile, before.profile.companyEntityId)
+      let newEntity!: CustomerEntity
+      let newProfile!: CustomerPersonProfile
       await withAtomicFlush(em, [
-        () => { /* entity and profile are already persisted above */ },
+        () => {
+          newEntity = em.create(CustomerEntity, {
+            id: before.entity.id,
+            organizationId: before.entity.organizationId,
+            tenantId: before.entity.tenantId,
+            kind: 'person',
+            displayName: before.entity.displayName,
+            description: before.entity.description,
+            ownerUserId: before.entity.ownerUserId,
+            primaryEmail: before.entity.primaryEmail,
+            primaryPhone: before.entity.primaryPhone,
+            status: before.entity.status,
+            lifecycleStage: before.entity.lifecycleStage,
+            source: before.entity.source,
+            nextInteractionAt: before.entity.nextInteractionAt,
+            nextInteractionName: before.entity.nextInteractionName,
+            nextInteractionRefId: before.entity.nextInteractionRefId,
+            nextInteractionIcon: before.entity.nextInteractionIcon,
+            nextInteractionColor: before.entity.nextInteractionColor,
+            isActive: before.entity.isActive,
+          })
+          em.persist(newEntity)
+          newProfile = em.create(CustomerPersonProfile, {
+            id: before.profile.id,
+            organizationId: before.entity.organizationId,
+            tenantId: before.entity.tenantId,
+            entity: newEntity,
+            firstName: before.profile.firstName,
+            lastName: before.profile.lastName,
+            preferredName: before.profile.preferredName,
+            jobTitle: before.profile.jobTitle,
+            department: before.profile.department,
+            seniority: before.profile.seniority,
+            timezone: before.profile.timezone,
+            linkedInUrl: before.profile.linkedInUrl,
+            twitterUrl: before.profile.twitterUrl,
+          })
+          em.persist(newProfile)
+        },
+        () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, before.profile.companyEntityId),
         () => syncEntityTags(em, newEntity, before.tagIds),
       ], { transaction: true })
     } else {
-      entity.displayName = before.entity.displayName
-      entity.description = before.entity.description
-      entity.ownerUserId = before.entity.ownerUserId
-      entity.primaryEmail = before.entity.primaryEmail
-      entity.primaryPhone = before.entity.primaryPhone
-      entity.status = before.entity.status
-      entity.lifecycleStage = before.entity.lifecycleStage
-      entity.source = before.entity.source
-      entity.nextInteractionAt = before.entity.nextInteractionAt
-      entity.nextInteractionName = before.entity.nextInteractionName
-      entity.nextInteractionRefId = before.entity.nextInteractionRefId
-      entity.nextInteractionIcon = before.entity.nextInteractionIcon
-      entity.nextInteractionColor = before.entity.nextInteractionColor
-      entity.isActive = before.entity.isActive
       await withAtomicFlush(em, [
-        () => { /* scalar entity mutations are already applied above */ },
+        () => {
+          entity.displayName = before.entity.displayName
+          entity.description = before.entity.description
+          entity.ownerUserId = before.entity.ownerUserId
+          entity.primaryEmail = before.entity.primaryEmail
+          entity.primaryPhone = before.entity.primaryPhone
+          entity.status = before.entity.status
+          entity.lifecycleStage = before.entity.lifecycleStage
+          entity.source = before.entity.source
+          entity.nextInteractionAt = before.entity.nextInteractionAt
+          entity.nextInteractionName = before.entity.nextInteractionName
+          entity.nextInteractionRefId = before.entity.nextInteractionRefId
+          entity.nextInteractionIcon = before.entity.nextInteractionIcon
+          entity.nextInteractionColor = before.entity.nextInteractionColor
+          entity.isActive = before.entity.isActive
+        },
         async () => {
           const profile = await findOneWithDecryption(
             em,
@@ -962,7 +983,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
     id: 'customers.people.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Person id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadPersonSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },
@@ -1090,8 +1111,35 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
 
-      const txResult = await em.transactional(async () => {
-        let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
+      const decryptionScope = {
+        tenantId: before.entity.tenantId ?? null,
+        organizationId: before.entity.organizationId ?? null,
+      }
+      // Bind the outer EntityManager to an explicit transaction so every
+      // `em.flush()` below participates in the same unit of work. Using
+      // `em.transactional(cb)` would pass a forked em into `cb` and the
+      // surrounding closures would mutate the unwrapped em, escaping the
+      // transaction (see SPEC-018 and H8 in the CRM details screens review).
+      await em.begin()
+      let txResult: {
+        entity: CustomerEntity
+        profile: CustomerPersonProfile
+        beforeInteractions: PersonInteractionSnapshot[]
+        beforeTodos: PersonTodoSnapshot[]
+      }
+      try {
+        txResult = await (async () => {
+        let entity = await findOneWithDecryption(
+          em,
+          CustomerEntity,
+          {
+            id: before.entity.id,
+            tenantId: before.entity.tenantId,
+            organizationId: before.entity.organizationId,
+          },
+          {},
+          decryptionScope,
+        )
       if (!entity) {
         entity = em.create(CustomerEntity, {
           id: before.entity.id,
@@ -1132,7 +1180,17 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       entity.isActive = before.entity.isActive
       entity.deletedAt = null
 
-      let profile = await em.findOne(CustomerPersonProfile, { entity })
+      let profile = await findOneWithDecryption(
+        em,
+        CustomerPersonProfile,
+        {
+          entity,
+          tenantId: before.entity.tenantId,
+          organizationId: before.entity.organizationId,
+        },
+        {},
+        decryptionScope,
+      )
       if (!profile) {
         profile = em.create(CustomerPersonProfile, {
           id: before.profile.id,
@@ -1187,9 +1245,8 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         }
       }
       await withAtomicFlush(em, [
-        () => { /* company link restores are already persisted above */ },
         () => syncEntityTags(em, entity, before.tagIds),
-      ], { transaction: true })
+      ])
 
       const beforeActivities = (before as { activities?: PersonActivitySnapshot[] }).activities ?? []
       const beforeTodos = (before as { todos?: PersonTodoSnapshot[] }).todos ?? []
@@ -1338,7 +1395,16 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.flush()
 
       return { entity, profile, beforeInteractions, beforeTodos }
-      })
+        })()
+        await em.commit()
+      } catch (err) {
+        try {
+          await em.rollback()
+        } catch {
+          // rollback failure should not mask the original error
+        }
+        throw err
+      }
 
       for (const interaction of txResult.beforeInteractions) {
         if (!interaction.custom || !Object.keys(interaction.custom).length) continue

@@ -93,7 +93,7 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
     const createdAt = new Date('2026-04-10T08:00:00.000Z')
     const updatedAt = new Date('2026-04-14T16:30:00.000Z')
 
-    mockFindOneWithDecryption.mockResolvedValue({
+    const dealRow = {
       id: '550e8400-e29b-41d4-a716-446655440000',
       organizationId: 'org-1',
       tenantId: 'tenant-1',
@@ -115,6 +115,28 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
       createdAt,
       updatedAt,
       deletedAt: null,
+    }
+    const pipelineRow = {
+      id: '550e8400-e29b-41d4-a716-446655440010',
+      name: 'Default Pipeline',
+    }
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: { name?: string }, where: Record<string, unknown>) => {
+      if (entity?.name === 'User') {
+        if (where?.id === 'user-1') {
+          return { id: 'user-1', name: 'Viewer User', email: 'viewer@example.com' }
+        }
+        if (where?.id === 'owner-1') {
+          return { id: 'owner-1', name: 'Owner User', email: 'owner@example.com' }
+        }
+        return null
+      }
+      if (entity?.name === 'CustomerPipeline') {
+        return pipelineRow
+      }
+      if (entity?.name === 'CustomerDeal') {
+        return dealRow
+      }
+      return null
     })
 
     mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: { name?: string }) => {
@@ -171,27 +193,18 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
           },
         ]
       }
+      if (entity?.name === 'CustomerDictionaryEntry') {
+        return [
+          {
+            normalizedValue: 'discovery',
+            label: 'Discovery',
+            color: '#2563eb',
+            icon: 'search',
+          },
+        ]
+      }
       return []
     })
-
-    mockEm.find.mockResolvedValue([
-      {
-        normalizedValue: 'discovery',
-        label: 'Discovery',
-        color: '#2563eb',
-        icon: 'search',
-      },
-    ])
-    mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
-      if (where?.id === 'user-1') {
-        return { id: 'user-1', name: 'Viewer User', email: 'viewer@example.com' }
-      }
-      if (where?.id === 'owner-1') {
-        return { id: 'owner-1', name: 'Owner User', email: 'owner@example.com' }
-      }
-      return null
-    })
-
     const { GET } = await import('../route')
     const response = await GET(
       new Request('http://localhost/api/customers/deals/550e8400-e29b-41d4-a716-446655440000?include=stages'),

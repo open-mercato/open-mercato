@@ -3019,7 +3019,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               )}
               {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-red-600">{formError}</div> : null}
+            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}
@@ -3114,7 +3114,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 )
               })}
             </div>
-            {formError && !Object.keys(errors).length ? <div className="text-sm text-red-600">{formError}</div> : null}
+            {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
               <FormFooter
                 embedded={embedded}
@@ -3766,7 +3766,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
         <label className="block text-sm font-medium">
           {field.label}
-          {field.required ? <span className="text-red-600"> *</span> : null}
+          {field.required ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (
@@ -4028,7 +4028,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           <div>{field.description}</div>
         </div>
       ) : null}
-      {error ? <div className="text-xs text-red-600">{error}</div> : null}
+      {error ? <div className="text-xs text-status-error-text">{error}</div> : null}
     </div>
   )
 },

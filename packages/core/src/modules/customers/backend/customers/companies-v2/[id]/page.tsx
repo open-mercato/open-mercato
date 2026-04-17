@@ -30,6 +30,7 @@ import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../..
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
+import { useInteractionMutations } from '../../../../components/detail/hooks/useInteractionMutations'
 import {
   buildCompanyEditPayload,
   createCompanyEditFields,
@@ -137,7 +138,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch(() => {})
+    loadData().catch((err) => console.warn('[companies-v2] loadData failed', err))
   }, [loadData])
 
   React.useEffect(() => {
@@ -146,7 +147,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
-    loadData().catch(() => {})
+    loadData().catch((err) => console.warn('[companies-v2] reload after activity failed', err))
   }, [loadData])
 
   // Planned activities for the activity-log tab
@@ -177,22 +178,11 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     [injectionContext, runMutation],
   )
 
-  const handleMarkDone = React.useCallback(async (interactionId: string) => {
-    try {
-      await runMutationWithContext(
-        () => apiCallOrThrow('/api/customers/interactions/complete', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: interactionId, occurredAt: new Date().toISOString() }),
-        }),
-        { id: interactionId, status: 'done', operation: 'completeActivity' },
-      )
-      flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
-      handleActivityCreated()
-    } catch {
-      flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
-    }
-  }, [handleActivityCreated, runMutationWithContext, t])
+  const { completeInteraction: handleMarkDone, cancelInteraction: handleCancelActivity } = useInteractionMutations({
+    runMutationWithContext,
+    onAfterChange: handleActivityCreated,
+    logContext: 'customers.companies-v2',
+  })
 
   const handleEditActivity = React.useCallback((activity: { id: string; interactionType?: string; title?: string | null; body?: string | null; scheduledAt?: string | null; [key: string]: unknown }) => {
     setScheduleEditData({
@@ -216,23 +206,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setScheduleEditData(null)
     setScheduleDialogOpen(true)
   }, [])
-
-  const handleCancelActivity = React.useCallback(async (interactionId: string) => {
-    try {
-      await runMutationWithContext(
-        () => apiCallOrThrow('/api/customers/interactions', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: interactionId, status: 'canceled' }),
-        }),
-        { id: interactionId, status: 'canceled' },
-      )
-      flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
-      handleActivityCreated()
-    } catch {
-      flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
-    }
-  }, [handleActivityCreated, runMutationWithContext, t])
 
   // Injected tabs from UMES
   const { widgets: injectedTabWidgets } = useInjectionWidgets('detail:customers.company:tabs', {
@@ -396,7 +369,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onDataReload={() => { loadData().catch(() => {}) }}
+            onDataReload={() => { loadData().catch((err) => console.warn('[companies-v2] onDataReload failed', err)) }}
           />
 
           {/* KPI bar — always visible above zones */}

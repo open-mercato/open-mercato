@@ -1,34 +1,22 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
-import {
-  readJsonFromLocalStorage,
-  writeJsonToLocalStorage,
-} from '@open-mercato/shared/lib/browser/safeLocalStorage'
+import { useCallback } from 'react'
+import { usePersistedBooleanFlag } from './usePersistedBooleanFlag'
 
 function getStorageKey(pageType: string) {
   return `om:zone1-collapsed:${pageType}`
 }
 
 export function useZoneCollapse(pageType: string) {
-  const [collapsed, setCollapsed] = useState(false)
-  const mounted = useRef(false)
-
-  useEffect(() => {
-    mounted.current = true
-    const saved = readJsonFromLocalStorage<string | null>(getStorageKey(pageType), null)
-    if (saved !== null) {
-      setCollapsed(saved === '1')
+  const { value: collapsed, toggle, setValue } = usePersistedBooleanFlag(
+    getStorageKey(pageType),
+    false,
+  )
+  const setCollapsed = useCallback((next: boolean | ((prev: boolean) => boolean)) => {
+    if (typeof next === 'function') {
+      setValue((prev) => (next as (prev: boolean) => boolean)(prev))
+    } else {
+      setValue(next)
     }
-  }, [pageType])
-
-  useEffect(() => {
-    if (!mounted.current) return
-    writeJsonToLocalStorage(getStorageKey(pageType), collapsed ? '1' : '0')
-  }, [collapsed, pageType])
-
-  const toggle = useCallback(() => {
-    setCollapsed((prev) => !prev)
-  }, [])
-
+  }, [setValue])
   return { collapsed, toggle, setCollapsed }
 }

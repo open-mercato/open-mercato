@@ -204,4 +204,43 @@ describe('customer person company link routes', () => {
     )
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledTimes(2)
   })
+
+  it('resolves a DELETE call using the company id as the last path segment', async () => {
+    const lookups: Array<Record<string, unknown>> = []
+    em.findOne.mockImplementation(async (EntityClass: unknown, filter: Record<string, unknown>) => {
+      const classObj = EntityClass as { name?: string }
+      const name = classObj?.name ?? ''
+      if (name === 'CustomerEntity' || (typeof filter?.kind === 'string' && filter.kind === 'person')) {
+        return { id: personId, tenantId, organizationId, kind: 'person' }
+      }
+      if (name === 'CustomerPersonProfile' || 'entity' in filter) {
+        return { entity: personId, company: null }
+      }
+      if (name === 'CustomerPersonCompanyLink' || 'person' in filter || 'id' in filter) {
+        lookups.push(filter)
+        if ('id' in filter) return null
+        if ('person' in filter && 'company' in filter) {
+          return { id: linkId, isPrimary: false, company: { id: companyId, displayName: 'Acme Corp' } }
+        }
+        return null
+      }
+      return null
+    })
+    commandBusExecuteMock.mockResolvedValueOnce({ result: { linkId } })
+
+    const response = await deleteLink(
+      new Request(`http://localhost/api/customers/people/${personId}/companies/${companyId}`, {
+        method: 'DELETE',
+      }),
+      { params: { id: personId, linkId: companyId } },
+    )
+
+    expect(response.status).toBe(200)
+    const commandCall = commandBusExecuteMock.mock.calls.find(
+      (call) => call[0] === 'customers.personCompanyLinks.delete',
+    )
+    expect(commandCall?.[1].input.linkId).toBe(linkId)
+    const companyLookup = lookups.find((entry) => 'person' in entry && 'company' in entry)
+    expect(companyLookup).toMatchObject({ person: personId, company: companyId })
+  })
 })

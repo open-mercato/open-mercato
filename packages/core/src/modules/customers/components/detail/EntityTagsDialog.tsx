@@ -673,7 +673,7 @@ export function EntityTagsDialog({
     if (!open) return
     setSearchValue('')
     setNewEntryInputByKind({})
-    loadData().catch(() => {})
+    loadData().catch((err) => console.warn('[EntityTagsDialog] loadData failed', err))
   }, [loadData, open])
 
   React.useEffect(() => {

@@ -1,8 +1,7 @@
 import * as React from 'react'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InteractionSummary } from '../../../../../components/detail/types'
+import { useInteractionMutations } from '../../../../../components/detail/hooks/useInteractionMutations'
 import type { GuardedMutationRunner } from './types'
 
 type UseDealActivitiesOptions = {
@@ -23,7 +22,6 @@ export function useDealActivities({
   dealId,
   runMutationWithContext,
 }: UseDealActivitiesOptions): UseDealActivitiesResult {
-  const t = useT()
   const [plannedActivities, setPlannedActivities] = React.useState<InteractionSummary[]>([])
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
 
@@ -34,7 +32,8 @@ export function useDealActivities({
         `/api/customers/interactions?dealId=${encodeURIComponent(dealId)}&status=planned&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc`,
       )
       setPlannedActivities(Array.isArray(result.items) ? result.items : [])
-    } catch {
+    } catch (err) {
+      console.warn('[customers.deals.detail] load planned activities failed', err)
       setPlannedActivities([])
     }
   }, [dealId])
@@ -44,54 +43,18 @@ export function useDealActivities({
     await loadPlannedActivities()
   }, [loadPlannedActivities])
 
-  const handleMarkDone = React.useCallback(
-    async (interactionId: string) => {
-      try {
-        await runMutationWithContext(
-          () =>
-            apiCallOrThrow('/api/customers/interactions/complete', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: interactionId, occurredAt: new Date().toISOString() }),
-            }),
-          { id: interactionId, status: 'done', operation: 'completeActivity' },
-        )
-        flash(t('customers.timeline.planned.completed', 'Activity completed'), 'success')
-        await handleActivityCreated()
-      } catch {
-        flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
-      }
-    },
-    [handleActivityCreated, runMutationWithContext, t],
-  )
-
-  const handleCancelActivity = React.useCallback(
-    async (interactionId: string) => {
-      try {
-        await runMutationWithContext(
-          () =>
-            apiCallOrThrow('/api/customers/interactions', {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: interactionId, status: 'canceled' }),
-            }),
-          { id: interactionId, status: 'canceled', operation: 'cancelActivity' },
-        )
-        flash(t('customers.timeline.planned.canceled', 'Activity canceled'), 'success')
-        await handleActivityCreated()
-      } catch {
-        flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
-      }
-    },
-    [handleActivityCreated, runMutationWithContext, t],
-  )
+  const { completeInteraction, cancelInteraction } = useInteractionMutations({
+    runMutationWithContext,
+    onAfterChange: handleActivityCreated,
+    logContext: 'customers.deals.detail',
+  })
 
   return {
     plannedActivities,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
-    handleMarkDone,
-    handleCancelActivity,
+    handleMarkDone: completeInteraction,
+    handleCancelActivity: cancelInteraction,
   }
 }

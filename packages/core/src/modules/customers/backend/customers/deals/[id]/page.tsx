@@ -53,7 +53,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const searchParams = useSearchParams()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
-  const notesAdapter = React.useMemo(() => createCustomerNotesAdapter(detailTranslator), [detailTranslator])
 
   const { data, setData, isLoading, error, loadData } = useDealData(id)
   const [isDirty, setIsDirty] = React.useState(false)
@@ -79,6 +78,11 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     fallbackId: id,
     data,
   })
+
+  const notesAdapter = React.useMemo(
+    () => createCustomerNotesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
+    [detailTranslator, runMutationWithContext],
+  )
 
   const { injectedTabs, injectedTabMap } = useDealInjectedTabs({
     injectionContext,

@@ -840,7 +840,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       )
   const kpiInteractionRows = canonicalActiveInteractions.length
     ? canonicalActiveInteractions
-    : await em.find(
+    : await findWithDecryption(
+        em,
         CustomerInteraction,
         {
           entity: company.id,
@@ -852,6 +853,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           fields: ['id', 'occurredAt', 'scheduledAt', 'createdAt'],
           orderBy: { createdAt: 'DESC' },
         },
+        { tenantId: company.tenantId, organizationId: company.organizationId },
       )
   const activityTrend = computeActivityTrend(
     kpiInteractionRows

@@ -269,11 +269,13 @@ function AttachmentsSectionImpl({
             return (
               <div
                 key={item.id}
+                role="group"
                 className="group relative flex flex-col overflow-hidden rounded-lg border bg-card text-left transition-shadow hover:shadow-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2"
               >
                 <Button
                   type="button"
                   variant="ghost"
+                  aria-label={item.fileName}
                   onClick={() => openMetadataDialog(item)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -281,18 +283,15 @@ function AttachmentsSectionImpl({
                       openMetadataDialog(item)
                     }
                   }}
-                  className="absolute inset-0 z-0 h-auto w-auto rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+                  className="flex h-auto w-full flex-col items-stretch rounded-lg p-0 text-left hover:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                 >
-                  <span className="sr-only">{item.fileName}</span>
-                </Button>
-                <div className="pointer-events-none relative z-10">
                   <AttachmentVisualPreview
                     fileName={item.fileName}
                     mimeType={item.mimeType}
                     thumbnailUrl={item.thumbnailUrl}
-                    className={compact ? 'aspect-[2/1]' : 'aspect-[4/3]'}
+                    className={compact ? 'aspect-[2/1] w-full' : 'aspect-[4/3] w-full'}
                   />
-                  <div className={cn('space-y-1', compact ? 'p-2' : 'p-3')}>
+                  <div className={cn('space-y-1 w-full', compact ? 'p-2' : 'p-3')}>
                     <div className={cn('truncate font-medium', compact ? 'text-xs' : 'text-sm')} title={item.fileName}>
                       {item.fileName}
                     </div>
@@ -300,12 +299,12 @@ function AttachmentsSectionImpl({
                       {formatAttachmentFileSize(item.fileSize)}
                     </div>
                   </div>
-                </div>
+                </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="absolute right-2 top-2 z-20 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
+                  className="absolute right-2 top-2 z-10 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100"
                   onClick={(event) => {
                     event.stopPropagation()
                     openDeleteDialog(item)

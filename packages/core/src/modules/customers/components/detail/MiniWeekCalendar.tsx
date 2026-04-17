@@ -46,16 +46,18 @@ function getDayLabels(t: ReturnType<typeof useT>): string[] {
 }
 
 const INTERACTION_TYPE_COLORS: Record<string, string> = {
-  call: 'bg-orange-500',
-  email: 'bg-blue-500',
-  meeting: 'bg-emerald-500',
-  task: 'bg-violet-500',
-  note: 'bg-gray-400',
+  call: 'bg-chart-orange',
+  email: 'bg-chart-blue',
+  meeting: 'bg-chart-emerald',
+  task: 'bg-chart-violet',
+  note: 'bg-muted-foreground',
 }
+
+const INTERACTION_TYPE_FALLBACK_COLOR = 'bg-chart-orange'
 
 function dotColorForType(type: string, isToday: boolean): string {
   if (isToday) return 'bg-background'
-  return INTERACTION_TYPE_COLORS[type] ?? 'bg-orange-500'
+  return INTERACTION_TYPE_COLORS[type] ?? INTERACTION_TYPE_FALLBACK_COLOR
 }
 
 export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef }: MiniWeekCalendarProps) {
@@ -321,7 +323,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
             const time = dateStr ? new Date(dateStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''
             return (
               <div key={event.id} className="flex items-center gap-2 text-xs">
-                <span className={cn('size-1.5 rounded-full shrink-0', INTERACTION_TYPE_COLORS[event.interactionType] ?? (isActiveDay ? 'bg-orange-500' : 'bg-muted-foreground'))} />
+                <span className={cn('size-1.5 rounded-full shrink-0', INTERACTION_TYPE_COLORS[event.interactionType] ?? (isActiveDay ? INTERACTION_TYPE_FALLBACK_COLOR : 'bg-muted-foreground'))} />
                 <span className="font-semibold text-muted-foreground shrink-0">
                   {dayLabel}{time}
                 </span>

@@ -10,7 +10,7 @@ jest.mock('../detail/RolesSection', () => ({
 
 import {
   createCompanyDaneFiremyGroups,
-  createPersonDaneOsoboweGroups,
+  createPersonPersonalDataGroups,
   type Translator,
 } from '../formConfig'
 
@@ -32,7 +32,7 @@ describe('detail page zone1 group layouts', () => {
   })
 
   it('keeps all person v2 zone1 groups in the sortable primary column', () => {
-    const groups = createPersonDaneOsoboweGroups(t)
+    const groups = createPersonPersonalDataGroups(t)
 
     expect(groups.map((group) => group.id)).toEqual([
       'personalData',

@@ -44,7 +44,7 @@ const itemSchema = z.object({
 const errorSchema = z.object({ error: z.string() })
 
 export const metadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['customers.roles.view'] },
 }
 
 async function canAccessAssignableStaff(

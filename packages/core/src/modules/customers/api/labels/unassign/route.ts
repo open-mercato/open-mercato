@@ -8,6 +8,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { z } from 'zod'
@@ -24,7 +25,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['customers.people.manage'] },
+  POST: { requireAuth: true },
 }
 
 const labelAssignmentRequestSchema = labelAssignmentSchema.extend({
@@ -34,6 +35,10 @@ const labelAssignmentRequestSchema = labelAssignmentSchema.extend({
 function resolveResourceKind(kind: 'person' | 'company' | null | undefined): string {
   if (kind === 'company') return 'customers.company'
   return 'customers.person'
+}
+
+function resolveRequiredFeature(kind: 'person' | 'company' | null | undefined): string {
+  return kind === 'company' ? 'customers.companies.manage' : 'customers.people.manage'
 }
 
 export async function POST(req: Request) {
@@ -76,6 +81,19 @@ export async function POST(req: Request) {
     }
     const entityKind = targetEntity.kind === 'person' || targetEntity.kind === 'company' ? targetEntity.kind : null
     const resourceKind = resolveResourceKind(entityKind)
+
+    const rbac = container.resolve('rbacService') as RbacService | undefined
+    if (!rbac) {
+      throw new CrudHttpError(500, { error: translate('customers.errors.internal', 'Internal error') })
+    }
+    const requiredFeature = resolveRequiredFeature(entityKind)
+    const hasFeature = await rbac.userHasAllFeatures(actorUserId, [requiredFeature], {
+      tenantId: auth.tenantId,
+      organizationId,
+    })
+    if (!hasFeature) {
+      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+    }
 
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
@@ -147,7 +165,7 @@ export async function POST(req: Request) {
     return response
   } catch (err) {
     if (isMissingCustomerLabelTable(err)) {
-      const migrationError = createMissingCustomerLabelTablesError()
+      const migrationError = await createMissingCustomerLabelTablesError()
       return NextResponse.json(migrationError.body, { status: migrationError.status })
     }
     if (err instanceof CrudHttpError) {

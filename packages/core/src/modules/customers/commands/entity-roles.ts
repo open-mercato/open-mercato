@@ -41,6 +41,16 @@ type EntityRoleSnapshot = {
 type EntityRoleUndoPayload = {
   before?: EntityRoleSnapshot | null
   after?: EntityRoleSnapshot | null
+  /**
+   * True when createEntityRole "undeleted" a previously soft-deleted row
+   * instead of inserting a fresh one. Undo must restore that soft-delete
+   * state rather than soft-delete the freshly-restored row.
+   */
+  wasUndelete?: boolean
+  /** userId held by the soft-deleted row before undelete; restored on undo. */
+  previousUserId?: string | null
+  /** deletedAt timestamp held by the soft-deleted row before undelete. */
+  previousDeletedAt?: string | null
 }
 
 const entityRoleCrudEvents: CrudEventsConfig = {
@@ -92,7 +102,7 @@ async function loadEntityRoleSnapshot(
     CustomerEntityRole,
     filter,
     undefined,
-    { tenantId: scope?.tenantId ?? null, organizationId: null },
+    { tenantId: scope?.tenantId ?? null, organizationId: scope?.organizationId ?? null },
   )
   if (!role) return null
 
@@ -118,7 +128,7 @@ async function loadEntityRoleSnapshot(
   }
 }
 
-const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: string }> = {
+const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: string; wasUndelete: boolean; previousUserId: string | null; previousDeletedAt: string | null }> = {
   id: 'customers.entityRoles.create',
   async execute(rawInput, ctx) {
     const parsed = entityRoleCreateSchema.parse(rawInput)
@@ -161,7 +171,13 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     let role: CustomerEntityRole
+    let wasUndelete = false
+    let previousUserId: string | null = null
+    let previousDeletedAt: string | null = null
     if (softDeleted) {
+      wasUndelete = true
+      previousUserId = softDeleted.userId ?? null
+      previousDeletedAt = softDeleted.deletedAt instanceof Date ? softDeleted.deletedAt.toISOString() : null
       softDeleted.deletedAt = null
       softDeleted.userId = parsed.userId
       role = softDeleted
@@ -189,7 +205,7 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
       indexer: { entityType: 'customers:entity_role' },
     })
 
-    return { roleId: role.id }
+    return { roleId: role.id, wasUndelete, previousUserId, previousDeletedAt }
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager)
@@ -213,6 +229,9 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
       payload: {
         undo: {
           after: snapshot ?? null,
+          wasUndelete: result.wasUndelete,
+          previousUserId: result.previousUserId,
+          previousDeletedAt: result.previousDeletedAt,
         } satisfies EntityRoleUndoPayload,
       },
     }
@@ -232,7 +251,12 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
     )
     if (!role) return
 
-    role.deletedAt = new Date()
+    if (payload?.wasUndelete) {
+      role.deletedAt = payload.previousDeletedAt ? new Date(payload.previousDeletedAt) : new Date()
+      if (payload.previousUserId) role.userId = payload.previousUserId
+    } else {
+      role.deletedAt = new Date()
+    }
     await em.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -252,7 +276,7 @@ const updateEntityRoleCommand: CommandHandler<EntityRoleUpdateInput, { roleId: s
   id: 'customers.entityRoles.update',
   async prepare(rawInput, ctx) {
     const parsed = entityRoleUpdateSchema.parse(rawInput)
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadEntityRoleSnapshot(em, parsed.id, {
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -355,7 +379,7 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
   id: 'customers.entityRoles.delete',
   async prepare(rawInput, ctx) {
     const parsed = entityRoleDeleteSchema.parse(rawInput)
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadEntityRoleSnapshot(em, parsed.id, {
       tenantId: ctx.auth?.tenantId ?? null,
       organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,

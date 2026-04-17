@@ -572,7 +572,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
     setCreateCategoryOpen(false)
     setNewCategoryName('')
     setNewCategorySelectionMode('multi')
-    loadData().catch(() => {})
+    loadData().catch((err) => console.warn('[ManageTagsDialog] loadData failed', err))
   }, [loadData, open])
 
   // --- derived state ---

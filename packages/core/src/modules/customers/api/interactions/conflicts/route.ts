@@ -6,7 +6,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { CustomerInteraction } from '../../../data/entities'
 
 const querySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -56,12 +58,12 @@ export const openApi: OpenApiRouteDoc = {
 }
 
 export async function GET(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
     const queryUrl = new URL(req.url)
     const query = querySchema.parse(Object.fromEntries(queryUrl.searchParams))
     const container = await createRequestContainer()
     const auth = await getAuthFromRequest(req)
-    const { translate } = await resolveTranslations()
 
     if (!auth || !auth.tenantId) {
       throw new CrudHttpError(401, {
@@ -86,7 +88,7 @@ export async function GET(req: Request) {
     const windowEnd = new Date(windowStart.getTime() + query.duration * 60_000)
 
     if (Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) {
-      throw new CrudHttpError(400, { error: 'Invalid date/time' })
+      throw new CrudHttpError(400, { error: translate('customers.errors.invalid_date_time', 'Invalid date/time') })
     }
 
     const checkUserId = query.userId ?? auth.userId
@@ -127,16 +129,45 @@ export async function GET(req: Request) {
         )
     })
 
+    // Raw SELECT: reads only unencrypted columns (id, scheduled_at, duration_minutes, interaction_type); title is excluded to avoid ciphertext leakage and is resolved below via findWithDecryption.
     const rows = await baseQuery
-      .select('id', 'title', 'scheduled_at', 'duration_minutes', 'interaction_type')
+      .select('id', 'scheduled_at', 'duration_minutes', 'interaction_type')
       .orderBy('scheduled_at', 'asc')
       .limit(10) as Array<{
         id: string
-        title: string | null
         scheduled_at: string | Date
         duration_minutes: number | null
         interaction_type: string
       }>
+
+    const decryptionScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    }
+    const conflictIds = rows.map((row) => row.id)
+    const interactionFilter: Record<string, unknown> = {
+      id: { $in: conflictIds },
+      tenantId: auth.tenantId,
+      deletedAt: null,
+    }
+    if (organizationIds.length === 1) {
+      interactionFilter.organizationId = organizationIds[0]
+    } else if (organizationIds.length > 1) {
+      interactionFilter.organizationId = { $in: organizationIds }
+    }
+    const decryptedInteractions = conflictIds.length > 0
+      ? await findWithDecryption(
+          em,
+          CustomerInteraction,
+          interactionFilter as any,
+          undefined,
+          decryptionScope,
+        )
+      : []
+    const titleById = new Map<string, string | null>()
+    for (const record of decryptedInteractions) {
+      titleById.set((record as any).id, ((record as any).title ?? null) as string | null)
+    }
 
     const conflicts = rows.map((row) => {
       const start = new Date(row.scheduled_at)
@@ -144,7 +175,7 @@ export async function GET(req: Request) {
       const end = new Date(start.getTime() + durationMin * 60_000)
       return {
         id: row.id,
-        title: row.title,
+        title: titleById.has(row.id) ? titleById.get(row.id) ?? null : null,
         startTime: start.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
         endTime: end.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
         type: row.interaction_type,
@@ -160,6 +191,6 @@ export async function GET(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     console.error('[customers/interactions/conflicts] GET failed', err)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }

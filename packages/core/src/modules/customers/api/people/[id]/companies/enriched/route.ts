@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -143,12 +144,13 @@ function matchesSearch(item: Record<string, unknown>, query: string): boolean {
 }
 
 export async function GET(req: Request, ctx: { params?: { id?: string } }) {
+  const { translate } = await resolveTranslations()
   try {
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
 
     const auth = await getAuthFromRequest(req)
     if (!auth?.tenantId) {
-      throw new CrudHttpError(401, { error: 'Unauthorized' })
+      throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
     }
     const url = new URL(req.url)
     const query = querySchema.parse({
@@ -163,9 +165,9 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     const em = (container.resolve('em') as EntityManager).fork()
 
     const decryptionScope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
-    const person = await findOneWithDecryption(em, CustomerEntity, { id, kind: 'person', deletedAt: null }, {}, decryptionScope)
-    if (!person || person.tenantId !== auth.tenantId) {
-      throw new CrudHttpError(404, { error: 'Person not found' })
+    const person = await findOneWithDecryption(em, CustomerEntity, { id, kind: 'person', tenantId: auth.tenantId, deletedAt: null }, {}, decryptionScope)
+    if (!person) {
+      throw new CrudHttpError(404, { error: translate('customers.errors.person_not_found', 'Person not found') })
     }
 
     const allowedOrgIds = new Set<string>()
@@ -173,7 +175,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     else if (auth.orgId) allowedOrgIds.add(auth.orgId)
 
     if (allowedOrgIds.size > 0 && !allowedOrgIds.has(person.organizationId)) {
-      throw new CrudHttpError(403, { error: 'Access denied' })
+      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: person.organizationId }
@@ -205,18 +207,20 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       })
     }
 
+    const tenantScope = { tenantId: auth.tenantId, organizationId: person.organizationId }
     const [allProfiles, allAddresses, allBillings, allTagAssignments, allRoles, allDealLinks, allInteractions] =
       await Promise.all([
-        findWithDecryption(em, CustomerCompanyProfile, { entity: { $in: companyIds } }, {}, entityScope),
-        findWithDecryption(em, CustomerAddress, { entity: { $in: companyIds }, isPrimary: true }, {}, entityScope),
-        findWithDecryption(em, CustomerCompanyBilling, { entity: { $in: companyIds } }, {}, entityScope),
-        findWithDecryption(em, CustomerTagAssignment, { entity: { $in: companyIds } }, { populate: ['tag'] }, entityScope),
-        findWithDecryption(em, CustomerPersonCompanyRole, { personEntity: person, companyEntity: { $in: companyIds } }, {}, entityScope),
-        findWithDecryption(em, CustomerDealCompanyLink, { company: { $in: companyIds } }, { populate: ['deal'] }, entityScope),
+        findWithDecryption(em, CustomerCompanyProfile, { entity: { $in: companyIds }, ...tenantScope }, {}, entityScope),
+        findWithDecryption(em, CustomerAddress, { entity: { $in: companyIds }, isPrimary: true, ...tenantScope }, {}, entityScope),
+        findWithDecryption(em, CustomerCompanyBilling, { entity: { $in: companyIds }, ...tenantScope }, {}, entityScope),
+        findWithDecryption(em, CustomerTagAssignment, { entity: { $in: companyIds }, ...tenantScope }, { populate: ['tag'] }, entityScope),
+        findWithDecryption(em, CustomerPersonCompanyRole, { personEntity: person, companyEntity: { $in: companyIds }, ...tenantScope }, {}, entityScope),
+        findWithDecryption(em, CustomerDealCompanyLink, { company: { $in: companyIds }, ...tenantScope }, { populate: ['deal'] }, entityScope),
         findWithDecryption(em, CustomerInteraction, {
           entity: { $in: companyIds },
           occurredAt: { $ne: null },
           deletedAt: null,
+          ...tenantScope,
         }, { orderBy: { occurredAt: 'DESC' } }, entityScope),
       ])
 

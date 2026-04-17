@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -115,10 +115,10 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query: any, ctx) => {
+    buildFilters: async (query, ctx) => {
       const advancedQuery = { ...query }
       const advancedFilterState = consumeAdvancedFilterState(query)
-      const filters: Record<string, any> = { kind: { $eq: 'company' } }
+      const filters: Record<string, unknown> = { kind: { $eq: 'company' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.search) {
         const matchingIds = ctx
@@ -207,7 +207,7 @@ const crud = makeCrudRoute({
         .forEach((value: string) => excludedIds.add(value))
       if (ctx && query.excludeLinkedPersonId) {
         try {
-          const em = ctx.container.resolve('em') as any
+          const em = ctx.container.resolve('em') as EntityManager
           const decryptionScope = {
             tenantId: ctx.auth?.tenantId ?? null,
             organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -228,8 +228,8 @@ const crud = makeCrudRoute({
             const companyId = link.company?.id
             if (typeof companyId === 'string' && companyId.length > 0) excludedIds.add(companyId)
           })
-        } catch {
-          // ignore exclusion lookup failures and fall back to the base result set
+        } catch (err) {
+          console.warn('[customers.companies.list] exclusion lookup failed; falling back to base result set', err)
         }
       }
       if (typeof query.excludeLinkedCompanyId === 'string' && query.excludeLinkedCompanyId.length > 0) {
@@ -237,7 +237,7 @@ const crud = makeCrudRoute({
       }
       if (ctx && query.excludeLinkedDealId) {
         try {
-          const em = ctx.container.resolve('em') as any
+          const em = ctx.container.resolve('em') as EntityManager
           const decryptionScope = {
             tenantId: ctx.auth?.tenantId ?? null,
             organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -255,8 +255,8 @@ const crud = makeCrudRoute({
             const companyId = link.company?.id
             if (typeof companyId === 'string' && companyId.length > 0) excludedIds.add(companyId)
           })
-        } catch {
-          // ignore exclusion lookup failures and fall back to the base result set
+        } catch (err) {
+          console.warn('[customers.companies.list] exclusion lookup failed; falling back to base result set', err)
         }
       }
       applyEntityIdExclusion(filters, Array.from(excludedIds))
@@ -296,7 +296,7 @@ const crud = makeCrudRoute({
       }
       if (ctx) {
         try {
-          const em = ctx.container.resolve('em') as any
+          const em = ctx.container.resolve('em') as EntityManager
           const cfFilters = await buildCustomFieldFiltersFromQuery({
             entityIds: [E.customers.customer_entity, E.customers.customer_company_profile],
             query,
@@ -304,8 +304,8 @@ const crud = makeCrudRoute({
             tenantId: ctx.auth?.tenantId ?? null,
           })
           Object.assign(filters, cfFilters)
-        } catch {
-          // ignore custom field filter errors; fall back to base filters
+        } catch (err) {
+          console.warn('[customers.companies.list] custom field filter resolution failed; falling back to base filters', err)
         }
       }
       if (ctx && advancedFilterState) {
@@ -358,11 +358,12 @@ const crud = makeCrudRoute({
         type: 'left',
       },
     ],
-    transformItem: (item: any) => {
-      if (!item) return item
-      const normalized = { ...item }
+    transformItem: (item) => {
+      if (!item || typeof item !== 'object') return item
+      const record = item as Record<string, unknown>
+      const normalized: Record<string, unknown> = { ...record }
       delete normalized.kind
-      const cfEntries = extractAllCustomFieldEntries(item)
+      const cfEntries = extractAllCustomFieldEntries(record)
       for (const key of Object.keys(normalized)) {
         if (key.startsWith('cf:')) {
           delete normalized[key]
@@ -436,10 +437,10 @@ const crud = makeCrudRoute({
       }
 
       const profiles = await findWithDecryption(
-        ctx.container.resolve('em') as any,
+        ctx.container.resolve('em') as EntityManager,
         CustomerCompanyProfile,
-        where as any,
-        { populate: ['entity'] } as any,
+        where as FilterQuery<CustomerCompanyProfile>,
+        { populate: ['entity'] },
         {
           tenantId: ctx.auth?.tenantId ?? null,
           organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
@@ -448,7 +449,8 @@ const crud = makeCrudRoute({
 
       const profilesByEntityId = new Map<string, CustomerCompanyProfile>()
       for (const profile of profiles) {
-        const entityId = typeof (profile as any)?.entity?.id === 'string' ? (profile as any).entity.id : null
+        const profileEntity = (profile as { entity?: { id?: unknown } }).entity
+        const entityId = typeof profileEntity?.id === 'string' ? profileEntity.id : null
         if (entityId) profilesByEntityId.set(entityId, profile)
       }
 

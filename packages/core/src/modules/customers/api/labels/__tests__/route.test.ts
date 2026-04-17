@@ -12,9 +12,15 @@ const em = {
   flush: jest.fn(),
 }
 
+const commandBusExecuteMock = jest.fn()
+const commandBus = {
+  execute: (...args: unknown[]) => commandBusExecuteMock(...args),
+}
+
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
+    if (name === 'commandBus') return commandBus
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -84,13 +90,21 @@ describe('customer labels route', () => {
     em.flush.mockResolvedValue(undefined)
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    commandBusExecuteMock.mockResolvedValue({
+      result: {
+        labelId: '44444444-4444-4444-8444-444444444444',
+        slug: 'test-label',
+        label: 'Test label',
+      },
+      logEntry: null,
+    })
   })
 
   it('requires manage access for label creation', () => {
     expect(metadata.POST.requireFeatures).toEqual(['customers.people.manage'])
   })
 
-  it('creates labels for interactive staff auth using auth.sub as the actor id', async () => {
+  it('creates labels via the command bus using auth.sub as the actor id', async () => {
     const response = await POST(
       new Request('http://localhost/api/customers/labels', {
         method: 'POST',
@@ -100,23 +114,16 @@ describe('customer labels route', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(em.findOne).toHaveBeenCalledWith(
-      expect.any(Function),
+    expect(commandBusExecuteMock).toHaveBeenCalledWith(
+      'customers.labels.create',
       expect.objectContaining({
-        tenantId,
-        organizationId,
-        userId,
-        slug: 'test-label',
-      }),
-    )
-    expect(em.create).toHaveBeenCalledWith(
-      expect.any(Function),
-      expect.objectContaining({
-        tenantId,
-        organizationId,
-        userId,
-        slug: 'test-label',
-        label: 'Test label',
+        input: expect.objectContaining({
+          tenantId,
+          organizationId,
+          userId,
+          slug: 'test-label',
+          label: 'Test label',
+        }),
       }),
     )
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
@@ -177,7 +184,7 @@ describe('customer labels route', () => {
   })
 
   it('returns an actionable error when label tables are missing for writes', async () => {
-    em.findOne.mockRejectedValueOnce({
+    commandBusExecuteMock.mockRejectedValueOnce({
       code: '42P01',
       message: 'relation "customer_labels" does not exist',
     })

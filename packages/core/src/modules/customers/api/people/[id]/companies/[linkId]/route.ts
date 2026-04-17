@@ -20,12 +20,58 @@ import {
 } from '@open-mercato/core/modules/customers/data/validators'
 import { loadPersonContext } from '../context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
   linkId: z.string().uuid(),
 })
+
+/**
+ * Resolve the second path segment to a concrete `customer_person_company_links` row id.
+ * The UI on company/person detail pages calls this route with the company entity id as
+ * the last segment (symmetric with the other company-centric endpoints); older callers
+ * may pass the actual link row id. We try a direct id lookup first, then fall back to
+ * resolving via `(person, company)` pair.
+ */
+async function resolveLinkId(
+  em: EntityManager,
+  rawLinkId: string,
+  personEntityId: string,
+  tenantId: string,
+  organizationId: string | null,
+): Promise<string | null> {
+  const decryptionScope = { tenantId, organizationId }
+  const directFilter: FilterQuery<CustomerPersonCompanyLink> = organizationId
+    ? { id: rawLinkId, tenantId, organizationId, deletedAt: null }
+    : { id: rawLinkId, tenantId, deletedAt: null }
+  const direct = await findOneWithDecryption(
+    em,
+    CustomerPersonCompanyLink,
+    directFilter,
+    undefined,
+    decryptionScope,
+  )
+  if (direct) return direct.id
+
+  const companyFilter: FilterQuery<CustomerPersonCompanyLink> = organizationId
+    ? {
+        person: personEntityId,
+        company: rawLinkId,
+        tenantId,
+        organizationId,
+        deletedAt: null,
+      }
+    : { person: personEntityId, company: rawLinkId, tenantId, deletedAt: null }
+  const viaCompany = await findOneWithDecryption(
+    em,
+    CustomerPersonCompanyLink,
+    companyFilter,
+    undefined,
+    decryptionScope,
+  )
+  return viaCompany?.id ?? null
+}
 
 const updateSchema = z.object({
   isPrimary: z.boolean().optional(),
@@ -92,8 +138,22 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
       return NextResponse.json({ ok: true as const, result: null })
     }
 
-    const commandInput = personCompanyLinkUpdateSchema.parse({
+    const resolveEm = (container.resolve('em') as EntityManager).fork()
+    const resolvedLinkId = await resolveLinkId(
+      resolveEm,
       linkId,
+      person.id,
+      auth.tenantId,
+      selectedOrganizationId,
+    )
+    if (!resolvedLinkId) {
+      throw new CrudHttpError(404, {
+        error: translate('customers.errors.person_company_link_not_found', 'Person-company link not found'),
+      })
+    }
+
+    const commandInput = personCompanyLinkUpdateSchema.parse({
+      linkId: resolvedLinkId,
       isPrimary: payload.isPrimary,
       tenantId: auth.tenantId,
       organizationId: selectedOrganizationId,
@@ -133,7 +193,7 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
     const linkRecord = await findOneWithDecryption(
       freshEm,
       CustomerPersonCompanyLink,
-      { id: result.linkId },
+      { id: result.linkId, tenantId: auth.tenantId, organizationId: selectedOrganizationId },
       { populate: ['company'] },
       { tenantId: auth.tenantId, organizationId: selectedOrganizationId },
     )
@@ -196,8 +256,22 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const commandInput = personCompanyLinkDeleteSchema.parse({
+    const resolveEm = (container.resolve('em') as EntityManager).fork()
+    const resolvedLinkId = await resolveLinkId(
+      resolveEm,
       linkId,
+      person.id,
+      auth.tenantId,
+      selectedOrganizationId,
+    )
+    if (!resolvedLinkId) {
+      throw new CrudHttpError(404, {
+        error: translate('customers.errors.person_company_link_not_found', 'Person-company link not found'),
+      })
+    }
+
+    const commandInput = personCompanyLinkDeleteSchema.parse({
+      linkId: resolvedLinkId,
       tenantId: auth.tenantId,
       organizationId: selectedOrganizationId,
     } satisfies PersonCompanyLinkDeleteInput)

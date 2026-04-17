@@ -2,6 +2,16 @@
 
 **Date:** April 11, 2026
 
+## Non-Breaking Changes
+
+### Query engine: `eq` filters now fan out to search-joined entities
+
+Both `BasicQueryEngine` (`packages/shared/src/lib/query/engine.ts`) and `HybridQueryEngine` (`packages/core/src/modules/query_index/lib/engine.ts`) now treat `eq` alongside `like`/`ilike` as eligible for search-index join fanout. Previously only `like`/`ilike` filters on joined entities were routed through the search index, which forced exact-match filters on linked fields to fall back to the slower direct SQL path.
+
+**Impact**: Pages that filter across joined entities (for example, filtering customers by a linked company attribute with an exact value) now benefit from the same search-index acceleration that substring filters already enjoyed. Results and ordering are unchanged; only the execution path improves.
+
+**Compatibility**: Strictly additive. Filters that previously used `like`/`ilike` continue to behave identically.
+
 ## Breaking Changes
 
 ### `roles.tenant_id` is now NOT NULL (#687)

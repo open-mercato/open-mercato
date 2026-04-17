@@ -58,6 +58,7 @@
   "attachments.library.metadata.tagsPlaceholder": "Tags hinzufügen",
   "attachments.library.metadata.title": "Anhang-Metadaten bearbeiten",
   "attachments.library.open": "Anhangdetails öffnen",
+  "attachments.library.openMetadata": "Details für {name} öffnen",
   "attachments.library.table.assignments": "Zuordnungen",
   "attachments.library.table.created": "Erstellt",
   "attachments.library.table.download": "Herunterladen",

@@ -223,7 +223,7 @@ export function ActivitiesSection({
   React.useEffect(() => {
     loadActivities()
       .then(() => { resolvedUserIdsRef.current = new Set() })
-      .catch(() => {})
+      .catch((err) => console.warn('[ActivitiesSection] loadActivities failed', err))
   }, [loadActivities])
 
   React.useEffect(() => {
@@ -265,7 +265,7 @@ export function ActivitiesSection({
           )
         }
       })
-      .catch(() => {})
+      .catch((err) => console.warn('[ActivitiesSection] resolve author names failed', err))
     return () => controller.abort()
   }, [activities])
 

@@ -1672,7 +1672,7 @@ export const createPersonEditGroups = (t: Translator): CrudFormGroup[] => [
  * Groups for the Person v2 "Dane osobowe" Figma layout (SPEC-048 mockup).
  * All groups in column 1 (Zone 1). Notes handled separately in Zone 2 tabs.
  */
-export const createPersonDaneOsoboweGroups = (t: Translator): CrudFormGroup[] => [
+export const createPersonPersonalDataGroups = (t: Translator): CrudFormGroup[] => [
   {
     id: 'personalData',
     title: t('customers.people.form.groups.personalData', 'Personal data'),

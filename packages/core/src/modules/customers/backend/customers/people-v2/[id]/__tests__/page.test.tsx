@@ -84,7 +84,7 @@ jest.mock('#generated/entities.ids.generated', () => ({
 jest.mock('../../../../../components/formConfig', () => ({
   createPersonEditSchema: () => ({}),
   createPersonEditFields: () => [],
-  createPersonDaneOsoboweGroups: () => [],
+  createPersonPersonalDataGroups: () => [],
   mapPersonOverviewToFormValues: () => ({}),
   buildPersonEditPayload: () => ({}),
 }))

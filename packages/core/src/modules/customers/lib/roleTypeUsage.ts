@@ -1,5 +1,6 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntityRole, CustomerPersonCompanyRole } from '../data/entities'
 
 export type RoleTypeUsage = {
@@ -30,10 +31,12 @@ async function loadOrganizationScopeMap(
     id: { $in: uniqueOrgIds },
     deletedAt: null,
   }
-  const organizations = await em.find(
+  const organizations = await findWithDecryption(
+    em,
     Organization,
     organizationFilter,
     { fields: ['id', 'descendantIds'] },
+    { tenantId, organizationId: null },
   )
 
   const scopeMap = new Map<string, string[]>()

@@ -746,6 +746,14 @@ export class HybridQueryEngine implements QueryEngine {
       }
     }
 
+    // `eq` is accepted alongside `like`/`ilike` so that filters against
+    // encrypted joined columns (whose ciphertext cannot be compared for
+    // equality in SQL) can still resolve via tokenized search. Routing
+    // only applies when `searchEnabled` is true AND the joined entity has
+    // search tokens installed (`searchAvailable`); non-searchable columns
+    // still fall through to exact SQL equality. Token match is approximate —
+    // callers needing strict equality on encrypted fields should filter on
+    // the deterministic `*_hash` column instead.
     const applyJoinSearchFilterOp = async (
       target: ResultBuilder,
       filter: { column: string; op: FilterOp; value?: unknown },

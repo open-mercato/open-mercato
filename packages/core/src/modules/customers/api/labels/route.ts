@@ -1,13 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { CustomerLabel, CustomerLabelAssignment } from '../../data/entities'
-import { labelCreateSchema } from '../../data/validators'
+import { labelCreateCommandSchema, labelCreateSchema, type LabelCreateCommandInput } from '../../data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveLabelActorUserId } from './auth'
 import {
@@ -176,7 +178,6 @@ export async function POST(req: Request) {
     }
     const slug = body.slug || slugifyLabel(body.label)
 
-    const em = (container.resolve('em') as EntityManager).fork()
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
       organizationId,
@@ -192,26 +193,29 @@ export async function POST(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    // Check duplicate
-    const existing = await findOneWithDecryption(em, CustomerLabel, {
+    const commandInput = labelCreateCommandSchema.parse({
       tenantId: auth.tenantId,
       organizationId,
       userId: actorUserId,
       slug,
-    }, {}, { tenantId: auth.tenantId, organizationId })
-    if (existing) {
-      throw new CrudHttpError(409, { error: translate('customers.errors.label_duplicate', 'A label with this slug already exists') })
-    }
+      label: body.label,
+    } satisfies LabelCreateCommandInput)
 
-    const label = em.create(CustomerLabel, {
-      tenantId: auth.tenantId,
-      organizationId,
-      userId: actorUserId,
-      slug,
-      label: body.label.trim(),
-    })
-    em.persist(label)
-    await em.flush()
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const { result, logEntry } = await commandBus.execute<LabelCreateCommandInput, { labelId: string; slug: string; label: string }>(
+      'customers.labels.create',
+      {
+        input: commandInput,
+        ctx: {
+          container,
+          auth,
+          organizationScope: scope,
+          selectedOrganizationId: organizationId,
+          organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+          request: req,
+        },
+      },
+    )
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
@@ -227,14 +231,29 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json({
-      id: label.id,
-      slug: label.slug,
-      label: label.label,
+    const response = NextResponse.json({
+      id: result.labelId,
+      slug: result.slug,
+      label: result.label,
     }, { status: 201 })
+    if (logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.label',
+          resourceId: logEntry.resourceId ?? result.labelId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : new Date().toISOString(),
+        }),
+      )
+    }
+    return response
   } catch (err) {
     if (isMissingCustomerLabelTable(err)) {
-      const migrationError = createMissingCustomerLabelTablesError()
+      const migrationError = await createMissingCustomerLabelTablesError()
       return NextResponse.json(migrationError.body, { status: migrationError.status })
     }
     if (err instanceof CrudHttpError) {

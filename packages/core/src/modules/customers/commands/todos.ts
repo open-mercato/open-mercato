@@ -172,7 +172,8 @@ async function loadLegacyTodoDetail(
   let queryEngine: QueryEngine | null = null
   try {
     queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
-  } catch {
+  } catch (err) {
+    console.warn('[customers.commands.todos] queryEngine resolve failed; returning null legacy detail', err)
     queryEngine = null
   }
   if (!queryEngine) return null

@@ -1,5 +1,6 @@
 import { TableNotFoundException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const CUSTOMER_LABEL_TABLES = [
   'customer_labels',
@@ -24,8 +25,12 @@ export function isMissingCustomerLabelTable(error: unknown): boolean {
   return CUSTOMER_LABEL_TABLES.some((tableName) => message.includes(tableName))
 }
 
-export function createMissingCustomerLabelTablesError(): CrudHttpError {
+export async function createMissingCustomerLabelTablesError(): Promise<CrudHttpError> {
+  const { translate } = await resolveTranslations()
   return new CrudHttpError(503, {
-    error: 'Customer label tables are missing. Run yarn db:migrate.',
+    error: translate(
+      'customers.errors.customer_label_tables_missing',
+      'Customer label tables are missing. Run yarn db:migrate.',
+    ),
   })
 }

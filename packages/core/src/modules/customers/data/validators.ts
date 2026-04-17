@@ -484,12 +484,29 @@ export const updateKindSettingSchema = z.object({
 
 export type UpdateKindSettingInput = z.infer<typeof updateKindSettingSchema>
 
+export const customerKindSettingsUpsertSchema = scopedSchema.extend({
+  kind: z.string().trim().min(1).max(100),
+  selectionMode: z.enum(['single', 'multi']).optional(),
+  visibleInTags: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+})
+
+export type CustomerKindSettingsUpsertInput = z.infer<typeof customerKindSettingsUpsertSchema>
+
 export const labelCreateSchema = z.object({
   label: z.string().trim().min(1).max(120),
   slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/).optional(),
 })
 
 export type LabelCreateInput = z.infer<typeof labelCreateSchema>
+
+export const labelCreateCommandSchema = scopedSchema.extend({
+  label: z.string().trim().min(1).max(120),
+  slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9_-]+$/),
+  userId: uuid(),
+})
+
+export type LabelCreateCommandInput = z.infer<typeof labelCreateCommandSchema>
 
 export const labelAssignmentSchema = z.object({
   labelId: z.string().uuid(),

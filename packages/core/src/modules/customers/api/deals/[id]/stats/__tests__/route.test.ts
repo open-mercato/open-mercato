@@ -34,6 +34,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({
+    translate: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}))
+
 describe('GET /api/customers/deals/[id]/stats', () => {
   beforeEach(() => {
     jest.resetModules()
@@ -148,16 +154,16 @@ describe('GET /api/customers/deals/[id]/stats', () => {
         id: '550e8400-e29b-41d4-a716-446655440010',
         name: 'Mid-market pipeline',
       })
+      .mockResolvedValueOnce({
+        id: 'loss-reason-1',
+        label: 'Pricing',
+        value: 'Pricing',
+        dictionary: {
+          key: 'sales.deal_loss_reason',
+        },
+      })
 
     mockEm.count.mockResolvedValueOnce(2)
-    mockEm.findOne.mockResolvedValue({
-      id: 'loss-reason-1',
-      label: 'Pricing',
-      value: 'Pricing',
-      dictionary: {
-        key: 'sales.deal_loss_reason',
-      },
-    })
 
     const { GET } = await import('../route')
     const response = await GET(

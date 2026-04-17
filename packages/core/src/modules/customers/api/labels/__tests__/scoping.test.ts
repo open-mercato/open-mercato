@@ -19,10 +19,16 @@ const commandBus = {
   execute: (...args: unknown[]) => commandBusExecuteMock(...args),
 }
 
+const userHasAllFeaturesMock = jest.fn()
+const rbacService = {
+  userHasAllFeatures: (...args: unknown[]) => userHasAllFeaturesMock(...args),
+}
+
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'commandBus') return commandBus
+    if (name === 'rbacService') return rbacService
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -87,6 +93,7 @@ describe('customer label route scoping', () => {
     em.flush.mockResolvedValue(undefined)
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    userHasAllFeaturesMock.mockResolvedValue(true)
     commandBusExecuteMock.mockResolvedValue({
       result: {
         assignmentId: '77777777-7777-4777-8777-777777777777',
@@ -97,12 +104,14 @@ describe('customer label route scoping', () => {
     })
   })
 
-  it('requires manage access for label assignment writes', () => {
-    expect(assignMetadata.POST.requireFeatures).toEqual(['customers.people.manage'])
-    expect(unassignMetadata.POST.requireFeatures).toEqual(['customers.people.manage'])
+  it('requires authentication for label assignment writes', () => {
+    expect(assignMetadata.POST.requireAuth).toBe(true)
+    expect(unassignMetadata.POST.requireAuth).toBe(true)
+    expect((assignMetadata.POST as { requireFeatures?: string[] }).requireFeatures).toBeUndefined()
+    expect((unassignMetadata.POST as { requireFeatures?: string[] }).requireFeatures).toBeUndefined()
   })
 
-  it('assigns label with person resourceKind and scoped mutation guard', async () => {
+  it('assigns label with person resourceKind and checks customers.people.manage', async () => {
     em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'person' })
 
     const response = await assignLabel(
@@ -114,6 +123,11 @@ describe('customer label route scoping', () => {
     )
 
     expect(response.status).toBe(201)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+      userId,
+      ['customers.people.manage'],
+      { tenantId, organizationId },
+    )
     expect(commandBusExecuteMock).toHaveBeenCalledWith(
       'customers.labels.assign',
       expect.objectContaining({
@@ -144,7 +158,7 @@ describe('customer label route scoping', () => {
     )
   })
 
-  it('assigns label with company resourceKind when entity kind is company', async () => {
+  it('assigns label with company resourceKind and checks customers.companies.manage', async () => {
     em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'company' })
 
     const response = await assignLabel(
@@ -156,6 +170,11 @@ describe('customer label route scoping', () => {
     )
 
     expect(response.status).toBe(201)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+      userId,
+      ['customers.companies.manage'],
+      { tenantId, organizationId },
+    )
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
       expect.objectContaining({
@@ -165,7 +184,24 @@ describe('customer label route scoping', () => {
     )
   })
 
-  it('unassigns label with scoped mutation guard', async () => {
+  it('returns 403 when actor lacks the kind-appropriate manage feature', async () => {
+    em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'company' })
+    userHasAllFeaturesMock.mockResolvedValueOnce(false)
+
+    const response = await assignLabel(
+      new Request('http://localhost/api/customers/labels/assign', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ labelId, entityId, organizationId }),
+      }),
+    )
+
+    expect(response.status).toBe(403)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+  })
+
+  it('unassigns label with scoped mutation guard and kind-appropriate feature check', async () => {
     em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'person' })
 
     const response = await unassignLabel(
@@ -177,6 +213,11 @@ describe('customer label route scoping', () => {
     )
 
     expect(response.status).toBe(200)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(
+      userId,
+      ['customers.people.manage'],
+      { tenantId, organizationId },
+    )
     expect(commandBusExecuteMock).toHaveBeenCalledWith(
       'customers.labels.unassign',
       expect.objectContaining({
@@ -200,5 +241,22 @@ describe('customer label route scoping', () => {
       }),
     )
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
+  })
+
+  it('unassign returns 403 when actor lacks the kind-appropriate manage feature', async () => {
+    em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'company' })
+    userHasAllFeaturesMock.mockResolvedValueOnce(false)
+
+    const response = await unassignLabel(
+      new Request('http://localhost/api/customers/labels/unassign', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ labelId, entityId, organizationId }),
+      }),
+    )
+
+    expect(response.status).toBe(403)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
   })
 })

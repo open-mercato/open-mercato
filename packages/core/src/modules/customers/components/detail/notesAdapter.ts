@@ -5,7 +5,34 @@ import { mapCommentSummary, type NotesDataAdapter } from '@open-mercato/ui/backe
 
 type Translator = (key: string, fallback?: string, params?: Record<string, string | number>) => string
 
-export function createCustomerNotesAdapter(translator: Translator): NotesDataAdapter {
+export type CustomerNotesGuardedMutation = <T>(
+  runner: () => Promise<T>,
+  payload?: Record<string, unknown>,
+) => Promise<T>
+
+export type CreateCustomerNotesAdapterOptions = {
+  /**
+   * Threads writes through a guarded mutation runner (typically
+   * `useGuardedMutation(...).runMutation` wrapped with retry context).
+   * When provided, the runner enables record-lock conflict retry and
+   * ensures global injection modules receive the mutation lifecycle.
+   */
+  runMutation?: CustomerNotesGuardedMutation
+}
+
+export function createCustomerNotesAdapter(
+  translator: Translator,
+  options: CreateCustomerNotesAdapterOptions = {},
+): NotesDataAdapter {
+  const runWrite = async <T>(
+    runner: () => Promise<T>,
+    payload: Record<string, unknown>,
+  ): Promise<T> => {
+    if (options.runMutation) {
+      return options.runMutation(runner, payload)
+    }
+    return runner()
+  }
   return {
     list: async ({ entityId, dealId }) => {
       const params = new URLSearchParams()
@@ -44,20 +71,24 @@ export function createCustomerNotesAdapter(translator: Translator): NotesDataAda
       }
     },
     create: async ({ entityId, body, appearanceIcon, appearanceColor, dealId }) => {
-      const response = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/customers/comments',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            entityId,
-            body,
-            appearanceIcon: appearanceIcon ?? undefined,
-            appearanceColor: appearanceColor ?? undefined,
-            dealId: dealId ?? undefined,
-          }),
-        },
-        { errorMessage: translator('customers.people.detail.notes.error') },
+      const requestBody = {
+        entityId,
+        body,
+        appearanceIcon: appearanceIcon ?? undefined,
+        appearanceColor: appearanceColor ?? undefined,
+        dealId: dealId ?? undefined,
+      }
+      const response = await runWrite(
+        () => apiCallOrThrow<Record<string, unknown>>(
+          '/api/customers/comments',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          },
+          { errorMessage: translator('customers.people.detail.notes.error') },
+        ),
+        { operation: 'createNote', entityId, dealId: dealId ?? null },
       )
       return response.result ?? {}
     },
@@ -66,24 +97,30 @@ export function createCustomerNotesAdapter(translator: Translator): NotesDataAda
       if (patch.body !== undefined) payload.body = patch.body
       if (patch.appearanceIcon !== undefined) payload.appearanceIcon = patch.appearanceIcon
       if (patch.appearanceColor !== undefined) payload.appearanceColor = patch.appearanceColor
-      await apiCallOrThrow(
-        '/api/customers/comments',
-        {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        },
-        { errorMessage: translator('customers.people.detail.notes.updateError') },
+      await runWrite(
+        () => apiCallOrThrow(
+          '/api/customers/comments',
+          {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: translator('customers.people.detail.notes.updateError') },
+        ),
+        { operation: 'updateNote', id },
       )
     },
     delete: async ({ id }) => {
-      await apiCallOrThrow(
-        `/api/customers/comments?id=${encodeURIComponent(id)}`,
-        {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-        },
-        { errorMessage: translator('customers.people.detail.notes.deleteError', 'Failed to delete note') },
+      await runWrite(
+        () => apiCallOrThrow(
+          `/api/customers/comments?id=${encodeURIComponent(id)}`,
+          {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+          },
+          { errorMessage: translator('customers.people.detail.notes.deleteError', 'Failed to delete note') },
+        ),
+        { operation: 'deleteNote', id },
       )
     },
   }

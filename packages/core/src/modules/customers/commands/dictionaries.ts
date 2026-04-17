@@ -114,7 +114,8 @@ async function invalidateCache(
   let cache: CacheStrategy | undefined
   try {
     cache = (ctx.container.resolve('cache') as CacheStrategy)
-  } catch {
+  } catch (err) {
+    console.warn('[customers.commands.dictionaries] cache resolve failed; skipping invalidation', err)
     cache = undefined
   }
   if (!cache) return
@@ -352,7 +353,7 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
     const parsed = customerDictionaryEntryUpdateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadSnapshot(em, parsed.id, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
@@ -538,7 +539,7 @@ const deleteDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryDelete
     const parsed = customerDictionaryEntryDeleteSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadSnapshot(em, parsed.id, {
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,

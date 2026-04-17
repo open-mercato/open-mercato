@@ -14,10 +14,26 @@ const em = {
 
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
+const commandBusExecuteMock = jest.fn()
+
+const container = {
+  resolve: jest.fn((name: string) => {
+    if (name === 'em') return em
+    if (name === 'commandBus') return { execute: (...args: unknown[]) => commandBusExecuteMock(...args) }
+    throw new Error(`Unexpected container resolve: ${name}`)
+  }),
+}
 
 const context = {
-  container: {},
-  ctx: {},
+  container,
+  ctx: {
+    container,
+    auth: { tenantId, sub: userId },
+    organizationScope: null,
+    selectedOrganizationId: organizationId,
+    organizationIds: [organizationId],
+    request: null,
+  },
   auth: { tenantId, sub: userId },
   em,
   organizationId,
@@ -36,6 +52,23 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (emInstance: typeof em, entity: unknown, filters: unknown, opts?: Record<string, unknown>) => {
+    const hasOpts = opts && Object.keys(opts).length > 0
+    return hasOpts ? emInstance.find(entity, filters, opts) : emInstance.find(entity, filters)
+  },
+  findOneWithDecryption: (emInstance: typeof em, entity: unknown, filters: unknown, opts?: Record<string, unknown>) => {
+    const hasOpts = opts && Object.keys(opts).length > 0
+    return hasOpts ? emInstance.findOne(entity, filters, opts) : emInstance.findOne(entity, filters)
+  },
+}))
+
+jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({
+  readJsonSafe: async (req: Request, fallback: unknown) => {
+    try { return await req.json() } catch { return fallback }
+  },
+}))
+
 import { POST as reorderEntries } from '../reorder/route'
 import { POST as setDefaultEntry } from '../set-default/route'
 
@@ -46,6 +79,10 @@ describe('dictionary entry custom write routes', () => {
     em.flush.mockResolvedValue(undefined)
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    commandBusExecuteMock.mockResolvedValue({
+      result: { dictionaryId, updatedIds: [entryId], entryId, clearedIds: [] },
+      logEntry: null,
+    })
   })
 
   it('runs the mutation guard when reordering entries', async () => {

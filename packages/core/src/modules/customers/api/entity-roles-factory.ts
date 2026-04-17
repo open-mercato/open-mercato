@@ -9,6 +9,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerEntity, CustomerEntityRole } from '../data/entities'
 import { entityRoleCreateSchema, entityRoleUpdateSchema, entityRoleDeleteSchema, type EntityRoleCreateInput, type EntityRoleUpdateInput, type EntityRoleDeleteInput } from '../data/validators'
 import { withScopedPayload } from './utils'
@@ -45,14 +46,16 @@ const errorSchema = z.object({ error: z.string() })
 
 type EntityType = 'company' | 'person'
 
+type Translator = Awaited<ReturnType<typeof resolveTranslations>>['translate']
+
 function getRoleContext(entityType: EntityType, entityId: string) {
   const resourceKind = entityType === 'company' ? 'customers.company' : 'customers.person'
   return { entityType, entityId, resourceKind, resourceId: entityId }
 }
 
-function buildValidationErrorResponse(error: z.ZodError) {
+function buildValidationErrorResponse(error: z.ZodError, translate: Translator) {
   return NextResponse.json(
-    { error: 'Validation failed', fieldErrors: error.flatten().fieldErrors },
+    { error: translate('customers.errors.validationFailed', 'Validation failed'), fieldErrors: error.flatten().fieldErrors },
     { status: 400 },
   )
 }
@@ -100,10 +103,41 @@ function ensureRouteOrganizationAccess(
   organizationId: string,
   scope: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['scope'],
   auth: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['auth'],
+  translate: Translator,
 ) {
   const allowedOrgIds = collectAllowedOrganizationIds(scope, auth)
   if (allowedOrgIds.size > 0 && !allowedOrgIds.has(organizationId)) {
-    throw new CrudHttpError(403, { error: 'Access denied' })
+    throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+  }
+}
+
+async function ensureFeatureOnOrganization(
+  container: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['container'],
+  auth: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['auth'],
+  feature: string,
+  organizationId: string,
+  translate: Translator,
+) {
+  const actorId = resolveAuthActorId(auth)
+  if (!actorId) {
+    throw new CrudHttpError(401, { error: translate('customers.errors.unauthorized', 'Unauthorized') })
+  }
+  let rbac: RbacService | undefined
+  try {
+    rbac = container.resolve('rbacService') as RbacService | undefined
+  } catch (err) {
+    console.warn('[customers.entity-roles-factory] rbacService resolve failed', err)
+    rbac = undefined
+  }
+  if (!rbac) {
+    throw new CrudHttpError(500, { error: translate('customers.errors.internal', 'Internal error') })
+  }
+  const hasFeature = await rbac.userHasAllFeatures(actorId, [feature], {
+    tenantId: auth.tenantId,
+    organizationId,
+  })
+  if (!hasFeature) {
+    throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
   }
 }
 
@@ -113,18 +147,19 @@ async function resolveEntityRouteScope(
   scope: Awaited<ReturnType<typeof resolveCustomersRequestContext>>['scope'],
   entityType: EntityType,
   entityId: string,
+  translate: Translator,
 ) {
   const entity = await findOneWithDecryption(
     em,
     CustomerEntity,
     { id: entityId, kind: entityType, tenantId: auth.tenantId, deletedAt: null },
     undefined,
-    { tenantId: auth.tenantId, organizationId: null },
+    { tenantId: auth.tenantId, organizationId: scope?.selectedId ?? auth.orgId ?? null },
   )
   if (!entity || entity.tenantId !== auth.tenantId) {
-    throw new CrudHttpError(404, { error: 'Customer not found' })
+    throw new CrudHttpError(404, { error: translate('customers.errors.customer_not_found', 'Customer not found') })
   }
-  ensureRouteOrganizationAccess(entity.organizationId, scope, auth)
+  ensureRouteOrganizationAccess(entity.organizationId, scope, auth, translate)
   return {
     entity,
     organizationId: entity.organizationId,
@@ -139,13 +174,14 @@ async function resolveRoleRouteScope(
   entityType: EntityType,
   entityId: string,
   roleId: string,
+  translate: Translator,
 ) {
   const role = await findOneWithDecryption(
     em,
     CustomerEntityRole,
     { id: roleId, tenantId: auth.tenantId, entityType, entityId, deletedAt: null },
     undefined,
-    { tenantId: auth.tenantId, organizationId: null },
+    { tenantId: auth.tenantId, organizationId: scope?.selectedId ?? auth.orgId ?? null },
   )
   if (
     !role ||
@@ -153,9 +189,9 @@ async function resolveRoleRouteScope(
     role.entityType !== entityType ||
     role.entityId !== entityId
   ) {
-    throw new CrudHttpError(404, { error: 'Role not found' })
+    throw new CrudHttpError(404, { error: translate('customers.errors.role_not_found', 'Role not found') })
   }
-  ensureRouteOrganizationAccess(role.organizationId, scope, auth)
+  ensureRouteOrganizationAccess(role.organizationId, scope, auth, translate)
   return {
     role,
     organizationId: role.organizationId,
@@ -236,10 +272,11 @@ export function createEntityRolesHandlers(entityType: EntityType) {
   const logPrefix = entityType === 'company' ? 'customers.company.roles' : 'customers.person.roles'
 
   async function GET(request: Request, { params }: { params: { id: string } }) {
+    const { translate } = await resolveTranslations()
     try {
       const { id: entityId } = paramsSchema.parse(params)
       const { em, auth, scope } = await buildContext(request)
-      const targetScope = await resolveEntityRouteScope(em, auth, scope, entityType, entityId)
+      const targetScope = await resolveEntityRouteScope(em, auth, scope, entityType, entityId, translate)
 
       const roles = await findWithDecryption(
         em,
@@ -301,18 +338,19 @@ export function createEntityRolesHandlers(entityType: EntityType) {
       })
     } catch (err) {
       if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
-      if (err instanceof z.ZodError) return buildValidationErrorResponse(err)
+      if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.get failed`, err)
-      return NextResponse.json({ error: 'Failed to load roles' }, { status: 500 })
+      return NextResponse.json({ error: translate('customers.errors.failed_to_load_roles', 'Failed to load roles') }, { status: 500 })
     }
   }
 
   async function POST(request: Request, { params }: { params: { id: string } }) {
+    const { translate } = await resolveTranslations()
     try {
       const { id: entityId } = paramsSchema.parse(params)
       const { container, em, auth, scope, ctx } = await buildContext(request)
-      const { translate } = await resolveTranslations()
-      const targetScope = await resolveEntityRouteScope(em, auth, scope, entityType, entityId)
+      const targetScope = await resolveEntityRouteScope(em, auth, scope, entityType, entityId, translate)
+      await ensureFeatureOnOrganization(container, auth, 'customers.roles.manage', targetScope.organizationId, translate)
       const commandCtx = createScopedCommandContext(ctx, targetScope.organizationId)
 
       const rawBody = await readJsonSafe<Record<string, unknown>>(request, {})
@@ -357,19 +395,20 @@ export function createEntityRolesHandlers(entityType: EntityType) {
       )
     } catch (err) {
       if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
-      if (err instanceof z.ZodError) return buildValidationErrorResponse(err)
+      if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.post failed`, err)
-      return NextResponse.json({ error: 'Failed to assign role' }, { status: 500 })
+      return NextResponse.json({ error: translate('customers.errors.failed_to_assign_role', 'Failed to assign role') }, { status: 500 })
     }
   }
 
   async function PUT(request: Request, { params }: { params: { id: string } }) {
+    const { translate } = await resolveTranslations()
     try {
       const { id: entityId } = paramsSchema.parse(params)
       const { roleId } = roleIdQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
       const { container, em, auth, scope, ctx } = await buildContext(request)
-      const { translate } = await resolveTranslations()
-      const targetScope = await resolveRoleRouteScope(em, auth, scope, entityType, entityId, roleId)
+      const targetScope = await resolveRoleRouteScope(em, auth, scope, entityType, entityId, roleId, translate)
+      await ensureFeatureOnOrganization(container, auth, 'customers.roles.manage', targetScope.organizationId, translate)
       const commandCtx = createScopedCommandContext(ctx, targetScope.organizationId)
 
       const rawBody = await readJsonSafe<Record<string, unknown>>(request, {})
@@ -414,18 +453,20 @@ export function createEntityRolesHandlers(entityType: EntityType) {
       )
     } catch (err) {
       if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
-      if (err instanceof z.ZodError) return buildValidationErrorResponse(err)
+      if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.put failed`, err)
-      return NextResponse.json({ error: 'Failed to update role' }, { status: 500 })
+      return NextResponse.json({ error: translate('customers.errors.failed_to_update_role', 'Failed to update role') }, { status: 500 })
     }
   }
 
   async function DELETE(request: Request, { params }: { params: { id: string } }) {
+    const { translate } = await resolveTranslations()
     try {
       const { id: entityId } = paramsSchema.parse(params)
       const { roleId } = roleIdQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
       const { container, em, auth, scope, ctx } = await buildContext(request)
-      const targetScope = await resolveRoleRouteScope(em, auth, scope, entityType, entityId, roleId)
+      const targetScope = await resolveRoleRouteScope(em, auth, scope, entityType, entityId, roleId, translate)
+      await ensureFeatureOnOrganization(container, auth, 'customers.roles.manage', targetScope.organizationId, translate)
       const commandCtx = createScopedCommandContext(ctx, targetScope.organizationId)
 
       const parsed = entityRoleDeleteSchema.parse(
@@ -436,7 +477,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
             tenantId: targetScope.tenantId,
           },
           commandCtx,
-          () => 'Organization context is required',
+          translate,
         ),
       )
       const guardUserId = resolveAuthActorId(auth)
@@ -468,9 +509,9 @@ export function createEntityRolesHandlers(entityType: EntityType) {
       )
     } catch (err) {
       if (err instanceof CrudHttpError) return NextResponse.json(err.body, { status: err.status })
-      if (err instanceof z.ZodError) return buildValidationErrorResponse(err)
+      if (err instanceof z.ZodError) return buildValidationErrorResponse(err, translate)
       console.error(`${logPrefix}.delete failed`, err)
-      return NextResponse.json({ error: 'Failed to delete role' }, { status: 500 })
+      return NextResponse.json({ error: translate('customers.errors.failed_to_delete_role', 'Failed to delete role') }, { status: 500 })
     }
   }
 

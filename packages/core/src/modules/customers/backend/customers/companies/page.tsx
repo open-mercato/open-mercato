@@ -486,6 +486,7 @@ export default function CustomersCompaniesPage() {
     })
     if (!confirmed) return false
     let deletedCount = 0
+    const failedIds: string[] = []
     for (const row of selectedRows) {
       try {
         await apiCallOrThrow(`/api/customers/companies?id=${encodeURIComponent(row.id)}`, {
@@ -493,16 +494,32 @@ export default function CustomersCompaniesPage() {
           headers: { 'content-type': 'application/json' },
         })
         deletedCount++
-      } catch {}
+      } catch (err) {
+        failedIds.push(row.id)
+        console.warn('[customers.companies.list] bulk delete failed', row.id, err)
+      }
     }
     if (deletedCount > 0) {
       setRows((prev) => {
-        const deletedIds = new Set(selectedRows.map((r) => r.id))
-        return prev.filter((r) => !deletedIds.has(r.id))
+        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
+        return prev.filter((r) => !succeeded.has(r.id))
       })
       setTotal((prev) => Math.max(0, prev - deletedCount))
-      flash(t('customers.companies.list.bulkDelete.success', '{count} companies deleted', { count: deletedCount }), 'success')
+      if (failedIds.length === 0) {
+        flash(t('customers.companies.list.bulkDelete.success', '{count} companies deleted', { count: deletedCount }), 'success')
+      } else {
+        flash(
+          t('customers.companies.list.bulkDelete.partial', '{deleted} of {total} companies deleted; {failed} failed', {
+            deleted: deletedCount,
+            total: selectedRows.length,
+            failed: failedIds.length,
+          }),
+          'warning',
+        )
+      }
       setReloadToken((prev) => prev + 1)
+    } else if (failedIds.length > 0) {
+      flash(t('customers.companies.list.bulkDelete.failed', 'Failed to delete {count} companies', { count: failedIds.length }), 'error')
     }
     return deletedCount > 0
   }, [confirm, t])

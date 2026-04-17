@@ -312,7 +312,7 @@ export function DealLinkedEntitiesTab({
         entries.forEach((entry) => next.set(entry.id, entry))
         return next
       })
-    }).catch(() => {})
+    }).catch((err) => console.warn('[DealLinkedEntitiesTab] fetchEntitiesByIds failed', err))
     return () => {
       cancelled = true
     }

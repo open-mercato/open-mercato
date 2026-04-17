@@ -16,6 +16,7 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 
 const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
 const iconSchema = z.string().trim().min(1).max(48)
@@ -205,7 +206,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
       throw new CrudHttpError(400, { error: context.translate('customers.errors.organization_required', 'Organization context is required') })
     }
     const { mappedKind } = mapDictionaryKind(ctx.params?.kind)
-    const body = postSchema.parse(await req.json().catch(() => ({})))
+    const body = postSchema.parse(await readJsonSafe(req, {}))
     const guardUserId = resolveDictionaryActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,

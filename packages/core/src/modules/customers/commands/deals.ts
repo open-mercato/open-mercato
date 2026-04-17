@@ -42,9 +42,6 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { resolveNotificationService } from '../../notifications/lib/notificationService'
-import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
-import { notificationTypes } from '../notifications'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../lib/dealStageTransitionTable'
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
@@ -369,49 +366,58 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const stageSnapshot = parsed.pipelineStageId
-      ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, parsed.tenantId, parsed.organizationId)
-      : null
-    const resolvedPipelineStageLabel = stageSnapshot
-      ? (await ensureDictionaryEntry(em, {
-        tenantId: parsed.tenantId,
-        organizationId: parsed.organizationId,
-        kind: 'pipeline_stage',
-        value: stageSnapshot.label,
-      }))?.value ?? stageSnapshot.label
-      : parsed.pipelineStage ?? null
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
-    const deal = em.create(CustomerDeal, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      title: parsed.title,
-      description: parsed.description ?? null,
-      status: parsed.status ?? 'open',
-      pipelineStage: resolvedPipelineStageLabel,
-      pipelineId: parsed.pipelineId ?? null,
-      pipelineStageId: parsed.pipelineStageId ?? null,
-      valueAmount: toNumericString(parsed.valueAmount),
-      valueCurrency: parsed.valueCurrency ?? null,
-      probability: parsed.probability ?? null,
-      expectedCloseAt: parsed.expectedCloseAt ?? null,
-      ownerUserId: parsed.ownerUserId ?? null,
-      source: parsed.source ?? null,
-      closureOutcome: parsed.closureOutcome ?? null,
-      lossReasonId: parsed.lossReasonId ?? null,
-      lossNotes: parsed.lossNotes ?? null,
-    })
-    em.persist(deal)
-
-    await em.flush()
+    let deal!: CustomerDeal
+    let stageSnapshot: PipelineStageSnapshot | null = null
+    let resolvedPipelineStageLabel: string | null = null
     await withAtomicFlush(em, [
       async () => {
-        if (!stageSnapshot) return
+        stageSnapshot = parsed.pipelineStageId
+          ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, parsed.tenantId, parsed.organizationId)
+          : null
+        resolvedPipelineStageLabel = stageSnapshot
+          ? (await ensureDictionaryEntry(em, {
+            tenantId: parsed.tenantId,
+            organizationId: parsed.organizationId,
+            kind: 'pipeline_stage',
+            value: stageSnapshot.label,
+          }))?.value ?? stageSnapshot.label
+          : parsed.pipelineStage ?? null
+      },
+      () => {
+        deal = em.create(CustomerDeal, {
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          title: parsed.title,
+          description: parsed.description ?? null,
+          status: parsed.status ?? 'open',
+          pipelineStage: resolvedPipelineStageLabel,
+          pipelineId: parsed.pipelineId ?? null,
+          pipelineStageId: parsed.pipelineStageId ?? null,
+          valueAmount: toNumericString(parsed.valueAmount),
+          valueCurrency: parsed.valueCurrency ?? null,
+          probability: parsed.probability ?? null,
+          expectedCloseAt: parsed.expectedCloseAt ?? null,
+          ownerUserId: parsed.ownerUserId ?? null,
+          source: parsed.source ?? null,
+          closureOutcome: parsed.closureOutcome ?? null,
+          lossReasonId: parsed.lossReasonId ?? null,
+          lossNotes: parsed.lossNotes ?? null,
+        })
+        em.persist(deal)
+      },
+    ], { transaction: true })
+
+    await withAtomicFlush(em, [
+      async () => {
+        const snapshot = stageSnapshot
+        if (!snapshot) return
         await upsertDealStageTransition(em, {
           deal,
-          pipelineId: stageSnapshot.pipelineId,
-          stageId: stageSnapshot.id,
-          stageLabel: stageSnapshot.label,
-          stageOrder: stageSnapshot.order,
+          pipelineId: snapshot.pipelineId,
+          stageId: snapshot.id,
+          stageLabel: snapshot.label,
+          stageOrder: snapshot.order,
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
@@ -485,7 +491,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   id: 'customers.deals.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadDealSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -500,30 +506,30 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
 
     const previousStatus = record.status
     const previousPipelineStageId = record.pipelineStageId ?? null
-    const nextStageSnapshot = parsed.pipelineStageId
-      ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, record.tenantId, record.organizationId)
-      : null
-    const nextPipelineStageLabel = nextStageSnapshot
-      ? (await ensureDictionaryEntry(em, {
-        tenantId: record.tenantId,
-        organizationId: record.organizationId,
-        kind: 'pipeline_stage',
-        value: nextStageSnapshot.label,
-      }))?.value ?? nextStageSnapshot.label
-      : null
-    const resolvedCurrentPipelineStageLabel =
-      !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
-        ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
-        : null
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
 
-    const shouldRecordStageTransition =
-      parsed.pipelineStageId !== undefined &&
-      parsed.pipelineStageId !== null &&
-      parsed.pipelineStageId !== previousPipelineStageId &&
-      !!nextStageSnapshot
+    let nextStageSnapshot: PipelineStageSnapshot | null = null
+    let nextPipelineStageLabel: string | null = null
+    let resolvedCurrentPipelineStageLabel: string | null = null
 
     await withAtomicFlush(em, [
+      async () => {
+        nextStageSnapshot = parsed.pipelineStageId
+          ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, record.tenantId, record.organizationId)
+          : null
+        nextPipelineStageLabel = nextStageSnapshot
+          ? (await ensureDictionaryEntry(em, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+            kind: 'pipeline_stage',
+            value: nextStageSnapshot.label,
+          }))?.value ?? nextStageSnapshot.label
+          : null
+        resolvedCurrentPipelineStageLabel =
+          !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
+            ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
+            : null
+      },
       () => {
         if (parsed.title !== undefined) record.title = parsed.title
         if (parsed.description !== undefined) record.description = parsed.description ?? null
@@ -549,13 +555,19 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
       },
       async () => {
-        if (!shouldRecordStageTransition || !nextStageSnapshot) return
+        const snapshot = nextStageSnapshot
+        if (!snapshot) return
+        const shouldRecord =
+          parsed.pipelineStageId !== undefined &&
+          parsed.pipelineStageId !== null &&
+          parsed.pipelineStageId !== previousPipelineStageId
+        if (!shouldRecord) return
         await upsertDealStageTransition(em, {
           deal: record,
-          pipelineId: nextStageSnapshot.pipelineId,
-          stageId: nextStageSnapshot.id,
-          stageLabel: nextPipelineStageLabel ?? nextStageSnapshot.label,
-          stageOrder: nextStageSnapshot.order,
+          pipelineId: snapshot.pipelineId,
+          stageId: snapshot.id,
+          stageLabel: nextPipelineStageLabel ?? snapshot.label,
+          stageOrder: snapshot.order,
           transitionedByUserId: normalizedTransitionAuthorUserId,
         })
       },
@@ -587,37 +599,31 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       events: dealCrudEvents,
     })
 
-    // Send notifications for deal won/lost status changes
+    // Emit a lifecycle event for deal won/lost status changes; the notifications
+    // subscriber translates these into recipient notifications.
     const newStatus = record.status
     const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
-    if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost') && record.ownerUserId) {
+    if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost')) {
+      const closureEvent = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'
       try {
-        const notificationService = resolveNotificationService(ctx.container)
-        const notificationType = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'
-        const typeDef = notificationTypes.find((type) => type.type === notificationType)
-        if (typeDef) {
-          const valueDisplay = record.valueAmount && record.valueCurrency
-            ? `${record.valueCurrency} ${record.valueAmount}`
-            : ''
-
-          const notificationInput = buildNotificationFromType(typeDef, {
-            recipientUserId: record.ownerUserId,
-            bodyVariables: {
-              dealTitle: record.title,
-              dealValue: valueDisplay,
+        const eventBus = ctx.container.resolve('eventBus') as { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> } | undefined
+        if (eventBus) {
+          await eventBus.emitEvent(
+            closureEvent,
+            {
+              id: record.id,
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              ownerUserId: record.ownerUserId ?? null,
+              title: record.title,
+              valueAmount: record.valueAmount ?? null,
+              valueCurrency: record.valueCurrency ?? null,
             },
-            sourceEntityType: 'customers:customer_deal',
-            sourceEntityId: record.id,
-            linkHref: `/backend/customers/deals/${record.id}`,
-          })
-
-          await notificationService.create(notificationInput, {
-            tenantId: record.tenantId,
-            organizationId: record.organizationId,
-          })
+            { persistent: true },
+          )
         }
       } catch (err) {
-        console.warn('[customers.deals.update] notification send failed', err)
+        console.warn('[customers.deals.update] deal closure event emit failed', closureEvent, err)
       }
     }
 
@@ -761,7 +767,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     id: 'customers.deals.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Deal id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadDealSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },

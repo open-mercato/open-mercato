@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Activity, Building2, History, NotebookPen, Paperclip, Users } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
 
 export type DealTabId =
   | 'activities'
@@ -121,23 +122,25 @@ export function DealDetailTabs({
           {allTabs.map((tab) => {
             const isActive = activeTab === tab.id
             return (
-              <button
+              <Button
                 key={tab.id}
                 type="button"
+                variant="ghost"
+                size="sm"
                 role="tab"
                 aria-selected={isActive}
                 onClick={() => onTabChange(tab.id)}
                 className={cn(
-                  'inline-flex h-10 shrink-0 items-center border-b-2 pb-3 pt-1 text-sm transition-colors',
+                  'h-auto shrink-0 rounded-none border-b-2 px-3 py-2.5 hover:bg-transparent',
                   isActive
-                    ? 'border-foreground font-semibold text-foreground'
+                    ? 'border-foreground text-foreground font-semibold'
                     : 'border-transparent text-muted-foreground hover:text-foreground',
                 )}
               >
                 {tab.icon ? <span className="mr-1.5">{tab.icon}</span> : null}
                 {tab.label}
                 {tab.badge}
-              </button>
+              </Button>
             )
           })}
         </nav>

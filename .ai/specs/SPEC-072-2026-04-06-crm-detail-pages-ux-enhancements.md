@@ -856,9 +856,71 @@ Pin an activity:
 
 ---
 
+## Migration & Backward Compatibility
+
+This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol requirement for every PR that touches contract surfaces. The feat/crm-details-screens branch introduces:
+
+### New contract surfaces (purely additive — no deprecation bridge required)
+
+| Surface | Addition | Notes |
+| ------- | -------- | ----- |
+| Event IDs | `customers.label.{created,updated,deleted}` | Per-user label CRUD events |
+| Event IDs | `customers.label_assignment.{created,updated,deleted}` | Emitted by `customers.labels.assign`/`unassign` commands |
+| Event IDs | `customers.person_company_link.{created,updated,deleted}` | Emitted by `customers.personCompanyLinks.*` commands |
+| Event IDs | `customers.entity_role.{created,updated,deleted}` | Emitted by `customers.entityRoles.*` commands |
+| Event IDs | `customers.deal.{won,lost}` (lifecycle) | Emitted on deal-status transition; notification side effect now lives in a subscriber (see H10 below) |
+| Event IDs | `dictionaries.entry.{created,updated,deleted}` | New `dictionaries/events.ts` declares the module's own events |
+| Commands | `customers.labels.create` | Wraps the previously-inline POST at `/api/customers/labels` with full undo/audit/events/index refresh |
+| Commands | `customers.entityRoles.create/update/delete` | Create-command result gained `wasUndelete`, `previousUserId`, `previousDeletedAt` (additive) so undo can restore a prior soft-delete |
+| Commands | `customers.personCompanyLinks.create/update/delete` | New |
+| Commands | `dictionaries.entries.reorder`, `dictionaries.entries.set_default` | New — atomic `withAtomicFlush` + event emission; replace what were direct route mutations |
+| API routes | `/api/customers/labels`, `/api/customers/labels/assign`, `/api/customers/labels/unassign` | New POSTs |
+| API routes | `/api/customers/companies/[id]/roles`, `/api/customers/people/[id]/roles` | New CRUD endpoints |
+| API routes | `/api/customers/companies/[id]/people`, `/api/customers/deals/[id]/companies`, `/api/customers/deals/[id]/people`, `/api/customers/deals/[id]/stats`, `/api/customers/assignable-staff`, `/api/customers/interactions/conflicts`, `/api/customers/interactions/counts`, `/api/customers/people/[id]/companies/*` | New read endpoints |
+| API routes | `/api/customers/dictionaries/kind-settings` | New |
+| API routes | `/api/dictionaries/[dictionaryId]/entries/reorder`, `/api/dictionaries/[dictionaryId]/entries/set-default` | New (POST) |
+| DB tables | `customer_entity_roles`, `customer_person_company_links`, `customer_person_company_roles`, `customer_dictionary_kind_settings`, `customer_labels`, `customer_label_assignments`, `customer_company_billing`, `customer_deal_stage_transitions` | All new; not referenced by existing third-party module code |
+| DB columns | `dictionary_entries.position`, `dictionary_entries.is_default` | Added with defaults (`0` / `false`) + partial unique index on `is_default WHERE deleted_at IS NULL` |
+| ACL features | `customers.roles.view`, `customers.roles.manage` | New; mirrored in `setup.ts` `defaultRoleFeatures` |
+
+No existing event IDs, spot IDs, API URLs, DB columns, DI names, ACL features, import paths, or type fields were removed or renamed. Additive response fields on `companies/[id]` and `people/[id]` (e.g. `counts`, `kpis`, `plannedActivitiesPreview`, `companies[]`, `isPrimary`, `temperature`, `renewalQuarter`, new `deals[].pipelineId`/`pipelineStageId`/`closureOutcome`/`lossReasonId`/`lossNotes`) preserve all pre-existing fields.
+
+### Behavioral contract change — query engine `eq` on joined entities (non-breaking; encryption-aware)
+
+`BasicQueryEngine` (`packages/shared/src/lib/query/engine.ts`) and `HybridQueryEngine` (`packages/core/src/modules/query_index/lib/engine.ts`) now route `eq` filters on joined entities to tokenized search when both (a) `searchEnabled` is set on the query, and (b) the joined entity has search tokens installed. Non-searchable columns or `searchEnabled=false` still lower to exact SQL equality. The change unblocks filtering encrypted joined columns whose ciphertext cannot be compared for equality in SQL. Token match is approximate — callers that need strict equality on an encrypted field should filter on the deterministic `*_hash` column. Documented in `RELEASE_NOTES.md` → "Non-Breaking Changes".
+
+### withAtomicFlush transaction contract fix
+
+`packages/shared/src/lib/commands/flush.ts` switched from `em.transactional(cb)` to explicit `em.begin() → em.commit() / em.rollback()` so the outer `EntityManager` stays bound to the transaction and phase closures that reference the caller's `em` participate correctly. Empty `phases` is now a true no-op (no flush, no transaction). Call sites on this branch were audited; test mocks now include `em.begin/commit/rollback`.
+
+### Label assign/unassign feature-gate semantics (H10 in review)
+
+Prior static metadata (`requireFeatures: ['customers.people.manage']`) mismatched the reality that labels can target both person and company entities. Now the routes declare only `requireAuth: true` at the metadata layer and runtime-check the kind-appropriate feature (`customers.people.manage` for persons, `customers.companies.manage` for companies) against the resolved entity's organization. Callers with both features see no change. Callers with only one feature see the correct 403/allow outcome for the correct entity kind (previously denied legitimate access and/or permitted illegitimate access).
+
+### Deal-closure notification moved to a subscriber
+
+The deals update command previously called `resolveNotificationService(...)` + `buildNotificationFromType(...)` directly for won/lost status changes — a cross-module import violating the "commands emit, subscribers react" rule. The command now emits `customers.deal.{won,lost}` events; two new subscribers under `packages/core/src/modules/customers/subscribers/` translate each event into the same notification payload. The notification contract (recipient, body, link, source-entity metadata) is unchanged.
+
+### Entity-role per-org feature check
+
+`entity-roles-factory.ts` now invokes `rbacService.userHasAllFeatures(actorId, ['customers.roles.manage'], { tenantId, organizationId: entity.organizationId })` after resolving the target entity, in addition to the declarative `requireFeatures` metadata check. Tenants that grant `customers.roles.manage` per-organization will now see access correctly scoped to the entity's actual org; the previous behavior only validated that the entity's org was visible at all.
+
+### Deprecation bridges
+
+None required — the branch only adds surfaces or repairs under-specified behavior; no old surface was removed. When the legacy POST at `/api/customers/labels` was reshaped to delegate to the new `customers.labels.create` command, the URL, HTTP method, request body schema, response body schema, and status codes are preserved exactly; only the internal pipeline now flows through `commandBus.execute`.
+
+### Consumer migration guidance
+
+Third-party modules need no migration to keep working. Consumers that want to:
+- **Subscribe to label/link/role/deal-closure events**: the new event IDs are declared and typed via `customers/events.ts` and `dictionaries/events.ts` (type-safe `emit` / workflow-trigger discovery).
+- **Filter encrypted joined columns by `eq`**: works now when `searchEnabled` is set on the query (previously silently returned no rows).
+- **Undo a role create that resurrected a soft-deleted row**: works correctly now — earlier behavior would have re-inserted the role instead of restoring the prior soft-delete.
+- **Use `withAtomicFlush({ transaction: true })`**: the outer `em` is now genuinely bound to the transaction; earlier implementation allowed operations on `em` to escape the transaction under certain MikroORM versions.
+
 ## Changelog
 
 | Date | Change |
 | ---- | ------ |
+| 2026-04-17 | Rev 3: Added "Migration & Backward Compatibility" section covering every new contract surface introduced by the feat/crm-details-screens branch (new events, new commands, new routes, new tables, ACL features). Documented query engine `eq` semantic routing, `withAtomicFlush` transaction fix, label feature-gate kind-scoping, entity-role undelete undo, per-org feature check, and deals→notifications event-bus refactor |
 | 2026-04-06 | Rev 2: Applied technical review — added Scope Classification, Out of Scope, form ownership contracts, stage transition rules, domain effects boundaries, v1 constraints, UMES extension boundary, Decisions to Confirm, additional risks, accessibility fixes |
 | 2026-04-06 | Initial draft based on UX/UI meeting (2 April 2026) |

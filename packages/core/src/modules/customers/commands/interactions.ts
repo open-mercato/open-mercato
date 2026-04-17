@@ -172,13 +172,17 @@ async function emitLifecycleEvent(
   let bus: { emitEvent(event: string, payload: unknown, options?: unknown): Promise<void> } | null = null
   try {
     bus = ctx.container.resolve('eventBus')
-  } catch {
+  } catch (err) {
+    console.warn('[customers.commands.interactions] eventBus resolve failed; skipping emit', eventId, err)
     bus = null
   }
   if (!bus) return
   await bus
     .emitEvent(eventId, payload, { persistent: true })
-    .catch(() => undefined)
+    .catch((err) => {
+      console.warn('[customers.commands.interactions] emit failed', eventId, err)
+      return undefined
+    })
 }
 
 async function emitInteractionRevertedEvent(
@@ -388,7 +392,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   id: 'customers.interactions.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(interactionUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -588,7 +592,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
   id: 'customers.interactions.complete',
   async prepare(rawInput, ctx) {
     const parsed = interactionCompleteSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -720,7 +724,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
   id: 'customers.interactions.cancel',
   async prepare(rawInput, ctx) {
     const parsed = interactionCancelSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshot = await loadInteractionSnapshot(em, parsed.id)
     return snapshot ? { before: snapshot } : {}
   },
@@ -850,7 +854,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
     id: 'customers.interactions.delete',
     async prepare(input, ctx) {
       const id = requireId(input, 'Interaction id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshot = await loadInteractionSnapshot(em, id)
       return snapshot ? { before: snapshot } : {}
     },

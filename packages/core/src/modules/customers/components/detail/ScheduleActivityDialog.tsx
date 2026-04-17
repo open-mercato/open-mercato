@@ -13,6 +13,7 @@ import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   useScheduleFormState,
   FIELD_VISIBILITY,
@@ -59,6 +60,77 @@ export function ScheduleActivityDialog({
   const t = useT()
   const state = useScheduleFormState({ open, editData: editData ?? null })
   const visibleFields = FIELD_VISIBILITY[state.activityType]
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+
+  const formSnapshot = React.useMemo(() => JSON.stringify({
+    activityType: state.activityType,
+    title: state.title,
+    date: state.date,
+    startTime: state.startTime,
+    duration: state.duration,
+    allDay: state.allDay,
+    description: state.description,
+    location: state.location,
+    reminderMinutes: state.reminderMinutes,
+    visibility: state.visibility,
+    participants: state.participants,
+    linkedEntities: state.linkedEntities,
+    recurrenceEnabled: state.recurrenceEnabled,
+    recurrenceDays: state.recurrenceDays,
+    recurrenceEndType: state.recurrenceEndType,
+    recurrenceCount: state.recurrenceCount,
+    recurrenceEndDate: state.recurrenceEndDate,
+    guestPermissions: state.guestPermissions,
+  }), [
+    state.activityType, state.title, state.date, state.startTime, state.duration, state.allDay,
+    state.description, state.location, state.reminderMinutes, state.visibility, state.participants,
+    state.linkedEntities, state.recurrenceEnabled, state.recurrenceDays, state.recurrenceEndType,
+    state.recurrenceCount, state.recurrenceEndDate, state.guestPermissions,
+  ])
+  const initialSnapshotRef = React.useRef<string | null>(null)
+  const snapshotOpenKeyRef = React.useRef<string | null>(null)
+  const snapshotSettleCountRef = React.useRef(0)
+  const openKey = open ? `${editData?.id ?? 'new'}` : null
+  React.useEffect(() => {
+    if (!open) {
+      initialSnapshotRef.current = null
+      snapshotOpenKeyRef.current = null
+      snapshotSettleCountRef.current = 0
+      return
+    }
+    if (snapshotOpenKeyRef.current !== openKey) {
+      snapshotOpenKeyRef.current = openKey
+      snapshotSettleCountRef.current = 0
+      initialSnapshotRef.current = null
+    }
+    if (snapshotSettleCountRef.current < 2) {
+      initialSnapshotRef.current = formSnapshot
+      snapshotSettleCountRef.current += 1
+    }
+  }, [open, openKey, formSnapshot])
+
+  const isDirty = React.useCallback(() => {
+    if (initialSnapshotRef.current == null) return false
+    return initialSnapshotRef.current !== formSnapshot
+  }, [formSnapshot])
+
+  const guardedClose = React.useCallback(async () => {
+    if (!isDirty()) {
+      onClose()
+      return
+    }
+    const ok = await confirm({
+      title: t('customers.schedule.discardConfirm.title', 'Discard unsaved changes?'),
+      description: t(
+        'customers.schedule.discardConfirm.description',
+        'You have unsaved edits in this activity. Save them first or continue to discard them.',
+      ),
+      confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
+      cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
+      variant: 'destructive',
+    })
+    if (ok) onClose()
+  }, [confirm, isDirty, onClose, t])
 
   const mutationContextId = React.useMemo(
     () => `customer-activity:${entityType}:${entityId}`,
@@ -204,7 +276,8 @@ export function ScheduleActivityDialog({
   }, [handleSave])
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose() }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
+      {ConfirmDialogElement}
       <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[680px] sm:rounded-[16px] [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
         <VisuallyHidden>
           <DialogTitle>{editData ? t('customers.schedule.editTitle', 'Edit activity') : t('customers.schedule.title', 'Schedule activity')}</DialogTitle>
@@ -226,7 +299,7 @@ export function ScheduleActivityDialog({
               </div>
             )}
           </div>
-          <IconButton type="button" variant="ghost" size="sm" onClick={onClose} className="flex size-[36px] shrink-0 items-center justify-center rounded-[8px] border border-border bg-background" aria-label={t('customers.schedule.cancel', 'Cancel')}>
+          <IconButton type="button" variant="ghost" size="sm" onClick={() => { void guardedClose() }} className="flex size-[36px] shrink-0 items-center justify-center rounded-[8px] border border-border bg-background" aria-label={t('customers.schedule.cancel', 'Cancel')}>
             <X className="size-[16px] text-muted-foreground" />
           </IconButton>
         </div>
@@ -367,7 +440,7 @@ export function ScheduleActivityDialog({
 
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-end gap-[10px] border-t border-border bg-muted/50 px-[24px] py-[18px]">
-          <Button type="button" variant="outline" onClick={onClose} className="rounded-[10px] border border-input bg-background px-[20px] py-[11px] text-sm font-semibold text-foreground">
+          <Button type="button" variant="outline" onClick={() => { void guardedClose() }} className="rounded-[10px] border border-input bg-background px-[20px] py-[11px] text-sm font-semibold text-foreground">
             {t('customers.schedule.cancel', 'Cancel')}
           </Button>
           <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-[8px] rounded-[10px] bg-primary px-[22px] py-[11px] text-sm font-semibold text-primary-foreground disabled:opacity-50">

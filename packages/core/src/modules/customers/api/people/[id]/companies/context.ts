@@ -28,12 +28,12 @@ export async function loadPersonContext(req: Request, personId: string) {
   const person = await findOneWithDecryption(
     em,
     CustomerEntity,
-    { id: personId, kind: 'person', deletedAt: null },
+    { id: personId, kind: 'person', tenantId: authenticatedAuth.tenantId, deletedAt: null },
     {},
     decryptionScope,
   )
 
-  if (!person || person.tenantId !== authenticatedAuth.tenantId) {
+  if (!person) {
     throw new CrudHttpError(404, { error: translate('customers.errors.person_not_found', 'Person not found') })
   }
 
@@ -48,7 +48,7 @@ export async function loadPersonContext(req: Request, personId: string) {
   const profile = await findOneWithDecryption(
     em,
     CustomerPersonProfile,
-    { entity: person },
+    { entity: person, tenantId: person.tenantId, organizationId: person.organizationId },
     { populate: ['company'] },
     {
       tenantId: person.tenantId,

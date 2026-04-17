@@ -4,15 +4,20 @@ import { TableNotFoundException } from '@mikro-orm/core'
 import { CustomerDictionaryKindSetting } from '../../../data/entities'
 import { resolveDictionaryRouteContext } from '../context'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { resolveAuthActorId } from '@open-mercato/core/modules/customers/lib/interactionRequestContext'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import {
+  customerKindSettingsUpsertSchema,
+  type CustomerKindSettingsUpsertInput,
+} from '../../../data/validators'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -110,30 +115,30 @@ export async function PATCH(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const em = (context.em as EntityManager).fork()
-    let setting = await findOneWithDecryption(em, CustomerDictionaryKindSetting, {
+    const commandInput: CustomerKindSettingsUpsertInput = customerKindSettingsUpsertSchema.parse({
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       kind: payload.kind,
-    }, {}, { tenantId: context.tenantId, organizationId: context.organizationId })
+      selectionMode: payload.selectionMode,
+      visibleInTags: payload.visibleInTags,
+      sortOrder: payload.sortOrder,
+    })
 
-    if (!setting) {
-      setting = em.create(CustomerDictionaryKindSetting, {
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-        kind: payload.kind,
-        selectionMode: payload.selectionMode ?? 'single',
-        visibleInTags: payload.visibleInTags ?? true,
-        sortOrder: payload.sortOrder ?? 0,
-      })
-      em.persist(setting)
-    } else {
-      if (payload.selectionMode !== undefined) setting.selectionMode = payload.selectionMode
-      if (payload.visibleInTags !== undefined) setting.visibleInTags = payload.visibleInTags
-      if (payload.sortOrder !== undefined) setting.sortOrder = payload.sortOrder
-    }
-
-    await em.flush()
+    const commandBus = context.container.resolve('commandBus') as CommandBus
+    const { result, logEntry } = await commandBus.execute<
+      CustomerKindSettingsUpsertInput,
+      {
+        settingId: string
+        created: boolean
+        kind: string
+        selectionMode: string
+        visibleInTags: boolean
+        sortOrder: number
+      }
+    >('customers.dictionaryKindSettings.upsert', {
+      input: commandInput,
+      ctx: context.ctx,
+    })
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(context.container, {
@@ -149,13 +154,28 @@ export async function PATCH(req: Request) {
       })
     }
 
-    return NextResponse.json({
-      id: setting.id,
-      kind: setting.kind,
-      selectionMode: setting.selectionMode,
-      visibleInTags: setting.visibleInTags,
-      sortOrder: setting.sortOrder,
+    const response = NextResponse.json({
+      id: result.settingId,
+      kind: result.kind,
+      selectionMode: result.selectionMode,
+      visibleInTags: result.visibleInTags,
+      sortOrder: result.sortOrder,
     })
+    if (logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.dictionaryKindSetting',
+          resourceId: logEntry.resourceId ?? result.settingId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : new Date().toISOString(),
+        }),
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

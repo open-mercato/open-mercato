@@ -75,7 +75,7 @@ function copyToClipboard(text: string, t: ReturnType<typeof useT>) {
     .then(() => {
       flash(t('customers.companies.detail.copied', 'Copied to clipboard'), 'success')
     })
-    .catch(() => {})
+    .catch((err) => console.warn('[CompanyCard] clipboard write failed', err))
 }
 
 function formatRelativeTime(isoDate: string, t: ReturnType<typeof useT>): string {

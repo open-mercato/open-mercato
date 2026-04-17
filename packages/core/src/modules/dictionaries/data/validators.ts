@@ -81,8 +81,24 @@ export const reorderDictionaryEntriesSchema = z.object({
 
 export type ReorderDictionaryEntriesInput = z.infer<typeof reorderDictionaryEntriesSchema>
 
+export const reorderDictionaryEntriesCommandSchema = reorderDictionaryEntriesSchema.extend({
+  dictionaryId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+})
+
+export type ReorderDictionaryEntriesCommandInput = z.infer<typeof reorderDictionaryEntriesCommandSchema>
+
 export const setDefaultDictionaryEntrySchema = z.object({
   entryId: z.string().uuid(),
 })
 
 export type SetDefaultDictionaryEntryInput = z.infer<typeof setDefaultDictionaryEntrySchema>
+
+export const setDefaultDictionaryEntryCommandSchema = setDefaultDictionaryEntrySchema.extend({
+  dictionaryId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+})
+
+export type SetDefaultDictionaryEntryCommandInput = z.infer<typeof setDefaultDictionaryEntryCommandSchema>

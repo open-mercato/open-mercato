@@ -13,11 +13,20 @@ const em = {
 
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
+const commandBusExecuteMock = jest.fn()
+
+const commandBus = { execute: commandBusExecuteMock }
 
 jest.mock('../../context', () => ({
   resolveDictionaryRouteContext: jest.fn(async () => ({
     auth: { tenantId, sub: userId },
-    container: {},
+    container: { resolve: (token: string) => (token === 'commandBus' ? commandBus : {}) },
+    ctx: {
+      container: { resolve: (token: string) => (token === 'commandBus' ? commandBus : {}) },
+      auth: { tenantId, sub: userId },
+      organizationId,
+      tenantId,
+    },
     translate: (_key: string, fallback?: string) => fallback ?? 'error',
     em,
     organizationId,
@@ -47,6 +56,17 @@ describe('customer dictionary kind settings route', () => {
     em.flush.mockResolvedValue(undefined)
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    commandBusExecuteMock.mockResolvedValue({
+      result: {
+        settingId: '44444444-4444-4444-8444-444444444444',
+        created: true,
+        kind: 'status',
+        selectionMode: 'single',
+        visibleInTags: false,
+        sortOrder: 0,
+      },
+      logEntry: null,
+    })
   })
 
   it('returns an empty list when the kind settings table is not installed yet', async () => {
@@ -88,7 +108,7 @@ describe('customer dictionary kind settings route', () => {
     expect(metadata.PATCH.requireFeatures).toEqual(['customers.settings.manage'])
     expect(response.status).toBe(200)
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
-      {},
+      expect.objectContaining({ resolve: expect.any(Function) }),
       expect.objectContaining({
         tenantId,
         organizationId,
@@ -99,7 +119,7 @@ describe('customer dictionary kind settings route', () => {
       }),
     )
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
-      {},
+      expect.objectContaining({ resolve: expect.any(Function) }),
       expect.objectContaining({
         tenantId,
         organizationId,
@@ -107,6 +127,17 @@ describe('customer dictionary kind settings route', () => {
         resourceKind: 'customers.settings',
         resourceId: organizationId,
         operation: 'custom',
+      }),
+    )
+    expect(commandBusExecuteMock).toHaveBeenCalledWith(
+      'customers.dictionaryKindSettings.upsert',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          tenantId,
+          organizationId,
+          kind: 'status',
+          visibleInTags: false,
+        }),
       }),
     )
   })

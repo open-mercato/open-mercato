@@ -304,7 +304,7 @@ export function PersonCompaniesSection({
         entries.forEach((entry) => next.set(entry.id, entry))
         return next
       })
-    }).catch(() => {})
+    }).catch((err) => console.warn('[PersonCompaniesSection] fetchCompaniesByIds failed', err))
     return () => {
       cancelled = true
     }

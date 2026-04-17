@@ -84,6 +84,7 @@ export async function GET(req: Request) {
       baseQuery.where('status', query.status)
     }
 
+    // Raw SELECT: reads only unencrypted columns (id, interaction_type); title/notes are excluded to avoid ciphertext leakage.
     const rows = await baseQuery
       .select('interaction_type')
       .count('* as count')

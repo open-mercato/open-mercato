@@ -14,8 +14,10 @@ import {
 } from '../data/entities'
 import {
   labelAssignCommandSchema,
+  labelCreateCommandSchema,
   labelUnassignCommandSchema,
   type LabelAssignCommandInput,
+  type LabelCreateCommandInput,
   type LabelUnassignCommandInput,
 } from '../data/validators'
 import {
@@ -41,6 +43,21 @@ type LabelAssignmentUndoPayload = {
   after?: LabelAssignmentSnapshot | null
 }
 
+type LabelSnapshot = {
+  id: string
+  slug: string
+  label: string
+  userId: string
+  tenantId: string
+  organizationId: string
+  createdAt: string
+}
+
+type LabelUndoPayload = {
+  before?: LabelSnapshot | null
+  after?: LabelSnapshot | null
+}
+
 const labelAssignmentCrudEvents: CrudEventsConfig = {
   module: 'customers',
   entity: 'label_assignment',
@@ -51,6 +68,38 @@ const labelAssignmentCrudEvents: CrudEventsConfig = {
     tenantId: ctx.identifiers.tenantId,
     ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
   }),
+}
+
+const labelCrudEvents: CrudEventsConfig = {
+  module: 'customers',
+  entity: 'label',
+  persistent: true,
+  buildPayload: (ctx) => ({
+    id: ctx.identifiers.id,
+    organizationId: ctx.identifiers.organizationId,
+    tenantId: ctx.identifiers.tenantId,
+    ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
+  }),
+}
+
+function getLabelIdentifiers(label: CustomerLabel) {
+  return {
+    id: label.id,
+    organizationId: label.organizationId,
+    tenantId: label.tenantId,
+  }
+}
+
+function toLabelSnapshot(label: CustomerLabel): LabelSnapshot {
+  return {
+    id: label.id,
+    slug: label.slug,
+    label: label.label,
+    userId: label.userId,
+    tenantId: label.tenantId,
+    organizationId: label.organizationId,
+    createdAt: label.createdAt.toISOString(),
+  }
 }
 
 function resolveActorUserId(ctx: { auth: { sub?: string | null; userId?: string | null; keyId?: string | null; isApiKey?: boolean } | null }): string | null {
@@ -85,6 +134,116 @@ function getAssignmentIdentifiers(assignment: CustomerLabelAssignment) {
     organizationId: assignment.organizationId,
     tenantId: assignment.tenantId,
   }
+}
+
+const createLabelCommand: CommandHandler<LabelCreateCommandInput, { labelId: string; slug: string; label: string }> = {
+  id: 'customers.labels.create',
+  async execute(rawInput, ctx) {
+    const parsed = labelCreateCommandSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const duplicate = await findOneWithDecryption(
+      em,
+      CustomerLabel,
+      {
+        tenantId: parsed.tenantId,
+        organizationId: parsed.organizationId,
+        userId: parsed.userId,
+        slug: parsed.slug,
+      },
+      undefined,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
+    if (duplicate) {
+      const { translate } = await resolveTranslations()
+      throw new CrudHttpError(409, {
+        error: translate('customers.errors.label_duplicate', 'A label with this slug already exists'),
+      })
+    }
+
+    const label = em.create(CustomerLabel, {
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      userId: parsed.userId,
+      slug: parsed.slug,
+      label: parsed.label.trim(),
+    })
+    em.persist(label)
+    await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: label,
+      identifiers: getLabelIdentifiers(label),
+      syncOrigin: ctx.syncOrigin,
+      events: labelCrudEvents,
+      indexer: { entityType: 'customers:customer_label' },
+    })
+
+    return { labelId: label.id, slug: label.slug, label: label.label }
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = ctx.container.resolve('em') as EntityManager
+    const label = await findOneWithDecryption(
+      em,
+      CustomerLabel,
+      { id: result.labelId },
+      undefined,
+      {
+        tenantId: ctx.auth?.tenantId ?? null,
+        organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+      },
+    )
+    return label ? toLabelSnapshot(label) : null
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const { translate } = await resolveTranslations()
+    const after = snapshots.after as LabelSnapshot | undefined
+    return {
+      actionLabel: translate('customers.audit.labels.create', 'Create label'),
+      resourceKind: 'customers.label',
+      resourceId: result.labelId,
+      tenantId: after?.tenantId ?? null,
+      organizationId: after?.organizationId ?? null,
+      snapshotAfter: after ?? null,
+      payload: {
+        undo: { after: after ?? null } satisfies LabelUndoPayload,
+      },
+    }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<LabelUndoPayload>(logEntry)
+    const after = payload?.after
+    if (!after) return
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const label = await findOneWithDecryption(
+      em,
+      CustomerLabel,
+      { id: after.id },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    if (!label) return
+
+    em.remove(label)
+    await em.flush()
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudUndoSideEffects({
+      dataEngine,
+      action: 'deleted',
+      entity: label,
+      identifiers: getLabelIdentifiers(label),
+      syncOrigin: ctx.syncOrigin,
+      events: labelCrudEvents,
+      indexer: { entityType: 'customers:customer_label' },
+    })
+  },
 }
 
 const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId: string; created: boolean; entityKind: 'person' | 'company' | null }> = {
@@ -166,6 +325,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       identifiers: getAssignmentIdentifiers(assignment),
       syncOrigin: ctx.syncOrigin,
       events: labelAssignmentCrudEvents,
+      indexer: { entityType: 'customers:customer_label_assignment' },
     })
 
     return {
@@ -249,6 +409,7 @@ const assignLabelCommand: CommandHandler<LabelAssignCommandInput, { assignmentId
       identifiers: getAssignmentIdentifiers(assignment),
       syncOrigin: ctx.syncOrigin,
       events: labelAssignmentCrudEvents,
+      indexer: { entityType: 'customers:customer_label_assignment' },
     })
   },
 }
@@ -370,6 +531,7 @@ const unassignLabelCommand: CommandHandler<LabelUnassignCommandInput, { assignme
       identifiers: getAssignmentIdentifiers(existing),
       syncOrigin: ctx.syncOrigin,
       events: labelAssignmentCrudEvents,
+      indexer: { entityType: 'customers:customer_label_assignment' },
     })
 
     return { assignmentId: removedId, entityKind }
@@ -454,9 +616,11 @@ const unassignLabelCommand: CommandHandler<LabelUnassignCommandInput, { assignme
       identifiers: getAssignmentIdentifiers(restored),
       syncOrigin: ctx.syncOrigin,
       events: labelAssignmentCrudEvents,
+      indexer: { entityType: 'customers:customer_label_assignment' },
     })
   },
 }
 
+registerCommand(createLabelCommand)
 registerCommand(assignLabelCommand)
 registerCommand(unassignLabelCommand)

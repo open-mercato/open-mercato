@@ -488,9 +488,13 @@ export default function CustomersDealsPage() {
         const map: Record<string, string> = {}
         items.forEach((p) => { if (p.id && p.name) map[p.id] = p.name })
         setPipelineNames(map)
-      } catch {}
+      } catch (err) {
+        console.warn('[customers.deals.list] failed to load pipelines', err)
+      }
     }
-    loadPipelines().catch(() => {})
+    loadPipelines().catch((err) => {
+      console.warn('[customers.deals.list] loadPipelines threw', err)
+    })
     return () => { cancelled = true }
   }, [reloadToken, scopeVersion])
 
@@ -762,6 +766,7 @@ export default function CustomersDealsPage() {
     })
     if (!confirmed) return false
     let deletedCount = 0
+    const failedIds: string[] = []
     for (const row of selectedRows) {
       try {
         await deleteCrud('customers/deals', {
@@ -769,15 +774,31 @@ export default function CustomersDealsPage() {
           errorMessage: t('customers.deals.list.deleteError', 'Failed to delete deal.'),
         })
         deletedCount++
-      } catch {}
+      } catch (err) {
+        failedIds.push(row.id)
+        console.warn('[customers.deals.list] bulk delete failed', row.id, err)
+      }
     }
     if (deletedCount > 0) {
       setRows((prev) => {
-        const deletedIds = new Set(selectedRows.map((r) => r.id))
-        return prev.filter((r) => !deletedIds.has(r.id))
+        const succeeded = new Set(selectedRows.map((r) => r.id).filter((id) => !failedIds.includes(id)))
+        return prev.filter((r) => !succeeded.has(r.id))
       })
       setTotal((prev) => Math.max(0, prev - deletedCount))
-      flash(t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: deletedCount }), 'success')
+      if (failedIds.length === 0) {
+        flash(t('customers.deals.list.bulkDelete.success', '{count} deals deleted', { count: deletedCount }), 'success')
+      } else {
+        flash(
+          t('customers.deals.list.bulkDelete.partial', '{deleted} of {total} deals deleted; {failed} failed', {
+            deleted: deletedCount,
+            total: selectedRows.length,
+            failed: failedIds.length,
+          }),
+          'warning',
+        )
+      }
+    } else if (failedIds.length > 0) {
+      flash(t('customers.deals.list.bulkDelete.failed', 'Failed to delete {count} deals', { count: failedIds.length }), 'error')
     }
     return deletedCount > 0
   }, [confirm, t])

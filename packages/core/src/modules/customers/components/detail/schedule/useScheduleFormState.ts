@@ -35,7 +35,14 @@ export type ScheduleActivityEditData = {
   guestPermissions?: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
 }
 
-export const PARTICIPANT_COLORS = ['bg-green-500', 'bg-blue-500', 'bg-orange-500', 'bg-purple-500', 'bg-pink-500', 'bg-teal-500']
+export const PARTICIPANT_COLORS = [
+  'bg-chart-emerald',
+  'bg-chart-blue',
+  'bg-chart-orange',
+  'bg-chart-violet',
+  'bg-chart-pink',
+  'bg-chart-teal',
+]
 
 interface UseScheduleFormStateParams {
   open: boolean

@@ -13,22 +13,22 @@ import type { CompanyPersonSummary } from './CompanyPeopleSection'
 import { formatDate, formatFallbackLabel, getInitials } from './utils'
 
 const sourceColorMap: Record<string, string> = {
-  linkedin: 'border-blue-400 text-blue-400',
-  email: 'border-emerald-400 text-emerald-400',
-  web_form: 'border-purple-400 text-purple-400',
-  'web form': 'border-purple-400 text-purple-400',
-  referral: 'border-amber-400 text-amber-400',
-  customer_referral: 'border-amber-400 text-amber-400',
-  'customer referral': 'border-amber-400 text-amber-400',
-  partner_referral: 'border-orange-400 text-orange-400',
-  'partner referral': 'border-orange-400 text-orange-400',
-  event: 'border-pink-400 text-pink-400',
-  'conference/event': 'border-pink-400 text-pink-400',
-  cold_outreach: 'border-slate-400 text-slate-400',
-  'cold outreach': 'border-slate-400 text-slate-400',
-  facebook: 'border-blue-500 text-blue-500',
-  typeform: 'border-violet-400 text-violet-400',
-  other: 'border-slate-400 text-slate-400',
+  linkedin: 'border-status-info-icon text-status-info-icon',
+  email: 'border-status-success-icon text-status-success-icon',
+  web_form: 'border-status-info-icon text-status-info-icon',
+  'web form': 'border-status-info-icon text-status-info-icon',
+  referral: 'border-status-warning-icon text-status-warning-icon',
+  customer_referral: 'border-status-warning-icon text-status-warning-icon',
+  'customer referral': 'border-status-warning-icon text-status-warning-icon',
+  partner_referral: 'border-status-warning-icon text-status-warning-icon',
+  'partner referral': 'border-status-warning-icon text-status-warning-icon',
+  event: 'border-status-info-icon text-status-info-icon',
+  'conference/event': 'border-status-info-icon text-status-info-icon',
+  cold_outreach: 'border-status-neutral-icon text-status-neutral-icon',
+  'cold outreach': 'border-status-neutral-icon text-status-neutral-icon',
+  facebook: 'border-status-info-icon text-status-info-icon',
+  typeform: 'border-status-info-icon text-status-info-icon',
+  other: 'border-status-neutral-icon text-status-neutral-icon',
 }
 
 const temperatureConfig = {
@@ -82,10 +82,10 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
                   variant="ghost"
                   size="sm"
                   onClick={() => onToggleStar(person.id)}
-                  className="h-auto shrink-0 p-0 text-muted-foreground hover:text-amber-500"
+                  className="h-auto shrink-0 p-0 text-muted-foreground hover:text-status-warning-icon"
                   aria-label={t('customers.people.card.toggleStar', 'Toggle star')}
                 >
-                  <Star className={cn('size-3.5', isStarred && 'fill-amber-400 text-amber-400')} />
+                  <Star className={cn('size-3.5', isStarred && 'fill-status-warning-icon text-status-warning-icon')} />
                 </IconButton>
               )}
             </div>

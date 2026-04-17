@@ -58,6 +58,7 @@
   "attachments.library.metadata.tagsPlaceholder": "Dodaj tagi",
   "attachments.library.metadata.title": "Edytuj metadane załącznika",
   "attachments.library.open": "Otwórz szczegóły załącznika",
+  "attachments.library.openMetadata": "Otwórz szczegóły załącznika {name}",
   "attachments.library.table.assignments": "Przypisania",
   "attachments.library.table.created": "Utworzono",
   "attachments.library.table.download": "Pobierz",

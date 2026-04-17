@@ -964,8 +964,9 @@ export function DealForm({
         return sanitizeIdList(
           source.map((entry) => {
             if (typeof entry === 'string') return entry
-            if (entry && typeof entry === 'object' && 'id' in entry && typeof (entry as any).id === 'string') {
-              return (entry as any).id
+            if (entry && typeof entry === 'object' && 'id' in entry) {
+              const candidate = (entry as { id?: unknown }).id
+              if (typeof candidate === 'string') return candidate
             }
             return null
           }),

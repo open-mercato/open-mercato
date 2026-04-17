@@ -58,6 +58,7 @@
   "attachments.library.metadata.tagsPlaceholder": "Agregar etiquetas",
   "attachments.library.metadata.title": "Editar metadatos del archivo adjunto",
   "attachments.library.open": "Abrir detalles del archivo adjunto",
+  "attachments.library.openMetadata": "Abrir detalles del archivo adjunto {name}",
   "attachments.library.table.assignments": "Asignaciones",
   "attachments.library.table.created": "Creado",
   "attachments.library.table.download": "Descargar",

@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { Building2, CalendarClock, Check, ChevronDown, FileText, Save, Trash2, Users, Workflow } from 'lucide-react'
+import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -63,18 +64,28 @@ function formatDate(value: string | null): string | null {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+type HeaderChipVariant = 'info' | 'warning' | 'success' | 'error' | 'neutral'
+
+const headerChipDotVariantClasses: Record<HeaderChipVariant, string> = {
+  info: 'bg-status-info-icon',
+  warning: 'bg-status-warning-icon',
+  success: 'bg-status-success-icon',
+  error: 'bg-status-error-icon',
+  neutral: 'bg-status-neutral-icon',
+}
+
 function HeaderChip({
   children,
   icon,
-  dotColor,
+  variant,
 }: {
   children: React.ReactNode
   icon?: React.ReactNode
-  dotColor?: string
+  variant?: HeaderChipVariant
 }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-[4px] bg-muted px-[8px] py-[4px] text-xs font-medium leading-none text-muted-foreground">
-      {dotColor ? <span className="size-2 rounded-full" style={{ backgroundColor: dotColor }} /> : null}
+      {variant ? <span className={cn('size-2 rounded-full', headerChipDotVariantClasses[variant])} /> : null}
       {icon ? <span className="text-muted-foreground">{icon}</span> : null}
       {children}
     </span>
@@ -251,12 +262,12 @@ export function DealDetailHeader({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {showStatusChip ? (
-              <HeaderChip dotColor="#3b82f6">
+              <HeaderChip variant="info">
                 {statusLabel}
               </HeaderChip>
             ) : null}
             {deal.pipelineStage && !isTerminalPipelineOutcomeLabel(deal.pipelineStage) ? (
-              <HeaderChip dotColor="#f29f12">
+              <HeaderChip variant="warning">
                 {deal.pipelineStage}
               </HeaderChip>
             ) : null}
@@ -266,7 +277,7 @@ export function DealDetailHeader({
               </HeaderChip>
             ) : null}
             {deal.closureOutcome ? (
-              <HeaderChip dotColor={deal.closureOutcome === 'won' ? '#12bd5f' : '#e33239'}>
+              <HeaderChip variant={deal.closureOutcome === 'won' ? 'success' : 'error'}>
                 {deal.closureOutcome === 'won'
                   ? t('customers.deals.detail.badge.won', 'Won')
                   : t('customers.deals.detail.badge.lost', 'Lost')}

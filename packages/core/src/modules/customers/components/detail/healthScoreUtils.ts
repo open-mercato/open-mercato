@@ -3,10 +3,12 @@
  */
 import type { InteractionSummary } from '../formConfig'
 
+export type HealthVariant = 'success' | 'warning' | 'error'
+
 export type HealthScore = {
   score: number
   label: string
-  variant: 'emerald' | 'amber' | 'red'
+  variant: HealthVariant
   lastContactDays: number | null
 }
 
@@ -64,10 +66,10 @@ export function computeHealthScore(interactions: InteractionSummary[]): HealthSc
   )
 
   let label: string
-  let variant: 'emerald' | 'amber' | 'red'
-  if (score >= 70) { label = 'healthy'; variant = 'emerald' }
-  else if (score >= 40) { label = 'watchful'; variant = 'amber' }
-  else { label = 'at risk'; variant = 'red' }
+  let variant: HealthVariant
+  if (score >= 70) { label = 'healthy'; variant = 'success' }
+  else if (score >= 40) { label = 'watchful'; variant = 'warning' }
+  else { label = 'at risk'; variant = 'error' }
 
   return { score, label, variant, lastContactDays: daysSinceContact < 999 ? daysSinceContact : null }
 }
@@ -76,14 +78,14 @@ export function computeHealthScore(interactions: InteractionSummary[]): HealthSc
  * Shared health variant → semantic status token mappings.
  * Used by RelationshipHealthCard and RelationshipHealthWidget.
  */
-export const HEALTH_ICON_CLASSES: Record<HealthScore['variant'], string> = {
-  emerald: 'text-status-success-icon',
-  amber: 'text-status-warning-icon',
-  red: 'text-status-error-icon',
+export const HEALTH_ICON_CLASSES: Record<HealthVariant, string> = {
+  success: 'text-status-success-icon',
+  warning: 'text-status-warning-icon',
+  error: 'text-status-error-icon',
 }
 
-export const HEALTH_BADGE_CLASSES: Record<HealthScore['variant'], string> = {
-  emerald: 'bg-status-success-bg text-status-success-text',
-  amber: 'bg-status-warning-bg text-status-warning-text',
-  red: 'bg-status-error-bg text-status-error-text',
+export const HEALTH_BADGE_CLASSES: Record<HealthVariant, string> = {
+  success: 'bg-status-success-bg text-status-success-text',
+  warning: 'bg-status-warning-bg text-status-warning-text',
+  error: 'bg-status-error-bg text-status-error-text',
 }

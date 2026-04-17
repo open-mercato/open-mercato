@@ -176,12 +176,14 @@ export function AssignRoleDialog({
 
   React.useEffect(() => {
     if (step >= 2) {
+      // fire-and-forget: search results populate async; errors shown in list UI
       searchUsers({ query: deferredSearchQuery, page: 1, append: false }).catch(() => {})
     }
   }, [deferredSearchQuery, searchUsers, step])
 
   const handleLoadMore = React.useCallback(() => {
     if (loading || loadingMore || users.length >= totalUsers) return
+    // fire-and-forget: search results populate async; errors shown in list UI
     searchUsers({
       query: deferredSearchQuery,
       page: currentPage + 1,
@@ -368,11 +370,15 @@ export function AssignRoleDialog({
             {step === 1 ? (
               <div className="space-y-4">
                 <div className="rounded-[12px] bg-muted/30 px-4 py-4">
-                  <p className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <p
+                    id="assign-role-dialog-type-label"
+                    className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+                  >
                     {t('customers.roles.dialog.roleTypeLabel', 'Role type')}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
                     <select
+                      aria-labelledby="assign-role-dialog-type-label"
                       value={selectedRoleType}
                       onChange={(event) => setSelectedRoleType(event.target.value)}
                       className="h-10 w-full rounded-[10px] border border-border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
@@ -391,7 +397,7 @@ export function AssignRoleDialog({
                         variant="outline"
                         className="rounded-[6px] px-2 py-1 text-xs"
                       >
-                        dictionary
+                        {t('customers.roles.dialog.sourceBadge.dictionary', 'Dictionary')}
                       </Badge>
                     ) : null}
                   </div>
@@ -424,7 +430,7 @@ export function AssignRoleDialog({
                           variant="outline"
                           className="rounded-[6px] px-2 py-1 text-xs"
                         >
-                          dictionary
+                          {t('customers.roles.dialog.sourceBadge.dictionary', 'Dictionary')}
                         </Badge>
                       </div>
                     </div>

@@ -68,8 +68,8 @@ export function useCurrencyDictionary() {
   }, [])
 
   const data = entry?.client.getQueryData<CurrencyDictionaryPayload>(QUERY_KEY) ?? null
-  const isLoading = !data && !(result && (result as any).status === 'error')
-  const error = (result && (result as any).status === 'error') ? (result as any).error ?? null : null
+  const isLoading = !data && !(result && result.status === 'error')
+  const error = (result && result.status === 'error') ? result.error ?? null : null
   const refetch = React.useCallback(async () => {
     const current = cache.get(CACHE_KEY)
     const client = current?.client ?? new QueryClient()

@@ -137,7 +137,7 @@ describe('customers.deals.update stage transitions', () => {
       stageTransitions: [] as any,
     }
 
-    const em = {
+    const em: any = {
       getKnex: jest.fn(() => createKnexStub()),
       findOne: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
         if (ctor === CustomerDeal && where.id === existingDeal.id) return existingDeal
@@ -152,6 +152,7 @@ describe('customers.deals.update stage transitions', () => {
         return []
       }),
     }
+    em.fork = jest.fn(() => em)
 
     const dataEngine: Pick<DataEngine, 'setCustomFields' | 'emitOrmEntityEvent'> = {
       setCustomFields: jest.fn(async () => {}),
@@ -236,6 +237,9 @@ describe('customers.deals.update stage transitions', () => {
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
       transactional: jest.fn(async (fn: (inner: typeof em) => Promise<unknown>) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       getReference: jest.fn(),
       remove: jest.fn(),
     }
@@ -333,6 +337,9 @@ describe('customers.deals.update stage transitions', () => {
       persist: jest.fn(() => {}),
       flush: jest.fn(async () => {}),
       transactional: jest.fn(async (fn: (inner: typeof em) => Promise<unknown>) => fn(em)),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
       getReference: jest.fn(),
       remove: jest.fn(),
     }

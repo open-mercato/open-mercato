@@ -1,25 +1,31 @@
 'use client'
 import * as React from 'react'
+import {
+  readJsonFromLocalStorage,
+  writeJsonToLocalStorage,
+} from '@open-mercato/shared/lib/browser/safeLocalStorage'
 
 const STORAGE_PREFIX = 'om:group-order:'
 
-function readOrder(pageType: string): string[] | null {
-  try {
-    const raw = localStorage.getItem(`${STORAGE_PREFIX}${pageType}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : null
-  } catch {
-    return null
-  }
+function getStorageKey(pageType: string) {
+  return `${STORAGE_PREFIX}${pageType}`
 }
 
-function writeOrder(pageType: string, order: string[]) {
-  try {
-    localStorage.setItem(`${STORAGE_PREFIX}${pageType}`, JSON.stringify(order))
-  } catch {
-    // localStorage may be unavailable
+function mergeOrder(saved: string[], defaults: string[]): string[] {
+  const known = new Set(defaults)
+  const result = saved.filter((id) => known.has(id))
+  for (const id of defaults) {
+    if (!result.includes(id)) result.push(id)
   }
+  return result
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 /**
@@ -27,29 +33,27 @@ function writeOrder(pageType: string, order: string[]) {
  * Falls back to the default order when no preference is stored.
  */
 export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
-  const [orderedIds, setOrderedIds] = React.useState<string[]>(() => {
-    const saved = readOrder(pageType)
-    if (!saved) return defaultGroupIds
-    // Merge: keep saved order for known IDs, append any new ones at end
-    const known = new Set(defaultGroupIds)
-    const result = saved.filter((id) => known.has(id))
-    for (const id of defaultGroupIds) {
-      if (!result.includes(id)) result.push(id)
+  const [orderedIds, setOrderedIds] = React.useState<string[]>(defaultGroupIds)
+  const mounted = React.useRef(false)
+
+  React.useEffect(() => {
+    mounted.current = true
+    const saved = readJsonFromLocalStorage<string[] | null>(getStorageKey(pageType), null)
+    if (Array.isArray(saved)) {
+      setOrderedIds(mergeOrder(saved, defaultGroupIds))
     }
-    return result
-  })
+    // Intentionally only runs on mount (per pageType); defaultGroupIds changes are
+    // handled by the sync effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageType])
 
   // Sync when defaultGroupIds changes (e.g. new groups added dynamically)
   React.useEffect(() => {
     setOrderedIds((prev) => {
-      const known = new Set(defaultGroupIds)
-      const merged = prev.filter((id) => known.has(id))
-      for (const id of defaultGroupIds) {
-        if (!merged.includes(id)) merged.push(id)
-      }
-      return merged
+      const merged = mergeOrder(prev, defaultGroupIds)
+      return arraysEqual(prev, merged) ? prev : merged
     })
-  }, [defaultGroupIds.join(',')])
+  }, [defaultGroupIds])
 
   const reorder = React.useCallback(
     (fromIndex: number, toIndex: number) => {
@@ -57,7 +61,9 @@ export function useGroupOrder(pageType: string, defaultGroupIds: string[]) {
         const next = [...prev]
         const [moved] = next.splice(fromIndex, 1)
         next.splice(toIndex, 0, moved)
-        writeOrder(pageType, next)
+        if (mounted.current) {
+          writeJsonToLocalStorage(getStorageKey(pageType), next)
+        }
         return next
       })
     },

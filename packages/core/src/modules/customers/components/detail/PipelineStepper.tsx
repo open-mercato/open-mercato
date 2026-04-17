@@ -165,7 +165,7 @@ export function PipelineStepper({
                 <div
                   className={cn(
                     'h-[2px] flex-1',
-                    isFirst ? 'bg-transparent' : beforeFilled ? 'bg-status-success-icon' : 'bg-[#edeef0] dark:bg-border/80',
+                    isFirst ? 'bg-transparent' : beforeFilled ? 'bg-status-success-icon' : 'bg-border/60',
                   )}
                 />
                 <div
@@ -173,7 +173,7 @@ export function PipelineStepper({
                     'mx-0 flex size-[36px] items-center justify-center rounded-full border-2 text-sm leading-none transition-colors',
                     isCurrent && 'border-foreground bg-background font-bold text-foreground',
                     isCompleted && !isCurrent && 'border-status-success-icon bg-status-success-icon text-white',
-                    isFuture && 'border-[#e4e6ea] bg-background font-medium text-muted-foreground dark:border-border',
+                    isFuture && 'border-border bg-background font-medium text-muted-foreground',
                   )}
                 >
                   {isCompleted ? (
@@ -185,7 +185,7 @@ export function PipelineStepper({
                 <div
                   className={cn(
                     'h-[2px] flex-1',
-                    isLast ? 'bg-transparent' : afterFilled ? 'bg-status-success-icon' : 'bg-[#edeef0] dark:bg-border/80',
+                    isLast ? 'bg-transparent' : afterFilled ? 'bg-status-success-icon' : 'bg-border/60',
                   )}
                 />
               </div>

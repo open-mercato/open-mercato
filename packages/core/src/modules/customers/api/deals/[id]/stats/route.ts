@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerPipeline } from '../../../../data/entities'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
@@ -53,15 +54,16 @@ function calculateSalesCycleDays(createdAt: Date, closedAt: Date): number {
 }
 
 export async function GET(request: Request, context: { params?: Record<string, unknown> }) {
+  const { translate } = await resolveTranslations()
   const parsedParams = paramsSchema.safeParse(context.params)
   if (!parsedParams.success) {
-    return notFound('Deal not found')
+    return notFound(translate('customers.errors.deal_not_found', 'Deal not found'))
   }
 
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(request)
   if (!auth?.sub && !auth?.isApiKey) {
-    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+    return NextResponse.json({ error: translate('customers.errors.authentication_required', 'Authentication required') }, { status: 401 })
   }
 
   let rbac: RbacService | null = null
@@ -72,14 +74,14 @@ export async function GET(request: Request, context: { params?: Record<string, u
   }
 
   if (!rbac || !auth?.sub) {
-    return forbidden('Access denied')
+    return forbidden(translate('customers.errors.access_denied', 'Access denied'))
   }
   const hasFeature = await rbac.userHasAllFeatures(auth.sub, ['customers.deals.view'], {
     tenantId: auth.tenantId ?? null,
     organizationId: auth.orgId ?? null,
   })
   if (!hasFeature) {
-    return forbidden('Access denied')
+    return forbidden(translate('customers.errors.access_denied', 'Access denied'))
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
@@ -87,16 +89,12 @@ export async function GET(request: Request, context: { params?: Record<string, u
   const deal = await findOneWithDecryption(
     em,
     CustomerDeal,
-    { id: parsedParams.data.id, deletedAt: null },
+    { id: parsedParams.data.id, tenantId: auth.tenantId ?? null, deletedAt: null },
     {},
     { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null },
   )
   if (!deal) {
-    return notFound('Deal not found')
-  }
-
-  if (auth.tenantId && deal.tenantId && auth.tenantId !== deal.tenantId) {
-    return notFound('Deal not found')
+    return notFound(translate('customers.errors.deal_not_found', 'Deal not found'))
   }
 
   const allowedOrgIds = new Set<string>()
@@ -108,11 +106,11 @@ export async function GET(request: Request, context: { params?: Record<string, u
     allowedOrgIds.add(auth.orgId)
   }
   if (allowedOrgIds.size && deal.organizationId && !allowedOrgIds.has(deal.organizationId)) {
-    return forbidden('Access denied')
+    return forbidden(translate('customers.errors.access_denied', 'Access denied'))
   }
 
   if (!deal.closureOutcome) {
-    return badRequest('Deal is not closed', 'DEAL_NOT_CLOSED')
+    return badRequest(translate('customers.errors.deal_not_closed', 'Deal is not closed'), 'DEAL_NOT_CLOSED')
   }
 
   const now = new Date()
@@ -143,7 +141,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
     ? await findOneWithDecryption(
       em,
       CustomerPipeline,
-      { id: deal.pipelineId },
+      { id: deal.pipelineId, tenantId: deal.tenantId, organizationId: deal.organizationId },
       {},
       { tenantId: deal.tenantId, organizationId: deal.organizationId },
     )
@@ -151,7 +149,8 @@ export async function GET(request: Request, context: { params?: Record<string, u
 
   let lossReasonLabel: string | null = null
   if (deal.lossReasonId) {
-    const dictionaryEntry = await em.findOne(
+    const dictionaryEntry = await findOneWithDecryption(
+      em,
       DictionaryEntry,
       {
         id: deal.lossReasonId,
@@ -159,6 +158,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
         tenantId: deal.tenantId,
       },
       { populate: ['dictionary'] },
+      { tenantId: deal.tenantId, organizationId: deal.organizationId },
     )
     const dictionaryKey =
       dictionaryEntry?.dictionary &&

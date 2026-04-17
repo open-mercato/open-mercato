@@ -1,10 +1,18 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
+import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
-import { setDefaultDictionaryEntrySchema } from '@open-mercato/core/modules/dictionaries/data/validators'
+import {
+  setDefaultDictionaryEntryCommandSchema,
+  setDefaultDictionaryEntrySchema,
+  type SetDefaultDictionaryEntryCommandInput,
+} from '@open-mercato/core/modules/dictionaries/data/validators'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -35,17 +43,24 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     if (!context.organizationId) {
       throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
     }
-    const dictionary = await context.em.findOne(Dictionary, {
-      id: dictionaryId,
-      organizationId: context.organizationId,
-      tenantId: context.tenantId,
-      deletedAt: null,
-    })
+    const dictionaryEm = context.em.fork()
+    const dictionary = await findOneWithDecryption(
+      dictionaryEm,
+      Dictionary,
+      {
+        id: dictionaryId,
+        organizationId: context.organizationId,
+        tenantId: context.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+    )
     if (!dictionary) {
       throw new CrudHttpError(404, { error: context.translate('dictionaries.errors.not_found', 'Dictionary not found') })
     }
 
-    const payload = setDefaultDictionaryEntrySchema.parse(await req.json().catch(() => ({})))
+    const payload = setDefaultDictionaryEntrySchema.parse(await readJsonSafe(req, {}))
     const guardUserId = resolveDictionaryActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {
       tenantId: context.tenantId,
@@ -62,36 +77,21 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const em = context.em.fork()
+    const commandInput = setDefaultDictionaryEntryCommandSchema.parse({
+      dictionaryId,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      entryId: payload.entryId,
+    } satisfies SetDefaultDictionaryEntryCommandInput)
 
-    // Verify the target entry exists and belongs to this dictionary
-    const targetEntry = await em.findOne(DictionaryEntry, {
-      id: payload.entryId,
-      dictionary,
-      organizationId: dictionary.organizationId,
-      tenantId: dictionary.tenantId,
-    })
-    if (!targetEntry) {
-      throw new CrudHttpError(404, { error: context.translate('dictionaries.errors.entry_not_found', 'Dictionary entry not found') })
-    }
-
-    // Clear all existing defaults for this dictionary atomically
-    const allEntries = await em.find(DictionaryEntry, {
-      dictionary,
-      organizationId: dictionary.organizationId,
-      tenantId: dictionary.tenantId,
-      isDefault: true,
-    })
-    for (const entry of allEntries) {
-      entry.isDefault = false
-      entry.updatedAt = new Date()
-    }
-
-    // Set the target as default
-    targetEntry.isDefault = true
-    targetEntry.updatedAt = new Date()
-
-    await em.flush()
+    const commandBus = context.container.resolve('commandBus') as CommandBus
+    const { logEntry } = await commandBus.execute<SetDefaultDictionaryEntryCommandInput, { dictionaryId: string; entryId: string; clearedIds: string[] }>(
+      'dictionaries.entries.set_default',
+      {
+        input: commandInput,
+        ctx: context.ctx,
+      },
+    )
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(context.container, {
@@ -107,7 +107,22 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
       })
     }
 
-    return NextResponse.json({ ok: true })
+    const response = NextResponse.json({ ok: true })
+    if (logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'dictionaries.dictionary',
+          resourceId: logEntry.resourceId ?? dictionaryId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : new Date().toISOString(),
+        }),
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

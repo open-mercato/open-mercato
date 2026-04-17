@@ -165,7 +165,7 @@ export async function POST(req: Request, ctx: { params?: { id?: string } }) {
     const linkRecord = await findOneWithDecryption(
       freshEm,
       CustomerPersonCompanyLink,
-      { id: result.linkId },
+      { id: result.linkId, tenantId: auth.tenantId, organizationId: selectedOrganizationId },
       { populate: ['company'] },
       { tenantId: auth.tenantId, organizationId: selectedOrganizationId },
     )

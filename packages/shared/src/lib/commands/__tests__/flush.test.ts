@@ -2,17 +2,18 @@ import { withAtomicFlush } from '../flush'
 
 type FakeEntityManager = {
   flush: jest.Mock<Promise<void>, []>
-  transactional: jest.Mock<Promise<void>, [(em: FakeEntityManager) => Promise<void>]>
+  begin: jest.Mock<Promise<void>, []>
+  commit: jest.Mock<Promise<void>, []>
+  rollback: jest.Mock<Promise<void>, []>
 }
 
 function createFakeEm(): FakeEntityManager {
-  const em: FakeEntityManager = {
+  return {
     flush: jest.fn().mockResolvedValue(undefined),
-    transactional: jest.fn(async (cb: (em: FakeEntityManager) => Promise<void>) => {
-      await cb(em)
-    }),
+    begin: jest.fn().mockResolvedValue(undefined),
+    commit: jest.fn().mockResolvedValue(undefined),
+    rollback: jest.fn().mockResolvedValue(undefined),
   }
-  return em
 }
 
 describe('withAtomicFlush', () => {
@@ -36,7 +37,9 @@ describe('withAtomicFlush', () => {
 
     expect(calls).toEqual(['phase1-start', 'phase1-end', 'phase2', 'phase3'])
     expect(em.flush).toHaveBeenCalledTimes(1)
-    expect(em.transactional).not.toHaveBeenCalled()
+    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(em.rollback).not.toHaveBeenCalled()
   })
 
   it('lets a later phase observe state a prior phase mutated', async () => {
@@ -57,18 +60,38 @@ describe('withAtomicFlush', () => {
     expect(em.flush).toHaveBeenCalledTimes(1)
   })
 
-  it('runs inside em.transactional when transaction option is true', async () => {
+  it('wraps phases in begin/commit when transaction option is true', async () => {
     const em = createFakeEm()
     const phase = jest.fn()
 
     await withAtomicFlush(em as any, [phase], { transaction: true })
 
-    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(em.begin).toHaveBeenCalledTimes(1)
     expect(phase).toHaveBeenCalledTimes(1)
     expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(em.rollback).not.toHaveBeenCalled()
   })
 
-  it('propagates a thrown error and does NOT flush when a phase throws', async () => {
+  it('calls rollback when a transactional phase throws', async () => {
+    const em = createFakeEm()
+    const failure = new Error('transactional-failure')
+
+    await expect(
+      withAtomicFlush(em as any, [
+        () => {
+          throw failure
+        },
+      ], { transaction: true }),
+    ).rejects.toBe(failure)
+
+    expect(em.begin).toHaveBeenCalledTimes(1)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates a thrown error and does NOT flush when a phase throws (non-transactional)', async () => {
     const em = createFakeEm()
     const failure = new Error('phase-failure')
 
@@ -89,28 +112,24 @@ describe('withAtomicFlush', () => {
     expect(em.flush).not.toHaveBeenCalled()
   })
 
-  it('propagates a thrown error inside a transaction without flushing', async () => {
-    const em = createFakeEm()
-    const failure = new Error('transactional-failure')
-
-    await expect(
-      withAtomicFlush(em as any, [
-        () => {
-          throw failure
-        },
-      ], { transaction: true }),
-    ).rejects.toBe(failure)
-
-    expect(em.transactional).toHaveBeenCalledTimes(1)
-    expect(em.flush).not.toHaveBeenCalled()
-  })
-
-  it('is a no-op when phases is empty, still calls flush once to keep semantics explicit', async () => {
+  it('is a true no-op when phases is empty — no flush, no transaction', async () => {
     const em = createFakeEm()
 
     await withAtomicFlush(em as any, [])
 
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.begin).not.toHaveBeenCalled()
+  })
+
+  it('is a true no-op when phases is empty even with transaction option', async () => {
+    const em = createFakeEm()
+
+    await withAtomicFlush(em as any, [], { transaction: true })
+
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(em.begin).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(em.rollback).not.toHaveBeenCalled()
   })
 
   it('does not swallow an async rejection from a phase', async () => {
@@ -127,5 +146,21 @@ describe('withAtomicFlush', () => {
     ).rejects.toBe(failure)
 
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('throws the original phase error even if rollback fails', async () => {
+    const em = createFakeEm()
+    em.rollback.mockRejectedValueOnce(new Error('rollback-failed'))
+    const failure = new Error('phase-failure')
+
+    await expect(
+      withAtomicFlush(em as any, [
+        () => {
+          throw failure
+        },
+      ], { transaction: true }),
+    ).rejects.toBe(failure)
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
   })
 })

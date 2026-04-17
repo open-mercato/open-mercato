@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerDeal, CustomerDealPersonLink, CustomerEntity } from '../../../../data/entities'
@@ -63,6 +64,7 @@ export const metadata = {
 }
 
 export async function GET(req: Request, ctx: { params?: { id?: string } }) {
+  const { translate } = await resolveTranslations()
   try {
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
     const auth = await getAuthFromRequest(req)
@@ -87,19 +89,19 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     const deal = await findOneWithDecryption(
       em,
       CustomerDeal,
-      { id, deletedAt: null },
+      { id, tenantId: auth.tenantId, deletedAt: null },
       {},
       decryptionScope,
     )
-    if (!deal || deal.tenantId !== auth.tenantId) {
-      throw new CrudHttpError(404, { error: 'Deal not found' })
+    if (!deal) {
+      throw new CrudHttpError(404, { error: translate('customers.errors.deal_not_found', 'Deal not found') })
     }
 
     const allowedOrgIds = new Set<string>()
     if (scope?.filterIds?.length) scope.filterIds.forEach((entry) => allowedOrgIds.add(entry))
     else if (auth.orgId) allowedOrgIds.add(auth.orgId)
     if (allowedOrgIds.size > 0 && deal.organizationId && !allowedOrgIds.has(deal.organizationId)) {
-      throw new CrudHttpError(403, { error: 'Access denied' })
+      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
     }
 
     const entityScope = { tenantId: deal.tenantId, organizationId: deal.organizationId }

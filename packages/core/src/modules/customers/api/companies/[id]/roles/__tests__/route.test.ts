@@ -8,10 +8,16 @@ const mockCommandBus = {
   execute: jest.fn(),
 }
 
+const userHasAllFeaturesMock = jest.fn(async () => true)
+const mockRbacService = {
+  userHasAllFeatures: (...args: unknown[]) => userHasAllFeaturesMock(...args),
+}
+
 const mockContext = {
   container: {
     resolve: jest.fn((token: string) => {
       if (token === 'commandBus') return mockCommandBus
+      if (token === 'rbacService') return mockRbacService
       throw new Error(`Unexpected token: ${token}`)
     }),
   },
