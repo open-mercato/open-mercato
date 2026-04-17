@@ -78,7 +78,7 @@ function ParticipantSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-[6px] rounded-[999px] border border-emerald-300 bg-emerald-50 px-[10px] py-[6px] text-[12px] font-semibold text-foreground dark:border-emerald-700 dark:bg-emerald-950">
+        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-[6px] rounded-[999px] border border-status-success-border bg-status-success-bg px-[10px] py-[6px] text-xs font-semibold text-foreground">
           <Users className="size-[13px]" />
           {t('customers.schedule.addParticipant', 'Add participant')}
         </Button>
@@ -142,7 +142,7 @@ function ParticipantSearchPopover({
                   alreadyAdded ? 'opacity-40 cursor-default' : 'hover:bg-accent cursor-pointer',
                 )}
               >
-                <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-[10px] font-bold shrink-0">
+                <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-xs font-bold shrink-0">
                   {r.name.charAt(0).toUpperCase()}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
@@ -188,16 +188,16 @@ export function ParticipantsField({
 
   return (
     <div>
-      <label className="text-[11px] font-semibold uppercase text-muted-foreground tracking-[0.5px]">
+      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-[0.5px]">
         {t('customers.schedule.participants', 'Participants')}
       </label>
       <div className="mt-[10px] flex flex-wrap content-center items-center gap-[8px] rounded-[10px] border border-border bg-background px-[12px] py-[10px]">
         {participants.map((p) => (
           <div key={p.userId} className="inline-flex items-center gap-[6px] rounded-[999px] border border-border bg-muted px-[10px] py-[6px]">
-            <span className={cn('inline-flex size-[20px] items-center justify-center rounded-full text-[10px] font-bold text-white', p.color ?? 'bg-primary')}>
+            <span className={cn('inline-flex size-[20px] items-center justify-center rounded-full text-xs font-bold text-white', p.color ?? 'bg-primary')}>
               {p.name.charAt(0).toUpperCase()}
             </span>
-            <span className="text-[12px] text-foreground">{p.name}</span>
+            <span className="text-xs text-foreground">{p.name}</span>
             <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(p.userId)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
               <X className="size-[12px]" />
             </IconButton>
@@ -218,7 +218,7 @@ export function ParticipantsField({
 
       {/* Guest permissions -- shown when participants exist */}
       {participants.length > 0 && (
-        <div className="mt-[12px] flex flex-wrap items-center gap-x-[16px] gap-y-[6px] text-[12px]">
+        <div className="mt-[12px] flex flex-wrap items-center gap-x-[16px] gap-y-[6px] text-xs">
           <span className="font-medium text-muted-foreground">{t('customers.schedule.guestPermissions', 'Guest permissions:')}</span>
           <label className="flex items-center gap-1.5 cursor-pointer">
             <input type="checkbox" checked={guestPermissions.canInviteOthers} onChange={(e) => setGuestPermissions((p) => ({ ...p, canInviteOthers: e.target.checked }))} className="rounded" />
@@ -242,11 +242,11 @@ export function ParticipantsField({
         const declined = participants.filter((p) => p.status === 'declined').length
         if (accepted === 0 && pending === 0 && declined === 0) return null
         return (
-          <div className="mt-[8px] flex items-center gap-[12px] text-[12px]">
+          <div className="mt-[8px] flex items-center gap-[12px] text-xs">
             <span className="text-muted-foreground">{t('customers.schedule.rsvp.label', 'Responses:')}</span>
-            {accepted > 0 && <span className="flex items-center gap-[4px] font-medium text-green-600"><CheckCircle2 className="size-[14px]" /> {accepted} {t('customers.schedule.rsvp.accepted', 'tak')}</span>}
-            {pending > 0 && <span className="flex items-center gap-[4px] font-medium text-amber-500"><Clock className="size-[14px]" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
-            {declined > 0 && <span className="flex items-center gap-[4px] font-medium text-red-500"><XCircle className="size-[14px]" /> {declined} {t('customers.schedule.rsvp.declined', 'nie')}</span>}
+            {accepted > 0 && <span className="flex items-center gap-[4px] font-medium text-status-success-text"><CheckCircle2 className="size-[14px]" /> {accepted} {t('customers.schedule.rsvp.accepted', 'tak')}</span>}
+            {pending > 0 && <span className="flex items-center gap-[4px] font-medium text-status-warning-text"><Clock className="size-[14px]" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
+            {declined > 0 && <span className="flex items-center gap-[4px] font-medium text-status-error-text"><XCircle className="size-[14px]" /> {declined} {t('customers.schedule.rsvp.declined', 'nie')}</span>}
           </div>
         )
       })()}

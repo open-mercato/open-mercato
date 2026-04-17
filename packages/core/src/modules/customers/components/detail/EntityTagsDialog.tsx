@@ -344,7 +344,7 @@ function TagChip({
           style={{ backgroundColor: color }}
         />
       ) : null}
-      <span className="text-[12px]">{label}</span>
+      <span className="text-xs">{label}</span>
       {active ? <X className="size-[10px] shrink-0" /> : null}
     </Button>
   )
@@ -1098,7 +1098,7 @@ export function EntityTagsDialog({
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-[20px] py-[16px]">
           <div className="flex items-center gap-[8px]">
             <Tag className="size-[16px] text-foreground" />
-            <span className="text-[15px] font-bold text-foreground">
+            <span className="text-sm font-bold text-foreground">
               {t('customers.personTags.title', 'Edit tags')}
             </span>
           </div>
@@ -1107,7 +1107,7 @@ export function EntityTagsDialog({
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto gap-[8px] rounded-[12px] px-[14px] py-[8px] text-[13px] font-medium"
+              className="h-auto gap-[8px] rounded-[12px] px-[14px] py-[8px] text-sm font-medium"
               onClick={() => setManageTagsOpen(true)}
             >
               <SlidersHorizontal className="size-[14px]" />
@@ -1148,10 +1148,10 @@ export function EntityTagsDialog({
                       )}
                       onClick={() => setActiveCategoryKind(category.kind)}
                     >
-                      <span className="truncate text-[12px] font-medium">
+                      <span className="truncate text-xs font-medium">
                         {category.label}
                       </span>
-                      <span className="ml-3 shrink-0 rounded-full bg-background px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                      <span className="ml-3 shrink-0 rounded-full bg-background px-2 py-0.5 text-xs font-semibold text-muted-foreground">
                         {count}
                       </span>
                     </Button>
@@ -1165,14 +1165,14 @@ export function EntityTagsDialog({
                     <div className="border-b border-border px-[18px] py-[16px]">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="space-y-1">
-                          <h3 className="text-[14px] font-semibold text-foreground">
+                          <h3 className="text-sm font-semibold text-foreground">
                             {activeCategory.label}
                           </h3>
-                          <p className="max-w-[520px] text-[12px] leading-5 text-muted-foreground">
+                          <p className="max-w-[520px] text-xs leading-5 text-muted-foreground">
                             {activeCategory.description}
                           </p>
                         </div>
-                        <div className="shrink-0 rounded-full border border-border bg-background px-3 py-1 text-[11px] font-medium text-muted-foreground">
+                        <div className="shrink-0 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
                           {t('customers.personTags.activeCount', '{{count}} selected', {
                             count: activeSelection.size,
                           })}
@@ -1192,7 +1192,7 @@ export function EntityTagsDialog({
                             'Search {{category}}...',
                             { category: activeCategory.label.toLowerCase() },
                           )}
-                          className="flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                          className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                         />
                       </div>
 
@@ -1250,7 +1250,7 @@ export function EntityTagsDialog({
                       {activeCategory.supportsCreate ? (
                         <div>
                           {newEntryInputByKind[activeCategory.kind] !== null ? (
-                            <div className="inline-flex items-center rounded-full border border-dashed border-lime-400/70 bg-lime-500/5 px-[10px] py-[4px] dark:border-lime-300/40 dark:bg-lime-300/10">
+                            <div className="inline-flex items-center rounded-full border border-dashed border-status-success-border bg-status-success-bg/70 px-[10px] py-[4px]">
                               <input
                                 type="text"
                                 autoFocus
@@ -1293,7 +1293,7 @@ export function EntityTagsDialog({
                                     ? t('customers.people.detail.tags.placeholder', 'Type to add tags')
                                     : t('customers.personTags.newLabelPlaceholder', 'Label name...')
                                 }
-                                className="w-[150px] bg-transparent text-[12px] font-semibold text-lime-700 outline-none placeholder:text-lime-700/60 disabled:cursor-wait disabled:opacity-70 dark:text-lime-300 dark:placeholder:text-lime-300/60"
+                                className="w-[150px] bg-transparent text-xs font-semibold text-status-success-text outline-none placeholder:text-status-success-text/60 disabled:cursor-wait disabled:opacity-70"
                               />
                             </div>
                           ) : (
@@ -1308,10 +1308,10 @@ export function EntityTagsDialog({
                                   [activeCategory.kind]: '',
                                 }))
                               }
-                              className="inline-flex h-auto items-center gap-[4px] rounded-full border border-dashed border-lime-400/70 bg-transparent px-[10px] py-[6px] font-semibold text-lime-700 hover:bg-lime-500/10 disabled:opacity-60 dark:border-lime-300/40 dark:text-lime-300 dark:hover:bg-lime-300/10"
+                              className="inline-flex h-auto items-center gap-[4px] rounded-full border border-dashed border-status-success-border bg-transparent px-[10px] py-[6px] font-semibold text-status-success-text hover:bg-status-success-bg disabled:opacity-60"
                             >
                               <Plus className="size-[10px]" />
-                              <span className="text-[12px]">
+                              <span className="text-xs">
                                 {activeCategory.kind === 'tags'
                                   ? t('customers.personTags.newTag', 'New tag')
                                   : t('customers.personTags.newLabel', 'New label')}
@@ -1333,7 +1333,7 @@ export function EntityTagsDialog({
         </div>
 
         <div className="flex shrink-0 items-center justify-between border-t border-border bg-muted/20 px-[20px] py-[14px]">
-          <span className="text-[12px] text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             {t('customers.personTags.activeCount', '{{count}} selected', { count: activeCount })}
           </span>
           <div className="flex items-center gap-[24px]">
@@ -1341,7 +1341,7 @@ export function EntityTagsDialog({
               type="button"
               variant="outline"
               onClick={onClose}
-              className="rounded-[8px] border-border bg-background px-[16px] py-[9px] text-[13px] font-semibold text-foreground"
+              className="rounded-[8px] border-border bg-background px-[16px] py-[9px] text-sm font-semibold text-foreground"
             >
               {t('customers.personTags.cancel', 'Cancel')}
             </Button>
@@ -1349,7 +1349,7 @@ export function EntityTagsDialog({
               type="button"
               onClick={() => { void handleSave() }}
               disabled={saving || !hasChanges}
-              className="rounded-[8px] bg-foreground px-[18px] py-[9px] text-[13px] font-semibold text-background hover:bg-foreground/90"
+              className="rounded-[8px] bg-foreground px-[18px] py-[9px] text-sm font-semibold text-background hover:bg-foreground/90"
             >
               <Check className="mr-[8px] size-[14px]" />
               {saving

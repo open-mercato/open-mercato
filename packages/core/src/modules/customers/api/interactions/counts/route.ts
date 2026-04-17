@@ -105,6 +105,7 @@ export async function GET(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    console.error('[customers/interactions/counts] GET failed', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

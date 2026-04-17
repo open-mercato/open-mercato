@@ -357,12 +357,12 @@ function SortableEntryRow({
           type="text"
           value={entry.label}
           onChange={(e) => onLabelChange(e.target.value)}
-          className="w-full rounded-[5px] border border-input bg-background px-[12px] py-[7px] text-[13px] font-medium text-foreground outline-none focus:border-foreground"
+          className="w-full rounded-[5px] border border-input bg-background px-[12px] py-[7px] text-sm font-medium text-foreground outline-none focus:border-foreground"
         />
         {isDefault && (
           <div className="flex items-center gap-[5px]">
-            <Check className="size-[10px] text-green-500" />
-            <span className="text-[10px] text-muted-foreground">
+            <Check className="size-[10px] text-status-success-icon" />
+            <span className="text-xs text-muted-foreground">
               {t('customers.tags.manage.defaultEntry', 'default when creating new records')}
             </span>
           </div>
@@ -375,7 +375,7 @@ function SortableEntryRow({
           type="text"
           value={entry.value}
           onChange={(e) => onValueChange(slugifyLabel(e.target.value))}
-          className="w-full rounded-[5px] bg-muted px-[10px] py-[7px] text-[11px] font-medium text-muted-foreground outline-none"
+          className="w-full rounded-[5px] bg-muted px-[10px] py-[7px] text-xs font-medium text-muted-foreground outline-none"
         />
       </div>
 
@@ -393,7 +393,7 @@ function SortableEntryRow({
             className="absolute inset-0 size-full cursor-pointer opacity-0"
           />
         </label>
-        <span className="text-[10px] font-medium text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           {normalizeColor(entry.color)}
         </span>
       </div>
@@ -908,10 +908,10 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between pb-[10px] pl-[24px] pr-[20px] pt-[16px]">
           <div className="flex flex-col gap-[3px]">
-            <h2 className="text-[16px] font-bold leading-tight text-foreground">
+            <h2 className="text-base font-bold leading-tight text-foreground">
               {t('customers.tags.manage.title', 'Manage tags')}
             </h2>
-            <p className="text-[11px] leading-tight text-muted-foreground">
+            <p className="text-xs leading-tight text-muted-foreground">
               {t(
                 'customers.tags.manage.subtitle',
                 'Tag dictionaries for the entire tenant',
@@ -923,7 +923,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto gap-[6px] rounded-[8px] px-[12px] py-[7px] text-[12px] font-semibold"
+              className="h-auto gap-[6px] rounded-[8px] px-[12px] py-[7px] text-xs font-semibold"
               onClick={() => {
                 setCreateCategoryOpen((current) => !current)
                 setNewCategoryName('')
@@ -967,7 +967,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                       }
                     }}
                     placeholder={t('customers.tags.manage.addCategoryPlaceholder', 'Category name...')}
-                    className="w-full bg-transparent text-[13px] text-foreground outline-none placeholder:text-muted-foreground"
+                    className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                   />
                 </div>
                 <div className="flex items-center gap-[4px] rounded-[8px] border border-border bg-muted/60 p-[4px]">
@@ -975,7 +975,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     type="button"
                     variant={newCategorySelectionMode === 'single' ? 'secondary' : 'ghost'}
                     size="sm"
-                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-[12px]"
+                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-xs"
                     onClick={() => setNewCategorySelectionMode('single')}
                   >
                     {t('customers.tags.manage.categoryMode.single', 'Single')}
@@ -984,7 +984,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     type="button"
                     variant={newCategorySelectionMode === 'multi' ? 'secondary' : 'ghost'}
                     size="sm"
-                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-[12px]"
+                    className="h-auto rounded-[6px] px-[10px] py-[6px] text-xs"
                     onClick={() => setNewCategorySelectionMode('multi')}
                   >
                     {t('customers.tags.manage.categoryMode.multi', 'Multi')}
@@ -993,7 +993,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                 <Button
                   type="button"
                   size="sm"
-                  className="h-auto rounded-[8px] px-[12px] py-[7px] text-[12px] font-semibold"
+                  className="h-auto rounded-[8px] px-[12px] py-[7px] text-xs font-semibold"
                   onClick={() => {
                     void handleCreateCategory()
                   }}
@@ -1046,11 +1046,11 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                       >
                         <Icon className="size-[13px]" />
                         <span
-                          className={`whitespace-nowrap text-[11px] ${isActive ? 'font-semibold' : 'font-medium'}`}
+                          className={`whitespace-nowrap text-xs ${isActive ? 'font-semibold' : 'font-medium'}`}
                         >
                           {category.shortLabel}
                         </span>
-                        <span className="rounded-[3px] bg-muted px-[4px] py-px text-[9px] font-semibold text-foreground">
+                        <span className="rounded-[3px] bg-muted px-[4px] py-px text-overline font-semibold text-foreground">
                           {count}
                         </span>
                       </Button>
@@ -1079,15 +1079,15 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   <div className="flex items-center justify-between">
                     <div className="flex flex-col gap-[3px]">
                       <div className="flex items-center gap-[6px]">
-                        <span className="text-[15px] font-bold text-foreground">
+                        <span className="text-sm font-bold text-foreground">
                           {activeMeta.shortLabel}
                         </span>
                         {(activeMeta.badges ?? []).map((badge) => (
                           <span
                             key={badge}
-                            className={`rounded-[3px] px-[7px] py-[2px] text-[9px] font-bold ${
+                            className={`rounded-[3px] px-[7px] py-[2px] text-overline font-bold ${
                               badge === 'required'
-                                ? 'bg-amber-100 text-amber-500'
+                                ? 'bg-status-warning-bg text-status-warning-text'
                                 : 'bg-muted text-muted-foreground'
                             }`}
                           >
@@ -1099,7 +1099,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                       </div>
                       <div className="flex items-center gap-[6px]">
                         <Info className="size-[12px] shrink-0 text-muted-foreground" />
-                        <span className="text-[11px] text-muted-foreground">
+                        <span className="text-xs text-muted-foreground">
                           {activeMeta.description}
                         </span>
                       </div>
@@ -1111,7 +1111,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                         value={searchValue}
                         onChange={(e) => setSearchValue(e.target.value)}
                         placeholder={t('customers.tags.manage.search', 'Search values...')}
-                        className="w-full rounded-[6px] border border-input bg-background py-[8px] pl-[36px] pr-[12px] text-[11px] text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
+                        className="w-full rounded-[6px] border border-input bg-background py-[8px] pl-[36px] pr-[12px] text-xs text-foreground outline-none placeholder:text-muted-foreground/70 focus:border-foreground"
                       />
                     </div>
                   </div>
@@ -1120,17 +1120,17 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   <div className="flex items-center gap-[12px] px-[12px] py-[6px]">
                     <div className="w-[18px] shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <span className="text-[9px] font-bold uppercase text-muted-foreground">
+                      <span className="text-overline font-bold uppercase text-muted-foreground">
                         {t('customers.tags.manage.columns.label', 'LABEL')}
                       </span>
                     </div>
                     <div className="w-[140px] shrink-0">
-                      <span className="text-[9px] font-bold uppercase text-muted-foreground">
+                      <span className="text-overline font-bold uppercase text-muted-foreground">
                         {t('customers.tags.manage.columns.slug', 'SLUG')}
                       </span>
                     </div>
                     <div className="w-[80px] shrink-0">
-                      <span className="text-[9px] font-bold uppercase text-muted-foreground">
+                      <span className="text-overline font-bold uppercase text-muted-foreground">
                         {t('customers.tags.manage.columns.color', 'COLOR')}
                       </span>
                     </div>
@@ -1197,7 +1197,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     type="button"
                     variant="ghost"
                     onClick={handleAddEntry}
-                    className="flex h-auto w-full items-center justify-center gap-[8px] rounded-[6px] border border-dashed border-border bg-background p-[12px] text-[12px] font-semibold text-foreground hover:bg-muted"
+                    className="flex h-auto w-full items-center justify-center gap-[8px] rounded-[6px] border border-dashed border-border bg-background p-[12px] text-xs font-semibold text-foreground hover:bg-muted"
                   >
                     <Plus className="size-[14px]" />
                     {t('customers.tags.manage.addValue', 'Add new value')}
@@ -1207,10 +1207,10 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   <div className="flex items-start gap-[10px] rounded-[6px] bg-muted px-[14px] py-[12px]">
                     <Info className="mt-0.5 size-[14px] shrink-0 text-muted-foreground" />
                     <div className="flex flex-1 flex-col gap-[3px]">
-                      <span className="text-[11px] font-semibold text-foreground">
+                      <span className="text-xs font-semibold text-foreground">
                         {activeMeta.noteTitle}
                       </span>
-                      <span className="text-[11px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {activeMeta.noteDescription}
                       </span>
                     </div>
@@ -1230,7 +1230,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
             <div className="flex shrink-0 items-center justify-between px-[24px] py-[12px]">
               <div className="flex items-center gap-[6px]">
                 <Info className="size-[12px] shrink-0 text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {t(
                     'customers.tags.manage.tenantNotice',
                     'Changes apply to the entire tenant \u00b7 visible immediately',
@@ -1242,7 +1242,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                   type="button"
                   variant="outline"
                   onClick={onClose}
-                  className="rounded-[6px] border-border px-[16px] py-[10px] text-[13px] font-semibold text-foreground"
+                  className="rounded-[6px] border-border px-[16px] py-[10px] text-sm font-semibold text-foreground"
                 >
                   {t('customers.tags.manage.close', 'Cancel')}
                 </Button>
@@ -1252,7 +1252,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                     void handleSave()
                   }}
                   disabled={saving || !hasChanges}
-                  className="rounded-[6px] bg-foreground px-[16px] py-[10px] text-[13px] font-semibold text-background hover:bg-foreground/90"
+                  className="rounded-[6px] bg-foreground px-[16px] py-[10px] text-sm font-semibold text-background hover:bg-foreground/90"
                 >
                   <Save className="mr-[8px] size-[15px]" />
                   {saving

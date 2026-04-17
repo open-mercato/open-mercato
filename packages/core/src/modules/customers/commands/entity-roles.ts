@@ -84,7 +84,7 @@ async function loadEntityRoleSnapshot(
   id: string,
   scope?: { tenantId?: string | null; organizationId?: string | null },
 ): Promise<EntityRoleSnapshot | null> {
-  const filter: Record<string, unknown> = { id }
+  const filter: Record<string, unknown> = { id, deletedAt: null }
   if (scope?.tenantId) filter.tenantId = scope.tenantId
   if (scope?.organizationId) filter.organizationId = scope.organizationId
   const role = await findOneWithDecryption(
@@ -129,7 +129,25 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
     const entity = await requireCustomerEntity(em, parsed.entityId, parsed.entityType, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
 
-    const existing = await findOneWithDecryption(
+    const activeExisting = await findOneWithDecryption(
+      em,
+      CustomerEntityRole,
+      {
+        entityType: parsed.entityType,
+        entityId: parsed.entityId,
+        roleType: parsed.roleType,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+    )
+    if (activeExisting) {
+      throw new CrudHttpError(409, { error: 'Role type already assigned for this entity' })
+    }
+
+    const softDeleted = await findOneWithDecryption(
       em,
       CustomerEntityRole,
       {
@@ -142,19 +160,22 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
       undefined,
       { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
-    if (existing) {
-      throw new CrudHttpError(409, { error: 'Role type already assigned for this entity' })
+    let role: CustomerEntityRole
+    if (softDeleted) {
+      softDeleted.deletedAt = null
+      softDeleted.userId = parsed.userId
+      role = softDeleted
+    } else {
+      role = em.create(CustomerEntityRole, {
+        entityType: parsed.entityType,
+        entityId: parsed.entityId,
+        userId: parsed.userId,
+        roleType: parsed.roleType,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+      })
+      em.persist(role)
     }
-
-    const role = em.create(CustomerEntityRole, {
-      entityType: parsed.entityType,
-      entityId: parsed.entityId,
-      userId: parsed.userId,
-      roleType: parsed.roleType,
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-    })
-    em.persist(role)
     await em.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -211,7 +232,7 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
     )
     if (!role) return
 
-    em.remove(role)
+    role.deletedAt = new Date()
     await em.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -240,21 +261,20 @@ const updateEntityRoleCommand: CommandHandler<EntityRoleUpdateInput, { roleId: s
   },
   async execute(rawInput, ctx) {
     const parsed = entityRoleUpdateSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const scopeTenantId = ctx.auth?.tenantId ?? null
     const role = await findOneWithDecryption(
       em,
       CustomerEntityRole,
-      scopeTenantId ? { id: parsed.id, tenantId: scopeTenantId } : { id: parsed.id },
+      { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
       undefined,
-      { tenantId: scopeTenantId, organizationId: null },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!role) {
       throw new CrudHttpError(404, { error: 'Role not found' })
     }
 
-    ensureTenantScope(ctx, role.tenantId)
-    ensureOrganizationScope(ctx, role.organizationId)
     role.userId = parsed.userId
     await em.flush()
 
@@ -344,22 +364,21 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
   },
   async execute(rawInput, ctx) {
     const parsed = entityRoleDeleteSchema.parse(rawInput)
+    ensureTenantScope(ctx, parsed.tenantId)
+    ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const scopeTenantId = ctx.auth?.tenantId ?? null
     const role = await findOneWithDecryption(
       em,
       CustomerEntityRole,
-      scopeTenantId ? { id: parsed.id, tenantId: scopeTenantId } : { id: parsed.id },
+      { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
       undefined,
-      { tenantId: scopeTenantId, organizationId: null },
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     )
     if (!role) {
       throw new CrudHttpError(404, { error: 'Role not found' })
     }
 
-    ensureTenantScope(ctx, role.tenantId)
-    ensureOrganizationScope(ctx, role.organizationId)
-    em.remove(role)
+    role.deletedAt = new Date()
     await em.flush()
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
@@ -429,6 +448,7 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
     } else {
       role.userId = before.role.userId
       role.roleType = before.role.roleType
+      role.deletedAt = null
     }
     await em.flush()
 

@@ -70,32 +70,32 @@ export function DateTimeFields({
       {/* Date / Time / Duration */}
       <div className="flex gap-[12px]">
         <div className="flex flex-[2] flex-col gap-[6px]">
-          <label className="text-[11px] font-semibold text-muted-foreground tracking-[0.5px]">
+          <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
           </label>
           <div className="flex items-center gap-[8px] rounded-[8px] border border-border bg-background px-[12px] py-[10px]">
             <Calendar className="size-[14px] text-muted-foreground" />
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 bg-transparent text-[13px] text-foreground focus:outline-none" />
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="flex-1 bg-transparent text-sm text-foreground focus:outline-none" />
           </div>
         </div>
         {showStartTime && (
           <div className="flex flex-1 flex-col gap-[6px]">
-            <label className="text-[11px] font-semibold text-muted-foreground tracking-[0.5px]">{t('customers.schedule.start', 'Start')}</label>
+            <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">{t('customers.schedule.start', 'Start')}</label>
             <div className="flex items-center gap-[8px] rounded-[8px] border border-border bg-background px-[12px] py-[10px]">
               <Clock className="size-[14px] text-muted-foreground" />
-              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={allDay} className="flex-1 bg-transparent text-[13px] text-foreground focus:outline-none disabled:opacity-50" />
+              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} disabled={allDay} className="flex-1 bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50" />
             </div>
           </div>
         )}
         {showDuration && (
           <div className="flex flex-1 flex-col gap-[6px]">
-            <label className="text-[11px] font-semibold text-muted-foreground tracking-[0.5px]">{t('customers.schedule.duration', 'Duration')}</label>
+            <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">{t('customers.schedule.duration', 'Duration')}</label>
             <div className="flex items-center gap-[8px] rounded-[8px] border border-border bg-background px-[12px] py-[10px]">
               <select
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
                 disabled={allDay}
-                className="flex-1 appearance-none bg-transparent text-[13px] text-foreground focus:outline-none disabled:opacity-50"
+                className="flex-1 appearance-none bg-transparent text-sm text-foreground focus:outline-none disabled:opacity-50"
               >
                 {DURATION_OPTIONS.map((m) => (
                   <option key={m} value={m}>{m} min</option>
@@ -109,7 +109,7 @@ export function DateTimeFields({
 
       {/* All day + timezone + recurrence */}
       {showAllDay && (
-        <div className="flex flex-wrap items-center gap-[14px] text-[12px] text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-[14px] text-xs text-muted-foreground">
           <label className="flex items-center gap-[8px] cursor-pointer">
             <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="rounded" />
             {t('customers.schedule.allDay', 'All day')}
@@ -141,13 +141,13 @@ export function DateTimeFields({
 
       {/* Recurrence config */}
       {showRecurrence && recurrenceEnabled && (
-        <div className="rounded-[12px] border border-amber-200 bg-amber-50 p-[16px] space-y-[12px] dark:border-amber-700 dark:bg-amber-950">
+        <div className="rounded-[12px] border border-status-warning-border bg-status-warning-bg p-[16px] space-y-[12px]">
           <div className="flex items-center justify-between">
-            <span className="flex items-center gap-[8px] text-[13px] font-semibold text-foreground">
+            <span className="flex items-center gap-[8px] text-sm font-semibold text-foreground">
               <Repeat className="size-[14px]" />
               {t('customers.schedule.recurrence.title', 'Recurrence')}
             </span>
-            <Button type="button" variant="ghost" size="sm" className="h-auto text-[12px] font-medium text-foreground">
+            <Button type="button" variant="ghost" size="sm" className="h-auto text-xs font-medium text-foreground">
               {t('customers.schedule.recurrence.edit', 'Edit')}
             </Button>
           </div>
@@ -160,7 +160,7 @@ export function DateTimeFields({
                 size="sm"
                 onClick={() => toggleRecurrenceDay(i)}
                 className={cn(
-                  'h-auto flex size-[32px] items-center justify-center rounded-full text-[11px] font-medium transition-colors p-0',
+                  'h-auto flex size-[32px] items-center justify-center rounded-full text-xs font-medium transition-colors p-0',
                   recurrenceDays[i] ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-muted-foreground hover:bg-muted',
                 )}
               >
@@ -168,15 +168,15 @@ export function DateTimeFields({
               </Button>
             ))}
           </div>
-          <div className="flex items-center gap-[8px] text-[12px] text-muted-foreground">
+          <div className="flex items-center gap-[8px] text-xs text-muted-foreground">
             <span>{t('customers.schedule.recurrence.ends', 'Ends')}:</span>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('never')} className={cn('h-auto rounded-full px-[12px] py-[4px] text-[11px] font-medium', recurrenceEndType === 'never' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('never')} className={cn('h-auto rounded-full px-[12px] py-[4px] text-xs font-medium', recurrenceEndType === 'never' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
               {t('customers.schedule.recurrence.never', 'Never')}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('count')} className={cn('h-auto rounded-full px-[12px] py-[4px] text-[11px] font-medium', recurrenceEndType === 'count' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('count')} className={cn('h-auto rounded-full px-[12px] py-[4px] text-xs font-medium', recurrenceEndType === 'count' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>
               {t('customers.schedule.recurrence.afterCount', 'After {{count}} occurrences', { count: recurrenceCount })}
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('date')} className={cn('h-auto rounded-full px-[12px] py-[4px] text-[11px] font-medium', recurrenceEndType === 'date' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
+            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('date')} className={cn('h-auto rounded-full px-[12px] py-[4px] text-xs font-medium', recurrenceEndType === 'date' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
               {recurrenceEndDate || t('customers.schedule.recurrence.onDate', 'On date')}
             </Button>
           </div>

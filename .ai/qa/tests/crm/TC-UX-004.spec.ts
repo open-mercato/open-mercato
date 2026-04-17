@@ -1,6 +1,6 @@
 /**
  * TC-UX-004: Deal Stage Progress Bar
- * Source: SPEC-048 — Enhancement 4
+ * Source: SPEC-072-2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 4
  *
  * Verifies:
  * - Stage bar visible in document detail header

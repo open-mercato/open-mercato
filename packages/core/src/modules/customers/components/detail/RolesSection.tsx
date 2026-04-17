@@ -77,10 +77,11 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
       setRoles(Array.isArray(data?.items) ? data.items : [])
     } catch (error) {
       console.error('customers.roles.load failed', error)
+      flash(t('customers.roles.loadFailed', 'Failed to load role assignments.'), 'error')
       setRoles([])
     }
     setLoading(false)
-  }, [basePath, entityId])
+  }, [basePath, entityId, t])
 
   React.useEffect(() => {
     loadRoles()
@@ -212,7 +213,7 @@ export function RolesSection({ entityType, entityId, entityName }: RolesSectionP
               />
             ) : (
               <div key={entry.roleType} className="flex h-full min-w-0 flex-col rounded-xl border border-dashed bg-muted/20 p-4">
-                <div className="break-words text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                <div className="break-words text-overline font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                   {entry.roleTypeLabel}
                 </div>
                 <div className="mt-4 text-sm font-medium text-foreground">

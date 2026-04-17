@@ -4,6 +4,7 @@ import * as React from 'react'
 import { AlertTriangle, Check, ChevronDown } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { loadDictionaryEntriesByKey } from '@open-mercato/core/modules/dictionaries/lib/clientEntries'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -15,7 +16,7 @@ type LossReasonOption = {
   description?: string | null
 }
 
-type DealLostDialogProps = {
+type ConfirmDealLostDialogProps = {
   open: boolean
   dealTitle: string
   dealValue?: string | null
@@ -24,14 +25,14 @@ type DealLostDialogProps = {
   onConfirm: (input: { lossReasonId: string; lossNotes?: string }) => void | Promise<void>
 }
 
-export function DealLostDialog({
+export function ConfirmDealLostDialog({
   open,
   dealTitle,
   dealValue,
   companyName,
   onClose,
   onConfirm,
-}: DealLostDialogProps) {
+}: ConfirmDealLostDialogProps) {
   const t = useT()
   const [lossReasonId, setLossReasonId] = React.useState('')
   const [lossNotes, setLossNotes] = React.useState('')
@@ -96,10 +97,10 @@ export function DealLostDialog({
                 <AlertTriangle className="size-5" />
               </div>
               <div className="min-w-0">
-                <DialogTitle className="text-[18px] font-bold leading-none tracking-tight text-foreground">
+                <DialogTitle className="text-lg font-bold leading-none tracking-tight text-foreground">
                   {t('customers.deals.detail.lost.title', 'Mark deal as Lost?')}
                 </DialogTitle>
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {dealTitle}
                   {dealValue ? ` · ${dealValue}` : ''}
                   {companyName ? ` · ${companyName}` : ''}
@@ -109,17 +110,15 @@ export function DealLostDialog({
           </DialogHeader>
 
           <div className="space-y-6 px-7 py-6">
-            <div className="flex items-start gap-3 rounded-[6px] border border-amber-200 bg-amber-50 px-4 py-3">
-              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
-              <div className="text-[12px]">
-                <p className="font-semibold text-amber-950">
-                  {t('customers.deals.detail.lost.warningTitle', 'This action closes the deal')}
-                </p>
-                <p className="mt-1 text-[11px] text-amber-800">
-                  {t('customers.deals.detail.lost.warning', "This action sets the stage to 'Lost' and cannot be undone without 'sales.reopen' permission")}
-                </p>
-              </div>
-            </div>
+            <Alert variant="warning" className="rounded-[6px]">
+              <AlertTriangle className="size-4" />
+              <AlertTitle>
+                {t('customers.deals.detail.lost.warningTitle', 'This action closes the deal')}
+              </AlertTitle>
+              <AlertDescription>
+                {t('customers.deals.detail.lost.warning', "This action sets the stage to 'Lost' and cannot be undone without 'sales.reopen' permission")}
+              </AlertDescription>
+            </Alert>
 
             <div className="space-y-2">
               <label className="text-sm font-semibold text-foreground">

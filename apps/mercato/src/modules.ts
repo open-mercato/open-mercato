@@ -49,7 +49,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'webhooks', from: '@open-mercato/webhooks' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
-  // // // // // // // // { id: 'example', from: '@app' } // disabled for #601 regression test // disabled for #601 regression test // disabled for #601 regression test // disabled for #601 regression test // disabled for #601 regression test // disabled for #601 regression test // disabled for #601 regression test // disabled for #601 regression test,
+  { id: 'example', from: '@app' },
 ]
 
 if (enabledModules.some((entry) => entry.id === 'example')) {

@@ -497,3 +497,35 @@ export const labelAssignmentSchema = z.object({
 })
 
 export type LabelAssignmentInput = z.infer<typeof labelAssignmentSchema>
+
+export const labelAssignCommandSchema = scopedSchema.extend({
+  labelId: uuid(),
+  entityId: uuid(),
+})
+
+export const labelUnassignCommandSchema = scopedSchema.extend({
+  labelId: uuid(),
+  entityId: uuid(),
+})
+
+export type LabelAssignCommandInput = z.infer<typeof labelAssignCommandSchema>
+export type LabelUnassignCommandInput = z.infer<typeof labelUnassignCommandSchema>
+
+export const personCompanyLinkCreateSchema = scopedSchema.extend({
+  personEntityId: uuid(),
+  companyEntityId: uuid(),
+  isPrimary: z.boolean().optional(),
+})
+
+export const personCompanyLinkUpdateSchema = scopedSchema.extend({
+  linkId: uuid(),
+  isPrimary: z.boolean(),
+})
+
+export const personCompanyLinkDeleteSchema = scopedSchema.extend({
+  linkId: uuid(),
+})
+
+export type PersonCompanyLinkCreateInput = z.infer<typeof personCompanyLinkCreateSchema>
+export type PersonCompanyLinkUpdateInput = z.infer<typeof personCompanyLinkUpdateSchema>
+export type PersonCompanyLinkDeleteInput = z.infer<typeof personCompanyLinkDeleteSchema>

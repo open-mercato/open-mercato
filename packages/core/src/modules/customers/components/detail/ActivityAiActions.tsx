@@ -53,7 +53,7 @@ export function ActivityAiActions({ activityType }: ActivityAiActionsProps) {
                   variant="outline"
                   size="sm"
                   disabled
-                  className="h-auto rounded-full px-2 py-1 text-[10px] text-muted-foreground opacity-100"
+                  className="h-auto rounded-full px-2 py-1 text-xs text-muted-foreground opacity-100"
                 >
                   <action.icon className="mr-1 size-3" />
                   {t(action.key, action.fallback)}

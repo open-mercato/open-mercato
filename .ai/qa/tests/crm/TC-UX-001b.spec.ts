@@ -1,6 +1,6 @@
 /**
  * TC-UX-001b: Collapsible Zone 1 Panel
- * Source: SPEC-048 — Enhancement 1b
+ * Source: SPEC-072-2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 1b
  *
  * Verifies:
  * - Collapse arrow visible on desktop

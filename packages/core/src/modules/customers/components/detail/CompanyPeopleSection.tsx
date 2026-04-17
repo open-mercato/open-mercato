@@ -18,6 +18,10 @@ import {
 import { Input } from '@open-mercato/ui/primitives/input'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import {
+  readJsonFromLocalStorage,
+  writeJsonToLocalStorage,
+} from '@open-mercato/shared/lib/browser/safeLocalStorage'
 import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -307,7 +311,7 @@ function LinkExistingPeopleDialog({
                           ) : null}
                         </div>
                         {person.status ? (
-                          <Badge variant="outline" className="shrink-0 px-2 py-0 text-[10px] font-medium">
+                          <Badge variant="outline" className="shrink-0 px-2 py-0 text-xs font-medium">
                             {person.status}
                           </Badge>
                         ) : null}
@@ -400,12 +404,9 @@ export function CompanyPeopleSection({
   const [listLoading, setListLoading] = React.useState(true)
   const [candidatePage, setCandidatePage] = React.useState(1)
   const [candidateTotalPages, setCandidateTotalPages] = React.useState(1)
-  const [starredIds, setStarredIds] = React.useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem(`om:starred-people:${companyId}`)
-      return stored ? new Set(JSON.parse(stored)) : new Set()
-    } catch { return new Set() }
-  })
+  const [starredIds, setStarredIds] = React.useState<Set<string>>(
+    () => new Set(readJsonFromLocalStorage<string[]>(`om:starred-people:${companyId}`, [])),
+  )
   const candidatePeopleRef = React.useRef<Map<string, CompanyPersonSummary>>(new Map())
   const candidateRequestIdRef = React.useRef(0)
   const pendingPeopleChangeRef = React.useRef(false)
@@ -425,7 +426,7 @@ export function CompanyPeopleSection({
       const next = new Set(prev)
       if (next.has(personId)) next.delete(personId)
       else next.add(personId)
-      try { localStorage.setItem(`om:starred-people:${companyId}`, JSON.stringify([...next])) } catch {}
+      writeJsonToLocalStorage(`om:starred-people:${companyId}`, [...next])
       return next
     })
   }, [companyId])
@@ -873,7 +874,7 @@ export function CompanyPeopleSection({
                   <h3 className="text-base font-semibold">
                     {translate('customers.companies.detail.people.sectionTitle', 'People')}
                   </h3>
-                  <Badge variant="secondary" className="rounded-full px-2 py-0 text-[10px] font-semibold">
+                  <Badge variant="secondary" className="rounded-full px-2 py-0 text-xs font-semibold">
                     {totalLinkedPeople}
                   </Badge>
                 </div>

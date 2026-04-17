@@ -32,14 +32,14 @@ const sourceColorMap: Record<string, string> = {
 }
 
 const temperatureConfig = {
-  hot: { filled: 5, dotClassName: 'bg-red-500', labelKey: 'customers.temperature.hot', fallback: 'Hot Client' },
-  warm: { filled: 4, dotClassName: 'bg-orange-500', labelKey: 'customers.temperature.warm', fallback: 'High Interest' },
-  high: { filled: 4, dotClassName: 'bg-orange-500', labelKey: 'customers.temperature.high', fallback: 'High Interest' },
-  neutral: { filled: 3, dotClassName: 'bg-yellow-500', labelKey: 'customers.temperature.neutral', fallback: 'Engaged' },
-  medium: { filled: 3, dotClassName: 'bg-yellow-500', labelKey: 'customers.temperature.medium', fallback: 'Engaged' },
-  cool: { filled: 2, dotClassName: 'bg-slate-500', labelKey: 'customers.temperature.cool', fallback: 'Low Activity' },
-  low: { filled: 2, dotClassName: 'bg-slate-500', labelKey: 'customers.temperature.low', fallback: 'Low Activity' },
-  cold: { filled: 1, dotClassName: 'bg-slate-400', labelKey: 'customers.temperature.cold', fallback: 'At Risk' },
+  hot: { filled: 5, dotClassName: 'bg-status-error-icon', labelKey: 'customers.temperature.hot', fallback: 'Hot Client' },
+  warm: { filled: 4, dotClassName: 'bg-status-warning-icon', labelKey: 'customers.temperature.warm', fallback: 'High Interest' },
+  high: { filled: 4, dotClassName: 'bg-status-warning-icon', labelKey: 'customers.temperature.high', fallback: 'High Interest' },
+  neutral: { filled: 3, dotClassName: 'bg-status-info-icon', labelKey: 'customers.temperature.neutral', fallback: 'Engaged' },
+  medium: { filled: 3, dotClassName: 'bg-status-info-icon', labelKey: 'customers.temperature.medium', fallback: 'Engaged' },
+  cool: { filled: 2, dotClassName: 'bg-status-neutral-icon', labelKey: 'customers.temperature.cool', fallback: 'Low Activity' },
+  low: { filled: 2, dotClassName: 'bg-status-neutral-icon', labelKey: 'customers.temperature.low', fallback: 'Low Activity' },
+  cold: { filled: 1, dotClassName: 'bg-status-neutral-icon', labelKey: 'customers.temperature.cold', fallback: 'At Risk' },
 } as const
 
 function splitSourceTags(source: string | null | undefined): string[] {
@@ -70,12 +70,12 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
     <div className="min-w-0 overflow-hidden rounded-[10px] border bg-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-[13px] font-bold text-muted-foreground">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-bold text-muted-foreground">
             {getInitials(person.displayName)}
           </div>
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="min-w-0 break-words text-[15px] font-bold leading-5 text-foreground">{person.displayName}</span>
+              <span className="min-w-0 break-words text-sm font-bold leading-5 text-foreground">{person.displayName}</span>
               {onToggleStar && (
                 <IconButton
                   type="button"
@@ -91,13 +91,13 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               {person.jobTitle && (
-                <Badge variant="secondary" className="max-w-full truncate px-2 py-0.5 text-[10px] font-semibold">
+                <Badge variant="secondary" className="max-w-full truncate px-2 py-0.5 text-xs font-semibold">
                   {person.jobTitle}
                 </Badge>
               )}
               {person.status && (
-                <Badge variant="outline" className="shrink-0 px-2 py-0.5 text-[10px] font-medium">
-                  <span className="mr-1 inline-block size-1.5 rounded-full bg-emerald-500" />
+                <Badge variant="outline" className="shrink-0 px-2 py-0.5 text-xs font-medium">
+                  <span className="mr-1 inline-block size-1.5 rounded-full bg-status-success-icon" />
                   {person.status}
                 </Badge>
               )}
@@ -133,7 +133,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
         </Popover>
       </div>
 
-      <div className="mt-3 space-y-2 border-t pt-3 text-[11px] text-foreground">
+      <div className="mt-3 space-y-2 border-t pt-3 text-xs text-foreground">
         {person.primaryEmail && (
           <div className="flex min-w-0 items-center gap-1.5">
             <Mail className="size-3 shrink-0 text-muted-foreground" />
@@ -147,7 +147,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
           </div>
         )}
         {(person.lifecycleStage || linkedDate) && (
-          <div className="flex min-w-0 flex-wrap items-center gap-1 text-[10px] text-muted-foreground">
+          <div className="flex min-w-0 flex-wrap items-center gap-1 text-xs text-muted-foreground">
             <span className="truncate">{person.lifecycleStage ?? t('customers.people.card.defaultStage', 'customer')}</span>
             {linkedDate ? (
               <>
@@ -164,7 +164,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
           <div className="min-w-0 flex-1 space-y-1">
             {sourceTags.length > 0 ? (
               <>
-                <p className="text-[9px] font-bold uppercase tracking-wide text-muted-foreground">
+                <p className="text-overline font-bold uppercase tracking-wide text-muted-foreground">
                   {t('customers.people.card.source', 'Source')}
                 </p>
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -175,7 +175,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
                         key={sourceTag}
                         variant="outline"
                         className={cn(
-                          'max-w-full truncate px-2 py-0.5 text-[9px] font-semibold',
+                          'max-w-full truncate px-2 py-0.5 text-xs font-semibold',
                           sourceColorMap[normalized] ?? sourceColorMap[sourceTag.toLowerCase()] ?? 'border-border text-muted-foreground',
                         )}
                       >
@@ -189,7 +189,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
           </div>
           {temperature ? (
             <div className="space-y-1 sm:ml-auto sm:text-right">
-              <div className="flex items-center gap-1 text-[9px] font-bold text-muted-foreground sm:justify-end">
+              <div className="flex items-center gap-1 text-overline font-bold text-muted-foreground sm:justify-end">
                 <span>{t(temperature.labelKey, temperature.fallback)}</span>
               </div>
               <div className="flex items-center gap-1 sm:justify-end">
@@ -214,7 +214,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 w-full text-[11px] font-semibold sm:min-w-[9rem] sm:flex-1"
+          className="h-8 w-full text-xs font-semibold sm:min-w-[9rem] sm:flex-1"
         >
           <Link href={`/backend/customers/people-v2/${person.id}`}>
             <ArrowUpRight className="mr-1 size-3" />
@@ -226,7 +226,7 @@ export function PersonCard({ person, isStarred, onToggleStar, onUnlink }: Person
             type="button"
             variant="outline"
             size="sm"
-            className="h-8 w-full border-destructive/30 text-[11px] font-semibold text-destructive hover:bg-destructive/10 sm:min-w-[7rem] sm:flex-none"
+            className="h-8 w-full border-destructive/30 text-xs font-semibold text-destructive hover:bg-destructive/10 sm:min-w-[7rem] sm:flex-none"
             onClick={() => onUnlink(person.id)}
           >
             {t('customers.people.card.unlink', 'Unlink')}

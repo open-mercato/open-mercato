@@ -285,7 +285,7 @@ export function AssignRoleDialog({
   const previewCard =
     selectedUser && selectedRole ? (
       <div className="rounded-[12px] border border-border/70 bg-muted/30 px-4 py-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <p className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {t('customers.roles.dialog.preview', 'Assignment preview')}
         </p>
         <div className="mt-3 flex items-center gap-3">
@@ -306,7 +306,7 @@ export function AssignRoleDialog({
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <Badge
                   variant="outline"
-                  className="rounded-full border-red-300 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                  className="rounded-full border-status-error-border bg-status-error-bg px-2 py-0.5 text-xs font-semibold text-status-error-text"
                 >
                   {t('customers.roles.dialog.conflict', 'Conflict: {{roles}}', {
                     roles: selectedUserConflict.join(', '),
@@ -331,7 +331,7 @@ export function AssignRoleDialog({
         onKeyDown={handleKeyDown}
       >
         <DialogHeader className="border-b border-border/70 px-6 py-5">
-          <DialogTitle className="text-[28px] font-semibold leading-none">
+          <DialogTitle className="text-2xl font-semibold leading-none">
             {t('customers.roles.dialog.title', 'Assign role')}
           </DialogTitle>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -368,7 +368,7 @@ export function AssignRoleDialog({
             {step === 1 ? (
               <div className="space-y-4">
                 <div className="rounded-[12px] bg-muted/30 px-4 py-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <p className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     {t('customers.roles.dialog.roleTypeLabel', 'Role type')}
                   </p>
                   <div className="mt-2 flex items-center gap-2">
@@ -389,7 +389,7 @@ export function AssignRoleDialog({
                     {selectedRole ? (
                       <Badge
                         variant="outline"
-                        className="rounded-[6px] px-2 py-1 text-[10px]"
+                        className="rounded-[6px] px-2 py-1 text-xs"
                       >
                         dictionary
                       </Badge>
@@ -413,7 +413,7 @@ export function AssignRoleDialog({
                 <div className="rounded-[12px] bg-muted/30 px-4 py-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      <p className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                         {t('customers.roles.dialog.roleTypeLabel', 'Role type')}
                       </p>
                       <div className="mt-1 flex items-center gap-2">
@@ -422,7 +422,7 @@ export function AssignRoleDialog({
                         </span>
                         <Badge
                           variant="outline"
-                          className="rounded-[6px] px-2 py-1 text-[10px]"
+                          className="rounded-[6px] px-2 py-1 text-xs"
                         >
                           dictionary
                         </Badge>
@@ -440,7 +440,7 @@ export function AssignRoleDialog({
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <p className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     {t('customers.roles.dialog.teamLabel', 'Select a team member')}
                   </p>
                   <div className="relative">
@@ -467,10 +467,10 @@ export function AssignRoleDialog({
                         variant={isActive ? 'default' : 'outline'}
                         size="sm"
                         onClick={() => setActiveTeam(teamFilter.id)}
-                        className="h-7 rounded-[8px] px-2.5 text-[10px]"
+                        className="h-7 rounded-[8px] px-2.5 text-xs"
                       >
                         {teamFilter.label}
-                        <span className="rounded-full bg-background/80 px-1 text-[9px] text-muted-foreground">
+                        <span className="rounded-full bg-background/80 px-1 text-xs text-muted-foreground">
                           {teamFilter.count}
                         </span>
                       </Button>
@@ -487,7 +487,7 @@ export function AssignRoleDialog({
                       {t('customers.roles.loading', 'Loading...')}
                     </div>
                   ) : loadError ? (
-                    <div className="rounded-[12px] border border-dashed border-red-200 bg-red-50/70 px-4 py-8 text-center text-sm text-red-700">
+                    <div className="rounded-[12px] border border-dashed border-status-error-border bg-status-error-bg/70 px-4 py-8 text-center text-sm text-status-error-text">
                       {loadError}
                     </div>
                   ) : filteredUsers.length === 0 ? (
@@ -524,7 +524,7 @@ export function AssignRoleDialog({
                               {user.teamName ? (
                                 <Badge
                                   variant="muted"
-                                  className="rounded-[6px] px-2 py-0.5 text-[9px] font-medium"
+                                  className="rounded-[6px] px-2 py-0.5 text-xs font-medium"
                                 >
                                   {user.teamName}
                                 </Badge>
@@ -532,7 +532,7 @@ export function AssignRoleDialog({
                               {userConflicts.length ? (
                                 <Badge
                                   variant="outline"
-                                  className="rounded-full border-red-300 bg-red-50 px-2 py-0.5 text-[9px] font-semibold text-red-700"
+                                  className="rounded-full border-status-error-border bg-status-error-bg px-2 py-0.5 text-xs font-semibold text-status-error-text"
                                 >
                                   {t('customers.roles.dialog.conflict', 'Conflict: {{roles}}', {
                                     roles: userConflicts.join(', '),
@@ -650,7 +650,7 @@ function StepBadge({
   return (
     <div className="flex items-center gap-2">
       <span
-        className={`flex size-5 items-center justify-center rounded-full border text-[10px] font-semibold ${
+        className={`flex size-5 items-center justify-center rounded-full border text-xs font-semibold ${
           isComplete || isCurrent
             ? 'border-foreground bg-foreground text-background'
             : 'border-border bg-background text-muted-foreground'

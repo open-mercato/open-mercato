@@ -318,7 +318,7 @@ export function ActivityHistorySection({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            <span className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               {t('customers.changelog.filter', 'Filter')}:
             </span>
             {TYPE_FILTERS.map((filter) => {
@@ -330,7 +330,7 @@ export function ActivityHistorySection({
                   variant={isActive ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => handleTypeToggle(filter.value)}
-                  className="h-auto rounded-full px-2.5 py-1 text-[10px]"
+                  className="h-auto rounded-full px-2.5 py-1 text-xs"
                 >
                   {t(filter.labelKey, filter.fallback)}
                   <span className={isActive ? 'ml-1 text-primary-foreground/80' : 'ml-1 text-muted-foreground'}>
@@ -386,7 +386,7 @@ export function ActivityHistorySection({
                   {showYearSeparator ? (
                     <div className="flex items-center gap-3 py-1">
                       <div className="h-px flex-1 bg-border" />
-                      <span className="text-[11px] font-semibold text-muted-foreground">· {currentYear} ·</span>
+                      <span className="text-xs font-semibold text-muted-foreground">· {currentYear} ·</span>
                       <div className="h-px flex-1 bg-border" />
                     </div>
                   ) : null}

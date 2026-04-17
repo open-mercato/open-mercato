@@ -8,6 +8,8 @@ import {
   seedCustomerExamples,
   seedDefaultPipeline,
 } from './cli'
+import { ensureDictionaryEntry } from './commands/shared'
+import { DEFAULT_CUSTOMER_ROLE_TYPES } from './lib/customerRoleTypes'
 
 const interactionFeatureToggles = [
   {
@@ -61,6 +63,17 @@ export const setup: ModuleSetupConfig = {
     await seedDefaultPipeline(ctx.em, scope)
     await ensureCustomerCustomFieldDefinitions(ctx.em, ctx.tenantId)
     await seedInteractionFeatureToggles(ctx.em)
+    for (const entry of DEFAULT_CUSTOMER_ROLE_TYPES) {
+      await ensureDictionaryEntry(ctx.em, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        kind: 'customer_role_type',
+        value: entry.value,
+        label: entry.label,
+        color: entry.color,
+        icon: entry.icon,
+      })
+    }
   },
 
   seedExamples: async (ctx) => {

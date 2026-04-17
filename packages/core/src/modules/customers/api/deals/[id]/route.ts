@@ -261,12 +261,18 @@ async function loadPipelineStageAppearanceMap(
     .map((stage) => stage.label.trim().toLowerCase())
     .filter((value) => value.length > 0)
   if (!normalizedValues.length) return new Map<string, CustomerDictionaryEntry>()
-  const entries = await em.find(CustomerDictionaryEntry, {
-    organizationId,
-    tenantId,
-    kind: 'pipeline_stage',
-    normalizedValue: { $in: normalizedValues },
-  })
+  const entries = await findWithDecryption(
+    em,
+    CustomerDictionaryEntry,
+    {
+      organizationId,
+      tenantId,
+      kind: 'pipeline_stage',
+      normalizedValue: { $in: normalizedValues },
+    },
+    undefined,
+    { tenantId, organizationId },
+  )
   const map = new Map<string, CustomerDictionaryEntry>()
   entries.forEach((entry) => map.set(entry.normalizedValue, entry))
   return map
@@ -392,15 +398,19 @@ export async function GET(request: Request, context: { params?: Record<string, u
   let companies: DealAssociation[] = []
 
   if (liteView) {
-    const personLinkRows = await em.find(
+    const personLinkRows = await findWithDecryption(
+      em,
       CustomerDealPersonLink,
       { deal: deal.id },
       { orderBy: { createdAt: 'ASC' } },
+      decryptionScope,
     )
-    const companyLinkRows = await em.find(
+    const companyLinkRows = await findWithDecryption(
+      em,
       CustomerDealCompanyLink,
       { deal: deal.id },
       { orderBy: { createdAt: 'ASC' } },
+      decryptionScope,
     )
 
     linkedPersonIds = Array.from(
@@ -525,13 +535,29 @@ export async function GET(request: Request, context: { params?: Record<string, u
   let viewerName: string | null = null
   let viewerEmail: string | null = auth.email ?? null
   if (viewerUserId) {
-    const viewer = await em.findOne(User, { id: viewerUserId, tenantId: auth.tenantId ?? null })
+    const viewerScope = {
+      tenantId: auth.tenantId ?? null,
+      organizationId: auth.orgId ?? null,
+    }
+    const viewer = await findOneWithDecryption(
+      em,
+      User,
+      { id: viewerUserId, tenantId: auth.tenantId ?? null },
+      {},
+      viewerScope,
+    )
     viewerName = viewer?.name ?? null
     viewerEmail = viewer?.email ?? viewerEmail ?? null
   }
 
   const owner = deal.ownerUserId
-    ? await em.findOne(User, { id: deal.ownerUserId, tenantId: deal.tenantId ?? auth.tenantId ?? null })
+    ? await findOneWithDecryption(
+      em,
+      User,
+      { id: deal.ownerUserId, tenantId: deal.tenantId ?? auth.tenantId ?? null },
+      {},
+      decryptionScope,
+    )
     : null
   const ownerPayload = owner
     ? {

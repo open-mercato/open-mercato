@@ -1,5 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  readJsonFromLocalStorage,
+  writeJsonToLocalStorage,
+} from '@open-mercato/shared/lib/browser/safeLocalStorage'
 
 function getStorageKey(pageType: string) {
   return `om:zone1-collapsed:${pageType}`
@@ -11,19 +15,15 @@ export function useZoneCollapse(pageType: string) {
 
   useEffect(() => {
     mounted.current = true
-    try {
-      const saved = localStorage.getItem(getStorageKey(pageType))
-      if (saved !== null) {
-        setCollapsed(saved === '1')
-      }
-    } catch {}
+    const saved = readJsonFromLocalStorage<string | null>(getStorageKey(pageType), null)
+    if (saved !== null) {
+      setCollapsed(saved === '1')
+    }
   }, [pageType])
 
   useEffect(() => {
     if (!mounted.current) return
-    try {
-      localStorage.setItem(getStorageKey(pageType), collapsed ? '1' : '0')
-    } catch {}
+    writeJsonToLocalStorage(getStorageKey(pageType), collapsed ? '1' : '0')
   }, [collapsed, pageType])
 
   const toggle = useCallback(() => {

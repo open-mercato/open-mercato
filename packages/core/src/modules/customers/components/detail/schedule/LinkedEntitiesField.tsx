@@ -130,8 +130,8 @@ function EntityLinkSearchPopover({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-[6px] rounded-[999px] border border-border bg-background px-[10px] py-[6px] text-[12px] text-muted-foreground">
-          <span className="text-[13px]">+</span>
+        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-[6px] rounded-[999px] border border-border bg-background px-[10px] py-[6px] text-xs text-muted-foreground">
+          <span className="text-sm">+</span>
           {t('customers.schedule.addLink', 'Add link')}
         </Button>
       </PopoverTrigger>
@@ -244,7 +244,7 @@ export function LinkedEntitiesField({
 
   return (
     <div>
-      <label className="text-[11px] font-semibold uppercase text-muted-foreground tracking-[0.5px]">
+      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-[0.5px]">
         {t('customers.schedule.linkedEntities', 'Linked entities')}
       </label>
       <div className="mt-[10px] flex flex-wrap content-center items-center gap-[8px]">
@@ -252,9 +252,9 @@ export function LinkedEntitiesField({
           <div
             key={entity.id}
             className={cn(
-              'inline-flex items-center gap-[6px] rounded-[999px] border px-[10px] py-[6px] text-[12px]',
+              'inline-flex items-center gap-[6px] rounded-[999px] border px-[10px] py-[6px] text-xs',
               entity.type === 'deal'
-                ? 'border-emerald-300 bg-emerald-50 font-semibold text-foreground dark:border-emerald-700 dark:bg-emerald-950'
+                ? 'border-status-success-border bg-status-success-bg font-semibold text-foreground'
                 : 'border-border bg-muted text-foreground',
             )}
           >

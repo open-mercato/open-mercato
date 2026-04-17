@@ -11,18 +11,21 @@ const em = {
   flush: jest.fn(),
 }
 
+const commandBusExecuteMock = jest.fn()
+const commandBus = {
+  execute: (...args: unknown[]) => commandBusExecuteMock(...args),
+}
+
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
+    if (name === 'commandBus') return commandBus
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
 
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
-const addPersonCompanyLinkMock = jest.fn()
-const updatePersonCompanyLinkMock = jest.fn()
-const removePersonCompanyLinkMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
@@ -69,11 +72,8 @@ jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/customers/lib/personCompanies', () => ({
-  addPersonCompanyLink: (...args: unknown[]) => addPersonCompanyLinkMock(...args),
   loadPersonCompanyLinks: jest.fn(),
   summarizePersonCompanies: jest.fn(),
-  updatePersonCompanyLink: (...args: unknown[]) => updatePersonCompanyLinkMock(...args),
-  removePersonCompanyLink: (...args: unknown[]) => removePersonCompanyLinkMock(...args),
 }))
 
 import { POST as createLink, metadata as createMetadata } from '../route'
@@ -102,10 +102,13 @@ describe('customer person company link routes', () => {
   })
 
   it('runs the mutation guard when linking a company to a person', async () => {
-    addPersonCompanyLinkMock.mockResolvedValue({
-      id: linkId,
-      company: { id: companyId, displayName: 'Acme Corp' },
-      isPrimary: true,
+    commandBusExecuteMock.mockResolvedValueOnce({
+      result: {
+        id: linkId,
+        companyEntityId: companyId,
+        displayName: 'Acme Corp',
+        isPrimary: true,
+      },
     })
 
     const response = await createLink(
@@ -143,17 +146,26 @@ describe('customer person company link routes', () => {
   })
 
   it('runs the mutation guard for PATCH and DELETE link mutations', async () => {
-    em.findOne
-      .mockResolvedValueOnce({ id: personId, tenantId, organizationId, kind: 'person' })
-      .mockResolvedValueOnce({ entity: personId, company: null })
-      .mockResolvedValueOnce({ id: personId, tenantId, organizationId, kind: 'person' })
-      .mockResolvedValueOnce({ entity: personId, company: null })
-    updatePersonCompanyLinkMock.mockResolvedValue({
-      id: linkId,
-      company: { id: companyId, displayName: 'Acme Corp' },
-      isPrimary: false,
+    em.findOne.mockImplementation(async (EntityClass: unknown, filter: Record<string, unknown>) => {
+      const classObj = EntityClass as { name?: string }
+      const name = classObj?.name ?? ''
+      if (name === 'CustomerEntity' || (typeof filter?.kind === 'string' && filter.kind === 'person')) {
+        return { id: personId, tenantId, organizationId, kind: 'person' }
+      }
+      if (name === 'CustomerPersonProfile' || 'entity' in filter) {
+        return { entity: personId, company: null }
+      }
+      if (name === 'CustomerPersonCompanyLink' || 'id' in filter) {
+        return {
+          id: linkId,
+          isPrimary: false,
+          company: { id: companyId, displayName: 'Acme Corp' },
+        }
+      }
+      return null
     })
-    removePersonCompanyLinkMock.mockResolvedValue(undefined)
+    commandBusExecuteMock.mockResolvedValueOnce({ result: { linkId } })
+    commandBusExecuteMock.mockResolvedValueOnce({ result: { linkId } })
 
     const patchResponse = await updateLink(
       new Request(`http://localhost/api/customers/people/${personId}/companies/${linkId}`, {

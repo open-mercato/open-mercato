@@ -100,7 +100,7 @@ export function PipelineStepper({
 
   return (
     <div className="rounded-[10px] border border-border bg-card px-5 py-[14px] sm:px-6">
-      <div className="mb-5 flex flex-wrap items-center gap-2 text-[10px] leading-none">
+      <div className="mb-5 flex flex-wrap items-center gap-2 text-xs leading-none">
         <p className="font-semibold uppercase tracking-[0.02em] text-muted-foreground">
           {t('customers.deals.detail.pipeline.label', 'Pipeline stages')}
         </p>
@@ -124,7 +124,7 @@ export function PipelineStepper({
               <div
                 className={cn(
                   'flex size-9 items-center justify-center rounded-full border-2 bg-background text-foreground',
-                  renderClosedProgress ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-foreground',
+                  renderClosedProgress ? 'border-status-success-icon bg-status-success-icon text-white' : 'border-foreground',
                 )}
               >
                 {renderClosedProgress ? (
@@ -137,7 +137,7 @@ export function PipelineStepper({
               </div>
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-foreground">{compactStage.label}</div>
-                <div className="text-[11px] text-muted-foreground">
+                <div className="text-xs text-muted-foreground">
                   {formatStageSubtitle(transitionByStageId.get(compactStage.id) ?? null, !renderClosedProgress, t)}
                 </div>
               </div>
@@ -165,14 +165,14 @@ export function PipelineStepper({
                 <div
                   className={cn(
                     'h-[2px] flex-1',
-                    isFirst ? 'bg-transparent' : beforeFilled ? 'bg-emerald-500' : 'bg-[#edeef0] dark:bg-border/80',
+                    isFirst ? 'bg-transparent' : beforeFilled ? 'bg-status-success-icon' : 'bg-[#edeef0] dark:bg-border/80',
                   )}
                 />
                 <div
                   className={cn(
-                    'mx-0 flex size-[36px] items-center justify-center rounded-full border-2 text-[14px] leading-none transition-colors',
+                    'mx-0 flex size-[36px] items-center justify-center rounded-full border-2 text-sm leading-none transition-colors',
                     isCurrent && 'border-foreground bg-background font-bold text-foreground',
-                    isCompleted && !isCurrent && 'border-emerald-500 bg-emerald-500 text-white',
+                    isCompleted && !isCurrent && 'border-status-success-icon bg-status-success-icon text-white',
                     isFuture && 'border-[#e4e6ea] bg-background font-medium text-muted-foreground dark:border-border',
                   )}
                 >
@@ -185,20 +185,20 @@ export function PipelineStepper({
                 <div
                   className={cn(
                     'h-[2px] flex-1',
-                    isLast ? 'bg-transparent' : afterFilled ? 'bg-emerald-500' : 'bg-[#edeef0] dark:bg-border/80',
+                    isLast ? 'bg-transparent' : afterFilled ? 'bg-status-success-icon' : 'bg-[#edeef0] dark:bg-border/80',
                   )}
                 />
               </div>
               <div className="flex max-w-[12rem] flex-col items-center gap-[2px] text-center">
                 <div
                   className={cn(
-                    'text-[12px] leading-[1.2]',
+                    'text-xs leading-[1.2]',
                     isCurrent ? 'font-bold text-foreground' : isFuture ? 'font-medium text-muted-foreground' : 'font-semibold text-foreground',
                   )}
                 >
                   {stage.label}
                 </div>
-                <div className="text-[10px] text-muted-foreground">
+                <div className="text-xs text-muted-foreground">
                   {formatStageSubtitle(transition, isCurrent, t)}
                 </div>
               </div>

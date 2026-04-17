@@ -253,8 +253,16 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   embedded?: boolean
   // Hide the footer action bar (Save/Cancel/Delete) when embedding in a custom layout
   hideFooterActions?: boolean
-  // Opt-in: track dirty state even when embedded is true. Default: false (preserves pre-existing
-  // behavior where embedded forms do not maintain internal unsaved-changes state).
+  /**
+   * Opt-in: track dirty state even when `embedded` is true, AND enable the form's built-in
+   * navigation protection (beforeunload, link-click intercept, pushState/replaceState/popstate).
+   *
+   * Default: false — preserves pre-existing behavior where embedded forms do not maintain
+   * internal unsaved-changes state and leave navigation guarding to the parent page.
+   *
+   * When enabled, the parent may also subscribe to dirty transitions via `onDirtyChange` to
+   * mirror the state in its own UI (disabled save button, header indicators, etc.).
+   */
   trackDirtyWhenEmbedded?: boolean
   onDirtyChange?: (dirty: boolean) => void
   // Optional custom content injected between the header actions and the form body
@@ -269,7 +277,11 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Enable collapsible group headers with localStorage persistence.
   // Pass `true` to enable with auto-generated pageType, or `{ pageType }` for explicit key.
   collapsibleGroups?: boolean | { pageType: string; chevronPosition?: 'left' | 'right' }
-  // Enable drag-and-drop reordering of groups with localStorage persistence.
+  /**
+   * Enable drag-and-drop reordering of groups with localStorage persistence.
+   * NOTE: Only column-1 groups are sortable. Column-2 (sidebar) groups are fixed
+   * by design and always render in their declared order.
+   */
   sortableGroups?: boolean | { pageType: string }
 }
 
@@ -669,7 +681,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [allowNextNavigation, confirm, t])
 
   React.useEffect(() => {
-    if (embedded || !hasUnsavedChanges) return
+    // Navigation protection runs when the form is tracking dirty state.
+    // Embedded hosts must opt in via `trackDirtyWhenEmbedded` so parent pages that manage
+    // their own protection (or have none by design) keep their pre-existing behavior.
+    if ((embedded && !trackDirtyWhenEmbedded) || !hasUnsavedChanges) return
     const beforeUnloadHandler = (event: BeforeUnloadEvent) => {
       if (!isDirtyRef.current) return
       event.preventDefault()
@@ -746,7 +761,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       window.history.pushState = originalPushState
       window.history.replaceState = originalReplaceState
     }
-  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router])
+  }, [allowNextNavigation, clearDirtyState, confirmUnsavedChanges, embedded, hasUnsavedChanges, router, trackDirtyWhenEmbedded])
 
   const { widgets: injectionWidgets } = useInjectionWidgets(resolvedInjectionSpotId, {
     context: injectionContext,

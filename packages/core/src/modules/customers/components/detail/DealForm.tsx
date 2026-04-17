@@ -417,7 +417,7 @@ function EntityMultiSelect({
               <span className="flex flex-col items-start">
                 <span>{option.label}</span>
                 {option.subtitle ? (
-                  <span className="text-[10px] text-muted-foreground">{option.subtitle}</span>
+                  <span className="text-xs text-muted-foreground">{option.subtitle}</span>
                 ) : null}
               </span>
             </Button>

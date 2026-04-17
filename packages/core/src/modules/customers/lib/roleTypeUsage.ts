@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { CustomerEntityRole, CustomerPersonCompanyRole } from '../data/entities'
 
@@ -25,13 +25,14 @@ async function loadOrganizationScopeMap(
   const uniqueOrgIds = Array.from(new Set(organizationIds.filter((value) => value.trim().length > 0)))
   if (uniqueOrgIds.length === 0) return new Map()
 
+  const organizationFilter: FilterQuery<Organization> = {
+    tenant: tenantId,
+    id: { $in: uniqueOrgIds },
+    deletedAt: null,
+  }
   const organizations = await em.find(
     Organization,
-    {
-      tenant: tenantId as any,
-      id: { $in: uniqueOrgIds },
-      deletedAt: null,
-    } as any,
+    organizationFilter,
     { fields: ['id', 'descendantIds'] },
   )
 

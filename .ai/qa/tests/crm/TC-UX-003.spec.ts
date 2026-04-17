@@ -1,6 +1,6 @@
 /**
  * TC-UX-003: Multi-Role Assignment
- * Source: SPEC-048 — Enhancement 3
+ * Source: SPEC-072-2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 3
  *
  * Verifies:
  * - Roles section visible in Zone 1 with collapsible header

@@ -40,7 +40,7 @@ export function resolveLegacyTab(tab: string | null | undefined): DealTabId {
 function CountBadge({ count }: { count: number }) {
   if (count <= 0) return null
   return (
-    <span className="ml-1.5 rounded-[3px] bg-muted px-[6px] py-[1px] text-[10px] font-semibold leading-none text-muted-foreground">
+    <span className="ml-1.5 rounded-[3px] bg-muted px-[6px] py-[1px] text-xs font-semibold leading-none text-muted-foreground">
       {count > 999 ? '999+' : count}
     </span>
   )
@@ -48,7 +48,7 @@ function CountBadge({ count }: { count: number }) {
 
 function NewBadge() {
   return (
-    <span className="ml-1.5 rounded-[3px] bg-muted px-[6px] py-[1px] text-[10px] font-semibold leading-none text-muted-foreground">
+    <span className="ml-1.5 rounded-[3px] bg-muted px-[6px] py-[1px] text-xs font-semibold leading-none text-muted-foreground">
       NEW
     </span>
   )
@@ -128,7 +128,7 @@ export function DealDetailTabs({
                 aria-selected={isActive}
                 onClick={() => onTabChange(tab.id)}
                 className={cn(
-                  'inline-flex h-10 shrink-0 items-center border-b-2 pb-3 pt-1 text-[13px] transition-colors',
+                  'inline-flex h-10 shrink-0 items-center border-b-2 pb-3 pt-1 text-sm transition-colors',
                   isActive
                     ? 'border-foreground font-semibold text-foreground'
                     : 'border-transparent text-muted-foreground hover:text-foreground',

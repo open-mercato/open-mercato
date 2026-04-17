@@ -7,6 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -212,13 +213,13 @@ export function ScheduleActivityDialog({
         {/* Header */}
         <div className="flex shrink-0 items-start justify-between gap-[12px] border-b border-border bg-background px-[24px] py-[20px]">
           <div className="flex flex-col gap-[6px]">
-            <h2 className="text-[18px] font-bold leading-tight text-foreground">
+            <h2 className="text-lg font-bold leading-tight text-foreground">
               {editData ? t('customers.schedule.editTitle', 'Edit activity') : t('customers.schedule.title', 'Schedule activity')}
             </h2>
             {entityName && (
               <div className="flex items-center gap-[6px]">
-                <span className="inline-block size-[14px] rounded-full bg-emerald-500 shrink-0" />
-                <span className="text-[12px] text-muted-foreground">
+                <span className="inline-block size-[14px] rounded-full bg-status-success-icon shrink-0" />
+                <span className="text-xs text-muted-foreground">
                   {t('customers.schedule.context', 'On timeline: {{name}}', { name: entityName })}
                   {companyName && ` · ${companyName}`}
                 </span>
@@ -235,15 +236,13 @@ export function ScheduleActivityDialog({
 
         {/* Conflict warning */}
         {state.conflict && (
-          <div className="flex items-start gap-[12px] rounded-[12px] border border-amber-200 bg-amber-50 px-[16px] py-[14px] dark:border-amber-700 dark:bg-amber-950">
-            <AlertTriangle className="size-[18px] shrink-0 text-destructive mt-0.5" />
-            <div>
-              <p className="text-[13px] font-bold text-destructive">
-                {t('customers.schedule.conflict.title', 'Calendar conflict')}
-              </p>
-              <p className="text-[12px] text-muted-foreground mt-[4px]">{state.conflict}</p>
-            </div>
-          </div>
+          <Alert variant="warning" className="rounded-[12px]">
+            <AlertTriangle className="size-[18px]" />
+            <AlertTitle>
+              {t('customers.schedule.conflict.title', 'Calendar conflict')}
+            </AlertTitle>
+            <AlertDescription>{state.conflict}</AlertDescription>
+          </Alert>
         )}
 
         {/* Type tabs */}
@@ -258,7 +257,7 @@ export function ScheduleActivityDialog({
                 size="sm"
                 onClick={() => state.setActivityType(type)}
                 className={cn(
-                  'h-auto flex items-center gap-[8px] rounded-[8px] px-[14px] py-[9px] text-[13px] transition-colors',
+                  'h-auto flex items-center gap-[8px] rounded-[8px] px-[14px] py-[9px] text-sm transition-colors',
                   isActive
                     ? 'bg-background font-semibold text-foreground shadow-sm'
                     : 'bg-transparent font-normal text-muted-foreground',
@@ -273,7 +272,7 @@ export function ScheduleActivityDialog({
 
         {/* Title */}
         <div className="flex flex-col gap-[6px]">
-          <label className="text-[11px] font-semibold text-muted-foreground tracking-[0.5px]">
+          <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">
             {getFieldLabel(state.activityType, 'title', t, 'customers.schedule.titleLabel', 'Title')}
           </label>
           <input
@@ -281,7 +280,7 @@ export function ScheduleActivityDialog({
             value={state.title}
             onChange={(e) => state.setTitle(e.target.value)}
             placeholder={t('customers.schedule.titlePlaceholder', 'Activity title...')}
-            className="w-full rounded-[8px] border border-border bg-background px-[12px] py-[10px] text-[13px] text-foreground outline-none focus:border-foreground"
+            className="w-full rounded-[8px] border border-border bg-background px-[12px] py-[10px] text-sm text-foreground outline-none focus:border-foreground"
             autoFocus
           />
         </div>
@@ -339,7 +338,7 @@ export function ScheduleActivityDialog({
 
         {/* Description */}
         <div>
-          <label className="text-[11px] font-semibold uppercase text-muted-foreground tracking-[0.5px]">
+          <label className="text-overline font-semibold uppercase text-muted-foreground tracking-[0.5px]">
             {getFieldLabel(state.activityType, 'description', t, 'customers.schedule.description', 'Description')}
           </label>
           <div className="mt-[8px]">
@@ -368,10 +367,10 @@ export function ScheduleActivityDialog({
 
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-end gap-[10px] border-t border-border bg-muted/50 px-[24px] py-[18px]">
-          <Button type="button" variant="outline" onClick={onClose} className="rounded-[10px] border border-input bg-background px-[20px] py-[11px] text-[13px] font-semibold text-foreground">
+          <Button type="button" variant="outline" onClick={onClose} className="rounded-[10px] border border-input bg-background px-[20px] py-[11px] text-sm font-semibold text-foreground">
             {t('customers.schedule.cancel', 'Cancel')}
           </Button>
-          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-[8px] rounded-[10px] bg-primary px-[22px] py-[11px] text-[13px] font-semibold text-primary-foreground disabled:opacity-50">
+          <Button type="button" onClick={handleSave} disabled={state.saving || !state.title.trim()} className="flex items-center gap-[8px] rounded-[10px] bg-primary px-[22px] py-[11px] text-sm font-semibold text-primary-foreground disabled:opacity-50">
             <Calendar className="size-[14px]" />
             {state.saving
               ? t('customers.schedule.saving', 'Saving...')

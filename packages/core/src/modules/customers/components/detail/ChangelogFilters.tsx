@@ -134,7 +134,7 @@ export function ChangelogFilters({
   return (
     <div className="flex flex-col gap-3 rounded-xl border bg-card px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <span className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {t('customers.changelog.filter', 'Filter')}:
         </span>
         <FilterPopover

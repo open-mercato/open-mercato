@@ -16,6 +16,27 @@ export type PersonCompanySummary = {
   synthetic?: boolean
 }
 
+export async function findDeletedPersonCompanyLink(
+  em: EntityManager,
+  person: CustomerEntity,
+  company: CustomerEntity,
+): Promise<CustomerPersonCompanyLink | null> {
+  const link = await findOneWithDecryption(
+    em,
+    CustomerPersonCompanyLink,
+    {
+      person,
+      company,
+      organizationId: person.organizationId,
+      tenantId: person.tenantId,
+      deletedAt: { $ne: null },
+    } as any,
+    {},
+    { tenantId: person.tenantId, organizationId: person.organizationId },
+  )
+  return link ?? null
+}
+
 async function requireCompany(
   em: EntityManager,
   companyId: string,
@@ -95,7 +116,7 @@ function resolveLinkedCompany(link: CustomerPersonCompanyLink): CustomerEntity |
   return typeof link.company === 'string' ? null : link.company
 }
 
-async function promoteFallbackPrimaryLink(
+export async function promoteFallbackPrimaryLink(
   em: EntityManager,
   person: CustomerEntity,
   profile: CustomerPersonProfile,
@@ -192,13 +213,18 @@ export async function addPersonCompanyLink(
     await clearPrimaryFlags(em, person)
   }
 
-  const link = em.create(CustomerPersonCompanyLink, {
+  const deletedLink = await findDeletedPersonCompanyLink(em, person, company)
+  const link = deletedLink ?? em.create(CustomerPersonCompanyLink, {
     organizationId: person.organizationId,
     tenantId: person.tenantId,
     person,
     company,
     isPrimary: makePrimary,
   })
+  if (deletedLink) {
+    deletedLink.deletedAt = null
+    deletedLink.isPrimary = makePrimary
+  }
   em.persist(link)
 
   if (makePrimary) {
@@ -275,7 +301,8 @@ export async function removePersonCompanyLink(
 
   const removedCompanyId = typeof link.company === 'string' ? link.company : link.company.id
   const removedWasPrimary = link.isPrimary
-  em.remove(link)
+  link.isPrimary = false
+  link.deletedAt = new Date()
   const remainingLinks = existingLinks.filter((entry) => entry.id !== link.id)
 
   if (removedWasPrimary) {

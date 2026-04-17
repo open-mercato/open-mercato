@@ -24,7 +24,7 @@ export function LocationField({
 
   return (
     <div className="flex flex-col gap-[6px]">
-      <label className="text-[11px] font-semibold text-muted-foreground tracking-[0.5px]">
+      <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">
         {getFieldLabel(activityType, 'location', t, 'customers.schedule.location', 'Location')}
       </label>
       <div className="flex items-center gap-[8px] rounded-[8px] border border-border bg-background px-[12px] py-[10px]">
@@ -34,7 +34,7 @@ export function LocationField({
           value={location}
           onChange={(e) => setLocation(e.target.value)}
           placeholder={t('customers.schedule.locationPlaceholder', 'Add location or meeting link...')}
-          className="flex-1 bg-transparent text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none"
+          className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
         />
       </div>
     </div>

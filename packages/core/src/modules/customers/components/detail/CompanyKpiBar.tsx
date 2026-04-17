@@ -6,6 +6,11 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { KpiCard, type KpiTrend } from '@open-mercato/ui/backend/charts/KpiCard'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import {
+  readJsonFromLocalStorage,
+  writeJsonToLocalStorage,
+  removeLocalStorageKey,
+} from '@open-mercato/shared/lib/browser/safeLocalStorage'
 import type { CompanyOverview, DealSummary, InteractionSummary } from '../formConfig'
 import { formatCurrency } from './utils'
 
@@ -94,26 +99,23 @@ export function CompanyKpiBar({ data }: CompanyKpiBarProps) {
     return Math.floor((Date.now() - earliest) / (365.25 * 86_400_000))
   }, [data.interactions, data.kpis?.clientTenureYears])
 
-  const [hiddenTiles, setHiddenTiles] = React.useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY)
-      return stored ? new Set(JSON.parse(stored)) : new Set()
-    } catch { return new Set() }
-  })
+  const [hiddenTiles, setHiddenTiles] = React.useState<Set<string>>(
+    () => new Set(readJsonFromLocalStorage<string[]>(STORAGE_KEY, [])),
+  )
 
   const toggleTile = React.useCallback((tileId: string) => {
     setHiddenTiles((prev) => {
       const next = new Set(prev)
       if (next.has(tileId)) next.delete(tileId)
       else next.add(tileId)
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify([...next])) } catch {}
+      writeJsonToLocalStorage(STORAGE_KEY, [...next])
       return next
     })
   }, [])
 
   const showAllTiles = React.useCallback(() => {
     setHiddenTiles(new Set())
-    try { localStorage.removeItem(STORAGE_KEY) } catch {}
+    removeLocalStorageKey(STORAGE_KEY)
   }, [])
 
   const kpiTiles = React.useMemo(() => [

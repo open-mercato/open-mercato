@@ -288,16 +288,6 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 1. In integration tests/helpers, do not use `waitForLoadState('networkidle')` as a generic readiness gate on backend pages.
 2. Prefer `waitForLoadState('domcontentloaded')` plus one explicit UI readiness assertion for the interaction target (for example, a key button/input becoming visible).
-
-## Projection updates that change indexed parent fields must emit query-index upserts
-
-**Context**: Customer interaction commands recomputed `next_interaction_*` fields directly on `customer_entities`, which changed list/search-visible data without mutating the `CustomerEntity` through its normal CRUD command path.
-
-**Problem**: The companies/people grids showed the fresh `next_interaction_name`, but `entity_indexes` and `search_tokens` for `customers:customer_entity` stayed stale. Global search and token-backed filters then missed values that were visibly present in the grid until a manual reindex happened.
-
-**Rule**: Any command or projection that directly updates fields surfaced through query-indexed docs must also emit `query_index.upsert_one` for the affected entity records. If child/profile docs denormalize the same parent fields, review whether they need matching upserts too.
-
-**Applies to**: Projection helpers, lifecycle commands, and any write path that bypasses the primary CRUD/indexer helpers while changing search/list-visible fields.
 3. Keep selectors user-facing and stable (`Edit`, `Filter`) rather than translation keys or positional indexing (`nth(...)`) when possible.
 4. For custom-entity record forms, prefer opening the records list first and waiting for the `Create` action to appear before entering the form; this proves definitions loaded in the current app state.
 5. In custom-entity Playwright tests, target form controls via `data-crud-field-id="<fieldKey>"` instead of label-text ancestor traversal. The wrapper id is stable across monorepo and standalone layouts, while label-only selectors are brittle.

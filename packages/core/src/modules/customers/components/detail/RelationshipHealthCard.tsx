@@ -7,19 +7,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import type { InteractionSummary } from '../formConfig'
-import { computeHealthScore } from './healthScoreUtils'
-
-const COLOR_CLASSES: Record<string, string> = {
-  emerald: 'text-emerald-500',
-  amber: 'text-amber-500',
-  red: 'text-red-500',
-}
-
-const BG_CLASSES: Record<string, string> = {
-  emerald: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
-  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
-  red: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-}
+import { computeHealthScore, HEALTH_BADGE_CLASSES, HEALTH_ICON_CLASSES } from './healthScoreUtils'
 
 type RelationshipHealthCardProps = {
   interactions: InteractionSummary[]
@@ -34,7 +22,7 @@ export function RelationshipHealthCard({ interactions, onHide }: RelationshipHea
     <div className="group relative rounded-lg border bg-card p-5">
       <div className="flex items-center justify-between">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Heart className={cn('size-4', COLOR_CLASSES[health.variant])} />
+          <Heart className={cn('size-4', HEALTH_ICON_CLASSES[health.variant])} />
           {t('customers.companies.detail.health.title', 'Relationship health')}
         </h3>
         {onHide && (
@@ -53,16 +41,16 @@ export function RelationshipHealthCard({ interactions, onHide }: RelationshipHea
       <div className="mt-4 flex items-center justify-center">
         <div className="space-y-2 text-center">
           <div className="relative inline-flex items-center justify-center">
-            <span className={cn('text-4xl font-bold', COLOR_CLASSES[health.variant])}>{health.score}</span>
+            <span className={cn('text-4xl font-bold', HEALTH_ICON_CLASSES[health.variant])}>{health.score}</span>
             <span className="text-sm text-muted-foreground">/100</span>
           </div>
           <div>
-            <Badge className={cn('text-xs', BG_CLASSES[health.variant])}>
+            <Badge className={cn('text-xs', HEALTH_BADGE_CLASSES[health.variant])}>
               {t(`customers.companies.detail.health.${health.label}`, health.label)}
             </Badge>
           </div>
           {health.lastContactDays !== null && (
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t('customers.companies.detail.health.lastContact', 'Last contact')}: {health.lastContactDays === 0
                 ? t('customers.health.today', 'today')
                 : t('customers.health.daysAgo', '{days} days ago', { days: health.lastContactDays })}

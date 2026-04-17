@@ -14,6 +14,7 @@ const querySchema = z.object({
   duration: z.coerce.number().int().min(1).max(1440),
   excludeId: z.string().uuid().optional(),
   userId: z.string().uuid().optional(),
+  timezoneOffsetMinutes: z.coerce.number().int().min(-900).max(900).optional(),
 })
 
 const conflictItemSchema = z.object({
@@ -75,7 +76,13 @@ export async function GET(req: Request) {
         ? [auth.orgId]
         : []
 
-    const windowStart = new Date(`${query.date}T${query.startTime}:00`)
+    const offsetMinutes = query.timezoneOffsetMinutes ?? 0
+    const offsetSign = offsetMinutes >= 0 ? '+' : '-'
+    const absMinutes = Math.abs(offsetMinutes)
+    const offsetHours = String(Math.floor(absMinutes / 60)).padStart(2, '0')
+    const offsetMins = String(absMinutes % 60).padStart(2, '0')
+    const offsetSuffix = `${offsetSign}${offsetHours}:${offsetMins}`
+    const windowStart = new Date(`${query.date}T${query.startTime}:00${offsetSuffix}`)
     const windowEnd = new Date(windowStart.getTime() + query.duration * 60_000)
 
     if (Number.isNaN(windowStart.getTime()) || Number.isNaN(windowEnd.getTime())) {
@@ -152,6 +159,7 @@ export async function GET(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    console.error('[customers/interactions/conflicts] GET failed', err)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

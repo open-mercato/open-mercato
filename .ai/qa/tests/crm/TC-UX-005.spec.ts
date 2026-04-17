@@ -1,6 +1,6 @@
 /**
  * TC-UX-005: Activity Timeline Filtering
- * Source: SPEC-048 — Enhancement 5
+ * Source: SPEC-072-2026-04-06-crm-detail-pages-ux-enhancements — Enhancement 5
  *
  * Verifies:
  * - Filter bar with type toggle buttons visible in Activities tab

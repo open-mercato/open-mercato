@@ -71,3 +71,19 @@ export function computeHealthScore(interactions: InteractionSummary[]): HealthSc
 
   return { score, label, variant, lastContactDays: daysSinceContact < 999 ? daysSinceContact : null }
 }
+
+/**
+ * Shared health variant → semantic status token mappings.
+ * Used by RelationshipHealthCard and RelationshipHealthWidget.
+ */
+export const HEALTH_ICON_CLASSES: Record<HealthScore['variant'], string> = {
+  emerald: 'text-status-success-icon',
+  amber: 'text-status-warning-icon',
+  red: 'text-status-error-icon',
+}
+
+export const HEALTH_BADGE_CLASSES: Record<HealthScore['variant'], string> = {
+  emerald: 'bg-status-success-bg text-status-success-text',
+  amber: 'bg-status-warning-bg text-status-warning-text',
+  red: 'bg-status-error-bg text-status-error-text',
+}

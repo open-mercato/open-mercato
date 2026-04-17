@@ -73,7 +73,7 @@ function HeaderChip({
   dotColor?: string
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-[4px] bg-muted px-[8px] py-[4px] text-[11px] font-medium leading-none text-muted-foreground">
+    <span className="inline-flex items-center gap-1.5 rounded-[4px] bg-muted px-[8px] py-[4px] text-xs font-medium leading-none text-muted-foreground">
       {dotColor ? <span className="size-2 rounded-full" style={{ backgroundColor: dotColor }} /> : null}
       {icon ? <span className="text-muted-foreground">{icon}</span> : null}
       {children}
@@ -132,7 +132,7 @@ function StageActionButton({
           <div className="text-xs font-semibold text-foreground">
             {t('customers.deals.detail.stageMenu.title', 'Update pipeline stage')}
           </div>
-          <div className="mt-0.5 text-[11px] text-muted-foreground">
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {t('customers.deals.detail.stageMenu.description', 'Move the deal forward without opening the form.')}
           </div>
         </div>
@@ -225,14 +225,14 @@ export function DealDetailHeader({
         </div>
         <div className="min-w-0 space-y-3">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h1 className="min-w-0 truncate text-[26px] font-bold leading-tight text-foreground md:text-[30px]">
+            <h1 className="min-w-0 truncate text-2xl font-bold leading-tight text-foreground md:text-2xl">
               {deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
             </h1>
-            <span className="rounded-[3px] bg-muted px-[8px] py-[3px] text-[9px] font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+            <span className="rounded-[3px] bg-muted px-[8px] py-[3px] text-overline font-semibold uppercase tracking-[0.04em] text-muted-foreground">
               {t('customers.deals.detail.badge.deal', 'Deal')}
             </span>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
             {companyLabel ? (
               <span className="inline-flex items-center gap-1.5">
                 <Building2 className="size-3.5" />

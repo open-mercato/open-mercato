@@ -14,9 +14,15 @@ const em = {
   flush: jest.fn(),
 }
 
+const commandBusExecuteMock = jest.fn()
+const commandBus = {
+  execute: (...args: unknown[]) => commandBusExecuteMock(...args),
+}
+
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
+    if (name === 'commandBus') return commandBus
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -81,6 +87,14 @@ describe('customer label route scoping', () => {
     em.flush.mockResolvedValue(undefined)
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
+    commandBusExecuteMock.mockResolvedValue({
+      result: {
+        assignmentId: '77777777-7777-4777-8777-777777777777',
+        created: true,
+        entityKind: 'person',
+      },
+      logEntry: null,
+    })
   })
 
   it('requires manage access for label assignment writes', () => {
@@ -88,11 +102,8 @@ describe('customer label route scoping', () => {
     expect(unassignMetadata.POST.requireFeatures).toEqual(['customers.people.manage'])
   })
 
-  it('scopes label assignment lookups to the selected organization', async () => {
-    em.findOne
-      .mockResolvedValueOnce({ id: labelId })
-      .mockResolvedValueOnce({ id: entityId })
-      .mockResolvedValueOnce(null)
+  it('assigns label with person resourceKind and scoped mutation guard', async () => {
+    em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'person' })
 
     const response = await assignLabel(
       new Request('http://localhost/api/customers/labels/assign', {
@@ -103,26 +114,16 @@ describe('customer label route scoping', () => {
     )
 
     expect(response.status).toBe(201)
-    expect(em.findOne).toHaveBeenNthCalledWith(
-      1,
-      expect.any(Function),
+    expect(commandBusExecuteMock).toHaveBeenCalledWith(
+      'customers.labels.assign',
       expect.objectContaining({
-        id: labelId,
-        tenantId,
-        organizationId,
-        userId,
+        input: expect.objectContaining({
+          labelId,
+          entityId,
+          tenantId,
+          organizationId,
+        }),
       }),
-      {},
-    )
-    expect(em.findOne).toHaveBeenNthCalledWith(
-      3,
-      expect.any(Function),
-      expect.objectContaining({
-        tenantId,
-        organizationId,
-        userId,
-      }),
-      {},
     )
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
@@ -138,21 +139,34 @@ describe('customer label route scoping', () => {
     expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
       container,
       expect.objectContaining({
-        tenantId,
-        organizationId,
-        userId,
         resourceKind: 'customers.person',
-        resourceId: entityId,
-        operation: 'custom',
       }),
     )
   })
 
-  it('scopes label unassignment lookups to the selected organization', async () => {
-    em.findOne
-      .mockResolvedValueOnce({ id: labelId })
-      .mockResolvedValueOnce({ id: entityId })
-      .mockResolvedValueOnce({ id: '77777777-7777-4777-8777-777777777777' })
+  it('assigns label with company resourceKind when entity kind is company', async () => {
+    em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'company' })
+
+    const response = await assignLabel(
+      new Request('http://localhost/api/customers/labels/assign', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ labelId, entityId, organizationId }),
+      }),
+    )
+
+    expect(response.status).toBe(201)
+    expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
+      container,
+      expect.objectContaining({
+        resourceKind: 'customers.company',
+        resourceId: entityId,
+      }),
+    )
+  })
+
+  it('unassigns label with scoped mutation guard', async () => {
+    em.findOne.mockResolvedValueOnce({ id: entityId, kind: 'person' })
 
     const response = await unassignLabel(
       new Request('http://localhost/api/customers/labels/unassign', {
@@ -163,26 +177,16 @@ describe('customer label route scoping', () => {
     )
 
     expect(response.status).toBe(200)
-    expect(em.findOne).toHaveBeenNthCalledWith(
-      1,
-      expect.any(Function),
+    expect(commandBusExecuteMock).toHaveBeenCalledWith(
+      'customers.labels.unassign',
       expect.objectContaining({
-        id: labelId,
-        tenantId,
-        organizationId,
-        userId,
+        input: expect.objectContaining({
+          labelId,
+          entityId,
+          tenantId,
+          organizationId,
+        }),
       }),
-      {},
-    )
-    expect(em.findOne).toHaveBeenNthCalledWith(
-      3,
-      expect.any(Function),
-      expect.objectContaining({
-        tenantId,
-        organizationId,
-        userId,
-      }),
-      {},
     )
     expect(validateCrudMutationGuardMock).toHaveBeenCalledWith(
       container,
@@ -195,16 +199,6 @@ describe('customer label route scoping', () => {
         operation: 'custom',
       }),
     )
-    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalledWith(
-      container,
-      expect.objectContaining({
-        tenantId,
-        organizationId,
-        userId,
-        resourceKind: 'customers.person',
-        resourceId: entityId,
-        operation: 'custom',
-      }),
-    )
+    expect(runCrudMutationGuardAfterSuccessMock).toHaveBeenCalled()
   })
 })

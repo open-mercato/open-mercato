@@ -89,10 +89,10 @@ function TimelineEntry({
       <div className="grid items-start gap-3" style={{ gridTemplateColumns: '72px 40px 1fr' }}>
         {/* Column 1: Date */}
         <div className="shrink-0 pt-0.5">
-          <span className="block text-[12px] font-bold leading-tight">
+          <span className="block text-xs font-bold leading-tight">
             {formatRelativeDate(dateStr, t)}
           </span>
-          <span className="block text-[12px] leading-tight text-muted-foreground">
+          <span className="block text-xs leading-tight text-muted-foreground">
             {formatTime(dateStr)}
           </span>
         </div>
@@ -117,7 +117,7 @@ function TimelineEntry({
           )}
 
           {activity.authorName && (
-            <div className="mt-1.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+            <div className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
               <User className="size-3 shrink-0" />
               <span>{t('customers.timeline.author', 'by {{name}}', { name: activity.authorName })}</span>
             </div>

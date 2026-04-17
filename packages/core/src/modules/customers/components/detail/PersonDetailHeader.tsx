@@ -45,7 +45,7 @@ function DictionaryBadge({ value, map, categoryIcon, className }: { value: strin
     <Badge
       variant="outline"
       className={cn(
-        'rounded-[4px] gap-1.5 text-[11px] font-medium',
+        'rounded-[4px] gap-1.5 text-xs font-medium',
         className,
       )}
       style={colorStyle}
@@ -62,7 +62,7 @@ function TagBadge({ tag }: { tag: TagSummary }) {
     ? { color: tag.color, borderColor: tag.color, backgroundColor: `${tag.color}1A` }
     : undefined
   return (
-    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium" style={colorStyle}>
+    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium" style={colorStyle}>
       {tag.label}
     </Badge>
   )
@@ -125,7 +125,7 @@ export function PersonDetailHeader({
           <div className="flex items-center gap-2">
             <h1 className="truncate text-2xl font-bold text-foreground">{displayName}</h1>
             {data.isPrimary && (
-              <span className="shrink-0 rounded-[3px] bg-[#fef8eb] px-1.5 py-0.5 text-[9px] font-bold text-[#f29f12]">
+              <span className="shrink-0 rounded-[3px] bg-status-warning-bg px-1.5 py-0.5 text-overline font-bold text-status-warning-text">
                 {t('customers.people.detail.header.primary', 'PRIMARY')}
               </span>
             )}
@@ -173,23 +173,23 @@ export function PersonDetailHeader({
                   key={company.id}
                   href={`/backend/customers/companies-v2/${company.id}`}
                   className={cn(
-                    'inline-flex items-center gap-[5px] rounded-[4px] border px-2 py-[3px] text-[11px] font-semibold transition-colors hover:bg-blue-100 dark:hover:bg-blue-950/40',
+                    'inline-flex items-center gap-[5px] rounded-[4px] border px-2 py-[3px] text-xs font-semibold transition-colors hover:bg-status-info-bg',
                     company.isPrimary
-                      ? 'border-blue-500 bg-blue-50 text-blue-500 dark:border-blue-400 dark:bg-blue-950/30 dark:text-blue-400'
+                      ? 'border-status-info-border bg-status-info-bg text-status-info-text'
                       : 'border-border bg-background text-foreground',
                   )}
                 >
                   <Building2 className="size-[11px]" />
                   {company.displayName}
                   {company.isPrimary ? (
-                    <span className="rounded-[2px] bg-blue-500 px-1 py-px text-[8px] font-bold text-white dark:bg-blue-400">
+                    <span className="rounded-[2px] bg-status-info-icon px-1 py-px text-overline font-bold text-white">
                       {t('customers.people.detail.header.primary', 'PRIMARY')}
                     </span>
                   ) : null}
                 </Link>
               ))}
               {hiddenCompaniesCount > 0 ? (
-                <Badge variant="outline" className="rounded-[4px] text-[11px] font-semibold">
+                <Badge variant="outline" className="rounded-[4px] text-xs font-semibold">
                   +{hiddenCompaniesCount} {t('customers.people.detail.header.more', 'more')}
                 </Badge>
               ) : null}
@@ -199,7 +199,7 @@ export function PersonDetailHeader({
                   variant="outline"
                   size="sm"
                   onClick={onOpenCompaniesTab}
-                  className="h-auto rounded-[4px] border-dashed px-2 py-[3px] text-[11px] font-semibold text-muted-foreground"
+                  className="h-auto rounded-[4px] border-dashed px-2 py-[3px] text-xs font-semibold text-muted-foreground"
                 >
                   <Plus className="size-[11px]" />
                   {t('customers.people.detail.header.linkCompany', 'Link company')}
@@ -230,7 +230,7 @@ export function PersonDetailHeader({
               <TagBadge key={tag.id ?? tag.label} tag={tag} />
             ))}
             {hiddenTagsCount > 0 ? (
-              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium">
+              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
                 +{hiddenTagsCount} {t('customers.people.detail.header.more', 'more')}
               </Badge>
             ) : null}
@@ -239,7 +239,7 @@ export function PersonDetailHeader({
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto rounded-[4px] px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              className="h-auto rounded-[4px] px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
               <Pencil className="mr-1 size-3" />

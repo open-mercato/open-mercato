@@ -25,7 +25,7 @@ export function DecisionMakersFooter({ names, suggestion, onSendInvitation }: De
       <div className="flex min-w-0 items-start gap-3">
         <Lightbulb className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <p className="text-overline font-semibold uppercase tracking-wide text-muted-foreground">
             {t('customers.people.decisionMakers.label', 'Decision Makers')}
           </p>
           <p className="break-words text-sm font-medium">

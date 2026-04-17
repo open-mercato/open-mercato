@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Mail, Phone, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LookupSelect, type LookupSelectItem } from '@open-mercato/ui/backend/inputs/LookupSelect'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -92,8 +93,10 @@ export function RoleAssignmentRow({
       onUpdated()
     } catch (error) {
       console.error('customers.roles.update failed', error)
+      flash(t('customers.roles.updateFailed', 'Failed to update role assignment.'), 'error')
+      setChangingUser(false)
     }
-  }, [entityId, entityType, onUpdated, role.id, role.userId, runMutationWithContext])
+  }, [entityId, entityType, onUpdated, role.id, role.userId, runMutationWithContext, t])
 
   const handleRemove = React.useCallback(async () => {
     const confirmed = await confirm({
@@ -115,6 +118,7 @@ export function RoleAssignmentRow({
       onRemoved()
     } catch (error) {
       console.error('customers.roles.remove failed', error)
+      flash(t('customers.roles.removeFailed', 'Failed to remove role assignment.'), 'error')
     } finally {
       setRemoving(false)
     }
@@ -145,7 +149,7 @@ export function RoleAssignmentRow({
       {ConfirmDialogElement}
       <div className="flex h-full min-w-0 flex-col overflow-hidden rounded-xl border bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <Badge variant="outline" className="max-w-full break-words rounded-full px-2 py-0 text-left text-[10px] font-semibold">
+          <Badge variant="outline" className="max-w-full break-words rounded-full px-2 py-0 text-left text-xs font-semibold">
             {roleTypeLabel}
           </Badge>
           <IconButton
@@ -170,7 +174,7 @@ export function RoleAssignmentRow({
               <div className="mt-1 break-all text-xs text-muted-foreground">{role.userEmail}</div>
             ) : null}
             {assignedLabel ? (
-              <div className="mt-2 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+              <div className="mt-2 text-overline uppercase tracking-[0.08em] text-muted-foreground">
                 {assignedLabel}
               </div>
             ) : null}

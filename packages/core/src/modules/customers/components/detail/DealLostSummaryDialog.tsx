@@ -19,7 +19,7 @@ type DealStatsPayload = {
   lossReason: string | null
 }
 
-type DealLostPopupProps = {
+type DealLostSummaryDialogProps = {
   open: boolean
   onClose: () => void
   dealTitle: string
@@ -59,7 +59,7 @@ function StatCard({
   )
 }
 
-export function DealLostPopup({
+export function DealLostSummaryDialog({
   open,
   onClose,
   dealTitle,
@@ -67,7 +67,7 @@ export function DealLostPopup({
   stats,
   onBackToPipeline,
   onScheduleFollowUp,
-}: DealLostPopupProps) {
+}: DealLostSummaryDialogProps) {
   const t = useT()
 
   return (
@@ -85,22 +85,22 @@ export function DealLostPopup({
 
           <div className="space-y-5 px-7 pb-7 text-center">
             <div className="space-y-2">
-              <h2 className="text-[22px] font-bold leading-tight text-foreground">
+              <h2 className="text-2xl font-bold leading-tight text-foreground">
                 {t('customers.deals.detail.lost.popupTitle', 'Not this round')}
               </h2>
-              <p className="text-[14px] font-medium text-muted-foreground">
+              <p className="text-sm font-medium text-muted-foreground">
                 {t('customers.deals.detail.lost.popupSubtitle', 'Even great teams miss a shot sometimes')}
               </p>
             </div>
 
             <div className="rounded-[14px] border bg-muted/20 px-4 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              <p className="text-overline font-bold uppercase tracking-[0.16em] text-muted-foreground">
                 {dealTitle}
               </p>
-              <p className="mt-2 text-[22px] font-bold text-muted-foreground">
+              <p className="mt-2 text-2xl font-bold text-muted-foreground">
                 {stats ? formatCurrency(stats.dealValue, stats.dealCurrency) : '—'}
               </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {t('customers.deals.detail.lost.popupSummary', 'Lost · reason: {{reason}}', {
                   reason: stats?.lossReason ?? t('customers.deals.detail.lost.reasonFallback', 'Unknown'),
                 })}
@@ -127,10 +127,10 @@ export function DealLostPopup({
 
             {lossNotes ? (
               <div className="rounded-[14px] bg-primary/15 px-4 py-4 text-left">
-                <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-foreground">
+                <div className="text-overline font-bold uppercase tracking-[0.16em] text-foreground">
                   {t('customers.deals.detail.lost.nextHeading', "What's next")}
                 </div>
-                <div className="mt-2 text-[12px] leading-5 text-muted-foreground">{lossNotes}</div>
+                <div className="mt-2 text-xs leading-5 text-muted-foreground">{lossNotes}</div>
               </div>
             ) : null}
 

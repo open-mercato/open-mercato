@@ -75,7 +75,7 @@ export function ActivityTimelineFilters({
   return (
     <div className="flex flex-col gap-3 border-b border-border/60 pb-4 md:flex-row md:items-center md:justify-between">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+        <span className="text-overline font-bold uppercase tracking-wider text-muted-foreground">
           {t('customers.people.detail.activities.filterLabel', 'FILTER:')}
         </span>
 
@@ -90,7 +90,7 @@ export function ActivityTimelineFilters({
               size="sm"
               onClick={() => handleTypeToggle(type)}
               className={cn(
-                'h-7 rounded-full px-2.5 text-[10px] gap-1.5',
+                'h-7 rounded-full px-2.5 text-xs gap-1.5',
                 isActive
                   ? 'border-foreground bg-background text-foreground'
                   : 'border-border bg-background text-muted-foreground',
@@ -100,7 +100,7 @@ export function ActivityTimelineFilters({
               <Icon className="size-2.5" />
               <span className="font-semibold">{t(`customers.timeline.filter.${type}`, type)}</span>
               {typeof count === 'number' && count > 0 ? (
-                <span className="rounded-full bg-muted px-1 text-[9px] leading-4 text-muted-foreground">
+                <span className="rounded-full bg-muted px-1 text-overline leading-4 text-muted-foreground">
                   {count}
                 </span>
               ) : null}
@@ -115,7 +115,7 @@ export function ActivityTimelineFilters({
             type="button"
             variant="outline"
             size="sm"
-            className="h-7 rounded-[8px] px-2.5 text-[10px] text-muted-foreground"
+            className="h-7 rounded-[8px] px-2.5 text-xs text-muted-foreground"
           >
             <SlidersHorizontal className="size-2.5" />
             {t('customers.people.detail.activities.moreFilters', 'More')}

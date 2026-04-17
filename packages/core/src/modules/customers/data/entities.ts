@@ -217,7 +217,11 @@ export class CustomerPersonProfile {
 @Index({ name: 'customer_person_company_links_person_idx', properties: ['person'] })
 @Index({ name: 'customer_person_company_links_company_idx', properties: ['company'] })
 @Index({ name: 'customer_person_company_links_scope_idx', properties: ['organizationId', 'tenantId'] })
-@Unique({ name: 'customer_person_company_links_unique', properties: ['person', 'company'] })
+@Index({
+  name: 'customer_person_company_links_active_unique',
+  expression:
+    `create unique index "customer_person_company_links_active_unique" on "customer_person_company_links" ("person_entity_id", "company_entity_id") where "deleted_at" is null`,
+})
 export class CustomerPersonCompanyLink {
   [OptionalProps]?: 'isPrimary' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -964,11 +968,15 @@ export class CustomerTodoLink {
 }
 
 @Entity({ tableName: 'customer_entity_roles' })
-@Unique({ name: 'customer_entity_roles_unique', properties: ['entityType', 'entityId', 'roleType'] })
 @Index({ name: 'customer_entity_roles_entity_idx', properties: ['entityType', 'entityId'] })
 @Index({ name: 'customer_entity_roles_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({
+  name: 'customer_entity_roles_active_unique',
+  expression:
+    'create unique index "customer_entity_roles_active_unique" on "customer_entity_roles" ("entity_type", "entity_id", "role_type") where "deleted_at" is null',
+})
 export class CustomerEntityRole {
-  [OptionalProps]?: 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -996,6 +1004,9 @@ export class CustomerEntityRole {
 
   @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }
 
 @Entity({ tableName: 'customer_dictionary_kind_settings' })

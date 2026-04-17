@@ -3380,6 +3380,22 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "datetime"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
         }
       },
       "name": "customer_entity_roles",
@@ -3408,16 +3424,13 @@
           "unique": false
         },
         {
-          "keyName": "customer_entity_roles_unique",
-          "columnNames": [
-            "entity_type",
-            "entity_id",
-            "role_type"
-          ],
-          "composite": true,
-          "constraint": true,
+          "keyName": "customer_entity_roles_active_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"customer_entity_roles_active_unique\" on \"customer_entity_roles\" (\"entity_type\", \"entity_id\", \"role_type\") where \"deleted_at\" is null"
         },
         {
           "keyName": "customer_entity_roles_pkey",
@@ -4505,15 +4518,13 @@
           "unique": false
         },
         {
-          "keyName": "customer_person_company_links_unique",
-          "columnNames": [
-            "person_entity_id",
-            "company_entity_id"
-          ],
-          "composite": true,
-          "constraint": true,
+          "keyName": "customer_person_company_links_active_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false,
+          "expression": "create unique index \"customer_person_company_links_active_unique\" on \"customer_person_company_links\" (\"person_entity_id\", \"company_entity_id\") where \"deleted_at\" is null"
         },
         {
           "keyName": "customer_person_company_links_pkey",

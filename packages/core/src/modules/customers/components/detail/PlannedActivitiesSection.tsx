@@ -46,7 +46,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
         <div className="flex items-center gap-2 text-sm font-medium">
           <CalendarClock className="size-4 text-muted-foreground" />
           {t('customers.timeline.planned.title', 'Planned activities')}
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
             {activities.length}
           </span>
           {overdue.length > 0 && (

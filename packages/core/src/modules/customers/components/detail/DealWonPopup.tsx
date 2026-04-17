@@ -98,22 +98,22 @@ export function DealWonPopup({
 
           <div className="space-y-5 px-7 pb-7 text-center">
             <div className="space-y-2">
-              <h2 className="text-[22px] font-bold leading-tight text-foreground">
+              <h2 className="text-2xl font-bold leading-tight text-foreground">
                 {t('customers.deals.detail.won.title', 'Closed successfully')}
               </h2>
-              <p className="text-[14px] font-medium text-muted-foreground">
+              <p className="text-sm font-medium text-muted-foreground">
                 {t('customers.deals.detail.won.subtitle', 'You are a sales machine!')}
               </p>
             </div>
 
             <div className="rounded-[14px] border bg-muted/20 px-4 py-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+              <p className="text-overline font-bold uppercase tracking-[0.16em] text-muted-foreground">
                 {dealTitle}
               </p>
-              <p className="mt-2 text-[22px] font-bold text-primary">
+              <p className="mt-2 text-2xl font-bold text-primary">
                 {stats ? formatCurrency(stats.dealValue, stats.dealCurrency) : '—'}
               </p>
-              <p className="mt-1 text-[11px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 {t('customers.deals.detail.won.closed', 'Won')} · {stats ? formatClosedDate(stats.closedAt, t) : '—'}
               </p>
             </div>

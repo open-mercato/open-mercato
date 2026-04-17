@@ -269,7 +269,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       {/* Day headers */}
       <div className="grid grid-cols-7 mb-1">
         {dayLabels.map((label) => (
-          <div key={label} className="text-center text-[10px] font-medium text-muted-foreground">
+          <div key={label} className="text-center text-xs font-medium text-muted-foreground">
             {label}
           </div>
         ))}

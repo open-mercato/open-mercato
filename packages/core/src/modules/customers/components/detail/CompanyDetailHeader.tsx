@@ -37,7 +37,7 @@ function CompanyDictionaryBadge({ value, map }: { value: string; map: CustomerDi
     ? { color, borderColor: color, backgroundColor: `${color}1A` }
     : undefined
   return (
-    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium" style={colorStyle}>
+    <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium" style={colorStyle}>
       {icon ? renderDictionaryIcon(icon, 'size-2.5') : null}
       {label}
     </Badge>
@@ -163,7 +163,7 @@ export function CompanyDetailHeader({
                 <Badge
                   key={tag.id}
                   variant="outline"
-                  className="rounded-[4px] gap-1.5 text-[11px] font-medium"
+                  className="rounded-[4px] gap-1.5 text-xs font-medium"
                   style={colorStyle}
                 >
                   {tag.label}
@@ -171,7 +171,7 @@ export function CompanyDetailHeader({
               )
             })}
             {hiddenCustomTagsCount > 0 ? (
-              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium">
+              <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
                 +{hiddenCustomTagsCount} {t('customers.companies.detail.header.more', 'more')}
               </Badge>
             ) : null}
@@ -179,7 +179,7 @@ export function CompanyDetailHeader({
               type="button"
               variant="outline"
               size="sm"
-              className="h-auto rounded-[4px] px-2 py-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              className="h-auto rounded-[4px] px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
               onClick={() => setManageTagsOpen(true)}
             >
               <Pencil className="mr-1 size-3" />

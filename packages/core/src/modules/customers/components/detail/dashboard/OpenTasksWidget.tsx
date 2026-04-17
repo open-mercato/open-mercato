@@ -59,7 +59,7 @@ export function OpenTasksWidget({
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <CheckCircle2 className="size-4" />
           {t('customers.companies.dashboard.openTasks', 'Open tasks')}
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
             {tasks.length}
           </span>
         </h3>
@@ -74,11 +74,11 @@ export function OpenTasksWidget({
             type="button"
             variant={taskFilter === tab.key ? 'default' : 'outline'}
             size="sm"
-            className="h-6 px-2 text-[10px]"
+            className="h-6 px-2 text-xs"
             onClick={() => setTaskFilter(tab.key)}
           >
             {tab.label}
-            <span className="ml-1 rounded-full bg-muted/50 px-1 text-[9px]">{tab.count}</span>
+            <span className="ml-1 rounded-full bg-muted/50 px-1 text-overline">{tab.count}</span>
           </Button>
         ))}
       </div>
@@ -100,7 +100,7 @@ export function OpenTasksWidget({
                   </p>
                 )}
               </div>
-              <Badge variant={prio.variant} className="shrink-0 text-[10px]">{prio.label}</Badge>
+              <Badge variant={prio.variant} className="shrink-0 text-xs">{prio.label}</Badge>
               <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" />
             </div>
           )

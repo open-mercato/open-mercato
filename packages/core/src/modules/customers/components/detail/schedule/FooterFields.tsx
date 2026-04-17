@@ -35,7 +35,7 @@ export function FooterFields({
     <div className="flex gap-[12px]">
       {showReminder && (
         <div className="flex flex-1 flex-col gap-[6px]">
-          <label className="text-[11px] font-semibold text-muted-foreground tracking-[0.5px]">
+          <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">
             {getFieldLabel(activityType, 'reminder', t, 'customers.schedule.reminder', 'Reminder')}
           </label>
           <div className="flex items-center gap-[8px] rounded-[8px] border border-border bg-background px-[12px] py-[10px]">
@@ -43,7 +43,7 @@ export function FooterFields({
             <select
               value={reminderMinutes}
               onChange={(e) => setReminderMinutes(Number(e.target.value))}
-              className="flex-1 appearance-none bg-transparent text-[13px] text-foreground focus:outline-none"
+              className="flex-1 appearance-none bg-transparent text-sm text-foreground focus:outline-none"
             >
               {REMINDER_OPTIONS.map((m) => (
                 <option key={m} value={m}>
@@ -57,7 +57,7 @@ export function FooterFields({
       )}
       {showVisibility && (
         <div className="flex flex-1 flex-col gap-[6px]">
-          <label className="text-[11px] font-semibold text-muted-foreground tracking-[0.5px]">
+          <label className="text-overline font-semibold text-muted-foreground tracking-[0.5px]">
             {getFieldLabel(activityType, 'visibility', t, 'customers.schedule.visibility', 'Visibility')}
           </label>
           <div className="flex items-center gap-[8px] rounded-[8px] border border-border bg-background px-[12px] py-[10px]">
@@ -65,7 +65,7 @@ export function FooterFields({
             <select
               value={visibility}
               onChange={(e) => setVisibility(e.target.value)}
-              className="flex-1 appearance-none bg-transparent text-[13px] text-foreground focus:outline-none"
+              className="flex-1 appearance-none bg-transparent text-sm text-foreground focus:outline-none"
             >
               <option value="team">{t('customers.schedule.visibility.team', 'Team only')}</option>
               <option value="public">{t('customers.schedule.visibility.public', 'Public')}</option>

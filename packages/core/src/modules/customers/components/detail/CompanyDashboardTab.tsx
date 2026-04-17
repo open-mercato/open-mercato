@@ -11,6 +11,11 @@ import type { CompanyOverview } from '../formConfig'
 import { formatCurrency } from './utils'
 import { computeHealthScore } from './healthScoreUtils'
 import {
+  readJsonFromLocalStorage,
+  writeJsonToLocalStorage,
+  removeLocalStorageKey,
+} from '@open-mercato/shared/lib/browser/safeLocalStorage'
+import {
   sumActiveDeals,
   getActiveDeals,
   getOpenTasks,
@@ -73,19 +78,16 @@ export function CompanyDashboardTab({ data, companyId, onTabChange, onActivityCr
     return Math.floor((Date.now() - earliest) / (365.25 * 86_400_000))
   }, [data.interactions])
 
-  const [hiddenTiles, setHiddenTiles] = React.useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem('om:dashboard-hidden-tiles')
-      return stored ? new Set(JSON.parse(stored)) : new Set()
-    } catch { return new Set() }
-  })
+  const [hiddenTiles, setHiddenTiles] = React.useState<Set<string>>(
+    () => new Set(readJsonFromLocalStorage<string[]>('om:dashboard-hidden-tiles', [])),
+  )
 
   const toggleTile = React.useCallback((tileId: string) => {
     setHiddenTiles((prev) => {
       const next = new Set(prev)
       if (next.has(tileId)) next.delete(tileId)
       else next.add(tileId)
-      try { localStorage.setItem('om:dashboard-hidden-tiles', JSON.stringify([...next])) } catch {}
+      writeJsonToLocalStorage('om:dashboard-hidden-tiles', [...next])
       return next
     })
   }, [])
@@ -127,7 +129,7 @@ export function CompanyDashboardTab({ data, companyId, onTabChange, onActivityCr
           <span className="text-xs text-muted-foreground">
             {t('customers.companies.dashboard.hiddenTiles', '{{count}} tiles hidden', { count: hiddenTiles.size })}
           </span>
-          <Button type="button" variant="ghost" size="sm" className="h-auto text-xs px-1.5 py-0.5" onClick={() => { setHiddenTiles(new Set()); try { localStorage.removeItem('om:dashboard-hidden-tiles') } catch {} }}>
+          <Button type="button" variant="ghost" size="sm" className="h-auto text-xs px-1.5 py-0.5" onClick={() => { setHiddenTiles(new Set()); removeLocalStorageKey('om:dashboard-hidden-tiles') }}>
             {t('customers.companies.dashboard.showAll', 'Show all')}
           </Button>
         </div>

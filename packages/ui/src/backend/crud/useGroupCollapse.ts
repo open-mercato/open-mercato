@@ -1,5 +1,9 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  readJsonFromLocalStorage,
+  writeJsonToLocalStorage,
+} from '@open-mercato/shared/lib/browser/safeLocalStorage'
 
 function getStorageKey(pageType: string, groupId: string) {
   return `om:collapsible:${pageType}:${groupId}`
@@ -11,19 +15,15 @@ export function useGroupCollapse(pageType: string, groupId: string, defaultExpan
 
   useEffect(() => {
     mounted.current = true
-    try {
-      const saved = localStorage.getItem(getStorageKey(pageType, groupId))
-      if (saved !== null) {
-        setExpanded(saved === '1')
-      }
-    } catch { /* localStorage may be unavailable in private browsing or SSR — fall back to default */ }
+    const saved = readJsonFromLocalStorage<string | null>(getStorageKey(pageType, groupId), null)
+    if (saved !== null) {
+      setExpanded(saved === '1')
+    }
   }, [pageType, groupId])
 
   useEffect(() => {
     if (!mounted.current) return
-    try {
-      localStorage.setItem(getStorageKey(pageType, groupId), expanded ? '1' : '0')
-    } catch { /* localStorage may be unavailable — preference not persisted, non-critical */ }
+    writeJsonToLocalStorage(getStorageKey(pageType, groupId), expanded ? '1' : '0')
   }, [expanded, pageType, groupId])
 
   const toggle = useCallback(() => {

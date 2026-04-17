@@ -51,8 +51,10 @@ function getRoleContext(entityType: EntityType, entityId: string) {
 }
 
 function buildValidationErrorResponse(error: z.ZodError) {
-  void error
-  return NextResponse.json({ error: 'Validation failed' }, { status: 400 })
+  return NextResponse.json(
+    { error: 'Validation failed', fieldErrors: error.flatten().fieldErrors },
+    { status: 400 },
+  )
 }
 
 function withOperationMetadata(
@@ -141,7 +143,7 @@ async function resolveRoleRouteScope(
   const role = await findOneWithDecryption(
     em,
     CustomerEntityRole,
-    { id: roleId, tenantId: auth.tenantId, entityType, entityId },
+    { id: roleId, tenantId: auth.tenantId, entityType, entityId, deletedAt: null },
     undefined,
     { tenantId: auth.tenantId, organizationId: null },
   )
@@ -247,6 +249,7 @@ export function createEntityRolesHandlers(entityType: EntityType) {
           entityId,
           organizationId: targetScope.organizationId,
           tenantId: targetScope.tenantId,
+          deletedAt: null,
         },
         { orderBy: { roleType: 'asc' } },
         {

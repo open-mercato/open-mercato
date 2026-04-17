@@ -45,17 +45,17 @@ export function AiActionChips({ activityType }: AiActionChipsProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex items-center gap-0.5">
-        <span className="mr-1 text-[10px] text-muted-foreground">AI:</span>
+        <span className="mr-1 text-xs text-muted-foreground">AI:</span>
         {actions.map((action, index) => (
           <React.Fragment key={action.labelKey}>
-            {index > 0 && <span className="text-[10px] text-muted-foreground/40">|</span>}
+            {index > 0 && <span className="text-xs text-muted-foreground/40">|</span>}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-auto inline-flex items-center gap-0.5 px-1 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  className="h-auto inline-flex items-center gap-0.5 px-1 py-0.5 text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
                 >
                   <Sparkles className="size-2.5" />
                   {t(action.labelKey, action.fallback)}

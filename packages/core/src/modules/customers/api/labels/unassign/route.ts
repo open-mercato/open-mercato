@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
-import { CustomerLabel, CustomerLabelAssignment, CustomerEntity } from '../../../data/entities'
-import { labelAssignmentSchema } from '../../../data/validators'
+import { CustomerEntity } from '../../../data/entities'
+import { labelUnassignCommandSchema, labelAssignmentSchema, type LabelUnassignCommandInput } from '../../../data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { z } from 'zod'
 import { resolveLabelActorUserId } from '../auth'
@@ -29,6 +31,11 @@ const labelAssignmentRequestSchema = labelAssignmentSchema.extend({
   organizationId: z.string().uuid().optional(),
 })
 
+function resolveResourceKind(kind: 'person' | 'company' | null | undefined): string {
+  if (kind === 'company') return 'customers.company'
+  return 'customers.person'
+}
+
 export async function POST(req: Request) {
   try {
     const { translate } = await resolveTranslations()
@@ -50,12 +57,31 @@ export async function POST(req: Request) {
     if (!organizationId) {
       throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
     }
+
     const em = (container.resolve('em') as EntityManager).fork()
+    const targetEntity = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      {
+        id: body.entityId,
+        tenantId: auth.tenantId,
+        organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: auth.tenantId, organizationId },
+    )
+    if (!targetEntity) {
+      throw new CrudHttpError(404, { error: translate('customers.errors.entity_not_found', 'Entity not found') })
+    }
+    const entityKind = targetEntity.kind === 'person' || targetEntity.kind === 'company' ? targetEntity.kind : null
+    const resourceKind = resolveResourceKind(entityKind)
+
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
       organizationId,
       userId: actorUserId,
-      resourceKind: 'customers.person',
+      resourceKind,
       resourceId: body.entityId,
       operation: 'custom',
       requestMethod: req.method,
@@ -66,45 +92,35 @@ export async function POST(req: Request) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    const label = await findOneWithDecryption(em, CustomerLabel, {
-      id: body.labelId,
+    const commandInput = labelUnassignCommandSchema.parse({
+      labelId: body.labelId,
+      entityId: body.entityId,
       tenantId: auth.tenantId,
       organizationId,
-      userId: actorUserId,
-    }, {}, { tenantId: auth.tenantId, organizationId })
-    if (!label) {
-      throw new CrudHttpError(404, { error: translate('customers.errors.label_not_found', 'Label not found') })
-    }
+    } satisfies LabelUnassignCommandInput)
 
-    const entity = await findOneWithDecryption(em, CustomerEntity, {
-      id: body.entityId,
-      tenantId: auth.tenantId,
-      organizationId,
-    }, {}, { tenantId: auth.tenantId, organizationId })
-    if (!entity) {
-      throw new CrudHttpError(404, { error: translate('customers.errors.entity_not_found', 'Entity not found') })
-    }
-
-    const assignment = await findOneWithDecryption(em, CustomerLabelAssignment, {
-      tenantId: auth.tenantId,
-      organizationId,
-      userId: actorUserId,
-      label,
-      entity,
-    } as FilterQuery<CustomerLabelAssignment>, {}, { tenantId: auth.tenantId, organizationId })
-    if (!assignment) {
-      return NextResponse.json({ id: null })
-    }
-
-    em.remove(assignment)
-    await em.flush()
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const { result, logEntry } = await commandBus.execute<LabelUnassignCommandInput, { assignmentId: string | null; entityKind: 'person' | 'company' | null }>(
+      'customers.labels.unassign',
+      {
+        input: commandInput,
+        ctx: {
+          container,
+          auth,
+          organizationScope: scope,
+          selectedOrganizationId: organizationId,
+          organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+          request: req,
+        },
+      },
+    )
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId: auth.tenantId,
         organizationId,
         userId: actorUserId,
-        resourceKind: 'customers.person',
+        resourceKind,
         resourceId: body.entityId,
         operation: 'custom',
         requestMethod: req.method,
@@ -113,7 +129,22 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json({ id: assignment.id })
+    const response = NextResponse.json({ id: result.assignmentId })
+    if (result.assignmentId && logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.labelAssignment',
+          resourceId: logEntry.resourceId ?? result.assignmentId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : new Date().toISOString(),
+        }),
+      )
+    }
+    return response
   } catch (err) {
     if (isMissingCustomerLabelTable(err)) {
       const migrationError = createMissingCustomerLabelTablesError()

@@ -126,7 +126,7 @@ function ColorBadge({
   return (
     <Badge
       variant="outline"
-      className="rounded-[4px] gap-1.5 text-[11px] font-medium"
+      className="rounded-[4px] gap-1.5 text-xs font-medium"
       style={colorStyle}
     >
       {icon ? renderDictionaryIcon(icon, 'size-2.5') : fallbackIcon ?? null}
@@ -151,7 +151,7 @@ function StatusDotBadge({
   return (
     <Badge
       variant="outline"
-      className="rounded-[4px] gap-1.5 text-[11px] font-medium"
+      className="rounded-[4px] gap-1.5 text-xs font-medium"
       style={colorStyle}
     >
       <span
@@ -181,9 +181,9 @@ function BillingRow({
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-1.5 min-h-[22px]">
       <Icon className="size-[11px] shrink-0 text-muted-foreground" />
-      <span className="text-[11px] text-muted-foreground font-medium shrink-0">{label}:</span>
+      <span className="text-xs text-muted-foreground font-medium shrink-0">{label}:</span>
       {showDottedLine && <div className="mx-1 hidden flex-1 border-b border-dotted border-border/50 sm:block" />}
-      <span className="min-w-0 break-words text-[12px] font-medium text-foreground">{value}</span>
+      <span className="min-w-0 break-words text-xs font-medium text-foreground">{value}</span>
       {showCopy && (
         <IconButton
           type="button"
@@ -236,7 +236,7 @@ export function CompanyCard({
             <div className="flex flex-wrap items-center gap-2">
               <span className="break-words text-base font-bold">{data.displayName}</span>
               {data.isPrimary && (
-                <Badge variant="default" className="rounded-[4px] px-1.5 py-0 text-[10px] font-bold uppercase tracking-wider">
+                <Badge variant="default" className="rounded-[4px] px-1.5 py-0 text-overline font-bold uppercase tracking-wider">
                   PRIMARY
                 </Badge>
               )}
@@ -263,13 +263,13 @@ export function CompanyCard({
         {/* Info badges */}
         <div className="flex flex-wrap gap-1.5">
           {data.profile?.industry && (
-            <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium">
+            <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
               <TagIcon className="size-2.5" />
               {data.profile.industry}
             </Badge>
           )}
           {data.profile?.sizeBucket && (
-            <Badge variant="outline" className="rounded-[4px] gap-1.5 text-[11px] font-medium">
+            <Badge variant="outline" className="rounded-[4px] gap-1.5 text-xs font-medium">
               <Users className="size-2.5" />
               {data.profile.sizeBucket} {t('customers.companies.detail.employees', 'employees')}
             </Badge>
@@ -294,7 +294,7 @@ export function CompanyCard({
         {/* Roles */}
         {data.roles.length > 0 && (
           <div className="space-y-1.5">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            <span className="text-overline font-bold uppercase tracking-wider text-muted-foreground">
               {t('customers.companies.detail.roleInCompany', 'ROLE OF {{name}} IN THIS COMPANY', { name: personName.toUpperCase() })}
             </span>
             <div className="flex flex-wrap gap-1.5">
@@ -315,10 +315,10 @@ export function CompanyCard({
         {/* Stats row */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <div className="min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+            <span className="text-overline font-bold uppercase tracking-wider text-muted-foreground block mb-1">
               {t('customers.companies.detail.activeDeal', 'ACTIVE DEAL')}
             </span>
-            <span className="flex min-w-0 items-center gap-1 text-[12px] font-medium text-foreground">
+            <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
               {data.activeDeal ? (
                 <>
                   <Building2 className="size-3 shrink-0" />
@@ -333,10 +333,10 @@ export function CompanyCard({
             </span>
           </div>
           <div className="min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+            <span className="text-overline font-bold uppercase tracking-wider text-muted-foreground block mb-1">
               {t('customers.companies.detail.lastContact', 'LAST CONTACT')}
             </span>
-            <span className="flex min-w-0 items-center gap-1 break-words text-[12px] font-medium text-foreground">
+            <span className="flex min-w-0 items-center gap-1 break-words text-xs font-medium text-foreground">
               {data.lastContactAt ? (
                 <>
                   <Clock className="size-3 shrink-0" />
@@ -348,10 +348,10 @@ export function CompanyCard({
             </span>
           </div>
           <div className="min-w-0">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block mb-1">
+            <span className="text-overline font-bold uppercase tracking-wider text-muted-foreground block mb-1">
               CLV
             </span>
-            <span className="flex min-w-0 items-center gap-1 break-words text-[12px] font-medium text-foreground">
+            <span className="flex min-w-0 items-center gap-1 break-words text-xs font-medium text-foreground">
               {data.clv ? (
                 <>
                   <TrendingUp className="size-3 shrink-0" />

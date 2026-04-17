@@ -134,7 +134,7 @@ export function ActivityCard({ activity, onOpen }: ActivityCardProps) {
         ) : null}
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="inline-flex size-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">
+          <span className="inline-flex size-5 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground">
             {getInitials(actorLabel)}
           </span>
           <span className="font-medium text-foreground">{actorLabel}</span>

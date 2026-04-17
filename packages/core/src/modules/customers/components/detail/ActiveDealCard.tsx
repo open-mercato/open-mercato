@@ -145,7 +145,7 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
                     )}
                   />
                   <p className={cn(
-                    'mt-1 text-[10px]',
+                    'mt-1 text-xs',
                     idx <= stageIndex ? 'font-medium text-foreground' : 'text-muted-foreground',
                   )}>
                     {stage.label}

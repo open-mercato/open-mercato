@@ -652,17 +652,25 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await em.findOne(CustomerEntity, { id: entityId })
     if (!entity) return
-    const profile = await em.findOne(CustomerPersonProfile, { entity })
+    const profile = await findOneWithDecryption(
+      em,
+      CustomerPersonProfile,
+      { entity },
+      undefined,
+      { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    )
     const identifiers = {
       id: payload?.after?.profile.id ?? profile?.id ?? entity.id,
       organizationId: entity.organizationId,
       tenantId: entity.tenantId,
     }
-    await em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
-    if (profile) {
-      await em.remove(profile).flush()
-    }
-    await em.remove(entity).flush()
+    await withAtomicFlush(em, [
+      () => em.nativeDelete(CustomerTagAssignment, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId }),
+      () => {
+        if (profile) em.remove(profile)
+      },
+      () => em.remove(entity),
+    ], { transaction: true })
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
@@ -900,7 +908,13 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       await withAtomicFlush(em, [
         () => { /* scalar entity mutations are already applied above */ },
         async () => {
-          const profile = await em.findOne(CustomerPersonProfile, { entity })
+          const profile = await findOneWithDecryption(
+            em,
+            CustomerPersonProfile,
+            { entity },
+            undefined,
+            { tenantId: before.entity.tenantId, organizationId: before.entity.organizationId },
+          )
           if (profile) {
             profile.firstName = before.profile.firstName
             profile.lastName = before.profile.lastName
@@ -1074,7 +1088,10 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+
+      const txResult = await em.transactional(async () => {
+        let entity = await em.findOne(CustomerEntity, { id: before.entity.id })
       if (!entity) {
         entity = em.create(CustomerEntity, {
           id: before.entity.id,
@@ -1292,7 +1309,6 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       }
       await em.flush()
 
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await em.nativeDelete(CustomerInteraction, { entity, organizationId: entity.organizationId, tenantId: entity.tenantId })
       for (const interaction of beforeInteractions) {
         const restoredInteraction = em.create(CustomerInteraction, {
@@ -1320,18 +1336,25 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
         em.persist(restoredInteraction)
       }
       await em.flush()
-      for (const interaction of beforeInteractions) {
+
+      return { entity, profile, beforeInteractions, beforeTodos }
+      })
+
+      for (const interaction of txResult.beforeInteractions) {
         if (!interaction.custom || !Object.keys(interaction.custom).length) continue
         await setCustomFieldsIfAny({
           dataEngine: de,
           entityId: INTERACTION_ENTITY_ID,
           recordId: interaction.id,
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
+          organizationId: txResult.entity.organizationId,
+          tenantId: txResult.entity.tenantId,
           values: interaction.custom,
           notify: false,
         })
       }
+
+      const entity = txResult.entity
+      const profile = txResult.profile
 
       await emitCrudUndoSideEffects({
         dataEngine: de,
@@ -1371,7 +1394,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: entity.organizationId,
         })
       }
-      for (const todo of beforeTodos ?? []) {
+      for (const todo of txResult.beforeTodos ?? []) {
         upsertEntries.push({
           entityType: E.customers.customer_todo_link,
           recordId: todo.id,
@@ -1379,7 +1402,7 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
           organizationId: entity.organizationId,
         })
       }
-      for (const interaction of beforeInteractions ?? []) {
+      for (const interaction of txResult.beforeInteractions ?? []) {
         upsertEntries.push({
           entityType: E.customers.customer_interaction,
           recordId: interaction.id,

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { Clock } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ActivityTimelineFilters } from './ActivityTimelineFilters'
@@ -204,12 +205,13 @@ export function ActivitiesSection({
       setHasMore(canonicalHasMore || legacyTotalPages > loadedPages)
     } catch (error) {
       console.error('customers.activities.history failed', error)
+      flash(t('customers.activities.loadFailed', 'Failed to load activities.'), 'error')
       setActivities([])
       setHasMore(false)
     } finally {
       setLoading(false)
     }
-  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey])
+  }, [dealId, entityId, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, t])
 
   React.useEffect(() => {
     setLoadedPages(1)

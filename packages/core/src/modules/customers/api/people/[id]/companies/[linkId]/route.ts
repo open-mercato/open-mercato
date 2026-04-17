@@ -5,15 +5,22 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import {
-  removePersonCompanyLink,
-  updatePersonCompanyLink,
-} from '@open-mercato/core/modules/customers/lib/personCompanies'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveAuthActorId } from '@open-mercato/core/modules/customers/lib/interactionRequestContext'
+import { CustomerPersonCompanyLink } from '@open-mercato/core/modules/customers/data/entities'
+import {
+  personCompanyLinkDeleteSchema,
+  personCompanyLinkUpdateSchema,
+  type PersonCompanyLinkDeleteInput,
+  type PersonCompanyLinkUpdateInput,
+} from '@open-mercato/core/modules/customers/data/validators'
 import { loadPersonContext } from '../context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -61,7 +68,10 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
   try {
     const { id, linkId } = paramsSchema.parse({ id: ctx.params?.id, linkId: ctx.params?.linkId })
     const payload = updateSchema.parse(await readJsonSafe(req, {}))
-    const { container, auth, selectedOrganizationId, em, person, profile } = await loadPersonContext(req, id)
+    const { container, auth, selectedOrganizationId, person } = await loadPersonContext(req, id)
+    if (!selectedOrganizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const guardUserId = resolveAuthActorId(auth)
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
@@ -77,8 +87,34 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
     if (guardResult && !guardResult.ok) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
-    const link = await updatePersonCompanyLink(em, person, profile, linkId, payload)
-    await em.flush()
+
+    if (payload.isPrimary === undefined) {
+      return NextResponse.json({ ok: true as const, result: null })
+    }
+
+    const commandInput = personCompanyLinkUpdateSchema.parse({
+      linkId,
+      isPrimary: payload.isPrimary,
+      tenantId: auth.tenantId,
+      organizationId: selectedOrganizationId,
+    } satisfies PersonCompanyLinkUpdateInput)
+
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const { result, logEntry } = await commandBus.execute<PersonCompanyLinkUpdateInput, { linkId: string }>(
+      'customers.personCompanyLinks.update',
+      {
+        input: commandInput,
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId,
+          organizationIds: [selectedOrganizationId],
+          request: req,
+        },
+      },
+    )
+
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId: auth.tenantId,
@@ -92,18 +128,42 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
         metadata: guardResult.metadata ?? null,
       })
     }
-    const company = link && typeof link.company !== 'string' ? link.company : null
-    return NextResponse.json({
-      ok: true,
-      result: link
+
+    const freshEm = (container.resolve('em') as EntityManager).fork()
+    const linkRecord = await findOneWithDecryption(
+      freshEm,
+      CustomerPersonCompanyLink,
+      { id: result.linkId },
+      { populate: ['company'] },
+      { tenantId: auth.tenantId, organizationId: selectedOrganizationId },
+    )
+    const company = linkRecord && typeof linkRecord.company !== 'string' ? linkRecord.company : null
+    const response = NextResponse.json({
+      ok: true as const,
+      result: linkRecord
         ? {
-            id: link.id,
+            id: linkRecord.id,
             companyId: company?.id ?? '',
             displayName: company?.displayName ?? '',
-            isPrimary: Boolean(link.isPrimary),
+            isPrimary: Boolean(linkRecord.isPrimary),
           }
         : null,
     })
+    if (logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.personCompanyLink',
+          resourceId: logEntry.resourceId ?? result.linkId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : new Date().toISOString(),
+        }),
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -116,7 +176,10 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
   const { translate } = await resolveTranslations()
   try {
     const { id, linkId } = paramsSchema.parse({ id: ctx.params?.id, linkId: ctx.params?.linkId })
-    const { container, auth, selectedOrganizationId, em, person, profile } = await loadPersonContext(req, id)
+    const { container, auth, selectedOrganizationId, person } = await loadPersonContext(req, id)
+    if (!selectedOrganizationId) {
+      throw new CrudHttpError(400, { error: translate('customers.errors.organization_required', 'Organization context is required') })
+    }
     const guardUserId = resolveAuthActorId(auth)
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
@@ -132,8 +195,29 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
     if (guardResult && !guardResult.ok) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
-    await removePersonCompanyLink(em, person, profile, linkId)
-    await em.flush()
+
+    const commandInput = personCompanyLinkDeleteSchema.parse({
+      linkId,
+      tenantId: auth.tenantId,
+      organizationId: selectedOrganizationId,
+    } satisfies PersonCompanyLinkDeleteInput)
+
+    const commandBus = container.resolve('commandBus') as CommandBus
+    const { result, logEntry } = await commandBus.execute<PersonCompanyLinkDeleteInput, { linkId: string }>(
+      'customers.personCompanyLinks.delete',
+      {
+        input: commandInput,
+        ctx: {
+          container,
+          auth,
+          organizationScope: null,
+          selectedOrganizationId,
+          organizationIds: [selectedOrganizationId],
+          request: req,
+        },
+      },
+    )
+
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
         tenantId: auth.tenantId,
@@ -147,7 +231,23 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
         metadata: guardResult.metadata ?? null,
       })
     }
-    return NextResponse.json({ ok: true })
+
+    const response = NextResponse.json({ ok: true as const })
+    if (logEntry?.undoToken && logEntry.id && logEntry.commandId) {
+      response.headers.set(
+        'x-om-operation',
+        serializeOperationMetadata({
+          id: logEntry.id,
+          undoToken: logEntry.undoToken,
+          commandId: logEntry.commandId,
+          actionLabel: logEntry.actionLabel ?? null,
+          resourceKind: logEntry.resourceKind ?? 'customers.personCompanyLink',
+          resourceId: logEntry.resourceId ?? result.linkId,
+          executedAt: logEntry.createdAt instanceof Date ? logEntry.createdAt.toISOString() : new Date().toISOString(),
+        }),
+      )
+    }
+    return response
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

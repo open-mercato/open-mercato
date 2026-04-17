@@ -75,7 +75,7 @@ export function CreatePersonDialog({
               <div className="flex min-h-9 items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
                 <Building2 className="size-4 text-muted-foreground" />
                 <span className="font-medium text-foreground">{companyName}</span>
-                <Badge variant="secondary" className="ml-auto rounded-full px-2 py-0 text-[10px] font-semibold">
+                <Badge variant="secondary" className="ml-auto rounded-full px-2 py-0 text-xs font-semibold">
                   {t('customers.people.createDialog.auto', 'auto')}
                 </Badge>
               </div>

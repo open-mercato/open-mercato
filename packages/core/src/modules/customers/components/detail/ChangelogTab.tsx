@@ -526,12 +526,12 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
           <h3 className="text-base font-semibold text-foreground">
             {t('customers.changelog.title', 'Change log')}
           </h3>
-          <Badge variant="secondary" className="text-[10px]">
+          <Badge variant="secondary" className="text-xs">
             {totalCount}
           </Badge>
         </div>
 
-        <div className="grid grid-cols-[92px_190px_120px_1fr_80px] gap-3 border-b bg-muted/20 px-5 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+        <div className="grid grid-cols-[92px_190px_120px_1fr_80px] gap-3 border-b bg-muted/20 px-5 py-2 text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {HEADER_COLUMNS.map((column) => {
             const isActive = sorting.field === column.field
             return (
@@ -541,7 +541,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleSort(column.field)}
-                className={`h-auto gap-1 rounded-none px-0 py-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-transparent ${
+                className={`h-auto gap-1 rounded-none px-0 py-0 text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:bg-transparent ${
                   column.align === 'right' ? 'justify-end' : 'justify-start'
                 }`}
               >
@@ -568,7 +568,7 @@ export function ChangelogTab({ entityId, entityType }: ChangelogTabProps) {
             {showGroupedEntries ? (
               groupedEntries.map((group) => (
                 <div key={group.key}>
-                  <div className="border-b bg-muted/10 px-5 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  <div className="border-b bg-muted/10 px-5 py-2 text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     {group.label}
                   </div>
                   {group.items.map((entry) => (

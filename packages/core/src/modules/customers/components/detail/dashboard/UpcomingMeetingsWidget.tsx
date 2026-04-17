@@ -25,7 +25,7 @@ export function UpcomingMeetingsWidget({ meetings, t }: { meetings: InteractionS
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Calendar className="size-4" />
           {t('customers.companies.dashboard.upcomingMeetings', 'Upcoming meetings')}
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
             {meetings.length}
           </span>
         </h3>

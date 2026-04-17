@@ -126,13 +126,6 @@ const addJsExtension = {
           }
         )
 
-        // Keep the final sourceMappingURL comment as the true end-of-file marker.
-        // Some builds occasionally leave a dangling "*.map" fragment on the next line.
-        content = content.replace(
-          /(\/\/# sourceMappingURL=[^\n]+)\n[A-Za-z0-9_.-]*\.map\s*$/g,
-          '$1\n'
-        )
-
         writeFileSync(file, content)
       }
     })

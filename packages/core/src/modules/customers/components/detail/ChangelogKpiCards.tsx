@@ -28,7 +28,7 @@ type MetricCardProps = {
 function MetricCard({ title, value, subtitle, trend, loading }: MetricCardProps) {
   return (
     <div className="rounded-xl border bg-card px-5 py-4">
-      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</div>
+      <div className="text-overline font-semibold uppercase tracking-[0.12em] text-muted-foreground">{title}</div>
       <div className="mt-3 text-3xl font-semibold tracking-tight text-foreground">
         {loading ? '...' : value.toLocaleString()}
       </div>
@@ -36,9 +36,9 @@ function MetricCard({ title, value, subtitle, trend, loading }: MetricCardProps)
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span
             className={[
-              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium',
+              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
               trend.direction === 'up'
-                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                ? 'bg-status-success-bg text-status-success-text'
                 : trend.direction === 'down'
                   ? 'bg-destructive/10 text-destructive'
                   : 'bg-muted text-muted-foreground',

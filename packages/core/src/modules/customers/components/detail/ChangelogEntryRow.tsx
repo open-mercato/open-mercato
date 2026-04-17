@@ -84,7 +84,7 @@ export function ChangelogEntryRow({ entry }: ChangelogEntryRowProps) {
       </div>
 
       <div className="flex items-start gap-2">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
           {entry.actorUserId ? getInitials(actorLabel) : <Settings2 className="size-3.5" />}
         </div>
         <span className="truncate pt-1 text-sm text-foreground">{actorLabel}</span>
@@ -102,14 +102,14 @@ export function ChangelogEntryRow({ entry }: ChangelogEntryRowProps) {
               <span className="font-medium text-foreground">{formatFieldLabel(change.fieldName)}</span>
               <Badge
                 variant="outline"
-                className="max-w-[12rem] rounded-full border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700"
+                className="max-w-[12rem] rounded-full border-status-error-border bg-status-error-bg px-2 py-0.5 text-xs font-medium text-status-error-text"
               >
                 <span className="truncate">{change.oldValue || '—'}</span>
               </Badge>
               <ArrowRight className="size-3.5 text-muted-foreground" />
               <Badge
                 variant="outline"
-                className="max-w-[12rem] rounded-full border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                className="max-w-[12rem] rounded-full border-status-success-border bg-status-success-bg px-2 py-0.5 text-xs font-medium text-status-success-text"
               >
                 <span className="truncate">{change.newValue || '—'}</span>
               </Badge>
@@ -121,7 +121,7 @@ export function ChangelogEntryRow({ entry }: ChangelogEntryRowProps) {
       </div>
 
       <div className="flex items-start justify-end">
-        <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+        <Badge variant="secondary" className="px-1.5 py-0 text-xs">
           {sourceLabel}
         </Badge>
       </div>

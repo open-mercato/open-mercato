@@ -192,8 +192,8 @@ jest.mock('../../../../../components/detail/DealClosureActionBar', () => ({
   ),
 }))
 
-jest.mock('../../../../../components/detail/DealLostDialog', () => ({
-  DealLostDialog: ({ open }: { open: boolean }) => (open ? <div>lost-dialog</div> : null),
+jest.mock('../../../../../components/detail/ConfirmDealLostDialog', () => ({
+  ConfirmDealLostDialog: ({ open }: { open: boolean }) => (open ? <div>lost-dialog</div> : null),
 }))
 
 jest.mock('../../../../../components/detail/DealWonPopup', () => ({
@@ -202,8 +202,8 @@ jest.mock('../../../../../components/detail/DealWonPopup', () => ({
   ),
 }))
 
-jest.mock('../../../../../components/detail/DealLostPopup', () => ({
-  DealLostPopup: ({ open }: { open: boolean }) => (open ? <div>lost-popup</div> : null),
+jest.mock('../../../../../components/detail/DealLostSummaryDialog', () => ({
+  DealLostSummaryDialog: ({ open }: { open: boolean }) => (open ? <div>lost-popup</div> : null),
 }))
 
 jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
