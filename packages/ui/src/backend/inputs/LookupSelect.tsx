@@ -167,10 +167,6 @@ export function LookupSelect({
           <div className="space-y-2 max-h-80 overflow-y-auto">
             {items.map((item) => {
               const isSelected = value === item.id
-              const handleSelect = () => {
-                if (item.disabled && !isSelected) return
-                onChange(item.id)
-              }
               return (
                 <div
                   key={item.id}
@@ -180,11 +176,15 @@ export function LookupSelect({
                   )}
                   role="button"
                   tabIndex={item.disabled ? -1 : 0}
-                  onClick={handleSelect}
+                  onClick={() => {
+                    if (item.disabled && !isSelected) return
+                    onChange(item.id)
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault()
-                      handleSelect()
+                      if (item.disabled && !isSelected) return
+                      onChange(item.id)
                     }
                   }}
                   aria-pressed={isSelected}
@@ -215,7 +215,8 @@ export function LookupSelect({
                         className="shrink-0"
                         onClick={(event) => {
                           event.stopPropagation()
-                          handleSelect()
+                          if (item.disabled && !isSelected) return
+                          onChange(item.id)
                         }}
                         disabled={item.disabled && !isSelected}
                       >

@@ -750,6 +750,9 @@ describe('Workflow Instances API', () => {
         retryCount: 0,
         tenantId: testTenantId,
         organizationId: testOrgId,
+        errorMessage: 'Original error',
+        errorDetails: { step: 'payment' },
+        updatedAt: new Date(),
       }
 
       mockEm.findOne.mockResolvedValue(mockInstance)
@@ -762,6 +765,36 @@ describe('Workflow Instances API', () => {
       const response = await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
 
       expect(response.status).toBe(400)
+    })
+
+    test('should revert to FAILED status when execution throws (fix: #1415)', async () => {
+      const originalError = 'Payment gateway timeout'
+      const originalDetails = { step: 'payment', code: 'TIMEOUT' }
+      const mockInstance = {
+        id: testInstanceId,
+        status: 'FAILED',
+        retryCount: 1,
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        errorMessage: originalError,
+        errorDetails: originalDetails,
+        updatedAt: new Date(),
+      }
+
+      mockEm.findOne.mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockRejectedValue(
+        new workflowExecutor.WorkflowExecutionError('Retry execution failed', 'EXECUTION_ERROR'),
+      )
+
+      const request = new NextRequest(`http://localhost/api/workflows/instances/${testInstanceId}/retry`, {
+        method: 'POST',
+      })
+      await retryInstance(request, { params: Promise.resolve({ id: testInstanceId }) })
+
+      expect(mockInstance.status).toBe('FAILED')
+      expect(mockInstance.errorMessage).toBe(originalError)
+      expect(mockInstance.errorDetails).toBe(originalDetails)
+      expect(mockEm.flush).toHaveBeenCalledTimes(2)
     })
   })
 

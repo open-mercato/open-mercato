@@ -1,9 +1,9 @@
 ---
-name: fix-github-issue
+name: auto-fix-github
 description: Fix a GitHub issue by number from the current repository. First check whether the issue is already solved or already has an open solution, then use an isolated git worktree to implement the minimal fix, add unit tests, run code review and backward-compatibility checks, run validation including i18n, typecheck, unit tests, and other required checks, then push a branch and open a pull request with a full description linked to the original issue.
 ---
 
-# Fix GitHub Issue
+# Auto Fix GitHub
 
 Fix a GitHub issue end to end without disturbing the user’s active worktree. Start by proving the issue still needs work. If it does, implement the smallest correct fix, add regression coverage, run the required checks, review the change against project rules, and open a PR that links back to the original issue.
 
@@ -49,7 +49,7 @@ Stale lock recovery:
 ```bash
 gh issue edit {issueId} --repo {owner}/{repo} --add-assignee "$CURRENT_USER"
 gh issue edit {issueId} --repo {owner}/{repo} --add-label "in-progress"
-gh issue comment {issueId} --repo {owner}/{repo} --body "🤖 \`fix-github-issue\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this issue until the lock is released."
+gh issue comment {issueId} --repo {owner}/{repo} --body "🤖 \`auto-fix-github\` started by @${CURRENT_USER} at $(date -u +%Y-%m-%dT%H:%M:%SZ). Other auto-skills will skip this issue until the lock is released."
 ```
 
 The release step happens at the end of step 11 — the lock MUST be released even on failure. Use a `trap` or finally-block so a crash still clears the label and posts a completion comment.
@@ -69,7 +69,7 @@ Capture at least:
 - issue title, URL, state, author
 - issue body and recent comments
 
-**Base branch**: Always use `develop` as the base branch for fix branches and PRs, regardless of the repository's default branch. The `develop` branch is the active integration branch; `main` receives merges from `develop` at release time.
+**Base branch**: Always use `develop` as the base branch for issue-work branches and PRs, regardless of the repository's default branch. The `develop` branch is the active integration branch; `main` receives merges from `develop` at release time.
 
 ### 2. Check whether the issue is already solved or already has a solution in progress
 
@@ -126,7 +126,7 @@ Never implement the fix in the repository’s primary worktree.
 REPO_ROOT=$(git rev-parse --show-toplevel)
 GIT_DIR=$(git rev-parse --git-dir)
 GIT_COMMON_DIR=$(git rev-parse --git-common-dir)
-WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/fix-github-issue"
+WORKTREE_PARENT="$REPO_ROOT/.ai/tmp/auto-fix-github"
 CREATED_WORKTREE=0
 
 if [ "$GIT_DIR" != "$GIT_COMMON_DIR" ]; then
@@ -140,7 +140,10 @@ else
 fi
 
 cd "$WORKTREE_DIR"
-git checkout -B "codex/issue-{issueId}-{slug}" "origin/develop"
+BRANCH_PREFIX="fix"
+# Switch to feat only when the issue is clearly an enhancement or new capability,
+# not a corrective change to existing behavior.
+git checkout -B "${BRANCH_PREFIX}/issue-{issueId}-{slug}" "origin/develop"
 yarn install --mode=skip-build
 ```
 
@@ -262,7 +265,8 @@ Only publish after the latest fix state:
 
 Suggested branch naming:
 
-- `codex/issue-{issueId}-{slug}`
+- `fix/issue-{issueId}-{slug}`
+- `feat/issue-{issueId}-{slug}` when the issue is clearly an enhancement or feature request rather than a defect
 
 Suggested commit style:
 
@@ -345,7 +349,7 @@ Always run this as a finally-block — even if the PR open failed or the run was
 
 ```bash
 gh issue edit {issueId} --repo {owner}/{repo} --remove-label "in-progress"
-gh issue comment {issueId} --repo {owner}/{repo} --body "🤖 \`fix-github-issue\` completed: opened ${PR_URL:-(no PR — fix aborted)}. Lock released."
+gh issue comment {issueId} --repo {owner}/{repo} --body "🤖 \`auto-fix-github\` completed: opened ${PR_URL:-(no PR — fix aborted)}. Lock released."
 ```
 
 Rules:
@@ -386,3 +390,4 @@ If you stopped because a fix already exists, report the existing PR or commit in
 - Add `skip-qa` only for clearly low-risk non-customer-facing fixes; otherwise leave QA routing to the author/reviewer
 - When this skill adds PR labels, it must also add a short PR comment explaining why
 - Always clean up any temporary worktree created by the current run
+- Branches opened by this skill must use `fix/` for corrective work or `feat/` for enhancement work; never `codex/`

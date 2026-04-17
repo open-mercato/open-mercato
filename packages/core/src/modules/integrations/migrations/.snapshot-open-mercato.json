@@ -339,6 +339,25 @@
           "length": 6,
           "mappedType": "datetime"
         },
+        "last_health_latency_ms": {
+          "name": "last_health_latency_ms",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "integer"
+        },
+        "enabled_at": {
+          "name": "enabled_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "length": 6,
+          "mappedType": "datetime"
+        },
         "organization_id": {
           "name": "organization_id",
           "type": "uuid",

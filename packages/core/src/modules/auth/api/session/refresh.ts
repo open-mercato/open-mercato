@@ -7,7 +7,11 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { refreshSessionRequestSchema } from '@open-mercato/core/modules/auth/data/validators'
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { buildRequestOriginUrl } from '@open-mercato/core/modules/auth/lib/requestRedirect'
+<<<<<<< HEAD
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
+=======
+import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
+>>>>>>> origin/develop
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { z } from 'zod'
@@ -45,8 +49,13 @@ function clearStaffAuthCookies(response: NextResponse) {
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
+<<<<<<< HEAD
   const baseUrl = process.env.APP_URL || `${url.protocol}//${url.host}`
   const redirectTo = sanitizeRedirectPath(url.searchParams.get('redirect'), baseUrl, '/')
+=======
+  const baseUrl = getAppBaseUrl(req)
+  const redirectTo = sanitizeRedirect(url.searchParams.get('redirect'), baseUrl)
+>>>>>>> origin/develop
   const token = parseCookie(req, 'session_token')
   if (!token) {
     return clearStaffAuthCookies(

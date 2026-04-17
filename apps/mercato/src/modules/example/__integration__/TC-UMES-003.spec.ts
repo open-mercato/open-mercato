@@ -14,6 +14,7 @@ import {
   createPersonFixture,
   deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { fillControlledInput } from '@open-mercato/core/helpers/integration/ui'
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000'
 const OM_EVENT_NAME = 'om:event'
@@ -664,8 +665,7 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
       await page.waitForLoadState('domcontentloaded')
 
       const personIdInput = page.getByTestId('phase-d-person-id')
-      await personIdInput.fill(personId)
-      await expect(personIdInput).toHaveValue(personId)
+      await fillControlledInput(personIdInput, personId)
       await page.getByTestId('phase-d-probe-title').fill('')
       await page.getByTestId('phase-d-run-probe').click()
 

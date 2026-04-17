@@ -21,7 +21,7 @@ const loginIpRateLimitConfig = readEndpointRateLimitConfig('LOGIN_IP', {
   points: 20, duration: 60, blockDuration: 60, keyPrefix: 'login-ip',
 })
 
-export const metadata = {}
+export const metadata = { requireAuth: false }
 
 // validation comes from userLoginSchema
 
@@ -31,6 +31,19 @@ type ParsedLoginForm = {
   remember: boolean
   tenantIdRaw: string
   requiredRoles: string[]
+  redirectTo: string
+}
+
+function sanitizeRedirect(param: string, baseUrl: string): string {
+  if (!param) return '/backend'
+  try {
+    const base = new URL(baseUrl)
+    const resolved = new URL(param, baseUrl)
+    if (resolved.origin === base.origin && resolved.pathname.startsWith('/')) {
+      return resolved.pathname + resolved.search + resolved.hash
+    }
+  } catch {}
+  return '/backend'
 }
 
 function parseRequiredRoles(rawValue: string): string[] {
@@ -55,6 +68,7 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
         remember: parseBooleanToken(params.get('remember')) === true,
         tenantIdRaw: String(params.get('tenantId') ?? params.get('tenant') ?? '').trim(),
         requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
+        redirectTo: String(params.get('redirect') ?? ''),
       }
     }
 
@@ -66,6 +80,7 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       remember: parseBooleanToken(form.get('remember')?.toString()) === true,
       tenantIdRaw: String(form.get('tenantId') ?? form.get('tenant') ?? '').trim(),
       requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
+      redirectTo: String(form.get('redirect') ?? ''),
     }
   } catch {
     return {
@@ -74,13 +89,14 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       remember: false,
       tenantIdRaw: '',
       requiredRoles: [],
+      redirectTo: '',
     }
   }
 }
 
 export async function POST(req: Request) {
   const { translate } = await resolveTranslations()
-  const { email, password, remember, tenantIdRaw, requiredRoles } = await parseLoginForm(req)
+  const { email, password, remember, tenantIdRaw, requiredRoles, redirectTo } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
     req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
@@ -160,7 +176,7 @@ export async function POST(req: Request) {
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
-    redirect: '/backend',
+    redirect: sanitizeRedirect(redirectTo, req.url),
   }
   if (remember) {
     responseData.refreshToken = sessionRefreshToken

@@ -64,14 +64,10 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager).fork()
 
-    const transactionalEm = em as EntityManager & {
-      transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
-    }
-
     const hashedToken = hashAuthToken(token)
     const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
 
-    const acceptQuote = async (trx: EntityManager) => {
+    const quote = await em.transactional(async (trx) => {
       const findQuoteByToken = (acceptanceToken: string) =>
         findOneWithDecryption(
           trx,
@@ -111,11 +107,7 @@ export async function POST(req: Request) {
       await trx.flush()
 
       return quote
-    }
-
-    const quote = typeof transactionalEm.transactional === 'function'
-      ? await transactionalEm.transactional((trx) => acceptQuote(trx))
-      : await acceptQuote(em)
+    })
 
     const commandBus = container.resolve('commandBus') as CommandBus
     const ctx: CommandRuntimeContext = {
@@ -127,10 +119,34 @@ export async function POST(req: Request) {
       request: req,
     }
 
-    const result = (await commandBus.execute('sales.quotes.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
+    let result: ConvertToOrderResult | null
+    try {
+      result = (await commandBus.execute('sales.quotes.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
+    } catch (conversionError) {
+      const freshEm = (container.resolve('em') as EntityManager).fork()
+      const staleQuote = await findOneWithDecryption(
+        freshEm,
+        SalesQuote,
+        { id: quote.id, deletedAt: null },
+        {},
+        tenantScope,
+      )
+      if (staleQuote) {
+        staleQuote.status = 'sent'
+        staleQuote.statusEntryId = await resolveStatusEntryIdByValue(freshEm, {
+          tenantId: staleQuote.tenantId,
+          organizationId: staleQuote.organizationId,
+          value: 'sent',
+        })
+        staleQuote.updatedAt = new Date()
+        freshEm.persist(staleQuote)
+        await freshEm.flush()
+      }
+      throw conversionError
+    }
     const orderId = result?.result?.orderId ?? result?.orderId ?? quote.id
 
-    const order = await em.findOne(SalesOrder, { id: orderId, deletedAt: null })
+    const order = await findOneWithDecryption(em, SalesOrder, { id: orderId, deletedAt: null }, {}, tenantScope)
     const orderNumber = order?.orderNumber ?? orderId
 
     // Admin notification should not block acceptance.

@@ -5,7 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { readCookieFromHeader } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function POST(req: Request) {
   const cookieHeader = req.headers.get('cookie') || ''
