@@ -134,8 +134,8 @@ Progress steps:
 
 ### Phase 1: sync-merged-pr-issues skill
 
-- [ ] 1.1 Create `.ai/skills/sync-merged-pr-issues/` directory
-- [ ] 1.2 Write `SKILL.md` with frontmatter, workflow, rules, reporting, examples
+- [x] 1.1 Create `.ai/skills/sync-merged-pr-issues/` directory — baba434cc
+- [x] 1.2 Write `SKILL.md` with frontmatter, workflow, rules, reporting, examples — baba434cc
 
 ### Phase 2: auto-update-changelog skill
 
