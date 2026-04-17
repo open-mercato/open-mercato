@@ -150,8 +150,8 @@ Progress steps:
 
 ### Phase 4: Validation and PR
 
-- [ ] 4.1 Run docs-only validation gate
-- [ ] 4.2 Self code-review + BC self-review
-- [ ] 4.3 Open PR against develop and normalize labels
-- [ ] 4.4 Run `auto-review-pr` autofix pass
+- [x] 4.1 Run docs-only validation gate — d5b6610d5 (YAML frontmatter validated; manual diff re-read)
+- [x] 4.2 Self code-review + BC self-review — d5b6610d5 (no BC surface touched)
+- [x] 4.3 Open PR against develop and normalize labels — PR #1568, labels `review` → `merge-queue`, `documentation`, `skip-qa`
+- [x] 4.4 Run `auto-review-pr` autofix pass — 0ed3bc91d (one medium finding: Path C realigned to the real `Closing in favor of #N` comment that `auto-review-pr` lines 471–477 actually write)
 - [ ] 4.5 Post comprehensive summary comment
