@@ -1,5 +1,9 @@
+import { createHmac } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
 import { apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+
+const MOCK_CARRIER_DEV_WEBHOOK_SECRET = 'open-mercato-mock-dev-carrier-webhook-secret'
+const MOCK_CARRIER_SIGNATURE_HEADER = 'x-mock-carrier-signature'
 
 const MOCK_ORIGIN = {
   countryCode: 'US',
@@ -177,14 +181,21 @@ export async function sendWebhook(
   payload: Record<string, unknown>,
   headers?: Record<string, string>,
 ) {
-  const response = await request.post(
-    `${process.env.BASE_URL?.trim() || 'http://localhost:3000'}/api/shipping-carriers/webhook/${providerKey}`,
+  const rawBody = JSON.stringify(payload)
+  const signature = createHmac('sha256', MOCK_CARRIER_DEV_WEBHOOK_SECRET)
+    .update(rawBody, 'utf-8')
+    .digest('hex')
+  const baseUrl = process.env.BASE_URL?.trim() || 'http://localhost:3000'
+  const response = await request.fetch(
+    `${baseUrl}/api/shipping-carriers/webhook/${providerKey}`,
     {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        [MOCK_CARRIER_SIGNATURE_HEADER]: signature,
         ...(headers ?? {}),
       },
-      data: payload,
+      data: rawBody,
     },
   )
   return response

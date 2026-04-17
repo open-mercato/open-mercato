@@ -613,6 +613,7 @@ export type CallWebhookDeps = {
   lookupHost?: HostLookup
   allowPrivate?: boolean
   fetchImpl?: typeof fetch
+  signal?: AbortSignal
 }
 
 export async function executeCallWebhook(
@@ -656,6 +657,7 @@ export async function executeCallWebhook(
     },
     body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
     redirect: 'manual',
+    signal: deps.signal,
   })
 
   if (response.status >= 300 && response.status < 400) {
@@ -745,7 +747,8 @@ export async function executeCallApi(
   em: EntityManager,
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, {{env.*}}, {{now}})
   const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
@@ -826,6 +829,7 @@ export async function executeCallApi(
         method,
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
+        signal,
       })
 
       // Parse response body (JSON-safe)
