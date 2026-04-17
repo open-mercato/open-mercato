@@ -312,7 +312,6 @@ export class ActionLogService {
   private parseListQuery(query: Partial<ActionLogListQuery>) {
     return actionLogListSchema.parse({
       ...query,
-      limit: query.limit ?? 50,
     })
   }
 
@@ -338,11 +337,27 @@ export class ActionLogService {
       .filter((value): value is ActionLogFilterType => ACTION_LOG_FILTER_TYPES.includes(value as ActionLogFilterType))
   }
 
+  private resolvePagination(parsed: ActionLogListQuery): { page: number; pageSize: number; offset: number; limit: number } {
+    const pageSize =
+      typeof parsed.pageSize === 'number' && parsed.pageSize > 0
+        ? parsed.pageSize
+        : typeof parsed.limit === 'number' && parsed.limit > 0
+          ? parsed.limit
+          : 50
+    const page = typeof parsed.page === 'number' && parsed.page > 0 ? parsed.page : 1
+    const offset =
+      typeof parsed.offset === 'number' && parsed.offset >= 0
+        ? parsed.offset
+        : (page - 1) * pageSize
+    return { page, pageSize, offset, limit: pageSize }
+  }
+
   private async loadEntries(parsed: ActionLogListQuery, options?: { paginate?: boolean }) {
     const query = this.buildListQuery(parsed).select<{ id: string }[]>('action_logs.id as id')
 
     if (options?.paginate !== false) {
-      query.limit(parsed.limit).offset(parsed.offset)
+      const { limit, offset } = this.resolvePagination(parsed)
+      query.limit(limit).offset(offset)
     }
 
     const rows = await query
@@ -446,7 +461,14 @@ export class ActionLogService {
   }
 
   async list(query: Partial<ActionLogListQuery>) {
-    return this.loadEntries(this.parseListQuery(query))
+    const parsed = this.parseListQuery(query)
+    const { page, pageSize } = this.resolvePagination(parsed)
+    const [items, total] = await Promise.all([
+      this.loadEntries(parsed),
+      this.count(parsed),
+    ])
+    const totalPages = Math.max(1, Math.ceil((total || 0) / (pageSize || 1)))
+    return { items, total, page, pageSize, totalPages }
   }
 
   async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {

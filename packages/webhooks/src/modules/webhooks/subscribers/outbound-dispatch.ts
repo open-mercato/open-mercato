@@ -33,6 +33,10 @@ export default async function handler(
   const organizationId = payload.organizationId as string | undefined
   if (!tenantId) return
 
+  if (eventId.startsWith('webhooks.')) return
+  if (eventId.startsWith('query_index.')) return
+
+
   const resolve = ('resolve' in ctx && typeof ctx.resolve === 'function')
     ? ctx.resolve
     : ('container' in ctx && ctx.container && typeof ctx.container.resolve === 'function')

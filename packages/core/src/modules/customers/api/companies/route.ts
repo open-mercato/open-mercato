@@ -34,6 +34,7 @@ import {
   defaultOkResponseSchema,
 } from '../openapi'
 import { withActiveCustomerPersonCompanyLinkFilter } from '../../lib/personCompanyLinkTable'
+import { normalizeCompanyProfilePayload } from './payload'
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -393,7 +394,8 @@ const crud = makeCrudRoute({
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
         const scoped = withScopedPayload(raw ?? {}, ctx, translate)
-        const { base, custom } = splitCustomFieldPayload(scoped)
+        const normalized = normalizeCompanyProfilePayload(scoped, translate)
+        const { base, custom } = splitCustomFieldPayload(normalized)
         const parsed = companyUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },

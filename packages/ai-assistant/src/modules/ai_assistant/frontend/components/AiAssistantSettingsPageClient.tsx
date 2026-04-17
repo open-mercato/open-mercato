@@ -185,7 +185,7 @@ function AiAssistantSettingsContent() {
           </div>
           <div className="flex items-center gap-2 text-sm">
             <span className="text-muted-foreground">Required:</span>
-            <span>Set <code className="font-mono text-xs bg-background px-1.5 py-0.5 rounded">{provider?.envKey || 'OPENCODE_ANTHROPIC_API_KEY'}</code> in .env</span>
+            <span>Set <code className="font-mono text-xs bg-background px-1.5 py-0.5 rounded">{provider?.envKey || 'ANTHROPIC_API_KEY'}</code> in .env</span>
           </div>
         </div>
 

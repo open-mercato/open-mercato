@@ -1,9 +1,8 @@
 /** @jest-environment node */
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
-    attachments: {
-      attachment: 'attachments:attachment',
-    },
+    attachments: { attachment: 'attachments:attachment' },
+    catalog: { catalog_product: 'catalog:catalog_product' },
   },
 }))
 
@@ -12,16 +11,18 @@ const partitions = [
   { id: 'p-products', code: 'productsMedia', title: 'Products', isPublic: true, storageDriver: 'local', requiresOcr: false },
 ]
 
+const defaultFindOneImpl = async (entity: any, where: any) => {
+  if (entity?.name === 'AttachmentPartition') {
+    return partitions.find((p) => p.code === where?.code) ?? null
+  }
+  if (entity?.name === 'CustomFieldDef') {
+    return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf', 'docx'] } }
+  }
+  return null
+}
+
 const mockEm = {
-  findOne: jest.fn(async (entity: any, where: any) => {
-    if (entity?.name === 'AttachmentPartition') {
-      return partitions.find((p) => p.code === where?.code) ?? null
-    }
-    if (entity?.name === 'CustomFieldDef') {
-      return { configJson: { maxAttachmentSizeMb: 0.001, acceptExtensions: ['pdf', 'docx'] } }
-    }
-    return null
-  }),
+  findOne: jest.fn(defaultFindOneImpl),
   create: jest.fn((_cls: any, data: any) => ({ ...data })),
   persistAndFlush: jest.fn(async () => {}),
   getRepository: jest.fn(() => ({
@@ -31,6 +32,16 @@ const mockEm = {
   persist: jest.fn(),
   flush: jest.fn(),
   find: jest.fn(),
+  getConnection: jest.fn(() => ({
+    getKnex: () => {
+      const query = {
+        where: jest.fn(() => query),
+        sum: jest.fn(() => query),
+        first: jest.fn(async () => ({ totalSize: 0 })),
+      }
+      return jest.fn(() => query)
+    },
+  })),
 }
 
 const defaultFindOneImplementation = mockEm.findOne.getMockImplementation()
@@ -52,6 +63,13 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    t: (_key: string, fallback: string) => fallback,
+    translate: (_key: string, fallback: string) => fallback,
+  })),
+}))
 
 // Avoid touching disk
 import { promises as fsp } from 'fs'
@@ -94,12 +112,26 @@ describe('attachments API', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm.findOne.mockReset()
-    if (defaultFindOneImplementation) {
-      mockEm.findOne.mockImplementation(defaultFindOneImplementation)
-    }
+    mockEm.findOne.mockImplementation(defaultFindOneImpl)
     mockEm.find.mockReset()
     mockEm.find.mockResolvedValue([])
     mockExtractAttachmentContent.mockReset()
+    delete process.env.OM_DEFAULT_ATTACHMENT_OCR_ENABLED
+    delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
+    delete process.env.OM_ATTACHMENT_TENANT_QUOTA_MB
+    delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
+    delete process.env.OPENMERCATO_ATTACHMENT_MAX_UPLOAD_MB
+    delete process.env.OPENMERCATO_ATTACHMENT_TENANT_QUOTA_MB
+    mockEm.getConnection.mockReturnValue({
+      getKnex: () => {
+        const query = {
+          where: jest.fn(() => query),
+          sum: jest.fn(() => query),
+          first: jest.fn(async () => ({ totalSize: 0 })),
+        }
+        return jest.fn(() => query)
+      },
+    })
     mockRequestOcrProcessing.mockReset()
     mockRequestOcrProcessing.mockImplementation(async () => {})
     delete process.env.OPENMERCATO_DEFAULT_ATTACHMENT_OCR_ENABLED
@@ -114,6 +146,20 @@ describe('attachments API', () => {
     expect(res.status).toBe(400)
     const j = await res.json()
     expect(j.error).toMatch(/not allowed/i)
+  })
+
+  it('rejects active content uploads even when the client claims a safe image mime type', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File(
+      [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>', 'utf8')],
+      'avatar.jpg',
+      { type: 'image/jpeg' },
+    )
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file, { fieldKey: '' }) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/active content/i)
   })
 
   it('accepts allowed small pdf', async () => {
@@ -145,9 +191,45 @@ describe('attachments API', () => {
     const file = new File([oversized], 'doc.pdf', { type: 'application/pdf' })
     const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
     const res = await upload(req)
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(413)
     const payload = await res.json()
     expect(payload.error).toMatch(/exceeds/i)
+  })
+
+  it('rejects files that exceed the default global upload limit without field config', async () => {
+    const { POST: upload } = await loadHandlers()
+    process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '0.0005'
+    const file = new File([new Uint8Array(1024)], 'doc.pdf', { type: 'application/pdf' })
+    const fd = new FormData()
+    fd.set('entityId', 'example:todo')
+    fd.set('recordId', 'r1')
+    fd.set('file', file)
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fd as any })
+    const res = await upload(req)
+    expect(res.status).toBe(413)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/maximum upload size/i)
+  })
+
+  it('rejects uploads that exceed the tenant storage quota', async () => {
+    const { POST: upload } = await loadHandlers()
+    process.env.OM_ATTACHMENT_TENANT_QUOTA_MB = '0.001'
+    mockEm.getConnection.mockReturnValue({
+      getKnex: () => {
+        const query = {
+          where: jest.fn(() => query),
+          sum: jest.fn(() => query),
+          first: jest.fn(async () => ({ totalSize: 1000 })),
+        }
+        return jest.fn(() => query)
+      },
+    })
+    const file = new File([new Uint8Array(200)], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(413)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/quota exceeded/i)
   })
 
   it('extracts content when partition requires OCR', async () => {
@@ -275,6 +357,19 @@ describe('attachments API', () => {
         expect.objectContaining({ type: 'example:todo', id: 'r1' }),
       ]),
     )
+  })
+
+  it('rejects explicit uploads to unrelated public partitions', async () => {
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request(
+      'http://x/api/attachments',
+      { method: 'POST', body: fdWith(file, { partitionCode: 'productsMedia' }) as any },
+    )
+    const res = await upload(req)
+    expect(res.status).toBe(403)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/public storage partitions/i)
   })
 
   it('lists attachments with sanitized metadata via GET', async () => {

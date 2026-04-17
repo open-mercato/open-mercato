@@ -1176,7 +1176,7 @@ export function ShipmentDialog({
                       className="h-12 w-12 rounded-md border object-cover"
                     />
                   ) : (
-                    <div className="flex h-12 w-12 items-center justify-center rounded-md border bg-muted text-[10px] text-muted-foreground">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-md border bg-muted text-xs text-muted-foreground">
                       N/A
                     </div>
                   )}
@@ -1195,7 +1195,7 @@ export function ShipmentDialog({
                 <div className="space-y-1">
                   <Input
                     type="number"
-                    step="0.01"
+                    step="1"
                     min="0"
                     value={valueString}
                     disabled={disabled}

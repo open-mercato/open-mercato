@@ -50,8 +50,10 @@ const auditActionQuerySchema = z.object({
     .default('false')
     .describe('When `true`, only undoable actions are returned')
     .optional(),
-  limit: z.string().describe('Maximum number of records to return (default 50)').optional(),
-  offset: z.string().describe('Zero-based record offset for pagination').optional(),
+  limit: z.string().describe('Maximum number of records to return (default 50, max 1000)').optional(),
+  offset: z.string().describe('Zero-based record offset for pagination (legacy — prefer page/pageSize)').optional(),
+  page: z.string().describe('Page number (default 1)').optional(),
+  pageSize: z.string().describe('Page size (default 50, max 200)').optional(),
   sortField: z
     .enum(SORT_FIELDS)
     .describe('Sort field: `createdAt`, `user`, `action`, `field`, or `source`.')
@@ -91,7 +93,10 @@ const auditActionItemSchema = z.object({
 const auditActionResponseSchema = z.object({
   items: z.array(auditActionItemSchema),
   canViewTenant: z.boolean(),
-  total: z.number().int().nonnegative().optional(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+  totalPages: z.number().int(),
 })
 
 const errorSchema = z.object({
@@ -133,6 +138,15 @@ function parseActionTypes(param: string | null) {
   )
 }
 
+function parseNumber(param: string | null, { min, max, fallback }: { min: number; max: number; fallback: number }) {
+  if (!param) return fallback
+  const value = Number(param)
+  if (!Number.isFinite(value)) return fallback
+  const normalized = Math.trunc(value)
+  if (Number.isNaN(normalized)) return fallback
+  return Math.min(Math.max(normalized, min), max)
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -162,6 +176,8 @@ export async function GET(req: Request) {
   const undoableOnly = parseBooleanToken(url.searchParams.get('undoableOnly')) === true
   const limit = parseLimit(url.searchParams.get('limit'))
   const offset = parseOffset(url.searchParams.get('offset'))
+  const page = parseNumber(url.searchParams.get('page'), { min: 1, max: 1000000, fallback: 1 })
+  const pageSize = parseNumber(url.searchParams.get('pageSize'), { min: 1, max: 200, fallback: 50 })
   const sortField = SORT_FIELDS.find((value) => value === url.searchParams.get('sortField')) ?? 'createdAt'
   const sortDir = SORT_DIRECTIONS.find((value) => value === url.searchParams.get('sortDir')) ?? 'desc'
   const before = parseDate(url.searchParams.get('before'))
@@ -201,22 +217,24 @@ export async function GET(req: Request) {
     sortDir,
     limit,
     offset,
+    page,
+    pageSize,
     before,
     after,
   }
 
-  const [list, total] = await Promise.all([
-    actionLogs.list(listQuery),
-    includeTotal ? actionLogs.count(listQuery) : Promise.resolve(undefined),
-  ])
+  // includeTotal flag is retained for backward compatibility but page-based pagination
+  // always returns total/totalPages from the list query's findAndCount.
+  void includeTotal
+  const list = await actionLogs.list(listQuery)
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: list.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
-    tenantIds: list.map((entry) => entry.tenantId).filter((value): value is string => !!value),
-    organizationIds: list.map((entry) => entry.organizationId).filter((value): value is string => !!value),
+    userIds: list.items.map((entry) => entry.actorUserId).filter((value): value is string => !!value),
+    tenantIds: list.items.map((entry) => entry.tenantId).filter((value): value is string => !!value),
+    organizationIds: list.items.map((entry) => entry.organizationId).filter((value): value is string => !!value),
   })
 
-  const items = list.map((entry) => ({
+  const items = list.items.map((entry) => ({
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,
@@ -243,7 +261,10 @@ export async function GET(req: Request) {
   return NextResponse.json({
     items,
     canViewTenant,
-    ...(typeof total === 'number' ? { total } : {}),
+    page: list.page,
+    pageSize: list.pageSize,
+    total: list.total,
+    totalPages: list.totalPages,
   })
 }
 

@@ -1,5 +1,9 @@
 {
   "attachments.customers.storage.nav.group": "Magazyn",
+  "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
+  "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
+  "attachments.errors.publicPartitionBlocked": "Nie można jawnie wybrać publicznej partycji do tego przesyłania.",
+  "attachments.errors.quotaExceeded": "Przekroczono limit miejsca na załączniki dla tego tenantu.",
   "attachments.library.actions.copied": "Link skopiowany.",
   "attachments.library.actions.copyError": "Nie można skopiować linku.",
   "attachments.library.actions.copyUrl": "Kopiuj URL",
@@ -108,7 +112,7 @@
   "attachments.partitions.form.descriptionPlaceholder": "Opisz, do czego służy ta partycja.",
   "attachments.partitions.form.envKeyHelp": "Ustaw tę zmienną środowiskową, aby nadpisać ścieżkę przechowywania:",
   "attachments.partitions.form.ocrLabel": "Wymagaj OCR/ekstrakcji tekstu",
-  "attachments.partitions.form.ocrModelHelp": "Wybierz model LLM do OCR obrazów i PDF. Domyślnie używana jest zmienna środowiskowa OCR_MODEL lub gpt-4o. Jeśli OCR LLM jest niedostępny, PDF przechodzi na ekstrakcję tekstu przez markitdown, gdy narzędzie jest dostępne.",
+  "attachments.partitions.form.ocrModelHelp": "Wybierz model LLM do OCR obrazów i PDF. Domyślnie używana jest zmienna środowiskowa OCR_MODEL lub gpt-4o. Jeśli OCR LLM jest niedostępny, PDF korzysta z czystego JS (pdfjs-dist), a pliki DOCX z czystego JS (mammoth) — bez zewnętrznych binariów.",
   "attachments.partitions.form.ocrModelLabel": "Model OCR",
   "attachments.partitions.form.ocrModelOptions.default": "Domyślny (ze zmiennej środowiskowej)",
   "attachments.partitions.form.ocrModelOptions.gpt-4o": "GPT-4o (zalecany)",

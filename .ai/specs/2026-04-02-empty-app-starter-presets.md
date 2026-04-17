@@ -383,3 +383,4 @@ This spec is explicitly BC-preserving.
 ## Changelog
 
 - 2026-04-02: Initial draft for additive `empty` and `crm` starter presets, with coupling audit and BC constraints.
+- 2026-04-11: Implemented the auth bootstrap encryption-map decoupling step by moving default encryption maps to per-module `encryption.ts` registration discovered by the module generator.

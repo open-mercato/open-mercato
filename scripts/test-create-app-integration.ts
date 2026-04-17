@@ -46,6 +46,8 @@ function writeStandaloneEnv(appDir: string): void {
   const example = fs.existsSync(envExamplePath) ? fs.readFileSync(envExamplePath, 'utf8') : ''
   const envLines = [
     example.trimEnd(),
+    'APP_URL=http://localhost:3000',
+    'NEXT_PUBLIC_APP_URL=http://localhost:3000',
     'DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test',
     'JWT_SECRET=ci-standalone-test-jwt-secret',
     'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=ci-standalone-test-fallback-key',
@@ -53,7 +55,9 @@ function writeStandaloneEnv(appDir: string): void {
     'OM_TEST_MODE=1',
     'OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in',
     'OM_DISABLE_EMAIL_DELIVERY=1',
+    'OM_WEBHOOKS_ALLOW_PRIVATE_URLS=1',
     'ENABLE_CRUD_API_CACHE=true',
+    'MOCK_GATEWAY_WEBHOOK_SECRET=open-mercato-mock-dev-webhook-secret',
     'NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true',
     'OM_ENABLE_ENTERPRISE_MODULES=true',
     'OM_ENABLE_ENTERPRISE_MODULES_SSO=true',
@@ -73,13 +77,17 @@ async function main(): Promise<void> {
   const standaloneInstallEnv = createStandaloneInstallEnv(tempRoot)
 
   const integrationEnv: NodeJS.ProcessEnv = {
+    APP_URL: 'http://localhost:3000',
+    NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     JWT_SECRET: 'ci-standalone-test-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
     OM_DISABLE_EMAIL_DELIVERY: '1',
+    OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1',
     ENABLE_CRUD_API_CACHE: 'true',
+    MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: 'true',
     OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true',

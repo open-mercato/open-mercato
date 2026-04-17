@@ -139,7 +139,7 @@ describe('webhooks outbound dispatch subscriber', () => {
     )
   })
 
-  it('does not crash when the event bus provides only ctx.resolve during reindex flows', async () => {
+  it('does not crash when the event bus provides only ctx.resolve', async () => {
     const em = {
       fork: jest.fn(function fork() {
         return em
@@ -148,7 +148,7 @@ describe('webhooks outbound dispatch subscriber', () => {
       flush: jest.fn(async () => undefined),
     } as unknown as EntityManager
 
-    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+    (findWithDecryption as jest.Mock).mockResolvedValue([])
 
     await expect(handler(
       {
@@ -157,7 +157,7 @@ describe('webhooks outbound dispatch subscriber', () => {
         organizationId: 'org-1',
       },
       {
-        eventName: 'query_index.vectorize_one',
+        eventName: 'catalog.product.updated',
         resolve: <T,>(name: string): T => {
           if (name === 'em') return em as T
           throw new Error(`Unexpected dependency: ${name}`)
@@ -209,6 +209,20 @@ describe('webhooks outbound dispatch subscriber', () => {
     )).resolves.toBeUndefined()
 
     expect(resolve).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+  })
+
+  it('skips processing for internal query_index events', async () => {
+    ;(findWithDecryption as jest.Mock).mockResolvedValue([])
+
+    await expect(handler(
+      { id: 'record-1', tenantId: 'tenant-1', organizationId: 'org-1' },
+      {
+        eventName: 'query_index.coverage.refresh',
+        resolve: <T,>(_name: string): T => { throw new Error('should not be called') },
+      },
+    )).resolves.toBeUndefined()
+
     expect(findWithDecryption).not.toHaveBeenCalled()
   })
 })

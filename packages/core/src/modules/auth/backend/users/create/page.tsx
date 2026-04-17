@@ -85,6 +85,7 @@ export default function CreateUserPage() {
   const [selectedWidgets, setSelectedWidgets] = React.useState<string[]>([])
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [actorResolved, setActorResolved] = React.useState(false)
   const [sendInviteEmail, setSendInviteEmail] = React.useState(false)
   const passwordPolicy = React.useMemo(() => getPasswordPolicy(), [])
   const passwordRequirements = React.useMemo(
@@ -147,6 +148,8 @@ export default function CreateUserPage() {
         if (!cancelled && ok) setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
       } catch (err) {
         console.error('Failed to resolve actor super admin flag', err)
+      } finally {
+        if (!cancelled) setActorResolved(true)
       }
     }
     loadActor()
@@ -157,13 +160,17 @@ export default function CreateUserPage() {
     setSelectedWidgets((prev) => (prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id]))
   }, [])
 
+  // Block role loading until we know whether the actor is a super admin. Without this guard the
+  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
+  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
       return fetchRoleOptions(query, { tenantId: selectedTenantId })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, selectedTenantId])
+  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
 
   const fields: CrudField[] = React.useMemo(() => {
     const items: CrudField[] = [

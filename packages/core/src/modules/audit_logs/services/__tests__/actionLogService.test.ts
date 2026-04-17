@@ -64,3 +64,63 @@ describe('ActionLogService normalizeInput', () => {
     expect(created.primaryChangedField).toBe('entity.displayName')
   })
 })
+
+describe('ActionLogService.list pagination', () => {
+  function buildServiceWithSpies(items: unknown[], total: number) {
+    const service = new ActionLogService({} as unknown as ConstructorParameters<typeof ActionLogService>[0])
+    const loadEntries = jest.spyOn(service as any, 'loadEntries').mockResolvedValue(items as any)
+    const count = jest.spyOn(service as any, 'count').mockResolvedValue(total)
+    return { service, loadEntries, count }
+  }
+
+  it('returns pagination envelope derived from page/pageSize', async () => {
+    const mockItems = [{ id: '1' }, { id: '2' }]
+    const { service } = buildServiceWithSpies(mockItems, 42)
+
+    const result = await service.list({
+      tenantId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      page: 3,
+      pageSize: 10,
+    })
+
+    expect(result.items).toBe(mockItems)
+    expect(result.total).toBe(42)
+    expect(result.page).toBe(3)
+    expect(result.pageSize).toBe(10)
+    expect(result.totalPages).toBe(5)
+  })
+
+  it('defaults to page=1 pageSize=50 when not provided', async () => {
+    const { service } = buildServiceWithSpies([], 0)
+
+    const result = await service.list({
+      tenantId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    })
+
+    expect(result.page).toBe(1)
+    expect(result.pageSize).toBe(50)
+    expect(result.totalPages).toBe(1)
+    expect(result.total).toBe(0)
+  })
+
+  it('computes totalPages correctly for partial last page', async () => {
+    const { service } = buildServiceWithSpies([], 101)
+
+    const result = await service.list({
+      tenantId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+      pageSize: 25,
+    })
+
+    expect(result.totalPages).toBe(5)
+  })
+
+  it('returns totalPages=1 when total is 0', async () => {
+    const { service } = buildServiceWithSpies([], 0)
+
+    const result = await service.list({
+      tenantId: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
+    })
+
+    expect(result.totalPages).toBe(1)
+  })
+})

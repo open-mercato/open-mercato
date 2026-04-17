@@ -175,7 +175,7 @@ async function loadAuditStageTransitionsFallback({
   const stageOrderById = new Map(pipelineStages.map((stage) => [stage.id, stage.order]))
   const stageLabelById = new Map(pipelineStages.map((stage) => [stage.id, stage.label]))
   const transitionsByStageId = new Map<string, StageTransitionPayload>()
-  const logs = await actionLogs.list({
+  const logsResult = await actionLogs.list({
     tenantId: deal.tenantId,
     organizationId: deal.organizationId,
     resourceKind: 'customers.deal',
@@ -184,7 +184,8 @@ async function loadAuditStageTransitionsFallback({
     offset: 0,
     sortField: 'createdAt',
     sortDir: 'asc',
-  }).catch(() => [])
+  }).catch(() => null)
+  const logs = logsResult?.items ?? []
 
   let previousStageId: string | null = null
   for (const log of logs) {

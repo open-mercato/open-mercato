@@ -13,10 +13,21 @@
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
-import { createQueue, Queue } from '@open-mercato/queue'
+import { createModuleQueue, Queue } from '@open-mercato/queue'
 import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import {
+  assertSafeOutboundUrl,
+  UnsafeOutboundUrlError,
+  type HostLookup,
+} from '@open-mercato/shared/lib/url-safety'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
+
+function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
+  return parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)
+}
 
 // ============================================================================
 // Types and Interfaces
@@ -93,23 +104,10 @@ let activityQueue: Queue<WorkflowActivityJob> | null = null
  */
 function getActivityQueue(): Queue<WorkflowActivityJob> {
   if (!activityQueue) {
-    if (process.env.QUEUE_STRATEGY === 'async') {
-      activityQueue = createQueue<WorkflowActivityJob>(
-        WORKFLOW_ACTIVITIES_QUEUE_NAME,
-        'async',
-        {
-          connection: {
-            url: getRedisUrl('QUEUE'),
-          },
-          concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5'),
-        }
-      )
-    } else {
-      activityQueue = createQueue<WorkflowActivityJob>(
-        WORKFLOW_ACTIVITIES_QUEUE_NAME,
-        'local'
-      )
-    }
+    activityQueue = createModuleQueue<WorkflowActivityJob>(
+      WORKFLOW_ACTIVITIES_QUEUE_NAME,
+      { concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5') },
+    )
   }
 
   return activityQueue
@@ -232,6 +230,11 @@ export async function executeActivity(
       lastError = error
       retryCount = attempt + 1
 
+      // Log activity retry attempt with context
+      if (attempt < retryPolicy.maxAttempts - 1) {
+        console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed on attempt ${attempt + 1}/${retryPolicy.maxAttempts} (instance: ${context.workflowInstance.id}):`, error instanceof Error ? error.message : error)
+      }
+
       // If not the last attempt, apply backoff and retry
       if (attempt < retryPolicy.maxAttempts - 1) {
         const backoff = calculateBackoff(
@@ -248,6 +251,10 @@ export async function executeActivity(
 
   // All retries exhausted
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
+  console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed after ${retryCount} attempts (instance: ${context.workflowInstance.id}): ${errorMessage}`)
+  if (lastError instanceof Error && lastError.stack) {
+    console.error('[WORKFLOW] Activity error stack:', lastError.stack)
+  }
 
   return {
     activityId: activity.activityId,
@@ -438,7 +445,10 @@ export async function executeEmitEvent(
     },
   }
 
-  await eventBus.emitEvent(eventName, enrichedPayload)
+  await eventBus.emitEvent(eventName, enrichedPayload, {
+    tenantId: context.workflowInstance.tenantId,
+    organizationId: context.workflowInstance.organizationId,
+  })
 
   return { emitted: true, eventName, payload: enrichedPayload }
 }
@@ -595,27 +605,69 @@ async function resolveDictionaryEntryId(
 /**
  * CALL_WEBHOOK activity handler
  *
- * Makes HTTP request to external URL
+ * Makes HTTP request to an external URL. Applies shared SSRF guard
+ * (protocol / credentials / blocked host / private IP literal / DNS rebinding)
+ * before issuing the request and rejects any 3xx redirect rather than following.
  */
-export async function executeCallWebhook(
-  config: any,
-  context: ActivityContext
-): Promise<any> {
-  const { url, method = 'POST', headers = {}, body } = config
+export type CallWebhookDeps = {
+  lookupHost?: HostLookup
+  allowPrivate?: boolean
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+}
 
-  if (!url) {
-    throw new Error('CALL_WEBHOOK requires "url" field')
+export async function executeCallWebhook(
+  config: unknown,
+  context: ActivityContext,
+  deps: CallWebhookDeps = {}
+): Promise<any> {
+  const parsed = callWebhookConfigSchema.safeParse(config)
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
+      .join('; ')
+    throw new Error(`CALL_WEBHOOK config invalid: ${issues}`)
+  }
+  const { url, method, headers: rawHeaders, body } = parsed.data
+  const headers = rawHeaders ?? {}
+
+  const allowPrivate = deps.allowPrivate ?? isAllowPrivateWorkflowWebhookUrlsEnabled()
+
+  try {
+    await assertSafeOutboundUrl(url, {
+      subject: 'Workflow webhook URL',
+      allowPrivate,
+      lookupHost: deps.lookupHost,
+    })
+  } catch (error) {
+    if (error instanceof UnsafeOutboundUrlError) {
+      throw new Error(
+        `CALL_WEBHOOK rejected unsafe URL (reason=${error.reason}): ${error.message}`
+      )
+    }
+    throw error
   }
 
-  // Make HTTP request
-  const response = await fetch(url, {
+  const fetchImpl = deps.fetchImpl ?? fetch
+  const response = await fetchImpl(url, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...headers,
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: body !== undefined && body !== null ? JSON.stringify(body) : undefined,
+    redirect: 'manual',
+    signal: deps.signal,
   })
+
+  if (response.status >= 300 && response.status < 400) {
+    const location = response.headers.get('location')
+    throw new Error(
+      `CALL_WEBHOOK refused to follow redirect ${response.status} to ${
+        location ?? '(no Location header)'
+      }`
+    )
+  }
 
   // Parse response
   let result: any
@@ -695,7 +747,8 @@ export async function executeCallApi(
   em: EntityManager,
   config: any,
   context: ActivityContext,
-  container: AwilixContainer
+  container: AwilixContainer,
+  signal?: AbortSignal
 ): Promise<any> {
   // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, {{env.*}}, {{now}})
   const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
@@ -722,23 +775,34 @@ export async function executeCallApi(
   // 4. Get EntityManager from container (for correct type)
   const apiKeyEm = container.resolve('em')
 
-  // 5. Look up an admin role for the tenant to assign to the one-time key
-  // CRITICAL: rolesJson must contain role IDs (UUIDs), not role names!
-  const { Role } = await import('../../auth/data/entities')
-  const adminRole = await apiKeyEm.findOne(Role, {
-    tenantId: context.workflowInstance.tenantId,
-    name: { $in: ['superadmin', 'admin', 'administrator'] }  // Try common admin role names
-  })
+  // 5. Resolve the roles that the one-time API key will inherit.
+  //
+  // SECURITY: The key must never exceed the permissions of the human who
+  //   triggered (or authored) this workflow. Previously this code looked up
+  //   a role named "admin"/"superadmin" for the tenant and assigned it to
+  //   the key — which allowed any non-admin workflow author with
+  //   `workflows.definitions.edit` + `workflows.instances.create` to issue
+  //   arbitrary administrative API calls via a CALL_API activity. See the
+  //   SECURITY.md changelog entry for this fix.
+  //
+  //   The resolution strategy is:
+  //     1. Use the workflow instance's `createdBy` user (whoever manually
+  //        started the instance), when available.
+  //     2. Fall back to the workflow definition's `createdBy` (author) when
+  //        the instance was started by an event trigger with no user.
+  //     3. If no traceable principal exists, the activity refuses to run —
+  //        there is no "system" fallback that bypasses RBAC.
+  const resolvedRoleIds = await resolveCallApiRoleIds(apiKeyEm, context.workflowInstance)
 
-  if (!adminRole) {
+  if (resolvedRoleIds.length === 0) {
     throw new Error(
-      `[CALL_API] No admin role found for tenant ${context.workflowInstance.tenantId}. ` +
-      `Cannot create one-time API key without role assignment. ` +
-      `Ensure 'mercato init' has been run to create default roles.`
+      `[CALL_API] Refusing to execute CALL_API for workflow instance ${context.workflowInstance.id}: ` +
+      `no traceable user roles could be resolved from the workflow instance or definition. ` +
+      `CALL_API activities must run under the identity of the user who triggered them.`
     )
   }
 
-  // 6. Execute request with one-time API key (using role ID, not name)
+  // 6. Execute request with one-time API key scoped to the resolved user's roles
   return await withOnetimeApiKey(
     apiKeyEm,
     {
@@ -746,7 +810,7 @@ export async function executeCallApi(
       description: `One-time key for workflow ${context.workflowInstance.workflowId} instance ${context.workflowInstance.id}`,
       tenantId: context.workflowInstance.tenantId,
       organizationId: context.workflowInstance.organizationId,
-      roles: [adminRole.id], // ✅ FIX: Use role ID (UUID), not role name
+      roles: resolvedRoleIds,
       expiresAt: null,
     },
     async (apiKeySecret) => {
@@ -765,6 +829,7 @@ export async function executeCallApi(
         method,
         headers: requestHeaders,
         body: body ? JSON.stringify(body) : undefined,
+        signal,
       })
 
       // Parse response body (JSON-safe)
@@ -812,6 +877,60 @@ export async function executeCallApi(
 // ============================================================================
 // CALL_API Helper Functions
 // ============================================================================
+
+export type CallApiInstanceLike = {
+  id: string
+  tenantId: string
+  organizationId: string
+  definitionId: string
+}
+
+export async function resolveCallApiRoleIds(
+  em: any,
+  instance: CallApiInstanceLike
+): Promise<string[]> {
+  if (!instance.definitionId) return []
+
+  const { findOneWithDecryption, findWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  const { User, UserRole, Role } = await import('../../auth/data/entities')
+  const { WorkflowDefinition } = await import('../data/entities')
+
+  const scope = { tenantId: instance.tenantId, organizationId: instance.organizationId }
+
+  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
+    id: instance.definitionId,
+    tenantId: instance.tenantId,
+  }, {}, scope)
+  const authorUserId = definition?.createdBy
+  if (!authorUserId) return []
+
+  const author = await findOneWithDecryption(em, User, {
+    id: authorUserId,
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, scope)
+  if (!author) return []
+
+  const userRoles = await findWithDecryption(
+    em,
+    UserRole,
+    { user: author.id, deletedAt: null },
+    { populate: ['role'] },
+    scope,
+  )
+  const roleIds = userRoles
+    .map((ur: any) => (typeof ur.role === 'string' ? ur.role : ur.role?.id))
+    .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+
+  if (roleIds.length === 0) return []
+
+  const scopedRoles = await findWithDecryption(em, Role, {
+    id: { $in: roleIds },
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, scope)
+  return scopedRoles.map((r: any) => r.id as string)
+}
 
 /**
  * Build full API URL from endpoint

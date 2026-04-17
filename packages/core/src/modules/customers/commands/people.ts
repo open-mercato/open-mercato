@@ -25,6 +25,7 @@ import {
   CustomerTagAssignment,
 } from '../data/entities'
 import { resolvePersonCustomFieldRouting, CUSTOMER_ENTITY_ID, PERSON_ENTITY_ID } from '../lib/customFieldRouting'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import {
   personCreateSchema,
   personUpdateSchema,
@@ -194,12 +195,13 @@ const personCrudIndexer: CrudIndexerConfig<CustomerEntity> = {
   entityType: E.customers.customer_person_profile,
 }
 
-const personCrudEvents: CrudEventsConfig = {
+const personCrudEvents: CrudEventsConfig<CustomerEntity> = {
   module: 'customers',
   entity: 'person',
   persistent: true,
   buildPayload: (ctx) => ({
     id: ctx.identifiers.id,
+    entityId: ctx.entity?.id ?? ctx.identifiers.id,
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
@@ -968,6 +970,10 @@ const deletePersonCommand: CommandHandler<{ body?: Record<string, unknown>; quer
       await em.nativeDelete(CustomerTagAssignment, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
       await em.nativeDelete(CustomerDealPersonLink, { person: record })
       await em.nativeDelete(CustomerPersonCompanyLink, { person: record })
+      if (profile) {
+        await em.nativeDelete(CustomFieldValue, { entityId: PERSON_ENTITY_ID, recordId: profile.id })
+      }
+      await em.nativeDelete(CustomFieldValue, { entityId: CUSTOMER_ENTITY_ID, recordId: record.id })
       em.remove(record)
       await em.flush()
 

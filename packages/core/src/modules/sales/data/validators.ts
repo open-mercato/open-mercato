@@ -605,7 +605,7 @@ export const shipmentCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
+        quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }).int('Quantity must be a whole number.'),
         metadata,
       })
     )
@@ -618,6 +618,12 @@ export const shipmentUpdateSchema = z
   })
   .merge(shipmentCreateSchema.partial())
 
+const returnLineQuantitySchema = z.coerce
+  .number()
+  .int('Return quantity must be a whole number.')
+  .min(1, 'Return quantity must be at least 1.')
+  .max(MAX_QUANTITY, 'Quantity is too large.')
+
 export const returnCreateSchema = scoped.extend({
   orderId: uuid(),
   reason: z.string().trim().max(4000).optional(),
@@ -627,7 +633,7 @@ export const returnCreateSchema = scoped.extend({
     .array(
       z.object({
         orderLineId: uuid(),
-        quantity: decimal({ min: 0 }),
+        quantity: returnLineQuantitySchema,
       })
     )
     .min(1),
@@ -635,7 +641,7 @@ export const returnCreateSchema = scoped.extend({
 
 export const invoiceCreateSchema = scoped.extend({
   orderId: uuid().optional(),
-  invoiceNumber: z.string().trim().min(1).max(191),
+  invoiceNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   issueDate: z.coerce.date().optional(),
   dueDate: z.coerce.date().optional(),
@@ -688,7 +694,7 @@ export const invoiceUpdateSchema = z
 export const creditMemoCreateSchema = scoped.extend({
   orderId: uuid().optional(),
   invoiceId: uuid().optional(),
-  creditMemoNumber: z.string().trim().min(1).max(191),
+  creditMemoNumber: z.string().trim().min(1).max(191).optional(),
   statusEntryId: uuid().optional(),
   issueDate: z.coerce.date().optional(),
   reason: z.string().trim().max(4000).optional(),
@@ -805,7 +811,7 @@ export const noteUpdateSchema = z
   )
 
 export const documentNumberRequestSchema = scoped.extend({
-  kind: z.enum(['order', 'quote']),
+  kind: z.enum(['order', 'quote', 'invoice', 'credit_memo']),
   format: numberFormatSchema.optional(),
 })
 

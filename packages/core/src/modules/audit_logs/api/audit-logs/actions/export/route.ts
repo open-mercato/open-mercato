@@ -158,7 +158,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const entries = await actionLogs.list({
+  const entriesResult = await actionLogs.list({
     tenantId: auth.tenantId ?? undefined,
     organizationId: organizationId ?? undefined,
     actorUserId,
@@ -175,6 +175,7 @@ export async function GET(req: Request) {
     before,
     after,
   })
+  const entries = entriesResult.items
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: entries.map((entry) => entry.actorUserId).filter((value): value is string => Boolean(value)),

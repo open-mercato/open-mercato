@@ -31,12 +31,15 @@ type DealsScope =
   | { kind: 'person'; entityId: string }
   | { kind: 'company'; entityId: string }
 
-type PendingAction = { kind: 'create' } | { kind: 'unlink'; id: string }
-
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
+
+type PendingAction =
+  | { kind: 'create' }
+  | { kind: 'update'; id: string }
+  | { kind: 'remove'; id: string }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
@@ -285,6 +288,7 @@ export type DealsSectionProps = {
   onCountDelta?: (delta: number) => void
   onActionChange?: (action: SectionAction | null) => void
   onLoadingChange?: (isLoading: boolean) => void
+  onDataRefresh?: () => Promise<void> | void
   translator?: Translator
   runGuardedMutation?: GuardedMutationRunner
 }
@@ -297,6 +301,7 @@ export function DealsSection({
   onCountDelta,
   onActionChange,
   onLoadingChange,
+  onDataRefresh,
   translator,
   runGuardedMutation,
 }: DealsSectionProps) {
@@ -340,16 +345,18 @@ export function DealsSection({
     },
     [t],
   )
-
-  const runDealMutation = React.useCallback(
-    async <T,>(operation: () => Promise<T>, mutationPayload: Record<string, unknown>) => {
-      if (runGuardedMutation) {
-        return runGuardedMutation(operation, mutationPayload)
+  const runWriteMutation = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      if (!runGuardedMutation) {
+        return operation()
       }
-      return operation()
+      return runGuardedMutation(operation, mutationPayload)
     },
     [runGuardedMutation],
   )
+  const refreshParentData = React.useCallback(async () => {
+    await Promise.resolve(onDataRefresh?.())
+  }, [onDataRefresh])
 
   const loadDeals = React.useCallback(async ({ append }: { append: boolean }) => {
     if (!scope) {
@@ -594,7 +601,7 @@ export function DealsSection({
           companyIds,
         }
         if (Object.keys(custom).length) payload.customFields = custom
-        const { result } = await runDealMutation(
+        const { result } = await runWriteMutation(
           () =>
             createCrud<{ id?: string }>('customers/deals', payload, {
               errorMessage: translate('customers.people.detail.deals.error', 'Failed to save deal.'),
@@ -633,13 +640,14 @@ export function DealsSection({
           setDeals((prev) => [normalized, ...prev])
           onCountDelta?.(1)
         }
+        await refreshParentData()
         flash(translate('customers.people.detail.deals.success', 'Deal created.'), 'success')
       } finally {
         setPendingAction(null)
         popLoading()
       }
     },
-    [onCountDelta, popLoading, pushLoading, runDealMutation, scope, translate],
+    [onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
   const handleUnlink = React.useCallback(
@@ -669,7 +677,7 @@ export function DealsSection({
       })
       if (!confirmed) return
 
-      setPendingAction({ kind: 'unlink', id: deal.id })
+      setPendingAction({ kind: 'remove', id: deal.id })
       pushLoading()
       try {
         const payload: Record<string, unknown> = {
@@ -677,7 +685,7 @@ export function DealsSection({
           personIds: nextPersonIds,
           companyIds: nextCompanyIds,
         }
-        await runDealMutation(
+        await runWriteMutation(
           () =>
             updateCrud('customers/deals', payload, {
               errorMessage: translate('customers.people.detail.deals.unlinkError', 'Failed to unlink deal.'),
@@ -689,6 +697,7 @@ export function DealsSection({
         )
         setDeals((prev) => prev.filter((item) => item.id !== deal.id))
         onCountDelta?.(-1)
+        await refreshParentData()
         flash(translate('customers.people.detail.deals.unlinkSuccess', 'Deal unlinked.'), 'success')
       } catch (error) {
         const message =
@@ -701,7 +710,7 @@ export function DealsSection({
         popLoading()
       }
     },
-    [confirm, onCountDelta, popLoading, pushLoading, runDealMutation, scope, translate],
+    [confirm, onCountDelta, popLoading, pushLoading, refreshParentData, runWriteMutation, scope, translate],
   )
 
   const handleDialogSubmit = React.useCallback(
@@ -776,7 +785,7 @@ export function DealsSection({
           const expectedLabel = deal.expectedCloseAt ? formatDate(deal.expectedCloseAt) ?? emptyLabel : emptyLabel
           const probabilityLabel =
             typeof deal.probability === 'number' ? `${deal.probability}%` : emptyLabel
-          const isUnlinkPending = pendingAction?.kind === 'unlink' && pendingAction.id === deal.id
+          const isUnlinkPending = pendingAction?.kind === 'remove' && pendingAction.id === deal.id
           const statusLabel =
             deal.status && statusDictionaryMap
               ? statusDictionaryMap[deal.status]?.label ?? deal.status

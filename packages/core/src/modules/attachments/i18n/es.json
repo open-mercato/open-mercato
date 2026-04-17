@@ -1,5 +1,9 @@
 {
   "attachments.customers.storage.nav.group": "Almacenamiento",
+  "attachments.errors.activeContentBlocked": "No se permite la carga de contenido activo.",
+  "attachments.errors.maxUploadSize": "El archivo adjunto supera el tamaño máximo de carga permitido.",
+  "attachments.errors.publicPartitionBlocked": "No se pueden seleccionar explícitamente particiones de almacenamiento públicas para esta carga.",
+  "attachments.errors.quotaExceeded": "Se superó la cuota de almacenamiento de adjuntos para este tenant.",
   "attachments.library.actions.copied": "Enlace copiado.",
   "attachments.library.actions.copyError": "No se pudo copiar el enlace.",
   "attachments.library.actions.copyUrl": "Copiar URL",
@@ -108,7 +112,7 @@
   "attachments.partitions.form.descriptionPlaceholder": "Explique cómo se utiliza esta partición.",
   "attachments.partitions.form.envKeyHelp": "Defina esta variable de entorno para cambiar la ruta de almacenamiento:",
   "attachments.partitions.form.ocrLabel": "Requerir OCR/extracción de texto",
-  "attachments.partitions.form.ocrModelHelp": "Elija el modelo LLM para el OCR de imágenes y PDF. Si no se especifica, se usa la variable de entorno OCR_MODEL o gpt-4o. Si el OCR LLM no está disponible, los PDF usan extracción de texto con markitdown cuando sea posible.",
+  "attachments.partitions.form.ocrModelHelp": "Elija el modelo LLM para el OCR de imágenes y PDF. Si no se especifica, se usa la variable de entorno OCR_MODEL o gpt-4o. Si el OCR LLM no está disponible, los PDF usan extracción de texto puro en JS (pdfjs-dist) y los archivos DOCX usan extracción pura en JS (mammoth).",
   "attachments.partitions.form.ocrModelLabel": "Modelo OCR",
   "attachments.partitions.form.ocrModelOptions.default": "Predeterminado (del entorno)",
   "attachments.partitions.form.ocrModelOptions.gpt-4o": "GPT-4o (Recomendado)",

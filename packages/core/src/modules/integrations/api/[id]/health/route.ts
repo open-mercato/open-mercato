@@ -48,6 +48,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     status: result.status,
     message: result.message ?? null,
     details: result.details ?? null,
-    checkedAt: new Date().toISOString(),
+    latencyMs: result.latencyMs,
+    checkedAt: result.checkedAt,
   })
 }

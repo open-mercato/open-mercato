@@ -201,6 +201,12 @@ type CatalogSnapshotRecord = Record<string, unknown> & {
 };
 
 type SnapshotEntity = {
+  defaultUnit?: string | null;
+  default_unit?: string | null;
+  defaultSalesUnit?: string | null;
+  default_sales_unit?: string | null;
+  defaultSalesUnitQuantity?: number | null;
+  default_sales_unit_quantity?: number | null;
   title?: string;
   sku?: string;
   thumbnailUrl?: string;
@@ -278,7 +284,7 @@ function buildPriceScopeReason(
 
 function buildPlaceholder(label?: string | null) {
   return (
-    <div className="flex h-8 w-8 items-center justify-center rounded border bg-muted text-[10px] uppercase text-muted-foreground">
+    <div className="flex h-8 w-8 items-center justify-center rounded border bg-muted text-xs uppercase text-muted-foreground">
       {(label ?? "").slice(0, 2) || "•"}
     </div>
   );
@@ -2482,11 +2488,19 @@ export function LineItemDialog({
           ? metaRecord.productThumbnail
           : null;
       if (productTitle && initialLine.productId) {
-        const option = {
+        const snapshotUom = snapshotProduct
+          ? getUomProductFields(snapshotProduct)
+          : { defaultUnit: null, defaultSalesUnit: null, defaultSalesUnitQuantity: Number.NaN };
+        const option: ProductOption = {
           id: initialLine.productId,
           title: productTitle,
           sku: productSku,
           thumbnailUrl: productThumbnail,
+          defaultUnit: snapshotUom.defaultUnit,
+          defaultSalesUnit: snapshotUom.defaultSalesUnit,
+          defaultSalesUnitQuantity: Number.isFinite(snapshotUom.defaultSalesUnitQuantity)
+            ? snapshotUom.defaultSalesUnitQuantity
+            : null,
         };
         productOptionsRef.current.set(initialLine.productId, option);
         resolvedProductOption = option;
@@ -2538,6 +2552,12 @@ export function LineItemDialog({
         thumbnailUrl: snapshotThumb,
         taxRateId: typeof sp.taxRateId === "string" ? sp.taxRateId : null,
         taxRate: Number.isFinite(snapshotTaxRate) ? snapshotTaxRate : null,
+        defaultUnit: normalizeUnitCode(sp.defaultUnit ?? sp.default_unit),
+        defaultSalesUnit: normalizeUnitCode(sp.defaultSalesUnit ?? sp.default_sales_unit),
+        defaultSalesUnitQuantity: (() => {
+          const raw = normalizeNumber(sp.defaultSalesUnitQuantity ?? sp.default_sales_unit_quantity, Number.NaN);
+          return Number.isFinite(raw) ? raw : null;
+        })(),
       };
       productOptionsRef.current.set(initialLine.productId, option);
       resolvedProductOption = option;

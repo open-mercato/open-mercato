@@ -45,8 +45,10 @@ export const actionLogListSchema = z.object({
   fieldNames: z.array(z.string().min(1)).optional(),
   sortField: z.enum(['createdAt', 'user', 'action', 'field', 'source']).optional(),
   sortDir: z.enum(['asc', 'desc']).optional(),
-  limit: z.number().int().positive().max(1000).default(50),
-  offset: z.number().int().min(0).default(0),
+  limit: z.number().int().positive().max(1000).optional(),
+  offset: z.number().int().min(0).optional(),
+  page: z.number().int().positive().default(1),
+  pageSize: z.number().int().positive().max(200).default(50),
   before: z.date().optional(),
   after: z.date().optional(),
 })

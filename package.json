@@ -79,6 +79,7 @@
     "template:sync:ask": "tsx scripts/template-sync.ts --ask",
     "test:create-app": "tsx scripts/test-create-app.ts",
     "test:create-app:integration": "tsx scripts/test-create-app-integration.ts",
+    "test:scripts": "node --test scripts/__tests__/*.test.mjs",
     "test:integration": "cross-env ENABLE_CRUD_API_CACHE=true npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "test:integration:report": "npx playwright show-report .ai/qa/test-results/html",
     "test:integration:coverage": "yarn mercato test:integration:coverage",
@@ -115,7 +116,7 @@
     "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
     "newrelic": "^13.16.0",
-    "next": "16.1.7",
+    "next": "16.2.3",
     "pdfjs-dist": "^5.4.149",
     "pg": "8.20.0",
     "react": "19.2.1",
@@ -155,8 +156,8 @@
     "typescript": "^5.9.3"
   },
   "resolutions": {
-    "@hono/node-server": "1.19.10",
-    "hono": "4.12.12",
+    "@hono/node-server": "1.19.14",
+    "hono": "4.12.14",
     "pg": "8.20.0",
     "zod": "4.1.13",
     "lodash": "4.18.1",

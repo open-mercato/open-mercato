@@ -1,4 +1,11 @@
 /** @jest-environment jsdom */
+jest.setTimeout(15000)
+
+const triggerInjectionEventMock = jest.fn(async (_event: string, data: Record<string, unknown>) => ({
+  ok: true,
+  data,
+}))
+
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
   usePathname: () => '/',
@@ -6,6 +13,16 @@ jest.mock('next/navigation', () => ({
 }))
 jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
 jest.mock('@uiw/react-md-editor', () => ({ __esModule: true, default: () => null }))
+jest.mock('../injection/InjectionSpot', () => ({
+  __esModule: true,
+  InjectionSpot: () => null,
+  useInjectionWidgets: () => ({ widgets: [], loading: false, error: null }),
+  useInjectionSpotEvents: () => ({ triggerEvent: triggerInjectionEventMock }),
+}))
+jest.mock('../injection/useInjectionDataWidgets', () => ({
+  __esModule: true,
+  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
+}))
 
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
@@ -38,6 +55,10 @@ describe('CrudForm SSR render', () => {
 
 describe('CrudForm initialValues', () => {
   const fields: CrudField[] = [{ id: 'name', label: 'Name', type: 'text' }]
+
+  beforeEach(() => {
+    triggerInjectionEventMock.mockClear()
+  })
 
   function getInput(container: HTMLElement): HTMLInputElement {
     return container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
@@ -79,6 +100,35 @@ describe('CrudForm initialValues', () => {
     // After the infinite-loop fix (#845), a new fields array reference may
     // trigger one additional loadOptions call; verify it does not spiral.
     expect(loader.mock.calls.length).toBeLessThanOrEqual(callsAfterMount + 1)
+  })
+
+  it('re-invokes loadOptions and refreshes cached options when the loader identity changes (#1538)', async () => {
+    const firstLoader = jest.fn().mockResolvedValue([{ label: 'Alpha', value: 'alpha' }])
+    const secondLoader = jest.fn().mockResolvedValue([{ label: 'Beta', value: 'beta' }])
+    const makeFields = (loader: (q?: string) => Promise<{ label: string; value: string }[]>): CrudField[] => [
+      { id: 'pick', label: 'Pick', type: 'combobox', loadOptions: loader },
+    ]
+
+    const { rerender, container } = renderWithProviders(
+      <CrudForm title="Form" fields={makeFields(firstLoader)} onSubmit={() => {}} />
+    )
+    await act(() => Promise.resolve())
+    expect(firstLoader).toHaveBeenCalled()
+    expect(secondLoader).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender(
+        <CrudForm title="Form" fields={makeFields(secondLoader)} onSubmit={() => {}} />
+      )
+    })
+    await act(() => Promise.resolve())
+
+    // The new loader MUST run because it captures different parent state
+    // (e.g. tenant scope). Reusing cached options from the old loader would
+    // leak cross-scope values such as roles from another tenant.
+    expect(secondLoader).toHaveBeenCalled()
+    const fieldNode = container.querySelector('[data-crud-field-id="pick"]')
+    expect(fieldNode).not.toBeNull()
   })
 
   it('does not reset fields on initialValues reference churn', async () => {

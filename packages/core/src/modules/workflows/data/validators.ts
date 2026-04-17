@@ -134,6 +134,14 @@ export const callApiConfigSchema = z.object({
   timeout: z.number().int().positive().optional(),
 })
 
+export const callWebhookConfigSchema = z.object({
+  url: z.string().min(1, 'Webhook URL is required'),
+  method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']).default('POST'),
+  headers: z.record(z.string(), z.string()).optional(),
+  body: z.any().optional(),
+})
+export type CallWebhookConfig = z.infer<typeof callWebhookConfigSchema>
+
 // Retry policy
 export const retryPolicySchema = z.object({
   maxAttempts: z.number().int().min(1).max(10),
@@ -211,7 +219,7 @@ export const workflowTransitionSchema = z.object({
   preConditions: z.array(transitionConditionSchema).optional(),
   postConditions: z.array(transitionConditionSchema).optional(),
   activities: z.array(activityDefinitionSchema).optional(), // Activities to execute during transition
-  continueOnActivityFailure: z.boolean().default(true).optional(), // If false, transition fails when any activity fails
+  continueOnActivityFailure: z.boolean().default(false).optional(), // If true, transition continues even when activities fail
   priority: z.number().int().min(0).max(9999).default(0),
 })
 

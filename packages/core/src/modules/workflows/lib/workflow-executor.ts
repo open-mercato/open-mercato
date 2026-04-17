@@ -391,10 +391,12 @@ export async function executeWorkflow(
           )
 
           if (!transitionResult.success) {
-            errors.push(transitionResult.error || 'Transition failed')
+            const rejectionMessage = transitionResult.error || 'Transition failed'
+            console.error(`[WORKFLOW] Transition rejected (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}): ${rejectionMessage}`)
+            errors.push(rejectionMessage)
 
             return {
-              status: 'RUNNING',
+              status: 'FAILED',
               currentStep: currentInstance.currentStepId,
               context: currentInstance.context,
               events,
@@ -448,7 +450,7 @@ export async function executeWorkflow(
           await trx.flush()
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
-          console.error('[WORKFLOW] Transition execution failed:', error)
+          console.error(`[WORKFLOW] Transition execution failed (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}):`, error)
           console.error('[WORKFLOW] Error stack:', error instanceof Error ? error.stack : 'No stack trace')
           errors.push(errorMessage)
 
@@ -483,6 +485,10 @@ export async function executeWorkflow(
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
+      console.error(`[WORKFLOW] Execution failed (instance: ${instanceId}):`, error)
+      if (error instanceof Error && error.stack) {
+        console.error('[WORKFLOW] Error stack:', error.stack)
+      }
       errors.push(errorMessage)
 
       try {
@@ -503,7 +509,7 @@ export async function executeWorkflow(
           })
         }
       } catch (updateError) {
-        console.error('Failed to update instance with error:', updateError)
+        console.error(`[WORKFLOW] Failed to update instance ${instanceId} with error state:`, updateError)
       }
 
       throw error
@@ -638,174 +644,173 @@ export async function resumeWorkflowAfterActivities(
   container: AwilixContainer,
   instanceId: string
 ): Promise<void> {
-  const instance = await em.findOne(WorkflowInstance, {
-    id: instanceId,
-    status: 'WAITING_FOR_ACTIVITIES',
-  })
-
-  if (!instance) {
-    throw new Error('Workflow instance not waiting for activities')
+  const transactionalEm = em as EntityManager & {
+    transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
   }
 
-  const pendingJobIds = (instance.context._pendingAsyncActivities as any[]) || []
+  const runResume = async (trx: EntityManager): Promise<{ continueExecution: boolean }> => {
+    const instance = await trx.findOne(WorkflowInstance, {
+      id: instanceId,
+      status: 'WAITING_FOR_ACTIVITIES',
+    }, { lockMode: LockMode.PESSIMISTIC_WRITE })
 
-  // Check if all activities completed by looking at events
-  const completedActivities = await em.count(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    eventType: 'ACTIVITY_COMPLETED',
-    eventData: { async: true },
-  })
+    if (!instance) {
+      throw new Error('Workflow instance not waiting for activities')
+    }
 
-  const failedActivities = await em.count(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    eventType: 'ACTIVITY_FAILED',
-    eventData: { async: true },
-  })
+    const pendingJobIds = (instance.context._pendingAsyncActivities as any[]) || []
 
-  const totalProcessed = completedActivities + failedActivities
+    const completedActivities = await trx.count(WorkflowEvent, {
+      workflowInstanceId: instanceId,
+      eventType: 'ACTIVITY_COMPLETED',
+      eventData: { async: true },
+    })
 
-  if (totalProcessed < pendingJobIds.length) {
-    throw new Error('Activities still pending')
-  }
-
-  // Check for failures
-  if (failedActivities > 0) {
-    // Get failed activity details
-    const failedEvents = await em.find(WorkflowEvent, {
+    const failedActivities = await trx.count(WorkflowEvent, {
       workflowInstanceId: instanceId,
       eventType: 'ACTIVITY_FAILED',
       eventData: { async: true },
     })
 
-    instance.status = 'FAILED'
-    instance.errorMessage = `${failedActivities} async activities failed`
-    instance.errorDetails = {
-      failedActivities: failedEvents.map(e => ({
-        activityId: e.eventData.activityId,
-        error: e.eventData.error,
-        jobId: e.eventData.jobId,
-      })),
-    }
-    await em.flush()
+    const totalProcessed = completedActivities + failedActivities
 
-    await logWorkflowEvent(em, {
+    if (totalProcessed < pendingJobIds.length) {
+      throw new Error('Activities still pending')
+    }
+
+    if (failedActivities > 0) {
+      const failedEvents = await trx.find(WorkflowEvent, {
+        workflowInstanceId: instanceId,
+        eventType: 'ACTIVITY_FAILED',
+        eventData: { async: true },
+      })
+
+      instance.status = 'FAILED'
+      instance.errorMessage = `${failedActivities} async activities failed`
+      instance.errorDetails = {
+        failedActivities: failedEvents.map(e => ({
+          activityId: e.eventData.activityId,
+          error: e.eventData.error,
+          jobId: e.eventData.jobId,
+        })),
+      }
+      await trx.flush()
+
+      await logWorkflowEvent(trx, {
+        workflowInstanceId: instanceId,
+        eventType: 'WORKFLOW_FAILED',
+        eventData: {
+          reason: 'Async activities failed',
+          failedActivities: instance.errorDetails.failedActivities,
+        },
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+
+      return { continueExecution: false }
+    }
+
+    const completedEvents = await trx.find(WorkflowEvent, {
       workflowInstanceId: instanceId,
-      eventType: 'WORKFLOW_FAILED',
+      eventType: 'ACTIVITY_COMPLETED',
+      eventData: { async: true },
+    })
+
+    for (const event of completedEvents) {
+      if (event.eventData.output) {
+        instance.context = {
+          ...instance.context,
+          [`${event.eventData.activityId}_result`]: event.eventData.output,
+        }
+      }
+    }
+
+    delete instance.context._pendingAsyncActivities
+
+    const pendingTransition = instance.pendingTransition
+
+    if (!pendingTransition) {
+      console.warn('[WORKFLOW] No pending transition found during resume')
+      instance.status = 'RUNNING'
+      await trx.flush()
+
+      await logWorkflowEvent(trx, {
+        workflowInstanceId: instanceId,
+        eventType: 'WORKFLOW_RESUMED',
+        eventData: {
+          reason: 'All async activities completed',
+          completedActivities: completedActivities,
+        },
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      })
+
+      return { continueExecution: true }
+    }
+
+    console.log('[WORKFLOW] Completing pending transition:', {
+      toStepId: pendingTransition.toStepId,
+      from: instance.currentStepId,
+    })
+
+    const definition = await trx.findOneOrFail(WorkflowDefinition, {
+      id: instance.definitionId,
+    })
+
+    const step = definition.definition.steps.find(s => s.stepId === pendingTransition.toStepId)
+
+    instance.currentStepId = pendingTransition.toStepId
+    instance.status = 'RUNNING'
+    instance.pendingTransition = null
+    instance.updatedAt = new Date()
+    await trx.flush()
+
+    await logWorkflowEvent(trx, {
+      workflowInstanceId: instance.id,
+      eventType: 'STEP_ENTERED',
       eventData: {
-        reason: 'Async activities failed',
-        failedActivities: instance.errorDetails.failedActivities,
+        stepId: pendingTransition.toStepId,
+        stepName: step?.stepName,
+        stepType: step?.stepType,
       },
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
     })
 
-    return
-  }
-
-  // Merge activity outputs into workflow context
-  const completedEvents = await em.find(WorkflowEvent, {
-    workflowInstanceId: instanceId,
-    eventType: 'ACTIVITY_COMPLETED',
-    eventData: { async: true },
-  })
-
-  for (const event of completedEvents) {
-    if (event.eventData.output) {
-      instance.context = {
-        ...instance.context,
-        [`${event.eventData.activityId}_result`]: event.eventData.output,
-      }
-    }
-  }
-
-  // Clean up tracking
-  delete instance.context._pendingAsyncActivities
-
-  // Get pending transition
-  const pendingTransition = instance.pendingTransition
-
-  if (!pendingTransition) {
-    console.warn('[WORKFLOW] No pending transition found during resume')
-    // Continue with normal execution
-    instance.status = 'RUNNING'
-    await em.flush()
-
-    await logWorkflowEvent(em, {
+    await logWorkflowEvent(trx, {
       workflowInstanceId: instanceId,
       eventType: 'WORKFLOW_RESUMED',
       eventData: {
-        reason: 'All async activities completed',
+        reason: 'Async activities completed, resuming pending transition',
         completedActivities: completedActivities,
+        completedTransitionTo: pendingTransition.toStepId,
       },
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
     })
 
-    await executeWorkflow(em, container, instanceId)
-    return
+    const { executeStep } = await import('./step-handler')
+    await executeStep(
+      trx,
+      instance,
+      pendingTransition.toStepId,
+      {
+        workflowContext: instance.context || {},
+        userId: undefined,
+      },
+      container
+    )
+
+    return { continueExecution: true }
   }
 
-  console.log('[WORKFLOW] Completing pending transition:', {
-    toStepId: pendingTransition.toStepId,
-    from: instance.currentStepId,
-  })
+  const resumeResult = typeof transactionalEm.transactional === 'function'
+    ? await transactionalEm.transactional((trx) => runResume(trx))
+    : await runResume(em)
 
-  // Fetch workflow definition to get step details
-  const definition = await em.findOneOrFail(WorkflowDefinition, {
-    id: instance.definitionId,
-  })
-
-  const step = definition.definition.steps.find(s => s.stepId === pendingTransition.toStepId)
-
-  // Now complete the transition by moving to the new step
-  instance.currentStepId = pendingTransition.toStepId
-  instance.status = 'RUNNING'
-  instance.pendingTransition = null
-  instance.updatedAt = new Date()
-  await em.flush()
-
-  // Log step entry
-  await logWorkflowEvent(em, {
-    workflowInstanceId: instance.id,
-    eventType: 'STEP_ENTERED',
-    eventData: {
-      stepId: pendingTransition.toStepId,
-      stepName: step?.stepName,
-      stepType: step?.stepType,
-    },
-    tenantId: instance.tenantId,
-    organizationId: instance.organizationId,
-  })
-
-  // Log workflow resumed
-  await logWorkflowEvent(em, {
-    workflowInstanceId: instanceId,
-    eventType: 'WORKFLOW_RESUMED',
-    eventData: {
-      reason: 'Async activities completed, resuming pending transition',
-      completedActivities: completedActivities,
-      completedTransitionTo: pendingTransition.toStepId,
-    },
-    tenantId: instance.tenantId,
-    organizationId: instance.organizationId,
-  })
-
-  // Execute the step that was deferred
-  const { executeStep } = await import('./step-handler')
-  const stepResult = await executeStep(
-    em,
-    instance,
-    pendingTransition.toStepId,
-    {
-      workflowContext: instance.context || {},
-      userId: undefined,
-    },
-    container
-  )
-
-
-  // Continue workflow execution from the new step
-  await executeWorkflow(em, container, instanceId)
+  if (resumeResult.continueExecution) {
+    await executeWorkflow(em, container, instanceId)
+  }
 }
 
 /**

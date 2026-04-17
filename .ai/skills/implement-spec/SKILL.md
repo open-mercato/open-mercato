@@ -109,7 +109,7 @@ If the spec does not explicitly list integration scenarios but the phase adds si
 For each new feature:
 - Add/update locale files for new i18n keys
 - If new entities with user-facing text: create `translations.ts`
-- If new convention files: run `yarn generate` / `npm run modules:prepare`
+- If new convention files: run `yarn generate`
 - Update relevant AGENTS.md if the feature introduces new patterns developers should follow
 
 ### Step 6 — Self-Review (Code-Review Gate)
@@ -172,7 +172,7 @@ After all targeted phases are complete:
 2. **Lint check**: `yarn lint` — must pass
 3. **Unit test check**: `yarn test` — must pass
 4. **Integration test check**: run any new integration tests — must pass
-5. **Module prepare**: `npm run modules:prepare` — if any convention files changed
+5. **Module prepare**: `yarn generate` — if any convention files changed
 6. **Migration check**: `yarn db:generate` — if any entities changed (verify generated migration is scoped correctly)
 
 Report results to the user. If any check fails, fix and re-verify.

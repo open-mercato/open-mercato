@@ -1,4 +1,5 @@
 import os from 'node:os'
+import fs from 'node:fs'
 import path from 'node:path'
 import { realpathSync } from 'node:fs'
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
@@ -10,6 +11,54 @@ async function makeDir(root: string, ...segments: string[]): Promise<string> {
   const dir = path.join(root, ...segments)
   await mkdir(dir, { recursive: true })
   return dir
+}
+
+async function linkDirectory(target: string, linkPath: string): Promise<void> {
+  try {
+    await symlink(target, linkPath, 'dir')
+  } catch (error) {
+    const isWindowsPermissionIssue =
+      process.platform === 'win32'
+      && error instanceof Error
+      && 'code' in error
+      && (error as NodeJS.ErrnoException).code === 'EPERM'
+
+    if (!isWindowsPermissionIssue) {
+      throw error
+    }
+
+    await symlink(target, linkPath, 'junction')
+  }
+}
+
+function mockSymlinkedPackageLayout(tempRoot: string, packagesCore: string): jest.SpyInstance[] {
+  const corePkgPath = path.join(tempRoot, 'node_modules', '@open-mercato', 'core')
+  const realExistsSync = fs.existsSync
+  const realLstatSync = fs.lstatSync
+  const realRealpathSync = fs.realpathSync
+
+  return [
+    jest.spyOn(fs, 'existsSync').mockImplementation((targetPath: fs.PathLike) => {
+      if (String(targetPath) === corePkgPath) {
+        return true
+      }
+      return realExistsSync(targetPath)
+    }),
+    jest.spyOn(fs, 'lstatSync').mockImplementation((targetPath: fs.PathLike, options?: { bigint?: boolean }) => {
+      if (String(targetPath) === corePkgPath) {
+        return {
+          isSymbolicLink: () => true,
+        } as fs.Stats
+      }
+      return realLstatSync(targetPath, options as { bigint?: boolean })
+    }),
+    jest.spyOn(fs, 'realpathSync').mockImplementation((targetPath: fs.PathLike, options?: BufferEncoding | fs.RealpathSyncOptions) => {
+      if (String(targetPath) === corePkgPath) {
+        return packagesCore
+      }
+      return realRealpathSync(targetPath, options as BufferEncoding & fs.RealpathSyncOptions)
+    }),
+  ]
 }
 
 describe('resolveEnvironment', () => {
@@ -108,24 +157,54 @@ describe('resolveEnvironment', () => {
       //            tempRoot/node_modules/@open-mercato/core -> ../../packages/core (symlink)
       const packagesCore = await makeDir(tempRoot, 'packages', 'core')
       const nmOpen = await makeDir(tempRoot, 'node_modules', '@open-mercato')
-      await symlink(packagesCore, path.join(nmOpen, 'core'))
+      const linkPath = path.join(nmOpen, 'core')
+      let fsSpies: jest.SpyInstance[] = []
+      try {
+        await linkDirectory(packagesCore, linkPath)
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException
+        const canMockFilesystemShape = process.platform === 'win32' && err.code === 'EPERM'
+        if (!canMockFilesystemShape) {
+          throw error
+        }
+        fsSpies = mockSymlinkedPackageLayout(tempRoot, packagesCore)
+      }
 
       const env = resolveEnvironment(tempRoot)
 
       expect(env.mode).toBe('monorepo')
       expect(normalizePath(env.rootDir)).toBe(normalizePath(tempRoot))
+
+      for (const spy of fsSpies) {
+        spy.mockRestore()
+      }
     })
 
     it('resolves packageRoot under packages/ in monorepo mode', async () => {
       const packagesCore = await makeDir(tempRoot, 'packages', 'core')
       const nmOpen = await makeDir(tempRoot, 'node_modules', '@open-mercato')
-      await symlink(packagesCore, path.join(nmOpen, 'core'))
+      const linkPath = path.join(nmOpen, 'core')
+      let fsSpies: jest.SpyInstance[] = []
+      try {
+        await linkDirectory(packagesCore, linkPath)
+      } catch (error) {
+        const err = error as NodeJS.ErrnoException
+        const canMockFilesystemShape = process.platform === 'win32' && err.code === 'EPERM'
+        if (!canMockFilesystemShape) {
+          throw error
+        }
+        fsSpies = mockSymlinkedPackageLayout(tempRoot, packagesCore)
+      }
 
       const env = resolveEnvironment(tempRoot)
 
       expect(normalizePath(env.packageRoot('@open-mercato/core'))).toBe(
         normalizePath(path.join(tempRoot, 'packages', 'core')),
       )
+
+      for (const spy of fsSpies) {
+        spy.mockRestore()
+      }
     })
   })
 

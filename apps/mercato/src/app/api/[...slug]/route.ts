@@ -24,6 +24,7 @@ import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@o
 
 type MethodMetadata = {
   requireAuth?: boolean
+  /** @deprecated Use `requireFeatures` instead — role names are mutable and can be spoofed */
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
@@ -133,7 +134,8 @@ async function checkAuthorization(
   req: NextRequest
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
-  if (methodMetadata?.requireAuth && !auth) {
+  const requiresAuthentication = methodMetadata?.requireAuth !== false
+  if (requiresAuthentication && !auth) {
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   }
 
@@ -153,7 +155,7 @@ async function checkAuthorization(
     return container
   }
 
-  if (auth && methodMetadata?.requireAuth !== false) {
+  if (auth && requiresAuthentication) {
     const rawTenantCandidate = await extractTenantCandidate(req)
     if (rawTenantCandidate !== undefined) {
       const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)

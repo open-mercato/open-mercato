@@ -1,8 +1,9 @@
 /** @jest-environment node */
 
 /**
- * Tests that all findWithDecryption(SalesDocumentAddress, ...) calls include
- * organizationId and tenantId filters, preventing cross-tenant data leaks.
+ * Tests that SalesDocumentAddress reads pass immutable tenant/org scope through
+ * the dedicated findWithDecryption scope argument, preventing cross-tenant leaks
+ * without relying on overrideable where filters.
  *
  * Fixed in: packages/core/src/modules/sales/commands/documents.ts
  *   - loadQuoteSnapshot (line ~1179)
@@ -14,7 +15,7 @@
 
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   SalesQuote,
   SalesQuoteLine,
@@ -39,9 +40,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+type EmWithFindOne = {
+  findOne: (entityClass: unknown, where: unknown) => Promise<unknown>
+}
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
-  findOneWithDecryption: jest.fn(async () => null),
+  findOneWithDecryption: jest.fn(async (em: EmWithFindOne, entityClass: unknown, where: unknown) => {
+    return em.findOne(entityClass, where)
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
@@ -221,7 +228,7 @@ function makeCtx(em: unknown, organizationId: string, tenantId: string) {
 /**
  * Filter findWithDecryption mock calls where the entity class is SalesDocumentAddress.
  * findWithDecryption signature: (em, entityName, where, options?, scope?)
- * so entityName is args[1] and where is args[2].
+ * so entityName is args[1], where is args[2], and scope is args[4].
  */
 function addressDecryptionCalls() {
   return (findWithDecryption as jest.Mock).mock.calls.filter(
@@ -236,7 +243,8 @@ describe('SalesDocumentAddress query scoping', () => {
   })
 
   beforeEach(() => {
-    (findWithDecryption as jest.Mock).mockClear()
+    jest.mocked(findWithDecryption).mockClear()
+    jest.mocked(findOneWithDecryption).mockClear()
   })
 
   describe('deleteQuoteCommand.execute — scopes SalesDocumentAddress by quote tenant', () => {
@@ -255,6 +263,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: QUOTE_ID,
         documentKind: 'quote',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })
@@ -272,6 +282,10 @@ describe('SalesDocumentAddress query scoping', () => {
 
       const calls = addressDecryptionCalls()
       expect(calls[0][2]).toMatchObject({
+        documentId: QUOTE_ID,
+        documentKind: 'quote',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: differentOrg,
         tenantId: differentTenant,
       })
@@ -294,6 +308,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: ORDER_ID,
         documentKind: 'order',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })
@@ -311,6 +327,10 @@ describe('SalesDocumentAddress query scoping', () => {
 
       const calls = addressDecryptionCalls()
       expect(calls[0][2]).toMatchObject({
+        documentId: ORDER_ID,
+        documentKind: 'order',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: differentOrg,
         tenantId: differentTenant,
       })
@@ -333,6 +353,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: QUOTE_ID,
         documentKind: 'quote',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })
@@ -355,6 +377,8 @@ describe('SalesDocumentAddress query scoping', () => {
       expect(calls[0][2]).toMatchObject({
         documentId: ORDER_ID,
         documentKind: 'order',
+      })
+      expect(calls[0][4]).toMatchObject({
         organizationId: ORG_ID,
         tenantId: TENANT_ID,
       })
