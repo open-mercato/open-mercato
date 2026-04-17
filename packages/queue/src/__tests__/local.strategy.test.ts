@@ -309,4 +309,84 @@ describe('Queue - local strategy', () => {
 
     await queue.close()
   })
+
+  // Regression: queue operations MUST use async fs.promises.* so they do not
+  // block the Node.js event loop. See GitHub issue #1401.
+  test('queue operations do not call synchronous fs APIs on queue files', async () => {
+    const queueDir = path.join('.mercato', 'queue', 'sync-free')
+    const touchesQueue = (args: unknown[]) =>
+      args.some((arg) => typeof arg === 'string' && arg.includes(queueDir))
+
+    const syncCalls: string[] = []
+    const mkdirSpy = jest.spyOn(fs, 'mkdirSync').mockImplementation((...args: any[]) => {
+      if (touchesQueue(args)) syncCalls.push(`mkdirSync(${args[0]})`)
+      return undefined as any
+    })
+    const readSpy = jest.spyOn(fs, 'readFileSync').mockImplementation((...args: any[]) => {
+      if (touchesQueue(args)) syncCalls.push(`readFileSync(${args[0]})`)
+      return '' as any
+    })
+    const writeSpy = jest.spyOn(fs, 'writeFileSync').mockImplementation((...args: any[]) => {
+      if (touchesQueue(args)) syncCalls.push(`writeFileSync(${args[0]})`)
+      return undefined as any
+    })
+
+    try {
+      const queue = createQueue<{ value: number }>('sync-free', 'local')
+
+      await queue.enqueue({ value: 1 })
+      await queue.enqueue({ value: 2 })
+      await queue.getJobCounts()
+      await queue.process((_job) => {}, { limit: 10 })
+      await queue.clear()
+      await queue.close()
+
+      expect(syncCalls).toEqual([])
+    } finally {
+      mkdirSpy.mockRestore()
+      readSpy.mockRestore()
+      writeSpy.mockRestore()
+    }
+  })
+
+  // Regression: serialize enqueue calls so async fs writes cannot clobber
+  // each other. Before the async conversion this was trivially safe because
+  // sync I/O executed atomically. With async fs a mutex is required.
+  test('concurrent enqueues do not lose jobs', async () => {
+    const queue = createQueue<{ value: number }>('concurrent-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'concurrent-queue', 'queue.json')
+
+    const enqueueCount = 50
+    await Promise.all(
+      Array.from({ length: enqueueCount }, (_, idx) => queue.enqueue({ value: idx })),
+    )
+
+    const stored = readJson(queuePath)
+    expect(stored).toHaveLength(enqueueCount)
+    const storedValues = stored.map((job: any) => job.payload.value).sort((a: number, b: number) => a - b)
+    expect(storedValues).toEqual(Array.from({ length: enqueueCount }, (_, idx) => idx))
+
+    await queue.close()
+  })
+
+  // Regression: jobs enqueued while a batch is running must survive the
+  // subsequent write that removes completed jobs. The pre-fix snapshot-only
+  // write would clobber them.
+  test('jobs enqueued during batch handler are preserved on final write', async () => {
+    const queue = createQueue<{ value: number; latecomer?: boolean }>('race-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'race-queue', 'queue.json')
+
+    await queue.enqueue({ value: 1 })
+
+    await queue.process(async () => {
+      // Mid-handler, enqueue a second job. It should survive the final write.
+      await queue.enqueue({ value: 2, latecomer: true })
+    }, { limit: 10 })
+
+    const remaining = readJson(queuePath)
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].payload).toEqual({ value: 2, latecomer: true })
+
+    await queue.close()
+  })
 })
