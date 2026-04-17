@@ -241,7 +241,7 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(res.status).toBe(400)
     expect(body.error).toBe('Invalid request origin')
     expect(mockNativeUpdate).not.toHaveBeenCalled()
-    expect(mockPersistAndFlush).not.toHaveBeenCalled()
+    expect(mockFlush).not.toHaveBeenCalled()
     expect(mockSendEmail).not.toHaveBeenCalled()
   })
 
@@ -256,7 +256,7 @@ describe('POST /api/auth/users/resend-invite', () => {
 
     expect(res.status).toBe(200)
     expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
-    expect(mockPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(mockFlush).toHaveBeenCalledTimes(1)
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 
@@ -280,7 +280,7 @@ describe('POST /api/auth/users/resend-invite', () => {
 
     expect(res.status).toBe(200)
     expect(mockNativeUpdate).toHaveBeenCalledTimes(1)
-    expect(mockPersistAndFlush).toHaveBeenCalledTimes(1)
+    expect(mockFlush).toHaveBeenCalledTimes(1)
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 })
