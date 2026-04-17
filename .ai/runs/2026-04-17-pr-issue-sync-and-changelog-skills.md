@@ -154,4 +154,10 @@ Progress steps:
 - [x] 4.2 Self code-review + BC self-review — d5b6610d5 (no BC surface touched)
 - [x] 4.3 Open PR against develop and normalize labels — PR #1568, labels `review` → `merge-queue`, `documentation`, `skip-qa`
 - [x] 4.4 Run `auto-review-pr` autofix pass — 0ed3bc91d (one medium finding: Path C realigned to the real `Closing in favor of #N` comment that `auto-review-pr` lines 471–477 actually write)
-- [ ] 4.5 Post comprehensive summary comment
+- [x] 4.5 Post comprehensive summary comment — https://github.com/open-mercato/open-mercato/pull/1568#issuecomment-4266246484
+
+---
+
+### Changelog
+
+- 2026-04-17 — PR #1568 opened, `auto-review-pr` autofix approved, comprehensive summary posted, Status: complete.
