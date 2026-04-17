@@ -78,8 +78,8 @@ export async function POST(req: Request) {
   const baseUrl = resolveBaseUrl(req)
 
   const [orgRow] = await em.getConnection().execute<OrganizationLookupRow[]>(
-    `SELECT slug FROM organizations WHERE id = ? AND deleted_at IS NULL LIMIT 1`,
-    [organizationId],
+    `SELECT slug FROM organizations WHERE id = ? AND tenant_id = ? AND deleted_at IS NULL LIMIT 1`,
+    [organizationId, tenantId],
   )
   if (!orgRow) {
     return NextResponse.json({ ok: false, error: 'Registration could not be completed' }, { status: 400 })
