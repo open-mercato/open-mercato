@@ -56,4 +56,10 @@ describe('customer_accounts login — emailVerifiedAt gate blocks unverified acc
     expect(gateIdx).toBeGreaterThan(passwordIdx)
     expect(gateIdx).toBeLessThan(sessionIdx)
   })
+
+  test('unverified-email response body reuses generic invalid-credentials copy (no enumeration oracle)', () => {
+    const gateBlockPattern = /if\s*\(\s*!\s*user\.emailVerifiedAt\s*\)\s*\{[\s\S]*?NextResponse\.json\(\s*\{\s*ok:\s*false,\s*error:\s*['"]Invalid email or password['"]\s*\}/
+    expect(source).toMatch(gateBlockPattern)
+    expect(source).not.toMatch(/Please verify your email/i)
+  })
 })

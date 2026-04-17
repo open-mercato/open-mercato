@@ -77,10 +77,7 @@ export async function POST(req: Request) {
       reason: 'email_not_verified',
       tenantId,
     }).catch(() => undefined)
-    return NextResponse.json(
-      { ok: false, error: 'Please verify your email address before signing in.' },
-      { status: 401 },
-    )
+    return NextResponse.json({ ok: false, error: 'Invalid email or password' }, { status: 401 })
   }
 
   await customerUserService.resetFailedAttempts(user)
