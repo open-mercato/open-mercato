@@ -139,8 +139,8 @@ Progress steps:
 
 ### Phase 2: auto-update-changelog skill
 
-- [ ] 2.1 Create `.ai/skills/auto-update-changelog/` directory
-- [ ] 2.2 Write `SKILL.md` with frontmatter, workflow, Supersede Credit Rule section, rules, worked example
+- [x] 2.1 Create `.ai/skills/auto-update-changelog/` directory — 18a607e5c
+- [x] 2.2 Write `SKILL.md` with frontmatter, workflow, Supersede Credit Rule section, rules, worked example — 18a607e5c
 
 ### Phase 3: Index updates
 
