@@ -146,8 +146,11 @@ export class OpenCodeClient {
       'OPENCODE_SSE_CONNECT_TIMEOUT_MS',
       DEFAULT_OPENCODE_SSE_CONNECT_TIMEOUT_MS,
     )
+    const connectTimeoutReason = new Error(
+      `OpenCode SSE connection timed out after ${connectTimeoutMs}ms`,
+    )
     let connectTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      controller.abort(new Error(`OpenCode SSE connection timed out after ${connectTimeoutMs}ms`))
+      controller.abort(connectTimeoutReason)
     }, connectTimeoutMs)
     const clearConnectTimer = () => {
       if (connectTimer !== null) {
@@ -198,9 +201,14 @@ export class OpenCodeClient {
         }
       } catch (error) {
         clearConnectTimer()
-        if ((error as Error).name !== 'AbortError') {
-          onError?.(error as Error)
+        if ((error as Error).name === 'AbortError') {
+          const reason = (controller.signal as AbortSignal & { reason?: unknown }).reason
+          if (reason === connectTimeoutReason) {
+            onError?.(connectTimeoutReason)
+          }
+          return
         }
+        onError?.(error as Error)
       }
     }
 
