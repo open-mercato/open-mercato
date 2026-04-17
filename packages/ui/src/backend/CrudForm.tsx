@@ -257,6 +257,10 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
   replacementHandle?: string
+  // Lets the host page allow specific internal navigation targets to bypass
+  // the unsaved-changes guard (e.g. navigating between sub-pages of the same record).
+  // The function receives the resolved internal target (`pathname + search + hash`).
+  shouldBypassUnsavedChangesGuard?: (target: string) => boolean
 }
 
 // Group-level custom component context
@@ -428,6 +432,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   customFieldsetBindings,
   injectionSpotId,
   replacementHandle,
+  shouldBypassUnsavedChangesGuard,
 }: CrudFormProps<TValues>) {
   // Ensure module field components are registered (client-side)
   React.useEffect(() => { loadGeneratedFieldRegistrations().catch(() => {}) }, [])
@@ -536,6 +541,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const submitNavigationBypassTimeoutRef = React.useRef<number | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false)
   const popStateRollbackRef = React.useRef(false)
+  const shouldBypassUnsavedChangesGuardRef = React.useRef(shouldBypassUnsavedChangesGuard)
+  React.useEffect(() => {
+    shouldBypassUnsavedChangesGuardRef.current = shouldBypassUnsavedChangesGuard
+  }, [shouldBypassUnsavedChangesGuard])
 
   React.useEffect(() => {
     if (embedded) {
@@ -632,6 +641,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (anchor.target === '_blank' || event.metaKey || event.ctrlKey || event.shiftKey) return
       const target = resolveInternalNavigationTarget(href)
       if (!target) return
+      if (shouldBypassUnsavedChangesGuardRef.current?.(target)) return
       event.preventDefault()
       event.stopPropagation()
       if (navigationConfirmPendingRef.current) return
@@ -650,6 +660,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       ((data: unknown, unused: string, url?: string | URL | null) => {
         const target = resolveInternalNavigationTarget(url ?? null)
         if (!target || navigationPromptBypassRef.current || submitNavigationBypassRef.current) {
+          return original(data, unused, url)
+        }
+        if (shouldBypassUnsavedChangesGuardRef.current?.(target)) {
           return original(data, unused, url)
         }
         if (navigationConfirmPendingRef.current) {

@@ -3,7 +3,6 @@
 import * as React from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import { Page, PageBody } from "@open-mercato/ui/backend/Page";
 import { ErrorMessage } from "@open-mercato/ui/backend/detail";
 import {
@@ -303,7 +302,16 @@ export default function EditCatalogProductPage({
 }) {
   const productId = params?.id ? String(params.id) : null;
   const t = useT();
-  const router = useRouter();
+  const productSubpathPrefix = productId
+    ? `/backend/catalog/products/${productId}/`
+    : null;
+  const shouldBypassUnsavedChangesGuard = React.useCallback(
+    (target: string) => {
+      if (!productSubpathPrefix) return false;
+      return target.startsWith(productSubpathPrefix);
+    },
+    [productSubpathPrefix],
+  );
   const [taxRates, setTaxRates] = React.useState<TaxRateSummary[]>([]);
   const [variants, setVariants] = React.useState<VariantSummary[]>([]);
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([]);
@@ -1299,9 +1307,8 @@ export default function EditCatalogProductPage({
           "info",
         );
       }
-      router.push("/backend/catalog/products");
     },
-    [productId, t, taxRates, router, variants],
+    [productId, t, taxRates, variants],
   );
 
   if (!productId) {
@@ -1365,6 +1372,7 @@ export default function EditCatalogProductPage({
           submitLabel={t("catalog.products.edit.save", "Save changes")}
           cancelHref="/backend/catalog/products"
           onSubmit={handleSubmit}
+          shouldBypassUnsavedChangesGuard={shouldBypassUnsavedChangesGuard}
         />
       </PageBody>
     </Page>
