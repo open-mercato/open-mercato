@@ -144,9 +144,9 @@ Progress steps:
 
 ### Phase 3: Index updates
 
-- [ ] 3.1 Update `.ai/skills/README.md` "Available Skills" table
-- [ ] 3.2 Update `.ai/skills/README.md` file-tree block
-- [ ] 3.3 Add two Task Router rows to root `AGENTS.md`
+- [x] 3.1 Update `.ai/skills/README.md` "Available Skills" table — d5b6610d5
+- [x] 3.2 Update `.ai/skills/README.md` file-tree block — d5b6610d5
+- [x] 3.3 Add two Task Router rows to root `AGENTS.md` — d5b6610d5
 
 ### Phase 4: Validation and PR
 
