@@ -11,59 +11,67 @@
 import { test, expect } from '@playwright/test'
 import { login } from '../helpers/auth'
 import { getAuthToken } from '../helpers/api'
-import { createCompanyFixture, deleteEntityIfExists } from '../helpers/crmFixtures'
+import { createPersonFixture, deleteEntityIfExists } from '../helpers/crmFixtures'
 
 test.describe('TC-UX-002: Inline Activity Composer', () => {
   test('should show activity composer with type selection and cancel', async ({ page, request }) => {
     test.slow()
 
     let token: string | null = null
-    let companyId: string | null = null
+    let personId: string | null = null
 
     try {
       token = await getAuthToken(request, 'admin')
-      companyId = await createCompanyFixture(request, token, `QA Composer Test ${Date.now()}`)
+      // The inline composer renders on the person/deal detail Activities tab (not on companies).
+      const personSuffix = `Composer ${Date.now()}`
+      personId = await createPersonFixture(request, token, {
+        firstName: 'QA',
+        lastName: personSuffix,
+        displayName: `QA ${personSuffix}`,
+      })
       await login(page, 'admin')
 
-      await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'commit' })
+      await page.goto(`/backend/customers/people-v2/${personId}`, { waitUntil: 'commit' })
       await expect(page.getByRole('button', { name: /save/i }).first()).toBeVisible({ timeout: 10_000 })
 
-      // Verify activity type buttons are visible
-      const callButton = page.getByRole('button', { name: /^call$/i })
-      const emailButton = page.getByRole('button', { name: /^email$/i })
-      const meetingButton = page.getByRole('button', { name: /^meeting$/i })
-      const noteButton = page.getByRole('button', { name: /^note$/i })
+      // Switch to Activities tab where the inline composer lives
+      const activitiesTab = page.getByRole('tab', { name: /activities/i })
+      if (await activitiesTab.isVisible().catch(() => false)) {
+        await activitiesTab.click()
+      }
 
-      await expect(callButton).toBeVisible()
+      // Verify activity type buttons are visible. The composer's type selector renders first in the DOM
+      // (same-named buttons also appear in the timeline filters row later on the page).
+      const callButton = page.getByRole('button', { name: /^call$/i }).first()
+      const emailButton = page.getByRole('button', { name: /^email$/i }).first()
+      const meetingButton = page.getByRole('button', { name: /^meeting$/i }).first()
+      const noteButton = page.getByRole('button', { name: /^note$/i }).first()
+
+      await expect(callButton).toBeVisible({ timeout: 10_000 })
       await expect(emailButton).toBeVisible()
       await expect(meetingButton).toBeVisible()
       await expect(noteButton).toBeVisible()
 
-      // Click call type — composer should expand
-      await callButton.click()
+      // The composer defaults to "call" as the active type; selecting "email" should swap the
+      // pressed state.
+      await expect(callButton).toHaveAttribute('aria-pressed', 'true')
+      await emailButton.click()
+      await expect(emailButton).toHaveAttribute('aria-pressed', 'true')
+      await expect(callButton).toHaveAttribute('aria-pressed', 'false')
 
-      // Verify composer expanded — textarea and save button appear
+      // Composer exposes a textarea + "Save activity" button inline (no modal, no cancel button)
       const textarea = page.getByPlaceholder(/what happened/i)
       await expect(textarea).toBeVisible()
 
       const saveActivityButton = page.getByRole('button', { name: /save activity/i })
       await expect(saveActivityButton).toBeVisible()
 
-      // Fill description
+      // Fill description — Save activity becomes enabled
       await textarea.fill('QA test call about renewal')
-
-      // Cancel the composer
-      const cancelButton = page.getByRole('button', { name: /^cancel$/i }).last()
-      await cancelButton.click()
-
-      // Verify composer collapsed — textarea should disappear
-      await expect(textarea).not.toBeVisible({ timeout: 3_000 })
-
-      // Type buttons should still be visible
-      await expect(callButton).toBeVisible()
+      await expect(saveActivityButton).toBeEnabled()
 
     } finally {
-      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
   })
 })

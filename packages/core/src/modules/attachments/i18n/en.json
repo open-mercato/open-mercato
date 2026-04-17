@@ -15,6 +15,7 @@
   "attachments.library.filters.partition": "Partition",
   "attachments.library.filters.tags": "Tags",
   "attachments.library.filters.tagsPlaceholder": "Filter by tag",
+  "attachments.library.loadMore": "Load more",
   "attachments.library.loading": "Loading attachments…",
   "attachments.library.messages.deleted": "Attachment removed.",
   "attachments.library.metadata.assignments.add": "Add assignment",

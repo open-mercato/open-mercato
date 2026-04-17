@@ -46,6 +46,7 @@ export type DealFormProps = {
   cancelLabel?: string
   isSubmitting?: boolean
   embedded?: boolean
+  trackDirtyWhenEmbedded?: boolean
   title?: string
   backHref?: string
   hideFooterActions?: boolean
@@ -630,6 +631,7 @@ export function DealForm({
   cancelLabel,
   isSubmitting = false,
   embedded = true,
+  trackDirtyWhenEmbedded = false,
   title,
   backHref,
   hideFooterActions = false,
@@ -1045,6 +1047,7 @@ export function DealForm({
   return (
     <CrudForm<Record<string, unknown>>
       embedded={embedded}
+      trackDirtyWhenEmbedded={trackDirtyWhenEmbedded}
       title={title}
       backHref={backHref}
       hideFooterActions={hideFooterActions}

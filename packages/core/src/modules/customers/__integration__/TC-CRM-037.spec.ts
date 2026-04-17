@@ -73,21 +73,22 @@ test.describe('TC-CRM-037: Company people and roles payload extensions', () => {
       expect(person).toHaveProperty('linkedAt')
       expect(typeof person?.linkedAt === 'string' && person.linkedAt.length > 0).toBeTruthy()
 
+      // Ephemeral seed may include team members without a bound user account; scan until we find one.
       const teamMembersResponse = await apiRequest(
         request,
         'GET',
-        '/api/staff/team-members?pageSize=1&isActive=true',
+        '/api/staff/team-members?pageSize=50&isActive=true',
         { token },
       )
       const teamMembersPayload = await readJsonSafe(teamMembersResponse) as TeamMemberResponse
       expect(teamMembersResponse.ok(), `team members should load: ${teamMembersResponse.status()}`).toBeTruthy()
-      const userId =
-        typeof teamMembersPayload.items?.[0]?.userId === 'string'
-          ? teamMembersPayload.items[0].userId
-          : typeof teamMembersPayload.items?.[0]?.user_id === 'string'
-            ? teamMembersPayload.items[0].user_id
-            : null
-      expect(userId).toBeTruthy()
+      const userId = (teamMembersPayload.items ?? []).reduce<string | null>((acc, member) => {
+        if (acc) return acc
+        if (typeof member.userId === 'string' && member.userId.length > 0) return member.userId
+        if (typeof member.user_id === 'string' && member.user_id.length > 0) return member.user_id
+        return null
+      }, null)
+      expect(userId, 'seeded staff should include at least one team member with a user id').toBeTruthy()
 
       const assignRoleResponse = await apiRequest(
         request,

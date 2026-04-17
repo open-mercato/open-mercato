@@ -418,6 +418,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
               <div ref={formWrapperRef}>
                 <CrudForm<PersonEditFormValues>
                   embedded
+                  trackDirtyWhenEmbedded
                   injectionSpotId="customers.person"
                   entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
                   schema={formSchema}

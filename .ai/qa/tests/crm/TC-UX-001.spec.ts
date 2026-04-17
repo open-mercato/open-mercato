@@ -27,34 +27,42 @@ test.describe('TC-UX-001: Collapsible CrudForm Groups', () => {
       await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'commit' })
       await expect(page.getByRole('button', { name: /save/i }).first()).toBeVisible({ timeout: 10_000 })
 
+      // Expand the Zone 1 form panel if it's collapsed (detail v3 hides form by default)
+      const expandPanelButton = page.getByRole('button', { name: /expand form panel/i })
+      if (await expandPanelButton.isVisible().catch(() => false)) {
+        await expandPanelButton.click()
+      }
+
       // CrudForm group buttons are inside main content — scope to main
       const main = page.locator('main')
 
-      // Find the "Details" collapsible group button
-      const detailsButton = main.getByRole('button', { name: /^Details$/i })
-      await expect(detailsButton).toBeVisible()
-      await expect(detailsButton).toHaveAttribute('aria-expanded', 'true')
+      // Find the "IDENTITY" collapsible header button. The DOM nests an outer button (wrapping
+      // header + content for click targeting) around the header button itself; match the exact
+      // header accessible name (e.g. "IDENTITY · N fields") which carries aria-expanded.
+      const identityButton = main.getByRole('button', { name: /^IDENTITY\s+·\s+\d+\s+fields?$/ })
+      await expect(identityButton).toBeVisible({ timeout: 10_000 })
+      await expect(identityButton).toHaveAttribute('aria-expanded', 'true')
 
-      // Find "Company profile" group button
-      const profileButton = main.getByRole('button', { name: /company profile/i })
-      await expect(profileButton).toBeVisible()
-      await expect(profileButton).toHaveAttribute('aria-expanded', 'true')
+      // Find "CONTACT" group button
+      const contactButton = main.getByRole('button', { name: /^CONTACT\s+·\s+\d+\s+fields?$/ })
+      await expect(contactButton).toBeVisible()
+      await expect(contactButton).toHaveAttribute('aria-expanded', 'true')
 
-      // Collapse the "Company profile" group
-      await profileButton.click()
-      await expect(profileButton).toHaveAttribute('aria-expanded', 'false')
-
-      // Expand it back
-      await profileButton.click()
-      await expect(profileButton).toHaveAttribute('aria-expanded', 'true')
-
-      // Collapse "Details" group
-      await detailsButton.click()
-      await expect(detailsButton).toHaveAttribute('aria-expanded', 'false')
+      // Collapse the "CONTACT" group
+      await contactButton.click()
+      await expect(contactButton).toHaveAttribute('aria-expanded', 'false')
 
       // Expand it back
-      await detailsButton.click()
-      await expect(detailsButton).toHaveAttribute('aria-expanded', 'true')
+      await contactButton.click()
+      await expect(contactButton).toHaveAttribute('aria-expanded', 'true')
+
+      // Collapse "IDENTITY" group
+      await identityButton.click()
+      await expect(identityButton).toHaveAttribute('aria-expanded', 'false')
+
+      // Expand it back
+      await identityButton.click()
+      await expect(identityButton).toHaveAttribute('aria-expanded', 'true')
 
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)

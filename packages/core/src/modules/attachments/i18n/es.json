@@ -15,6 +15,7 @@
   "attachments.library.filters.partition": "Partición",
   "attachments.library.filters.tags": "Etiquetas",
   "attachments.library.filters.tagsPlaceholder": "Filtrar por etiqueta",
+  "attachments.library.loadMore": "Load more",
   "attachments.library.loading": "Cargando archivos adjuntos…",
   "attachments.library.messages.deleted": "Archivo adjunto eliminado.",
   "attachments.library.metadata.assignments.add": "Agregar asignación",

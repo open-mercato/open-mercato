@@ -410,12 +410,27 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     }))
   }, [data])
 
-  const handleTabChange = React.useCallback((tab: DealTabId) => {
+  const confirmDiscardIfDirty = React.useCallback(async () => {
+    if (!isDirty) return true
+    return confirm({
+      title: t('customers.deals.detail.unsavedTitle', 'Discard unsaved changes?'),
+      description: t(
+        'customers.deals.detail.unsavedDescription',
+        'You have unsaved edits in this deal. Save them first or continue to discard them.',
+      ),
+      confirmText: t('customers.deals.detail.unsavedConfirm', 'Discard changes'),
+      cancelText: t('customers.deals.detail.unsavedCancel', 'Keep editing'),
+      variant: 'destructive',
+    })
+  }, [confirm, isDirty, t])
+
+  const handleTabChange = React.useCallback(async (tab: DealTabId) => {
+    if (!(await confirmDiscardIfDirty())) return
     setActiveTab(tab)
     const nextParams = new URLSearchParams(searchParams?.toString() ?? '')
     nextParams.set('tab', tab)
     router.replace(`/backend/customers/deals/${encodeURIComponent(id)}?${nextParams.toString()}`, { scroll: false })
-  }, [id, router, searchParams])
+  }, [confirmDiscardIfDirty, id, router, searchParams])
 
   const handleFormSubmit = React.useCallback(async (payload: DealFormSubmitPayload) => {
     if (!data) return
@@ -737,6 +752,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const handleWon = React.useCallback(async () => {
     if (!currentDealId) return
+    if (!(await confirmDiscardIfDirty())) return
     await runMutationWithContext(
       () => updateCrud('customers/deals', { id: currentDealId, closureOutcome: 'won', status: 'win' }),
       { id: currentDealId, closureOutcome: 'won', status: 'win', operation: 'closeWon' },
@@ -745,10 +761,11 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setWonStats(stats)
     setWonPopupOpen(true)
     await loadData()
-  }, [currentDealId, fetchDealStats, loadData, runMutationWithContext])
+  }, [confirmDiscardIfDirty, currentDealId, fetchDealStats, loadData, runMutationWithContext])
 
   const handleLostConfirm = React.useCallback(async (input: { lossReasonId: string; lossNotes?: string }) => {
     if (!currentDealId) return
+    if (!(await confirmDiscardIfDirty())) return
     await runMutationWithContext(
       () => updateCrud('customers/deals', {
         id: currentDealId,
@@ -771,11 +788,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     setLostStats(stats)
     setLostPopupOpen(true)
     await loadData()
-  }, [currentDealId, fetchDealStats, loadData, runMutationWithContext])
+  }, [confirmDiscardIfDirty, currentDealId, fetchDealStats, loadData, runMutationWithContext])
 
   const handleStageChange = React.useCallback(async (nextStageId: string) => {
     if (!currentDealId || !data) return
     if (nextStageId === data.deal.pipelineStageId) return
+    if (!(await confirmDiscardIfDirty())) return
     setIsStageSaving(true)
     try {
       await runMutationWithContext(
@@ -789,7 +807,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     } finally {
       setIsStageSaving(false)
     }
-  }, [currentDealId, data, loadData, runMutationWithContext, t])
+  }, [confirmDiscardIfDirty, currentDealId, data, loadData, runMutationWithContext, t])
 
   const handleViewDashboard = React.useCallback(() => {
     setWonPopupOpen(false)
@@ -871,6 +889,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       <DealForm
         mode="edit"
         embedded
+        trackDirtyWhenEmbedded
         hideFooterActions
         singleColumnGroups
         showAssociationsGroup={false}

@@ -84,10 +84,15 @@ test.describe('TC-CRM-036: Company activity log tab history and planned state', 
 
       await expect(page.getByRole('heading', { name: inlineText }).first()).toBeVisible()
 
+      // Clicking the Call filter activates "show only calls" (additive selector). Verify only
+      // call-type activities remain visible after the toggle.
       await page.getByRole('button', { name: /^Call 2$/ }).click()
-      await expect(page.getByRole('heading', { name: callTitle })).toHaveCount(0)
-      await expect(page.getByRole('heading', { name: emailTitle }).first()).toBeVisible()
+      await expect(page.getByRole('heading', { name: callTitle }).first()).toBeVisible()
+      await expect(page.getByRole('heading', { name: emailTitle })).toHaveCount(0)
 
+      // Clear the call filter and search by a specific title; the email activity should surface
+      // while unrelated inline entries are hidden.
+      await page.getByRole('button', { name: /^Call 2$/ }).click()
       await page.getByPlaceholder(/search by title, note, or author/i).fill(emailTitle)
       await expect(page.getByRole('heading', { name: emailTitle }).first()).toBeVisible()
       await expect(page.getByRole('heading', { name: inlineText })).toHaveCount(0)

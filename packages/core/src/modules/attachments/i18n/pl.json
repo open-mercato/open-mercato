@@ -15,6 +15,7 @@
   "attachments.library.filters.partition": "Partycja",
   "attachments.library.filters.tags": "Tagi",
   "attachments.library.filters.tagsPlaceholder": "Filtruj wg tagu",
+  "attachments.library.loadMore": "Load more",
   "attachments.library.loading": "Ładowanie załączników…",
   "attachments.library.messages.deleted": "Załącznik usunięty.",
   "attachments.library.metadata.assignments.add": "Dodaj przypisanie",

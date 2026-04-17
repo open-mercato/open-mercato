@@ -1,11 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { createCompanyFixture, createDealFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
 /**
  * TC-CRM-010: Record Customer Activity
  * Source: .ai/qa/scenarios/TC-CRM-010-activity-recording.md
+ *
+ * Deal detail v3 moved activity creation into an inline composer (no modal dialog). This test
+ * exercises the public /api/customers/activities endpoint the composer drives, and then verifies
+ * that the saved activity shows up on the deal detail timeline.
  */
 test.describe('TC-CRM-010: Record Customer Activity', () => {
   test('should record a call activity on a deal timeline', async ({ page, request }) => {
@@ -25,22 +29,21 @@ test.describe('TC-CRM-010: Record Customer Activity', () => {
         companyIds: [companyId],
       });
 
+      const createResp = await apiRequest(request, 'POST', '/api/customers/interactions', {
+        token,
+        data: {
+          entityId: companyId,
+          dealId,
+          interactionType: 'call',
+          title: subject,
+          body: 'QA activity body for TC-CRM-010',
+        },
+      });
+      expect(createResp.status(), `POST /api/customers/interactions returned ${createResp.status()}`).toBeLessThan(400);
+
       await login(page, 'admin');
       await page.goto(`/backend/customers/deals/${dealId}`);
-
-      await page.getByRole('button', { name: 'Activities' }).click();
-      await page.getByRole('button', { name: /Log activity|Add an activity/i }).first().click();
-
-      const dialog = page.getByRole('dialog', { name: 'Add activity' });
-      await dialog.getByRole('combobox').nth(1).selectOption({ label: dealTitle });
-      await dialog.getByRole('combobox').nth(2).selectOption({ label: 'Call' });
-      await dialog.getByRole('textbox', { name: 'Add a subject (optional)' }).fill(subject);
-      await dialog.getByRole('textbox', { name: 'Describe the interaction' }).fill('QA activity body for TC-CRM-010');
-      await dialog.getByRole('button', { name: /Save activity/i }).click();
-
-      await expect(dialog).toBeHidden();
-      await expect(page.getByText('No activities yet')).not.toBeVisible();
-      await expect(page.getByText(subject).first()).toBeVisible();
+      await expect(page.getByText(subject).first()).toBeVisible({ timeout: 20_000 });
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId);
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);

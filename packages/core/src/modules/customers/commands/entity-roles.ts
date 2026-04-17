@@ -79,20 +79,27 @@ function getRoleIdentifiers(role: CustomerEntityRole) {
   }
 }
 
-async function loadEntityRoleSnapshot(em: EntityManager, id: string): Promise<EntityRoleSnapshot | null> {
+async function loadEntityRoleSnapshot(
+  em: EntityManager,
+  id: string,
+  scope?: { tenantId?: string | null; organizationId?: string | null },
+): Promise<EntityRoleSnapshot | null> {
+  const filter: Record<string, unknown> = { id }
+  if (scope?.tenantId) filter.tenantId = scope.tenantId
+  if (scope?.organizationId) filter.organizationId = scope.organizationId
   const role = await findOneWithDecryption(
     em,
     CustomerEntityRole,
-    { id },
+    filter,
     undefined,
-    { tenantId: null, organizationId: null },
+    { tenantId: scope?.tenantId ?? null, organizationId: null },
   )
   if (!role) return null
 
   const entity = await findOneWithDecryption(
     em,
     CustomerEntity,
-    { id: role.entityId, deletedAt: null },
+    { id: role.entityId, tenantId: role.tenantId, deletedAt: null },
     undefined,
     { tenantId: role.tenantId, organizationId: role.organizationId },
   )
@@ -165,7 +172,10 @@ const createEntityRoleCommand: CommandHandler<EntityRoleCreateInput, { roleId: s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager)
-    return loadEntityRoleSnapshot(em, result.roleId)
+    return loadEntityRoleSnapshot(em, result.roleId, {
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    })
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -222,18 +232,22 @@ const updateEntityRoleCommand: CommandHandler<EntityRoleUpdateInput, { roleId: s
   async prepare(rawInput, ctx) {
     const parsed = entityRoleUpdateSchema.parse(rawInput)
     const em = ctx.container.resolve('em') as EntityManager
-    const snapshot = await loadEntityRoleSnapshot(em, parsed.id)
+    const snapshot = await loadEntityRoleSnapshot(em, parsed.id, {
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    })
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = entityRoleUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeTenantId = ctx.auth?.tenantId ?? null
     const role = await findOneWithDecryption(
       em,
       CustomerEntityRole,
-      { id: parsed.id },
+      scopeTenantId ? { id: parsed.id, tenantId: scopeTenantId } : { id: parsed.id },
       undefined,
-      { tenantId: null, organizationId: null },
+      { tenantId: scopeTenantId, organizationId: null },
     )
     if (!role) {
       throw new CrudHttpError(404, { error: 'Role not found' })
@@ -259,7 +273,10 @@ const updateEntityRoleCommand: CommandHandler<EntityRoleUpdateInput, { roleId: s
   },
   captureAfter: async (_input, result, ctx) => {
     const em = ctx.container.resolve('em') as EntityManager
-    return loadEntityRoleSnapshot(em, result.roleId)
+    return loadEntityRoleSnapshot(em, result.roleId, {
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    })
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -319,18 +336,22 @@ const deleteEntityRoleCommand: CommandHandler<EntityRoleDeleteInput, { roleId: s
   async prepare(rawInput, ctx) {
     const parsed = entityRoleDeleteSchema.parse(rawInput)
     const em = ctx.container.resolve('em') as EntityManager
-    const snapshot = await loadEntityRoleSnapshot(em, parsed.id)
+    const snapshot = await loadEntityRoleSnapshot(em, parsed.id, {
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+    })
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = entityRoleDeleteSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeTenantId = ctx.auth?.tenantId ?? null
     const role = await findOneWithDecryption(
       em,
       CustomerEntityRole,
-      { id: parsed.id },
+      scopeTenantId ? { id: parsed.id, tenantId: scopeTenantId } : { id: parsed.id },
       undefined,
-      { tenantId: null, organizationId: null },
+      { tenantId: scopeTenantId, organizationId: null },
     )
     if (!role) {
       throw new CrudHttpError(404, { error: 'Role not found' })

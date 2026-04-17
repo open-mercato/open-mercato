@@ -115,7 +115,7 @@ async function resolveEntityRouteScope(
   const entity = await findOneWithDecryption(
     em,
     CustomerEntity,
-    { id: entityId, kind: entityType, deletedAt: null },
+    { id: entityId, kind: entityType, tenantId: auth.tenantId, deletedAt: null },
     undefined,
     { tenantId: auth.tenantId, organizationId: null },
   )
@@ -141,7 +141,7 @@ async function resolveRoleRouteScope(
   const role = await findOneWithDecryption(
     em,
     CustomerEntityRole,
-    { id: roleId },
+    { id: roleId, tenantId: auth.tenantId, entityType, entityId },
     undefined,
     { tenantId: auth.tenantId, organizationId: null },
   )

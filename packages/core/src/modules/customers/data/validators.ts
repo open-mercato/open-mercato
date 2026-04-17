@@ -219,7 +219,7 @@ export const tagUpdateSchema = z
   })
   .merge(tagCreateSchema.partial())
 
-const dictionaryKindEnum = z.enum([
+const KNOWN_DICTIONARY_KINDS = [
   'status',
   'source',
   'lifecycle_stage',
@@ -232,7 +232,14 @@ const dictionaryKindEnum = z.enum([
   'temperature',
   'renewal_quarter',
   'person_company_role',
-])
+] as const
+const CUSTOM_DICTIONARY_KIND_PATTERN = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/
+const dictionaryKindEnum = z.string().trim().refine(
+  (value) =>
+    (KNOWN_DICTIONARY_KINDS as readonly string[]).includes(value) ||
+    CUSTOM_DICTIONARY_KIND_PATTERN.test(value),
+  { message: 'Unsupported dictionary kind' },
+)
 
 const dictionaryValueSchema = z.string().trim().min(1).max(150)
 const dictionaryLabelSchema = z.string().trim().max(150)

@@ -396,7 +396,9 @@ describe('DealDetailPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'tab-companies' }))
 
-    expect(replaceMock).toHaveBeenCalledWith('/backend/customers/deals/deal-123?tab=companies', { scroll: false })
+    await waitFor(() => {
+      expect(replaceMock).toHaveBeenCalledWith('/backend/customers/deals/deal-123?tab=companies', { scroll: false })
+    })
   })
 
   it('marks the deal as won and opens the won popup with fetched stats', async () => {
