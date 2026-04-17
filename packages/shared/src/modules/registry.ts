@@ -256,7 +256,7 @@ export function matchRoutePattern(pattern: string, pathname: string): RouteMatch
       if (i >= uSegs.length) return undefined
       params[mDyn[1]] = uSegs[i]
     } else {
-      if (i >= uSegs.length || uSegs[i] !== seg) return undefined
+      if (i >= uSegs.length || uSegs[i].toLowerCase() !== seg.toLowerCase()) return undefined
     }
   }
   if (i !== uSegs.length) return undefined
