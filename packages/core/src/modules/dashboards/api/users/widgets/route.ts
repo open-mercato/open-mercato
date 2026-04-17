@@ -7,6 +7,7 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { userWidgetSettingsSchema } from '@open-mercato/core/modules/dashboards/data/validators'
 import { loadAllWidgets } from '@open-mercato/core/modules/dashboards/lib/widgets'
 import { resolveAllowedWidgetIds } from '@open-mercato/core/modules/dashboards/lib/access'
+import { resolveWidgetAssignmentReadScope } from '@open-mercato/core/modules/dashboards/lib/widgetAssignmentScope'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import {
@@ -30,8 +31,6 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const userId = url.searchParams.get('userId')
   if (!userId) return NextResponse.json({ error: 'userId is required' }, { status: 400 })
-  const tenantId = url.searchParams.get('tenantId') || auth.tenantId || null
-  const organizationId = url.searchParams.get('organizationId') || auth.orgId || null
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as any
@@ -39,6 +38,18 @@ export async function GET(req: Request) {
   const acl = await rbac.loadAcl(auth.sub, { tenantId: auth.tenantId ?? null, organizationId: auth.orgId ?? null })
   if (!acl.isSuperAdmin && !hasFeature(acl.features, FEATURE)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  const { tenantId, organizationId } = resolveWidgetAssignmentReadScope({
+    auth: { tenantId: auth.tenantId ?? null, orgId: auth.orgId ?? null },
+    isSuperAdmin: !!acl.isSuperAdmin,
+    queryTenantId: url.searchParams.get('tenantId'),
+    queryOrganizationId: url.searchParams.get('organizationId'),
+  })
+
+  const targetUserForRead = await em.findOne(User, { id: userId, deletedAt: null })
+  if (!targetUserForRead || (tenantId && (targetUserForRead.tenantId ?? null) !== tenantId)) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 
   const widgets = await loadAllWidgets()
