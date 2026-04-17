@@ -63,3 +63,12 @@ describe('customer_accounts login — emailVerifiedAt gate blocks unverified acc
     expect(source).not.toMatch(/Please verify your email/i)
   })
 })
+
+describe('customer_accounts admin create — admin-vouched users are marked verified', () => {
+  const source = readSource('api/admin/users.ts')
+
+  test('admin createUser path stamps emailVerifiedAt so the login gate does not block admin-created accounts', () => {
+    const stampPattern = /customerUserService\.createUser\([\s\S]*?\)\s*(?:\r?\n)\s*user\.emailVerifiedAt\s*=\s*new Date\(\)/
+    expect(source).toMatch(stampPattern)
+  })
+})
