@@ -5,6 +5,43 @@ import {
 } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { getPaymentProvider, getShippingProvider } from '../lib/providers'
 import { REFERENCE_UNIT_CODES } from '@open-mercato/shared/lib/units/unitCodes'
+import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+
+export const SALES_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+
+const optionalPhoneField = (max = 50) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .refine((val) => isValidPhoneNumber(val), { message: SALES_PHONE_INVALID_MESSAGE_KEY })
+    .optional()
+
+const optionalNullablePhoneField = (max = 50) =>
+  z
+    .union([
+      z
+        .string()
+        .trim()
+        .max(max)
+        .refine((val) => isValidPhoneNumber(val), { message: SALES_PHONE_INVALID_MESSAGE_KEY }),
+      z.literal(''),
+      z.null(),
+    ])
+    .optional()
+
+export const customerSnapshotSchema = z
+  .object({
+    customer: z
+      .object({
+        primaryPhone: optionalNullablePhoneField(),
+      })
+      .passthrough()
+      .nullable()
+      .optional(),
+    contact: z.unknown().optional(),
+  })
+  .passthrough()
 
 const uuid = () => z.string().uuid()
 
@@ -75,7 +112,7 @@ export const channelCreateSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   websiteUrl: z.string().trim().url().max(300).optional(),
   contactEmail: z.string().trim().email().max(320).optional(),
-  contactPhone: z.string().trim().max(50).optional(),
+  contactPhone: optionalPhoneField(),
   addressLine1: z.string().trim().max(255).optional(),
   addressLine2: z.string().trim().max(255).optional(),
   city: z.string().trim().max(120).optional(),
@@ -462,7 +499,7 @@ export const orderCreateSchema = scoped.extend({
   customerReference: z.string().trim().max(191).optional(),
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
-  customerSnapshot: jsonRecord.optional(),
+  customerSnapshot: customerSnapshotSchema.optional(),
   billingAddressId: uuid().optional(),
   shippingAddressId: uuid().optional(),
   billingAddressSnapshot: jsonRecord.optional(),
@@ -510,7 +547,7 @@ export const quoteCreateSchema = scoped.extend({
   customerEntityId: uuid().optional(),
   customerContactId: uuid().optional(),
   channelId: uuid().optional(),
-  customerSnapshot: jsonRecord.optional(),
+  customerSnapshot: customerSnapshotSchema.optional(),
   billingAddressId: uuid().optional(),
   shippingAddressId: uuid().optional(),
   billingAddressSnapshot: jsonRecord.optional(),
