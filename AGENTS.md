@@ -78,6 +78,8 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Day-start review triage: reviewing all unreviewed PRs (newest first) in one session | `.ai/skills/review-prs/SKILL.md` |
 | Running an arbitrary autonomous task end-to-end and delivering it as a PR against `develop` (drafts a dated spec with a Progress checklist, commits it first, implements phase-by-phase with incremental commits, optionally honors external reference skills via `--skill-url`, runs the full validation gate, opens a PR with normalized pipeline labels) | `.ai/skills/auto-create-pr/SKILL.md` |
 | Resuming an in-progress PR created by `auto-create-pr`: claims the PR, re-enters an isolated worktree, reads the linked spec's Progress checklist, and continues from the first unchecked step | `.ai/skills/auto-continue-pr/SKILL.md` |
+| Post-merge housekeeping: syncing recently merged (and recently closed-unmerged) pull requests to the GitHub issue tracker — auto-closing issues they authoritatively fix via `fixes`/`closes`/`resolves` close-keywords or `closingIssuesReferences`, and leaving informational comments on issues whose PRs were closed without merging (with supersede detection) | `.ai/skills/sync-merged-pr-issues/SKILL.md` |
+| Drafting a CHANGELOG.md release entry in the house emoji-driven format (✨ Features / 🔒 Security / 🐛 Fixes / 🛠️ Improvements / 🧪 Testing / 📝 Specs & Documentation / 🚀 CI/CD) for every PR merged since the last release and delegating the edit to `auto-create-pr` so it lands as a docs PR against `develop`; honors the Supersede Credit Rule so when `auto-review-pr` has carried a fork PR forward, the original contributor is credited instead of the reviewer | `.ai/skills/auto-update-changelog/SKILL.md` |
 
 ## Core Principles
 
