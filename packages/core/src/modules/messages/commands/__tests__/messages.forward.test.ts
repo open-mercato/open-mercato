@@ -50,6 +50,7 @@ describe('messages.messages.forward command', () => {
     const organizationId = '55555555-5555-4555-8555-555555555555'
     const userId = '66666666-6666-4666-8666-666666666666'
     const recipientUserId = '77777777-7777-4777-8777-777777777777'
+    const emitEventMock = jest.fn(async () => {})
 
     const trx = {
       create: jest.fn((entity: unknown, data: Record<string, unknown>) => {
@@ -93,6 +94,14 @@ describe('messages.messages.forward command', () => {
       fork: jest.fn(),
     }
 
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return { fork: () => emFork }
+        if (name === 'eventBus') return { emitEvent: emitEventMock }
+        return null
+      },
+    }
+
     const result = await command!.execute(
       {
         messageId: sourceMessageId,
@@ -105,7 +114,7 @@ describe('messages.messages.forward command', () => {
         userId,
       },
       {
-        container: { resolve: () => ({ fork: () => emFork }) } as never,
+        container: container as never,
         auth: { sub: userId, tenantId } as never,
         organizationScope: null,
         selectedOrganizationId: organizationId,
@@ -121,6 +130,19 @@ describe('messages.messages.forward command', () => {
         parentMessageId: sourceMessageId,
       }),
     )
+    expect(emitEventMock).toHaveBeenCalledWith(
+      'query_index.upsert_one',
+      expect.objectContaining({
+        entityType: 'messages:message',
+        recordId: forwardedMessageId,
+        tenantId,
+        organizationId,
+      }),
+      {
+        tenantId,
+        organizationId,
+      },
+    )
   })
 
   it('falls back to original message id when source threadId is missing', async () => {
@@ -133,6 +155,7 @@ describe('messages.messages.forward command', () => {
     const organizationId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
     const userId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
     const recipientUserId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const emitEventMock = jest.fn(async () => {})
 
     const trx = {
       create: jest.fn((entity: unknown, data: Record<string, unknown>) => {
@@ -176,6 +199,14 @@ describe('messages.messages.forward command', () => {
       fork: jest.fn(),
     }
 
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return { fork: () => emFork }
+        if (name === 'eventBus') return { emitEvent: emitEventMock }
+        return null
+      },
+    }
+
     await command!.execute(
       {
         messageId: sourceMessageId,
@@ -188,7 +219,7 @@ describe('messages.messages.forward command', () => {
         userId,
       },
       {
-        container: { resolve: () => ({ fork: () => emFork }) } as never,
+        container: container as never,
         auth: { sub: userId, tenantId } as never,
         organizationScope: null,
         selectedOrganizationId: organizationId,
@@ -217,6 +248,7 @@ describe('messages.messages.forward command', () => {
     const userId = '66666666-6666-4666-8666-666666666666'
     const recipientUserId = '77777777-7777-4777-8777-777777777777'
     const rootMessageId = '88888888-8888-4888-8888-888888888888'
+    const emitEventMock = jest.fn(async () => {})
 
     buildForwardThreadSliceMock.mockResolvedValueOnce([
       {
@@ -279,6 +311,14 @@ describe('messages.messages.forward command', () => {
       fork: jest.fn(),
     }
 
+    const container = {
+      resolve: (name: string) => {
+        if (name === 'em') return { fork: () => emFork }
+        if (name === 'eventBus') return { emitEvent: emitEventMock }
+        return null
+      },
+    }
+
     await command!.execute(
       {
         messageId: sourceMessageId,
@@ -290,7 +330,7 @@ describe('messages.messages.forward command', () => {
         userId,
       },
       {
-        container: { resolve: () => ({ fork: () => emFork }) } as never,
+        container: container as never,
         auth: { sub: userId, tenantId } as never,
         organizationScope: null,
         selectedOrganizationId: organizationId,

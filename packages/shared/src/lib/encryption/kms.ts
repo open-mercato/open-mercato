@@ -73,6 +73,7 @@ type VaultClientOpts = {
   vaultToken?: string
   mountPath?: string
   ttlMs?: number
+  requestTimeoutMs?: number
 }
 
 type VaultReadResponse = {
@@ -82,6 +83,12 @@ type VaultReadResponse = {
 function normalizeEnv(value: string | undefined): string {
   if (!value) return ''
   return value.trim().replace(/(?:^['"]|['"]$)/g, '')
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (!value) return fallback
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
 type DerivedSecret = { secret: string; source: 'explicit' | 'dev-default'; envName: string }
@@ -143,6 +150,7 @@ export class HashicorpVaultKmsService implements KmsService {
   private readonly vaultToken: string
   private readonly mountPath: string
   private readonly ttlMs: number
+  private readonly requestTimeoutMs: number
   private healthy = true
   private readonly debugEnabled: boolean
   private static loggedInit = false
@@ -152,6 +160,7 @@ export class HashicorpVaultKmsService implements KmsService {
     this.vaultToken = normalizeEnv(opts.vaultToken || process.env.VAULT_TOKEN || '')
     this.mountPath = (opts.mountPath || process.env.VAULT_KV_PATH || 'secret/data').replace(/\/+$/, '')
     this.ttlMs = opts.ttlMs ?? 15 * 60 * 1000
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? parsePositiveInt(process.env.VAULT_REQUEST_TIMEOUT_MS, 1500)
     this.debugEnabled = isEncryptionDebugEnabled()
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
@@ -185,15 +194,26 @@ export class HashicorpVaultKmsService implements KmsService {
     return entry
   }
 
+  private createTimeoutController(): { controller: AbortController; clear: () => void } {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
+    return {
+      controller,
+      clear: () => clearTimeout(timer),
+    }
+  }
+
   private async readVault(path: string): Promise<VaultReadResponse | null> {
     if (!this.vaultAddr || !this.vaultToken) {
       this.healthy = false
       return null
     }
+    const timeout = this.createTimeoutController()
     try {
       const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
         method: 'GET',
         headers: { 'X-Vault-Token': this.vaultToken },
+        signal: timeout.controller.signal,
       })
       if (!res.ok) {
         this.healthy = res.status < 500
@@ -206,8 +226,14 @@ export class HashicorpVaultKmsService implements KmsService {
       return (await res.json()) as VaultReadResponse
     } catch (err) {
       this.healthy = false
-      console.warn('⚠️ [encryption][kms] Vault read error', { path, error: (err as Error)?.message || String(err) })
+      console.warn('⚠️ [encryption][kms] Vault read error', {
+        path,
+        error: (err as Error)?.message || String(err),
+        timeoutMs: this.requestTimeoutMs,
+      })
       return null
+    } finally {
+      timeout.clear()
     }
   }
 
@@ -216,15 +242,16 @@ export class HashicorpVaultKmsService implements KmsService {
       this.healthy = false
       return false
     }
+    const timeout = this.createTimeoutController()
     try {
       const res = await fetch(`${this.vaultAddr}/v1/${path}`, {
-
         method: 'POST',
         headers: {
           'X-Vault-Token': this.vaultToken,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ data: { key } }),
+        signal: timeout.controller.signal,
       })
       this.healthy = res.ok
       if (!res.ok) {
@@ -233,8 +260,14 @@ export class HashicorpVaultKmsService implements KmsService {
       return res.ok
     } catch (err) {
       this.healthy = false
-      console.warn('⚠️ [encryption][kms] Vault write error', { path, error: (err as Error)?.message || String(err) })
+      console.warn('⚠️ [encryption][kms] Vault write error', {
+        path,
+        error: (err as Error)?.message || String(err),
+        timeoutMs: this.requestTimeoutMs,
+      })
       return false
+    } finally {
+      timeout.clear()
     }
   }
 
