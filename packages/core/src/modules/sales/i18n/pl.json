@@ -1272,6 +1272,7 @@
   "sales.returns.errors.linesRequired": "Wybierz co najmniej jedną pozycję do zwrotu.",
   "sales.returns.errors.load": "Nie udało się załadować zwrotów.",
   "sales.returns.errors.quantityExceeded": "Nie można zwrócić więcej niż dostępna ilość.",
+  "sales.returns.errors.quantityNotInteger": "Ilość zwrotu musi być liczbą całkowitą.",
   "sales.returns.lineMissing": "Nie znaleziono pozycji zamówienia.",
   "sales.returns.linesRequired": "Wybierz co najmniej jedną pozycję do zwrotu.",
   "sales.returns.loading": "Ładowanie zwrotów...",

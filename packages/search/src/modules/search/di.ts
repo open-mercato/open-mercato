@@ -1,6 +1,6 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { EmbeddingService, createPgVectorDriver, createChromaDbDriver, createQdrantDriver } from '../../vector'
 import { createVectorIndexingQueue, type VectorIndexJobPayload } from '../../queue/vector-indexing'
 import { createFulltextIndexingQueue, type FulltextIndexJobPayload } from '../../queue/fulltext-indexing'
@@ -29,7 +29,7 @@ export function register(container: AppContainer) {
   // Create queues based on environment strategy
   const queueStrategy = (process.env.QUEUE_STRATEGY || 'local') as 'local' | 'async'
   const queueConnection = queueStrategy === 'async'
-    ? { connection: { url: getRedisUrl('QUEUE') } }
+    ? { connection: { url: getRedisUrlOrThrow('QUEUE') } }
     : undefined
 
   const vectorIndexQueue: Queue<VectorIndexJobPayload> = createVectorIndexingQueue(

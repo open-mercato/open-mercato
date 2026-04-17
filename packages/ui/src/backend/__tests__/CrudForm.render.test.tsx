@@ -102,6 +102,35 @@ describe('CrudForm initialValues', () => {
     expect(loader.mock.calls.length).toBeLessThanOrEqual(callsAfterMount + 1)
   })
 
+  it('re-invokes loadOptions and refreshes cached options when the loader identity changes (#1538)', async () => {
+    const firstLoader = jest.fn().mockResolvedValue([{ label: 'Alpha', value: 'alpha' }])
+    const secondLoader = jest.fn().mockResolvedValue([{ label: 'Beta', value: 'beta' }])
+    const makeFields = (loader: (q?: string) => Promise<{ label: string; value: string }[]>): CrudField[] => [
+      { id: 'pick', label: 'Pick', type: 'combobox', loadOptions: loader },
+    ]
+
+    const { rerender, container } = renderWithProviders(
+      <CrudForm title="Form" fields={makeFields(firstLoader)} onSubmit={() => {}} />
+    )
+    await act(() => Promise.resolve())
+    expect(firstLoader).toHaveBeenCalled()
+    expect(secondLoader).not.toHaveBeenCalled()
+
+    await act(async () => {
+      rerender(
+        <CrudForm title="Form" fields={makeFields(secondLoader)} onSubmit={() => {}} />
+      )
+    })
+    await act(() => Promise.resolve())
+
+    // The new loader MUST run because it captures different parent state
+    // (e.g. tenant scope). Reusing cached options from the old loader would
+    // leak cross-scope values such as roles from another tenant.
+    expect(secondLoader).toHaveBeenCalled()
+    const fieldNode = container.querySelector('[data-crud-field-id="pick"]')
+    expect(fieldNode).not.toBeNull()
+  })
+
   it('does not reset fields on initialValues reference churn', async () => {
     const { container, rerender } = renderWithProviders(
       <CrudForm title="Form" fields={fields} initialValues={{ name: 'Alice' }} onSubmit={() => {}} />

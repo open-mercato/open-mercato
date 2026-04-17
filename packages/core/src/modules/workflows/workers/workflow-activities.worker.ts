@@ -55,7 +55,7 @@ export default async function handle(
   const startTime = Date.now()
 
   console.log(
-    `[workflows:activity-worker] Processing activity ${payload.activityId} (job ${ctx.jobId}, attempt ${ctx.attemptNumber})`
+    `[workflows:activity-worker] Processing activity ${payload.activityId} (${payload.activityType}) for workflow instance ${payload.workflowInstanceId} (job ${ctx.jobId}, attempt ${ctx.attemptNumber})`
   )
 
   // Resolve services from DI container
@@ -89,7 +89,7 @@ export default async function handle(
     }
 
     // Execute activity by type
-    const executeActivityByType = async () => {
+    const executeActivityByType = async (signal?: AbortSignal) => {
       switch (payload.activityType) {
         case 'SEND_EMAIL':
           return await executeSendEmail(payload.activityConfig, activityContext, container)
@@ -98,7 +98,8 @@ export default async function handle(
             em,
             payload.activityConfig,
             activityContext,
-            container
+            container,
+            signal
           )
         case 'EMIT_EVENT':
           return await executeEmitEvent(payload.activityConfig, activityContext, container)
@@ -110,7 +111,7 @@ export default async function handle(
             container
           )
         case 'CALL_WEBHOOK':
-          return await executeCallWebhook(payload.activityConfig, activityContext)
+          return await executeCallWebhook(payload.activityConfig, activityContext, { signal })
         case 'EXECUTE_FUNCTION':
           return await executeFunction(payload.activityConfig, activityContext, container)
         default:
@@ -118,18 +119,28 @@ export default async function handle(
       }
     }
 
-    // Execute with optional timeout
+    // Execute with optional timeout. AbortController aborts in-flight fetches
+    // when the timeout wins the race, preventing phantom executions.
     let result: any
     if (payload.timeoutMs && payload.timeoutMs > 0) {
-      result = await Promise.race([
-        executeActivityByType(),
-        new Promise((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`Activity timeout after ${payload.timeoutMs}ms`)),
-            payload.timeoutMs
-          )
-        ),
-      ])
+      const abortController = new AbortController()
+      const timeoutId = setTimeout(() => {
+        abortController.abort()
+      }, payload.timeoutMs)
+
+      try {
+        result = await Promise.race([
+          executeActivityByType(abortController.signal),
+          new Promise((_, reject) =>
+            setTimeout(
+              () => reject(new Error(`Activity timeout after ${payload.timeoutMs}ms`)),
+              payload.timeoutMs
+            )
+          ),
+        ])
+      } finally {
+        clearTimeout(timeoutId)
+      }
     } else {
       result = await executeActivityByType()
     }
@@ -157,7 +168,7 @@ export default async function handle(
     })
 
     console.log(
-      `[workflows:activity-worker] Activity ${payload.activityId} completed successfully in ${executionTimeMs}ms`
+      `[workflows:activity-worker] Activity ${payload.activityId} (${payload.activityType}) completed successfully for workflow instance ${payload.workflowInstanceId} in ${executionTimeMs}ms`
     )
 
     // Attempt to resume workflow if all activities complete
@@ -166,7 +177,7 @@ export default async function handle(
     const executionTimeMs = Date.now() - startTime
 
     console.error(
-      `[workflows:activity-worker] Activity ${payload.activityId} failed (attempt ${ctx.attemptNumber}):`,
+      `[workflows:activity-worker] Activity ${payload.activityId} (${payload.activityType}) failed for workflow instance ${payload.workflowInstanceId} (attempt ${ctx.attemptNumber}):`,
       error.message
     )
 
@@ -195,7 +206,7 @@ export default async function handle(
     const maxAttempts = payload.retryPolicy?.maxAttempts || 1
     if (ctx.attemptNumber >= maxAttempts) {
       console.error(
-        `[workflows:activity-worker] Activity ${payload.activityId} failed after ${maxAttempts} attempts - triggering workflow failure handling`
+        `[workflows:activity-worker] Activity ${payload.activityId} (${payload.activityType}) failed after ${maxAttempts} attempts for workflow instance ${payload.workflowInstanceId} - triggering workflow failure handling`
       )
       // Final failure - attempt to resume workflow (may transition to FAILED state)
       await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId)
@@ -233,7 +244,7 @@ async function checkAndResumeWorkflow(
     // Ignore error if workflow not ready to resume yet (activities still pending)
     if (!error.message?.includes('Activities still pending')) {
       console.error(
-        `[workflows:activity-worker] Failed to resume workflow ${workflowInstanceId}:`,
+        `[workflows:activity-worker] Failed to resume workflow instance ${workflowInstanceId}:`,
         error.message
       )
     }

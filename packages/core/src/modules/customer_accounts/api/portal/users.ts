@@ -6,7 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { CustomerUser, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)

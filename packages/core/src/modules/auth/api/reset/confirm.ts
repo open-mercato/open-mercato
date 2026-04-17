@@ -53,7 +53,7 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true, redirect: '/login' })
 }
 
-export const metadata = {}
+export const metadata = { requireAuth: false }
 
 const passwordResetConfirmResponseSchema = z.object({
   ok: z.literal(true),

@@ -118,6 +118,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
   const [aclData, setAclData] = React.useState<AclData>({ isSuperAdmin: false, features: [], organizations: null })
   const [customFieldValues, setCustomFieldValues] = React.useState<Record<string, unknown>>({})
   const [actorIsSuperAdmin, setActorIsSuperAdmin] = React.useState(false)
+  const [actorResolved, setActorResolved] = React.useState(false)
   const widgetEditorRef = React.useRef<WidgetVisibilityEditorHandle | null>(null)
   const [resendingInvite, setResendingInvite] = React.useState(false)
 
@@ -174,6 +175,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         const item = Array.isArray(result?.items) ? result?.items?.[0] : undefined
         if (!cancelled) {
           setActorIsSuperAdmin(Boolean(result?.isSuperAdmin))
+          setActorResolved(true)
           if (!item) {
             setError(tRef.current('auth.users.form.errors.notFound', 'User not found'))
             setCustomFieldValues({})
@@ -212,6 +214,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         console.error('Failed to load user:', err)
         if (!cancelled) setError(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         if (!cancelled) setCustomFieldValues({})
+        if (!cancelled) setActorResolved(true)
       }
       if (!cancelled) setLoading(false)
       try {
@@ -242,13 +245,17 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
     return [{ id: selectedTenantId, name, isActive: true }]
   }, [initialUser, selectedTenantId])
 
+  // Block role loading until we know whether the actor is a super admin. Without this guard the
+  // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
+  // from other tenants because the real caller is a super admin without tenantId scoping.
   const loadRoleOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    if (!actorResolved) return []
     if (actorIsSuperAdmin) {
       if (!selectedTenantId) return []
       return fetchRoleOptions(query, { tenantId: selectedTenantId })
     }
     return fetchRoleOptions(query)
-  }, [actorIsSuperAdmin, selectedTenantId])
+  }, [actorIsSuperAdmin, actorResolved, selectedTenantId])
 
   const userHasPassword = initialUser?.hasPassword !== false
   const fields: CrudField[] = React.useMemo(() => {

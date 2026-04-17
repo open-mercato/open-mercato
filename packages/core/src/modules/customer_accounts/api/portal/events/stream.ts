@@ -15,7 +15,7 @@ import { isPortalBroadcastEvent } from '@open-mercato/shared/modules/events'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 
-export const metadata: { path?: string } = {}
+export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4096
@@ -135,6 +135,7 @@ export async function GET(req: Request): Promise<Response> {
   const encoder = new TextEncoder()
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null
   let connection: PortalSseConnection | null = null
+  const onAbort = () => cleanup()
 
   const stream = new ReadableStream({
     start(controller) {
@@ -173,9 +174,12 @@ export async function GET(req: Request): Promise<Response> {
       portalConnections.delete(connection)
       connection = null
     }
+    // Detach from the request signal so reconnect churn does not accumulate
+    // listeners and closures on long-lived AbortSignals.
+    req.signal.removeEventListener('abort', onAbort)
   }
 
-  req.signal.addEventListener('abort', cleanup)
+  req.signal.addEventListener('abort', onAbort, { once: true })
 
   return new Response(stream, {
     status: 200,

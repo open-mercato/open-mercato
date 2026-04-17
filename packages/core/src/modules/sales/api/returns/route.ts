@@ -133,6 +133,7 @@ const crud = makeCrudRoute({
 
 const { GET, POST } = crud
 
+export const metadata = routeMetadata
 export { GET, POST }
 
 const returnSchema = z

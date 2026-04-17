@@ -1,7 +1,7 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
-import { getRedisUrl } from '@open-mercato/shared/lib/redis/connection'
+import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
 export { registerCrossProcessEventListener } from './bridge'
 import { publishCrossProcessEvent } from './bridge'
@@ -96,13 +96,11 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
    */
   function getQueue(): Queue<EventJobData> {
     if (!queue) {
-      if (queueStrategy === 'async') {
-        queue = createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
-          connection: { url: getRedisUrl('QUEUE') }
-        })
-      } else {
-        queue = createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
-      }
+      queue = queueStrategy === 'async'
+        ? createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'async', {
+            connection: { url: getRedisUrlOrThrow('QUEUE') },
+          })
+        : createQueue<EventJobData>(EVENTS_QUEUE_NAME, 'local')
     }
     return queue
   }

@@ -268,7 +268,7 @@ async function ensureCanonicalActivityBridge(
   commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
   activity: CustomerActivity,
 ): Promise<string> {
-  const existing = await em.findOne(CustomerInteraction, { id: activity.id })
+  const existing = await em.findOne(CustomerInteraction, { id: activity.id, tenantId: activity.tenantId })
   if (existing) return existing.id
 
   const entityId = typeof activity.entity === 'string' ? activity.entity : activity.entity.id
@@ -304,11 +304,12 @@ async function resolveCanonicalActivityTargetId(
   commandBus: CommandBus,
   commandContext: Parameters<CommandBus['execute']>[1]['ctx'],
   targetId: string,
+  tenantId: string,
 ): Promise<string> {
-  const existing = await em.findOne(CustomerInteraction, { id: targetId })
+  const existing = await em.findOne(CustomerInteraction, { id: targetId, tenantId })
   if (existing) return existing.id
 
-  const legacy = await em.findOne(CustomerActivity, { id: targetId }, { populate: ['entity', 'deal'] })
+  const legacy = await em.findOne(CustomerActivity, { id: targetId, tenantId }, { populate: ['entity', 'deal'] })
   if (!legacy) return targetId
 
   return ensureCanonicalActivityBridge(
@@ -636,7 +637,7 @@ export async function PUT(request: Request): Promise<Response> {
     const commandBus = container.resolve('commandBus') as CommandBus
     const interactionId = flags.unified
       ? parsed.id
-      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)
+      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
 
     await commandBus.execute('customers.interactions.update', {
       input: {
@@ -713,7 +714,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const commandBus = container.resolve('commandBus') as CommandBus
     const interactionId = flags.unified
       ? parsed.id
-      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id)
+      : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
     await commandBus.execute('customers.interactions.delete', {
       input: { id: interactionId },
       ctx: commandContext,
