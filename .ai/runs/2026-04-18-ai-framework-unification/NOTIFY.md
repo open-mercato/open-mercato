@@ -195,3 +195,21 @@
   - Kept `mcp-tool-adapter.ts` as the single AI SDK adapter stack (spec §D10 + PLAN Risks). No parallel adapter.
   - Dynamic-imported the generated file with a try/catch so the loader is safe to call in tests and in pre-generate builds.
   - Used an `isModuleAiTool` structural guard rather than stricter Zod validation to avoid widening the loader's runtime dependency surface; malformed entries are skipped with a warning.
+
+## 2026-04-18T09:52:53Z — Step 2.4 committed (b3ea44b0c)
+- `feat(ai-assistant): add attachment-bridge and prompt-composition contract types`.
+- Files touched:
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-bridge-types.ts` (new, 22 lines; `AttachmentSource`, `AiResolvedAttachmentPart`, `AiUiPart`, `AiChatRequestContext`).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/prompt-composition-types.ts` (new, 23 lines; `PromptSectionName`, `PromptSection`, `PromptTemplate`, `definePromptTemplate()`).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/attachment-bridge-and-prompt-types.test.ts` (new; 12 tests across 5 `describe` blocks).
+  - `packages/ai-assistant/src/index.ts` (modified; additive re-export block for the six new type names + `definePromptTemplate`).
+- Verification:
+  - `npx jest --config=jest.config.cjs --forceExit` in `packages/ai-assistant/` — **12 suites, 167 tests, all passing** (baseline was 11/155; delta +1 suite, +12 tests, no regressions).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app` — `@open-mercato/core` green (cache hit); `@open-mercato/app` still fails on the pre-existing stale `example/customer-tasks/page` entry in `backend-routes.generated.ts` (unrelated to this Step). `grep` of typecheck output for `attachment-bridge-types`, `prompt-composition-types`, and `attachment-bridge-and-prompt-types` matched zero lines — new files contribute no diagnostics.
+  - i18n / Playwright / generate: N/A (types-only, no UI, no module structural change).
+- BC: additive only — no existing types renamed, narrowed, or removed. `McpToolDefinition`, `AiToolDefinition`, `AiAgentDefinition`, and prior `@open-mercato/ai-assistant` exports remain unchanged. Surfaces 2 and 4 of `BACKWARD_COMPATIBILITY.md` preserved.
+- Decisions:
+  - `PromptSectionName` uses camelCase JS-identifier form (`mutationPolicy`, `responseStyle`, `overrides`) rather than the spec's uppercase `ROLE`/`SCOPE` labels. The uppercase labels in spec §8 are the *rendering* headers the Phase 3 prompt composer will emit; the primitive type here is the programmatic section key, so camelCase is correct for JS identifiers. `overrides` covers the tenant/admin override surface mentioned at spec line 228.
+  - `PromptSection` is deliberately minimal (no rendering logic, no compile step). This Step ships the primitive only; the composer is Phase 3 work.
+  - `AiResolvedAttachmentPart.data` accepts `Uint8Array | string | null` exactly as spec line 992 shows. `textContent`, `url`, and `data` are all optional so a metadata-only attachment can be constructed with just the four required fields — verified by a dedicated test case.
+  - `definePromptTemplate()` provided as an identity builder symmetric with `defineAiTool()` / `defineAiAgent()` so Phase 3 authors can rely on the same pattern.
