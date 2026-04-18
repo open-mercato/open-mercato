@@ -36,7 +36,7 @@
 | 3 | 3.6 | Spec Phase 1 WS-B — Contract tests for chat-mode + object-mode parity (shared policy checks) | done | 34e50e455 |
 | 3 | 3.7 | Spec Phase 1 WS-C — Attachment-to-model conversion bridge (images/PDFs/text-like/metadata-only) | done | 86901a489 |
 | 3 | 3.8 | Spec Phase 1 WS-C — General-purpose tool packs (`search.*`, `attachments.*`, `meta.*`) | done | 11c5a87b8 |
-| 3 | 3.9 | Spec Phase 1 WS-C — Customers tool pack (people / companies / deals / activities / tasks / addresses / tags / settings) | todo | — |
+| 3 | 3.9 | Spec Phase 1 WS-C — Customers tool pack (people / companies / deals / activities / tasks / addresses / tags / settings) | done | c2f2e21cb |
 | 3 | 3.10 | Spec Phase 1 WS-C — Catalog tool pack (products / categories / variants / prices / offers / media / product configuration) | todo | — |
 | 3 | 3.11 | Spec §7 (D18) — Catalog merchandising read tools (`search_products`, `get_product_bundle`, `list_selected_products`, `get_product_media` via bridge, `get_attribute_schema`, `get_category_brief`, `list_price_kinds`) | todo | — |
 | 3 | 3.12 | Spec §7 (D18) — Catalog AI-authoring tools (`draft_description_from_attributes`, `extract_attributes_from_description`, `draft_description_from_media`, `suggest_title_variants`, `suggest_price_adjustment`) | todo | — |

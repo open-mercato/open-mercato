@@ -450,3 +450,26 @@
   - **Transfer tool reuses the `/api/attachments/transfer` logic verbatim.** The route handler carries the assignments-patch loop inline (~15 lines); the Step 3.8 tool mirrors it but routes the query through `findWithDecryption` instead of raw `em.find`. If a future Step extracts the logic into a service, the tool becomes a thin wrapper. Flagged for Phase 5 when the mutation gate lands.
   - **`isMutation: true` only on `attachments.transfer_record_attachments`.** Every other tool is explicitly read-only (no `isMutation` flag). Step 3.2 policy gate blocks the transfer tool for agents with `readOnly: true` by construction — no additional runtime change required.
 - Phase 3 WS-C is now **2/7 landed** — next is Step 3.9 (customers tool pack).
+
+## 2026-04-18T20:30:00Z — step 3.9 landed (customers tool pack, read-only Phase 1)
+- Step 3.9 landed as one code commit (`c2f2e21cb`) plus a docs-flip commit. Phase 1 WS-C is now **3/7 Steps done**.
+- Eleven read-only tools shipped inside `packages/core/src/modules/customers/ai-tools/`:
+  - `customers.list_people`, `customers.get_person`.
+  - `customers.list_companies`, `customers.get_company`.
+  - `customers.list_deals`, `customers.get_deal`.
+  - `customers.list_activities`, `customers.list_tasks`.
+  - `customers.list_addresses`, `customers.list_tags`.
+  - `customers.get_settings` (pipelines, pipeline stages, dictionaries grouped by kind, addressFormat).
+- Module-root `ai-tools.ts` re-exports all six packs via `aiTools` / `default`. The existing generator (Step 2.3) discovered the `customers` module and emitted a new `AI_TOOLS_customers_143` namespace entry in `apps/mercato/.mercato/generated/ai-tools.generated.ts` — **zero** generator changes required.
+- Unit tests: 7 new suites / 38 new tests under `packages/core/src/modules/customers/__tests__/ai-tools/`. Full `packages/core` jest suite: 324 suites / 2956 tests (all passing). `packages/ai-assistant` regression: 25 suites / 316 tests (baseline preserved).
+- Typecheck: same pre-existing Step 3.8 diagnostics (ai-assistant handler variance in `search/attachments/meta` packs + `agent-registry.ts(43,7)`). Zero new diagnostics on the new customers files.
+- Key design decisions:
+  - **Local `CustomersAiToolDefinition` shape** (mirrors `inbox_ops/ai-tools.ts`) instead of importing from `@open-mercato/ai-assistant`. Avoids adding a cross-package jest `moduleNameMapper` entry into `packages/core/jest.config.cjs`. Shape is a strict subset of the canonical `AiToolDefinition` so the generator's structural loader accepts it unchanged.
+  - **No mutation tools.** Every tool is read-only; no `isMutation: true`. Mutation tools for deals/activities/tasks/addresses/tags are deferred to Phase 5 (Step 5.13+) under the pending-action contract. Brief explicitly stated "read-only every tool" for this Step.
+  - **No new feature IDs.** All `requiredFeatures` reuse existing IDs from `customers/acl.ts`. An `aggregator.test.ts` iterates every exported tool and asserts `requiredFeatures` exists in `acl.ts.features` at test time. BC Surface 10 untouched.
+  - **Addresses / tags / tasks view guard = `customers.activities.view`.** That's what the actual existing routes (`/api/customers/addresses`, `/api/customers/tags`, `/api/customers/todos`) enforce on `GET` today. Step 3.9 mirrors the current route contract verbatim instead of inventing new feature IDs mid-implementation. Flagged in step-3.9-checks.md Follow-ups as a candidate for a future spec to introduce dedicated `customers.addresses.view` / `customers.tags.view` features.
+  - **Tenant isolation via `findWithDecryption` / `findOneWithDecryption` only.** Every query scopes by `tenantId` + (when present) `organizationId` in both the `where` and scope args, then post-filters `row.tenantId === ctx.tenantId` as defense in depth. Pre-commit grep confirms no raw `em.find(` / `em.findOne(` in any of the new production files.
+  - **Detail tools return `{ found: false }` instead of throwing** on miss / cross-tenant / cross-org. Matches Step 3.8's pattern so a chat-mode agent can recover gracefully.
+  - **`customers.list_tasks` merges canonical interactions + legacy todo links.** The legacy branch is skipped when a task status or deal filter is supplied because legacy todo links don't carry those facets. This matches SPEC-046b's interim dual-surface reality.
+  - **`customers.get_settings` aggregates all dictionary kinds in one pass.** Grouped by `row.kind` so agents can filter client-side without a secondary round-trip. `addressFormat` falls back to `line_first` when the settings row is absent (matches the existing `/api/customers/settings/address-format` route's contract).
+- Phase 3 WS-C is now **3/7 landed** — next is Step 3.10 (catalog base tool pack: products/categories/variants/prices/offers/media/configuration).
