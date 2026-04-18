@@ -68,14 +68,9 @@ Follow `.ai/skills/auto-create-pr/SKILL.md` step 0 verbatim.
 ```bash
 DATE=$(date -u +%Y-%m-%d)
 SLUG="${SLUG_OVERRIDE:-auto-sec-report-${DATE}}"
-RUN_DIR=".ai/runs/${DATE}-${SLUG}"
-PLAN_PATH="${RUN_DIR}/PLAN.md"
-HANDOFF_PATH="${RUN_DIR}/HANDOFF.md"
-NOTIFY_PATH="${RUN_DIR}/NOTIFY.md"
+PLAN_PATH=".ai/runs/${DATE}-${SLUG}.md"
 BRANCH="feat/${SLUG}"
 ```
-
-Follow `.ai/skills/auto-create-pr/SKILL.md` step 0 verbatim — including creating `HANDOFF.md` and `NOTIFY.md` alongside `PLAN.md`, writing `step-<X.Y>-checks.md` next to `PLAN.md` for each Step, and creating an optional `step-<X.Y>-artifacts/` folder only when the Step produced real artifacts.
 
 ### 1. Build the unit queue
 
@@ -278,7 +273,7 @@ Follow `.ai/skills/auto-create-pr/SKILL.md` step 9 with:
 
 - Title: `docs(analysis): add auto-sec-report for {window caption}`.
 - Base: `develop`. Never merge directly.
-- Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}/PLAN.md` and `Tracking run folder: .ai/runs/${DATE}-${SLUG}/` plus
+- Body MUST include `Tracking plan: .ai/runs/${DATE}-${SLUG}.md` and
   the correct `Status:` line.
 - Body MUST link the aggregate markdown + HTML, state the queue size,
   the blocker/major count, and the top OWASP categories, and repeat
