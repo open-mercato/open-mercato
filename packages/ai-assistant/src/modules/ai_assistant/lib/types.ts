@@ -35,7 +35,10 @@ export interface McpToolDefinition<TInput = unknown, TOutput = unknown> {
 }
 
 /**
- * Alias for McpToolDefinition - use in ai-tools.ts files.
+ * Public MCP-compatible tool definition consumed by `ai-tools.ts` files and
+ * `defineAiTool()`. Extends `McpToolDefinition` with optional focused-agent
+ * metadata. All additive fields are optional so existing plain-object
+ * definitions remain valid and backward compatible.
  *
  * @example
  * ```typescript
@@ -44,7 +47,23 @@ export interface McpToolDefinition<TInput = unknown, TOutput = unknown> {
  * export const aiTools: AiToolDefinition[] = [...]
  * ```
  */
-export type AiToolDefinition<TInput = unknown, TOutput = unknown> = McpToolDefinition<TInput, TOutput>
+export interface AiToolDefinition<TInput = unknown, TOutput = unknown>
+  extends McpToolDefinition<TInput, TOutput> {
+  /** Human-friendly label for UI surfaces (falls back to `name`). */
+  displayName?: string
+  /** Free-form tags used by routing/search layers (e.g. `['read', 'catalog']`). */
+  tags?: string[]
+  /**
+   * True when the tool performs a mutation. Defaults to false.
+   * Mutation-capable tools are not automatically allowed in v1 focused agents
+   * and must be explicitly whitelisted via the agent's `allowedTools`.
+   */
+  isMutation?: boolean
+  /** Optional per-turn call budget enforced by the focused-agent runtime. */
+  maxCallsPerTurn?: number
+  /** Declares the tool can receive resolved attachment parts at runtime. */
+  supportsAttachments?: boolean
+}
 
 /**
  * Options for tool registration.

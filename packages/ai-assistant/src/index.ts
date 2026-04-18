@@ -29,6 +29,22 @@
 // Re-export types
 export * from './modules/ai_assistant/lib/types'
 
+// Focused-agent definition types + helper
+export {
+  defineAiAgent,
+  type AiAgentDefinition,
+  type AiAgentExecutionMode,
+  type AiAgentMutationPolicy,
+  type AiAgentAcceptedMediaType,
+  type AiAgentDataOperation,
+  type AiAgentPageContextInput,
+  type AiAgentStructuredOutput,
+  type AiAgentDataCapabilities,
+} from './modules/ai_assistant/lib/ai-agent-definition'
+
+// Additive AI tool builder
+export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
+
 // Tool registry
 export {
   registerMcpTool,
