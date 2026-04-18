@@ -216,6 +216,86 @@ Subagent parallelism (optional, capped at 2):
 - Prefer serial execution whenever the gain is marginal. Parallelism is a tool, not a default.
 - Record any subagent delegation in `NOTIFY.md` with timestamps.
 
+#### Multi-Step runs: executor-dispatch pattern
+
+When a single `/auto-continue-pr` invocation is expected to land **multiple Steps in one pass**, the main session SHOULD act as a **dispatcher** and spawn one **executor subagent** per Step (foreground `Agent` tool call, `subagent_type: "general-purpose"`). The executor implements exactly that Step end-to-end (code commit + docs-flip commit + push). The main session waits for the executor to return, verifies the commits landed and pushed, then dispatches the next Step.
+
+When to use this pattern:
+
+- A `/auto-continue-pr` resume whose Tasks table has multiple `todo` rows that must all land in one pass.
+- A long-running run where the main session would otherwise carry heavy per-Step context across many Steps.
+
+When NOT to use it:
+
+- A single-Step resume. Drive the Step directly in the main session — the default per-Step loop above is correct.
+- Docs-only or trivial resumes.
+
+Hard constraints:
+
+- Subagents do NOT have access to the `Agent` tool. A coordinator subagent **cannot** spawn executors. Dispatch MUST live in the main session.
+- Dispatch is **sequential** (one executor at a time). This is not parallelism — the cap-at-2 rule above still applies to the rare case where you want an implementer and a reviewer running side-by-side; an executor-dispatch run is a sequence of one-at-a-time executors.
+- The main session claims the `in-progress` lock **once** at step 0 and releases it **once** at step 9 (or on early exit). Executors MUST NOT claim or release the lock.
+- The main session posts the final summary comment (step 8) at the end. Executors MUST NOT post the final summary.
+
+Executor prompt template — the main session writes this into each spawned `Agent` call:
+
+```markdown
+You are an executor for auto-continue-pr PR #{prNumber}. Implement exactly one Step.
+
+Working directory: {absolute worktree path}
+Branch: {branch} (already checked out; origin tracking set up)
+Run folder: {absolute run folder path}
+
+Step to implement:
+- Step id: {X.Y}
+- Title: {step title from Tasks table}
+- Full description: {paste the Step's bullets from PLAN.md Implementation Plan}
+
+Spec anchors:
+- PLAN.md: {plan path}
+- Source spec (if any): {spec path}
+- External References adopted: {list from PLAN.md Overview}
+
+Rules:
+- One Step = one code commit + one docs-flip commit. Nothing more, nothing less.
+- Run targeted validation (typecheck, unit tests, i18n/generate/build as applicable). Tests are mandatory for code changes.
+- Write `step-{X.Y}-checks.md` next to PLAN.md recording every check's outcome (or explicit N/A).
+- Create `step-{X.Y}-artifacts/` ONLY when real artifacts exist (Playwright transcript, screenshots, captured command output). Never create an empty folder.
+- Flip the `Status` cell of row `{X.Y}` in PLAN.md's Tasks table from `todo` to `done` and fill the `Commit` column with the short SHA in the docs-flip commit.
+- Rewrite `HANDOFF.md` after the Step so the next agent can pick up. Append one UTC-timestamped entry to `NOTIFY.md`.
+- Push after each commit so the remote always has the latest state.
+- Do NOT claim or release the `in-progress` lock on the PR. The main session already owns it.
+- Do NOT post the final summary PR comment. The main session posts it at the end.
+- Do NOT rewrite or reorder prior history. Do NOT split into multiple code commits. If this Step truly needs splitting, stop and return early with a report asking the main session to split the Step in PLAN.md first.
+
+Return format (concise report, < 300 words):
+- Step id
+- Code commit SHA + docs-flip commit SHA
+- Files touched
+- Tests run + result (pass/fail/skipped with reason)
+- Push confirmation (`origin/{branch}` now at {sha})
+- Blockers or decisions worth escalating
+```
+
+Verification the main session MUST run after each executor returns — before dispatching the next Step:
+
+- `git status` is clean in the worktree.
+- Exactly **two** new commits exist on HEAD since the dispatch (one code, one docs-flip).
+- Local HEAD == `origin/{branch}` (push actually landed; fetch if in doubt).
+- The PLAN.md Tasks-table row for `{X.Y}` is flipped to `done` with the correct short SHA in the `Commit` column.
+- `HANDOFF.md` was rewritten and `NOTIFY.md` was appended.
+
+Safety stops — the main session MUST halt dispatch (leave `Status: in-progress`, rewrite `HANDOFF.md`, append a NOTIFY entry naming the blocker, release the lock per step 9, and report back) when any of the following is true:
+
+- An executor returns a blocker, failing tests, or an error.
+- `git status` is not clean after an executor returns.
+- The Tasks-table row was not flipped to `done` with the correct SHA.
+- Local HEAD ≠ `origin/{branch}` (push did not land).
+- Two consecutive executors returned problematic results.
+- **Safety checkpoint:** after ~20 consecutive successful Steps, stop and let the user review before plowing on.
+
+Sibling auto-skills (`auto-create-pr`, `auto-sec-report`, `auto-qa-scenarios`, `auto-update-changelog`) inherit this pattern when driving multiple Steps in a single invocation.
+
 ### 5. Full validation gate
 
 Before flipping the PR to `complete`, run the full gate (same as `auto-create-pr` / `code-review` / `auto-fix-github`) and record the outcome in `${RUN_DIR}/final-gate-checks.md`. Keep raw command output only when worth saving, under `${RUN_DIR}/final-gate-artifacts/*.log`:
