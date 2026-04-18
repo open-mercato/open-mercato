@@ -16,6 +16,27 @@ type ModuleAiTool = {
 }
 
 /**
+ * Shape of a single entry inside `ai-tools.generated.ts`.
+ * Matches the structural contract emitted by
+ * `packages/cli/src/lib/generators/extensions/ai-tools.ts`.
+ */
+export type AiToolConfigEntry = {
+  moduleId: string
+  tools: unknown[]
+}
+
+function isModuleAiTool(value: unknown): value is ModuleAiTool {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Record<string, unknown>
+  return (
+    typeof candidate.name === 'string' &&
+    typeof candidate.description === 'string' &&
+    candidate.inputSchema !== undefined &&
+    typeof candidate.handler === 'function'
+  )
+}
+
+/**
  * Built-in context.whoami tool that returns the current authentication context.
  * This is useful for AI to understand its current tenant/org scope.
  */
@@ -59,6 +80,66 @@ export function loadModuleTools(moduleId: string, tools: ModuleAiTool[]): void {
 }
 
 /**
+ * Register the generated `aiToolConfigEntries` shape emitted by the
+ * `ai-tools.generated.ts` generator extension. Entries with an empty
+ * `tools` array stay silent (the generator already filters those out).
+ * Invalid tool objects are skipped with a warning instead of throwing.
+ *
+ * Returns the number of tools actually registered so callers can log it.
+ */
+export function registerGeneratedAiToolEntries(entries: AiToolConfigEntry[]): number {
+  let registered = 0
+  for (const entry of entries) {
+    if (!entry || typeof entry.moduleId !== 'string') continue
+    if (!Array.isArray(entry.tools) || entry.tools.length === 0) continue
+    for (const candidate of entry.tools) {
+      if (!isModuleAiTool(candidate)) {
+        console.warn(
+          `[MCP Tools] Skipping malformed AI tool in module "${entry.moduleId}"`
+        )
+        continue
+      }
+      registerMcpTool(
+        {
+          name: candidate.name,
+          description: candidate.description,
+          inputSchema: candidate.inputSchema,
+          requiredFeatures: candidate.requiredFeatures,
+          handler: candidate.handler,
+        } as McpToolDefinition,
+        { moduleId: entry.moduleId }
+      )
+      registered += 1
+    }
+  }
+  return registered
+}
+
+/**
+ * Load the generated `ai-tools.generated.ts` file emitted by
+ * `yarn generate` and register every declared module tool through the
+ * existing `registerMcpTool` path. Safe to call when the generated file
+ * is missing (e.g., tests or pre-generate builds) — returns 0.
+ */
+export async function loadGeneratedModuleAiTools(): Promise<number> {
+  try {
+    const mod = (await import(
+      '@/.mercato/generated/ai-tools.generated'
+    )) as { aiToolConfigEntries?: AiToolConfigEntry[] }
+    const entries = Array.isArray(mod.aiToolConfigEntries)
+      ? mod.aiToolConfigEntries
+      : []
+    return registerGeneratedAiToolEntries(entries)
+  } catch (error) {
+    console.error(
+      '[MCP Tools] Could not load ai-tools.generated.ts (module tools unavailable):',
+      error
+    )
+    return 0
+  }
+}
+
+/**
  * Dynamically load tools from known module paths.
  * This is called during MCP server startup.
  */
@@ -79,9 +160,17 @@ export async function loadAllModuleTools(): Promise<void> {
     console.error('[MCP Tools] Could not load Code Mode tools:', error)
   }
 
-  // Note: Auto-discovered module AI tools (from ai-tools.generated.ts) and
-  // legacy API discovery tools (find_api, call_api, discover_schema) are no
-  // longer loaded. Code Mode's search + execute tools cover all use cases.
+  // 3. Register module-contributed tools from ai-tools.generated.ts.
+  // Code Mode stays untouched; module tools are additive. Missing
+  // generated file is not fatal (pre-generate builds, tests).
+  try {
+    const moduleToolCount = await loadGeneratedModuleAiTools()
+    console.error(
+      `[MCP Tools] Registered ${moduleToolCount} module-contributed AI tools from ai-tools.generated.ts`
+    )
+  } catch (error) {
+    console.error('[MCP Tools] Could not load module AI tools:', error)
+  }
 }
 
 /**
