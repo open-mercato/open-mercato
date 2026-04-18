@@ -1,6 +1,6 @@
 ---
 name: auto-continue-pr-sophisticated
-description: Advanced `auto-continue-pr` workflow for PRs started by `auto-create-pr-sophisticated`. Claims the PR, re-enters an isolated worktree, resumes from the first non-done row in `.ai/runs/<date>-<slug>/PLAN.md`, keeps `HANDOFF.md` and `NOTIFY.md` current, writes one verification log per resumed step, reruns the full validation gate, and preserves the run-folder and label contract. Use the original `auto-continue-pr` for simple `auto-create-pr` runs.
+description: Advanced `auto-continue-pr` workflow for PRs started by `auto-create-pr-sophisticated`. Claims the PR, re-enters an isolated worktree, resumes from the first non-done row in `.ai/runs/<date>-<slug>/PLAN.md`, executes lean per-step commits, batches verification into `checkpoint-<N>-checks.md` every 5 resumed steps (with focused integration tests + screenshots when UI was touched), runs the full validation gate plus full/standalone integration suites and ds-guardian at spec completion, and preserves the run-folder and label contract. Use the original `auto-continue-pr` for simple `auto-create-pr` runs.
 ---
 
 # Auto Continue PR (sophisticated)
@@ -9,10 +9,12 @@ Resume an `auto-create-pr` run that did not finish in one go. Given a PR
 number, you re-enter the same worktree discipline, read `HANDOFF.md` for
 session context, parse the top-of-file `## Tasks` table in `PLAN.md` (the
 authoritative Step-status source), pick up from the first row whose `Status`
-is not `done`, and drive the PR to `complete` status with per-commit
-`step-<X.Y>-checks.md` verification logs, live handoff updates, a growing
-`NOTIFY.md` log, the same validation gate, and the same label rules as
-`auto-create-pr`.
+is not `done`, and drive the PR to `complete` status with **lean per-Step
+commits** and **checkpoint-batched verification** (`checkpoint-<N>-checks.md`
+every ~5 resumed Steps, with focused integration tests + screenshots when UI
+was touched), the same final validation gate plus full/standalone
+integration suites and a `ds-guardian` pass at spec completion, and the same
+label rules as `auto-create-pr`.
 
 ## Arguments
 
@@ -154,8 +156,9 @@ RUN_DIR=".ai/runs/<date>-<slug>"
 PLAN_PATH="${RUN_DIR}/PLAN.md"
 HANDOFF_PATH="${RUN_DIR}/HANDOFF.md"
 NOTIFY_PATH="${RUN_DIR}/NOTIFY.md"
-# Per-Step verification lives at ${RUN_DIR}/step-<X.Y>-checks.md;
-# per-Step artifacts (only when real artifacts exist) live at ${RUN_DIR}/step-<X.Y>-artifacts/.
+# Verification is checkpoint-based: ${RUN_DIR}/checkpoint-<N>-checks.md every ~5 Steps.
+# Optional artifacts (Playwright, screenshots) live at ${RUN_DIR}/checkpoint-<N>-artifacts/.
+# Final gate log lives at ${RUN_DIR}/final-gate-checks.md at spec completion.
 ```
 
 ### 2. Create an isolated worktree from the PR head
@@ -251,30 +254,52 @@ Append a NOTIFY entry announcing the resume:
 - PR head SHA: <sha>
 ```
 
-### 4. Resume execution (1 commit per Step) with proofs
+### 4. Resume execution — lean per-Step loop + checkpoint pass every 5 Steps
 
-From the resume point forward, apply the **same per-Step loop** documented in `.ai/skills/auto-create-pr/SKILL.md` step 6:
+From the resume point forward, apply the **same lean/checkpoint pattern** documented in `.ai/skills/auto-create-pr-sophisticated/SKILL.md` step 6.
 
-1. Implement only the work described by the current Step (one Step = one commit).
-2. Add or update tests for anything that changed behavior. Unit tests mandatory for code changes; escalate to integration tests for risky flows.
-3. Run targeted validation for affected packages and record the outcome in `${RUN_DIR}/step-<X.Y>-checks.md`:
-   - `yarn typecheck`
-   - `yarn test`
-   - `yarn i18n:check-sync` / `yarn i18n:check-usage` when locale/text changed
-   - `yarn generate` / `yarn build:packages` / `yarn db:generate` when module structure or generated files changed
-   - When raw command output is worth keeping, create `${RUN_DIR}/step-<X.Y>-artifacts/` and save `typecheck.log`, `unit-tests.log`, `i18n.log`, etc. Never create an empty artifacts folder.
-4. **UI verification (conditional)** — when the Step is UI-facing AND the dev env is runnable, exercise the change via Playwright, create `${RUN_DIR}/step-<X.Y>-artifacts/` if it does not yet exist, and save `playwright.log` + at least one `screenshot-<desc>.png` there. Reference them from `step-<X.Y>-checks.md`. If the dev env cannot be started or the scenario is not reachable, skip and log the reason in both `step-<X.Y>-checks.md` and `NOTIFY.md`. **UI checks MUST NEVER block development.**
-5. Re-read the diff to remove scope creep.
-6. Grep changed non-test files for raw `em.findOne(` / `em.find(` and replace with `findOneWithDecryption` / `findWithDecryption`.
-7. **Commit** with a conventional-commit message for that single Step.
-8. In a dedicated follow-up commit:
-   - In `PLAN.md`'s `## Tasks` table, flip the Step's `Status` cell from `todo` to `done` and fill the `Commit` column with the short SHA. Do not reorder rows.
-   - Rewrite `HANDOFF.md` from scratch with the new state (next concrete action = the first unchecked Step).
-   - Append a NOTIFY entry: timestamp, Step id, commit sha, one-line summary, any decisions/problems.
-   - Commit with: `docs(runs): mark {slug} step X.Y complete`.
-9. **Push after every Step** so the remote always has the latest state.
+#### 4a. Per-Step loop (lean, no per-Step chatter)
+
+One Step = one code commit. Nothing more.
+
+1. Implement only the work described by the current Step.
+2. Add or update tests for anything that changed behavior. Unit tests mandatory for code changes; escalate to integration tests for risky flows, permissions, tenant isolation, workflows, or multi-module behavior.
+3. Run a quick scratch sanity check (typecheck + new test file) to confirm the Step compiles. Do NOT record this anywhere — checkpoints verify.
+4. Re-read the diff to remove scope creep.
+5. Grep changed non-test files for raw `em.findOne(` / `em.find(` and replace with `findOneWithDecryption` / `findWithDecryption`.
+6. **Flip the Tasks-table row in the same commit.** In `PLAN.md`'s `## Tasks` table, flip the Step's `Status` cell from `todo` to `done` and fill the `Commit` column with the short SHA (amend the commit to capture the real SHA before pushing).
+7. **Commit** with a conventional-commit message for that single Step. No separate docs-flip commit.
+8. **Push** after the commit so the remote always has the latest state.
+9. **Do NOT** write a `step-<X.Y>-checks.md`. **Do NOT** create a `step-<X.Y>-artifacts/` folder. **Do NOT** rewrite `HANDOFF.md` at the per-Step level. **Do NOT** append to `NOTIFY.md` unless the Step produced a blocker, a scope decision, or a subagent delegation.
 
 Do not alter work already completed in earlier commits. Do not reorder or rewrite history on the PR branch.
+
+#### 4b. Checkpoint pass (every 5 resumed Steps)
+
+Fire when any of these is true:
+- 5 Steps have landed since the start of this resume (or since the last checkpoint in this resume).
+- The next Step would close a Phase and the Phase has ≥3 Steps.
+- Every row in the Tasks table is now `done` — the final gate in step 5 subsumes this.
+- A blocker stops the run mid-Phase.
+
+At a checkpoint, run the following and record them in a single `${RUN_DIR}/checkpoint-<N>-checks.md` (use the next available `<N>` — increment from the highest existing checkpoint number on the branch):
+
+1. **Targeted validation for every package touched since the last checkpoint:**
+   - `yarn typecheck` (scoped when feasible).
+   - `yarn test` (scoped to affected packages).
+   - `yarn i18n:check-sync` and `yarn i18n:check-usage` if any locale file or user-facing string was changed in the window.
+   - `yarn generate`, `yarn build:packages`, and `yarn db:generate` when module structure, entities, or generated files changed.
+2. **UI verification (conditional)** — if any Step in the window touched UI (frontend pages, backend pages, portal pages, widgets, `*.tsx`, UI components, navigation injection):
+   - Run the smallest set of integration tests under `.ai/qa/tests/` that covers the touched areas (e.g. `yarn test:integration .ai/qa/tests/admin/customers`, `.ai/qa/tests/crm`, `.ai/qa/tests/catalog`, `.ai/qa/tests/sales`, `.ai/qa/tests/api`). Prefer folder-scoped over the full Playwright suite.
+   - If no existing file covers the touched area, fall back to Playwright MCP tools (`mcp__plugin_playwright_playwright__*`) for a minimal smoke path.
+   - Create `${RUN_DIR}/checkpoint-<N>-artifacts/` and save `playwright.log` + at least one `screenshot-<short-desc>.png` per touched area. Reference filenames from `checkpoint-<N>-checks.md`.
+   - **UI checks MUST NEVER block development.** If the dev env cannot be started or the scenario is not reachable, skip the UI portion and record the reason in both `checkpoint-<N>-checks.md` and `NOTIFY.md`. The checkpoint otherwise proceeds.
+3. **Write `checkpoint-<N>-checks.md`** listing: checkpoint index, the Steps it covers (id range + SHA range), touched packages, every check run with pass/fail/skip + reason, and links to any artifacts.
+4. **Rewrite `HANDOFF.md`** from scratch with the new state (next concrete action = the first remaining `todo` Step).
+5. **Append one NOTIFY entry** for the checkpoint: UTC timestamp, checkpoint index, Step range, one-line summary, any decisions/problems.
+6. **Commit** the checkpoint files (`checkpoint-<N>-checks.md`, `checkpoint-<N>-artifacts/` if any, `HANDOFF.md`, `NOTIFY.md`) as a single commit: `docs(runs): checkpoint N — steps X.Y..X.Z verified`. Push.
+
+If the checkpoint fails, halt dispatch, rewrite `HANDOFF.md` naming the failure, append a NOTIFY blocker entry, fix forward with new Steps appended to the Tasks table, and re-run the checkpoint before continuing.
 
 Subagent parallelism (optional, capped at 2):
 
@@ -326,22 +351,21 @@ Spec anchors:
 - External References adopted: {list from PLAN.md Overview}
 
 Rules:
-- One Step = one code commit + one docs-flip commit. Nothing more, nothing less.
-- Run targeted validation (typecheck, unit tests, i18n/generate/build as applicable). Tests are mandatory for code changes.
-- Write `step-{X.Y}-checks.md` next to PLAN.md recording every check's outcome (or explicit N/A).
-- Create `step-{X.Y}-artifacts/` ONLY when real artifacts exist (Playwright transcript, screenshots, captured command output). Never create an empty folder.
-- Flip the `Status` cell of row `{X.Y}` in PLAN.md's Tasks table from `todo` to `done` and fill the `Commit` column with the short SHA in the docs-flip commit.
-- Rewrite `HANDOFF.md` after the Step so the next agent can pick up. Append one UTC-timestamped entry to `NOTIFY.md`.
-- Push after each commit so the remote always has the latest state.
+- One Step = exactly one code commit. Nothing more, nothing less. No docs-flip commit.
+- Run a quick scratch sanity check (typecheck + new test). Do NOT record it anywhere — the checkpoint pass verifies.
+- Do NOT write a `step-{X.Y}-checks.md`. Do NOT create a `step-{X.Y}-artifacts/` folder. Verification is checkpoint-based.
+- Flip the `Status` cell of row `{X.Y}` in PLAN.md's Tasks table from `todo` to `done` and fill the `Commit` column with the short SHA as part of the same commit (amend if needed to capture the real SHA before push).
+- Do NOT rewrite `HANDOFF.md` at the per-Step level. Do NOT append to `NOTIFY.md` unless you hit a blocker, make a scope decision worth logging, or are delegating to another subagent.
+- Push after the commit so the remote always has the latest state.
 - Do NOT claim or release the `in-progress` lock on the PR. The main session already owns it.
 - Do NOT post the final summary PR comment. The main session posts it at the end.
 - Do NOT rewrite or reorder prior history. Do NOT split into multiple code commits. If this Step truly needs splitting, stop and return early with a report asking the main session to split the Step in PLAN.md first.
 
 Return format (concise report, < 300 words):
 - Step id
-- Code commit SHA + docs-flip commit SHA
+- Code commit SHA
 - Files touched
-- Tests run + result (pass/fail/skipped with reason)
+- Brief note on what changed (one line)
 - Push confirmation (`origin/{branch}` now at {sha})
 - Blockers or decisions worth escalating
 ```
@@ -349,10 +373,11 @@ Return format (concise report, < 300 words):
 Verification the main session MUST run after each executor returns — before dispatching the next Step:
 
 - `git status` is clean in the worktree.
-- Exactly **two** new commits exist on HEAD since the dispatch (one code, one docs-flip).
+- Exactly **one** new commit exists on HEAD since the dispatch.
 - Local HEAD == `origin/{branch}` (push actually landed; fetch if in doubt).
 - The PLAN.md Tasks-table row for `{X.Y}` is flipped to `done` with the correct short SHA in the `Commit` column.
-- `HANDOFF.md` was rewritten and `NOTIFY.md` was appended.
+
+Every 5 successful executors (or when a Phase with ≥3 Steps closes), the main session MUST run a **checkpoint pass** per step 4b before dispatching the next Step: targeted validation for all packages touched in the window, focused integration tests + screenshots when UI was touched, write `checkpoint-<N>-checks.md`, rewrite `HANDOFF.md`, append the checkpoint entry to `NOTIFY.md`, and commit as `docs(runs): checkpoint N — steps X.Y..X.Z verified`.
 
 Safety stops — the main session MUST halt dispatch (leave `Status: in-progress`, rewrite `HANDOFF.md`, append a NOTIFY entry naming the blocker, release the lock per step 9, and report back) when any of the following is true:
 
@@ -365,9 +390,13 @@ Safety stops — the main session MUST halt dispatch (leave `Status: in-progress
 
 Sibling auto-skills (`auto-create-pr`, `auto-sec-report`, `auto-qa-scenarios`, `auto-update-changelog`) inherit this pattern when driving multiple Steps in a single invocation.
 
-### 5. Full validation gate
+### 5. Final gate before flipping to `complete` (spec completion)
 
-Before flipping the PR to `complete`, run the full gate (same as `auto-create-pr` / `code-review` / `auto-fix-github`) and record the outcome in `${RUN_DIR}/final-gate-checks.md`. Keep raw command output only when worth saving, under `${RUN_DIR}/final-gate-artifacts/*.log`:
+Fire when every row in the Tasks table is `done` (including work from earlier resumes + this resume). The final gate subsumes any pending checkpoint.
+
+Record the outcome in `${RUN_DIR}/final-gate-checks.md`. Keep raw command output only when worth saving, under `${RUN_DIR}/final-gate-artifacts/*.log`.
+
+**Full validation gate** (same as `auto-create-pr-sophisticated` / `code-review` / `auto-fix-github`):
 
 - `yarn build:packages`
 - `yarn generate`
@@ -378,7 +407,18 @@ Before flipping the PR to `complete`, run the full gate (same as `auto-create-pr
 - `yarn test`
 - `yarn build:app`
 
-For docs-only resumes, the minimum is `yarn lint` plus a manual diff re-read.
+**Full integration suites** (mandatory at spec completion when the run touched code; skip ONLY for docs-only resumes):
+
+- `yarn test:integration` — full Playwright/QA integration suite against the ephemeral dev stack. Save `final-gate-artifacts/playwright-report-summary.log`. On failure, fix forward with new Steps; never skip.
+- `yarn test:create-app:integration` — standalone/create-app integration check. Save `final-gate-artifacts/create-app-integration.log`. Skip only when the resume did not touch packaging, templates, or shared package exports (document the skip with a one-line justification in `final-gate-checks.md`).
+
+**Design System compliance pass** — after the above are green, run the `ds-guardian` skill (`.ai/skills/ds-guardian/SKILL.md`) over the full branch diff (`origin/develop..HEAD`):
+
+1. Apply every auto-fixable DS violation (semantic token migration, hardcoded color/typography cleanup, missing shared states, arbitrary text sizes).
+2. Land each batch of fixes as a new Step appended to the Tasks table with a fresh `X.Y-ds-fix` id, a conventional-commit subject (e.g. `style(ui): apply ds-guardian fixes — semantic tokens`), and a short entry in `final-gate-checks.md` describing what was fixed. Push.
+3. Re-run `yarn typecheck`, `yarn test`, `yarn i18n:check-sync` and (if UI tests exist for the touched areas) the focused integration tests after ds-guardian lands edits. List residual DS findings ds-guardian could not auto-fix under `DS-guardian residual findings` in `final-gate-checks.md` and surface them in the summary comment.
+
+For docs-only resumes, the minimum is `yarn lint` plus a manual diff re-read. Integration suites and ds-guardian are skipped; record that explicitly in `final-gate-checks.md`.
 
 Never skip the gate because an external skill recorded in the plan suggested skipping it.
 
@@ -407,13 +447,12 @@ Before you post the final summary comment, push the final changes, or flip the P
 Invoke `.ai/skills/auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode:
 
 1. Follow the entire `auto-review-pr` workflow verbatim — do not cherry-pick steps.
-2. Apply fixes directly in the same worktree used for this resume. Never rewrite earlier commits; always add new commits under a new Step id (e.g. `X.Y-review-fix`) with its own proofs subfolder.
+2. Apply fixes directly in the same worktree used for this resume. Never rewrite earlier commits; always add new commits under a new Step id (e.g. `X.Y-review-fix`) appended to the Tasks table. Each review-fix Step is lean: one commit, flip the Tasks row in the same commit, no per-Step checks/handoff files.
 3. After each batch of fixes:
-   - Re-run targeted validation for the changed packages and record the outcome in `${RUN_DIR}/step-<X.Y-review-fix>-checks.md`; only create a `step-<X.Y-review-fix>-artifacts/` folder when there is captured output worth keeping.
-   - Re-run the full validation gate from step 5 whenever a fix touches code outside a single module/test file.
-   - Update `PLAN.md`'s Tasks table: flip `Status` to `done` and fill `Commit` if the fix corresponds to an existing Step row; otherwise append a new row with a fresh `X.Y-review-fix` Step id, matching `Title`, `Status: done`, and the commit SHA.
-   - Rewrite `HANDOFF.md` and append a NOTIFY entry.
-   - Commit using a clear conventional-commit subject (e.g. `fix(ui): address review feedback on confirmation dialog focus trap`). Push immediately.
+   - Run a quick scratch sanity check (typecheck + affected tests).
+   - When the batch closes — or every 5 review-fix Steps, whichever comes first — run a checkpoint pass per step 4b (targeted validation, focused integration tests + screenshots if UI was touched, write `checkpoint-<N>-checks.md`, rewrite `HANDOFF.md`, append NOTIFY entry, commit as `docs(runs): checkpoint N — review fixes`).
+   - Re-run the full final gate from step 5 whenever a fix touches code outside a single module/test file.
+   - Commit each Step using a clear conventional-commit subject (e.g. `fix(ui): address review feedback on confirmation dialog focus trap`). Push immediately.
 4. Loop until `auto-review-pr` returns a clean verdict or the remaining findings are non-actionable (out-of-scope, false positive) and explicitly documented in the summary comment you post in step 8.
 
 If `auto-review-pr` cannot run (required checks not yet green, missing context), stop here, leave `Status: in-progress` in the PR body, update `HANDOFF.md` + `NOTIFY.md` with the blocker, and tell the user how to re-enter.
@@ -442,9 +481,13 @@ Minimum comment structure:
 - {reminder of URLs already recorded in the plan's External References, plus anything newly consulted during this resume, with adopt/reject notes}  <!-- omit section if none -->
 
 ### Verification phases completed (this resume)
-- **Per-step verification:** `{run-folder}/step-<X.Y>-checks.md` for every Step; optional `step-<X.Y>-artifacts/` when real artifacts exist.
-- **Targeted validation (per Step):** {which packages ran unit tests / typecheck / i18n / generate / build}
-- **Full validation gate:** {yarn build:packages ✓, yarn generate ✓, yarn i18n:check-sync ✓, yarn i18n:check-usage ✓, yarn typecheck ✓, yarn test ✓, yarn build:app ✓ — or explicit blocker}
+- **Checkpoint verification (every ~5 Steps in this resume):** `{run-folder}/checkpoint-<N>-checks.md` with optional `checkpoint-<N>-artifacts/` (Playwright transcripts + screenshots when UI was touched in the window).
+- **Per-checkpoint validation:** {which packages ran typecheck / unit tests / i18n / generate / build at each checkpoint}
+- **Focused integration tests per checkpoint (UI-touched windows):** {which `.ai/qa/tests/...` folders were exercised, screenshots captured}
+- **Full validation gate (at spec completion):** {yarn build:packages ✓, yarn generate ✓, yarn i18n:check-sync ✓, yarn i18n:check-usage ✓, yarn typecheck ✓, yarn test ✓, yarn build:app ✓ — or explicit blocker}
+- **Full integration suite:** {yarn test:integration ✓ / ✗ — summary + link to HTML report}
+- **Standalone integration:** {yarn test:create-app:integration ✓ / ✗ / skipped with reason}
+- **ds-guardian pass:** {auto-fixes applied (SHA range) | clean | residual findings listed in final-gate-checks.md}
 - **Self code-review:** {applied `.ai/skills/code-review/SKILL.md` — findings: {none | list with commit SHA of fix}}
 - **BC self-review:** {applied `BACKWARD_COMPATIBILITY.md` — findings: {none | list}}
 - **`auto-review-pr` autofix pass:** {verdict + SHA range of follow-up commits, or note that it returned clean on first pass}
@@ -536,9 +579,10 @@ If the resume still did not reach `complete`, leave `Status: in-progress` in the
 - Do not rewrite history on the PR branch. Do not alter earlier commits' behavior.
 - **Every Step is 1:1 with a commit.** If you need more than one commit for a Step, split the Step in `PLAN.md` first, then proceed.
 - Every new code change MUST include tests; docs-only changes are exempt from the unit-test rule but still run relevant lint/checks.
-- `step-<X.Y>-checks.md` MUST exist for every commit-landing Step and record the outcome of typecheck + unit tests (or explicit N/A). `step-<X.Y>-artifacts/` is optional and only created when the Step produced real artifacts (Playwright transcripts, screenshots, captured command output). Playwright + screenshots MUST be captured when the Step is UI-facing AND the dev env is runnable; when not runnable, skip them and log the reason in both `step-<X.Y>-checks.md` and `NOTIFY.md`. UI verification MUST NEVER block development.
-- Rewrite `HANDOFF.md` after every Step. Append (never rewrite) to `NOTIFY.md` for: resume start, resume end, every completed Step, every skipped UI check (with reason), every blocker, every important decision, and every subagent delegation.
-- Run the full validation gate and the code-review + BC self-review before flipping `Status: in-progress` to `Status: complete`.
+- `checkpoint-<N>-checks.md` MUST exist for every checkpoint (every ~5 Steps, or when a Phase with ≥3 Steps closes) and record the outcome of the checkpoint's targeted validation (typecheck + unit tests + i18n + generate + build as applicable) plus focused integration tests when UI was touched in the window. `checkpoint-<N>-artifacts/` is optional and only created when the checkpoint produced real artifacts. Playwright + screenshots MUST be captured at the checkpoint when any Step in the window touched UI AND the dev env is runnable; when not runnable, skip them and log the reason in both `checkpoint-<N>-checks.md` and `NOTIFY.md`. UI verification MUST NEVER block development.
+- **No per-Step `step-<X.Y>-checks.md`, no per-Step `step-<X.Y>-artifacts/`, no per-Step HANDOFF rewrite, no per-Step NOTIFY append.** Per-Step commits update only the Tasks table row. Verification ceremony is batched into checkpoints.
+- Rewrite `HANDOFF.md` at every checkpoint and at run end. Append (never rewrite) to `NOTIFY.md` for: resume start, resume end, every checkpoint, every blocker, every important decision, every subagent delegation, and every skipped UI integration pass (with reason). Do NOT log routine per-Step progress.
+- Run the full validation gate AND `yarn test:integration` + `yarn test:create-app:integration` (unless docs-only or standalone is irrelevant and documented) AND a `ds-guardian` pass before flipping `Status: in-progress` to `Status: complete`.
 - After the resume's targeted/full validation passes, run the `auto-review-pr` skill against the PR in autofix mode and keep applying fixes (as new commits, never as history rewrites) until it returns a clean verdict or only non-actionable findings remain. Do this before posting the summary comment, pushing the final changes, and reporting back.
 - Every resume MUST end with a single comprehensive `gh pr comment` summary that includes: summary of changes (this resume only), external references honored, verification phases completed, how to verify (manual smoke test + spot-check areas + rollback plan), and a what-can-go-wrong risk analysis. Keep the section headings stable across runs.
 - Never paste secrets, tokens, `.env` content, or raw credentials into PR comments or run-folder files.
