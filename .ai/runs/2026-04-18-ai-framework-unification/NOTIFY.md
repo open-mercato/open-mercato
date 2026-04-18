@@ -151,3 +151,9 @@
 
 ## 2026-04-18T09:40:00Z — decision: do not inflate Step 2.1 scope
 - Considered folding a `typecheck` script into `packages/ai-assistant/package.json` since the package currently has no CI typecheck gate. Rejected because it is unrelated to the spec deliverable, would widen the diff, and Step 2.1 specifically scopes to "add type + helper + exports + tests." Logged as a follow-up candidate in the Step 2.1 HANDOFF "Blockers / open questions" section.
+
+## 2026-04-18T09:45:00Z — auto-continue-pr resume end
+- Final status: still in-progress. Step 2.1 landed (`a6191c741` + docs flip `3217d17db`, both pushed).
+- 44 Steps remaining across Phases 2–5. Next resume starts at **Step 2.2** (generator extension for `ai-agents.ts`).
+- PR comment `4273315680` posted with the full resume summary.
+- Releasing `in-progress` label on PR #1593.
