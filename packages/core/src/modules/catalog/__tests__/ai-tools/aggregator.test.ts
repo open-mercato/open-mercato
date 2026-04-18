@@ -1,5 +1,6 @@
 /**
- * Step 3.10 — verifies the module-root catalog ai-tools aggregator.
+ * Steps 3.10 + 3.11 — verifies the module-root catalog ai-tools aggregator
+ * (base coverage + D18 merchandising read tools).
  */
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
@@ -8,16 +9,18 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   loadCustomFieldValues: jest.fn(),
+  loadCustomFieldDefinitionIndex: jest.fn().mockResolvedValue(new Map()),
 }))
 
 import aiTools from '../../ai-tools'
 import { knownFeatureIds } from './shared'
 
 describe('catalog module-root ai-tools aggregator', () => {
-  it('exports every required read-only base tool', () => {
+  it('exports every required read-only base + D18 merchandising tool', () => {
     const names = aiTools.map((tool) => tool.name).sort()
     expect(names).toEqual(
       [
+        // Base coverage (Step 3.10)
         'catalog.list_products',
         'catalog.get_product',
         'catalog.list_categories',
@@ -30,6 +33,14 @@ describe('catalog module-root ai-tools aggregator', () => {
         'catalog.list_product_tags',
         'catalog.list_option_schemas',
         'catalog.list_unit_conversions',
+        // D18 merchandising (Step 3.11)
+        'catalog.search_products',
+        'catalog.get_product_bundle',
+        'catalog.list_selected_products',
+        'catalog.get_product_media',
+        'catalog.get_attribute_schema',
+        'catalog.get_category_brief',
+        'catalog.list_price_kinds',
       ].sort(),
     )
   })
@@ -44,9 +55,24 @@ describe('catalog module-root ai-tools aggregator', () => {
     }
   })
 
-  it('reserves catalog.list_price_kinds for Step 3.11 D18 ownership (base tool uses the `_base` suffix)', () => {
+  it('coexists: catalog.list_price_kinds_base (Step 3.10) and catalog.list_price_kinds (Step 3.11) are both registered', () => {
     const names = new Set(aiTools.map((tool) => tool.name))
     expect(names.has('catalog.list_price_kinds_base')).toBe(true)
-    expect(names.has('catalog.list_price_kinds')).toBe(false)
+    expect(names.has('catalog.list_price_kinds')).toBe(true)
+  })
+
+  it('every D18 merchandising tool name matches the spec exactly', () => {
+    const names = new Set(aiTools.map((tool) => tool.name))
+    for (const expected of [
+      'catalog.search_products',
+      'catalog.get_product_bundle',
+      'catalog.list_selected_products',
+      'catalog.get_product_media',
+      'catalog.get_attribute_schema',
+      'catalog.get_category_brief',
+      'catalog.list_price_kinds',
+    ]) {
+      expect(names.has(expected)).toBe(true)
+    }
   })
 })

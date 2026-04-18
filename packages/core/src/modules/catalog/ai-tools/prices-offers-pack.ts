@@ -14,8 +14,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { CatalogOffer, CatalogPriceKind, CatalogProductPrice } from '../data/entities'
+import { CatalogOffer, CatalogProductPrice } from '../data/entities'
 import { assertTenantScope, type CatalogAiToolDefinition, type CatalogToolContext } from './types'
+import { listPriceKindsCore } from './_shared'
 
 function resolveEm(ctx: CatalogToolContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
@@ -124,40 +125,9 @@ const listPriceKindsTool: CatalogAiToolDefinition = {
   handler: async (rawInput, ctx) => {
     const { tenantId } = assertTenantScope(ctx)
     const input = listPriceKindsInput.parse(rawInput)
-    const em = resolveEm(ctx)
-    const limit = input.limit ?? 50
-    const offset = input.offset ?? 0
-    const where: Record<string, unknown> = { tenantId, deletedAt: null }
-    if (ctx.organizationId) {
-      where.$or = [{ organizationId: ctx.organizationId }, { organizationId: null }]
-    }
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CatalogPriceKind>(
-        em,
-        CatalogPriceKind,
-        where as any,
-        { limit, offset, orderBy: { code: 'asc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CatalogPriceKind, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
-    return {
-      items: filtered.map((row) => ({
-        id: row.id,
-        code: row.code,
-        title: row.title,
-        displayMode: row.displayMode,
-        currencyCode: row.currencyCode ?? null,
-        isPromotion: !!row.isPromotion,
-        isActive: !!row.isActive,
-        organizationId: row.organizationId ?? null,
-        tenantId: row.tenantId ?? null,
-      })),
-      total,
-      limit,
-      offset,
-    }
+    // Shared helper; Step 3.11 `catalog.list_price_kinds` uses the same core
+    // so both tools cannot drift.
+    return listPriceKindsCore(ctx, input, tenantId)
   },
 }
 
