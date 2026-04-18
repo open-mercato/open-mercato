@@ -2,7 +2,7 @@
 
 **Step:** 1.4 Flatten verification layout: replace `proofs/<step>/` with `step-<X.Y>-checks.md` + optional `step-<X.Y>-artifacts/` next to PLAN.md.
 **Scope:** docs-only.
-**Commit:** _filled in at commit time_.
+**Commit:** `6a1afab69`.
 
 ## What changed
 

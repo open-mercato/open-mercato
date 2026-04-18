@@ -1,20 +1,21 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T08:32:00Z
+**Last updated:** 2026-04-18T08:45:00Z
 **Branch:** `feat/ai-framework-unification`
-**PR:** https://github.com/open-mercato/open-mercato/pull/1593 (currently held by `auto-create-pr` dogfood lock)
-**Current phase/step:** Phase 1 complete (Steps 1.1 / 1.2 / 1.3 landed). Phase 2 awaiting user scope.
-**Last commit:** `98ec6abb2` — `docs(skills): require auto-create-pr to hold the three-signal in-progress lock`
+**PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by `auto-create-pr` dogfood `in-progress` lock — release queued after Step 1.4 push)
+**Current phase/step:** Phase 1 complete (Steps 1.1 / 1.2 / 1.3 / 1.4 landed). Phase 2 awaiting user scope.
+**Last commit:** `6a1afab69` — `docs(skills): flatten run-folder verification layout to step-<X.Y>-checks.md + optional artifacts`
 
 ## What just happened
-- Step 1.1 (commit `bacbc59ec`): skill harness rework — per-spec run folders, 1:1 step↔commit, per-commit proofs, 2-subagent cap, sibling-skill migration, README refresh.
-- Step 1.2 (commit `4a782bbd1`): NOTIFY.md / HANDOFF.md timestamps repaired from `T00:xx:xxZ` placeholders to realistic UTC times matching the session timeline.
-- Step 1.3 (commit `98ec6abb2`): `auto-create-pr` SKILL now claims the PR with the three-signal in-progress lock immediately after `gh pr create`, temporarily releases it before invoking `auto-review-pr`, reclaims after, and releases in the trap/finally alongside worktree cleanup. Dogfooded on PR #1593 itself: `in-progress` label applied + claim comment posted; release will follow this Progress flip.
+- Step 1.1 (`bacbc59ec`): skill harness rework — per-spec run folders, 1:1 step↔commit, sibling-skill migration, README refresh.
+- Step 1.2 (`4a782bbd1`): NOTIFY.md / HANDOFF.md timestamps repaired from placeholders to real UTC times.
+- Step 1.3 (`98ec6abb2`): `auto-create-pr` now claims the three-signal `in-progress` lock (assignee + label + claim comment), temporarily releases it before `auto-review-pr`, reclaims after, releases in the trap/finally. Dogfooded on PR #1593.
+- Step 1.4 (`6a1afab69`): verification layout flattened. `proofs/<step-id>/` replaced by `step-<X.Y>-checks.md` (required per Step) + optional `step-<X.Y>-artifacts/` (only when real artifacts exist). Full gate uses `final-gate-checks.md` + optional `final-gate-artifacts/`. Review-fix follow-ups use `step-<X.Y-review-fix>-checks.md`. `.ai/runs/README.md`, `auto-create-pr`, `auto-continue-pr`, and `auto-sec-report` updated; `auto-qa-scenarios` inherits unchanged. Migrated three existing `proofs/<id>/notes.md` files to `step-<X.Y>-checks.md` in this run folder.
 
 ## Next concrete action
-- Commit this Progress flip + HANDOFF/NOTIFY refresh.
+- Commit this Progress flip + HANDOFF/NOTIFY refresh (this commit).
 - Push to `origin/feat/ai-framework-unification`.
-- Release the `in-progress` lock on PR #1593 with a completion comment.
+- Release the `in-progress` lock on PR #1593.
 - Wait for user direction on Phase 2 (`ai-framework` unification scope).
 
 ## Blockers / open questions

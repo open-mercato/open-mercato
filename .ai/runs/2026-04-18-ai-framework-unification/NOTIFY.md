@@ -59,3 +59,18 @@
 
 ## 2026-04-18T08:32:00Z — Phase 1 complete (second pass)
 - Steps 1.1 / 1.2 / 1.3 all [x]. HANDOFF rewritten for the Phase 1 exit state. Next action: push, release lock on #1593, wait for Phase 2 scope.
+
+## 2026-04-18T08:40:00Z — user asked: flatten verification layout
+- Request: no `proofs/` subfolder, no per-step subfolders. Use `step-<X.Y>-checks.md` next to `PLAN.md` for verification and `step-<X.Y>-artifacts/` only when the Step produced real artifacts. Update all skills and align the structure in this PR.
+- Decision: promote to Step 1.4 under Phase 1.
+
+## 2026-04-18T08:40:30Z — dogfood: reclaimed in-progress on PR #1593
+- Applied `in-progress` label to #1593 and posted a claim comment, honoring the three-signal rule added in Step 1.3.
+
+## 2026-04-18T08:44:00Z — Step 1.4 committed (6a1afab69)
+- `docs(skills): flatten run-folder verification layout to step-<X.Y>-checks.md + optional artifacts`
+- Removed `proofs/` nested layout. Migrated `proofs/1.1/notes.md` and `proofs/1.3/notes.md` to `step-1.1-checks.md` / `step-1.3-checks.md`; backfilled `step-1.2-checks.md` retroactively. Added `step-1.4-checks.md` for this Step.
+- Updated `.ai/runs/README.md`, `auto-create-pr`, `auto-continue-pr`, `auto-sec-report`. `auto-qa-scenarios` inherits by reference and needed no edit.
+
+## 2026-04-18T08:45:00Z — Phase 1 complete (third pass)
+- Steps 1.1 / 1.2 / 1.3 / 1.4 all [x]. Next: push and release lock on #1593, wait for Phase 2 scope.
