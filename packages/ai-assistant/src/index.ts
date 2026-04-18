@@ -118,8 +118,14 @@ export {
 
 export {
   runAiAgentText,
+  runAiAgentObject,
   composeSystemPrompt,
   type RunAiAgentTextInput,
+  type RunAiAgentObjectInput,
+  type RunAiAgentObjectOutputOverride,
+  type RunAiAgentObjectResult,
+  type RunAiAgentObjectGenerateResult,
+  type RunAiAgentObjectStreamResult,
   type AgentRequestPageContext,
 } from './modules/ai_assistant/lib/agent-runtime'
 

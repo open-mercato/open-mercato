@@ -28,6 +28,13 @@ export interface ResolveAiAgentToolsInput {
   authContext: AiChatRequestContext
   pageContext?: Record<string, unknown>
   attachmentIds?: string[]
+  /**
+   * Execution mode the caller intends to run the agent in. Defaults to
+   * `'chat'` to preserve the existing chat dispatcher contract. Object-mode
+   * callers (see `runAiAgentObject`) MUST pass `'object'` so the policy gate
+   * can reject chat-only agents early with `execution_mode_not_supported`.
+   */
+  requestedExecutionMode?: 'chat' | 'object'
 }
 
 export interface ResolvedAgentTools {
@@ -109,7 +116,7 @@ export async function resolveAiAgentTools(
   const agentDecision = checkAgentPolicy({
     agentId: input.agentId,
     authContext: policyAuth,
-    requestedExecutionMode: 'chat',
+    requestedExecutionMode: input.requestedExecutionMode ?? 'chat',
   })
   if (!agentDecision.ok) {
     throw new AgentPolicyError(agentDecision.code, agentDecision.message)
