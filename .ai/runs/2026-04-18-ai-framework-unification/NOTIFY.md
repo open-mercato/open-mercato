@@ -40,3 +40,22 @@
 
 ## 2026-04-18T08:29:00Z — correction: timestamps
 - User flagged that earlier NOTIFY entries used placeholder `T00:00:00Z` times instead of real UTC. Rewriting the file with realistic timestamps derived from the actual session timeline. Append-only rule violated this one time to repair a data-integrity bug in the log; noting the correction here so reviewers can see the repair. Future entries will use real `$(date -u +%Y-%m-%dT%H:%M:%SZ)` at the moment the event occurs.
+
+## 2026-04-18T08:29:30Z — Step 1.2 committed (4a782bbd1)
+- `docs(runs): fix placeholder UTC timestamps in ai-framework-unification log`
+- Added Steps 1.2 and 1.3 under Phase 1 in PLAN.md.
+
+## 2026-04-18T08:30:00Z — user asked: ensure skills enforce in-progress label
+- Request: "make sure these skills are applying the in-progress accordingly".
+- Decision: auto-create-pr previously opened the PR without holding the three-signal lock, relying on auto-review-pr to claim during the peer-review sub-run. This violates the root AGENTS.md rule. Fix: add step 9b (claim after gh pr create), temporary release before auto-review-pr in step 11, reclaim after, final release in step 13 trap/finally. Promoted to Step 1.3.
+
+## 2026-04-18T08:30:30Z — dogfood: claimed in-progress on PR #1593
+- Applied `in-progress` label to #1593 and posted `🤖 auto-create-pr (dogfood) claiming …` comment, matching the new three-signal protocol.
+
+## 2026-04-18T08:31:30Z — Step 1.3 committed (98ec6abb2)
+- `docs(skills): require auto-create-pr to hold the three-signal in-progress lock`
+- Files touched: `.ai/skills/auto-create-pr/SKILL.md` (step 9b added; steps 11 and 13 extended; Rules updated).
+- Proof notes: `proofs/1.3/notes.md`.
+
+## 2026-04-18T08:32:00Z — Phase 1 complete (second pass)
+- Steps 1.1 / 1.2 / 1.3 all [x]. HANDOFF rewritten for the Phase 1 exit state. Next action: push, release lock on #1593, wait for Phase 2 scope.
