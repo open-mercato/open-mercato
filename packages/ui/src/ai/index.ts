@@ -11,3 +11,18 @@ export {
   type AiUiPartProps,
   type ReservedAiUiPartId,
 } from './ui-part-registry'
+export {
+  uploadAttachmentsForChat,
+  type UploadAttachmentsForChatOptions,
+  type UploadAttachmentsForChatResult,
+  type UploadedAttachment,
+  type UploadFailure,
+  type UploadFailureReason,
+} from './upload-adapter'
+export {
+  useAiChatUpload,
+  type UseAiChatUploadOptions,
+  type UseAiChatUploadState,
+  type AiChatUploadFileState,
+  type AiChatUploadFileStatus,
+} from './useAiChatUpload'
