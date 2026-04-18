@@ -100,6 +100,11 @@ export type QueryOptions = {
   tenantId?: string // enforce tenant scope
   // Optional list of organization ids to scope results. Takes precedence over organizationId.
   organizationIds?: string[]
+  /**
+   * When true, the engine does not apply default `organization_id` / `tenant_id` equality guards.
+   * Callers must encode full visibility in `filters` (for example with `$or` of scoped branches).
+   */
+  omitAutomaticTenantOrgScope?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean

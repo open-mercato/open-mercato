@@ -200,12 +200,13 @@ export class BasicQueryEngine implements QueryEngine {
         'See migration guide or documentation for details.'
       )
     }
+    const skipAutoScope = opts.omitAutomaticTenantOrgScope === true
     // Optional organization filter (when present in schema)
-    if (orgScope && await this.columnExists(table, 'organization_id')) {
+    if (!skipAutoScope && orgScope && await this.columnExists(table, 'organization_id')) {
       q = this.applyOrganizationScope(q, qualify('organization_id'), orgScope)
     }
     // Tenant guard (required) when present in schema
-    if (await this.columnExists(table, 'tenant_id')) {
+    if (!skipAutoScope && await this.columnExists(table, 'tenant_id')) {
       q = q.where(qualify('tenant_id'), opts.tenantId)
     }
     // Default soft-delete guard: exclude rows with deleted_at when column exists
@@ -307,8 +308,14 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
       switch (op) {
-        case 'eq': builder.where(column, value); break
-        case 'ne': builder.whereNot(column, value); break
+        case 'eq':
+          if (value === null) builder.whereNull(column)
+          else builder.where(column, value)
+          break
+        case 'ne':
+          if (value === null) builder.whereNotNull(column)
+          else builder.whereNot(column, value)
+          break
         case 'gt': builder.where(column, '>', value); break
         case 'gte': builder.where(column, '>=', value); break
         case 'lt': builder.where(column, '<', value); break
@@ -382,7 +389,7 @@ export class BasicQueryEngine implements QueryEngine {
       applyFilterOp(q, qualified, filter.op, filter.value, fieldName)
     }
 
-    // Apply OR-grouped filters as a single WHERE (... OR ... OR ...)
+    // OR-grouped filters: AND within each group (one $or disjunct), OR between groups.
     if (orGroupFilters.length > 0) {
       const groups = new Map<string, typeof orGroupFilters>()
       for (const f of orGroupFilters) {
@@ -390,12 +397,13 @@ export class BasicQueryEngine implements QueryEngine {
         group.push(f)
         groups.set(f.orGroup!, group)
       }
+      const resolvedGroupFilters: Array<Array<{ qualified: string; op: string; value: unknown; fieldName: string }>> = []
       for (const [, groupFilters] of groups) {
-        const resolvedOrFilters: Array<{ qualified: string; op: string; value: unknown; fieldName: string }> = []
+        const resolved: Array<{ qualified: string; op: string; value: unknown; fieldName: string }> = []
         for (const filter of groupFilters) {
           const column = await this.resolveBaseColumn(table, String(filter.field))
           if (column) {
-            resolvedOrFilters.push({
+            resolved.push({
               qualified: qualify(column),
               op: filter.op,
               value: filter.value,
@@ -403,30 +411,32 @@ export class BasicQueryEngine implements QueryEngine {
             })
           }
         }
-        if (resolvedOrFilters.length > 0) {
-          q = q.where(function (this: any) {
-            for (let i = 0; i < resolvedOrFilters.length; i++) {
-              const rf = resolvedOrFilters[i]
-              if (i === 0) {
-                applyFilterOp(this, rf.qualified, rf.op, rf.value, rf.fieldName)
-                continue
-              }
-              this.orWhere(function (this: any) {
-                applyFilterOp(this, rf.qualified, rf.op, rf.value, rf.fieldName)
-              })
+        if (resolved.length > 0) resolvedGroupFilters.push(resolved)
+      }
+      if (resolvedGroupFilters.length > 0) {
+        q = q.where(function (this: any) {
+          const applyConjunctiveGroup = (builder: any, conjuncts: (typeof resolvedGroupFilters)[0]) => {
+            for (const rf of conjuncts) {
+              applyFilterOp(builder, rf.qualified, rf.op, rf.value, rf.fieldName)
             }
-          })
-        }
+          }
+          applyConjunctiveGroup(this, resolvedGroupFilters[0])
+          for (let gi = 1; gi < resolvedGroupFilters.length; gi++) {
+            this.orWhere(function (nested: any) {
+              applyConjunctiveGroup(nested, resolvedGroupFilters[gi])
+            })
+          }
+        })
       }
     }
 
     const applyAliasScopes = async (builder: any, aliasName: string) => {
       const targetTable = aliasTables.get(aliasName)
       if (!targetTable) return
-      if (orgScope && await this.columnExists(targetTable, 'organization_id')) {
+      if (!skipAutoScope && orgScope && await this.columnExists(targetTable, 'organization_id')) {
         this.applyOrganizationScope(builder, `${aliasName}.organization_id`, orgScope)
       }
-      if (opts.tenantId && await this.columnExists(targetTable, 'tenant_id')) {
+      if (!skipAutoScope && opts.tenantId && await this.columnExists(targetTable, 'tenant_id')) {
         builder.where(`${aliasName}.tenant_id`, opts.tenantId)
       }
     }

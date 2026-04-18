@@ -68,6 +68,7 @@ const crud = makeCrudRoute({
       lastRunAt: 'last_run_at',
       createdAt: 'created_at',
     },
+    omitAutomaticTenantOrgScope: true,
     transformItem: (item: Record<string, unknown>) => {
       if (!item) return item
       return {
@@ -96,18 +97,61 @@ const crud = makeCrudRoute({
     },
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
+      const tenantId = ctx.auth?.tenantId
+      if (!tenantId) {
+        return filters
+      }
 
-      filters.organization_id = { $eq: ctx.auth?.orgId }
+      const isSuperAdmin =
+        Array.isArray(ctx.auth?.roles) &&
+        ctx.auth.roles.some((role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin')
+
+      const rawOrgIds = Array.isArray(ctx.organizationIds)
+        ? ctx.organizationIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+        : []
+      const orgIdsForVisibility =
+        rawOrgIds.length > 0 ? rawOrgIds : ctx.auth?.orgId ? [ctx.auth.orgId] : []
+
+      const visibilityBranches: Record<string, unknown>[] = []
+      if (orgIdsForVisibility.length === 1) {
+        visibilityBranches.push({
+          organization_id: { $eq: orgIdsForVisibility[0] },
+          tenant_id: { $eq: tenantId },
+        })
+      } else if (orgIdsForVisibility.length > 1) {
+        visibilityBranches.push({
+          organization_id: { $in: orgIdsForVisibility },
+          tenant_id: { $eq: tenantId },
+        })
+      }
+      visibilityBranches.push({
+        organization_id: { $eq: null },
+        tenant_id: { $eq: tenantId },
+        scope_type: { $eq: 'tenant' },
+      })
+      if (isSuperAdmin) {
+        visibilityBranches.push({
+          organization_id: { $eq: null },
+          tenant_id: { $eq: null },
+          scope_type: { $eq: 'system' },
+        })
+      }
+
+      const searchNeedle = query.search?.trim()
+        ? `%${escapeLikePattern(query.search.trim())}%`
+        : null
+
+      const visibilityOr: Record<string, unknown>[] = searchNeedle
+        ? visibilityBranches.flatMap((branch) => [
+            { ...branch, name: { $ilike: searchNeedle } },
+            { ...branch, description: { $ilike: searchNeedle } },
+          ])
+        : visibilityBranches
+
+      filters.$or = visibilityOr
 
       if (query.id) {
         filters.id = { $eq: query.id }
-      }
-
-      if (query.search) {
-        filters.$or = [
-          { name: { $ilike: `%${escapeLikePattern(query.search)}%` } },
-          { description: { $ilike: `%${escapeLikePattern(query.search)}%` } },
-        ]
       }
 
       if (query.scopeType) {

@@ -142,6 +142,11 @@ export type ListConfig<TList> = {
   customFieldSources?: QueryCustomFieldSource[]
   joins?: QueryJoinEdge[]
   decorateCustomFields?: CrudListCustomFieldDecorator
+  /**
+   * When true, list queries skip QueryEngine default organization_id / tenant_id guards.
+   * Use with `buildFilters` that fully encodes row visibility.
+   */
+  omitAutomaticTenantOrgScope?: boolean
 }
 
 export type CrudExportColumnConfig = {
@@ -1355,7 +1360,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const mergedFilters = exportFullRequested ? filters : mergeIdFilter(filters, parsedIds)
         const withDeleted = parseBooleanToken((queryParams as any).withDeleted) === true
         profiler.mark('filters_ready', { withDeleted })
-        if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+        if (
+          ormCfg.orgField &&
+          ctx.organizationIds &&
+          ctx.organizationIds.length === 0 &&
+          !opts.list?.omitAutomaticTenantOrgScope
+        ) {
           profiler.mark('scope_blocked')
           logForbidden({
             resourceKind,
@@ -1409,6 +1419,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         if (ormCfg.orgField) {
           queryOpts.organizationId = ctx.selectedOrganizationId ?? undefined
           queryOpts.organizationIds = ctx.organizationIds ?? undefined
+        }
+        if (opts.list.omitAutomaticTenantOrgScope) {
+          queryOpts.omitAutomaticTenantOrgScope = true
         }
         const queryEntity = String(opts.list.entityId)
         profiler.mark('query_options_ready')
@@ -1568,7 +1581,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const em = (ctx.container.resolve('em') as any)
       const repo = em.getRepository(ormCfg.entity)
       profiler.mark('orm_repo_ready')
-      if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
+      if (
+        ormCfg.orgField &&
+        ctx.organizationIds &&
+        ctx.organizationIds.length === 0 &&
+        !opts.list?.omitAutomaticTenantOrgScope
+      ) {
         profiler.mark('fallback_scope_blocked')
         logForbidden({
           resourceKind,
