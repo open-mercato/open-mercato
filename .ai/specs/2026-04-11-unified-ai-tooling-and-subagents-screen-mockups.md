@@ -174,8 +174,126 @@ Intent:
 +--------------------------------------------------------------------------------------------------+
 ```
 
+## 5. Mutation Approval in Transcript (Phase 3)
+Intent:
+- show how the in-chat HIL approval (main spec §9, D16) lives inside an existing embedded `<AiChat>` without opening a second screen
+- approval state transitions are visible in the same transcript the user was already reading
+
+```text
++--------------------------------------------------------------------------------------+
+| Customers account assistant                       [ debug ]  [ x ]                  |
++--------------------------------------------------------------------------------------+
+| user:                                                                                |
+|   Mark deal DEAL-42 as won and set close date to today.                              |
+|                                                                                      |
+| assistant:                                                                           |
+|   I'll update DEAL-42 to stage "Won" with a close date of 2026-04-18.                |
+|                                                                                      |
+| [mutation-preview-card]                                                              |
+| +----------------------------------------------------------------------------------+ |
+| | [!] Approval required                            expires in 09:42                | |
+| |----------------------------------------------------------------------------------| |
+| | Update deal DEAL-42 "Northwind Renewal Q3"                                      | |
+| | tool: customers.update_deal                                                     | |
+| |----------------------------------------------------------------------------------| |
+| | stage       Negotiation  ->  Won                                                | |
+| | closeDate   (empty)      ->  2026-04-18                                         | |
+| | wonReason   (empty)      ->  "Pricing accepted"                                 | |
+| |----------------------------------------------------------------------------------| |
+| | Side effects: deals.deal.updated event, pipeline totals recompute               | |
+| |----------------------------------------------------------------------------------| |
+| | [ Cancel (Esc) ]                         [ Confirm (Cmd/Ctrl+Enter) ]           | |
+| +----------------------------------------------------------------------------------+ |
+|                                                                                      |
+| [composer is soft-disabled while this action is pending]                             |
++--------------------------------------------------------------------------------------+
+```
+
+After confirm (one frame later):
+
+```text
+| [confirmation-card]                                                                  |
+| +----------------------------------------------------------------------------------+ |
+| | [spinner] Executing: Update deal DEAL-42                                         | |
+| | Re-checking permissions, scope, and freshness...                                 | |
+| +----------------------------------------------------------------------------------+ |
+```
+
+After success:
+
+```text
+| [mutation-result-card]                                                               |
+| +----------------------------------------------------------------------------------+ |
+| | [✓] Saved: deal DEAL-42 "Northwind Renewal Q3"                                   | |
+| | stage Negotiation -> Won | closeDate null -> 2026-04-18                          | |
+| | [ Open record ]                                                                  | |
+| +----------------------------------------------------------------------------------+ |
+|                                                                                      |
+| assistant:                                                                           |
+|   Done — DEAL-42 is now Won. Anything else?                                          |
+|                                                                                      |
+| [composer re-enabled]                                                                |
+```
+
+After cancel (alternative branch):
+
+```text
+| [mutation-cancelled note]                                                            |
+| "Cancelled at user request."                                                         |
+|                                                                                      |
+| assistant:                                                                           |
+|   Ok, leaving DEAL-42 as Negotiation. Want me to do something else with the deal?   |
+|                                                                                      |
+| [composer re-enabled]                                                                |
+```
+
+On expiry (alternative branch):
+
+```text
+| [mutation-preview-card — expired state]                                              |
+| +----------------------------------------------------------------------------------+ |
+| | [ ! ] Expired — ask again to retry                                              | |
+| +----------------------------------------------------------------------------------+ |
+|                                                                                      |
+| [composer re-enabled; original buttons gone]                                         |
+```
+
+## 6. Future: Approval Queue Page (Phase 4+, D17, design only)
+Intent:
+- keep the Phase 3 UI forward-compatible with a shared approval queue without building it in this spec
+- show the relationship between the in-chat preview and the batch queue: same data, different container
+
+```text
++--------------------------------------------------------------------------------------+
+| AI Approval Queue                                       assignee [ Me v ]           |
+| Pending actions waiting for confirm or cancel                                        |
++--------------------------------------------------------------------------------------+
+| Filters: agent [ all v ]   module [ all v ]   status [ pending v ]   search [.....] |
++--------------------------------------------------------------------------------------+
+| Agent                       Action                         Record     Expires   [ ] |
+|--------------------------------------------------------------------------------------|
+| [v] customers.account_asst  Update deal (stage=Won)        DEAL-42    09:42    [ ] |
+|     Proposed by @alice at 14:12 for tenant acme                                     |
+|     stage: Negotiation -> Won                                                        |
+|     closeDate: null -> 2026-04-18                                                    |
+|     [ Open in chat ]   [ Confirm ]   [ Cancel ]                                      |
+|--------------------------------------------------------------------------------------|
+| [>] catalog.merchandising_asst  Update pricing for PROD-910            14:05   [ ] |
+| [>] sales.order_assistant       Issue partial refund $120 on INV-2011  03:17   [ ] |
+|--------------------------------------------------------------------------------------|
+| [ Approve selected ]  [ Reject selected ]  [ Open in chat ]                          |
++--------------------------------------------------------------------------------------+
+```
+
+Design notes (not implemented in this spec):
+- the same `field-diff-card` component renders inside each row; no forked data contract
+- bulk approve/reject fans out to `POST /api/ai/actions/:id/confirm` one request at a time, preserving the per-action server-side re-check
+- "Open in chat" re-hydrates the originating `<AiChat>` so the user drops back into the conversation that proposed the action
+- queued pending actions fire `ai.action.confirmed` / `ai.action.cancelled` events that the originating agent's worker subscribes to in order to resume the next step of a multi-action workflow
+
 ## Notes for Implementation
 
 - The playground should prioritize transparency over polish.
 - The settings page should prioritize edit safety over density.
 - Embedded agent panels should stay secondary to the main business record, not replace the record UI.
+- Phase 3 mutation approval cards live inside the existing `<AiChat>` transcript — no separate approval screen is introduced in this spec; the Phase 4+ queue (§6 above) is explicitly design-only.

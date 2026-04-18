@@ -5,6 +5,7 @@
 - Keep `ai-tools.ts`, `AiToolDefinition`, `McpToolDefinition`, `registerMcpTool()`, `ai-tools.generated.ts`, `/api/chat`, `/api/tools`, `mcp:serve`, and `mcp:serve-http` working unchanged.
 - Introduce a new additive module convention, `ai-agents.ts`, plus a reusable `<AiChat>` UI component, AI-SDK-first helper APIs, and a new authenticated dispatcher route, `POST /api/ai/chat?agent=<module>.<agent>`.
 - V1 ships focused, read-first sub-agents, standard auth, attachment-backed uploads, tagged client-rendered streamed UI parts, explicit coexistence with OpenCode Code Mode, and first-class support for Vercel AI SDK patterns such as `useChat`, direct transport, and structured-output agents built on `generateText(..., { output })`.
+- Formalizes a server-owned **pending-action** contract and an **in-chat human-in-the-loop (HIL) approval** flow so mutation-capable focused agents can be introduced later without inventing ad-hoc confirmation protocols per module.
 
 ## Overview
 Open Mercato already has three useful AI building blocks:
@@ -36,7 +37,7 @@ Current limitations:
 - The current MCP/runtime story is internally inconsistent: the generator still emits `ai-tools.generated.ts`, but current tool loading logic is Code Mode-centric. That mismatch must be resolved before adding more AI extension surfaces.
 - File handling is underspecified for AI workloads. The repo already has a mature attachments module, but the current spec does not define how attachment records become model-ready file parts, extracted text, or provider-safe binary payloads.
 - The spec does not yet define the baseline tool packs that a "general", "customers", or "catalog" agent should expose, which risks shipping chat shells without enough domain reach to match the UI.
-- Mutation safety for focused AI workflows is not formalized outside the existing OpenCode question flow.
+- Mutation safety for focused AI workflows is still prompt-level guidance, not a server-enforced contract. There is no shared primitive for "the model wants to write — ask the user first, re-check everything, then execute the real command", which means every module that ever wants write-capable agents would reinvent that flow (and likely reinvent it inconsistently).
 
 Non-goals for this spec:
 
@@ -237,6 +238,59 @@ Rules:
 - write tools should correspond to actual UI actions and command-backed operations already supported in the repo
 - the first module coverage target for this spec is `customers` and `catalog`
 
+### D16. Human-in-the-Loop Mutation Approval (Pending-Action Contract)
+Mutation safety must be a server-enforced protocol, not a prompt convention. Every write initiated by a focused agent flows through a pending-action contract with an explicit, auditable approval step.
+
+Rationale:
+
+- prompt-level "ask for confirmation first" is insufficient; the model can hallucinate acceptance, forget to ask, or be tricked by crafted transcript content
+- every module that ships write-capable agents needs the same primitive — pending actions, diff preview, confirm/cancel, server-side re-check — so it must live in the platform, not in modules
+- reuse of existing command/form paths must be guaranteed; there must not be an "AI-only" write path that bypasses the normal command validation, ACL, or event emission
+- the approval UI must live inside the existing `<AiChat>` transcript (no separate screen) so the user keeps their context and the agent can continue the conversation after the decision lands
+
+Rules:
+
+- no mutation tool is ever executed directly from the model's tool call
+- instead, mutation-capable tools resolve through a server-owned `prepareMutation` step that creates a pending-action record and returns an opaque `actionId`
+- the agent emits a `mutation-preview-card` UI part referencing the `actionId`; the transcript renders Confirm / Cancel controls inline
+- `POST /api/ai/actions/:id/confirm` and `POST /api/ai/actions/:id/cancel` are the only ways to move a pending action forward
+- on confirm, the server re-validates everything (user permissions, tenant/org scope, record existence, record version, action freshness, idempotency, tool-still-allowed) before executing through the normal command-backed write path
+- on execution, the server emits a `mutation-result-card` UI part and fires the normal CRUD/domain events so the rest of the UI (lists, detail pages, injected widgets) refreshes automatically through the DOM event bridge
+- every agent declares a `mutationPolicy` field: `'read-only'` (default), `'confirm-required'`, or `'destructive-confirm-required'` — runtime enforces the gate regardless of prompt content
+- pending actions are tenant-scoped, expire by default (TTL), and carry an idempotency key so a double-click or double-submit is safe
+- pending actions record enough context for auditing: who proposed (agent + user), what tool + input, what record, what diff, what side effects, when created, when confirmed or cancelled
+- this contract must be reusable by future **agent-to-agent** or **autonomous** execution flows — the record shape is the same whether a human confirms the action or a future approval queue does
+
+Current-phase implementation target:
+
+- inline, transcript-local approval (one agent turn blocks on one decision); the user stays in the chat and the agent resumes immediately after Confirm or Cancel
+
+Deferred to Phase 4+ (explicitly out of scope for this spec, design-only reference in the Future Scope section):
+
+- a persistent approval queue where pending actions accumulate across sessions and users (see D17)
+
+### D17. Stacked Approval Queue (Future-Phase Extension)
+Design-only placeholder so the current pending-action contract is forward-compatible with a shared approval-queue UI.
+
+Intent:
+
+- real autonomous or long-running agent workflows (batch catalog enrichment, mass deal-stage updates, imported-order reconciliation) will produce more pending actions than one user can approve inside a single chat turn
+- instead of blocking the transcript, the agent should be able to queue its pending actions into a **shared approval list**, return control to the user, and **resume automatically** once a decision lands
+- the platform already has the primitives (events, workers, user tasks in `workflows`) to build this; the pending-action contract from D16 is intentionally shaped so the same records can feed a queue UI without schema changes
+
+Rules (design-only, not implemented in this spec):
+
+- pending actions with `queueMode: 'stack'` are not rendered inline in the transcript; instead they are routed to an approval queue keyed by agent, module, tenant, and optional assignee role
+- the agent turn returns immediately with a `mutation-queued-card` UI part ("3 changes queued for approval") instead of blocking
+- when a queued action is confirmed or cancelled, the platform emits `ai.action.confirmed` / `ai.action.cancelled` events; the originating agent's worker subscribes and resumes the next step (continue the transcript, fire the next tool call, emit the next proposal)
+- same server-side re-checks on confirm as D16 — permissions, scope, freshness, idempotency — so a delayed approval cannot execute on stale context
+- a later spec defines the queue UI, assignee/role routing, SLA/expiry policy, bulk approve/reject, and the worker-resume contract
+
+Rationale for calling it out now:
+
+- D16 must stay compatible with D17; callers should never have to refactor pending actions when the queue ships
+- explicitly deferring keeps this spec shippable while telling future contributors "yes, we thought about it; no, we are not building it yet"
+
 ## Proposed Solution
 
 ### 1. Additive Tool Builder
@@ -281,6 +335,7 @@ type AiAgentDefinition = {
   requiredFeatures?: string[]
   uiParts?: string[]
   readOnly?: boolean
+  mutationPolicy?: 'read-only' | 'confirm-required' | 'destructive-confirm-required'
   maxSteps?: number
   output?: {
     schemaName: string
@@ -311,6 +366,8 @@ Rules:
 - `allowedTools` is an explicit whitelist
 - `readOnly` defaults to `true` in v1
 - if `readOnly` is `true`, tools marked `isMutation: true` are rejected at registration/runtime
+- `mutationPolicy` defaults to `'read-only'` and must remain `'read-only'` whenever `readOnly` is `true`; setting it to `'confirm-required'` or `'destructive-confirm-required'` opts the agent into the pending-action contract defined in D16 and is only honored once that contract ships (Phase 3)
+- runtime enforces the mutation gate regardless of prompt content: a `'confirm-required'` agent must always route mutations through `prepareMutation` + explicit user confirmation, even if the prompt is overridden by a tenant admin
 - focused agents may call other focused agents only in a later phase; v1 agents only call tools
 - `maxSteps` is optional; when set, limits the number of tool-call steps the runtime will execute per turn (passed to `streamText()`)
 - `output` is optional and only valid for `executionMode: 'object'`; it lets app teams run a focused agent through structured-output APIs without hand-writing the prompt and tool plumbing
@@ -377,9 +434,10 @@ V1 focused agents are read-first.
 
 Rules:
 
-- agent-bound chat may use only read-only tools in v1
+- agent-bound chat may use only read-only tools in v1 (Phase 1 / Phase 2)
 - mutation-capable tools remain available through the existing general assistant/MCP flows
-- mutation-capable focused agents are deferred to a later follow-up spec once confirmation semantics are unified
+- mutation-capable focused agents unlock in Phase 3 **only** through the pending-action contract defined in D16 and section 9 below; they must never execute a write without an explicit in-chat user confirmation step
+- the pending-action contract is designed, typed, and integration-tested in this spec so the Phase 3 rollout is additive and does not require another round of architectural debate
 
 ### 7. Tool Packs and Coverage
 V1 introduces explicit tool-pack guidance so agents are useful on day one.
@@ -449,7 +507,7 @@ Prefer aggregate read-model tools over raw CRUD lists when they exist. Reuse pag
 Images and PDFs may contain important business context. Summarize what is visible, mention uncertainty, and reference attached files explicitly when they influence the answer.
 
 [MUTATION POLICY]
-Never execute a write without an explicit user confirmation step. Summarize the intended change first.
+Never execute a write without an explicit user confirmation step. When you decide a write is appropriate, call the mutation tool normally — the runtime will turn it into a `mutation-preview-card` for the user to Confirm or Cancel. Do not claim a change has been saved until you receive a `mutation-result-card` with a success outcome.
 
 [RESPONSE STYLE]
 Be concise, business-facing, and action-oriented. Avoid raw IDs and internal implementation terms unless the user asks for them.
@@ -485,6 +543,104 @@ First settings page scope:
 - attachment policy controls by media type and size budget
 - sample context injection fields for testing prompts without changing production pages
 
+### 9. Mutation Approval Gate (Interactive In-Chat HIL)
+Introduces the server-owned pending-action contract from D16 as a first-class runtime layer. This is the "super cool" part of the chat — the user sees exactly what the agent wants to change, confirms in one click, and the agent picks up where it left off.
+
+#### 9.1 Flow (happy path)
+
+```text
+[user]           "Mark deal DEAL-42 as won and set close date to today."
+  |
+  v
+[agent turn 1]   model reasons, decides to call customers.update_deal
+  |              runtime intercepts: customers.update_deal.isMutation === true
+  |              and agent.mutationPolicy === 'confirm-required'
+  v
+[runtime]        calls prepareMutation(toolName, normalizedInput)
+  |                - validates ACL, tenant/org scope, record existence
+  |                - computes field diff against current record
+  |                - persists AiPendingAction (status=pending, ttl=10m)
+  |                - returns { actionId, preview, expiresAt }
+  v
+[transcript]     streams `mutation-preview-card` UI part with:
+  |                - title "Update deal DEAL-42"
+  |                - before/after table (stage: Negotiation -> Won, closeDate: null -> 2026-04-18)
+  |                - side-effects summary ("will emit deals.deal.updated, recompute pipeline totals")
+  |                - [Confirm] [Cancel] buttons wired to the two approval endpoints
+  |                - countdown badge (expires in 10:00)
+  v
+[user clicks Confirm]
+  |
+  v
+[POST /api/ai/actions/:id/confirm]
+  |                - re-checks permissions, scope, record existence, record version
+  |                - verifies action is still `pending` and not expired
+  |                - runs the normal command-backed update path
+  |                - flips pending action to `confirmed` with commit metadata
+  |                - fires deals.deal.updated (same as any UI-driven update)
+  v
+[runtime]        resumes the agent turn:
+  |                - streams `mutation-result-card` UI part (success + link to record)
+  |                - feeds a synthetic tool-result message to the model:
+  |                  "mutation confirmed and executed; record DEAL-42 is now stage=Won"
+  |                - lets the model continue the conversation naturally
+  v
+[agent turn 2]   model summarizes what happened and suggests next steps
+```
+
+#### 9.2 Flow (cancel)
+
+```text
+[user clicks Cancel]
+  |
+  v
+[POST /api/ai/actions/:id/cancel]
+  |                - flips pending action to `cancelled`
+  v
+[runtime]        resumes the agent turn:
+                   - streams a short `mutation-cancelled` note into the transcript
+                   - feeds a synthetic tool-result message to the model:
+                     "user cancelled the proposed mutation"
+                   - model continues the conversation (e.g. "ok, leaving DEAL-42 as Negotiation — anything else?")
+```
+
+#### 9.3 Flow (expiry)
+
+- pending actions carry a short TTL (default 10 minutes, configurable per agent)
+- an expired action is swept to `status=expired` by a cleanup worker; a subsequent confirm attempt returns `410 Gone`
+- the transcript `mutation-preview-card` shows an "Expired — ask again to retry" state once the countdown hits zero
+
+#### 9.4 Server-side re-check contract
+
+On every `POST /api/ai/actions/:id/confirm`, the runtime MUST re-validate:
+
+- the action is `status=pending` (not already confirmed, cancelled, expired, or executing)
+- the action has not expired
+- the confirming user's session is the same tenant/org as the proposing user (no cross-tenant confirm)
+- the confirming user has the same permissions required by the underlying tool and the agent's `requiredFeatures`
+- the target record still exists and is within the user's scope
+- if the tool declared a version/freshness requirement, the record's current version matches the captured version (or the diff is re-computed and presented again as a new pending action)
+- the agent's `mutationPolicy` still allows this tool (an admin could have demoted the agent to `read-only` between propose and confirm)
+- the tool is still in the agent's `allowedTools` whitelist
+
+Failures become specific error responses (see API contracts).
+
+#### 9.5 Why reuse the normal command path
+
+- command-backed operations already encode the canonical business rules, validation, encryption handling, and event emission for every module
+- an "AI-only" write would instantly drift from the UI's write path and become a second source of bugs
+- emitting the same CRUD/domain events means the rest of the UI (the record's own detail page, lists, injected widgets, DOM event bridge subscribers) refreshes with no extra plumbing
+
+#### 9.6 Attachment handling during mutations
+
+- if a pending action includes `attachmentIds`, those IDs are validated again on confirm against the same tenant/org scope
+- attachments are re-resolved at execution time (not snapshotted) so the final command receives the authoritative record references
+
+#### 9.7 Observability
+
+- every pending action is logged with `{ agentId, actionId, toolName, userId, tenantId, status, createdAt, resolvedAt, outcome }`
+- confirm and cancel events fire typed module events (`ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired`) so subscribers can audit, notify, or extend behavior without patching the runtime
+
 ## Architecture
 
 ### Runtime Layers
@@ -507,9 +663,18 @@ First settings page scope:
    - AI SDK adapter built from the same tool definitions
    - structured-output execution path for `executionMode: 'object'`
 
-5. HTTP/UI layer
+5. Mutation approval gate (Phase 3)
+   - `prepareMutation` resolver that wraps mutation-capable tool calls into pending actions
+   - pending-action store (`AiPendingAction` records) with TTL + idempotency key
+   - confirm/cancel endpoints that re-run full validation before invoking the normal command path
+   - event emission (`ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired`) and transcript resumption hook
+
+6. HTTP/UI layer
    - `POST /api/ai/chat?agent=...`
-   - `<AiChat>`
+   - `POST /api/ai/actions/:id/confirm` (Phase 3)
+   - `POST /api/ai/actions/:id/cancel` (Phase 3)
+   - `GET /api/ai/actions/:id` (Phase 3, for polling / reconnect)
+   - `<AiChat>` including the `mutation-preview-card`, `field-diff-card`, `confirmation-card`, and `mutation-result-card` UI parts
    - playground page
    - agent settings page
 
@@ -543,9 +708,11 @@ This is a prerequisite for the new focused-agent stack because agents depend on 
 
 ## Data Models
 
-V1 introduces no new database tables.
+V1 (Phase 1 / Phase 2) introduces no new database tables.
 
-Persistent sources reused in v1:
+Phase 3 adds one new table to back the pending-action contract (see `AiPendingAction` below); it is additive and follows the normal `yarn db:generate` migration flow. No existing tables are modified.
+
+Persistent sources reused from day one:
 
 - tenant AI settings from the current `ai_assistant` settings/config source
 - uploaded files from the attachments module
@@ -597,6 +764,71 @@ Rules:
 - images and PDFs should prefer `bytes` or short-lived `signed-url` sources depending on provider support
 - text-like files should include extracted `textContent`
 - unsupported binary files must still surface filename, media type, and size to the model/runtime
+
+### `AiPendingAction` (Phase 3)
+Persistent record backing the mutation approval gate (D16, section 9).
+
+```ts
+type AiPendingActionStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'cancelled'
+  | 'expired'
+  | 'executing'
+  | 'failed'
+
+type AiPendingAction = {
+  id: string
+  agentId: string
+  toolName: string
+  conversationId: string | null
+  targetEntityType: string | null
+  targetRecordId: string | null
+  normalizedInput: Record<string, unknown>
+  fieldDiff: Array<{
+    field: string
+    before: unknown
+    after: unknown
+  }>
+  sideEffectsSummary: string | null
+  recordVersion: string | null
+  attachmentIds: string[]
+  idempotencyKey: string
+  createdByUserId: string
+  tenantId: string | null
+  organizationId: string | null
+  status: AiPendingActionStatus
+  createdAt: string
+  expiresAt: string
+  resolvedAt: string | null
+  resolvedByUserId: string | null
+  executionResult: {
+    recordId?: string
+    commandName?: string
+    error?: { code: string; message: string }
+  } | null
+  queueMode: 'inline' | 'stack'
+}
+```
+
+Rules:
+
+- `id` is a UUID used in the `POST /api/ai/actions/:id/{confirm,cancel}` endpoints and in the `mutation-preview-card` UI part props
+- `agentId` must match an enabled, allowed agent in the current tenant
+- `toolName` must be inside the agent's `allowedTools` whitelist and marked `isMutation: true`
+- `normalizedInput` is the same validated payload that would flow into the underlying command; it is stored so the confirm path can re-execute without a second tool-argument pass
+- `fieldDiff` is computed server-side from `normalizedInput` against the target record's current state; the card renders directly from this field so the UI does not re-derive the diff
+- `recordVersion` (when present) is used on confirm to detect stale proposals; if the record has moved on, confirm returns `409 Conflict` and the agent must propose again
+- `idempotencyKey` prevents double-submission; re-calling `prepareMutation` with the same key within the TTL returns the same `id`
+- `expiresAt` defaults to 10 minutes from `createdAt`; overridable per agent (`mutationApprovalTtlMs`)
+- `queueMode` defaults to `'inline'` in this spec; `'stack'` is reserved for the future Stacked Approval Queue (D17) and no runtime honors it yet
+- `executionResult` is populated only on `confirmed`, `executing`, or `failed` statuses and contains enough information for the `mutation-result-card` UI part without a second round trip
+
+Indexing guidance (deferred to implementation, not prescriptive):
+
+- `(tenantId, status, expiresAt)` for the cleanup sweep
+- `(createdByUserId, status)` for user-facing "pending approvals" badges
+- `(idempotencyKey)` unique per tenant for dedupe
 
 ## API Contracts
 
@@ -685,7 +917,90 @@ Rules:
 - `runAiAgentObject()` is the Vercel AI SDK-friendly entry point for structured-output agents
 - object helpers must use the same tool filtering, prompt composition, and attachment conversion path as chat helpers
 
-### 3. Existing Routes Preserved
+### 3. Pending Action Endpoints (Phase 3)
+Additive routes backing the mutation approval gate. All three are authenticated and tenant-scoped.
+
+#### 3.1 `GET /api/ai/actions/:id`
+
+Auth:
+
+- `requireAuth: true`
+- `requireFeatures: ['ai_assistant.view']`
+- additional runtime check: the caller's tenant/org must match the pending action
+
+Response:
+
+```ts
+type AiPendingActionResponse = {
+  id: string
+  agentId: string
+  toolName: string
+  status: AiPendingActionStatus
+  expiresAt: string
+  preview: {
+    title: string
+    targetEntityType: string | null
+    targetRecordId: string | null
+    fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    sideEffectsSummary: string | null
+  }
+  executionResult: AiPendingAction['executionResult']
+}
+```
+
+Rules:
+
+- used for reconnect and polling so `<AiChat>` can resume after a page reload
+- no mutation is performed; a `404` response is returned for unknown or cross-tenant IDs to avoid enumeration
+
+#### 3.2 `POST /api/ai/actions/:id/confirm`
+
+Auth:
+
+- same as `GET`
+- additionally, the full re-check contract from section 9.4 runs before any execution
+
+Request body:
+
+```ts
+type AiConfirmActionRequest = {
+  clientIdempotencyKey?: string
+}
+```
+
+Response: the same `AiPendingActionResponse` shape with `status` transitioned to `confirmed` (or `executing` if the command is async). Streaming continuation of the agent turn lands on the open `/api/ai/chat` connection when one exists; disconnected clients can reconnect and read the status from `GET /api/ai/actions/:id`.
+
+Error model:
+
+- `401` unauthenticated
+- `403` missing feature, missing tool access, or cross-tenant access attempt
+- `404` unknown action id
+- `409` action is not `pending` (already confirmed, cancelled, or failed)
+- `410` action expired
+- `412` record version mismatch (stale proposal; agent must propose again)
+- `422` runtime validation failed (input no longer valid against current record)
+- `500` command execution failed (captured in `executionResult.error`)
+
+#### 3.3 `POST /api/ai/actions/:id/cancel`
+
+Auth:
+
+- same as confirm, minus the command execution step
+
+Response: the `AiPendingActionResponse` with `status=cancelled`.
+
+Error model:
+
+- `401`, `403`, `404` as above
+- `409` if action is not in a cancellable state
+
+#### 3.4 Rules shared by all three endpoints
+
+- all three MUST emit typed module events (`ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired`) so audit subscribers and the future approval-queue worker can react without patching the runtime
+- never include raw tokens or secrets in responses (e.g. database IDs of unrelated records, sensitive side-effect text)
+- error responses reuse the same minimal-detail model already used by `/api/ai/chat` so they are safe to surface in the transcript
+
+### 4. Existing Routes Preserved
 These remain supported and unchanged by this spec:
 
 - `POST /api/chat`
@@ -732,13 +1047,42 @@ UX rules:
 - `Escape` closes any open attachment/secondary dialog
 - use shared `Button` / `IconButton` primitives only
 
-Initial streamable UI parts for v1:
+Initial streamable UI parts for v1 (Phase 1 / Phase 2):
 
 - `record-card`
 - `list-summary`
 - `warning-note`
 
+Added in Phase 3 (Mutation Approval Gate — D16):
+
+- `mutation-preview-card` — top-level approval card; shows target record, tool, side-effects summary, expiry countdown, and `[Confirm]` / `[Cancel]` buttons wired to the approval endpoints
+- `field-diff-card` — renders the `fieldDiff` as a before/after table; used standalone or nested inside `mutation-preview-card`
+- `confirmation-card` — transient "executing…" state the runtime emits between `confirm` accepted and `mutation-result-card` returned; shown as a disabled card so the user cannot double-submit
+- `mutation-result-card` — terminal success / failure state with a link to the saved record and a one-line summary; subscribes to the relevant DOM event bridge channel so the underlying page also refreshes
+
 These are client-rendered components registered in the UI package.
+
+### Interactive In-Chat HIL — Transcript Pattern
+The mutation approval UX is part of `<AiChat>`, not a separate screen. Goals:
+
+- the user stays inside the conversation
+- the preview card is the single source of truth for "what will change"
+- the agent resumes without the user having to re-prompt
+
+Transcript rules:
+
+- when the runtime emits a `mutation-preview-card`, the composer is soft-disabled for that pending action but the user can still scroll and read prior turns
+- `[Confirm]` and `[Cancel]` are full-width primary/secondary buttons with keyboard shortcuts: `Cmd/Ctrl+Enter` confirms, `Escape` cancels; both shortcuts display as hints inside the card
+- `[Confirm]` shows a loading state until the server responds, then auto-replaces with a `confirmation-card`
+- on completion the `mutation-result-card` renders and the composer re-enables, the agent sends a short follow-up message ("Done — DEAL-42 is now Won. Anything else?") so the user sees confirmation both structurally (card) and naturally (chat)
+- if the page reloads mid-approval, `<AiChat>` reconnects by calling `GET /api/ai/actions/:id` for any pending actions referenced in its transcript and re-renders the card in its current state
+- on expiry, the card replaces `[Confirm]` / `[Cancel]` with a non-interactive "Expired — ask again to retry" state; the user types a new message to re-propose
+
+Why in-chat (and not a separate screen):
+
+- the approval is always about *what the user just asked the agent to do* — separating it loses context
+- the card is small enough to fit in any `<AiChat>` embed (side panel, playground, fullscreen) without layout changes
+- the agent can keep talking after the decision instead of the user having to navigate back
 
 ### Playground and Settings Pages
 Add two backend pages under AI Assistant configuration:
@@ -763,6 +1107,7 @@ Settings requirements:
 - model override display and edit surface
 - attachment policy summary
 - saved test snippets / reusable context blocks for admins
+- **mutation policy visibility** (Phase 3): display each agent's `mutationPolicy` (`read-only` / `confirm-required` / `destructive-confirm-required`) separately from prompt text; edits are feature-gated so a tenant admin cannot silently grant write access to a read-only agent
 
 ## Access Control
 
@@ -778,9 +1123,12 @@ Settings requirements:
 - agent runtime must intersect agent whitelist with tool ACL
 
 ### Mutation Policy
-- v1 focused agents are read-only by default
+- Phase 1 / Phase 2 focused agents are read-only by default
 - tools marked `isMutation: true` are blocked from read-only agents
-- mutation-capable focused agents require a follow-up spec defining shared confirmation semantics
+- Phase 3 introduces mutation-capable focused agents gated by the pending-action contract (D16, section 9)
+- the pending-action store is the only path through which a focused agent can execute a write; direct execution of a mutation tool from the model is refused at the runtime layer
+- the confirm endpoint re-runs permissions, scope, record existence, record version, TTL, and tool-whitelist checks independently of whatever was captured at propose time — a stale, demoted, or cross-tenant confirm cannot take effect
+- `mutationPolicy` on `AiAgentDefinition` is server-authoritative; a tenant prompt override cannot escalate an agent's mutation capability
 
 ## Risks & Impact Review
 
@@ -792,7 +1140,13 @@ Settings requirements:
 | Private attachment URLs are passed directly to providers and fail or leak | High | Security, attachment usability | Convert attachments to bytes, signed URLs, or extracted text in one runtime bridge | Low |
 | Provider/model drift across tenants | Medium | Runtime config | Reuse existing tenant settings and only allow `defaultModel` override in v1 | Low |
 | UI part registry grows into unstable mini-framework | Medium | UI maintainability | Ship a very small v1 registry with strict serializable props only | Low |
-| Pressure to allow write-capable focused agents too early | High | Data integrity, UX safety | Keep v1 focused agents read-only; follow-up spec for confirmation protocol | Medium |
+| Pressure to allow write-capable focused agents too early | High | Data integrity, UX safety | Keep Phase 1/2 agents read-only; gate Phase 3 writes behind the D16 pending-action contract with server-side re-check | Low |
+| Pending action is confirmed against a stale record version | High | Data integrity | Capture `recordVersion` at propose time; confirm endpoint rejects stale proposals with `412` and forces re-proposal | Low |
+| Pending action TTL too long; user confirms after business state moved on | Medium | UX, correctness | Default TTL of 10 minutes; configurable per agent with sane upper bound; cleanup worker sweeps to `expired` | Low |
+| Cross-tenant confirmation attempt on a leaked `actionId` | High | Security, privacy | Runtime re-checks tenant/org scope on confirm; unknown or cross-tenant IDs return `404` to prevent enumeration | Low |
+| Model bypasses approval by hand-crafting fake `mutation-result-card` UI parts | High | Data integrity | UI parts are server-emitted only; the client registry treats `mutation-preview-card` as a server-trusted marker; the actual state of record is always re-fetched from the real record endpoint, not the card props | Low |
+| Double-click or network retry executes the same mutation twice | Medium | Data integrity, UX | `idempotencyKey` on pending actions + `confirm` endpoint is idempotent when called with the same key on an already-confirmed action | Low |
+| Admin silently escalates a read-only agent to write via prompt override | High | Security, mutation safety | `mutationPolicy` is a server-authoritative field; prompt overrides cannot change it; settings UI gates mutation-policy edits with a distinct feature | Low |
 | `resolvePageContext` leaks cross-tenant data | High | Security, privacy | Resolver runs inside the same request-scoped context with tenant/org filters; validate resolver output does not include cross-tenant references | Low |
 | Routing metadata (`keywords`/`domain`) used for auto-selection prematurely | Medium | UX correctness | V1 ignores routing metadata at runtime; only emitted in generated registry for future use | Low |
 | Model factory env overrides bypass tenant settings silently | Medium | Runtime config, billing | Document env override precedence clearly; log which resolution path was used in debug mode | Low |
@@ -868,8 +1222,8 @@ Exit criteria:
 - tenant admins can adjust additive prompt overrides and inspect tool/attachment settings
 - at least one customers agent and one catalog agent run end-to-end on the new stack
 
-### Phase 3 - Production Hardening and Expansion
-Goal: prove the design on real production agents and harden the customization model.
+### Phase 3 - Production Hardening, Mutation Approval, and Expansion
+Goal: prove the design on real production agents, unlock write-capable focused agents behind the D16 pending-action contract, and harden the customization model.
 
 Scope:
 
@@ -877,8 +1231,9 @@ Scope:
 - shared model factory
 - prompt override persistence/versioning
 - page-context-driven embedding into existing backend surfaces
+- **mutation approval gate**: `AiPendingAction` store, `prepareMutation` runtime step, `/api/ai/actions/:id/{confirm,cancel}` endpoints, `mutation-preview-card` / `field-diff-card` / `confirmation-card` / `mutation-result-card` UI parts, agent `mutationPolicy` enforcement
 
-Candidate:
+Candidate agents:
 
 - `inbox_ops.proposal_assistant`
 - `sales.order_assistant`
@@ -890,7 +1245,13 @@ Deliverables:
 - one or more real `ai-agents.ts` files with `resolvePageContext` implementation
 - structured prompt templates and versioned tenant overrides
 - shared model factory utility extracted from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant`, supporting `defaultModel` override and optional env-based per-agent override (`<MODULE>_AI_MODEL`)
-- integration coverage
+- `AiPendingAction` MikroORM entity, migration, and repository
+- `prepareMutation` runtime wrapper around mutation-capable tools
+- `/api/ai/actions/:id`, `/api/ai/actions/:id/confirm`, `/api/ai/actions/:id/cancel` routes with `openApi` and metadata-based auth
+- four new UI parts in `@open-mercato/ui/src/ai/parts/`
+- cleanup worker that sweeps expired pending actions
+- typed events: `ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired` (via `createModuleEvents`)
+- integration coverage including happy path, cancel, expiry, stale version, cross-tenant confirm, double-confirm idempotency
 
 Exit criteria:
 
@@ -898,18 +1259,33 @@ Exit criteria:
 - model selection is centralized
 - prompt overrides are safe, versioned, and test-covered
 - the playground and first module agents have been promoted into real production entry points where appropriate
+- at least one mutation-capable agent (candidate: `customers.account_assistant` for deal stage updates) is live behind the pending-action contract and cannot execute any write without a confirmed, unexpired, scope-valid pending action
 
 ### Phase 4 - Follow-up Scope
 Out of scope for this spec but expected follow-ups:
 
-- mutation-capable focused agents with shared confirmation protocol
+- **Stacked Approval Queue** (D17): persistent multi-action queue where agents enqueue pending actions with `queueMode: 'stack'`, return control to the user, and resume via `ai.action.confirmed` / `ai.action.cancelled` subscribers; includes queue UI, role-based assignment, bulk approve/reject, SLA/expiry policy, and the worker-resume contract
 - per-module MCP endpoints
-- agent-to-agent composition
+- agent-to-agent composition (chained LLM calls) beyond the approval-queue resumption hook
 - RSC `streamUI`
 - agent-suggestion feature consuming `keywords`, `domain`, and `dataCapabilities` metadata
 - context dependencies for auto-resolving tool whitelists from module affinities
 - execution budgets (`maxSteps`) recommended as mandatory for mutation-capable agents
 - versioned manifest contract (`manifestVersion`, `platformRange`) when external modules ship AI agents
+
+#### Phase 4 placeholder — Stacked Approval Queue (design only)
+
+Not built in this spec; captured here so the D16 contract stays compatible with it.
+
+Design sketch:
+
+- a later spec introduces a `GET /api/ai/actions?status=pending&assignee=me&agent=...` list endpoint and a backend `/backend/ai/approvals` page
+- the page renders pending actions grouped by agent or module; each row reuses the same `field-diff-card` / side-effects summary rendering as the in-chat card, so the data contract does not fork
+- bulk approve/reject wraps the same `POST /api/ai/actions/:id/confirm` endpoint; there is no batch-specific endpoint because every approval re-runs the full server-side re-check individually
+- the originating agent subscribes to `ai.action.confirmed` / `ai.action.cancelled` events (via the existing `subscribers/*.ts` convention) and resumes its turn: fetch the next LLM step, emit the next proposal, stream the next transcript update — or close out the conversation if nothing remains
+- assignment: pending actions gain an optional `assigneeRole` / `assigneeUserId` so finance, ops, or specific reviewers can own the queue without cross-cutting permission checks at confirm time
+- SLA / expiry: the TTL from D16 still applies, but the queue can surface "expires in X" as a soft warning and escalate via notifications
+- rationale: keeps every mutation fully re-checked at execution (no cached permissions), lets long-running or autonomous agents produce batches without blocking the chat UX, and reuses every piece of infrastructure built in Phase 3
 
 ## Implementation Plan
 
@@ -945,7 +1321,7 @@ The implementation plan below mirrors the delivery phases above. Each phase shou
 #### Workstream A - Shared UI
 1. Add `packages/ui/src/ai/AiChat.tsx`.
 2. Add upload adapter that reuses attachment APIs and returns `attachmentIds`.
-3. Add a minimal client-side UI-part registry.
+3. Add a minimal client-side UI-part registry with room for the Phase 3 approval cards (`mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`) so the registry API does not need to change when Phase 3 lands.
 
 #### Workstream B - Admin-facing screens
 1. Add backend playground page.
@@ -957,7 +1333,7 @@ The implementation plan below mirrors the delivery phases above. Each phase shou
 2. Ship first catalog agents with prompt templates.
 3. Add backend and portal examples using existing injection/replacement patterns.
 
-### Phase 3 - Production Hardening and Expansion
+### Phase 3 - Production Hardening, Mutation Approval, and Expansion
 #### Workstream A - Production agent runtime
 1. Extract shared model factory from `inbox_ops/lib/llmProvider.ts` into `@open-mercato/ai-assistant/lib/model-factory.ts`. Support `defaultModel` override and env-based per-agent override (`<MODULE>_AI_MODEL`).
 2. Implement production `ai-agents.ts` files with `resolvePageContext` callbacks that hydrate record-level context.
@@ -965,11 +1341,22 @@ The implementation plan below mirrors the delivery phases above. Each phase shou
 #### Workstream B - Prompt and settings hardening
 1. Add versioned prompt override persistence and safe additive merge rules.
 2. Add focused integration tests covering tenant prompt overrides and settings persistence.
+3. Surface `mutationPolicy` as a dedicated, feature-gated field in the settings UI (not part of the prompt editor).
 
-#### Workstream C - Production rollout
+#### Workstream C - Mutation approval gate (D16)
+1. Add `AiPendingAction` MikroORM entity and repository; run `yarn db:generate` for the migration.
+2. Add the `prepareMutation` runtime wrapper: when a model calls a tool that is `isMutation: true` inside an agent with `mutationPolicy !== 'read-only'`, execution is intercepted, a pending action is created, and a `mutation-preview-card` UI part is streamed into the transcript.
+3. Add `/api/ai/actions/:id` (GET), `/api/ai/actions/:id/confirm` (POST), `/api/ai/actions/:id/cancel` (POST) with `metadata` + `openApi`. Implement the full server-side re-check contract from section 9.4.
+4. Add the four new UI parts in `@open-mercato/ui/src/ai/parts/`: `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`. Wire keyboard shortcuts (`Cmd/Ctrl+Enter` confirms, `Escape` cancels) and reconnect behavior through `GET /api/ai/actions/:id`.
+5. Add typed `ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired` events via `createModuleEvents`.
+6. Add a cleanup worker that sweeps expired pending actions (`status=pending` + `expiresAt < now`) to `expired` and fires the expiry event.
+7. Enable one end-to-end mutation-capable agent flow (candidate: `customers.account_assistant` for deal stage updates) using the normal command-backed update path.
+
+#### Workstream D - Production rollout
 1. Bind production agents to existing backend pages through normal injection/UI composition, passing `pageContext` from the page.
 2. Add focused integration tests covering page context resolution and model factory fallback chain.
-3. Add docs and operator rollout notes.
+3. Add integration tests for the pending-action contract: happy path, cancel, expiry, stale-version reject, cross-tenant confirm denial, idempotent double-confirm.
+4. Add docs and operator rollout notes.
 
 ## Integration Test Coverage
 
@@ -1016,6 +1403,21 @@ Required coverage for this spec:
 - agent with `maxSteps` stops after the declared number of tool-call steps
 - agent without `maxSteps` uses the runtime default
 
+### Mutation Approval Gate (Phase 3)
+- a mutation-capable tool call from an agent with `mutationPolicy: 'confirm-required'` does not execute directly; it creates a pending action and emits a `mutation-preview-card` UI part
+- calling `POST /api/ai/actions/:id/confirm` with a valid, pending, unexpired action runs the full server-side re-check and executes the command-backed write path exactly once
+- calling confirm twice with the same `clientIdempotencyKey` is a no-op on the second call (no double-write)
+- calling confirm on an expired action returns `410 Gone`
+- calling confirm on a record whose `recordVersion` has changed since propose time returns `412 Precondition Failed`
+- calling confirm as a user in a different tenant from the proposing user returns `404` (no enumeration)
+- calling cancel on a `pending` action transitions it to `cancelled` and streams the agent continuation
+- calling cancel on a `confirmed` action returns `409`
+- expired pending actions are swept by the cleanup worker and emit `ai.action.expired`
+- the underlying CRUD/domain event fires exactly once when a mutation lands (no duplicate events from the approval flow)
+- `mutationPolicy: 'read-only'` agents cannot create pending actions even if a mutation tool is in their `allowedTools` (runtime refuses at propose time)
+- a tenant prompt override cannot escalate `mutationPolicy`
+- page reload mid-approval: the client calls `GET /api/ai/actions/:id` and re-renders the card in its current state
+
 ### Backward Compatibility
 - existing `ai-tools.ts` modules still load
 - `ai-tools.generated.ts` output shape remains unchanged
@@ -1042,7 +1444,7 @@ This spec modifies public AI extension surfaces and therefore must remain additi
 
 ### Additive surfaces introduced
 - `ai-agents.ts`
-- `AiAgentDefinition` (with optional `executionMode`, `output`, `resolvePageContext`, `maxSteps`, `keywords`, `domain`, `dataCapabilities`)
+- `AiAgentDefinition` (with optional `executionMode`, `output`, `resolvePageContext`, `maxSteps`, `keywords`, `domain`, `dataCapabilities`, `mutationPolicy`)
 - `defineAiTool()`
 - `ai-agents.generated.ts`
 - `POST /api/ai/chat?agent=...`
@@ -1054,6 +1456,10 @@ This spec modifies public AI extension surfaces and therefore must remain additi
 - attachment bridge helpers for AI SDK file/text parts
 - playground and agent settings pages
 - shared model factory (`@open-mercato/ai-assistant/lib/model-factory.ts`, Phase 3)
+- `AiPendingAction` data model and table (Phase 3, additive migration)
+- `GET /api/ai/actions/:id`, `POST /api/ai/actions/:id/confirm`, `POST /api/ai/actions/:id/cancel` (Phase 3)
+- `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card` UI parts (Phase 3)
+- `ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired` typed events (Phase 3)
 
 ### Rules
 - no existing import path is removed or renamed
@@ -1071,6 +1477,7 @@ When implemented, release notes must call out:
 - new AI SDK helper adapters for chat and structured-output flows
 - new playground and agent settings pages
 - coexistence story with OpenCode and Command Palette
+- **mutation approval gate** (Phase 3): the new `AiPendingAction` contract, confirm/cancel endpoints, and the four new UI parts; call out clearly that focused agents still cannot execute writes without an explicit in-chat user approval
 
 ## Final Compliance Report
 
@@ -1086,6 +1493,24 @@ When implemented, release notes must call out:
 | Risks include failure scenarios and mitigations | Pass | Concrete table included |
 
 ## Changelog
+
+### 2026-04-18
+- Integrated @dominikpalatynski's review feedback into the spec as a first-class runtime layer rather than a prompt convention.
+- Added Decision **D16. Human-in-the-Loop Mutation Approval (Pending-Action Contract)** formalizing server-owned pending actions, in-chat approval, and the re-check contract on confirm.
+- Added Decision **D17. Stacked Approval Queue (Future-Phase Extension)** as design-only forward compatibility for a later approval-queue feature — no runtime work in this spec.
+- Added `mutationPolicy` field to `AiAgentDefinition` (`'read-only'` | `'confirm-required'` | `'destructive-confirm-required'`); read-only remains the default and tenant prompt overrides cannot escalate it.
+- Added Proposed Solution section **9. Mutation Approval Gate** with the full happy-path / cancel / expiry flow, the 9.4 server-side re-check contract, the "reuse normal command path" rule, and observability/event emission.
+- Added data model `AiPendingAction` (additive Phase 3 table) with status lifecycle, `fieldDiff`, `recordVersion`, `idempotencyKey`, TTL, and a reserved `queueMode: 'inline' | 'stack'` field so D17 can ship without schema churn.
+- Added API contracts for `GET /api/ai/actions/:id`, `POST /api/ai/actions/:id/confirm`, `POST /api/ai/actions/:id/cancel`, including the full error model (`401` / `403` / `404` / `409` / `410` / `412` / `422` / `500`).
+- Added four new server-emitted UI parts — `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card` — and an "Interactive In-Chat HIL — Transcript Pattern" UX section covering composer disabling, `Cmd/Ctrl+Enter` / `Escape` shortcuts, reconnect via `GET /api/ai/actions/:id`, and expiry states.
+- Added typed events `ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired` (Phase 3) as the integration point the future stacked approval queue (D17) will consume.
+- Updated Phase 3 to include a Workstream C dedicated to the Mutation Approval Gate (entity, `prepareMutation` wrapper, endpoints, UI parts, cleanup worker, typed events, one end-to-end mutation-capable agent).
+- Updated Phase 4 follow-up scope to point at the Stacked Approval Queue as the natural extension and added a design sketch covering queue listing, role-based assignment, bulk approve/reject, SLA, and worker-based agent resumption.
+- Added integration test coverage for the mutation approval gate: happy path, cancel, expiry, stale-version reject, cross-tenant confirm denial, idempotent double-confirm, event emission, and read-only-agent refusal at propose time.
+- Added risk entries for stale-record confirm, cross-tenant `actionId` leakage, UI-part spoofing, double-click idempotency, and silent `mutationPolicy` escalation via prompt overrides.
+- Updated BC summary: `AiAgentDefinition` now has optional `mutationPolicy`; new additive routes, table, events, and UI parts all ship additively in Phase 3.
+- Updated the `[MUTATION POLICY]` baseline prompt to acknowledge that the runtime (not the prompt) is authoritative, and to instruct the model not to claim writes succeeded until a `mutation-result-card` arrives.
+- Credit: approval-flow shape based on @dominikpalatynski's review of this PR.
 
 ### 2026-04-15
 - Integrated high-value ideas from PR #1222 analysis (`.ai/specs/2026-04-13-pr-1222-decentralized-ai-analysis.md`).
