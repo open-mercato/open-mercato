@@ -1,22 +1,24 @@
 ---
 name: auto-continue-pr
-description: Resume an in-progress pull request that was started by the auto-create-pr skill. Given a PR number, claim the PR under the in-progress lock protocol, check its branch out into an isolated git worktree, locate the run folder (.ai/runs/<date>-<slug>/) linked from the PR body, read HANDOFF.md first for session context, then PLAN.md's Progress checklist, continue execution from the first unchecked step one commit at a time writing step-<X.Y>-checks.md verification logs next to PLAN.md (typecheck, unit tests, Playwright + screenshot when UI-facing and env is runnable) and step-<X.Y>-artifacts/ folders only when the step produced real artifacts, rewrite HANDOFF.md after each Step and append every important decision to NOTIFY.md, and run the same full validation gate (typecheck, unit tests, i18n, build) and label discipline as auto-create-pr. Usage - /auto-continue-pr <PR-number>
+description: Resume an in-progress pull request that was started by the auto-create-pr skill. Given a PR number, claim the PR under the in-progress lock protocol, check its branch out into an isolated git worktree, locate the run folder (.ai/runs/<date>-<slug>/) linked from the PR body, read HANDOFF.md first for session context, then parse PLAN.md's top-of-file Tasks table (the authoritative todo/done status source), continue execution from the first row whose Status is not done one commit at a time writing step-<X.Y>-checks.md verification logs next to PLAN.md (typecheck, unit tests, Playwright + screenshot when UI-facing and env is runnable) and step-<X.Y>-artifacts/ folders only when the step produced real artifacts, rewrite HANDOFF.md after each Step and append every important decision to NOTIFY.md, and run the same full validation gate (typecheck, unit tests, i18n, build) and label discipline as auto-create-pr. Usage - /auto-continue-pr <PR-number>
 ---
 
 # Auto Continue PR
 
 Resume an `auto-create-pr` run that did not finish in one go. Given a PR
 number, you re-enter the same worktree discipline, read `HANDOFF.md` for
-session context, pick up from the first unchecked Progress step in the
-linked `PLAN.md`, and drive the PR to `complete` status with per-commit
-proofs, live handoff updates, a growing `NOTIFY.md` log, the same validation
-gate, and the same label rules as `auto-create-pr`.
+session context, parse the top-of-file `## Tasks` table in `PLAN.md` (the
+authoritative Step-status source), pick up from the first row whose `Status`
+is not `done`, and drive the PR to `complete` status with per-commit
+`step-<X.Y>-checks.md` verification logs, live handoff updates, a growing
+`NOTIFY.md` log, the same validation gate, and the same label rules as
+`auto-create-pr`.
 
 ## Arguments
 
 - `{prNumber}` (required) — the PR number to resume (for example `1492`).
 - `--force` (optional) — bypass the in-progress concurrency check; use when intentionally taking over a PR that another auto-skill or human already claimed.
-- `--from <phase.step>` (optional) — override the resume point (e.g. `2.1`). Only honored when the Progress section cannot be parsed unambiguously.
+- `--from <phase.step>` (optional) — override the resume point (e.g. `2.1`). Only honored when the `## Tasks` table (and any legacy `## Progress` fallback) cannot be parsed unambiguously.
 
 ## Workflow
 
@@ -138,7 +140,7 @@ fi
 git worktree prune
 ```
 
-### 3. Orient via HANDOFF.md, then parse PLAN.md Progress
+### 3. Orient via HANDOFF.md, then parse PLAN.md's Tasks table
 
 **Read `HANDOFF.md` first.** It is the authoritative short-form snapshot of what the previous agent (or this agent's previous session) was doing. It tells you:
 
@@ -147,30 +149,30 @@ git worktree prune
 - The next concrete action.
 - Open blockers, environment caveats, and worktree details.
 
-Then open `PLAN.md` and find the `## Progress` section. The expected format (written by `auto-create-pr`):
+Then open `PLAN.md` and find the `## Tasks` table at the top of the file. It is a markdown table with exactly these columns: `Phase`, `Step`, `Title`, `Status`, `Commit`. Example shape written by `auto-create-pr`:
 
 ```markdown
-## Progress
+## Tasks
 
-> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Each Step is 1:1 with a commit. Do not rename step titles.
+> Authoritative status table. `Status` is one of `todo` or `done`. On landing a Step, flip `Status` to `done` and fill the `Commit` column with the short SHA. The first row whose `Status` is not `done` is the resume point for `auto-continue-pr`. Step ids are immutable once a Step has a commit.
 
-### Phase 1: {name}
-
-- [x] 1.1 {step title} — abc1234
-- [x] 1.2 {step title} — def5678
-
-### Phase 2: {name}
-
-- [ ] 2.1 {step title}
-- [ ] 2.2 {step title}
+| Phase | Step | Title | Status | Commit |
+|-------|------|-------|--------|--------|
+| 1 | 1.1 | {step title} | done | abc1234 |
+| 1 | 1.2 | {step title} | done | def5678 |
+| 2 | 2.1 | {step title} | todo | — |
+| 2 | 2.2 | {step title} | todo | — |
 ```
 
-Rules:
+Parse rules:
 
-- The first unchecked (`- [ ]`) line is the resume point.
-- If `HANDOFF.md` names a different resume point than the Progress checklist implies, trust `HANDOFF.md` and reconcile the Progress checklist (a previous session may have crashed mid-Step). Log the reconciliation in `NOTIFY.md`.
-- If the Progress section is missing or cannot be parsed cleanly, stop and ask the user — unless `--from <phase.step>` was passed, in which case use that as the resume point and log a note in `NOTIFY.md`.
-- Cross-check the last `- [x]` line's commit SHA against `git log` on the PR head. If the recorded SHA is not reachable, warn the user and ask whether to continue (or accept `--force`).
+- The **first row whose `Status` column is not `done`** is the resume point. `Status` values are `todo` or `done` only.
+- The Step id comes from the `Step` column (`X.Y` or `X.Y-review-fix`). That id drives the Step commit, the `step-<X.Y>-checks.md` filename, and any `step-<X.Y>-artifacts/` folder.
+- `Title` is informational and must match the Step title in the Implementation Plan section; if it drifts, trust the Implementation Plan title and fix the table.
+- If `HANDOFF.md` names a different resume point than the table implies, trust `HANDOFF.md` and reconcile the table (a previous session may have crashed mid-Step). Log the reconciliation in `NOTIFY.md`.
+- If the `## Tasks` table is missing, fall back to a legacy `## Progress` checkbox section (PRs opened before the table migration used checkboxes — first `- [ ]` is the resume point). When you hit a legacy Progress section, migrate it to a Tasks table as part of the resume's first commit.
+- If neither the table nor a legacy Progress section can be parsed, stop and ask the user — unless `--from <phase.step>` was passed, in which case use that as the resume point and log a note in `NOTIFY.md`.
+- Cross-check the most recent `done` row's `Commit` SHA against `git log` on the PR head. If the recorded SHA is not reachable, warn the user and ask whether to continue (or accept `--force`).
 - Skim the tail of `NOTIFY.md` (e.g. last 30 entries) for recent blockers or decisions so you do not repeat or contradict prior work.
 
 Append a NOTIFY entry announcing the resume:
@@ -178,7 +180,7 @@ Append a NOTIFY entry announcing the resume:
 ```
 ## <UTC ISO-8601 timestamp> — auto-continue-pr resume
 - Resumed by: @<current-user>
-- Resume point: <phase.step> (source: HANDOFF.md / Progress / --from)
+- Resume point: <phase.step> (source: HANDOFF.md / Tasks table / legacy Progress / --from)
 - PR head SHA: <sha>
 ```
 
@@ -199,7 +201,7 @@ From the resume point forward, apply the **same per-Step loop** documented in `.
 6. Grep changed non-test files for raw `em.findOne(` / `em.find(` and replace with `findOneWithDecryption` / `findWithDecryption`.
 7. **Commit** with a conventional-commit message for that single Step.
 8. In a dedicated follow-up commit:
-   - Flip the Progress checkbox to `- [x]` and append ` — <commit sha>`.
+   - In `PLAN.md`'s `## Tasks` table, flip the Step's `Status` cell from `todo` to `done` and fill the `Commit` column with the short SHA. Do not reorder rows.
    - Rewrite `HANDOFF.md` from scratch with the new state (next concrete action = the first unchecked Step).
    - Append a NOTIFY entry: timestamp, Step id, commit sha, one-line summary, any decisions/problems.
    - Commit with: `docs(runs): mark {slug} step X.Y complete`.
@@ -260,7 +262,7 @@ Invoke `.ai/skills/auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode
 3. After each batch of fixes:
    - Re-run targeted validation for the changed packages and record the outcome in `${RUN_DIR}/step-<X.Y-review-fix>-checks.md`; only create a `step-<X.Y-review-fix>-artifacts/` folder when there is captured output worth keeping.
    - Re-run the full validation gate from step 5 whenever a fix touches code outside a single module/test file.
-   - Update `PLAN.md` Progress: flip the Step checkbox if the fix corresponds to a plan Step; otherwise add `- [x] Post-review fix: {one-line summary} — {sha}` under the relevant Phase heading.
+   - Update `PLAN.md`'s Tasks table: flip `Status` to `done` and fill `Commit` if the fix corresponds to an existing Step row; otherwise append a new row with a fresh `X.Y-review-fix` Step id, matching `Title`, `Status: done`, and the commit SHA.
    - Rewrite `HANDOFF.md` and append a NOTIFY entry.
    - Commit using a clear conventional-commit subject (e.g. `fix(ui): address review feedback on confirmation dialog focus trap`). Push immediately.
 4. Loop until `auto-review-pr` returns a clean verdict or the remaining findings are non-actionable (out-of-scope, false positive) and explicitly documented in the summary comment you post in step 8.
@@ -323,7 +325,7 @@ Rules for the summary comment:
 
 Update the PR body:
 
-- If all Progress steps are now `- [x]`, flip `Status: in-progress` to `Status: complete`.
+- If every row in the Tasks table now has `Status: done`, flip the PR body's `Status: in-progress` to `Status: complete`.
 - Extend the `What Changed` / `Tests` sections with the new work from this resume.
 
 Labels (per root `AGENTS.md` PR workflow):
@@ -380,8 +382,8 @@ If the resume still did not reach `complete`, leave `Status: in-progress` in the
 - Always release the `in-progress` lock on the PR at the end, even if the run fails or is aborted (use a trap/finally).
 - Always use an isolated worktree; reuse the current linked worktree when already inside one; never nest worktrees.
 - Resolve the run folder from the PR body's `Tracking plan:` / `Tracking run folder:` line; fall back to the legacy flat-file format (`.ai/runs/<date>-<slug>.md`), then legacy `Tracking spec:`, then diff inspection; never invent a plan path. When you hit a legacy format, migrate it into a per-spec folder (create `HANDOFF.md` and `NOTIFY.md`) as part of this resume's first commit.
-- **Always read `HANDOFF.md` first**, then `PLAN.md` Progress, then the tail of `NOTIFY.md`, before touching any code.
-- Resume from the first `- [ ]` line in the plan's Progress section (or what `HANDOFF.md` says, whichever is fresher); honor `--from` only when parsing fails.
+- **Always read `HANDOFF.md` first**, then `PLAN.md`'s top-of-file `## Tasks` table, then the tail of `NOTIFY.md`, before touching any code.
+- Resume from the first row in the Tasks table whose `Status` is not `done` (or what `HANDOFF.md` says, whichever is fresher). Fall back to a legacy `## Progress` checkbox section for pre-migration PRs and migrate it to a Tasks table on the first resume commit. Honor `--from` only when parsing fails.
 - Do not rewrite history on the PR branch. Do not alter earlier commits' behavior.
 - **Every Step is 1:1 with a commit.** If you need more than one commit for a Step, split the Step in `PLAN.md` first, then proceed.
 - Every new code change MUST include tests; docs-only changes are exempt from the unit-test rule but still run relevant lint/checks.

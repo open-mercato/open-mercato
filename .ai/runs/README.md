@@ -47,17 +47,50 @@ Conventions:
 
 ### PLAN.md
 
-The authoritative plan for the run. Always includes:
+The authoritative plan for the run. Structure:
 
-- **Goal** and **Scope** (brief summary).
-- **Non-goals** (what this run will not touch).
-- **Implementation Plan** broken into Phases and Steps. **Every Step MUST
-  correspond to exactly one commit** so reviewers can bisect cleanly.
-- **Risks** (brief).
-- **External References** (URLs passed via `--skill-url`, with adopt/reject
-  notes).
-- A **Progress** section parseable by `auto-continue-pr` — see the skill files
-  for the exact required format.
+1. **Header** — date, slug, branch, owner.
+2. **`## Tasks`** — the authoritative status table (see below). MUST sit at
+   the very top of the document (right after the header), before Goal/Scope/etc.
+3. **Goal** and **Scope** (brief summary).
+4. **Non-goals** (what this run will not touch).
+5. **Risks** (brief).
+6. **External References** (URLs passed via `--skill-url`, with adopt/reject notes).
+7. **Source spec** (optional reference to a spec under `.ai/specs/`).
+8. **Implementation Plan** — Phases and Steps with fuller prose. Step titles
+   MUST match the `Title` column of the Tasks table exactly. **Every Step MUST
+   correspond to exactly one commit** so reviewers can bisect cleanly.
+
+#### The Tasks table
+
+The `## Tasks` section is a markdown table with exactly these columns:
+
+```markdown
+## Tasks
+
+> Authoritative status table. `Status` is one of `todo` or `done`. On landing a Step, flip `Status` to `done` and fill the `Commit` column with the short SHA. The first row whose `Status` is not `done` is the resume point for `auto-continue-pr`. Step ids are immutable once a Step has a commit.
+
+| Phase | Step | Title | Status | Commit |
+|-------|------|-------|--------|--------|
+| 1 | 1.1 | <step title> | done | abc1234 |
+| 1 | 1.2 | <step title> | todo | — |
+| 2 | 2.1 | <step title> | todo | — |
+```
+
+Rules:
+
+- `Phase` is an integer (`1`, `2`, …).
+- `Step` is the unique Step id (`1.1`, `1.2`, `2.1`, or `X.Y-review-fix` for post-review follow-ups).
+- `Title` is a single-line free-form summary. It MUST match the Step title in
+  the Implementation Plan section exactly.
+- `Status` is one of the two strings: `todo` or `done`. (The column never
+  carries a third value — Steps are atomic.)
+- `Commit` carries the short commit SHA for `done` rows and `—` for `todo`
+  rows.
+- The table is **the single source of truth** for Step status. The old
+  bottom-of-file `## Progress` checklist is gone; `auto-continue-pr` parses
+  the table. A legacy Progress section is tolerated as a fallback for PRs
+  opened before this migration, but new runs MUST use the table.
 
 ### HANDOFF.md
 

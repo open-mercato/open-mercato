@@ -1,6 +1,6 @@
 ---
 name: auto-create-pr
-description: Execute an arbitrary autonomous agent task end-to-end and deliver it as a GitHub pull request against develop. Start by drafting an execution plan under .ai/runs/<date>-<slug>/ (PLAN.md + HANDOFF.md + NOTIFY.md) with a 1:1 step-to-commit Progress checklist, commit the run folder on a fresh task branch in an isolated worktree, implement the work one step at a time writing a step-<X.Y>-checks.md verification log next to PLAN.md (typecheck, unit tests, Playwright + screenshot when UI-facing and env is runnable) and an optional step-<X.Y>-artifacts/ folder only when the step produced real artifacts, keep HANDOFF.md current and append every important decision to NOTIFY.md, optionally honor one or more external reference skills passed by URL, run the full validation gate (typecheck, unit tests, i18n, build) before opening, and open a PR with the correct pipeline labels. Resumable via the auto-continue-pr skill.
+description: Execute an arbitrary autonomous agent task end-to-end and deliver it as a GitHub pull request against develop. Start by drafting an execution plan under .ai/runs/<date>-<slug>/ (PLAN.md + HANDOFF.md + NOTIFY.md) whose top-of-file ## Tasks table is the authoritative 1:1 step-to-commit todo/done status source, commit the run folder on a fresh task branch in an isolated worktree, implement the work one step at a time writing a step-<X.Y>-checks.md verification log next to PLAN.md (typecheck, unit tests, Playwright + screenshot when UI-facing and env is runnable) and an optional step-<X.Y>-artifacts/ folder only when the step produced real artifacts, flip the Tasks-table Status cell to done with the commit SHA after each step, keep HANDOFF.md current and append every important decision to NOTIFY.md, optionally honor one or more external reference skills passed by URL, run the full validation gate (typecheck, unit tests, i18n, build) before opening, and open a PR with the correct pipeline labels. Resumable via the auto-continue-pr skill.
 ---
 
 # Auto Create PR
@@ -27,7 +27,7 @@ per-Step subfolder for checks:
 
 ```
 .ai/runs/<YYYY-MM-DD>-<slug>/
-├── PLAN.md                       # Goal, scope, phases/steps, Progress (1:1 step↔commit)
+├── PLAN.md                       # Tasks table (top), goal, scope, phases/steps (1:1 step↔commit)
 ├── HANDOFF.md                    # Always-current session snapshot (rewritten, not appended)
 ├── NOTIFY.md                     # Append-only UTC-timestamped log of decisions/problems/progress
 ├── step-<X.Y>-checks.md          # Required per Step — verification log
@@ -40,7 +40,7 @@ per-Step subfolder for checks:
 
 Rules:
 
-- `<X.Y>` is the exact Step id from `PLAN.md`'s Progress section.
+- `<X.Y>` is the exact Step id from the `Step` column of `PLAN.md`'s `## Tasks` table.
 - `step-<X.Y>-checks.md` is **required for every Step** that produces a commit.
 - `step-<X.Y>-artifacts/` is **optional** — create it only when the Step
   actually produced artifacts worth keeping (Playwright logs, screenshots,
@@ -126,22 +126,26 @@ Create a lightweight execution plan (NOT a full architectural spec — those liv
 - Goal, Scope, Non-goals, Risks (brief), External References.
 - **Implementation Plan** broken into Phases. Each Phase is a sequence of **Steps**. Every Step MUST correspond to **exactly one commit** — no batching. If a Step would produce more than one commit, split it into smaller Steps. This is what makes the run bisectable and reviewable.
 - If the task has an associated spec in `.ai/specs/`, reference it: `Source spec: .ai/specs/{file}.md`.
-- A mandatory **Progress** section at the end, formatted exactly as follows so `auto-continue-pr` can parse it:
+- A mandatory **`## Tasks`** table at the very top of `PLAN.md` (right after the header metadata, before `Goal`). It is the authoritative status source that `auto-continue-pr` parses. Required columns and row shape:
 
 ```markdown
-## Progress
+## Tasks
 
-> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Each Step is 1:1 with a commit. Do not rename step titles.
+> Authoritative status table. `Status` is one of `todo` or `done`. On landing a Step, flip `Status` to `done` and fill the `Commit` column with the short SHA. The first row whose `Status` is not `done` is the resume point for `auto-continue-pr`. Step ids are immutable once a Step has a commit.
 
-### Phase 1: {name}
-
-- [ ] 1.1 {step title}
-- [ ] 1.2 {step title}
-
-### Phase 2: {name}
-
-- [ ] 2.1 {step title}
+| Phase | Step | Title | Status | Commit |
+|-------|------|-------|--------|--------|
+| 1 | 1.1 | {step title} | todo | — |
+| 1 | 1.2 | {step title} | todo | — |
+| 2 | 2.1 | {step title} | todo | — |
 ```
+
+Rules:
+
+- `Phase` — integer. `Step` — unique id (`X.Y` or `X.Y-review-fix`). `Title` — single line, must match the Step title in the Implementation Plan section exactly.
+- `Status` — only `todo` or `done`. Never introduce a third value; Steps are atomic.
+- `Commit` — short SHA for `done` rows, `—` for `todo` rows.
+- Do NOT emit the legacy `## Progress` checkbox section. The Tasks table is the single source of truth.
 
 Also create `HANDOFF.md` and `NOTIFY.md` from these templates:
 
@@ -272,7 +276,7 @@ For **each Step** in the Implementation Plan — not per Phase — run this loop
    - `feat(ui): add confirmation dialog primitive`
    - `test(ui): cover confirmation dialog focus trap`
 9. **Update tracking files** in a dedicated follow-up commit:
-   - Flip the Step's checkbox in `PLAN.md` to `- [x]` and append ` — <commit sha>`.
+   - In `PLAN.md`'s `## Tasks` table, flip the Step's `Status` cell from `todo` to `done` and fill the `Commit` column with the short SHA. Do not reorder rows, do not rename titles.
    - Backfill the `commit sha` line in `step-<X.Y>-checks.md` if it was left as a placeholder when the Step commit was written.
    - Rewrite `HANDOFF.md` from scratch with the new state.
    - Append a NOTIFY entry: ISO-8601 UTC timestamp, Step id, commit sha, one-line summary, and any decisions/problems.
@@ -357,14 +361,14 @@ Status: in-progress
 - {No contract surface changes | Describe BC handling}
 
 ## Progress
-See [Progress section in the plan](.ai/runs/${DATE}-${SLUG}/PLAN.md#progress).
+See the [Tasks table in the plan](.ai/runs/${DATE}-${SLUG}/PLAN.md#tasks) — that is the authoritative Step-status source (`todo` / `done`).
 
 ## Handoff & Notifications
 - Live handoff: `.ai/runs/${DATE}-${SLUG}/HANDOFF.md`
 - Notifications log: `.ai/runs/${DATE}-${SLUG}/NOTIFY.md`
 ```
 
-Flip `Status:` to `complete` on the PR body once all Progress steps are checked.
+Flip `Status:` to `complete` on the PR body once every row in the Tasks table has `Status` = `done`.
 
 ### 9b. Claim the PR with the three-signal in-progress lock
 
@@ -424,7 +428,7 @@ Invoke `.ai/skills/auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode
 3. After each batch of fixes:
    - Re-run the targeted validation for the changed packages and record the outcome in `${RUN_DIR}/step-<X.Y-review-fix>-checks.md`; only create an artifacts folder when there is captured output worth keeping.
    - Re-run the full validation gate from step 7 whenever a fix touches code outside a single module/test file.
-   - Update `PLAN.md` Progress: flip the Step checkbox if the fix corresponds to a plan Step; otherwise add `- [x] Post-review fix: {one-line summary} — {sha}` under the relevant Phase heading.
+   - Update `PLAN.md`'s Tasks table: flip `Status` to `done` and fill the `Commit` column if the fix corresponds to an existing Step row; otherwise append a new row with a fresh `X.Y-review-fix` Step id, matching `Title`, `Status: done`, and the commit SHA.
    - Rewrite `HANDOFF.md` and append to `NOTIFY.md`.
    - Commit using a clear conventional-commit subject (e.g. `fix(ui): address review feedback on confirmation dialog focus trap`). Push immediately.
 4. Loop until `auto-review-pr` returns a clean verdict (no actionable blockers) or the remaining findings are non-actionable (out-of-scope, false positive) and explicitly documented in the PR comment you post in step 12.
@@ -539,7 +543,7 @@ When one or more `--skill-url` arguments are provided:
 
 - Always start with a run folder and a planned `PLAN.md`; never commit code before the run folder lands on the chosen `feat/` or `fix/` branch.
 - Branches created by this skill must use `fix/` for corrective work or `feat/` for non-corrective work; never `codex/`.
-- `PLAN.md` MUST include the Progress section in the exact format above so `auto-continue-pr` can parse it.
+- `PLAN.md` MUST open with a `## Tasks` table (right after the header metadata). The table is the authoritative Step-status source parsed by `auto-continue-pr`. Do NOT emit the legacy bottom-of-file `## Progress` checklist.
 - **Every Step is 1:1 with a commit.** If a Step produces more than one commit, split the Step. Reviewers MUST be able to bisect by Step.
 - `HANDOFF.md` MUST be rewritten after every Step so a brand-new agent can pick up in <30 seconds.
 - `NOTIFY.md` MUST receive an append-only, UTC-timestamped entry for: run start, run end, every completed Step, every skipped UI check (with reason), every blocker, every important decision, and every subagent delegation.
