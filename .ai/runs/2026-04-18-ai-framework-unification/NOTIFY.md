@@ -567,3 +567,25 @@
   - **Playwright local env conflict**: `.ai/tmp/review-pr/pr-1372/` pre-existing stale worktree breaks `yarn test:integration --list` with "Requiring @playwright/test second time". Reproducible on `HEAD~1`. Non-blocker; operator cleanup task.
   - **Playwright specs remain runnable under CI / ephemeral**: the two new spec files typecheck cleanly in isolation; use `DEFAULT_CREDENTIALS.superadmin` via the shared helper (never inline the password) and `getAuthToken` for authenticated requests.
 - Phase 3 WS-C is **7/7 landed**. Phase 3 overall is **13/13 landed**. Next: Phase 4 Step 4.1 — `<AiChat>` component in `packages/ui/src/ai/AiChat.tsx` (opens WS-A for the UI layer).
+
+## 2026-04-18T17:20:00Z — Step 4.1 committed (aae5bdac8)
+- `feat(ui): add AiChat component + client-side UI-part registry (Phase 2 WS-A)`
+- Files created: `packages/ui/src/ai/AiChat.tsx`, `packages/ui/src/ai/useAiChat.ts`, `packages/ui/src/ai/ui-part-registry.ts`, `packages/ui/src/ai/index.ts`, `packages/ui/src/ai/__tests__/AiChat.test.tsx`, `packages/ui/src/ai/__tests__/ui-part-registry.test.ts`.
+- Files touched (additive-only): `packages/ui/src/index.ts` (one new `export * from './ai'`), `packages/ai-assistant/src/modules/ai_assistant/i18n/{en,pl,es,de}.json` (14 new keys under `ai_assistant.chat.*`).
+- Validation (all green):
+  - New ai/ tests: 2 suites / 10 tests / 0.46s.
+  - `packages/ui` full regression: 53 / **279** (baseline +2 suites / +10 tests — exact match).
+  - `packages/ai-assistant` regression: 28 / **338** preserved exactly.
+  - `packages/core` regression: 333 / **3033** preserved exactly.
+  - Typecheck: 3/3 successful across ui/core/app.
+  - `yarn generate`: clean.
+  - `yarn i18n:check-sync`: green.
+  - `yarn build:packages`: 18/18 successful.
+- Decisions:
+  - **Hand-rolled `useAiChat` instead of `@ai-sdk/react`'s `useChat`**: `@ai-sdk/react` is not a workspace dependency, and the dispatcher currently returns plain-text streams (`toTextStreamResponse`, not `UIMessageChunk`). The hook reuses `createAiAgentTransport`'s URL convention (single source for the dispatcher path) and reads the stream through `apiFetch` so scoped headers + 401/403 redirects are honored. When the dispatcher migrates to `toUIMessageStreamResponse`, the hook can collapse onto `useChat({ transport })` without changing `<AiChat>`'s public contract.
+  - **Transport factory client-safe**: imported directly from `@open-mercato/ai-assistant`'s barrel; the ui bundle only pulls `DefaultChatTransport` + the factory itself, no server-only transitives. Jest mocks `@open-mercato/ai-assistant` at the module boundary so the ui jest config did not need a new `moduleNameMapper` entry.
+  - **Escape during streaming** aborts the `AbortController` and transitions status to `idle`; when idle, `Escape` blurs the composer. Matches `packages/ui/AGENTS.md` dialog convention.
+  - **i18n namespace stayed on `ai_assistant.chat.*`**. 14 additive keys, parity across all four locales.
+  - **UI-part registry** ships empty; `console.warn` + placeholder chip for unknown ids. Reserved ids for Phase 3: `mutation-preview-card`, `field-diff-card`, `confirmation-card`, `mutation-result-card`.
+  - **Playwright skipped** for Step 4.1 — jsdom-level RTL coverage is sufficient given no live agent, no dev server, and the pre-existing stale-worktree blocker. Step 4.4 is the natural re-entry point for browser proof (playground page embeds `<AiChat>`).
+- Phase 4 WS-A now **1/3 landed** (4.1 done; 4.2 upload adapter and 4.3 registry props bridge remain). Phase 4 overall **1/11**. Next: Step 4.2 — upload adapter that reuses the attachments API and returns `attachmentIds` (threads into the existing `<AiChat attachmentIds>` prop).
