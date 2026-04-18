@@ -25,7 +25,7 @@ import * as React from 'react'
 import { screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
-jest.mock('@open-mercato/ai-assistant', () => ({
+jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport', () => ({
   createAiAgentTransport: jest.fn(() => ({
     sendMessages: jest.fn(),
     reconnectToStream: jest.fn(),

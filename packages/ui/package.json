@@ -82,6 +82,10 @@
       "types": "./src/backend/version-history/index.ts",
       "default": "./dist/backend/version-history/index.js"
     },
+    "./ai": {
+      "types": "./src/ai/index.ts",
+      "default": "./dist/ai/index.js"
+    },
     "./*.ts": {
       "types": "./src/*.ts",
       "default": "./dist/*.js"

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { createAiAgentTransport } from '@open-mercato/ai-assistant'
+import { createAiAgentTransport } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-transport'
 import { apiFetch } from '../backend/utils/api'
 
 /**
