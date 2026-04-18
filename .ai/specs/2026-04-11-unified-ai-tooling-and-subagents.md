@@ -6,6 +6,7 @@
 - Introduce a new additive module convention, `ai-agents.ts`, plus a reusable `<AiChat>` UI component, AI-SDK-first helper APIs, and a new authenticated dispatcher route, `POST /api/ai/chat?agent=<module>.<agent>`.
 - V1 ships focused, read-first sub-agents, standard auth, attachment-backed uploads, tagged client-rendered streamed UI parts, explicit coexistence with OpenCode Code Mode, and first-class support for Vercel AI SDK patterns such as `useChat`, direct transport, and structured-output agents built on `generateText(..., { output })`.
 - Formalizes a server-owned **pending-action** contract and an **in-chat human-in-the-loop (HIL) approval** flow so mutation-capable focused agents can be introduced later without inventing ad-hoc confirmation protocols per module.
+- **V1 demo & verification target:** a `catalog.merchandising_assistant` agent embedded on the backend products list (`/backend/catalog/catalog/products`) that performs **selection-aware bulk product edits** — rewriting names/descriptions/prices, drafting descriptions from product attributes, extracting attributes from descriptions, generating descriptions from product media, and applying changes to many products at once through a single batch approval card. The rest of the spec must be sufficient to ship this flow end-to-end without ad-hoc add-ons.
 
 ## Overview
 Open Mercato already has three useful AI building blocks:
@@ -236,7 +237,9 @@ Rules:
 - every production agent must declare a tool pack that maps to real UI surfaces, not only raw CRUD endpoints
 - read tools should prefer aggregated detail/read-model outputs that mirror the UI tabs and panels users already understand
 - write tools should correspond to actual UI actions and command-backed operations already supported in the repo
-- the first module coverage target for this spec is `customers` and `catalog`
+- bulk/multi-record operations must have first-class tool coverage (a single tool call that accepts an array of record IDs) so the model does not have to loop CRUD calls one record at a time; the batched call maps to one pending action with per-record diffs rather than N scattered approvals
+- AI-authoring helpers (description drafting, attribute extraction, title/price suggestions) that produce *proposed content* without writing to the database are treated as read tools and returned as structured output the agent can feed back into a mutation preview
+- the first module coverage target for this spec is `customers` and `catalog`, with the **catalog products list bulk editor (D18)** as the concrete acceptance test that the tool pack is genuinely sufficient
 
 ### D16. Human-in-the-Loop Mutation Approval (Pending-Action Contract)
 Mutation safety must be a server-enforced protocol, not a prompt convention. Every write initiated by a focused agent flows through a pending-action contract with an explicit, auditable approval step.
@@ -290,6 +293,36 @@ Rationale for calling it out now:
 
 - D16 must stay compatible with D17; callers should never have to refactor pending actions when the queue ships
 - explicitly deferring keeps this spec shippable while telling future contributors "yes, we thought about it; no, we are not building it yet"
+
+### D18. Catalog Products List Bulk Editor as V1 Demo & Verification Target
+The first operator-facing deliverable of this spec is a `catalog.merchandising_assistant` agent mounted on the backend products list. It is both the demo surface and the acceptance harness: if the runtime, tool pack, attachment bridge, bulk pending-action flow, and `<AiChat>` embed cannot ship this end-to-end without bespoke workarounds, the V1 scope is not complete.
+
+Motivation:
+
+- merchandising bulk edits (renaming, re-pricing, rewriting copy, normalizing attributes, drafting from media) are the single highest-leverage AI workflow in the admin panel — it is where the product team will demo the platform and where the architecture has to prove itself
+- this surface exercises every hard part of the spec simultaneously: list-page embed, selection-aware page context, attachment-to-model bridge (product media + uploaded references), structured-output drafting, bulk mutation approval, command-backed writes, and DOM event bridge refresh
+- grounding the spec in one production-shaped demo prevents the usual "generic framework with no anchor" failure mode
+
+Rules:
+
+- the demo ships as a real `ai-agents.ts` in the `catalog` module: `id: 'catalog.merchandising_assistant'`, `executionMode: 'chat'`, `mutationPolicy: 'confirm-required'` from Phase 3 onward (read-only in Phase 2)
+- the agent is embedded on `/backend/catalog/catalog/products` via `<AiChat>` mounted as a right-side sheet; selecting rows in the `DataTable` populates `pageContext.recordIds` so the agent always knows which products are in scope
+- the agent's `resolvePageContext` resolver hydrates the selected products into a compact brief (id, name, SKU, current price, primary category, attribute schema, media count) and injects it into the system prompt before the first model call
+- product media (images, PDFs, spec sheets) must flow through the existing attachment bridge (D13) without the agent needing to know storage URLs; uploaded-in-chat attachments use the same pipeline
+- every write is batched: the agent calls one bulk tool that creates one `AiPendingAction` with a per-record diff grouping, and the user approves the whole batch in a single `mutation-preview-card` (see section 9.8)
+- successful mutations emit the normal `catalog.product.updated` events; the list auto-refreshes through the DOM event bridge without the agent having to trigger reloads manually
+- v1 scope for the demo covers four named use cases, each backed by an explicit tool (section 7 — "Catalog merchandising tools"):
+  1. rewrite/adjust product descriptions to be consistent with current attributes
+  2. extract structured attributes from free-form description text
+  3. generate a product description from product media (images, spec PDFs)
+  4. bulk update names, prices, or arbitrary field sets across selected products
+- v1 non-goals for the demo: autonomous overnight runs (covered by D17 queue in a later spec), category-tree restructuring, variant explosion/collapse, SEO metadata generation beyond description/title
+
+Why this belongs in the spec (not a separate delivery doc):
+
+- it fixes the scope of Phase 2 (read-only demo) and Phase 3 (bulk mutation approval on the same page) so the phasing has a concrete exit criterion
+- it forces the pending-action contract to support **batch approvals** as a first-class case rather than a Phase-4 afterthought
+- it anchors the catalog tool pack in D15 with real tools the demo must call, not speculative endpoints
 
 ## Proposed Solution
 
@@ -478,6 +511,46 @@ Catalog tool coverage requirements:
 | Product media | list product media and manage attachment associations |
 | Product configuration | option schemas, tags, product unit conversions, bulk delete |
 
+Catalog merchandising tools (V1 demo — D18): the `catalog.merchandising_assistant` agent depends on this exact tool set. The tool names below are the canonical identifiers the `ai-agents.ts` whitelist must use, and the Phase 1/2 implementation ships them all.
+
+Read tools (no side effects, available from Phase 2):
+
+| Tool | Purpose | Backing repo surface |
+|------|---------|---------------------|
+| `catalog.search_products` | Fulltext + filter search across the tenant's products (supports category, price range, tags, flags, pagination) | `/api/products`, search index, `query_index` |
+| `catalog.get_product_bundle` | Returns a single aggregate view of a product: core fields, categories, tags, variants, prices (base + offers), media list, custom-field values, attribute schema, translations | product detail read-model, `catalogPricingService.selectBestPrice`, custom-fields helpers |
+| `catalog.list_selected_products` | Resolve an array of product IDs into the same aggregate bundle format, filtered to tenant/org scope and deduplicated — the canonical entry point when the agent is given a selection from the list page | product read-model + attachment bridge |
+| `catalog.get_product_media` | List product media records with attachment metadata (filename, mime, size, dimensions, alt text, sort order); **uses the attachment bridge (D13) to convert images/PDFs into model-ready file parts so the model can actually see the media, not just its metadata** | `/api/product-media`, attachments module, attachment-to-model bridge |
+| `catalog.get_attribute_schema` | Return the merged custom-field schema that applies to a product (module-level `cf.*` + category-level overrides + product-level overrides) so the agent knows which attributes are writable, their types, and allowed values | `ce.ts`, `cf.*` DSL, custom-fields helpers |
+| `catalog.get_category_brief` | Return a category's name, path, description, and inherited attribute schema — used when the agent needs category context during bulk edits | categories read-model |
+| `catalog.list_price_kinds` | Enumerate tenant price kinds with their scope rules so price-update drafts reference valid kinds | price-kinds API |
+
+AI-authoring tools (structured-output helpers that return *proposed* content without writing anything; available from Phase 2):
+
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| `catalog.draft_description_from_attributes` | Given a product bundle, produce a proposed description rewrite that is faithful to the product's current attributes, category, and tone preferences; returns `{ description, rationale, attributesUsed[] }` | Implemented via `runAiAgentObject` or direct `generateText(..., { output })`; no database writes; model may still call this from within a chat turn |
+| `catalog.extract_attributes_from_description` | Given a product bundle and (optionally) an override description string, extract structured attribute values that match the product's attribute schema; returns `{ attributes: Record<string, unknown>, confidence, unmapped[] }` | Respects schema types (enum, number with unit, boolean); unmapped phrases are surfaced so the human can decide |
+| `catalog.draft_description_from_media` | Given a product's media (via attachment bridge) and optional user-uploaded reference files, produce a proposed description and key-feature bullet list; returns `{ description, features[], mediaReferences[] }` | Provider must support vision; falls back to OCR-extracted text for PDFs and unsupported images |
+| `catalog.suggest_title_variants` | Given a product bundle and a target style (short / SEO / marketplace), propose 1-3 title variants | Pure structured-output helper; does not write |
+| `catalog.suggest_price_adjustment` | Given a product bundle and a user intent (e.g. "raise by 5%", "round to .99", "match category median"), return a proposed price change; the *authoritative* recalculation still happens server-side in the mutation tool | Never writes; explicitly annotated with `isMutation: false` |
+
+Mutation tools (gated by the D16 pending-action contract, `isMutation: true`, available from Phase 3):
+
+| Tool | Purpose | Command target |
+|------|---------|---------------|
+| `catalog.update_product` | Apply a partial update to a single product: name, description, slug, categories, tags, status flags, custom-field values, pricing (base price + price-kind entries), and media alt text | `catalog.products.update` |
+| `catalog.bulk_update_products` | Apply per-record partial updates across an array of product IDs in one call; input is `[{ productId, patch }]`; runtime creates **one** `AiPendingAction` whose `fieldDiff` is grouped by record (see section 9.8) | `catalog.products.update` executed per record inside the confirm handler, wrapped in a single transaction |
+| `catalog.apply_attribute_extraction` | Persist the result of `catalog.extract_attributes_from_description` after the user has reviewed the proposal; validates against the attribute schema before writing | `catalog.products.update` (custom-field path) |
+| `catalog.update_product_media_descriptions` | Update alt text / captions for a product's media entries; supports bulk across products | `catalog.products.update` (media path) or a dedicated media command if one exists |
+
+Rules that apply to every merchandising mutation tool:
+
+- input schemas MUST reject unknown fields so a hallucinated attribute name cannot silently land in the database
+- any price input MUST be validated against tenant currency + price-kind scope before the pending action is created
+- any attribute input MUST be re-validated against the *current* attribute schema on confirm, not the schema captured at propose time — schema drift is a valid reason to force re-proposal (`412 Precondition Failed`)
+- any tool whose effect touches product media (alt text, reordering, associating an uploaded attachment) MUST reuse the attachments module's tenant/org scoping; direct URL passthrough is forbidden (see D13)
+
 ### 8. Prompt Templates and Settings
 The first implementation should ship prompt templates, not ad hoc strings.
 
@@ -641,6 +714,167 @@ Failures become specific error responses (see API contracts).
 - every pending action is logged with `{ agentId, actionId, toolName, userId, tenantId, status, createdAt, resolvedAt, outcome }`
 - confirm and cancel events fire typed module events (`ai.action.confirmed`, `ai.action.cancelled`, `ai.action.expired`) so subscribers can audit, notify, or extend behavior without patching the runtime
 
+#### 9.8 Batch mutations (multi-record approvals)
+
+Bulk tools like `catalog.bulk_update_products` MUST create one pending action per tool call, not one per affected record. The one-action-per-call rule keeps the approval UX coherent ("the agent proposed these 14 changes; Confirm or Cancel"), keeps idempotency simple, and matches how the user thinks about the request.
+
+Rules:
+
+- `AiPendingAction.fieldDiff` is grouped by record when the tool is batch-capable:
+
+  ```ts
+  type AiPendingActionRecordDiff = {
+    recordId: string
+    entityType: string
+    label: string
+    fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    recordVersion: string | null
+    attachmentIds?: string[]
+  }
+
+  // On batch actions the top-level fieldDiff is ignored in favor of records[]
+  records?: AiPendingActionRecordDiff[]
+  ```
+
+- `records` is optional; single-record actions keep using the top-level `fieldDiff` as before (no BC break for the Phase 3 single-record flow)
+- on confirm, the server re-runs the full re-check contract from section 9.4 **per record** before executing any write; if any single record fails re-check (permissions, scope, record version, schema drift), the whole batch fails with `207 Multi-Status` and `executionResult.failedRecords[]` populated — the runtime does not execute a partial batch unless the tool opts into `partialSuccess: true` at registration time
+- confirmed batches run inside one transaction by default; rollback semantics mirror the underlying command path
+- the `mutation-preview-card` UI part renders a grouped diff (per-record collapsible rows) with a single `[Confirm All] [Cancel]` pair; `Cmd/Ctrl+Enter` confirms the whole batch, `Escape` cancels
+- after a successful batch confirm, one `ai.action.confirmed` event fires with the actionId, and the underlying domain events (`catalog.product.updated` etc.) fire **once per record** so list pages refresh naturally through the DOM event bridge
+- `idempotencyKey` uniqueness is per action (not per record); re-submitting the same batch with the same key is a no-op on the second call
+- per-record `recordVersion` captured at propose time is used on confirm; if any record has moved on, the batch is rejected with `412` and the agent must propose again with fresh versions
+- a failure inside the confirm handler (post re-check, inside command execution) is recorded per-record in `executionResult.failedRecords[]` with `{ recordId, error: { code, message } }`; the `mutation-result-card` renders successes and failures side by side
+
+### 10. Catalog Merchandising Assistant — V1 Demo & Verification
+Ship one production-shaped agent and embed it on the backend products list. This is the concrete deliverable D18 is referring to and the integration surface that proves the runtime, tools, attachment bridge, and approval flow hang together.
+
+#### 10.1 Agent definition (shape)
+
+```ts
+// packages/core/src/modules/catalog/ai-agents.ts
+import { defineAiAgent } from '@open-mercato/ai-assistant'
+
+export const aiAgents = [
+  defineAiAgent({
+    id: 'catalog.merchandising_assistant',
+    moduleId: 'catalog',
+    label: 'Merchandising assistant',
+    description:
+      'Bulk-edit product names, descriptions, prices, and attributes. Can draft descriptions from attributes or media, extract attributes from descriptions, and apply changes across selected products with one approval.',
+    executionMode: 'chat',
+    mutationPolicy: 'confirm-required',
+    acceptedMediaTypes: ['image', 'pdf', 'file'],
+    requiredFeatures: ['catalog.products.edit'],
+    maxSteps: 12,
+    allowedTools: [
+      // reads
+      'catalog.search_products',
+      'catalog.get_product_bundle',
+      'catalog.list_selected_products',
+      'catalog.get_product_media',
+      'catalog.get_attribute_schema',
+      'catalog.get_category_brief',
+      'catalog.list_price_kinds',
+      // authoring helpers (no writes)
+      'catalog.draft_description_from_attributes',
+      'catalog.extract_attributes_from_description',
+      'catalog.draft_description_from_media',
+      'catalog.suggest_title_variants',
+      'catalog.suggest_price_adjustment',
+      // mutations (gated by pending-action)
+      'catalog.update_product',
+      'catalog.bulk_update_products',
+      'catalog.apply_attribute_extraction',
+      'catalog.update_product_media_descriptions',
+      // shared
+      'attachments.list_record_attachments',
+      'attachments.read_attachment',
+    ],
+    keywords: ['catalog', 'merchandising', 'products', 'bulk-edit', 'pricing', 'attributes'],
+    domain: 'catalog',
+    dataCapabilities: {
+      entities: ['catalog:product', 'catalog:category', 'catalog:price', 'catalog:product_media'],
+      operations: ['read', 'search', 'aggregate'],
+      searchableFields: ['name', 'slug', 'description', 'tags', 'sku'],
+    },
+    resolvePageContext: async ({ entityType, recordId, container, tenantId, organizationId }) => {
+      // entityType === 'catalog:product' | 'catalog:product-selection'
+      // recordId carries a single product id OR a comma-separated selection
+      // returns a compact brief injected into the system prompt
+    },
+    systemPrompt: `[ROLE]
+You are the catalog merchandising assistant. ...`,
+  }),
+]
+```
+
+#### 10.2 Page embed
+
+- mount `<AiChat agentId="catalog.merchandising_assistant" />` as a right-side sheet on `/backend/catalog/catalog/products`; open it via a toolbar `Button` with an icon-only trigger (requires `aria-label`) and a keyboard shortcut (no new global shortcut — reuse an existing "assistant" shortcut if one exists, otherwise none in v1)
+- the sheet passes `pageContext` on every request:
+
+  ```ts
+  type CatalogProductsPageContext = {
+    pageId: 'catalog.products.list'
+    entityType: 'catalog:product-selection'
+    recordId: string | null          // selection as comma-separated UUIDs, or null when nothing is selected
+    extra?: {
+      filter: {
+        categoryId?: string | null
+        priceRange?: { min?: number; max?: number } | null
+        tags?: string[]
+        status?: string | null
+      }
+      totalMatching: number
+      selectedCount: number
+    }
+  }
+  ```
+
+- when a user selects rows, `extra.selectedCount` and `recordId` update on the next chat request; the composer shows a small "acting on N products" pill so the user is never confused about scope
+- when nothing is selected, the agent is limited to read-only search/browse unless the user explicitly asks it to act on current filter results; the prompt template makes this boundary explicit
+- list refresh after mutations is automatic: the products `DataTable` already subscribes to the DOM event bridge, and confirmed mutations emit `catalog.product.updated` events through the normal command path
+
+#### 10.3 Attachment handling on the demo
+
+- product media (images, spec PDFs) attached to each product flow through `catalog.get_product_media`, which resolves attachment records via the bridge and returns AI SDK-compatible file parts — the agent never sees raw storage URLs
+- the user may also drop files directly into the chat (e.g. a new photo, a supplier spec sheet); those are uploaded through existing attachment flows and passed as `attachmentIds` in the chat request, same as any other `<AiChat>` embed
+- both sources (product-owned and chat-uploaded) are validated for tenant/org scope before the runtime hands them to the provider; `catalog.draft_description_from_media` and `catalog.update_product_media_descriptions` reuse the same validated set
+
+#### 10.4 Four named use cases
+
+Each use case below must be demonstrable on the products list page by Phase 3 exit. Phase 2 ships use cases 1–3 in read/preview mode (structured output only, no writes); Phase 3 unlocks the batch mutation that applies the proposal.
+
+1. **Rewrite descriptions to match current attributes** — user selects products, asks "rewrite descriptions to reflect current attributes"; the agent calls `catalog.list_selected_products`, then `catalog.draft_description_from_attributes` per record, then proposes a **batch** `catalog.bulk_update_products` write. One approval card renders per-record before/after description diffs.
+2. **Extract attributes from descriptions** — user selects products, asks "pull structured attributes out of the descriptions"; the agent calls `catalog.extract_attributes_from_description`, presents the extracted values in the transcript for human review, then (optionally) proposes `catalog.apply_attribute_extraction` as a batch mutation. The approval card shows per-record attribute diffs grouped by field.
+3. **Generate descriptions from product media** — user selects products, asks "write descriptions from the product photos and spec sheets"; the agent calls `catalog.get_product_media` (which surfaces file parts through the attachment bridge), then `catalog.draft_description_from_media`, and proposes a batch mutation. Media citations appear in the transcript next to the proposed description so the user can trace *why* a bullet appeared.
+4. **Bulk rename / re-price / re-tag** — user asks "raise prices of selected products by 5%, rounded to .99" or "rename all Spring collection items to include 'SS26'"; the agent calls `catalog.list_selected_products`, optionally `catalog.suggest_price_adjustment`, then proposes `catalog.bulk_update_products` with the computed patches. The approval card shows per-record price or name diffs.
+
+#### 10.5 Prompt template (demo)
+
+```md
+[ROLE]
+You are the catalog merchandising assistant. You help the user rewrite product copy, normalize attributes, and adjust prices across one product or many selected products at once.
+
+[SCOPE]
+You may only act on products that are in the current tenant and organization. Always restrict batch work to the explicit selection in pageContext.recordId; if no selection is present, ask the user to select products or confirm that the current filter is the intended scope.
+
+[DATA]
+Prefer catalog.list_selected_products for the canonical bundle view of the selection. Use catalog.get_product_media when media matters for the answer — media is surfaced as real file parts, not links. Use catalog.get_attribute_schema before proposing attribute writes so the diff is schema-valid.
+
+[ATTACHMENTS]
+Product media (images, spec PDFs) and user-uploaded files both arrive as AI SDK file parts. Summarize what you see, cite which media drove a recommendation, and flag when a proposal depends on visual interpretation.
+
+[TOOLS]
+Authoring helpers (catalog.draft_description_from_attributes, catalog.extract_attributes_from_description, catalog.draft_description_from_media, catalog.suggest_title_variants, catalog.suggest_price_adjustment) produce proposals only. Mutations (catalog.update_product, catalog.bulk_update_products, catalog.apply_attribute_extraction, catalog.update_product_media_descriptions) always route through the approval card — call them when you are ready to propose a write, then wait for the mutation-result-card.
+
+[MUTATION POLICY]
+Never claim a change has been saved until you receive a mutation-result-card success outcome. For multi-record edits, always prefer the batch tool (catalog.bulk_update_products) so the user sees one approval card with per-record diffs instead of a stream of one-record approvals.
+
+[RESPONSE STYLE]
+Be concise and merchandise-focused. Use product names, SKUs, and prices — not internal UUIDs — unless the user asks. When you propose a batch, summarize how many products are affected and what the high-level change is before the approval card appears.
+```
+
 ## Architecture
 
 ### Runtime Layers
@@ -790,6 +1024,16 @@ type AiPendingAction = {
     before: unknown
     after: unknown
   }>
+  // Batch form: populated by bulk tools (e.g. catalog.bulk_update_products).
+  // When set, the per-record entries are authoritative and the top-level fieldDiff is unused.
+  records?: Array<{
+    recordId: string
+    entityType: string
+    label: string
+    fieldDiff: Array<{ field: string; before: unknown; after: unknown }>
+    recordVersion: string | null
+    attachmentIds?: string[]
+  }>
   sideEffectsSummary: string | null
   recordVersion: string | null
   attachmentIds: string[]
@@ -808,6 +1052,11 @@ type AiPendingAction = {
     error?: { code: string; message: string }
   } | null
   queueMode: 'inline' | 'stack'
+  // Only meaningful for batch actions; mirrors AiPendingAction.records.
+  failedRecords?: Array<{
+    recordId: string
+    error: { code: string; message: string }
+  }>
 }
 ```
 
@@ -1047,6 +1296,13 @@ UX rules:
 - `Escape` closes any open attachment/secondary dialog
 - use shared `Button` / `IconButton` primitives only
 
+List-page embed rules (used by the catalog products demo — section 10 / D18):
+
+- `<AiChat>` can be mounted in a right-side sheet on list pages and must accept `pageContext` with a selection-aware shape (comma-separated UUIDs in `recordId`, plus an `extra` object carrying current filter state and selection count)
+- the sheet trigger is an icon-only toolbar `Button` with a required `aria-label`; the composer displays a small "acting on N products" pill whenever the active selection is non-empty, and falls back to "browsing all products" when it is empty
+- batch proposals render a single `mutation-preview-card` with per-record collapsible rows (driven by the `records[]` grouping on `AiPendingAction`), one `[Confirm All]` / `[Cancel]` pair, and the same keyboard shortcuts as single-record approvals
+- list refreshes after a confirmed batch are handled by the DOM event bridge consuming the normal domain events (`catalog.product.updated`) that the command path emits; `<AiChat>` does not invent new refresh signals
+
 Initial streamable UI parts for v1 (Phase 1 / Phase 2):
 
 - `record-card`
@@ -1221,6 +1477,7 @@ Exit criteria:
 - an internal admin can test chat-mode and object-mode agents from the playground
 - tenant admins can adjust additive prompt overrides and inspect tool/attachment settings
 - at least one customers agent and one catalog agent run end-to-end on the new stack
+- **D18 demo (read-only)**: `<AiChat agentId="catalog.merchandising_assistant" />` is embedded on `/backend/catalog/catalog/products` as a right-side sheet; selection-aware `pageContext` flows correctly; the agent can read selected products (including media via the attachment bridge), run `draft_description_from_attributes` / `extract_attributes_from_description` / `draft_description_from_media` / `suggest_title_variants` / `suggest_price_adjustment`, and surface proposals as structured output without writing to the database
 
 ### Phase 3 - Production Hardening, Mutation Approval, and Expansion
 Goal: prove the design on real production agents, unlock write-capable focused agents behind the D16 pending-action contract, and harden the customization model.
@@ -1260,6 +1517,7 @@ Exit criteria:
 - prompt overrides are safe, versioned, and test-covered
 - the playground and first module agents have been promoted into real production entry points where appropriate
 - at least one mutation-capable agent (candidate: `customers.account_assistant` for deal stage updates) is live behind the pending-action contract and cannot execute any write without a confirmed, unexpired, scope-valid pending action
+- **D18 demo (full bulk-edit)**: `catalog.merchandising_assistant` runs all four named use cases end-to-end on `/backend/catalog/catalog/products`; `catalog.bulk_update_products` creates a single `AiPendingAction` with per-record `records[]` diffs; a single `[Confirm All]` approval executes all writes through the normal `catalog.products.update` command path inside one transaction; `catalog.product.updated` fires once per record and the `DataTable` refreshes via the DOM event bridge; failed records surface in `executionResult.failedRecords[]` without aborting the whole batch when `partialSuccess: true` is set
 
 ### Phase 4 - Follow-up Scope
 Out of scope for this spec but expected follow-ups:
@@ -1418,6 +1676,16 @@ Required coverage for this spec:
 - a tenant prompt override cannot escalate `mutationPolicy`
 - page reload mid-approval: the client calls `GET /api/ai/actions/:id` and re-renders the card in its current state
 
+### Catalog Merchandising Demo (D18 / section 10)
+- `catalog.merchandising_assistant` agent is discovered from the catalog module's `ai-agents.ts` and appears in the agents registry with the full read + authoring + (Phase 3) mutation tool whitelist
+- selecting N products in the `/backend/catalog/catalog/products` DataTable and opening the chat sheet sends `pageContext.recordId` as the comma-separated selection; the request body also carries `pageContext.extra.selectedCount === N`
+- calling `catalog.list_selected_products` from the agent returns exactly the selected products scoped to tenant/org; cross-tenant IDs injected into the selection are rejected before the model sees them
+- calling `catalog.get_product_media` returns AI SDK file parts via the attachment bridge (not storage URLs); tenant/org scope is enforced on every attachment record
+- `catalog.draft_description_from_attributes`, `catalog.extract_attributes_from_description`, and `catalog.draft_description_from_media` all return structured output without writing to the database even when the model invokes them in a chat turn
+- `catalog.bulk_update_products` creates a single `AiPendingAction` with per-record `records[]` entries; approving the batch triggers exactly one `catalog.product.updated` event per record; the products `DataTable` refreshes through the DOM event bridge
+- attribute-schema drift between propose and confirm rejects the affected records with `412` and forces the agent to re-propose only the stale ones (remaining records can still commit when `partialSuccess: true`)
+- `catalog.apply_attribute_extraction` writes custom-field values via the command path and respects the tenant encryption policy for encrypted fields
+
 ### Backward Compatibility
 - existing `ai-tools.ts` modules still load
 - `ai-tools.generated.ts` output shape remains unchanged
@@ -1493,6 +1761,17 @@ When implemented, release notes must call out:
 | Risks include failure scenarios and mitigations | Pass | Concrete table included |
 
 ## Changelog
+
+### 2026-04-18 — Catalog products bulk editor as V1 demo & verification target
+- Added Decision **D18. Catalog Products List Bulk Editor as V1 Demo & Verification Target** making the `catalog.merchandising_assistant` agent embedded on `/backend/catalog/catalog/products` the concrete acceptance surface for this spec.
+- Extended the TLDR to name the demo explicitly and state that the rest of the spec must be sufficient to ship it end-to-end without ad-hoc add-ons.
+- Expanded Decision **D15** so tool coverage rules require first-class bulk/multi-record tools and treat AI-authoring helpers (drafting, extraction, suggestion) as structured-output read tools.
+- Added the full **Catalog merchandising tools** set to section 7 — read tools (`search_products`, `get_product_bundle`, `list_selected_products`, `get_product_media` via attachment bridge, `get_attribute_schema`, `get_category_brief`, `list_price_kinds`), AI-authoring helpers (`draft_description_from_attributes`, `extract_attributes_from_description`, `draft_description_from_media`, `suggest_title_variants`, `suggest_price_adjustment`), and Phase-3 mutation tools (`update_product`, `bulk_update_products`, `apply_attribute_extraction`, `update_product_media_descriptions`).
+- Added Proposed Solution section **10. Catalog Merchandising Assistant — V1 Demo & Verification** covering the agent definition, list-page embed, attachment flow, four named use cases (rewrite descriptions from attributes, extract attributes from descriptions, generate descriptions from media, bulk rename/re-price/re-tag), and the demo prompt template.
+- Added section **9.8 Batch mutations (multi-record approvals)** formalizing one `AiPendingAction` per bulk tool call with per-record `records[]` diffs, per-record re-check on confirm, single-transaction execution by default, and `partialSuccess` opt-in; updated the `AiPendingAction` type with optional `records` and `failedRecords` fields.
+- Added list-page embed rules to the `<AiChat>` UX section covering sheet placement, selection-aware `pageContext`, the "acting on N products" pill, grouped batch approval cards, and DOM-event-bridge-driven list refresh.
+- Added a Catalog Merchandising Demo integration-test section and new Phase 2 (read-only demo) and Phase 3 (full bulk-edit demo) exit criteria anchored on the products list page.
+- No BC impact: all additions are additive to existing types, generated registries, and routes. The `records[]` field on `AiPendingAction` is optional and single-record actions continue to use top-level `fieldDiff` unchanged.
 
 ### 2026-04-18
 - Integrated @dominikpalatynski's review feedback into the spec as a first-class runtime layer rather than a prompt convention.
