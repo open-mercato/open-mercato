@@ -1,43 +1,72 @@
-# Step 1.2 checks — compact Phase 1 plan and rename PR
+# Step 1.2 checks — rephase PLAN.md to cover the full ai-tooling spec
 
-**Step:** 1.2 Compact Phase 1 plan to a single step and rename PR to the `ai-framework-unification` main goal.
-**Scope:** docs-only — `.ai/runs/2026-04-18-ai-framework-unification/PLAN.md` and GitHub PR #1593 metadata.
-**Commit:** `61b655eac`.
+**Step:** 1.2 Rephase `PLAN.md` to cover the full
+`.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md` spec (Phases 2–5)
+and rename the PR title to the `ai-framework-unification` main goal.
+**Scope:** docs-only — `.ai/runs/2026-04-18-ai-framework-unification/PLAN.md`
+plus GitHub PR #1593 metadata.
 
 ## What changed
 
-- `PLAN.md` Tasks table collapses the five historical Phase 1 rows (old 1.1
-  through 1.5) into a single `1 | 1.1 | Skill harness foundation … | done |
-  93440ec79` row, followed by this compaction Step as `1.2` and the Phase 2
-  placeholder as `2.1`.
-- `PLAN.md` Implementation Plan section rewritten to match: one unified Step
-  1.1 bullet plus a commit-breadcrumb list naming the five historical
-  commits (`bacbc59ec`, `4a782bbd1`, `98ec6abb2`, `6a1afab69`, `93440ec79`)
-  so the audit trail is still discoverable.
-- Scope section rewritten to describe Phase 1 as a single, unified piece of
-  foundation work with a flat outcome list instead of per-Step scope prose.
-- The per-Step verification files (`step-1.1-checks.md` through
-  `step-1.5-checks.md`) are intentionally kept on disk as the historical
-  audit trail — the compaction is a readability change to the Tasks table,
-  not a history rewrite.
-- GitHub PR #1593 title updated to name the overall goal
-  (`AI framework unification — Phase 1 skill harness foundation`), not the
-  docs that were only Step 1.1's delivery mechanism.
-- PR body rewritten to match the compacted plan and to clarify Phase 1 vs
-  Phase 2+ scope.
+- `PLAN.md` Tasks table expanded from 3 rows to 46 rows:
+  - 1 row rolling up Phase 1 (Step 1.1 = skill harness foundation, done).
+  - 1 row for this rephasing Step itself (1.2).
+  - **Phase 2** (5 Steps, 2.1–2.5) = source spec Phase 0 "Alignment
+    Prerequisite" (type + helper + generator + restored loader +
+    attachment/prompt primitives).
+  - **Phase 3** (13 Steps, 3.1–3.13) = source spec Phase 1 "Runtime + Tools
+    + AI SDK DX", grouped by the spec's own Workstream A (3.1–3.3),
+    Workstream B (3.4–3.6), Workstream C (3.7–3.13).
+  - **Phase 4** (11 Steps, 4.1–4.11) = source spec Phase 2 "Playground +
+    Settings + First Module Agents", grouped by Workstream A (4.1–4.3),
+    Workstream B (4.4–4.6), Workstream C (4.7–4.11).
+  - **Phase 5** (19 Steps, 5.1–5.19) = source spec Phase 3 "Production
+    Hardening + Mutation Approval + Expansion", grouped by Workstream A
+    (5.1–5.2), Workstream B (5.3–5.4), Workstream C (5.5–5.14),
+    Workstream D (5.15–5.19). Covers the D16 pending-action contract end
+    to end (entity + migration + `prepareMutation` + three routes + four
+    UI parts + typed events + cleanup worker + first mutation-capable
+    agent) plus the D18 bulk-edit demo.
+- `PLAN.md` Implementation Plan section rewritten to mirror the table
+  one-to-one, preserving the spec's own numbering so reviewers can trace
+  each Step back to a numbered deliverable in the source spec.
+- `PLAN.md` Scope section expanded with a per-Phase purpose + exit-criteria
+  block for Phases 2–5.
+- `PLAN.md` Risks section refreshed to call out the contract-surface audit
+  required before Steps 2.1–2.4, 5.5, and 5.7–5.9, plus the encryption /
+  tenant-isolation constraints on `AiPendingAction` / attachments /
+  `resolvePageContext`.
+- Source spec path added as a top-of-file metadata row so the plan and the
+  spec are cross-linked.
+- Non-goals section pinned to the spec's D1/D10 decisions (no new
+  top-level package, no per-module MCP, no RSC `streamUI`, D17 queue is
+  design-only).
+- GitHub PR #1593 title updated from
+  `feat(ai-framework): AI framework unification — Phase 1 skill harness foundation`
+  to `feat(ai-framework): AI framework unification` so the title names
+  the overall goal rather than the first phase's delivery mechanism.
 
 ## Verification
 
-- **Typecheck / unit tests / Playwright / i18n:** N/A — docs-only change to
-  PLAN.md and external PR metadata.
-- **Diff re-read:** confirmed the Tasks table now has exactly three rows
-  (Phase 1 rollup done, Phase 1 compaction in progress, Phase 2 placeholder)
-  and matches the Implementation Plan bullets.
-- **Audit trail:** the five historical `step-1.<N>-checks.md` files remain
-  in place; the five Phase 1 commits remain in git history. The PLAN.md
-  rollup references those SHAs explicitly so nothing is lost.
-- **PR metadata:** `gh pr edit 1593 --title …` applied; `gh pr view 1593
-  --json title` confirms the rename.
+- **Typecheck / unit tests / Playwright / i18n:** N/A — docs-only change
+  to `PLAN.md` plus external PR metadata.
+- **Tasks-table schema sanity:** re-read the written file and confirmed
+  every row has five pipe-separated cells (`Phase | Step | Title | Status
+  | Commit`), only one row is `done` with a commit SHA, and every other
+  row is `todo` with `—`. The `## Tasks` fence is the first H2 below the
+  metadata block, matching the authoritative-source rule.
+- **Spec cross-references:** spot-checked Step titles against the source
+  spec §7 (D18 tool tables), §9.8 (batch mutation flow), §10 (D18
+  merchandising demo), and the Implementation Plan Phase 0–3
+  Workstream lists. Every Phase 2–5 row names the numbered spec
+  deliverable it maps to.
+- **Audit trail preserved:** the five historical `step-1.1-checks.md`
+  through `step-1.5-checks.md` files remain on disk; the five Phase 1
+  commits (`bacbc59ec` → `93440ec79`) remain in git history. The
+  Implementation Plan's Phase 1 block enumerates those SHAs so nothing
+  is lost in the Tasks-table rollup.
+- **PR metadata:** `gh pr edit 1593 --title …` applied; `gh pr view
+  1593 --json title` confirms the rename.
 
 ## Artifacts
 
