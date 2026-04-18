@@ -386,3 +386,12 @@
   - **Helper-specific SDK assertion gating.** Parity tests that inspect tool-map contents through the SDK use `if (helper === 'text')` to skip the assertion for the object helper (AI SDK v6 object entries don't accept `tools`). The `resolveAiAgentTools` return shape is still asserted for both paths, so the parity check is meaningful on both without asserting a contract the SDK doesn't support.
   - **Attachment ID pass-through** invariant locks in the Phase-1 behavior: `attachmentIds` flow into `resolveAiAgentTools` unchanged on both paths. Step 3.7's attachment bridge will thread resolved parts onto the model messages without breaking this surface.
 - Phase 3 WS-B is now **3/3 landed — closed**. Phase 3 WS-C opens next with Step 3.7 (attachment-to-model conversion bridge, new file `packages/ai-assistant/src/modules/ai_assistant/lib/attachment-parts.ts` per spec line 77).
+
+## 2026-04-18T13:30:00Z — main-session dispatcher pausing at Phase 3 WS-B boundary
+- Dispatched 11 spec-driven Steps sequentially via executor subagents this session (2.2 → 3.6).
+- Phase 2 (spec Phase 0 Alignment) complete.
+- Phase 3 WS-A (runtime backbone: registry, policy, dispatcher route) complete.
+- Phase 3 WS-B (AI SDK helpers: chat, object, parity contract tests) complete.
+- Branch at `63167d39a`, all commits pushed. Lock releasing.
+- Next resume starts at Step 3.7 (attachment-to-model conversion bridge), the first WS-C step.
+- 37 Steps remain: WS-C (7), Phase 4 (11), Phase 5 (19).
