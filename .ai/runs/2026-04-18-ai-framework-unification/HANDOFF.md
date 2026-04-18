@@ -1,116 +1,133 @@
 # Handoff — 2026-04-18-ai-framework-unification
 
-**Last updated:** 2026-04-18T20:30:00Z
+**Last updated:** 2026-04-18T21:30:00Z
 **Branch:** `feat/ai-framework-unification`
 **PR:** https://github.com/open-mercato/open-mercato/pull/1593 (held by
 coordinator `in-progress` lock — main session is the dispatcher; the
 executor MUST NOT release the lock)
-**Current phase/step:** Phase 3 WS-C — Steps 3.7, 3.8, 3.9 landed. Next
-up is Step 3.10 (catalog base tool pack).
-**Last commit:** `c2f2e21cb` —
-`feat(customers): add customers ai-tool pack (read-only Phase 1)`
+**Current phase/step:** Phase 3 WS-C — Steps 3.7, 3.8, 3.9, 3.10 landed.
+Next up is Step 3.11 (D18 catalog merchandising read tools).
+**Last commit:** `0a5395ff2` —
+`feat(catalog): add catalog ai-tool pack (read-only Phase 1 base coverage)`
 
 ## What just happened
 
-- Executor landed **Step 3.9** as one code commit (`c2f2e21cb`) plus
-  this docs-flip commit (PLAN row + HANDOFF rewrite + NOTIFY append +
-  step-3.9-checks.md).
-- Eleven new read-only tools shipped under
-  `packages/core/src/modules/customers/ai-tools/`:
-  - `people-pack.ts` — `customers.list_people`, `customers.get_person`.
-  - `companies-pack.ts` — `customers.list_companies`,
-    `customers.get_company`.
-  - `deals-pack.ts` — `customers.list_deals`, `customers.get_deal`.
-  - `activities-tasks-pack.ts` — `customers.list_activities`,
-    `customers.list_tasks`.
-  - `addresses-tags-pack.ts` — `customers.list_addresses`,
-    `customers.list_tags`.
-  - `settings-pack.ts` — `customers.get_settings`.
-- Plus a `types.ts` declaring the local `CustomersAiToolDefinition`
+- Executor landed **Step 3.10** as one code commit (`0a5395ff2`) plus a
+  docs-flip commit (PLAN row + HANDOFF rewrite + NOTIFY append +
+  step-3.10-checks.md).
+- Twelve new read-only tools shipped under
+  `packages/core/src/modules/catalog/ai-tools/`:
+  - `products-pack.ts` — `catalog.list_products`,
+    `catalog.get_product` (with `includeRelated` hydrating categories,
+    tags, variants, prices, media metadata, unit conversions, custom
+    fields).
+  - `categories-pack.ts` — `catalog.list_categories`,
+    `catalog.get_category`.
+  - `variants-pack.ts` — `catalog.list_variants`.
+  - `prices-offers-pack.ts` — `catalog.list_prices`,
+    `catalog.list_price_kinds_base`, `catalog.list_offers`.
+  - `media-tags-pack.ts` — `catalog.list_product_media`,
+    `catalog.list_product_tags`.
+  - `configuration-pack.ts` — `catalog.list_option_schemas`,
+    `catalog.list_unit_conversions`.
+- Plus a `types.ts` declaring the local `CatalogAiToolDefinition`
   shape (subset of the canonical `AiToolDefinition`, identical pattern
-  to `inbox_ops/ai-tools.ts` — avoids adding a cross-package jest
-  `moduleNameMapper` entry into `packages/core/jest.config.cjs`).
+  to Step 3.9 `customers/ai-tools/types.ts` — avoids adding a
+  cross-package jest `moduleNameMapper` entry into
+  `packages/core/jest.config.cjs`).
 - Module-root `ai-tools.ts` aggregates all six packs via `aiTools` /
-  `default`. The existing generator (Step 2.3) discovers the customers
+  `default`. The existing generator (Step 2.3) discovers the catalog
   module and emits a new
-  `@open-mercato/core/modules/customers/ai-tools` namespace entry in
+  `@open-mercato/core/modules/catalog/ai-tools` namespace entry in
   `apps/mercato/.mercato/generated/ai-tools.generated.ts` — zero
   generator changes required.
 - Tenant isolation: every query routes through `findWithDecryption` /
-  `findOneWithDecryption` with `tenantId` + (when set)
-  `organizationId` in both the `where` map and the scope tuple, plus
-  a defense-in-depth post-filter (`row.tenantId === ctx.tenantId`).
+  `findOneWithDecryption` with `tenantId` + (when set) `organizationId`
+  in both the `where` map and the scope tuple, plus a
+  defense-in-depth post-filter (`row.tenantId === ctx.tenantId`).
   Pre-commit grep confirms no raw `em.find(` / `em.findOne(` in any of
   the new production files.
 - Policy + ACL: every tool whitelists the **minimum existing** feature
-  ID from `customers/acl.ts`:
-  - people → `customers.people.view`.
-  - companies → `customers.companies.view`.
-  - deals → `customers.deals.view`.
-  - activities / tasks / addresses / tags → `customers.activities.view`
-    (matches what the actual existing routes enforce on `GET` today —
-    noted as a future-spec follow-up in step-3.9-checks.md).
-  - settings → `customers.settings.manage`.
+  ID from `catalog/acl.ts`:
+  - products / variants / prices / offers / media / tags / option
+    schemas / unit conversions → `catalog.products.view` (matches
+    existing `/api/catalog/*` GET routes).
+  - categories → `catalog.categories.view`.
+  - price kinds (base) → `catalog.settings.manage` (matches existing
+    `/api/catalog/price-kinds` GET).
+- **D18 name-collision avoidance**: the base price-kinds enumerator
+  uses `catalog.list_price_kinds_base`. Step 3.11 owns
+  `catalog.list_price_kinds` verbatim. An aggregator-level assertion
+  pins the reservation so a future drive-by cannot collapse the two
+  names.
 - No mutation tools. Every tool is explicitly read-only; mutations
-  for deals / activities / tasks / addresses / tags are deferred to
-  Phase 5 under the pending-action contract (Step 5.13+).
-- Detail tools emit `{ found: false }` instead of throwing on miss /
-  cross-tenant / cross-org — matches Step 3.8's pattern.
+  land in Step 5.14 under the pending-action contract.
+- Detail tools (`get_product`, `get_category`) emit `{ found: false }`
+  instead of throwing on miss / cross-tenant / cross-org — matches the
+  Step 3.8 / 3.9 pattern.
 - New unit-test suites at
-  `packages/core/src/modules/customers/__tests__/ai-tools/`:
-  - `people-pack.test.ts` (8 tests).
-  - `companies-pack.test.ts` (5 tests).
-  - `deals-pack.test.ts` (6 tests).
-  - `activities-tasks-pack.test.ts` (6 tests).
-  - `addresses-tags-pack.test.ts` (7 tests).
-  - `settings-pack.test.ts` (4 tests).
-  - `aggregator.test.ts` (2 tests — completeness + RBAC-in-acl audit).
+  `packages/core/src/modules/catalog/__tests__/ai-tools/`:
+  - `products-pack.test.ts` (9 tests — incl. includeRelated shape).
+  - `categories-pack.test.ts` (7 tests).
+  - `variants-pack.test.ts` (4 tests).
+  - `prices-offers-pack.test.ts` (6 tests).
+  - `media-tags-pack.test.ts` (3 tests).
+  - `configuration-pack.test.ts` (4 tests).
+  - `aggregator.test.ts` (3 tests — completeness + RBAC-in-acl audit
+    + D18 name reservation).
   Plus a shared `shared.ts` helper with `makeCtx` + `knownFeatureIds`
-  pulled from `customers/acl.ts`.
-- Unit tests: **7 suites / 38 tests** in
-  `packages/core/src/modules/customers/__tests__/ai-tools/`. Full core
-  suite: **324 suites / 2956 tests** passing. Ai-assistant regression:
-  **25 suites / 316 tests** (baseline preserved).
+  pulled from `catalog/acl.ts`.
+- Unit tests: **7 suites / 36 tests** in
+  `packages/core/src/modules/catalog/__tests__/ai-tools/`. Full core
+  suite: **331 suites / 2992 tests** passing (baseline was 324 / 2956;
+  +7 / +36 exactly matches the new catalog tests). Ai-assistant
+  regression: **25 suites / 316 tests** (baseline preserved).
 - Typecheck:
   `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app`
-  — same pre-existing Step 3.8 diagnostics (ai-assistant handler
+  — same pre-existing diagnostics only (Step 3.8 ai-assistant handler
   variance on `search/attachments/meta` packs + Step 3.1 carryover
-  `agent-registry.ts(43,7)`). Zero new diagnostics on the new
-  customers files (verified by grepping the typecheck output).
+  `agent-registry.ts(43,7)`). Zero new diagnostics on the new catalog
+  files (verified by grepping the typecheck output for
+  `catalog/ai-tools`).
 - `yarn generate` — required for this Step (new module-root
-  `ai-tools.ts`). Generator ran in 6s and emitted the `customers` entry
+  `ai-tools.ts`). Generator ran in ~5s and emitted the `catalog` entry
   correctly. Post-step `configs cache structural` purge reports as
   skipped (pre-existing `@open-mercato/queue` export mismatch,
-  unrelated to this Step; same as Step 3.8).
+  unrelated to this Step).
 
 ## Next concrete action
 
-- **Step 3.10** — Spec Phase 1 WS-C — Catalog tool pack (base
-  coverage: products / categories / variants / prices / offers / media
-  / product configuration).
-  - Live under `packages/core/src/modules/catalog/ai-tools.ts` (or a
-    split `ai-tools/*.ts` directory + root aggregator — Step 3.8 / 3.9
-    pattern is the proven template). The generator already scans
-    `packages/core` module roots.
-  - Spec reference §512–§520 for the catalog pack surface — the
-    D18 demo needs the base read tools landed first before Step 3.11
-    (D18 merchandising read) can layer on top.
-  - All tools read-only in Phase 1. `isMutation` must stay `false`
-    unless the spec explicitly lists a mutation, in which case flag the
-    Step for a split.
-  - Use the catalog query engine / services (pricing service, offers
-    service, etc.); MUST keep every query tenant+org scoped via
-    `findWithDecryption` / `findOneWithDecryption` or go through
-    existing services — no raw `em.find(` / `em.findOne(`.
-  - Follow the Step 3.9 local-type pattern (`CatalogAiToolDefinition`
-    inside the catalog module) if the cross-package jest mapping is
-    still unwired.
-  - Unit tests per tool: tenant scope, RBAC feature filtering (use an
-    `aggregator.test.ts`-style pass over `catalog/acl.ts` features),
-    page-size cap, and at least one shape check per detail tool.
-- After 3.10 come the D18 catalog merchandising read + AI-authoring
-  tools (3.11, 3.12), then Step 3.13 closes WS-C with integration
-  coverage for auth / attachment / tool filtering.
+- **Step 3.11** — Spec §7 (D18) — Catalog merchandising read tools
+  (`catalog.search_products`, `catalog.get_product_bundle`,
+  `catalog.list_selected_products`, `catalog.get_product_media`,
+  `catalog.get_attribute_schema`, `catalog.get_category_brief`,
+  `catalog.list_price_kinds`).
+  - Lands on top of the Step 3.10 base surface — reuse the existing
+    catalog packs directory and add `ai-tools/merchandising-pack.ts`
+    (or similar) rather than duplicating plumbing. The aggregator in
+    `packages/core/src/modules/catalog/ai-tools.ts` is the single
+    insertion point.
+  - `catalog.list_price_kinds` is reserved by the Step 3.10 aggregator
+    test. Step 3.11 MUST either land a distinct-shape D18 tool under
+    that name or decide to collapse the base `_base` variant into it —
+    that decision belongs to 3.11.
+  - `catalog.get_product_media` overlaps conceptually with Step 3.10's
+    `catalog.list_product_media` — both should be kept: the D18
+    variant integrates with the Step 3.7 bridge (returns file parts
+    ready for model consumption); the base tool remains
+    metadata-only.
+  - All tools still read-only. No `isMutation`. No new feature IDs
+    (stay inside `catalog/acl.ts`).
+  - Use `findWithDecryption` / `findOneWithDecryption` or existing
+    services. Pricing touches should route through the DI token
+    `catalogPricingService` per the catalog module AGENTS.md.
+  - Unit tests per tool: tenant scope + RBAC feature mapping +
+    page-size cap + at least one shape check per detail tool. Keep
+    the aggregator assertion updated so the D18 names are pinned.
+- After 3.11 come the D18 AI-authoring tools (3.12, still read-only
+  surface with deterministic output — no mutation), then Step 3.13
+  closes WS-C with integration coverage for auth / attachment / tool
+  filtering.
 
 ## Blockers / open questions
 
@@ -124,50 +141,36 @@ up is Step 3.10 (catalog base tool pack).
 - **Step 3.8 handler-variance diagnostics**: `search-pack.ts`,
   `attachments-pack.ts`, `meta-pack.ts` under ai-assistant still carry
   the Step 3.8 assignment-variance errors from the public
-  `AiToolDefinition` generic (`handler(input: unknown, …)` vs. the
-  narrowed inferred types). Not my Step, not introduced by Step 3.9 —
-  they pre-exist on the branch. A future Step that touches the public
-  `AiToolDefinition` generic can either relax the parameter variance
-  or add a `defineAiTool` overload that widens the handler input back
-  to `unknown`.
-- **Addresses / tags feature ID drift**. Existing routes guard
-  `GET /api/customers/addresses` and `/api/customers/tags` on
-  `customers.activities.view`. Looks accidental. Step 3.9 mirrors the
-  current contract verbatim because inventing new feature IDs
-  mid-implementation would violate the brief's STOP rule. Flagged in
-  step-3.9-checks.md Follow-ups so a future spec can introduce
-  dedicated `customers.addresses.view` / `customers.tags.view`
-  features and migrate routes + tools together.
-- **`search.get_record_context` strategy** (Step 3.8 carryover). A
-  future first-class `SearchService.getRecordContext({ entityId,
-  recordId })` helper would let the tool drop the current 5-item scan.
-- **Attachment transfer duplication** (Step 3.8 carryover). If Step
-  5.x extracts the assignments-patch logic into a service, the
-  `attachments.transfer_record_attachments` tool becomes a thin
-  wrapper.
-- **`AttachmentSigner` concrete implementation**: still not shipped
-  (Step 3.7 hook only). Oversized images/PDFs still fall through to
-  `metadata-only`. Flag persists.
-- **Object-mode HTTP dispatcher**: still deferred to Phase 4.
-- **Tools in object mode**: still the Step 3.5 gap — AI SDK v6 object
-  entries don't accept a `tools` map. Policy gate still runs on the
-  resolved tools, but they are not forwarded to
-  `generateObject` / `streamObject`. Migration to `generateText` +
-  `Output.object` stays a Phase 4 candidate.
+  `AiToolDefinition` generic. Not my Step, not introduced by Step 3.10
+  — they pre-exist on the branch. A future Step that touches the
+  public `AiToolDefinition` generic can either relax the parameter
+  variance or add a `defineAiTool` overload that widens the handler
+  input back to `unknown`.
+- **`catalog.list_price_kinds` vs `catalog.list_price_kinds_base`
+  merge**: Step 3.11 may collapse the two if output shapes converge.
+  Left to that Step.
+- **Addresses / tags feature ID drift** (Step 3.9 carryover). Flagged
+  in `step-3.9-checks.md` Follow-ups.
+- **`search.get_record_context` strategy** (Step 3.8 carryover).
+- **Attachment transfer duplication** (Step 3.8 carryover).
+- **`AttachmentSigner` concrete implementation** (Step 3.7 hook only).
+- **Object-mode HTTP dispatcher** (deferred to Phase 4).
+- **Tools in object mode** (Step 3.5 gap — AI SDK v6 object entries
+  don't accept a `tools` map).
 - **User's unstaged spec edit** (~280 lines on
   `.ai/specs/2026-04-11-unified-ai-tooling-and-subagents.md`) still
   out-of-scope.
 - **`authContext` on the public helper surface**: intentional Phase-1
-  shim on both helpers. Phase 4 may wrap them behind a thinner API
-  once a global request-context resolver lands.
+  shim on both helpers.
 
 ## Environment caveats
 
 - Dev runtime runnable: unknown. Phase 3 remains runtime + tests only.
 - Database/migration state: clean, untouched.
-- `yarn generate` — re-run in Step 3.9 (new module-root `ai-tools.ts`
-  in `packages/core/src/modules/customers`). Step 3.10 (catalog) will
-  likely need it again when we add `ai-tools.ts` to the catalog module.
+- `yarn generate` — re-run in Step 3.10 (new module-root `ai-tools.ts`
+  in `packages/core/src/modules/catalog`). Step 3.11 (D18 catalog
+  merchandising) will NOT need it again since it will layer onto the
+  same aggregator — unless a new module-root file is added.
 
 ## Worktree
 

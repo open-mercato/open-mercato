@@ -473,3 +473,33 @@
   - **`customers.list_tasks` merges canonical interactions + legacy todo links.** The legacy branch is skipped when a task status or deal filter is supplied because legacy todo links don't carry those facets. This matches SPEC-046b's interim dual-surface reality.
   - **`customers.get_settings` aggregates all dictionary kinds in one pass.** Grouped by `row.kind` so agents can filter client-side without a secondary round-trip. `addressFormat` falls back to `line_first` when the settings row is absent (matches the existing `/api/customers/settings/address-format` route's contract).
 - Phase 3 WS-C is now **3/7 landed** — next is Step 3.10 (catalog base tool pack: products/categories/variants/prices/offers/media/configuration).
+
+## 2026-04-18T21:30:00Z — Step 3.10 landed (0a5395ff2)
+- `feat(catalog): add catalog ai-tool pack (read-only Phase 1 base coverage)`
+- Twelve new read-only tools under `packages/core/src/modules/catalog/ai-tools/`, organized into six packs:
+  - products-pack.ts → `catalog.list_products`, `catalog.get_product` (with `includeRelated` hydrating categories, tags, variants, prices, media metadata, unit conversions, custom fields).
+  - categories-pack.ts → `catalog.list_categories`, `catalog.get_category`.
+  - variants-pack.ts → `catalog.list_variants`.
+  - prices-offers-pack.ts → `catalog.list_prices`, `catalog.list_price_kinds_base`, `catalog.list_offers`.
+  - media-tags-pack.ts → `catalog.list_product_media`, `catalog.list_product_tags`.
+  - configuration-pack.ts → `catalog.list_option_schemas`, `catalog.list_unit_conversions`.
+- Plus `types.ts` (local `CatalogAiToolDefinition` shape — subset of the canonical `AiToolDefinition`, avoiding a cross-package jest `moduleNameMapper` into `packages/core`). Identical pattern to Step 3.9's customers pack.
+- Module-root `ai-tools.ts` aggregates the six packs; the Step 2.3 generator auto-emits a `catalog` entry in `apps/mercato/.mercato/generated/ai-tools.generated.ts` (verified by grep).
+- RBAC mapped to existing `catalog/acl.ts` feature IDs — **no new feature IDs invented** (pinned by `aggregator.test.ts`):
+  - products / variants / prices / offers / media / tags / option schemas / unit conversions → `catalog.products.view`.
+  - categories → `catalog.categories.view`.
+  - price kinds → `catalog.settings.manage`.
+- **D18 name reservation**: base price-kinds enumerator uses `catalog.list_price_kinds_base`. Step 3.11 owns `catalog.list_price_kinds` verbatim. The aggregator test pins that reservation so the two can't accidentally collide. Step 3.11 decides whether to merge or keep both.
+- Mutation tools deferred to Step 5.14 under the pending-action contract — no `isMutation` on any Step 3.10 tool.
+- Unit tests: **7 suites / 36 tests** under `packages/core/src/modules/catalog/__tests__/ai-tools/`. Full `packages/core` jest: **331 suites / 2992 tests** (baseline 324 / 2956; +7 / +36 exactly matches). `packages/ai-assistant` regression: **25 / 316** preserved.
+- Typecheck: `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app` — same pre-existing Step 3.1/3.8 diagnostics only, zero new diagnostics on catalog files (verified by grepping for `catalog/ai-tools`).
+- `yarn generate` — required for the new module-root `ai-tools.ts`. Ran in ~5s and emitted the catalog entry correctly. `configs cache structural` purge still skipped (pre-existing `@open-mercato/queue` export mismatch; unrelated).
+- Decision notes:
+  - **Placement inside `packages/core`.** Catalog module is enabled by default in `apps/mercato/src/modules.ts`; the generator walks every enabled module, so adding a module-root `ai-tools.ts` inside catalog needed zero generator changes. Each pack lives in its own file (all under 350 lines).
+  - **Tenant isolation via `findWithDecryption` / `findOneWithDecryption` only.** Every query scopes by `tenantId` + (when present) `organizationId` in both `where` and the scope tuple, then post-filters `row.tenantId === ctx.tenantId` as defense in depth. Pre-commit grep confirms no raw `em.find(` / `em.findOne(` in the new production files.
+  - **Detail tools return `{ found: false }` instead of throwing** on miss / cross-tenant / cross-org — matches Step 3.8 / 3.9.
+  - **`get_product` + `includeRelated: true`** issues parallel reads for categories / tags / variants / prices / media / unit conversions / custom fields, each capped at 100. No related surface returned `null` at base coverage — all relations are cheap joins via `product_id`. D18 (`get_product_bundle`) is Step 3.11's concern.
+  - **Media tool returns metadata only** — `fileName`, `mimeType`, `fileSize`, `url`, `storageDriver`, `partitionCode`. Bytes flow through the Step 3.7 attachment bridge.
+  - **`list_offers.variantId` path** walks prices to discover offer ids (offers join prices via `offer_id`, not a direct variant FK). Short-circuits when the variant has no priced offers.
+  - **`list_price_kinds_base` org scope**: price kinds can be null-scoped (shared across tenant). `where.$or` allows both matched and null `organizationId` rows within the tenant boundary.
+- Phase 3 WS-C is now **4/7 landed** — next is Step 3.11 (D18 catalog merchandising read tools: `search_products`, `get_product_bundle`, `list_selected_products`, `get_product_media`, `get_attribute_schema`, `get_category_brief`, `list_price_kinds`).
