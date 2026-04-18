@@ -224,9 +224,10 @@ export function scheduledJobFields(
           <div className="space-y-4">
             {targetType === 'queue' && (
               <div className="space-y-1">
-                <Label htmlFor="targetQueue">
+                <label htmlFor="targetQueue" className="block text-sm font-medium">
                   {t('scheduler.form.target_queue', 'Target Queue')}
-                </Label>
+                  <span className="text-red-600"> *</span>
+                </label>
                 <ComboboxInput
                   value={targetQueue}
                   onChange={(next) => setFormValue && setFormValue('targetQueue', next)}
@@ -238,9 +239,10 @@ export function scheduledJobFields(
             )}
             {targetType === 'command' && (
               <div className="space-y-1">
-                <Label htmlFor="targetCommand">
+                <label htmlFor="targetCommand" className="block text-sm font-medium">
                   {t('scheduler.form.target_command', 'Target Command')}
-                </Label>
+                  <span className="text-red-600"> *</span>
+                </label>
                 <ComboboxInput
                   value={targetCommand}
                   onChange={(next) => setFormValue && setFormValue('targetCommand', next)}
