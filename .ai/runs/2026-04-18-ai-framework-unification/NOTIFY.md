@@ -339,3 +339,31 @@
   - **Transport wrapper** — `createAiAgentTransport` is a thin wrapper over `DefaultChatTransport` with a TODO noting that when the AI SDK standardizes agent-binding as a first-class input the helper can shrink. Chose a subclass-free wrapper (factory function returning `DefaultChatTransport`) over a custom class to stay close to the SDK contract.
   - **Dispatcher delegation** — route still runs the top-level `checkAgentPolicy` (so the HTTP error model does not change), then calls `runAiAgentText`. The helper re-runs the same agent-level policy check internally; the double check is cheap and preserves the invariant that the helper can never be bypassed from a non-HTTP call site.
   - Phase 3 WS-B is now 1/3 landed. Step 3.5 opens with `runAiAgentObject` for `executionMode: 'object'`; Step 3.6 closes WS-B with contract tests.
+
+## 2026-04-18T14:55:00Z — Step 3.5 committed (56d06f921)
+- `feat(ai-assistant): add runAiAgentObject structured-output helper`
+- Files touched (code commit):
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-runtime.ts` (extended with `runAiAgentObject` + types; reuses private `resolveAgentModel` + exported `composeSystemPrompt`).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/agent-tools.ts` (optional `requestedExecutionMode` on `ResolveAiAgentToolsInput`, default `'chat'`).
+  - `packages/ai-assistant/src/index.ts` (additive re-exports).
+  - `packages/ai-assistant/src/modules/ai_assistant/lib/__tests__/agent-runtime-object.test.ts` (new, 8 tests).
+- Verification:
+  - `cd packages/ai-assistant && npx jest --config=jest.config.cjs --forceExit` → **20 suites / 239 tests** (baseline 19/231 after Step 3.4; delta +1 suite / +8 tests).
+  - `yarn turbo run typecheck --filter=@open-mercato/core --filter=@open-mercato/app`: same pre-existing `app:typecheck` diagnostic on `agent-registry.ts` (Step 3.1 carryover). No new diagnostics from `agent-runtime`, `agent-tools`, or `agent-runtime-object`.
+  - `yarn generate` NOT run — library-only change, no route / OpenAPI / module-discovery surface touched.
+  - i18n / Playwright: N/A.
+- BC: additive only.
+  - Surface 2 (Types): new public `RunAiAgentObjectInput`, `RunAiAgentObjectOutputOverride`, `RunAiAgentObjectResult`, `RunAiAgentObjectGenerateResult`, `RunAiAgentObjectStreamResult`. `ResolveAiAgentToolsInput` gained an optional `requestedExecutionMode` field — optional addition is backward-compatible.
+  - Surface 3 (Function signatures): one new function `runAiAgentObject` added. No existing function changed (the `resolveAiAgentTools` change is a new optional param, default preserves old behavior).
+  - Surface 4 (Import paths): additive re-exports only.
+  - Surface 7 (API route URLs): unchanged — this Step does not touch the chat dispatcher or add a new route.
+- Decisions:
+  - **SDK entry choice: `generateObject` + `streamObject` directly**, not `generateText` + `Output.object`. Both paths are fully supported in `ai@^6.0.33`; the dedicated object entries take `schema` + `schemaName` as named arguments, matching the spec's `{ schemaName, schema, mode }` contract 1:1 with no indirection. The entries carry `@deprecated` JSDoc pointing at the `generateText`+output path, but they remain supported in v6. A future Step can migrate without changing the helper's public shape.
+  - **Placement: single-file, not a new `agent-runtime-object.ts`.** Object-mode and chat-mode share `resolveAgentModel` (module-private) and `composeSystemPrompt` (exported). Splitting would have forced a shared module or duplication; keeping both helpers in `agent-runtime.ts` keeps the reuse clear and matches the existing public surface layout.
+  - **Dispatcher exposure deferred to Phase 4.** Per the Step brief, the HTTP chat route stays chat-only; callers that need structured output call `runAiAgentObject` from their own route handlers. Phase 4 (playground) owns the dispatcher expansion — either `?mode=object` branching or a separate route.
+  - **`requestedExecutionMode` plumbing.** `resolveAiAgentTools` now accepts an optional execution mode (default `'chat'`), forwarded to `checkAgentPolicy`. `runAiAgentObject` passes `'object'` so chat-only agents get rejected at the shared agent-level policy check — chat-mode and object-mode can never diverge on execution-mode enforcement.
+  - **Input accepts `string | UIMessage[]`** per spec §1149–1160. Strings are wrapped into a single user-message `UIMessage`; arrays flow through `convertToModelMessages` untouched (same path as chat).
+  - **Stream-mode return shape** exposes the full SDK handle (`object` Promise, `partialObjectStream`, `textStream`, `finishReason`, `usage`) — no subset. Lets callers consume progressive hydration, raw text deltas, or just the final parsed object without re-calling.
+  - **Tools in object mode.** Tools are resolved (policy gate runs) but NOT passed to `generateObject`/`streamObject` — the AI SDK v6 object entries do not accept a `tools` map. Variable is referenced via `void tools` to suppress lint without dropping the side effect. Gap closes when/if the object path migrates to `generateText` + `Output.object`.
+  - **`maxSteps`/`stopWhen` in object mode.** Forwarded as an untyped field on `generateObject`'s args (`generateArgs as Record<string, unknown>`). The SDK's object-mode signature doesn't declare `stopWhen`; most providers ignore it harmlessly, but any that respect the hint get it.
+- Phase 3 WS-B is now 2/3 landed. Next: Step 3.6 closes WS-B with parity contract tests across both helpers.
