@@ -5,6 +5,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { listAgents, loadAgentRegistry } from '../../../lib/agent-registry'
 import { hasRequiredFeatures } from '../../../lib/auth'
+import { toolRegistry } from '../../../lib/tool-registry'
+import type { AiToolDefinition } from '../../../lib/types'
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'AI Assistant',
@@ -57,18 +59,33 @@ export async function GET(req: NextRequest) {
       hasRequiredFeatures(agent.requiredFeatures, acl.features, acl.isSuperAdmin, rbacService),
     )
 
-    const agents = accessible.map((agent) => ({
-      id: agent.id,
-      moduleId: agent.moduleId,
-      label: agent.label,
-      description: agent.description,
-      executionMode: agent.executionMode ?? 'chat',
-      mutationPolicy: agent.mutationPolicy ?? 'read-only',
-      allowedTools: agent.allowedTools,
-      requiredFeatures: agent.requiredFeatures ?? [],
-      acceptedMediaTypes: agent.acceptedMediaTypes ?? [],
-      hasOutputSchema: Boolean(agent.output),
-    }))
+    const agents = accessible.map((agent) => {
+      const tools = agent.allowedTools.map((toolName) => {
+        const tool = toolRegistry.getTool(toolName) as AiToolDefinition | undefined
+        return {
+          name: toolName,
+          displayName: tool?.displayName ?? toolName,
+          isMutation: Boolean(tool?.isMutation),
+          registered: Boolean(tool),
+        }
+      })
+      return {
+        id: agent.id,
+        moduleId: agent.moduleId,
+        label: agent.label,
+        description: agent.description,
+        systemPrompt: agent.systemPrompt,
+        executionMode: agent.executionMode ?? 'chat',
+        mutationPolicy: agent.mutationPolicy ?? 'read-only',
+        readOnly: Boolean(agent.readOnly),
+        maxSteps: agent.maxSteps ?? null,
+        allowedTools: agent.allowedTools,
+        tools,
+        requiredFeatures: agent.requiredFeatures ?? [],
+        acceptedMediaTypes: agent.acceptedMediaTypes ?? [],
+        hasOutputSchema: Boolean(agent.output),
+      }
+    })
 
     return NextResponse.json({ agents, total: agents.length })
   } catch (error) {
