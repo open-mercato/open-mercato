@@ -84,6 +84,8 @@ is a placeholder — it MUST be expanded before any code-changing work.
 ### Phase 1: Skill harness refresh
 
 - [x] 1.1 Rework auto-create-pr/auto-continue-pr and sibling skills to per-spec run folders — bacbc59ec
+- [ ] 1.2 Fix placeholder timestamps in NOTIFY.md / HANDOFF.md with real UTC times
+- [ ] 1.3 Tighten `in-progress` label discipline in auto-create-pr and dogfood on PR #1593
 
 ### Phase 2: ai-framework unification (to be defined)
 
