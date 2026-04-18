@@ -45,6 +45,22 @@ export {
 // Additive AI tool builder
 export { defineAiTool } from './modules/ai_assistant/lib/ai-tool-definition'
 
+// Attachment-bridge contract types (spec Phase 0 §8/§10, implementation-ready for Phase 3 runtime)
+export {
+  type AttachmentSource,
+  type AiResolvedAttachmentPart,
+  type AiUiPart,
+  type AiChatRequestContext,
+} from './modules/ai_assistant/lib/attachment-bridge-types'
+
+// Prompt-composition primitives (spec Phase 0 §8, implementation-ready for Phase 3 prompt composer)
+export {
+  definePromptTemplate,
+  type PromptSectionName,
+  type PromptSection,
+  type PromptTemplate,
+} from './modules/ai_assistant/lib/prompt-composition-types'
+
 // Tool registry
 export {
   registerMcpTool,
